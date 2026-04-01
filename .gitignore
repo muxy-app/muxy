@@ -10,3 +10,5 @@ GhosttyKit.xcframework
 GhosttyKit/ghostty.h
 /ghostty
 /build
+.agents/
+.claude/
