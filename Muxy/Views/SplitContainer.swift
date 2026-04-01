@@ -35,8 +35,11 @@ struct SplitContainer: View {
                             .gesture(
                                 DragGesture(minimumDistance: 1)
                                     .onChanged { v in
-                                        let delta = h ? v.translation.width : v.translation.height
-                                        branch.ratio = min(max((total * branch.ratio + delta) / total, 0.15), 0.85)
+                                        let pos = h ? v.location.x : v.location.y
+                                        let origin = h ? v.startLocation.x : v.startLocation.y
+                                        let startPos = total * branch.ratio
+                                        let newPos = startPos + (pos - origin)
+                                        branch.ratio = min(max(newPos / total, 0.15), 0.85)
                                     }
                             )
                             .onHover { on in

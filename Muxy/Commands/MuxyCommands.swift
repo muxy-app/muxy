@@ -1,17 +1,15 @@
 import SwiftUI
 
-extension Notification.Name {
-    static let renameActiveTab = Notification.Name("MuxyRenameActiveTab")
-}
-
 struct MuxyCommands: Commands {
     let appState: AppState
+    let config: MuxyConfig
+    let ghostty: GhosttyService
 
     var body: some Commands {
         CommandGroup(after: .appInfo) {
             Button("Open Configuration...") {
                 NSWorkspace.shared.open(
-                    [MuxyConfig.shared.ghosttyConfigURL],
+                    [config.ghosttyConfigURL],
                     withApplicationAt: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
                     configuration: NSWorkspace.OpenConfiguration()
                 )
@@ -19,7 +17,7 @@ struct MuxyCommands: Commands {
             .keyboardShortcut(",", modifiers: .command)
 
             Button("Reload Configuration") {
-                GhosttyService.shared.reloadConfig()
+                ghostty.reloadConfig()
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
         }

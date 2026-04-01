@@ -1,6 +1,9 @@
 import Foundation
 import AppKit
 import GhosttyKit
+import os
+
+private let logger = Logger(subsystem: "app.muxy", category: "GhosttyService")
 
 @MainActor @Observable
 final class GhosttyService {
@@ -11,8 +14,10 @@ final class GhosttyService {
     private(set) var configVersion = 0
     @ObservationIgnored private var tickTimer: Timer?
     @ObservationIgnored private let runtimeEvents: any GhosttyRuntimeEventHandling = GhosttyRuntimeEventAdapter()
+    @ObservationIgnored private let muxyConfig: MuxyConfig
 
-    private init() {
+    private init(muxyConfig: MuxyConfig = .shared) {
+        self.muxyConfig = muxyConfig
         initializeGhostty()
     }
 
@@ -21,12 +26,12 @@ final class GhosttyService {
 
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         guard result == GHOSTTY_SUCCESS else {
-            print("[Muxy] ghostty_init failed: \(result)")
+            logger.error("ghostty_init failed: \(String(describing: result))")
             return
         }
 
         guard let cfg = loadMuxyGhosttyConfig() else {
-            print("[Muxy] ghostty_config failed")
+            logger.error("ghostty_config failed")
             return
         }
 
@@ -53,7 +58,7 @@ final class GhosttyService {
         }
 
         guard let createdApp = ghostty_app_new(&rt, cfg) else {
-            print("[Muxy] ghostty_app_new failed")
+            logger.error("ghostty_app_new failed")
             ghostty_config_free(cfg)
             return
         }
@@ -62,7 +67,7 @@ final class GhosttyService {
         self.config = cfg
 
         tickTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async {
+            MainActor.assumeIsolated {
                 self?.tick()
             }
         }
@@ -122,7 +127,7 @@ final class GhosttyService {
 
     private func loadMuxyGhosttyConfig() -> ghostty_config_t? {
         guard let cfg = ghostty_config_new() else { return nil }
-        let configPath = MuxyConfig.shared.ghosttyConfigPath
+        let configPath = muxyConfig.ghosttyConfigPath
         configPath.withCString { ptr in
             ghostty_config_load_file(cfg, ptr)
         }

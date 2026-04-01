@@ -26,12 +26,14 @@ struct MuxyApp: App {
                 .environment(appState)
                 .environment(projectStore)
                 .environment(GhosttyService.shared)
+                .environment(MuxyConfig.shared)
+                .environment(ThemeService.shared)
                 .preferredColorScheme(.dark)
         }
         .windowStyle(HiddenTitleBarWindowStyle())
         .defaultSize(width: 1200, height: 800)
         .commands {
-            MuxyCommands(appState: appState)
+            MuxyCommands(appState: appState, config: .shared, ghostty: .shared)
         }
     }
 }
@@ -39,7 +41,7 @@ struct MuxyApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         setAppIcon()
         _ = GhosttyService.shared
     }

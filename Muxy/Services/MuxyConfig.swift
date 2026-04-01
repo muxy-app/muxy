@@ -1,6 +1,6 @@
 import Foundation
 
-@MainActor
+@MainActor @Observable
 final class MuxyConfig {
     static let shared = MuxyConfig()
 

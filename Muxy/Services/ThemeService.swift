@@ -1,23 +1,30 @@
 import Foundation
 import AppKit
 
-@MainActor
+@MainActor @Observable
 final class ThemeService {
     static let shared = ThemeService()
-    private init() {}
+
+    @ObservationIgnored private let config: MuxyConfig
+    @ObservationIgnored private let ghostty: GhosttyService
+
+    init(config: MuxyConfig = .shared, ghostty: GhosttyService = .shared) {
+        self.config = config
+        self.ghostty = ghostty
+    }
 
     func loadThemes() async -> [ThemePreview] {
         await Task.detached { Self.discoverThemes() }.value
     }
 
     func currentThemeName() -> String? {
-        MuxyConfig.shared.configValue(for: "theme")?.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        config.configValue(for: "theme")?.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
     }
 
     func applyTheme(_ name: String) {
         let sanitized = name.filter { $0 != "\"" && $0 != "\n" && $0 != "\r" }
-        MuxyConfig.shared.updateConfigValue("theme", value: "\"\(sanitized)\"")
-        GhosttyService.shared.reloadConfig()
+        config.updateConfigValue("theme", value: "\"\(sanitized)\"")
+        ghostty.reloadConfig()
     }
 
     private nonisolated static func discoverThemes() -> [ThemePreview] {

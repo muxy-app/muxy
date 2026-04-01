@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ThemePicker: View {
+    @Environment(ThemeService.self) private var themeService
     @State private var themes: [ThemePreview] = []
     @State private var searchText = ""
     @State private var currentTheme: String?
@@ -50,8 +51,8 @@ struct ThemePicker: View {
         .onKeyPress(.return) { confirmSelection(); return .handled }
         .onChange(of: searchText) { highlightedIndex = filteredThemes.isEmpty ? nil : 0 }
         .task {
-            themes = await ThemeService.shared.loadThemes()
-            currentTheme = ThemeService.shared.currentThemeName()
+            themes = await themeService.loadThemes()
+            currentTheme = themeService.currentThemeName()
         }
     }
 
@@ -78,7 +79,7 @@ struct ThemePicker: View {
 
     private func selectTheme(_ theme: ThemePreview) {
         currentTheme = theme.name
-        ThemeService.shared.applyTheme(theme.name)
+        themeService.applyTheme(theme.name)
     }
 }
 

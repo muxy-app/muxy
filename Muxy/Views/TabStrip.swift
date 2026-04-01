@@ -62,7 +62,8 @@ final class WindowDragView: NSView {
     private var isAtWindowTop: Bool {
         guard let window else { return false }
         let frameInWindow = convert(bounds, to: nil)
-        return frameInWindow.maxY >= window.contentView!.bounds.height - 1
+        guard let contentHeight = window.contentView?.bounds.height else { return false }
+        return frameInWindow.maxY >= contentHeight - 1
     }
 
     override public func mouseDown(with event: NSEvent) {

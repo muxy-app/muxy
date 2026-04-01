@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "app.muxy", category: "ProjectStore")
 
 @MainActor
 @Observable
@@ -23,8 +26,8 @@ final class ProjectStore {
 
     func reorder(fromOffsets source: IndexSet, toOffset destination: Int) {
         projects.move(fromOffsets: source, toOffset: destination)
-        for (index, project) in projects.enumerated() {
-            project.sortOrder = index
+        for index in projects.indices {
+            projects[index].sortOrder = index
         }
         save()
     }
@@ -33,7 +36,7 @@ final class ProjectStore {
         do {
             try persistence.saveProjects(projects)
         } catch {
-            print("Failed to save projects: \(error)")
+            logger.error("Failed to save projects: \(error)")
         }
     }
 
@@ -42,7 +45,7 @@ final class ProjectStore {
             projects = try persistence.loadProjects()
             projects.sort { $0.sortOrder < $1.sortOrder }
         } catch {
-            print("Failed to load projects: \(error)")
+            logger.error("Failed to load projects: \(error)")
         }
     }
 }

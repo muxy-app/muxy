@@ -1,6 +1,6 @@
 import Foundation
 
-final class Project: Identifiable, Codable, Hashable {
+struct Project: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     var path: String
@@ -19,13 +19,5 @@ final class Project: Identifiable, Codable, Hashable {
 
     var pathExists: Bool {
         FileManager.default.fileExists(atPath: path)
-    }
-
-    static func == (lhs: Project, rhs: Project) -> Bool {
-        lhs.id == rhs.id
-    }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
     }
 }
