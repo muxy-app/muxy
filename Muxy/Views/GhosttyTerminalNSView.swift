@@ -72,7 +72,8 @@ final class GhosttyTerminalNSView: NSView {
         ghostty_surface_set_color_scheme(surface, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
 
         if let screen = window?.screen ?? NSScreen.main,
-           let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32 {
+           let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
+        {
             ghostty_surface_set_display_id(surface, displayID)
         }
 

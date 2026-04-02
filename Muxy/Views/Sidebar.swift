@@ -114,7 +114,8 @@ private struct ProjectItem: View {
             .contentShape(RoundedRectangle(cornerRadius: 6))
             .overlay(alignment: .trailing) {
                 if showBadge, let shortcutIndex,
-                   let action = ShortcutAction.projectAction(for: shortcutIndex) {
+                   let action = ShortcutAction.projectAction(for: shortcutIndex)
+                {
                     ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
                         .padding(.trailing, 6)
                 }

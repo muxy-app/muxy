@@ -14,8 +14,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install tools
-        run: brew install swiftlint swiftformat
+      - name: Install SwiftFormat
+        run: brew install swiftformat
+
+      - name: Install SwiftLint
+        run: brew install swiftlint
 
       - name: Formatting
         run: swiftformat --lint .

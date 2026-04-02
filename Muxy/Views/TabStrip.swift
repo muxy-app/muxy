@@ -148,7 +148,8 @@ private struct TabCell: View {
             }
             .overlay {
                 if showBadge, let shortcutIndex,
-                   let action = ShortcutAction.tabAction(for: shortcutIndex) {
+                   let action = ShortcutAction.tabAction(for: shortcutIndex)
+                {
                     ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
                 }
             }

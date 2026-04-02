@@ -41,6 +41,7 @@
 --enable wrapEnumCases
 --enable wrapSwitchCases
 --enable blankLineAfterImports
+--enable wrapMultilineStatementBraces
 --disable redundantSelf
 --disable sortSwitchCases
 --disable markTypes

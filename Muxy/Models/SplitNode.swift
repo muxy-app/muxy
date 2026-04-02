@@ -75,12 +75,14 @@ extension SplitNode {
                 return branch.first
             }
             if branch.first.containsArea(id: areaID),
-               let newFirst = branch.first.removing(areaID: areaID) {
+               let newFirst = branch.first.removing(areaID: areaID)
+            {
                 branch.first = newFirst
                 return .split(branch)
             }
             if branch.second.containsArea(id: areaID),
-               let newSecond = branch.second.removing(areaID: areaID) {
+               let newSecond = branch.second.removing(areaID: areaID)
+            {
                 branch.second = newSecond
                 return .split(branch)
             }

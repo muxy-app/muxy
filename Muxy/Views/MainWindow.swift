@@ -51,7 +51,8 @@ struct MainWindow: View {
     private var topBarContent: some View {
         if let project = activeProject,
            let root = appState.workspaceRoot(for: project.id),
-           case let .tabArea(area) = root {
+           case let .tabArea(area) = root
+        {
             PaneTabStrip(
                 area: area,
                 isFocused: true,
