@@ -7,6 +7,9 @@ let package = Package(
     platforms: [
         .macOS(.v14),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
+    ],
     targets: [
         .target(
             name: "GhosttyKit",
@@ -15,7 +18,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "Muxy",
-            dependencies: ["GhosttyKit"],
+            dependencies: [
+                "GhosttyKit",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "Muxy",
             exclude: ["Info.plist", "Muxy.entitlements"],
             resources: [

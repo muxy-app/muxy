@@ -4,6 +4,7 @@ struct MuxyCommands: Commands {
     let appState: AppState
     let config: MuxyConfig
     let ghostty: GhosttyService
+    let updateService: UpdateService
 
     var body: some Commands {
         CommandGroup(after: .appInfo) {
@@ -20,6 +21,13 @@ struct MuxyCommands: Commands {
                 ghostty.reloadConfig()
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Check for Updates...") {
+                updateService.checkForUpdates()
+            }
+            .disabled(!updateService.canCheckForUpdates)
         }
 
         CommandGroup(replacing: .pasteboard) {

@@ -75,7 +75,21 @@ cp "$PROJECT_ROOT/Muxy/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 echo "==> Generating app icon"
 "$SCRIPT_DIR/create-icns.sh" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
+echo "==> Embedding Sparkle.framework"
+SPARKLE_FRAMEWORK="$PROJECT_ROOT/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+if [[ ! -d "$SPARKLE_FRAMEWORK" ]]; then
+    echo "Error: Sparkle.framework not found at $SPARKLE_FRAMEWORK"
+    exit 1
+fi
+mkdir -p "$APP_BUNDLE/Contents/Frameworks"
+cp -R "$SPARKLE_FRAMEWORK" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+
 if [[ -n "$SIGN_IDENTITY" ]]; then
+    echo "==> Signing Sparkle.framework"
+    /usr/bin/codesign --force --options runtime \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+
     echo "==> Signing app bundle"
     /usr/bin/codesign --force --options runtime \
         --entitlements "$PROJECT_ROOT/Muxy/Muxy.entitlements" \
