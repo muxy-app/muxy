@@ -6,6 +6,7 @@ struct MuxyApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState: AppState
     @State private var projectStore: ProjectStore
+    private let updateService = UpdateService.shared
 
     init() {
         let environment = AppEnvironment.live
@@ -33,7 +34,7 @@ struct MuxyApp: App {
         .windowStyle(HiddenTitleBarWindowStyle())
         .defaultSize(width: 1200, height: 800)
         .commands {
-            MuxyCommands(appState: appState, config: .shared, ghostty: .shared)
+            MuxyCommands(appState: appState, config: .shared, ghostty: .shared, updateService: .shared)
         }
     }
 }
@@ -44,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
         setAppIcon()
         _ = GhosttyService.shared
+        UpdateService.shared.start()
     }
 
     @MainActor private func setAppIcon() {

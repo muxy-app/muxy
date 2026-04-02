@@ -50,6 +50,9 @@ jobs:
           chmod +x scripts/setup.sh
           scripts/setup.sh
 
+      - name: Resolve Sparkle dependency
+        run: swift package resolve
+
       - name: Install create-dmg
         run: npm install --global create-dmg
 
@@ -82,13 +85,23 @@ jobs:
           fi
           echo "name=$IDENTITY" >> "$GITHUB_OUTPUT"
 
+      - name: Derive Sparkle public key
+        id: sparkle
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          SPARKLE_PUBLIC_KEY=$(swift scripts/derive-sparkle-public-key.swift "$SPARKLE_PRIVATE_KEY")
+          echo "public_key=$SPARKLE_PUBLIC_KEY" >> "$GITHUB_OUTPUT"
+
       - name: Build and package
         run: |
           chmod +x scripts/build-release.sh scripts/create-icns.sh
           scripts/build-release.sh \
             --arch "${{ matrix.arch }}" \
             --version "${{ needs.validate.outputs.version }}" \
-            --sign-identity "${{ steps.identity.outputs.name }}"
+            --sign-identity "${{ steps.identity.outputs.name }}" \
+            --sparkle-public-key "${{ steps.sparkle.outputs.public_key }}" \
+            --sparkle-feed-url "https://github.com/muxy-app/muxy/releases/latest/download/appcast.xml"
 
       - name: Notarize DMG
         env:
@@ -119,10 +132,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: Generate Sparkle appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          chmod +x scripts/generate-appcast.sh
+          scripts/generate-appcast.sh \
+            "artifacts/dmg-arm64/Muxy-${{ needs.validate.outputs.version }}-arm64.dmg" \
+            "artifacts/dmg-x86_64/Muxy-${{ needs.validate.outputs.version }}-x86_64.dmg" \
+            "v${{ needs.validate.outputs.version }}" \
+            "${{ needs.validate.outputs.build_number }}" \
+            appcast.xml
 
       - name: Create GitHub Release
         env:
@@ -133,4 +160,5 @@ jobs:
             --title "Muxy v${{ needs.validate.outputs.version }}" \
             --generate-notes \
             artifacts/dmg-arm64/*.dmg \
-            artifacts/dmg-x86_64/*.dmg
+            artifacts/dmg-x86_64/*.dmg \
+            appcast.xml

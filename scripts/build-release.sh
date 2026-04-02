@@ -8,6 +8,8 @@ BUILD_DIR="$PROJECT_ROOT/build"
 ARCH=""
 VERSION=""
 SIGN_IDENTITY=""
+SPARKLE_PUBLIC_KEY=""
+SPARKLE_FEED_URL=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -23,6 +25,14 @@ while [[ $# -gt 0 ]]; do
             SIGN_IDENTITY="$2"
             shift 2
             ;;
+        --sparkle-public-key)
+            SPARKLE_PUBLIC_KEY="$2"
+            shift 2
+            ;;
+        --sparkle-feed-url)
+            SPARKLE_FEED_URL="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             exit 1
@@ -31,7 +41,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$ARCH" || -z "$VERSION" ]]; then
-    echo "Usage: $0 --arch <arm64|x86_64> --version <X.Y.Z> [--sign-identity <identity>]"
+    echo "Usage: $0 --arch <arm64|x86_64> --version <X.Y.Z> [--sign-identity <identity>] [--sparkle-public-key <key>] [--sparkle-feed-url <url>]"
     exit 1
 fi
 
@@ -75,7 +85,30 @@ cp "$PROJECT_ROOT/Muxy/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 echo "==> Generating app icon"
 "$SCRIPT_DIR/create-icns.sh" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
+echo "==> Embedding Sparkle.framework"
+SPARKLE_FRAMEWORK="$PROJECT_ROOT/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+if [[ ! -d "$SPARKLE_FRAMEWORK" ]]; then
+    echo "Error: Sparkle.framework not found at $SPARKLE_FRAMEWORK"
+    exit 1
+fi
+mkdir -p "$APP_BUNDLE/Contents/Frameworks"
+cp -R "$SPARKLE_FRAMEWORK" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+
+if [[ -n "$SPARKLE_PUBLIC_KEY" ]]; then
+    echo "==> Injecting Sparkle keys into Info.plist"
+    APP_PLIST="$APP_BUNDLE/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_KEY" "$APP_PLIST"
+    if [[ -n "$SPARKLE_FEED_URL" ]]; then
+        /usr/libexec/PlistBuddy -c "Add :SUFeedURL string $SPARKLE_FEED_URL" "$APP_PLIST"
+    fi
+fi
+
 if [[ -n "$SIGN_IDENTITY" ]]; then
+    echo "==> Signing Sparkle.framework"
+    /usr/bin/codesign --force --options runtime \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+
     echo "==> Signing app bundle"
     /usr/bin/codesign --force --options runtime \
         --entitlements "$PROJECT_ROOT/Muxy/Muxy.entitlements" \
