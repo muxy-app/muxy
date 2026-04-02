@@ -157,6 +157,7 @@ jobs:
             "v${{ needs.validate.outputs.version }}" \
             "${{ needs.validate.outputs.build_number }}" \
             appcast-x86_64.xml
+          cp appcast-arm64.xml appcast.xml
 
       - name: Create GitHub Release
         env:
@@ -169,4 +170,5 @@ jobs:
             artifacts/dmg-arm64/*.dmg \
             artifacts/dmg-x86_64/*.dmg \
             appcast-arm64.xml \
-            appcast-x86_64.xml
+            appcast-x86_64.xml \
+            appcast.xml
