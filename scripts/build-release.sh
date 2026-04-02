@@ -105,34 +105,12 @@ if [[ -n "$SPARKLE_PUBLIC_KEY" ]]; then
 fi
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
-    SPARKLE_DIR="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
-
-    echo "==> Signing Sparkle.framework (inside-out)"
-    /usr/bin/codesign --force --options runtime --preserve-metadata=entitlements \
-        --sign "$SIGN_IDENTITY" \
-        "$SPARKLE_DIR/Versions/B/XPCServices/Installer.xpc"
-
-    /usr/bin/codesign --force --options runtime --preserve-metadata=entitlements \
-        --sign "$SIGN_IDENTITY" \
-        "$SPARKLE_DIR/Versions/B/XPCServices/Downloader.xpc"
-
-    /usr/bin/codesign --force --options runtime --preserve-metadata=entitlements \
-        --sign "$SIGN_IDENTITY" \
-        "$SPARKLE_DIR/Versions/B/Updater.app"
-
-    /usr/bin/codesign --force --options runtime --preserve-metadata=entitlements \
-        --sign "$SIGN_IDENTITY" \
-        "$SPARKLE_DIR/Versions/B/Autoupdate"
-
-    /usr/bin/codesign --force --options runtime \
-        --sign "$SIGN_IDENTITY" \
-        "$SPARKLE_DIR"
-
     echo "==> Signing app bundle"
-    /usr/bin/codesign --force --options runtime \
-        --entitlements "$PROJECT_ROOT/Muxy/Muxy.entitlements" \
+    /usr/bin/codesign --force --options runtime --timestamp \
         --sign "$SIGN_IDENTITY" \
-        "$APP_BUNDLE"
+        --entitlements "$PROJECT_ROOT/Muxy/Muxy.entitlements" \
+        --deep "$APP_BUNDLE"
+    /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 fi
 
 echo "==> Creating DMG"
