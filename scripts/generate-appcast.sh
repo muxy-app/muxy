@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 if [[ $# -lt 3 ]]; then
   echo "Usage: $0 <arm64-dmg> <x86_64-dmg> <tag> [output-path]" >&2
   exit 1
@@ -16,49 +18,16 @@ if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
   exit 1
 fi
 
-SPARKLE_VERSION="${SPARKLE_VERSION:-2.9.1}"
 DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://github.com/muxy-app/muxy/releases/download/$TAG/}"
 
-work_dir="$(mktemp -d)"
-cleanup() {
-  rm -rf "$work_dir"
-}
-trap cleanup EXIT
-
-echo "==> Cloning Sparkle ${SPARKLE_VERSION}..."
-git clone --depth 1 --branch "$SPARKLE_VERSION" https://github.com/sparkle-project/Sparkle "$work_dir/Sparkle"
-
-echo "==> Building sign_update tool..."
-xcodebuild \
-  -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
-  -scheme sign_update \
-  -configuration Release \
-  -derivedDataPath "$work_dir/build" \
-  CODE_SIGNING_ALLOWED=NO \
-  build >/dev/null
-
-sign_update="$work_dir/build/Build/Products/Release/sign_update"
-
-if [[ ! -x "$sign_update" ]]; then
-  echo "sign_update binary not found at $sign_update" >&2
-  exit 1
-fi
-
-key_file="$work_dir/sparkle_ed_key"
-padded_key="$SPARKLE_PRIVATE_KEY"
-while (( ${#padded_key} % 4 != 0 )); do
-  padded_key="${padded_key}="
-done
-printf "%s" "$padded_key" > "$key_file"
-
 VERSION="${TAG#v}"
-ARM64_SIG=$("$sign_update" -p --ed-key-file "$key_file" "$ARM64_DMG")
-X86_SIG=$("$sign_update" -p --ed-key-file "$key_file" "$X86_DMG")
+ARM64_SIG=$(swift "$SCRIPT_DIR/sign-ed25519.swift" "$SPARKLE_PRIVATE_KEY" "$ARM64_DMG")
+X86_SIG=$(swift "$SCRIPT_DIR/sign-ed25519.swift" "$SPARKLE_PRIVATE_KEY" "$X86_DMG")
 ARM64_SIZE=$(stat -f%z "$ARM64_DMG")
 X86_SIZE=$(stat -f%z "$X86_DMG")
 ARM64_FILENAME=$(basename "$ARM64_DMG")
 X86_FILENAME=$(basename "$X86_DMG")
-PUB_DATE=$(date -R)
+PUB_DATE=$(date -u "+%a, %d %b %Y %H:%M:%S %z")
 
 cat > "$OUT_PATH" << EOF
 <?xml version="1.0" encoding="utf-8"?>

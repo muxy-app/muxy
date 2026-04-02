@@ -85,29 +85,23 @@ jobs:
           fi
           echo "name=$IDENTITY" >> "$GITHUB_OUTPUT"
 
+      - name: Derive Sparkle public key
+        id: sparkle
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          SPARKLE_PUBLIC_KEY=$(swift scripts/derive-sparkle-public-key.swift "$SPARKLE_PRIVATE_KEY")
+          echo "public_key=$SPARKLE_PUBLIC_KEY" >> "$GITHUB_OUTPUT"
+
       - name: Build and package
         run: |
           chmod +x scripts/build-release.sh scripts/create-icns.sh
           scripts/build-release.sh \
             --arch "${{ matrix.arch }}" \
             --version "${{ needs.validate.outputs.version }}" \
-            --sign-identity "${{ steps.identity.outputs.name }}"
-
-      - name: Inject Sparkle keys into Info.plist
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-        run: |
-          APP_PLIST="build/Muxy.app/Contents/Info.plist"
-          SPARKLE_PUBLIC_KEY=$(swift scripts/derive-sparkle-public-key.swift "$SPARKLE_PRIVATE_KEY")
-          /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_KEY" "$APP_PLIST"
-          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/muxy-app/muxy/releases/latest/download/appcast.xml" "$APP_PLIST"
-
-      - name: Re-sign app bundle after plist changes
-        run: |
-          /usr/bin/codesign --force --options runtime \
-            --entitlements Muxy/Muxy.entitlements \
-            --sign "${{ steps.identity.outputs.name }}" \
-            build/Muxy.app
+            --sign-identity "${{ steps.identity.outputs.name }}" \
+            --sparkle-public-key "${{ steps.sparkle.outputs.public_key }}" \
+            --sparkle-feed-url "https://github.com/muxy-app/muxy/releases/latest/download/appcast.xml"
 
       - name: Notarize DMG
         env:

@@ -14,7 +14,7 @@ final class UpdateService: NSObject {
 
     private(set) var canCheckForUpdates = false
 
-    var updater: SPUUpdater {
+    private var updater: SPUUpdater {
         controller.updater
     }
 
