@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MuxyCommands: Commands {
     let appState: AppState
+    let projectStore: ProjectStore
     let config: MuxyConfig
     let ghostty: GhosttyService
     let updateService: UpdateService
@@ -102,6 +103,16 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(after: .sidebar) {
+            ForEach(1...9, id: \.self) { index in
+                Button("Project \(index)") {
+                    appState.selectProjectByIndex(index - 1, projects: projectStore.projects)
+                }
+                .keyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: .control)
+            }
+
+            Divider()
+
+
             Button(appState.sidebarVisible ? "Hide Sidebar" : "Show Sidebar") {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     appState.sidebarVisible.toggle()

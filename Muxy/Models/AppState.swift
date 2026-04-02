@@ -130,6 +130,11 @@ final class AppState {
         dispatch(.focusPreviousArea(projectID: projectID))
     }
 
+    func selectProjectByIndex(_ index: Int, projects: [Project]) {
+        guard index >= 0, index < projects.count else { return }
+        selectProject(projects[index])
+    }
+
     func removeProject(_ projectID: UUID) {
         dispatch(.removeProject(projectID: projectID))
     }

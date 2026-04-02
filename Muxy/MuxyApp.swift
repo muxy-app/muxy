@@ -34,7 +34,7 @@ struct MuxyApp: App {
         .windowStyle(HiddenTitleBarWindowStyle())
         .defaultSize(width: 1200, height: 800)
         .commands {
-            MuxyCommands(appState: appState, config: .shared, ghostty: .shared, updateService: .shared)
+            MuxyCommands(appState: appState, projectStore: projectStore, config: .shared, ghostty: .shared, updateService: .shared)
         }
     }
 }
@@ -46,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setAppIcon()
         _ = GhosttyService.shared
         UpdateService.shared.start()
+        ModifierKeyMonitor.shared.start()
     }
 
     @MainActor private func setAppIcon() {

@@ -13,11 +13,12 @@ struct PaneTabStrip: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(area.tabs) { tab in
+            ForEach(Array(area.tabs.enumerated()), id: \.element.id) { index, tab in
                 TabCell(
                     tab: tab,
                     active: tab.id == area.activeTabID,
                     paneFocused: isFocused,
+                    shortcutIndex: index < 9 ? index + 1 : nil,
                     onSelect: {
                         onFocus()
                         onSelectTab(tab.id)
@@ -89,6 +90,7 @@ private struct TabCell: View {
     @Bindable var tab: TerminalTab
     let active: Bool
     let paneFocused: Bool
+    var shortcutIndex: Int?
     let onSelect: () -> Void
     let onClose: () -> Void
     let onCreateLeft: () -> Void
@@ -97,6 +99,11 @@ private struct TabCell: View {
     @State private var isRenaming = false
     @State private var renameText = ""
     @FocusState private var renameFieldFocused: Bool
+
+    private var showBadge: Bool {
+        guard shortcutIndex != nil else { return false }
+        return ModifierKeyMonitor.shared.commandHeld
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -133,6 +140,11 @@ private struct TabCell: View {
                         .padding(.trailing, 10)
                         .opacity(active || hovered ? 1 : 0)
                         .onTapGesture(perform: onClose)
+                }
+            }
+            .overlay {
+                if showBadge, let shortcutIndex {
+                    ShortcutBadge(label: "⌘\(shortcutIndex)")
                 }
             }
             .overlay(alignment: .bottom) {

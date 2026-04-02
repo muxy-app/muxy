@@ -46,10 +46,11 @@ struct Sidebar: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 2) {
-                ForEach(projectStore.projects) { project in
+                ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) { index, project in
                     ProjectItem(
                         project: project,
                         selected: project.id == appState.activeProjectID,
+                        shortcutIndex: index < 9 ? index + 1 : nil,
                         onSelect: { appState.selectProject(project) },
                         onRemove: {
                             appState.removeProject(project.id)
@@ -66,9 +67,15 @@ struct Sidebar: View {
 private struct ProjectItem: View {
     let project: Project
     let selected: Bool
+    var shortcutIndex: Int?
     let onSelect: () -> Void
     let onRemove: () -> Void
     @State private var hovered = false
+
+    private var showBadge: Bool {
+        guard shortcutIndex != nil else { return false }
+        return ModifierKeyMonitor.shared.controlHeld
+    }
 
     var body: some View {
         Text(project.name)
@@ -80,6 +87,12 @@ private struct ProjectItem: View {
             .padding(.vertical, 6)
             .background(background, in: RoundedRectangle(cornerRadius: 6))
             .contentShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(alignment: .trailing) {
+                if showBadge, let shortcutIndex {
+                    ShortcutBadge(label: "⌃\(shortcutIndex)")
+                        .padding(.trailing, 6)
+                }
+            }
             .onTapGesture(perform: onSelect)
             .onHover { hovered = $0 }
             .contextMenu {
