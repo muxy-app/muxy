@@ -13,4 +13,4 @@ GhosttyKit/ghostty.h
 .agents/
 .claude/
 *.dmg
-appcast.xml
+appcast*.xml

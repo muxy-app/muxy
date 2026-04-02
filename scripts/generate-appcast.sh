@@ -4,16 +4,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-if [[ $# -lt 4 ]]; then
-  echo "Usage: $0 <arm64-dmg> <x86_64-dmg> <tag> <build-number> [output-path]" >&2
+if [[ $# -lt 3 ]]; then
+  echo "Usage: $0 <dmg> <tag> <build-number> [output-path]" >&2
   exit 1
 fi
 
-ARM64_DMG="$1"
-X86_DMG="$2"
-TAG="$3"
-BUILD_NUMBER="$4"
-OUT_PATH="${5:-appcast.xml}"
+DMG="$1"
+TAG="$2"
+BUILD_NUMBER="$3"
+OUT_PATH="${4:-appcast.xml}"
 
 if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
   echo "SPARKLE_PRIVATE_KEY is required." >&2
@@ -29,12 +28,9 @@ fi
 DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://github.com/muxy-app/muxy/releases/download/$TAG/}"
 
 VERSION="${TAG#v}"
-ARM64_SIG=$(echo "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - -p "$ARM64_DMG")
-X86_SIG=$(echo "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - -p "$X86_DMG")
-ARM64_SIZE=$(stat -f%z "$ARM64_DMG")
-X86_SIZE=$(stat -f%z "$X86_DMG")
-ARM64_FILENAME=$(basename "$ARM64_DMG")
-X86_FILENAME=$(basename "$X86_DMG")
+SIG=$(echo "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - -p "$DMG")
+SIZE=$(stat -f%z "$DMG")
+FILENAME=$(basename "$DMG")
 PUB_DATE=$(date -u "+%a, %d %b %Y %H:%M:%S %z")
 
 cat > "$OUT_PATH" << EOF
@@ -46,22 +42,13 @@ cat > "$OUT_PATH" << EOF
     <description>Updates for Muxy</description>
     <language>en</language>
     <item>
-      <title>Version ${VERSION} (Apple Silicon)</title>
+      <title>Version ${VERSION}</title>
       <pubDate>${PUB_DATE}</pubDate>
       <sparkle:version>${BUILD_NUMBER}</sparkle:version>
       <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <sparkle:fullReleaseNotesLink>https://github.com/muxy-app/muxy/releases/tag/${TAG}</sparkle:fullReleaseNotesLink>
-      <enclosure url="${DOWNLOAD_URL_PREFIX}${ARM64_FILENAME}" sparkle:edSignature="${ARM64_SIG}" length="${ARM64_SIZE}" type="application/octet-stream" />
-    </item>
-    <item>
-      <title>Version ${VERSION} (Intel)</title>
-      <pubDate>${PUB_DATE}</pubDate>
-      <sparkle:version>${BUILD_NUMBER}</sparkle:version>
-      <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:fullReleaseNotesLink>https://github.com/muxy-app/muxy/releases/tag/${TAG}</sparkle:fullReleaseNotesLink>
-      <enclosure url="${DOWNLOAD_URL_PREFIX}${X86_FILENAME}" sparkle:edSignature="${X86_SIG}" length="${X86_SIZE}" type="application/octet-stream" />
+      <enclosure url="${DOWNLOAD_URL_PREFIX}${FILENAME}" sparkle:edSignature="${SIG}" length="${SIZE}" type="application/octet-stream" />
     </item>
   </channel>
 </rss>

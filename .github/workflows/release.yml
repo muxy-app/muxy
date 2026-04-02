@@ -101,7 +101,7 @@ jobs:
             --version "${{ needs.validate.outputs.version }}" \
             --sign-identity "${{ steps.identity.outputs.name }}" \
             --sparkle-public-key "${{ steps.sparkle.outputs.public_key }}" \
-            --sparkle-feed-url "https://github.com/muxy-app/muxy/releases/latest/download/appcast.xml"
+            --sparkle-feed-url "https://github.com/muxy-app/muxy/releases/latest/download/appcast-${{ matrix.arch }}.xml"
 
       - name: Notarize DMG
         env:
@@ -142,17 +142,21 @@ jobs:
         with:
           path: artifacts
 
-      - name: Generate Sparkle appcast
+      - name: Generate Sparkle appcasts
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           chmod +x scripts/generate-appcast.sh
           scripts/generate-appcast.sh \
             "artifacts/dmg-arm64/Muxy-${{ needs.validate.outputs.version }}-arm64.dmg" \
+            "v${{ needs.validate.outputs.version }}" \
+            "${{ needs.validate.outputs.build_number }}" \
+            appcast-arm64.xml
+          scripts/generate-appcast.sh \
             "artifacts/dmg-x86_64/Muxy-${{ needs.validate.outputs.version }}-x86_64.dmg" \
             "v${{ needs.validate.outputs.version }}" \
             "${{ needs.validate.outputs.build_number }}" \
-            appcast.xml
+            appcast-x86_64.xml
 
       - name: Create GitHub Release
         env:
@@ -164,4 +168,5 @@ jobs:
             --generate-notes \
             artifacts/dmg-arm64/*.dmg \
             artifacts/dmg-x86_64/*.dmg \
-            appcast.xml
+            appcast-arm64.xml \
+            appcast-x86_64.xml
