@@ -18,7 +18,8 @@ final class KeyBindingStore {
 
     func binding(for action: ShortcutAction) -> KeyBinding {
         bindings.first { $0.action == action }
-            ?? KeyBinding.defaults.first { $0.action == action }!
+            ?? KeyBinding.defaults.first { $0.action == action }
+            ?? KeyBinding(action: action, combo: KeyCombo(key: "", modifiers: 0))
     }
 
     func combo(for action: ShortcutAction) -> KeyCombo {

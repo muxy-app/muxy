@@ -150,28 +150,32 @@ struct MuxyCommands: Commands {
 
         CommandGroup(after: .windowList) {
             ForEach(1 ... 9, id: \.self) { index in
-                Button("Tab \(index)") {
-                    guard isMainWindowFocused else { return }
-                    guard let projectID = appState.activeProjectID else { return }
-                    appState.selectTabByIndex(index - 1, projectID: projectID)
+                if let action = ShortcutAction.tabAction(for: index) {
+                    Button("Tab \(index)") {
+                        guard isMainWindowFocused else { return }
+                        guard let projectID = appState.activeProjectID else { return }
+                        appState.selectTabByIndex(index - 1, projectID: projectID)
+                    }
+                    .keyboardShortcut(
+                        keyBindings.combo(for: action).swiftUIKeyEquivalent,
+                        modifiers: keyBindings.combo(for: action).swiftUIModifiers
+                    )
                 }
-                .keyboardShortcut(
-                    keyBindings.combo(for: ShortcutAction.tabAction(for: index)!).swiftUIKeyEquivalent,
-                    modifiers: keyBindings.combo(for: ShortcutAction.tabAction(for: index)!).swiftUIModifiers
-                )
             }
         }
 
         CommandGroup(after: .sidebar) {
             ForEach(1 ... 9, id: \.self) { index in
-                Button("Project \(index)") {
-                    guard isMainWindowFocused else { return }
-                    appState.selectProjectByIndex(index - 1, projects: projectStore.projects)
+                if let action = ShortcutAction.projectAction(for: index) {
+                    Button("Project \(index)") {
+                        guard isMainWindowFocused else { return }
+                        appState.selectProjectByIndex(index - 1, projects: projectStore.projects)
+                    }
+                    .keyboardShortcut(
+                        keyBindings.combo(for: action).swiftUIKeyEquivalent,
+                        modifiers: keyBindings.combo(for: action).swiftUIModifiers
+                    )
                 }
-                .keyboardShortcut(
-                    keyBindings.combo(for: ShortcutAction.projectAction(for: index)!).swiftUIKeyEquivalent,
-                    modifiers: keyBindings.combo(for: ShortcutAction.projectAction(for: index)!).swiftUIModifiers
-                )
             }
 
             Divider()

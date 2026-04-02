@@ -3,7 +3,7 @@ import GhosttyKit
 import QuartzCore
 
 final class GhosttyTerminalNSView: NSView {
-    private(set) nonisolated(unsafe) var surface: ghostty_surface_t?
+    nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     private let workingDirectory: String
     var onTitleChange: ((String) -> Void)?
     var onFocus: (() -> Void)?
@@ -25,7 +25,7 @@ final class GhosttyTerminalNSView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError()
+        fatalError("init(coder:) is not supported")
     }
 
     override func makeBackingLayer() -> CALayer {

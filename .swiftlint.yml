@@ -12,6 +12,9 @@ disabled_rules:
   - type_body_length
   - file_length
   - function_body_length
+  - opening_brace
+  - closure_parameter_position
+  - cyclomatic_complexity
 
 opt_in_rules:
   - closure_end_indentation

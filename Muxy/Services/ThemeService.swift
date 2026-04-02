@@ -27,7 +27,7 @@ final class ThemeService {
         ghostty.reloadConfig()
     }
 
-    private nonisolated static func discoverThemes() -> [ThemePreview] {
+    nonisolated private static func discoverThemes() -> [ThemePreview] {
         var themesByName: [String: ThemePreview] = [:]
 
         for dir in themeDirectories() {
@@ -41,7 +41,7 @@ final class ThemeService {
         return themesByName.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private nonisolated static func themeDirectories() -> [String] {
+    nonisolated private static func themeDirectories() -> [String] {
         var dirs: [String] = []
         if let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").map({ String(cString: $0) }) {
             dirs.append(resourcesDir + "/themes")
@@ -50,7 +50,7 @@ final class ThemeService {
         return dirs
     }
 
-    private nonisolated static func parseThemeFile(atPath path: String, name: String) -> ThemePreview? {
+    nonisolated private static func parseThemeFile(atPath path: String, name: String) -> ThemePreview? {
         guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
         var bg: NSColor?
         var fg: NSColor?
@@ -70,7 +70,7 @@ final class ThemeService {
         return ThemePreview(name: name, background: bg, foreground: fg, palette: sortedPalette)
     }
 
-    private nonisolated static func parsePaletteEntry(_ line: String, into palette: inout [Int: NSColor]) {
+    nonisolated private static func parsePaletteEntry(_ line: String, into palette: inout [Int: NSColor]) {
         guard let eqIndex = line.firstIndex(of: "=") else { return }
         let value = line[line.index(after: eqIndex)...].trimmingCharacters(in: .whitespaces)
         guard let eqIndex2 = value.firstIndex(of: "=") else { return }
@@ -80,13 +80,13 @@ final class ThemeService {
         palette[index] = color
     }
 
-    private nonisolated static func extractColor(from line: String) -> NSColor? {
+    nonisolated private static func extractColor(from line: String) -> NSColor? {
         guard let eqIndex = line.firstIndex(of: "=") else { return nil }
         let value = line[line.index(after: eqIndex)...].trimmingCharacters(in: .whitespaces)
         return parseHex(value)
     }
 
-    private nonisolated static func parseHex(_ hex: String) -> NSColor? {
+    nonisolated private static func parseHex(_ hex: String) -> NSColor? {
         var h = hex
         if h.hasPrefix("#") { h = String(h.dropFirst()) }
         guard h.count == 6, let val = UInt32(h, radix: 16) else { return nil }

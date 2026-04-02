@@ -33,6 +33,7 @@
 --typeattributes prev-line
 --funcattributes prev-line
 --varattributes prev-line
+--modifierorder override,nonisolated,nonisolated(unsafe),private,fileprivate,internal,package,public,open,private(set),fileprivate(set),internal(set),package(set),public(set),open(set),final,dynamic,optional,required,convenience,indirect,isolated,lazy,weak,unowned,static,class,mutating,nonmutating,prefix,infix,postfix,async
 
 # Rules
 --enable isEmpty

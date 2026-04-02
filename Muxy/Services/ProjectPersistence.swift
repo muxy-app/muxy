@@ -24,7 +24,9 @@ final class FileProjectPersistence: ProjectPersisting {
     }
 
     private static func defaultFileURL() -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            fatalError("Application Support directory unavailable")
+        }
         let dir = appSupport.appendingPathComponent("Muxy", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         return dir.appendingPathComponent("projects.json")
