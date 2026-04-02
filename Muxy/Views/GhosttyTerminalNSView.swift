@@ -136,18 +136,21 @@ final class GhosttyTerminalNSView: NSView {
         ghostty_surface_set_size(surface, w, h)
     }
 
-    private static let appShortcutKeys: Set<String> = [
-        "q", "t", "w", "d", "p",
-        "1", "2", "3", "4", "5", "6", "7", "8", "9",
-        "[", "]"
-    ]
-
     private func isAppShortcut(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.contains(.command) else { return false }
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        return Self.appShortcutKeys.contains(key)
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if modifiers == .command && Self.systemShortcutKeys.contains(key) {
+            return true
+        }
+        let scopes = ShortcutContext.activeScopes(for: window)
+        return KeyBindingStore.shared.isRegisteredShortcut(
+            key: key,
+            modifiers: modifiers,
+            scopes: scopes
+        )
     }
+
+    private static let systemShortcutKeys: Set<String> = ["q", "h", "m", ","]
 
     func notifySurfaceUnfocused() {
         guard let surface else { return }
@@ -198,6 +201,7 @@ final class GhosttyTerminalNSView: NSView {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
+            if isAppShortcut(event) { return }
             var keyEvent = buildKeyEvent(from: event, action: action)
             let text = event.charactersIgnoringModifiers ?? event.characters ?? ""
             if text.isEmpty {
