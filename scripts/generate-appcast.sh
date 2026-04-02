@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [[ $# -lt 4 ]]; then
   echo "Usage: $0 <arm64-dmg> <x86_64-dmg> <tag> <build-number> [output-path]" >&2
@@ -19,11 +20,17 @@ if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
   exit 1
 fi
 
+SIGN_UPDATE="$PROJECT_ROOT/.build/artifacts/sparkle/Sparkle/bin/sign_update"
+if [[ ! -x "$SIGN_UPDATE" ]]; then
+  echo "Error: sign_update not found at $SIGN_UPDATE (run 'swift package resolve' first)" >&2
+  exit 1
+fi
+
 DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://github.com/muxy-app/muxy/releases/download/$TAG/}"
 
 VERSION="${TAG#v}"
-ARM64_SIG=$(swift "$SCRIPT_DIR/sign-ed25519.swift" "$SPARKLE_PRIVATE_KEY" "$ARM64_DMG")
-X86_SIG=$(swift "$SCRIPT_DIR/sign-ed25519.swift" "$SPARKLE_PRIVATE_KEY" "$X86_DMG")
+ARM64_SIG=$(echo "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - -p "$ARM64_DMG")
+X86_SIG=$(echo "$SPARKLE_PRIVATE_KEY" | "$SIGN_UPDATE" --ed-key-file - -p "$X86_DMG")
 ARM64_SIZE=$(stat -f%z "$ARM64_DMG")
 X86_SIZE=$(stat -f%z "$X86_DMG")
 ARM64_FILENAME=$(basename "$ARM64_DMG")
@@ -39,13 +46,22 @@ cat > "$OUT_PATH" << EOF
     <description>Updates for Muxy</description>
     <language>en</language>
     <item>
-      <title>Version ${VERSION}</title>
+      <title>Version ${VERSION} (Apple Silicon)</title>
       <pubDate>${PUB_DATE}</pubDate>
       <sparkle:version>${BUILD_NUMBER}</sparkle:version>
       <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <sparkle:fullReleaseNotesLink>https://github.com/muxy-app/muxy/releases/tag/${TAG}</sparkle:fullReleaseNotesLink>
-      <enclosure url="${DOWNLOAD_URL_PREFIX}${ARM64_FILENAME}" sparkle:edSignature="${ARM64_SIG}" length="${ARM64_SIZE}" type="application/octet-stream" sparkle:os="macos" sparkle:installationType="dmg" sparkle:arch="arm64" />
-      <enclosure url="${DOWNLOAD_URL_PREFIX}${X86_FILENAME}" sparkle:edSignature="${X86_SIG}" length="${X86_SIZE}" type="application/octet-stream" sparkle:os="macos" sparkle:installationType="dmg" sparkle:arch="x86_64" />
+      <enclosure url="${DOWNLOAD_URL_PREFIX}${ARM64_FILENAME}" sparkle:edSignature="${ARM64_SIG}" length="${ARM64_SIZE}" type="application/octet-stream" />
+    </item>
+    <item>
+      <title>Version ${VERSION} (Intel)</title>
+      <pubDate>${PUB_DATE}</pubDate>
+      <sparkle:version>${BUILD_NUMBER}</sparkle:version>
+      <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/muxy-app/muxy/releases/tag/${TAG}</sparkle:fullReleaseNotesLink>
+      <enclosure url="${DOWNLOAD_URL_PREFIX}${X86_FILENAME}" sparkle:edSignature="${X86_SIG}" length="${X86_SIZE}" type="application/octet-stream" />
     </item>
   </channel>
 </rss>

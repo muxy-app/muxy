@@ -134,6 +134,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve Sparkle dependency
+        run: swift package resolve
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
