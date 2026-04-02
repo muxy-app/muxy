@@ -33,4 +33,4 @@ guard let fileData = FileManager.default.contents(atPath: filePath) else {
 }
 
 let signature = try privateKey.signature(for: fileData)
-print(signature.rawRepresentation.base64EncodedString())
+print(signature.base64EncodedString())
