@@ -25,7 +25,8 @@ struct PaneTabStrip: View {
                     },
                     onClose: { onCloseTab(tab.id) },
                     onCreateLeft: { area.createTabAdjacent(to: tab.id, side: .left) },
-                    onCreateRight: { area.createTabAdjacent(to: tab.id, side: .right) }
+                    onCreateRight: { area.createTabAdjacent(to: tab.id, side: .right) },
+                    onTogglePin: { area.togglePin(tab.id) }
                 )
             }
 
@@ -95,6 +96,7 @@ private struct TabCell: View {
     let onClose: () -> Void
     let onCreateLeft: () -> Void
     let onCreateRight: () -> Void
+    let onTogglePin: () -> Void
     @State private var hovered = false
     @State private var isRenaming = false
     @State private var renameText = ""
@@ -179,7 +181,7 @@ private struct TabCell: View {
                 }
                 Divider()
                 Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") {
-                    tab.isPinned.toggle()
+                    onTogglePin()
                 }
                 if !tab.isPinned {
                     Divider()
