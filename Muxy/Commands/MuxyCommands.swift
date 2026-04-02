@@ -83,7 +83,8 @@ struct MuxyCommands: Commands {
                 }
                 guard let projectID = appState.activeProjectID,
                       let area = appState.focusedArea(for: projectID),
-                      let tabID = area.activeTabID else { return }
+                      let tabID = area.activeTabID
+                else { return }
                 appState.closeTab(tabID, projectID: projectID)
             }
             .keyboardShortcut(
@@ -137,7 +138,8 @@ struct MuxyCommands: Commands {
             Button("Close Pane") {
                 guard isMainWindowFocused else { return }
                 guard let projectID = appState.activeProjectID,
-                      let areaID = appState.focusedAreaID[projectID] else { return }
+                      let areaID = appState.focusedAreaID[projectID]
+                else { return }
                 appState.closeArea(areaID, projectID: projectID)
             }
             .keyboardShortcut(
@@ -147,7 +149,7 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(after: .windowList) {
-            ForEach(1...9, id: \.self) { index in
+            ForEach(1 ... 9, id: \.self) { index in
                 Button("Tab \(index)") {
                     guard isMainWindowFocused else { return }
                     guard let projectID = appState.activeProjectID else { return }
@@ -161,7 +163,7 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(after: .sidebar) {
-            ForEach(1...9, id: \.self) { index in
+            ForEach(1 ... 9, id: \.self) { index in
                 Button("Project \(index)") {
                     guard isMainWindowFocused else { return }
                     appState.selectProjectByIndex(index - 1, projects: projectStore.projects)

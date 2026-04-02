@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 struct TerminalPane: View {
     let state: TerminalPaneState
@@ -23,7 +23,9 @@ struct TerminalBridge: NSViewRepresentable {
         var paneID: UUID?
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeNSView(context: Context) -> GhosttyTerminalNSView {
         let registry = TerminalViewRegistry.shared
@@ -53,11 +55,11 @@ struct TerminalBridge: NSViewRepresentable {
         let wasFocused = context.coordinator.wasFocused
         context.coordinator.wasFocused = focused
         nsView.isFocused = focused
-        if focused && !wasFocused {
+        if focused, !wasFocused {
             DispatchQueue.main.async {
                 nsView.window?.makeFirstResponder(nsView)
             }
-        } else if !focused && wasFocused {
+        } else if !focused, wasFocused {
             nsView.notifySurfaceUnfocused()
         }
     }

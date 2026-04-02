@@ -67,7 +67,7 @@ final class WindowDragView: NSView {
         return frameInWindow.maxY >= contentHeight - 1
     }
 
-    override public func mouseDown(with event: NSEvent) {
+    override func mouseDown(with event: NSEvent) {
         guard alwaysEnabled || isAtWindowTop else {
             super.mouseDown(with: event)
             return
@@ -102,7 +102,8 @@ private struct TabCell: View {
 
     private var showBadge: Bool {
         guard let shortcutIndex,
-              let action = ShortcutAction.tabAction(for: shortcutIndex) else { return false }
+              let action = ShortcutAction.tabAction(for: shortcutIndex)
+        else { return false }
         return ModifierKeyMonitor.shared.isHolding(
             modifiers: KeyBindingStore.shared.combo(for: action).modifiers
         )
@@ -152,7 +153,7 @@ private struct TabCell: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                if active && paneFocused {
+                if active, paneFocused {
                     Rectangle()
                         .fill(MuxyTheme.accent)
                         .frame(height: 2)

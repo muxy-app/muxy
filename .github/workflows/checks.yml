@@ -1,0 +1,32 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  checks:
+    name: Checks
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: brew install swiftlint swiftformat
+
+      - name: Formatting
+        run: swiftformat --lint .
+
+      - name: Linting
+        run: swiftlint lint --strict --quiet
+
+      - name: Setup GhosttyKit
+        run: scripts/setup.sh
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+
+      - name: Build
+        run: swift build

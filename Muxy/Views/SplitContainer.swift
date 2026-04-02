@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 struct SplitContainer: View {
     let branch: SplitBranch
@@ -43,8 +43,7 @@ struct SplitContainer: View {
                                     }
                             )
                             .onHover { on in
-                                if on { (h ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push() }
-                                else { NSCursor.pop() }
+                                if on { (h ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push() } else { NSCursor.pop() }
                             }
                     }
 

@@ -3,7 +3,7 @@ import GhosttyKit
 import QuartzCore
 
 final class GhosttyTerminalNSView: NSView {
-    nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
+    private(set) nonisolated(unsafe) var surface: ghostty_surface_t?
     private let workingDirectory: String
     var onTitleChange: ((String) -> Void)?
     var onFocus: (() -> Void)?
@@ -24,7 +24,9 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
 
     override func makeBackingLayer() -> CALayer {
         let metalLayer = CAMetalLayer()
@@ -92,7 +94,7 @@ final class GhosttyTerminalNSView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil && surface == nil {
+        if window != nil, surface == nil {
             createSurface()
         }
         if window != nil {
@@ -139,7 +141,7 @@ final class GhosttyTerminalNSView: NSView {
     private func isAppShortcut(_ event: NSEvent) -> Bool {
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if modifiers == .command && Self.systemShortcutKeys.contains(key) {
+        if modifiers == .command, Self.systemShortcutKeys.contains(key) {
             return true
         }
         let scopes = ShortcutContext.activeScopes(for: window)
@@ -195,7 +197,9 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard let surface else { super.keyDown(with: event); return }
+        guard let surface else { super.keyDown(with: event)
+            return
+        }
 
         let action: ghostty_input_action_e = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -234,7 +238,7 @@ final class GhosttyTerminalNSView: NSView {
         keyEvent.consumed_mods = consumedModsFromFlags(flags)
         keyEvent.composing = hasMarkedText() || hadMarkedText
 
-        if !keyTextAccumulator.isEmpty && !keyEvent.composing {
+        if !keyTextAccumulator.isEmpty, !keyEvent.composing {
             for text in keyTextAccumulator {
                 text.withCString { ptr in
                     keyEvent.text = ptr
@@ -243,7 +247,7 @@ final class GhosttyTerminalNSView: NSView {
             }
         } else if !hasMarkedText() {
             let text = filterSpecialCharacters(event.characters ?? "")
-            if !text.isEmpty && !keyEvent.composing {
+            if !text.isEmpty, !keyEvent.composing {
                 text.withCString { ptr in
                     keyEvent.text = ptr
                     _ = ghostty_surface_key(surface, keyEvent)
@@ -256,8 +260,7 @@ final class GhosttyTerminalNSView: NSView {
         }
     }
 
-    override func doCommand(by selector: Selector) {
-    }
+    override func doCommand(by selector: Selector) {}
 
     override func insertText(_ insertString: Any) {
         insertText(insertString, replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -315,9 +318,17 @@ final class GhosttyTerminalNSView: NSView {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
 
-    override func mouseDragged(with event: NSEvent) { mouseMoved(with: event) }
-    override func rightMouseDragged(with event: NSEvent) { mouseMoved(with: event) }
-    override func otherMouseDragged(with event: NSEvent) { mouseMoved(with: event) }
+    override func mouseDragged(with event: NSEvent) {
+        mouseMoved(with: event)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        mouseMoved(with: event)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        mouseMoved(with: event)
+    }
 
     override func mouseMoved(with event: NSEvent) {
         guard let surface else { return }
@@ -375,10 +386,14 @@ final class GhosttyTerminalNSView: NSView {
     private func isFlagPress(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags
         switch event.keyCode {
-        case 56, 60: return flags.contains(.shift)
-        case 58, 61: return flags.contains(.option)
-        case 59, 62: return flags.contains(.control)
-        case 55, 54: return flags.contains(.command)
+        case 56,
+             60: return flags.contains(.shift)
+        case 58,
+             61: return flags.contains(.option)
+        case 59,
+             62: return flags.contains(.control)
+        case 55,
+             54: return flags.contains(.command)
         case 57: return flags.contains(.capsLock)
         default: return false
         }
@@ -387,13 +402,14 @@ final class GhosttyTerminalNSView: NSView {
     private func filterSpecialCharacters(_ text: String) -> String {
         guard let scalar = text.unicodeScalars.first else { return "" }
         let value = scalar.value
-        if value < 0x20 || (0xF700...0xF8FF).contains(value) { return "" }
+        if value < 0x20 || (0xF700 ... 0xF8FF).contains(value) { return "" }
         return text
     }
 
     private func unshiftedCodepoint(from event: NSEvent) -> UInt32 {
         guard let chars = event.characters(byApplyingModifiers: []),
-              let scalar = chars.unicodeScalars.first else { return 0 }
+              let scalar = chars.unicodeScalars.first
+        else { return 0 }
         return scalar.value
     }
 }
@@ -441,13 +457,29 @@ extension GhosttyTerminalNSView: @preconcurrency NSTextInputClient {
         ghostty_surface_preedit(surface, nil, 0)
     }
 
-    func selectedRange() -> NSRange { _selectedRange }
-    func markedRange() -> NSRange { _markedRange }
-    func hasMarkedText() -> Bool { _markedRange.location != NSNotFound }
+    func selectedRange() -> NSRange {
+        _selectedRange
+    }
 
-    func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? { nil }
-    func validAttributesForMarkedText() -> [NSAttributedString.Key] { [.underlineStyle, .backgroundColor] }
-    func characterIndex(for point: NSPoint) -> Int { NSNotFound }
+    func markedRange() -> NSRange {
+        _markedRange
+    }
+
+    func hasMarkedText() -> Bool {
+        _markedRange.location != NSNotFound
+    }
+
+    func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
+        nil
+    }
+
+    func validAttributesForMarkedText() -> [NSAttributedString.Key] {
+        [.underlineStyle, .backgroundColor]
+    }
+
+    func characterIndex(for point: NSPoint) -> Int {
+        NSNotFound
+    }
 
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         guard let surface else { return .zero }

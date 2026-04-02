@@ -19,44 +19,44 @@ enum WorkspaceReducer {
         var effects = WorkspaceSideEffects()
 
         switch action {
-        case .selectProject(let projectID, let projectPath):
+        case let .selectProject(projectID, projectPath):
             state.activeProjectID = projectID
             ensureWorkspaceExists(projectID: projectID, projectPath: projectPath, state: &state)
 
-        case .removeProject(let projectID):
+        case let .removeProject(projectID):
             removeProject(projectID: projectID, state: &state, effects: &effects)
 
-        case .createTab(let projectID, let areaID):
+        case let .createTab(projectID, areaID):
             guard let area = resolveArea(projectID: projectID, areaID: areaID, state: state) else { break }
             focusArea(area.id, projectID: projectID, state: &state)
             area.createTab()
 
-        case .closeTab(let projectID, let areaID, let tabID):
+        case let .closeTab(projectID, areaID, tabID):
             closeTab(tabID, areaID: areaID, projectID: projectID, state: &state, effects: &effects)
 
-        case .selectTab(let projectID, let areaID, let tabID):
+        case let .selectTab(projectID, areaID, tabID):
             guard let area = resolveArea(projectID: projectID, areaID: areaID, state: state) else { break }
             focusArea(area.id, projectID: projectID, state: &state)
             area.selectTab(tabID)
 
-        case .selectTabByIndex(let projectID, let areaID, let index):
+        case let .selectTabByIndex(projectID, areaID, index):
             guard let area = resolveArea(projectID: projectID, areaID: areaID, state: state) else { break }
             focusArea(area.id, projectID: projectID, state: &state)
             area.selectTabByIndex(index)
 
-        case .splitArea(let projectID, let areaID, let direction, let projectPath):
+        case let .splitArea(projectID, areaID, direction, projectPath):
             splitArea(areaID, direction: direction, projectID: projectID, projectPath: projectPath, state: &state)
 
-        case .closeArea(let projectID, let areaID):
+        case let .closeArea(projectID, areaID):
             closeArea(areaID, projectID: projectID, state: &state, effects: &effects)
 
-        case .focusArea(let projectID, let areaID):
+        case let .focusArea(projectID, areaID):
             focusArea(areaID, projectID: projectID, state: &state)
 
-        case .focusNextArea(let projectID):
+        case let .focusNextArea(projectID):
             cycleFocus(projectID: projectID, forward: true, state: &state)
 
-        case .focusPreviousArea(let projectID):
+        case let .focusPreviousArea(projectID):
             cycleFocus(projectID: projectID, forward: false, state: &state)
         }
 
@@ -115,10 +115,11 @@ enum WorkspaceReducer {
         effects: inout WorkspaceSideEffects
     ) {
         guard let root = state.workspaceRoots[projectID],
-              let area = root.findArea(id: areaID) else { return }
+              let area = root.findArea(id: areaID)
+        else { return }
 
         let areaCount = root.allAreas().count
-        if area.tabs.count <= 1 && areaCount > 1 {
+        if area.tabs.count <= 1, areaCount > 1 {
             closeArea(areaID, projectID: projectID, state: &state, effects: &effects)
             return
         }
@@ -145,7 +146,8 @@ enum WorkspaceReducer {
         let areas = state.workspaceRoots[projectID]?.allAreas() ?? []
         guard areas.count > 1,
               let currentID = state.focusedAreaID[projectID],
-              let index = areas.firstIndex(where: { $0.id == currentID }) else { return }
+              let index = areas.firstIndex(where: { $0.id == currentID })
+        else { return }
         let next = forward ? (index + 1) % areas.count : (index - 1 + areas.count) % areas.count
         state.focusedAreaID[projectID] = areas[next].id
     }

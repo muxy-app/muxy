@@ -24,6 +24,7 @@ final class AppState {
     var activeProjectID: UUID? {
         didSet { saveSelection() }
     }
+
     var sidebarVisible = true
     var workspaceRoots: [UUID: SplitNode] = [:]
     var focusedAreaID: [UUID: UUID] = [:]
@@ -39,7 +40,8 @@ final class AppState {
 
     func restoreSelection(projects: [Project]) {
         guard let id = selectionStore.loadActiveProjectID(),
-              let project = projects.first(where: { $0.id == id }) else { return }
+              let project = projects.first(where: { $0.id == id })
+        else { return }
         selectProject(project)
     }
 
@@ -57,7 +59,8 @@ final class AppState {
 
     func focusedArea(for projectID: UUID) -> TabArea? {
         guard let root = workspaceRoots[projectID],
-              let areaID = focusedAreaID[projectID] else { return nil }
+              let areaID = focusedAreaID[projectID]
+        else { return nil }
         return root.findArea(id: areaID)
     }
 
@@ -138,5 +141,4 @@ final class AppState {
     func removeProject(_ projectID: UUID) {
         dispatch(.removeProject(projectID: projectID))
     }
-
 }

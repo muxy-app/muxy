@@ -6,7 +6,7 @@ struct AppEnvironment {
     let terminalViews: any TerminalViewRemoving
     let projectPersistence: any ProjectPersisting
 
-    static let live = AppEnvironment(
+    static let live = Self(
         selectionStore: UserDefaultsActiveProjectSelectionStore(),
         terminalViews: TerminalViewRegistry.shared,
         projectPersistence: FileProjectPersistence()

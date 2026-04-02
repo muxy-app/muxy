@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 
 @MainActor @Observable
 final class ThemeService {
@@ -57,16 +57,16 @@ final class ThemeService {
         var palette: [Int: NSColor] = [:]
         for line in content.components(separatedBy: .newlines) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("background") && !trimmed.hasPrefix("background-") {
+            if trimmed.hasPrefix("background"), !trimmed.hasPrefix("background-") {
                 bg = extractColor(from: trimmed)
-            } else if trimmed.hasPrefix("foreground") && !trimmed.hasPrefix("foreground-") {
+            } else if trimmed.hasPrefix("foreground"), !trimmed.hasPrefix("foreground-") {
                 fg = extractColor(from: trimmed)
             } else if trimmed.hasPrefix("palette") {
                 parsePaletteEntry(trimmed, into: &palette)
             }
         }
         guard let bg, let fg else { return nil }
-        let sortedPalette = (0..<16).compactMap { palette[$0] }
+        let sortedPalette = (0 ..< 16).compactMap { palette[$0] }
         return ThemePreview(name: name, background: bg, foreground: fg, palette: sortedPalette)
     }
 
@@ -75,7 +75,7 @@ final class ThemeService {
         let value = line[line.index(after: eqIndex)...].trimmingCharacters(in: .whitespaces)
         guard let eqIndex2 = value.firstIndex(of: "=") else { return }
         guard let index = Int(value[..<eqIndex2]) else { return }
-        guard index >= 0 && index < 16 else { return }
+        guard index >= 0, index < 16 else { return }
         guard let color = parseHex(String(value[value.index(after: eqIndex2)...])) else { return }
         palette[index] = color
     }

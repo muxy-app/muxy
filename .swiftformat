@@ -1,0 +1,49 @@
+--swiftversion 6.0
+--minversion 0.54
+
+# File options
+--exclude .build,GhosttyKit,Tests,scripts
+
+# Format options
+--indent 4
+--indentcase false
+--trimwhitespace always
+--voidtype void
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--wrapconditions after-first
+--wrapreturntype preserve
+--wraptypealiases preserve
+--closingparen balanced
+--commas always
+--decimalgrouping 3,6
+--elseposition same-line
+--guardelse next-line
+--header strip
+--ifdef no-indent
+--importgrouping alpha
+--maxwidth 140
+--operatorfunc spaced
+--patternlet hoist
+--self remove
+--semicolons never
+--stripunusedargs closure-only
+--trailingclosures
+--typeattributes prev-line
+--funcattributes prev-line
+--varattributes prev-line
+
+# Rules
+--enable isEmpty
+--enable sortImports
+--enable trailingCommas
+--enable wrapEnumCases
+--enable wrapSwitchCases
+--enable blankLineAfterImports
+--disable redundantSelf
+--disable sortSwitchCases
+--disable markTypes
+--disable organizeDeclarations
+--disable wrapPropertyBodies
+--disable redundantStaticSelf

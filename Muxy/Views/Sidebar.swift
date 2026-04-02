@@ -26,13 +26,16 @@ struct SidebarToolbar: View {
                 HStack(spacing: 3) {
                     ShortcutBadge(
                         label: KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString,
-                        compact: true)
+                        compact: true
+                    )
                     ShortcutBadge(
                         label: KeyBindingStore.shared.combo(for: .newProject).displayString,
-                        compact: true)
+                        compact: true
+                    )
                     ShortcutBadge(
                         label: KeyBindingStore.shared.combo(for: .toggleSidebar).displayString,
-                        compact: true)
+                        compact: true
+                    )
                 }
                 .padding(.horizontal, 10)
                 .allowsHitTesting(false)
@@ -92,7 +95,7 @@ private struct ProjectItem: View {
 
     private var showBadge: Bool {
         guard let shortcutIndex,
-            let action = ShortcutAction.projectAction(for: shortcutIndex)
+              let action = ShortcutAction.projectAction(for: shortcutIndex)
         else { return false }
         return ModifierKeyMonitor.shared.isHolding(
             modifiers: KeyBindingStore.shared.combo(for: action).modifiers
@@ -111,8 +114,7 @@ private struct ProjectItem: View {
             .contentShape(RoundedRectangle(cornerRadius: 6))
             .overlay(alignment: .trailing) {
                 if showBadge, let shortcutIndex,
-                    let action = ShortcutAction.projectAction(for: shortcutIndex)
-                {
+                   let action = ShortcutAction.projectAction(for: shortcutIndex) {
                     ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
                         .padding(.trailing, 6)
                 }

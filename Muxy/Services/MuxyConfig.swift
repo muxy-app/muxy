@@ -69,7 +69,8 @@ final class MuxyConfig {
         guard !FileManager.default.fileExists(atPath: ghosttyConfigURL.path) else { return }
 
         guard FileManager.default.fileExists(atPath: Self.systemGhosttyConfigPath),
-              let systemContent = try? String(contentsOfFile: Self.systemGhosttyConfigPath, encoding: .utf8) else {
+              let systemContent = try? String(contentsOfFile: Self.systemGhosttyConfigPath, encoding: .utf8)
+        else {
             try? writeGhosttyConfig("")
             return
         }
