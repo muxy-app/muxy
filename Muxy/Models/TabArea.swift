@@ -21,6 +21,10 @@ final class TabArea: Identifiable {
         return tabs.first { $0.id == activeTabID }
     }
 
+    private var firstUnpinnedIndex: Int {
+        tabs.firstIndex(where: { !$0.isPinned }) ?? tabs.count
+    }
+
     func createTab() {
         let tab = TerminalTab(pane: TerminalPaneState(projectPath: projectPath))
         tabs.append(tab)
@@ -35,7 +39,8 @@ final class TabArea: Identifiable {
     func createTabAdjacent(to tabID: UUID, side: InsertSide) {
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
         let tab = TerminalTab(pane: TerminalPaneState(projectPath: projectPath))
-        let insertIndex = side == .left ? index : index + 1
+        let desiredIndex = side == .left ? index : index + 1
+        let insertIndex = max(desiredIndex, firstUnpinnedIndex)
         tabs.insert(tab, at: insertIndex)
         if let current = activeTabID {
             tabHistory.append(current)
@@ -70,5 +75,18 @@ final class TabArea: Identifiable {
     func selectTabByIndex(_ index: Int) {
         guard index >= 0, index < tabs.count else { return }
         selectTab(tabs[index].id)
+    }
+
+    func togglePin(_ tabID: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
+        let tab = tabs[index]
+        tab.isPinned.toggle()
+        tabs.remove(at: index)
+        if tab.isPinned {
+            tabs.insert(tab, at: firstUnpinnedIndex)
+        } else {
+            let insertIndex = max(firstUnpinnedIndex, 0)
+            tabs.insert(tab, at: insertIndex)
+        }
     }
 }

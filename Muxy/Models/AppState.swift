@@ -100,7 +100,10 @@ final class AppState {
     }
 
     func togglePinActiveTab(projectID: UUID) {
-        activeTab(for: projectID)?.isPinned.toggle()
+        guard let area = focusedArea(for: projectID),
+              let tabID = area.activeTabID
+        else { return }
+        area.togglePin(tabID)
     }
 
     func dispatch(_ action: Action) {
