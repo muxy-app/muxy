@@ -24,23 +24,40 @@ struct ThemePicker: View {
 
             Divider().overlay(MuxyTheme.border)
 
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(filteredThemes.enumerated()), id: \.element.id) { index, theme in
-                            ThemeRow(
-                                theme: theme,
-                                isActive: theme.name == currentTheme,
-                                isHighlighted: index == highlightedIndex,
-                                onSelect: { selectTheme(theme) }
-                            )
-                            .id(theme.id)
+            if themes.isEmpty {
+                Spacer()
+                VStack(spacing: 8) {
+                    Image(systemName: "paintpalette")
+                        .font(.system(size: 24))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                    Text("No themes found")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(MuxyTheme.fg)
+                    Text("Install Ghostty or add theme files to\n~/.config/ghostty/themes")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                        .multilineTextAlignment(.center)
+                }
+                Spacer()
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(filteredThemes.enumerated()), id: \.element.id) { index, theme in
+                                ThemeRow(
+                                    theme: theme,
+                                    isActive: theme.name == currentTheme,
+                                    isHighlighted: index == highlightedIndex,
+                                    onSelect: { selectTheme(theme) }
+                                )
+                                .id(theme.id)
+                            }
                         }
                     }
-                }
-                .onChange(of: highlightedIndex) { _, newIndex in
-                    guard let newIndex, newIndex < filteredThemes.count else { return }
-                    proxy.scrollTo(filteredThemes[newIndex].id, anchor: nil)
+                    .onChange(of: highlightedIndex) { _, newIndex in
+                        guard let newIndex, newIndex < filteredThemes.count else { return }
+                        proxy.scrollTo(filteredThemes[newIndex].id, anchor: nil)
+                    }
                 }
             }
         }

@@ -46,6 +46,15 @@ final class ThemeService {
         if let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").map({ String(cString: $0) }) {
             dirs.append(resourcesDir + "/themes")
         }
+
+        let appBundlePaths = [
+            "/Applications/Ghostty.app/Contents/Resources/ghostty/themes",
+            NSHomeDirectory() + "/Applications/Ghostty.app/Contents/Resources/ghostty/themes",
+        ]
+        for path in appBundlePaths where !dirs.contains(path) {
+            dirs.append(path)
+        }
+
         dirs.append(NSHomeDirectory() + "/.config/ghostty/themes")
         return dirs
     }
