@@ -217,6 +217,10 @@ final class GhosttyTerminalNSView: NSView {
         }
 
         if flags.contains(.command) {
+            if isAppShortcut(event) { return }
+            var keyEvent = buildKeyEvent(from: event, action: action)
+            keyEvent.text = nil
+            _ = ghostty_surface_key(surface, keyEvent)
             return
         }
 
