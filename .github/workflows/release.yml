@@ -148,6 +148,7 @@ jobs:
             "artifacts/dmg-arm64/Muxy-${{ needs.validate.outputs.version }}-arm64.dmg" \
             "artifacts/dmg-x86_64/Muxy-${{ needs.validate.outputs.version }}-x86_64.dmg" \
             "v${{ needs.validate.outputs.version }}" \
+            "${{ needs.validate.outputs.build_number }}" \
             appcast.xml
 
       - name: Create GitHub Release
