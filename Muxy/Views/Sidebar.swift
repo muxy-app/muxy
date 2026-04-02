@@ -5,6 +5,8 @@ struct SidebarToolbar: View {
     @Environment(ProjectStore.self) private var projectStore
     @State private var showThemePicker = false
 
+    private var showHints: Bool { ModifierKeyMonitor.shared.showHints }
+
     var body: some View {
         HStack(spacing: 4) {
             Spacer()
@@ -19,16 +21,31 @@ struct SidebarToolbar: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 32)
+        .overlay(alignment: .trailing) {
+            if showHints {
+                HStack(spacing: 3) {
+                    ShortcutBadge(
+                        label: KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString,
+                        compact: true)
+                    ShortcutBadge(
+                        label: KeyBindingStore.shared.combo(for: .newProject).displayString,
+                        compact: true)
+                    ShortcutBadge(
+                        label: KeyBindingStore.shared.combo(for: .toggleSidebar).displayString,
+                        compact: true)
+                }
+                .padding(.horizontal, 10)
+                .allowsHitTesting(false)
+            }
+        }
         .background(WindowDragRepresentable())
+        .onReceive(NotificationCenter.default.publisher(for: .toggleThemePicker)) { _ in
+            showThemePicker.toggle()
+        }
     }
 
     private func addProject() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a project folder"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let url = FileManager.default.homeDirectoryForCurrentUser
         let project = Project(
             name: url.lastPathComponent,
             path: url.path(percentEncoded: false),
@@ -46,7 +63,8 @@ struct Sidebar: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 2) {
-                ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) { index, project in
+                ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) {
+                    index, project in
                     ProjectItem(
                         project: project,
                         selected: project.id == appState.activeProjectID,
@@ -73,8 +91,12 @@ private struct ProjectItem: View {
     @State private var hovered = false
 
     private var showBadge: Bool {
-        guard shortcutIndex != nil else { return false }
-        return ModifierKeyMonitor.shared.controlHeld
+        guard let shortcutIndex,
+            let action = ShortcutAction.projectAction(for: shortcutIndex)
+        else { return false }
+        return ModifierKeyMonitor.shared.isHolding(
+            modifiers: KeyBindingStore.shared.combo(for: action).modifiers
+        )
     }
 
     var body: some View {
@@ -88,8 +110,10 @@ private struct ProjectItem: View {
             .background(background, in: RoundedRectangle(cornerRadius: 6))
             .contentShape(RoundedRectangle(cornerRadius: 6))
             .overlay(alignment: .trailing) {
-                if showBadge, let shortcutIndex {
-                    ShortcutBadge(label: "⌃\(shortcutIndex)")
+                if showBadge, let shortcutIndex,
+                    let action = ShortcutAction.projectAction(for: shortcutIndex)
+                {
+                    ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
                         .padding(.trailing, 6)
                 }
             }

@@ -101,8 +101,11 @@ private struct TabCell: View {
     @FocusState private var renameFieldFocused: Bool
 
     private var showBadge: Bool {
-        guard shortcutIndex != nil else { return false }
-        return ModifierKeyMonitor.shared.commandHeld
+        guard let shortcutIndex,
+              let action = ShortcutAction.tabAction(for: shortcutIndex) else { return false }
+        return ModifierKeyMonitor.shared.isHolding(
+            modifiers: KeyBindingStore.shared.combo(for: action).modifiers
+        )
     }
 
     var body: some View {
@@ -143,8 +146,9 @@ private struct TabCell: View {
                 }
             }
             .overlay {
-                if showBadge, let shortcutIndex {
-                    ShortcutBadge(label: "⌘\(shortcutIndex)")
+                if showBadge, let shortcutIndex,
+                   let action = ShortcutAction.tabAction(for: shortcutIndex) {
+                    ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
                 }
             }
             .overlay(alignment: .bottom) {
