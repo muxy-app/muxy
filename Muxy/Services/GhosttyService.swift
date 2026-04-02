@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 import GhosttyKit
 import os
 
@@ -42,7 +42,7 @@ final class GhosttyService {
             GhosttyService.shared.runtimeEvents.wakeup()
         }
         rt.action_cb = { app, target, action in
-            return GhosttyService.shared.runtimeEvents.action(app: app, target: target, action: action)
+            GhosttyService.shared.runtimeEvents.action(app: app, target: target, action: action)
         }
         rt.read_clipboard_cb = { userdata, location, state in
             GhosttyService.shared.runtimeEvents.readClipboard(userdata: userdata, location: location, state: state)
@@ -142,7 +142,7 @@ final class GhosttyService {
 
     private static let allowedResourceParents = [
         "/Applications/Ghostty.app/Contents/Resources/ghostty",
-        NSHomeDirectory() + "/Applications/Ghostty.app/Contents/Resources/ghostty"
+        NSHomeDirectory() + "/Applications/Ghostty.app/Contents/Resources/ghostty",
     ]
 
     private func resolveGhosttyResources() {

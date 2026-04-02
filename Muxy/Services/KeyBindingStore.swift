@@ -49,8 +49,8 @@ final class KeyBindingStore {
         let flags = modifiers.intersection(.deviceIndependentFlagsMask).rawValue
         return bindings.contains {
             $0.combo.key == key &&
-            $0.combo.modifiers == flags &&
-            scopes.contains($0.action.scope)
+                $0.combo.modifiers == flags &&
+                scopes.contains($0.action.scope)
         }
     }
 

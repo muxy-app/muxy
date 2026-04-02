@@ -8,6 +8,7 @@ enum MuxyTheme {
     @MainActor static var fgMuted: Color {
         Color(nsColor: GhosttyService.shared.foregroundColor.withAlphaComponent(0.65))
     }
+
     @MainActor static var fgDim: Color {
         Color(nsColor: GhosttyService.shared.foregroundColor.withAlphaComponent(0.4))
     }
@@ -15,9 +16,11 @@ enum MuxyTheme {
     @MainActor static var surface: Color {
         Color(nsColor: GhosttyService.shared.foregroundColor.withAlphaComponent(0.08))
     }
+
     @MainActor static var border: Color {
         Color(nsColor: GhosttyService.shared.foregroundColor.withAlphaComponent(0.12))
     }
+
     @MainActor static var hover: Color {
         Color(nsColor: GhosttyService.shared.foregroundColor.withAlphaComponent(0.06))
     }

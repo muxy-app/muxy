@@ -14,7 +14,7 @@ struct PaneNode: View {
 
     var body: some View {
         switch node {
-        case .tabArea(let area):
+        case let .tabArea(area):
             TabAreaView(
                 area: area,
                 isFocused: focusedAreaID == area.id,
@@ -27,7 +27,7 @@ struct PaneNode: View {
                 onSplit: { dir in onSplit(area.id, dir) },
                 onClose: { onCloseArea(area.id) }
             )
-        case .split(let branch):
+        case let .split(branch):
             SplitContainer(
                 branch: branch,
                 focusedAreaID: focusedAreaID,

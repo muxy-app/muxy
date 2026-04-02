@@ -14,11 +14,13 @@ struct MuxyApp: App {
             initialValue: AppState(
                 selectionStore: environment.selectionStore,
                 terminalViews: environment.terminalViews
-            ))
+            )
+        )
         _projectStore = State(
             initialValue: ProjectStore(
                 persistence: environment.projectPersistence
-            ))
+            )
+        )
     }
 
     var body: some Scene {
@@ -61,7 +63,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ModifierKeyMonitor.shared.start()
     }
 
-    @MainActor private func setAppIcon() {
+    @MainActor
+    private func setAppIcon() {
         guard let url = Bundle.appResources.url(forResource: "AppIcon", withExtension: "png") else {
             return
         }
@@ -78,7 +81,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct WindowConfigurator: NSViewRepresentable {
     let configVersion: Int
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeNSView(context: Context) -> NSView {
         let v = NSView()
@@ -116,7 +121,7 @@ struct WindowConfigurator: NSViewRepresentable {
                 NSWindow.didResizeNotification,
                 NSWindow.didEndLiveResizeNotification,
                 NSWindow.didExitFullScreenNotification,
-                NSWindow.didEnterFullScreenNotification
+                NSWindow.didEnterFullScreenNotification,
             ]
             for name in names {
                 let token = NotificationCenter.default.addObserver(

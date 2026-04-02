@@ -1,7 +1,7 @@
-import Foundation
-import Sparkle
 import Combine
+import Foundation
 import os
+import Sparkle
 
 private let logger = Logger(subsystem: "app.muxy", category: "UpdateService")
 
@@ -18,7 +18,7 @@ final class UpdateService: NSObject {
         controller.updater
     }
 
-    private override init() {
+    override private init() {
         controller = SPUStandardUpdaterController(
             startingUpdater: false,
             updaterDelegate: nil,

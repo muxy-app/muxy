@@ -46,9 +46,15 @@ struct ThemePicker: View {
         }
         .frame(width: 280, height: 400)
         .background(MuxyTheme.bg)
-        .onKeyPress(.upArrow) { moveHighlight(-1); return .handled }
-        .onKeyPress(.downArrow) { moveHighlight(1); return .handled }
-        .onKeyPress(.return) { confirmSelection(); return .handled }
+        .onKeyPress(.upArrow) { moveHighlight(-1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) { moveHighlight(1)
+            return .handled
+        }
+        .onKeyPress(.return) { confirmSelection()
+            return .handled
+        }
         .onChange(of: searchText) { highlightedIndex = filteredThemes.isEmpty ? nil : 0 }
         .task {
             themes = await themeService.loadThemes()

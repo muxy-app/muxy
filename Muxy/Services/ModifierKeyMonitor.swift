@@ -30,7 +30,7 @@ final class ModifierKeyMonitor {
                 self.shiftHeld = flags.contains(.shift)
                 self.optionHeld = flags.contains(.option)
                 let isHoldingModifier = self.commandHeld || self.controlHeld
-                if isHoldingModifier && !wasHoldingModifier {
+                if isHoldingModifier, !wasHoldingModifier {
                     self.scheduleHint()
                 } else if !isHoldingModifier {
                     self.cancelHint()
@@ -54,10 +54,10 @@ final class ModifierKeyMonitor {
     func isHolding(modifiers: UInt) -> Bool {
         guard showHints else { return false }
         let flags = NSEvent.ModifierFlags(rawValue: modifiers).intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command) && !commandHeld { return false }
-        if flags.contains(.control) && !controlHeld { return false }
-        if flags.contains(.shift) && !shiftHeld { return false }
-        if flags.contains(.option) && !optionHeld { return false }
+        if flags.contains(.command), !commandHeld { return false }
+        if flags.contains(.control), !controlHeld { return false }
+        if flags.contains(.shift), !shiftHeld { return false }
+        if flags.contains(.option), !optionHeld { return false }
         guard !flags.isEmpty else { return false }
         return true
     }
@@ -66,7 +66,7 @@ final class ModifierKeyMonitor {
         hintTimer?.invalidate()
         hintTimer = Timer.scheduledTimer(withTimeInterval: Self.hintDelay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, (self.commandHeld || self.controlHeld) else { return }
+                guard let self, self.commandHeld || self.controlHeld else { return }
                 self.showHints = true
             }
         }
