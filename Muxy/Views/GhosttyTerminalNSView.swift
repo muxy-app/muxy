@@ -231,6 +231,7 @@ final class GhosttyTerminalNSView: NSView {
         currentKeyEvent = nil
 
         var keyEvent = buildKeyEvent(from: event, action: action)
+        keyEvent.consumed_mods = consumedModsFromFlags(flags)
         keyEvent.composing = hasMarkedText() || hadMarkedText
 
         if !keyTextAccumulator.isEmpty && !keyEvent.composing {
@@ -248,6 +249,7 @@ final class GhosttyTerminalNSView: NSView {
                     _ = ghostty_surface_key(surface, keyEvent)
                 }
             } else {
+                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                 keyEvent.text = nil
                 _ = ghostty_surface_key(surface, keyEvent)
             }
@@ -279,6 +281,11 @@ final class GhosttyTerminalNSView: NSView {
         if isAppShortcut(event) { return false }
         guard window?.firstResponder === self || window?.firstResponder === inputContext else { return false }
         guard event.type == .keyDown, let surface else { return false }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let hasActionModifier = flags.contains(.command) || flags.contains(.control) || flags.contains(.option)
+        guard hasActionModifier else { return false }
+
         var keyEvent = buildKeyEvent(from: event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS)
         keyEvent.text = nil
         if ghostty_surface_key_is_binding(surface, keyEvent, nil) {
@@ -345,6 +352,13 @@ final class GhosttyTerminalNSView: NSView {
         keyEvent.text = nil
         keyEvent.unshifted_codepoint = unshiftedCodepoint(from: event)
         return keyEvent
+    }
+
+    private func consumedModsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+        var mods = GHOSTTY_MODS_NONE.rawValue
+        if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
+        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        return ghostty_input_mods_e(rawValue: mods)
     }
 
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
