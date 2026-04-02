@@ -108,7 +108,7 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
     SPARKLE_DIR="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 
     echo "==> Signing Sparkle.framework (inside-out)"
-    /usr/bin/codesign --force --options runtime \
+    /usr/bin/codesign --force --options runtime --preserve-metadata=entitlements \
         --sign "$SIGN_IDENTITY" \
         "$SPARKLE_DIR/Versions/B/XPCServices/Installer.xpc"
 
@@ -116,11 +116,11 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
         --sign "$SIGN_IDENTITY" \
         "$SPARKLE_DIR/Versions/B/XPCServices/Downloader.xpc"
 
-    /usr/bin/codesign --force --options runtime \
+    /usr/bin/codesign --force --options runtime --preserve-metadata=entitlements \
         --sign "$SIGN_IDENTITY" \
         "$SPARKLE_DIR/Versions/B/Updater.app"
 
-    /usr/bin/codesign --force --options runtime \
+    /usr/bin/codesign --force --options runtime --preserve-metadata=entitlements \
         --sign "$SIGN_IDENTITY" \
         "$SPARKLE_DIR/Versions/B/Autoupdate"
 
