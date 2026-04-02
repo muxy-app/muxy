@@ -72,8 +72,8 @@ private struct ProjectItem: View {
 
     var body: some View {
         Text(project.name)
-            .font(.system(size: 12, weight: selected ? .semibold : .regular))
-            .foregroundStyle(selected ? .white : MuxyTheme.fgMuted)
+            .font(.system(size: 12))
+            .foregroundStyle(selected ? MuxyTheme.accent : MuxyTheme.fgMuted)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
@@ -88,7 +88,7 @@ private struct ProjectItem: View {
     }
 
     private var background: some ShapeStyle {
-        if selected { return AnyShapeStyle(MuxyTheme.accent) }
+        if selected { return AnyShapeStyle(MuxyTheme.accentSoft) }
         if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(.clear)
     }
