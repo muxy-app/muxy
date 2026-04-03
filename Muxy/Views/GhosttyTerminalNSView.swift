@@ -45,8 +45,17 @@ final class GhosttyTerminalNSView: NSView {
 
     override var wantsUpdateLayer: Bool { true }
 
+    private var pendingSurfaceCreation = false
+
     func createSurface() {
         guard surface == nil, let app = GhosttyService.shared.app else { return }
+
+        let backingSize = convertToBacking(bounds).size
+        guard backingSize.width > 0, backingSize.height > 0 else {
+            pendingSurfaceCreation = true
+            return
+        }
+        pendingSurfaceCreation = false
 
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
@@ -67,9 +76,8 @@ final class GhosttyTerminalNSView: NSView {
         let scale = Double(window?.backingScaleFactor ?? 2.0)
         ghostty_surface_set_content_scale(surface, scale, scale)
 
-        let backingSize = convertToBacking(bounds).size
-        let w = UInt32(max(1, backingSize.width))
-        let h = UInt32(max(1, backingSize.height))
+        let w = UInt32(backingSize.width)
+        let h = UInt32(backingSize.height)
         ghostty_surface_set_size(surface, w, h)
 
         let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -109,6 +117,9 @@ final class GhosttyTerminalNSView: NSView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        if pendingSurfaceCreation {
+            createSurface()
+        }
         updateMetalLayerSize()
     }
 
