@@ -16,6 +16,10 @@ final class AppState {
         case splitArea(projectID: UUID, areaID: UUID, direction: SplitDirection, projectPath: String)
         case closeArea(projectID: UUID, areaID: UUID)
         case focusArea(projectID: UUID, areaID: UUID)
+        case focusPaneLeft(projectID: UUID)
+        case focusPaneRight(projectID: UUID)
+        case focusPaneUp(projectID: UUID)
+        case focusPaneDown(projectID: UUID)
         case selectNextProject(projects: [Project])
         case selectPreviousProject(projects: [Project])
     }
@@ -163,6 +167,22 @@ final class AppState {
 
     func focusArea(_ areaID: UUID, projectID: UUID) {
         dispatch(.focusArea(projectID: projectID, areaID: areaID))
+    }
+
+    func focusPaneLeft(projectID: UUID) {
+        dispatch(.focusPaneLeft(projectID: projectID))
+    }
+
+    func focusPaneRight(projectID: UUID) {
+        dispatch(.focusPaneRight(projectID: projectID))
+    }
+
+    func focusPaneUp(projectID: UUID) {
+        dispatch(.focusPaneUp(projectID: projectID))
+    }
+
+    func focusPaneDown(projectID: UUID) {
+        dispatch(.focusPaneDown(projectID: projectID))
     }
 
     func selectProjectByIndex(_ index: Int, projects: [Project]) {

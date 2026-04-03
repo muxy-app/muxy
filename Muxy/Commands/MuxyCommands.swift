@@ -157,6 +157,46 @@ struct MuxyCommands: Commands {
                 keyBindings.combo(for: .closePane).swiftUIKeyEquivalent,
                 modifiers: keyBindings.combo(for: .closePane).swiftUIModifiers
             )
+
+            Button("Focus Pane Left") {
+                guard isMainWindowFocused else { return }
+                guard let projectID = appState.activeProjectID else { return }
+                appState.focusPaneLeft(projectID: projectID)
+            }
+            .keyboardShortcut(
+                keyBindings.combo(for: .focusPaneLeft).swiftUIKeyEquivalent,
+                modifiers: keyBindings.combo(for: .focusPaneLeft).swiftUIModifiers
+            )
+
+            Button("Focus Pane Right") {
+                guard isMainWindowFocused else { return }
+                guard let projectID = appState.activeProjectID else { return }
+                appState.focusPaneRight(projectID: projectID)
+            }
+            .keyboardShortcut(
+                keyBindings.combo(for: .focusPaneRight).swiftUIKeyEquivalent,
+                modifiers: keyBindings.combo(for: .focusPaneRight).swiftUIModifiers
+            )
+
+            Button("Focus Pane Up") {
+                guard isMainWindowFocused else { return }
+                guard let projectID = appState.activeProjectID else { return }
+                appState.focusPaneUp(projectID: projectID)
+            }
+            .keyboardShortcut(
+                keyBindings.combo(for: .focusPaneUp).swiftUIKeyEquivalent,
+                modifiers: keyBindings.combo(for: .focusPaneUp).swiftUIModifiers
+            )
+
+            Button("Focus Pane Down") {
+                guard isMainWindowFocused else { return }
+                guard let projectID = appState.activeProjectID else { return }
+                appState.focusPaneDown(projectID: projectID)
+            }
+            .keyboardShortcut(
+                keyBindings.combo(for: .focusPaneDown).swiftUIKeyEquivalent,
+                modifiers: keyBindings.combo(for: .focusPaneDown).swiftUIModifiers
+            )
         }
 
         CommandGroup(after: .windowList) {

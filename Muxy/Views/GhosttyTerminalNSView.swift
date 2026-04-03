@@ -155,17 +155,13 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func isAppShortcut(_ event: NSEvent) -> Bool {
-        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let key = KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
+        let modifiers = event.modifierFlags.intersection(KeyCombo.supportedModifierMask)
         if modifiers == .command, Self.systemShortcutKeys.contains(key) {
             return true
         }
         let scopes = ShortcutContext.activeScopes(for: window)
-        return KeyBindingStore.shared.isRegisteredShortcut(
-            key: key,
-            modifiers: modifiers,
-            scopes: scopes
-        )
+        return KeyBindingStore.shared.isRegisteredShortcut(event: event, scopes: scopes)
     }
 
     private static let systemShortcutKeys: Set<String> = ["q", "h", "m", ","]

@@ -43,11 +43,11 @@ final class ShortcutRecorderNSView: NSView {
             return true
         }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let flags = event.modifierFlags.intersection(KeyCombo.supportedModifierMask)
         let hasModifier = flags.contains(.command) || flags.contains(.control) || flags.contains(.option)
         guard hasModifier else { return false }
 
-        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        let key = KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
         guard !key.isEmpty else { return false }
 
         onRecord?(KeyCombo(key: key, modifiers: flags.rawValue))

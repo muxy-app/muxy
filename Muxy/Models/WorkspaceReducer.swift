@@ -62,6 +62,18 @@ enum WorkspaceReducer {
         case let .focusArea(projectID, areaID):
             focusArea(areaID, projectID: projectID, state: &state)
 
+        case let .focusPaneLeft(projectID):
+            focusPane(projectID: projectID, direction: .left, state: &state)
+
+        case let .focusPaneRight(projectID):
+            focusPane(projectID: projectID, direction: .right, state: &state)
+
+        case let .focusPaneUp(projectID):
+            focusPane(projectID: projectID, direction: .up, state: &state)
+
+        case let .focusPaneDown(projectID):
+            focusPane(projectID: projectID, direction: .down, state: &state)
+
         case let .selectNextProject(projects):
             cycleProject(projects: projects, forward: true, state: &state)
 
@@ -162,6 +174,99 @@ enum WorkspaceReducer {
         let project = projects[next]
         state.activeProjectID = project.id
         ensureWorkspaceExists(projectID: project.id, projectPath: project.path, state: &state)
+    }
+
+    private enum PaneFocusDirection {
+        case left
+        case right
+        case up
+        case down
+    }
+
+    private static func focusPane(projectID: UUID, direction: PaneFocusDirection, state: inout WorkspaceState) {
+        guard let root = state.workspaceRoots[projectID],
+              let focusedID = state.focusedAreaID[projectID]
+        else { return }
+
+        let frames = root.areaFrames()
+        guard let focusedFrame = frames[focusedID] else { return }
+
+        var bestCandidate: UUID?
+        var bestScore: (overlapPenalty: Int, axisGap: CGFloat, crossDistance: CGFloat, centerDistance: CGFloat)?
+
+        for (candidateID, candidateFrame) in frames where candidateID != focusedID {
+            guard isCandidate(candidateFrame, from: focusedFrame, direction: direction) else { continue }
+
+            let score = scoreForCandidate(candidateFrame, from: focusedFrame, direction: direction)
+            if let currentBest = bestScore {
+                if score.overlapPenalty < currentBest.overlapPenalty ||
+                    (score.overlapPenalty == currentBest.overlapPenalty && score.axisGap < currentBest.axisGap) ||
+                    (score.overlapPenalty == currentBest.overlapPenalty && score.axisGap == currentBest.axisGap && score
+                        .crossDistance < currentBest.crossDistance) ||
+                    (score.overlapPenalty == currentBest.overlapPenalty && score.axisGap == currentBest.axisGap && score
+                        .crossDistance == currentBest.crossDistance && score.centerDistance < currentBest.centerDistance)
+                {
+                    bestCandidate = candidateID
+                    bestScore = score
+                }
+            } else {
+                bestCandidate = candidateID
+                bestScore = score
+            }
+        }
+
+        guard let bestCandidate else { return }
+        focusArea(bestCandidate, projectID: projectID, state: &state)
+    }
+
+    private static func isCandidate(_ candidate: CGRect, from focused: CGRect, direction: PaneFocusDirection) -> Bool {
+        switch direction {
+        case .left: candidate.midX < focused.midX
+        case .right: candidate.midX > focused.midX
+        case .up: candidate.midY < focused.midY
+        case .down: candidate.midY > focused.midY
+        }
+    }
+
+    private static func scoreForCandidate(
+        _ candidate: CGRect,
+        from focused: CGRect,
+        direction: PaneFocusDirection
+    ) -> (overlapPenalty: Int, axisGap: CGFloat, crossDistance: CGFloat, centerDistance: CGFloat) {
+        let overlap: CGFloat
+        let axisGap: CGFloat
+        let crossDistance: CGFloat
+        let centerDistance: CGFloat
+
+        switch direction {
+        case .left:
+            overlap = min(focused.maxY, candidate.maxY) - max(focused.minY, candidate.minY)
+            axisGap = max(0, focused.minX - candidate.maxX)
+            crossDistance = abs(focused.midY - candidate.midY)
+            centerDistance = abs(focused.midX - candidate.midX)
+        case .right:
+            overlap = min(focused.maxY, candidate.maxY) - max(focused.minY, candidate.minY)
+            axisGap = max(0, candidate.minX - focused.maxX)
+            crossDistance = abs(focused.midY - candidate.midY)
+            centerDistance = abs(focused.midX - candidate.midX)
+        case .up:
+            overlap = min(focused.maxX, candidate.maxX) - max(focused.minX, candidate.minX)
+            axisGap = max(0, focused.minY - candidate.maxY)
+            crossDistance = abs(focused.midX - candidate.midX)
+            centerDistance = abs(focused.midY - candidate.midY)
+        case .down:
+            overlap = min(focused.maxX, candidate.maxX) - max(focused.minX, candidate.minX)
+            axisGap = max(0, candidate.minY - focused.maxY)
+            crossDistance = abs(focused.midX - candidate.midX)
+            centerDistance = abs(focused.midY - candidate.midY)
+        }
+
+        return (
+            overlapPenalty: overlap > 0 ? 0 : 1,
+            axisGap: axisGap,
+            crossDistance: crossDistance,
+            centerDistance: centerDistance
+        )
     }
 
     private static func removeProject(
