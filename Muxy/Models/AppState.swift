@@ -22,6 +22,7 @@ final class AppState {
 
     private let selectionStore: any ActiveProjectSelectionStoring
     private let terminalViews: any TerminalViewRemoving
+    private let workspacePersistence: any WorkspacePersisting
 
     var activeProjectID: UUID? {
         didSet { saveSelection() }
@@ -34,17 +35,35 @@ final class AppState {
 
     init(
         selectionStore: any ActiveProjectSelectionStoring,
-        terminalViews: any TerminalViewRemoving
+        terminalViews: any TerminalViewRemoving,
+        workspacePersistence: any WorkspacePersisting
     ) {
         self.selectionStore = selectionStore
         self.terminalViews = terminalViews
+        self.workspacePersistence = workspacePersistence
     }
 
     func restoreSelection(projects: [Project]) {
+        let restored = WorkspaceRestorer.restoreAll(
+            from: workspacePersistence.loadWorkspaces(),
+            validProjectIDs: Set(projects.map(\.id))
+        )
+        for entry in restored {
+            workspaceRoots[entry.projectID] = entry.root
+            focusedAreaID[entry.projectID] = entry.focusedAreaID
+        }
         guard let id = selectionStore.loadActiveProjectID(),
               let project = projects.first(where: { $0.id == id })
         else { return }
         selectProject(project)
+    }
+
+    func saveWorkspaces() {
+        let snapshots = WorkspaceRestorer.snapshotAll(
+            workspaceRoots: workspaceRoots,
+            focusedAreaID: focusedAreaID
+        )
+        workspacePersistence.saveWorkspaces(snapshots)
     }
 
     private func saveSelection() {
@@ -114,6 +133,7 @@ final class AppState {
               let tabID = area.activeTabID
         else { return }
         area.togglePin(tabID)
+        saveWorkspaces()
     }
 
     func dispatch(_ action: Action) {
@@ -132,6 +152,8 @@ final class AppState {
         for paneID in effects.paneIDsToRemove {
             terminalViews.removeView(for: paneID)
         }
+
+        saveWorkspaces()
     }
 
     func focusArea(_ areaID: UUID, projectID: UUID) {

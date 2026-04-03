@@ -13,7 +13,8 @@ struct MuxyApp: App {
         _appState = State(
             initialValue: AppState(
                 selectionStore: environment.selectionStore,
-                terminalViews: environment.terminalViews
+                terminalViews: environment.terminalViews,
+                workspacePersistence: environment.workspacePersistence
             )
         )
         _projectStore = State(
@@ -32,6 +33,11 @@ struct MuxyApp: App {
                 .environment(MuxyConfig.shared)
                 .environment(ThemeService.shared)
                 .preferredColorScheme(.dark)
+                .onAppear {
+                    appDelegate.onTerminate = { [appState] in
+                        appState.saveWorkspaces()
+                    }
+                }
         }
         .windowStyle(HiddenTitleBarWindowStyle())
         .defaultSize(width: 1200, height: 800)
@@ -54,6 +60,8 @@ struct MuxyApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    var onTerminate: (() -> Void)?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
@@ -61,6 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = GhosttyService.shared
         UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        onTerminate?()
     }
 
     @MainActor
