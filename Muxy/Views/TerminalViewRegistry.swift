@@ -17,6 +17,10 @@ final class TerminalViewRegistry {
         return view
     }
 
+    func existingView(for paneID: UUID) -> GhosttyTerminalNSView? {
+        views[paneID]
+    }
+
     func removeView(for paneID: UUID) {
         views.removeValue(forKey: paneID)
     }

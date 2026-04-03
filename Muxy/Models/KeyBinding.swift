@@ -36,6 +36,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case selectProject7
     case selectProject8
     case selectProject9
+    case findInTerminal
 
     var id: String { rawValue }
 
@@ -75,6 +76,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .selectProject7: "Project 7"
         case .selectProject8: "Project 8"
         case .selectProject9: "Project 9"
+        case .findInTerminal: "Find"
         }
     }
 
@@ -113,6 +115,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
              .selectProject8,
              .selectProject9:
             "Project Navigation"
+        case .findInTerminal:
+            "Terminal"
         case .toggleSidebar,
              .toggleThemePicker,
              .newProject,
@@ -123,7 +127,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "App"]
+        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Terminal", "App"]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -180,7 +184,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
              .selectProject6,
              .selectProject7,
              .selectProject8,
-             .selectProject9:
+             .selectProject9,
+             .findInTerminal:
             .mainWindow
         }
     }
@@ -295,5 +300,6 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .selectProject7, combo: KeyCombo(key: "7", control: true)),
         Self(action: .selectProject8, combo: KeyCombo(key: "8", control: true)),
         Self(action: .selectProject9, combo: KeyCombo(key: "9", control: true)),
+        Self(action: .findInTerminal, combo: KeyCombo(key: "f", command: true)),
     ]
 }

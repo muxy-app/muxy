@@ -6,6 +6,7 @@ final class TerminalPaneState: Identifiable {
     let id = UUID()
     let projectPath: String
     var title: String = "Terminal"
+    let searchState = TerminalSearchState()
 
     init(projectPath: String) {
         self.projectPath = projectPath

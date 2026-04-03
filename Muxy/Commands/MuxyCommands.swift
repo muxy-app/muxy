@@ -47,6 +47,17 @@ struct MuxyCommands: Commands {
                 .keyboardShortcut("v", modifiers: .command)
             Button("Select All") { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
                 .keyboardShortcut("a", modifiers: .command)
+
+            Divider()
+
+            Button("Find") {
+                guard isMainWindowFocused else { return }
+                NotificationCenter.default.post(name: .findInTerminal, object: nil)
+            }
+            .keyboardShortcut(
+                keyBindings.combo(for: .findInTerminal).swiftUIKeyEquivalent,
+                modifiers: keyBindings.combo(for: .findInTerminal).swiftUIModifiers
+            )
         }
 
         CommandGroup(replacing: .newItem) {
