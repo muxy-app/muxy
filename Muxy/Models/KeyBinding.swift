@@ -9,8 +9,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case splitRight
     case splitDown
     case closePane
-    case nextPane
-    case previousPane
+    case nextTab
+    case previousTab
     case toggleSidebar
     case toggleThemePicker
     case newProject
@@ -25,6 +25,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case selectTab7
     case selectTab8
     case selectTab9
+    case nextProject
+    case previousProject
     case selectProject1
     case selectProject2
     case selectProject3
@@ -46,8 +48,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .splitRight: "Split Right"
         case .splitDown: "Split Down"
         case .closePane: "Close Pane"
-        case .nextPane: "Next Pane"
-        case .previousPane: "Previous Pane"
+        case .nextTab: "Next Tab"
+        case .previousTab: "Previous Tab"
         case .toggleSidebar: "Toggle Sidebar"
         case .toggleThemePicker: "Theme Picker"
         case .newProject: "New Project"
@@ -62,6 +64,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .selectTab7: "Tab 7"
         case .selectTab8: "Tab 8"
         case .selectTab9: "Tab 9"
+        case .nextProject: "Next Project"
+        case .previousProject: "Previous Project"
         case .selectProject1: "Project 1"
         case .selectProject2: "Project 2"
         case .selectProject3: "Project 3"
@@ -83,11 +87,11 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
             "Tabs"
         case .splitRight,
              .splitDown,
-             .closePane,
-             .nextPane,
-             .previousPane:
+             .closePane:
             "Panes"
-        case .selectTab1,
+        case .nextTab,
+             .previousTab,
+             .selectTab1,
              .selectTab2,
              .selectTab3,
              .selectTab4,
@@ -97,7 +101,9 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
              .selectTab8,
              .selectTab9:
             "Tab Navigation"
-        case .selectProject1,
+        case .nextProject,
+             .previousProject,
+             .selectProject1,
              .selectProject2,
              .selectProject3,
              .selectProject4,
@@ -149,8 +155,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
              .splitRight,
              .splitDown,
              .closePane,
-             .nextPane,
-             .previousPane,
+             .nextTab,
+             .previousTab,
              .toggleSidebar,
              .toggleThemePicker,
              .newProject,
@@ -164,6 +170,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
              .selectTab7,
              .selectTab8,
              .selectTab9,
+             .nextProject,
+             .previousProject,
              .selectProject1,
              .selectProject2,
              .selectProject3,
@@ -260,13 +268,13 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .splitRight, combo: KeyCombo(key: "d", command: true)),
         Self(action: .splitDown, combo: KeyCombo(key: "d", command: true, shift: true)),
         Self(action: .closePane, combo: KeyCombo(key: "w", command: true, shift: true)),
-        Self(action: .nextPane, combo: KeyCombo(key: "]", command: true)),
-        Self(action: .previousPane, combo: KeyCombo(key: "[", command: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true)),
         Self(action: .newProject, combo: KeyCombo(key: "n", command: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),
+        Self(action: .nextTab, combo: KeyCombo(key: "]", command: true)),
+        Self(action: .previousTab, combo: KeyCombo(key: "[", command: true)),
         Self(action: .selectTab1, combo: KeyCombo(key: "1", command: true)),
         Self(action: .selectTab2, combo: KeyCombo(key: "2", command: true)),
         Self(action: .selectTab3, combo: KeyCombo(key: "3", command: true)),
@@ -276,6 +284,8 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .selectTab7, combo: KeyCombo(key: "7", command: true)),
         Self(action: .selectTab8, combo: KeyCombo(key: "8", command: true)),
         Self(action: .selectTab9, combo: KeyCombo(key: "9", command: true)),
+        Self(action: .nextProject, combo: KeyCombo(key: "]", control: true)),
+        Self(action: .previousProject, combo: KeyCombo(key: "[", control: true)),
         Self(action: .selectProject1, combo: KeyCombo(key: "1", control: true)),
         Self(action: .selectProject2, combo: KeyCombo(key: "2", control: true)),
         Self(action: .selectProject3, combo: KeyCombo(key: "3", control: true)),

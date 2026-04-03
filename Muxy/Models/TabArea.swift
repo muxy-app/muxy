@@ -77,6 +77,22 @@ final class TabArea: Identifiable {
         selectTab(tabs[index].id)
     }
 
+    func selectNextTab() {
+        guard tabs.count > 1, let activeTabID,
+              let index = tabs.firstIndex(where: { $0.id == activeTabID })
+        else { return }
+        let next = (index + 1) % tabs.count
+        selectTab(tabs[next].id)
+    }
+
+    func selectPreviousTab() {
+        guard tabs.count > 1, let activeTabID,
+              let index = tabs.firstIndex(where: { $0.id == activeTabID })
+        else { return }
+        let previous = (index - 1 + tabs.count) % tabs.count
+        selectTab(tabs[previous].id)
+    }
+
     func togglePin(_ tabID: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
         let tab = tabs[index]
