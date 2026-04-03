@@ -32,11 +32,16 @@ struct MainWindow: View {
 
                 ZStack {
                     MuxyTheme.terminalBg
-                    if let project = activeProject {
-                        TerminalArea(project: project, isActiveProject: true)
-                            .id(project.id)
-                    } else {
+                    if projectsWithWorkspaces.isEmpty {
                         WelcomeView()
+                    } else {
+                        ForEach(projectsWithWorkspaces) { project in
+                            let isActive = project.id == appState.activeProjectID
+                            TerminalArea(project: project, isActiveProject: isActive)
+                                .id(project.id)
+                                .opacity(isActive ? 1 : 0)
+                                .allowsHitTesting(isActive)
+                        }
                     }
                 }
             }
@@ -93,5 +98,9 @@ struct MainWindow: View {
     private var activeProject: Project? {
         guard let pid = appState.activeProjectID else { return nil }
         return projectStore.projects.first { $0.id == pid }
+    }
+
+    private var projectsWithWorkspaces: [Project] {
+        projectStore.projects.filter { appState.workspaceRoots[$0.id] != nil }
     }
 }
