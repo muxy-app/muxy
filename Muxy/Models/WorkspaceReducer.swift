@@ -11,6 +11,7 @@ struct WorkspaceState {
 @MainActor
 struct WorkspaceSideEffects {
     var paneIDsToRemove: [UUID] = []
+    var projectIDsToRemove: [UUID] = []
 }
 
 @MainActor
@@ -103,6 +104,7 @@ enum WorkspaceReducer {
             state.focusedAreaID.removeValue(forKey: projectID)
             state.focusHistory.removeValue(forKey: projectID)
             state.activeProjectID = nil
+            effects.projectIDsToRemove.append(projectID)
             return
         }
 
@@ -141,6 +143,7 @@ enum WorkspaceReducer {
         state.focusedAreaID.removeValue(forKey: projectID)
         state.focusHistory.removeValue(forKey: projectID)
         state.activeProjectID = nil
+        effects.projectIDsToRemove.append(projectID)
     }
 
     private static func focusArea(_ areaID: UUID, projectID: UUID, state: inout WorkspaceState) {

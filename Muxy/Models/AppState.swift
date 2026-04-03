@@ -23,6 +23,7 @@ final class AppState {
     private let selectionStore: any ActiveProjectSelectionStoring
     private let terminalViews: any TerminalViewRemoving
     private let workspacePersistence: any WorkspacePersisting
+    var onProjectsEmptied: (([UUID]) -> Void)?
 
     var activeProjectID: UUID? {
         didSet { saveSelection() }
@@ -151,6 +152,10 @@ final class AppState {
 
         for paneID in effects.paneIDsToRemove {
             terminalViews.removeView(for: paneID)
+        }
+
+        if !effects.projectIDsToRemove.isEmpty {
+            onProjectsEmptied?(effects.projectIDsToRemove)
         }
 
         saveWorkspaces()

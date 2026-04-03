@@ -37,6 +37,11 @@ struct MuxyApp: App {
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
                     }
+                    appState.onProjectsEmptied = { [projectStore] projectIDs in
+                        for id in projectIDs {
+                            projectStore.remove(id: id)
+                        }
+                    }
                 }
         }
         .windowStyle(HiddenTitleBarWindowStyle())
