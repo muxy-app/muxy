@@ -100,7 +100,12 @@ actor GitRepositoryService {
         return parseStatusPorcelain(statusResult.stdoutData, stats: stats)
     }
 
-    func patchAndCompare(repoPath: String, filePath: String, lineLimit: Int?) async throws -> PatchAndCompareResult {
+    func patchAndCompare(
+        repoPath: String,
+        filePath: String,
+        lineLimit: Int?,
+        ignoreWhitespace: Bool = false
+    ) async throws -> PatchAndCompareResult {
         let statusResult = try runGit(
             repoPath: repoPath,
             arguments: ["-c", "core.quotepath=false", "status", "--porcelain=1", "-z", "--", filePath]
@@ -111,9 +116,11 @@ actor GitRepositoryService {
             return try untrackedOrNewFileDiff(repoPath: repoPath, filePath: filePath, lineLimit: lineLimit)
         }
 
+        let wsFlag = ignoreWhitespace ? ["-w"] : [String]()
+
         let stagedResult = try runGit(
             repoPath: repoPath,
-            arguments: ["-c", "core.quotepath=false", "diff", "--cached", "--no-color", "--no-ext-diff", "--", filePath],
+            arguments: ["-c", "core.quotepath=false", "diff", "--cached", "--no-color", "--no-ext-diff"] + wsFlag + ["--", filePath],
             lineLimit: lineLimit
         )
         guard stagedResult.status == 0 else {
@@ -122,7 +129,7 @@ actor GitRepositoryService {
 
         let unstagedResult = try runGit(
             repoPath: repoPath,
-            arguments: ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", "--", filePath],
+            arguments: ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff"] + wsFlag + ["--", filePath],
             lineLimit: lineLimit
         )
         guard unstagedResult.status == 0 else {

@@ -23,7 +23,7 @@ struct VCSTabView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 0) {
             HStack(spacing: 0) {
                 ForEach(VCSTabState.ViewMode.allCases) { mode in
                     Button {
@@ -45,29 +45,53 @@ struct VCSTabView: View {
 
             Spacer(minLength: 0)
 
-            Button(state.expandedFilePaths.isEmpty ? "Expand all" : "Collapse all") {
+            Button {
                 if state.expandedFilePaths.isEmpty {
                     state.expandAll()
                 } else {
                     state.collapseAll()
                 }
+            } label: {
+                Text(state.expandedFilePaths.isEmpty ? "Expand all" : "Collapse all")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(MuxyTheme.fgDim)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(MuxyTheme.surface)
+                    )
             }
             .buttonStyle(.plain)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(MuxyTheme.fgMuted)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(MuxyTheme.surface)
-            )
+            .padding(.trailing, 6)
 
-            IconButton(symbol: "arrow.clockwise", size: 12) {
+            Menu {
+                Button {
+                    state.toggleWhitespace()
+                } label: {
+                    if state.hideWhitespace {
+                        Label("Hide Whitespace Changes", systemImage: "checkmark")
+                    } else {
+                        Text("Hide Whitespace Changes")
+                    }
+                }
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .frame(width: 24, height: 24)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .frame(width: 24)
+
+            IconButton(symbol: "arrow.clockwise") {
                 state.refresh()
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 38)
+        .padding(.trailing, 4)
+        .padding(.leading, 8)
+        .frame(height: 32)
         .background(MuxyTheme.bg)
     }
 
@@ -486,13 +510,13 @@ private struct CodeHighlightedText: View {
             .font(.system(size: 12, design: .monospaced))
             .lineLimit(1)
             .truncationMode(.tail)
+            .textSelection(.enabled)
     }
 
     private func highlighted(_ source: String) -> AttributedString {
-        let nsSource = source as NSString
-        let fullRange = NSRange(location: 0, length: nsSource.length)
+        let fullRange = NSRange(location: 0, length: (source as NSString).length)
 
-        let baseColor = switch kind {
+        let baseColor: NSColor = switch kind {
         case .addition: MuxyTheme.nsDiffAdd
         case .deletion: MuxyTheme.nsDiffRemove
         case .context: GhosttyService.shared.foregroundColor

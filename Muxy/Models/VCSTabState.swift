@@ -29,6 +29,7 @@ final class VCSTabState {
     let projectPath: String
     var files: [GitStatusFile] = []
     var mode: ViewMode = .unified
+    var hideWhitespace = false
     var expandedFilePaths: Set<String> = []
     var isLoadingFiles = false
     var errorMessage: String?
@@ -39,9 +40,13 @@ final class VCSTabState {
     @ObservationIgnored private let git = GitRepositoryService()
     @ObservationIgnored private var loadFilesTask: Task<Void, Never>?
     @ObservationIgnored private var loadDiffTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var watcher: GitDirectoryWatcher?
+    @ObservationIgnored private var isRefreshing = false
+    @ObservationIgnored private var pendingRefresh = false
 
     init(projectPath: String) {
         self.projectPath = projectPath
+        startWatching()
     }
 
     deinit {
@@ -49,45 +54,98 @@ final class VCSTabState {
         loadDiffTasks.values.forEach { $0.cancel() }
     }
 
+    private func startWatching() {
+        watcher = GitDirectoryWatcher(directoryPath: projectPath) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.watcherDidFire()
+            }
+        }
+    }
+
+    private func watcherDidFire() {
+        guard !isRefreshing else {
+            pendingRefresh = true
+            return
+        }
+        performRefresh(incremental: true)
+    }
+
     func refresh() {
+        performRefresh(incremental: false)
+    }
+
+    private func performRefresh(incremental: Bool) {
         loadFilesTask?.cancel()
-        isLoadingFiles = true
+        if !incremental {
+            isLoadingFiles = true
+        }
+        isRefreshing = true
+        pendingRefresh = false
         errorMessage = nil
 
         loadFilesTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                self.isRefreshing = false
+                if self.pendingRefresh {
+                    self.pendingRefresh = false
+                    self.performRefresh(incremental: true)
+                }
+            }
             do {
-                let files = try await git.changedFiles(repoPath: projectPath)
+                let newFiles = try await git.changedFiles(repoPath: projectPath)
                 guard !Task.isCancelled else { return }
 
-                self.files = files
-                let validPaths = Set(files.map(\.path))
-                self.expandedFilePaths = self.expandedFilePaths.intersection(validPaths)
-                self.diffsByPath = self.diffsByPath.filter { validPaths.contains($0.key) }
-                self.loadingDiffPaths = self.loadingDiffPaths.intersection(validPaths)
-                self.diffErrorsByPath = self.diffErrorsByPath.filter { validPaths.contains($0.key) }
-                self.loadDiffTasks = self.loadDiffTasks.filter { validPaths.contains($0.key) }
+                let oldFilesByPath = Dictionary(files.map { ($0.path, $0) }, uniquingKeysWith: { _, b in b })
+                let newFilesByPath = Dictionary(newFiles.map { ($0.path, $0) }, uniquingKeysWith: { _, b in b })
 
-                if self.expandedFilePaths.isEmpty, let first = files.first {
-                    self.toggleExpanded(filePath: first.path)
-                } else {
-                    for path in self.expandedFilePaths where self.diffsByPath[path] == nil {
-                        self.loadDiff(filePath: path, forceFull: false)
+                let validPaths = Set(newFiles.map(\.path))
+                let removedPaths = Set(oldFilesByPath.keys).subtracting(validPaths)
+
+                if !removedPaths.isEmpty {
+                    expandedFilePaths = expandedFilePaths.intersection(validPaths)
+                    for path in removedPaths {
+                        diffsByPath.removeValue(forKey: path)
+                        loadingDiffPaths.remove(path)
+                        diffErrorsByPath.removeValue(forKey: path)
+                        loadDiffTasks[path]?.cancel()
+                        loadDiffTasks.removeValue(forKey: path)
                     }
                 }
 
-                self.isLoadingFiles = false
+                var changedPaths: Set<String> = []
+                for file in newFiles {
+                    if oldFilesByPath[file.path] != file {
+                        changedPaths.insert(file.path)
+                    }
+                }
+
+                let listChanged = files.map(\.path) != newFiles.map(\.path) || !changedPaths.isEmpty
+                if listChanged {
+                    files = newFiles
+                }
+                isLoadingFiles = false
+
+                if incremental {
+                    for path in expandedFilePaths where changedPaths.contains(path) {
+                        loadDiff(filePath: path, forceFull: false)
+                    }
+                } else {
+                    for path in expandedFilePaths {
+                        loadDiff(filePath: path, forceFull: false)
+                    }
+                }
             } catch {
                 guard !Task.isCancelled else { return }
-                self.files = []
-                self.expandedFilePaths = []
-                self.diffsByPath = [:]
-                self.loadingDiffPaths = []
-                self.diffErrorsByPath = [:]
-                self.loadDiffTasks.values.forEach { $0.cancel() }
-                self.loadDiffTasks = [:]
-                self.errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                self.isLoadingFiles = false
+                files = []
+                expandedFilePaths = []
+                diffsByPath = [:]
+                loadingDiffPaths = []
+                diffErrorsByPath = [:]
+                loadDiffTasks.values.forEach { $0.cancel() }
+                loadDiffTasks = [:]
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                isLoadingFiles = false
             }
         }
     }
@@ -121,6 +179,14 @@ final class VCSTabState {
         loadDiff(filePath: filePath, forceFull: true)
     }
 
+    func toggleWhitespace() {
+        hideWhitespace.toggle()
+        diffsByPath.removeAll()
+        for path in expandedFilePaths {
+            loadDiff(filePath: path, forceFull: false)
+        }
+    }
+
     func displayedStats(for file: GitStatusFile) -> (additions: Int?, deletions: Int?, binary: Bool) {
         if let loaded = diffsByPath[file.path] {
             return (loaded.additions, loaded.deletions, false)
@@ -134,11 +200,17 @@ final class VCSTabState {
         diffErrorsByPath[filePath] = nil
 
         let lineLimit = forceFull ? nil : 20000
+        let ignoreWhitespace = hideWhitespace
 
         loadDiffTasks[filePath] = Task { [weak self] in
             guard let self else { return }
             do {
-                let result = try await git.patchAndCompare(repoPath: projectPath, filePath: filePath, lineLimit: lineLimit)
+                let result = try await git.patchAndCompare(
+                    repoPath: projectPath,
+                    filePath: filePath,
+                    lineLimit: lineLimit,
+                    ignoreWhitespace: ignoreWhitespace
+                )
                 guard !Task.isCancelled else { return }
 
                 diffsByPath[filePath] = LoadedDiff(
