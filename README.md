@@ -6,6 +6,10 @@
 
 <p align="center">A macOS terminal multiplexer built with SwiftUI and <a href="https://github.com/ghostty-org/ghostty">libghostty</a>.</p>
 
+<div align="center">
+  <img src="https://img.shields.io/github/downloads/muxy-app/muxy/total" />
+</div>
+
 ## Screenshots
 
 <img width="2400" height="1600" alt="image" src="https://github.com/user-attachments/assets/85405e11-1993-49fe-8478-03a389a89c3c" />
