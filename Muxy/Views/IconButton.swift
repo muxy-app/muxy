@@ -14,6 +14,7 @@ struct IconButton: View {
                 .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(hovered ? hoverColor : color)
                 .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
