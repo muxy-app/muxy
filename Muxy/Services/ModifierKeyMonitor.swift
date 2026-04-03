@@ -12,6 +12,7 @@ final class ModifierKeyMonitor {
     private(set) var optionHeld = false
     private(set) var showHints = false
     private var monitor: Any?
+    private var activationObserver: NSObjectProtocol?
     private var hintTimer: Timer?
 
     private static let hintDelay: TimeInterval = 0.5
@@ -24,26 +25,32 @@ final class ModifierKeyMonitor {
             guard let self else { return event }
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             MainActor.assumeIsolated {
-                let wasHoldingModifier = self.commandHeld || self.controlHeld
-                self.commandHeld = flags.contains(.command)
-                self.controlHeld = flags.contains(.control)
-                self.shiftHeld = flags.contains(.shift)
-                self.optionHeld = flags.contains(.option)
-                let isHoldingModifier = self.commandHeld || self.controlHeld
-                if isHoldingModifier, !wasHoldingModifier {
-                    self.scheduleHint()
-                } else if !isHoldingModifier {
-                    self.cancelHint()
-                }
+                self.updateFlags(flags)
             }
             return event
+        }
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let flags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                self.updateFlags(flags)
+            }
         }
     }
 
     func stop() {
-        guard let monitor else { return }
-        NSEvent.removeMonitor(monitor)
-        self.monitor = nil
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let activationObserver {
+            NotificationCenter.default.removeObserver(activationObserver)
+        }
+        monitor = nil
+        activationObserver = nil
         cancelHint()
         commandHeld = false
         controlHeld = false
@@ -60,6 +67,20 @@ final class ModifierKeyMonitor {
         if flags.contains(.option), !optionHeld { return false }
         guard !flags.isEmpty else { return false }
         return true
+    }
+
+    private func updateFlags(_ flags: NSEvent.ModifierFlags) {
+        let wasHoldingModifier = commandHeld || controlHeld
+        commandHeld = flags.contains(.command)
+        controlHeld = flags.contains(.control)
+        shiftHeld = flags.contains(.shift)
+        optionHeld = flags.contains(.option)
+        let isHoldingModifier = commandHeld || controlHeld
+        if isHoldingModifier, !wasHoldingModifier {
+            scheduleHint()
+        } else if !isHoldingModifier {
+            cancelHint()
+        }
     }
 
     private func scheduleHint() {

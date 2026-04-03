@@ -3,15 +3,13 @@ import SwiftUI
 struct SidebarToolbar: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
-    @State private var showThemePicker = false
 
     private var showHints: Bool { ModifierKeyMonitor.shared.showHints }
 
     var body: some View {
         HStack(spacing: 4) {
             Spacer()
-            IconButton(symbol: "paintpalette") { showThemePicker.toggle() }
-                .popover(isPresented: $showThemePicker) { ThemePicker() }
+            IconButton(symbol: "folder") { openProject() }
             IconButton(symbol: "plus") { addProject() }
             IconButton(symbol: "sidebar.left") {
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -25,7 +23,7 @@ struct SidebarToolbar: View {
             if showHints {
                 HStack(spacing: 3) {
                     ShortcutBadge(
-                        label: KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString,
+                        label: KeyBindingStore.shared.combo(for: .openProject).displayString,
                         compact: true
                     )
                     ShortcutBadge(
@@ -42,9 +40,22 @@ struct SidebarToolbar: View {
             }
         }
         .background(WindowDragRepresentable())
-        .onReceive(NotificationCenter.default.publisher(for: .toggleThemePicker)) { _ in
-            showThemePicker.toggle()
-        }
+    }
+
+    private func openProject() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a project folder"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let project = Project(
+            name: url.lastPathComponent,
+            path: url.path(percentEncoded: false),
+            sortOrder: projectStore.projects.count
+        )
+        projectStore.add(project)
+        appState.selectProject(project)
     }
 
     private func addProject() {
@@ -64,24 +75,54 @@ struct Sidebar: View {
     @Environment(ProjectStore.self) private var projectStore
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 2) {
-                ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) {
-                    index, project in
-                    ProjectItem(
-                        project: project,
-                        selected: project.id == appState.activeProjectID,
-                        shortcutIndex: index < 9 ? index + 1 : nil,
-                        onSelect: { appState.selectProject(project) },
-                        onRemove: {
-                            appState.removeProject(project.id)
-                            projectStore.remove(id: project.id)
-                        },
-                        onRename: { projectStore.rename(id: project.id, to: $0) }
-                    )
+        VStack(spacing: 0) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 2) {
+                    ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) {
+                        index, project in
+                        ProjectItem(
+                            project: project,
+                            selected: project.id == appState.activeProjectID,
+                            shortcutIndex: index < 9 ? index + 1 : nil,
+                            onSelect: { appState.selectProject(project) },
+                            onRemove: {
+                                appState.removeProject(project.id)
+                                projectStore.remove(id: project.id)
+                            },
+                            onRename: { projectStore.rename(id: project.id, to: $0) }
+                        )
+                    }
                 }
+                .padding(6)
             }
-            .padding(6)
+            SidebarFooter()
+        }
+    }
+}
+
+struct SidebarFooter: View {
+    @State private var showThemePicker = false
+
+    private var versionString: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Rectangle().fill(MuxyTheme.border).frame(height: 1)
+            HStack(spacing: 4) {
+                Text("Muxy \(versionString)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                Spacer()
+                IconButton(symbol: "paintpalette") { showThemePicker.toggle() }
+                    .popover(isPresented: $showThemePicker) { ThemePicker() }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleThemePicker)) { _ in
+            showThemePicker.toggle()
         }
     }
 }
