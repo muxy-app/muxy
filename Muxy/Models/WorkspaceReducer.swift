@@ -44,6 +44,14 @@ enum WorkspaceReducer {
             focusArea(area.id, projectID: projectID, state: &state)
             area.selectTabByIndex(index)
 
+        case let .selectNextTab(projectID):
+            guard let area = resolveArea(projectID: projectID, areaID: nil, state: state) else { break }
+            area.selectNextTab()
+
+        case let .selectPreviousTab(projectID):
+            guard let area = resolveArea(projectID: projectID, areaID: nil, state: state) else { break }
+            area.selectPreviousTab()
+
         case let .splitArea(projectID, areaID, direction, projectPath):
             splitArea(areaID, direction: direction, projectID: projectID, projectPath: projectPath, state: &state)
 
@@ -53,11 +61,11 @@ enum WorkspaceReducer {
         case let .focusArea(projectID, areaID):
             focusArea(areaID, projectID: projectID, state: &state)
 
-        case let .focusNextArea(projectID):
-            cycleFocus(projectID: projectID, forward: true, state: &state)
+        case let .selectNextProject(projects):
+            cycleProject(projects: projects, forward: true, state: &state)
 
-        case let .focusPreviousArea(projectID):
-            cycleFocus(projectID: projectID, forward: false, state: &state)
+        case let .selectPreviousProject(projects):
+            cycleProject(projects: projects, forward: false, state: &state)
         }
 
         return effects
@@ -142,14 +150,15 @@ enum WorkspaceReducer {
         state.focusedAreaID[projectID] = areaID
     }
 
-    private static func cycleFocus(projectID: UUID, forward: Bool, state: inout WorkspaceState) {
-        let areas = state.workspaceRoots[projectID]?.allAreas() ?? []
-        guard areas.count > 1,
-              let currentID = state.focusedAreaID[projectID],
-              let index = areas.firstIndex(where: { $0.id == currentID })
+    private static func cycleProject(projects: [Project], forward: Bool, state: inout WorkspaceState) {
+        guard projects.count > 1,
+              let currentID = state.activeProjectID,
+              let index = projects.firstIndex(where: { $0.id == currentID })
         else { return }
-        let next = forward ? (index + 1) % areas.count : (index - 1 + areas.count) % areas.count
-        state.focusedAreaID[projectID] = areas[next].id
+        let next = forward ? (index + 1) % projects.count : (index - 1 + projects.count) % projects.count
+        let project = projects[next]
+        state.activeProjectID = project.id
+        ensureWorkspaceExists(projectID: project.id, projectPath: project.path, state: &state)
     }
 
     private static func removeProject(

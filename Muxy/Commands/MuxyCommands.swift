@@ -149,6 +149,28 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(after: .windowList) {
+            Button("Next Tab") {
+                guard isMainWindowFocused else { return }
+                guard let projectID = appState.activeProjectID else { return }
+                appState.selectNextTab(projectID: projectID)
+            }
+            .keyboardShortcut(
+                keyBindings.combo(for: .nextTab).swiftUIKeyEquivalent,
+                modifiers: keyBindings.combo(for: .nextTab).swiftUIModifiers
+            )
+
+            Button("Previous Tab") {
+                guard isMainWindowFocused else { return }
+                guard let projectID = appState.activeProjectID else { return }
+                appState.selectPreviousTab(projectID: projectID)
+            }
+            .keyboardShortcut(
+                keyBindings.combo(for: .previousTab).swiftUIKeyEquivalent,
+                modifiers: keyBindings.combo(for: .previousTab).swiftUIModifiers
+            )
+
+            Divider()
+
             ForEach(1 ... 9, id: \.self) { index in
                 if let action = ShortcutAction.tabAction(for: index) {
                     Button("Tab \(index)") {
@@ -165,6 +187,26 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(after: .sidebar) {
+            Button("Next Project") {
+                guard isMainWindowFocused else { return }
+                appState.selectNextProject(projects: projectStore.projects)
+            }
+            .keyboardShortcut(
+                keyBindings.combo(for: .nextProject).swiftUIKeyEquivalent,
+                modifiers: keyBindings.combo(for: .nextProject).swiftUIModifiers
+            )
+
+            Button("Previous Project") {
+                guard isMainWindowFocused else { return }
+                appState.selectPreviousProject(projects: projectStore.projects)
+            }
+            .keyboardShortcut(
+                keyBindings.combo(for: .previousProject).swiftUIKeyEquivalent,
+                modifiers: keyBindings.combo(for: .previousProject).swiftUIModifiers
+            )
+
+            Divider()
+
             ForEach(1 ... 9, id: \.self) { index in
                 if let action = ShortcutAction.projectAction(for: index) {
                     Button("Project \(index)") {
@@ -198,28 +240,6 @@ struct MuxyCommands: Commands {
             .keyboardShortcut(
                 keyBindings.combo(for: .toggleThemePicker).swiftUIKeyEquivalent,
                 modifiers: keyBindings.combo(for: .toggleThemePicker).swiftUIModifiers
-            )
-        }
-
-        CommandGroup(after: .toolbar) {
-            Button("Next Pane") {
-                guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.focusNextArea(projectID: projectID)
-            }
-            .keyboardShortcut(
-                keyBindings.combo(for: .nextPane).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .nextPane).swiftUIModifiers
-            )
-
-            Button("Previous Pane") {
-                guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.focusPreviousArea(projectID: projectID)
-            }
-            .keyboardShortcut(
-                keyBindings.combo(for: .previousPane).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .previousPane).swiftUIModifiers
             )
         }
     }

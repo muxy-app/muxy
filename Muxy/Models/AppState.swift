@@ -11,11 +11,13 @@ final class AppState {
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, areaID: UUID?, index: Int)
+        case selectNextTab(projectID: UUID)
+        case selectPreviousTab(projectID: UUID)
         case splitArea(projectID: UUID, areaID: UUID, direction: SplitDirection, projectPath: String)
         case closeArea(projectID: UUID, areaID: UUID)
         case focusArea(projectID: UUID, areaID: UUID)
-        case focusNextArea(projectID: UUID)
-        case focusPreviousArea(projectID: UUID)
+        case selectNextProject(projects: [Project])
+        case selectPreviousProject(projects: [Project])
     }
 
     private let selectionStore: any ActiveProjectSelectionStoring
@@ -95,6 +97,14 @@ final class AppState {
         dispatch(.selectTabByIndex(projectID: projectID, areaID: nil, index: index))
     }
 
+    func selectNextTab(projectID: UUID) {
+        dispatch(.selectNextTab(projectID: projectID))
+    }
+
+    func selectPreviousTab(projectID: UUID) {
+        dispatch(.selectPreviousTab(projectID: projectID))
+    }
+
     func activeTab(for projectID: UUID) -> TerminalTab? {
         focusedArea(for: projectID)?.activeTab
     }
@@ -128,17 +138,17 @@ final class AppState {
         dispatch(.focusArea(projectID: projectID, areaID: areaID))
     }
 
-    func focusNextArea(projectID: UUID) {
-        dispatch(.focusNextArea(projectID: projectID))
-    }
-
-    func focusPreviousArea(projectID: UUID) {
-        dispatch(.focusPreviousArea(projectID: projectID))
-    }
-
     func selectProjectByIndex(_ index: Int, projects: [Project]) {
         guard index >= 0, index < projects.count else { return }
         selectProject(projects[index])
+    }
+
+    func selectNextProject(projects: [Project]) {
+        dispatch(.selectNextProject(projects: projects))
+    }
+
+    func selectPreviousProject(projects: [Project]) {
+        dispatch(.selectPreviousProject(projects: projects))
     }
 
     func removeProject(_ projectID: UUID) {
