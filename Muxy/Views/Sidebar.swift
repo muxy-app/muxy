@@ -76,7 +76,8 @@ struct Sidebar: View {
                         onRemove: {
                             appState.removeProject(project.id)
                             projectStore.remove(id: project.id)
-                        }
+                        },
+                        onRename: { projectStore.rename(id: project.id, to: $0) }
                     )
                 }
             }
@@ -91,7 +92,11 @@ private struct ProjectItem: View {
     var shortcutIndex: Int?
     let onSelect: () -> Void
     let onRemove: () -> Void
+    let onRename: (String) -> Void
     @State private var hovered = false
+    @State private var isRenaming = false
+    @State private var renameText = ""
+    @FocusState private var renameFieldFocused: Bool
 
     private var showBadge: Bool {
         guard let shortcutIndex,
@@ -103,33 +108,65 @@ private struct ProjectItem: View {
     }
 
     var body: some View {
-        Text(project.name)
-            .font(.system(size: 12))
-            .foregroundStyle(selected ? MuxyTheme.accent : MuxyTheme.fgMuted)
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(background, in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(alignment: .trailing) {
-                if showBadge, let shortcutIndex,
-                   let action = ShortcutAction.projectAction(for: shortcutIndex)
-                {
-                    ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
-                        .padding(.trailing, 6)
-                }
+        Group {
+            if isRenaming {
+                TextField("", text: $renameText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(MuxyTheme.fg)
+                    .focused($renameFieldFocused)
+                    .onSubmit { commitRename() }
+                    .onExitCommand { cancelRename() }
+            } else {
+                Text(project.name)
+                    .font(.system(size: 12))
+                    .foregroundStyle(selected ? MuxyTheme.accent : MuxyTheme.fgMuted)
             }
-            .onTapGesture(perform: onSelect)
-            .onHover { hovered = $0 }
-            .contextMenu {
-                Button("Remove Project", role: .destructive, action: onRemove)
+        }
+        .lineLimit(1)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(background, in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(alignment: .trailing) {
+            if showBadge, let shortcutIndex,
+               let action = ShortcutAction.projectAction(for: shortcutIndex)
+            {
+                ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
+                    .padding(.trailing, 6)
             }
+        }
+        .onTapGesture(perform: onSelect)
+        .onHover { hovered = $0 }
+        .contextMenu {
+            Button("Rename Project") { startRename() }
+            Divider()
+            Button("Remove Project", role: .destructive, action: onRemove)
+        }
     }
 
     private var background: some ShapeStyle {
         if selected { return AnyShapeStyle(MuxyTheme.accentSoft) }
         if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(.clear)
+    }
+
+    private func startRename() {
+        renameText = project.name
+        isRenaming = true
+        renameFieldFocused = true
+    }
+
+    private func commitRename() {
+        let trimmed = renameText.trimmingCharacters(in: .whitespaces)
+        if !trimmed.isEmpty {
+            onRename(trimmed)
+        }
+        isRenaming = false
+    }
+
+    private func cancelRename() {
+        isRenaming = false
     }
 }

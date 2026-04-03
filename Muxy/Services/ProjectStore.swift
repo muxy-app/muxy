@@ -24,6 +24,12 @@ final class ProjectStore {
         save()
     }
 
+    func rename(id: UUID, to newName: String) {
+        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[index].name = newName
+        save()
+    }
+
     func reorder(fromOffsets source: IndexSet, toOffset destination: Int) {
         projects.move(fromOffsets: source, toOffset: destination)
         for index in projects.indices {
