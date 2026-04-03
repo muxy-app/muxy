@@ -4,7 +4,6 @@ struct MainWindow: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(GhosttyService.self) private var ghostty
-
     private let sidebarWidth: CGFloat = 160
 
     var body: some View {
@@ -16,19 +15,23 @@ struct MainWindow: View {
                 topBarContent
             }
             .frame(height: 32)
+            .background(MuxyTheme.bg)
 
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
+                .background(MuxyTheme.bg)
 
             HStack(spacing: 0) {
                 if appState.sidebarVisible {
-                    Sidebar()
-                        .frame(width: sidebarWidth)
-                        .background(MuxyTheme.bg)
-                    Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                    HStack(spacing: 0) {
+                        Sidebar()
+                            .frame(width: sidebarWidth)
+                        Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                    }
+                    .background(MuxyTheme.bg)
                 }
 
                 ZStack {
-                    MuxyTheme.bg
+                    MuxyTheme.terminalBg
                     if let project = activeProject {
                         TerminalArea(project: project, isActiveProject: true)
                             .id(project.id)
@@ -39,7 +42,6 @@ struct MainWindow: View {
             }
         }
         .id(ghostty.configVersion)
-        .background(MuxyTheme.bg)
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
         .edgesIgnoringSafeArea(.top)
         .onAppear {

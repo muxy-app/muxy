@@ -25,6 +25,7 @@ final class ThemeService {
         let sanitized = name.filter { $0 != "\"" && $0 != "\n" && $0 != "\r" }
         config.updateConfigValue("theme", value: "\"\(sanitized)\"")
         ghostty.reloadConfig()
+        NotificationCenter.default.post(name: .themeDidChange, object: nil)
     }
 
     nonisolated private static func discoverThemes() -> [ThemePreview] {
