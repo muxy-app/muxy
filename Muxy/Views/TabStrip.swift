@@ -10,6 +10,7 @@ struct PaneTabStrip: View {
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onClose: () -> Void
+    @State private var dragState = TabDragState()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -18,6 +19,7 @@ struct PaneTabStrip: View {
                     tab: tab,
                     active: tab.id == area.activeTabID,
                     paneFocused: isFocused,
+                    isAnyDragging: dragState.draggedID != nil,
                     shortcutIndex: index < 9 ? index + 1 : nil,
                     onSelect: {
                         onFocus()
@@ -28,19 +30,75 @@ struct PaneTabStrip: View {
                     onCreateRight: { area.createTabAdjacent(to: tab.id, side: .right) },
                     onTogglePin: { area.togglePin(tab.id) }
                 )
+                .background(GeometryReader { geo in
+                    Color.clear.preference(
+                        key: TabFramePreferenceKey.self,
+                        value: [tab.id: geo.frame(in: .named("tabstrip-\(area.id)"))]
+                    )
+                })
+                .gesture(
+                    DragGesture(
+                        minimumDistance: 4,
+                        coordinateSpace: .named("tabstrip-\(area.id)")
+                    )
+                    .onChanged { value in
+                        if dragState.draggedID == nil {
+                            dragState.draggedID = tab.id
+                        }
+                        reorderIfNeeded(at: value.location)
+                    }
+                    .onEnded { _ in
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            dragState.draggedID = nil
+                        }
+                    }
+                )
+                .onTapGesture {
+                    guard dragState.draggedID == nil else { return }
+                    onFocus()
+                    onSelectTab(tab.id)
+                }
             }
 
-            Spacer(minLength: 0)
-
             HStack(spacing: 0) {
+                Spacer(minLength: 0)
                 IconButton(symbol: "square.split.2x1") { onSplit(.horizontal) }
                 IconButton(symbol: "square.split.1x2") { onSplit(.vertical) }
                 IconButton(symbol: "plus") { onCreateTab() }
             }
             .padding(.trailing, 4)
+            .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
         }
         .frame(height: 32)
-        .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
+        .onPreferenceChange(TabFramePreferenceKey.self) { dragState.frames = $0 }
+        .coordinateSpace(name: "tabstrip-\(area.id)")
+    }
+
+    private func reorderIfNeeded(at location: CGPoint) {
+        guard let draggedID = dragState.draggedID else { return }
+        for (id, frame) in dragState.frames where id != draggedID {
+            guard frame.contains(location) else { continue }
+            guard let sourceIndex = area.tabs.firstIndex(where: { $0.id == draggedID }),
+                  let destIndex = area.tabs.firstIndex(where: { $0.id == id })
+            else { return }
+            let offset = destIndex > sourceIndex ? destIndex + 1 : destIndex
+            withAnimation(.easeInOut(duration: 0.15)) {
+                area.reorderTab(fromOffsets: IndexSet(integer: sourceIndex), toOffset: offset)
+            }
+            return
+        }
+    }
+}
+
+private struct TabDragState {
+    var draggedID: UUID?
+    var frames: [UUID: CGRect] = [:]
+}
+
+private struct TabFramePreferenceKey: PreferenceKey {
+    nonisolated(unsafe) static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
 }
 
@@ -83,7 +141,22 @@ final class WindowDragView: NSView {
             }
             return
         }
-        window?.performDrag(with: event)
+        let threshold = NSEvent.doubleClickInterval
+        guard let next = window?.nextEvent(
+            matching: [.leftMouseUp, .leftMouseDown, .leftMouseDragged],
+            until: Date(timeIntervalSinceNow: threshold),
+            inMode: .eventTracking,
+            dequeue: true
+        )
+        else {
+            window?.performDrag(with: event)
+            return
+        }
+        if next.type == .leftMouseDragged {
+            window?.performDrag(with: event)
+        } else if next.type == .leftMouseDown {
+            mouseDown(with: next)
+        }
     }
 }
 
@@ -91,6 +164,7 @@ private struct TabCell: View {
     @Bindable var tab: TerminalTab
     let active: Bool
     let paneFocused: Bool
+    var isAnyDragging: Bool = false
     var shortcutIndex: Int?
     let onSelect: () -> Void
     let onClose: () -> Void
@@ -164,8 +238,13 @@ private struct TabCell: View {
             }
             .background(active ? MuxyTheme.surface : .clear)
             .contentShape(Rectangle())
-            .onTapGesture(perform: onSelect)
-            .onHover { hovered = $0 }
+            .onHover { hovering in
+                guard !isAnyDragging else { return }
+                hovered = hovering
+            }
+            .onChange(of: isAnyDragging) { _, dragging in
+                if dragging { hovered = false }
+            }
             .overlay {
                 if !tab.isPinned {
                     MiddleClickView(action: onClose)

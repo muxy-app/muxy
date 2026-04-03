@@ -110,6 +110,7 @@ struct WindowConfigurator: NSViewRepresentable {
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.styleMask.insert(.fullSizeContentView)
+            w.isMovable = false
             w.isMovableByWindowBackground = false
             Self.applyWindowBackground(w)
             Self.repositionTrafficLights(in: w)

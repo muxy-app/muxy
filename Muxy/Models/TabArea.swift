@@ -115,6 +115,10 @@ final class TabArea: Identifiable {
         selectTab(tabs[previous].id)
     }
 
+    func reorderTab(fromOffsets source: IndexSet, toOffset destination: Int) {
+        tabs.move(fromOffsets: source, toOffset: destination)
+    }
+
     func togglePin(_ tabID: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
         let tab = tabs[index]
