@@ -3,17 +3,39 @@ import Foundation
 @MainActor
 @Observable
 final class TabArea: Identifiable {
-    let id = UUID()
+    let id: UUID
     let projectPath: String
     var tabs: [TerminalTab] = []
     var activeTabID: UUID?
     private var tabHistory: [UUID] = []
 
     init(projectPath: String) {
+        id = UUID()
         self.projectPath = projectPath
         let tab = TerminalTab(pane: TerminalPaneState(projectPath: projectPath))
         tabs.append(tab)
         activeTabID = tab.id
+    }
+
+    init(restoring snapshot: TabAreaSnapshot) {
+        id = snapshot.id
+        projectPath = snapshot.projectPath
+        tabs = snapshot.tabs.map { TerminalTab(restoring: $0) }
+        if let index = snapshot.activeTabIndex, index >= 0, index < tabs.count {
+            activeTabID = tabs[index].id
+        } else {
+            activeTabID = tabs.first?.id
+        }
+    }
+
+    func snapshot() -> TabAreaSnapshot {
+        let activeIndex = tabs.firstIndex(where: { $0.id == activeTabID })
+        return TabAreaSnapshot(
+            id: id,
+            projectPath: projectPath,
+            tabs: tabs.map { $0.snapshot() },
+            activeTabIndex: activeIndex
+        )
     }
 
     var activeTab: TerminalTab? {

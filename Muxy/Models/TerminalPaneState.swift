@@ -10,4 +10,9 @@ final class TerminalPaneState: Identifiable {
     init(projectPath: String) {
         self.projectPath = projectPath
     }
+
+    init(projectPath: String, title: String) {
+        self.projectPath = projectPath
+        self.title = title
+    }
 }
