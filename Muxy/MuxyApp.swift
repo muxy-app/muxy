@@ -106,7 +106,7 @@ struct WindowConfigurator: NSViewRepresentable {
             w.titleVisibility = .hidden
             w.styleMask.insert(.fullSizeContentView)
             w.isMovableByWindowBackground = false
-            w.backgroundColor = MuxyTheme.nsBg
+            Self.applyWindowBackground(w)
             Self.repositionTrafficLights(in: w)
             context.coordinator.observe(window: w)
         }
@@ -114,7 +114,19 @@ struct WindowConfigurator: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        nsView.window?.backgroundColor = MuxyTheme.nsBg
+        guard let w = nsView.window else { return }
+        Self.applyWindowBackground(w)
+    }
+
+    private static func applyWindowBackground(_ window: NSWindow) {
+        let opacity = GhosttyService.shared.backgroundOpacity
+        if opacity < 1.0 {
+            window.isOpaque = false
+            window.backgroundColor = .clear
+        } else {
+            window.isOpaque = true
+            window.backgroundColor = MuxyTheme.nsBg
+        }
     }
 
     static func repositionTrafficLights(in window: NSWindow) {

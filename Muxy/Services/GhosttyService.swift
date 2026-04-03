@@ -75,6 +75,15 @@ final class GhosttyService {
         tickTimer = timer
     }
 
+    var backgroundOpacity: Double {
+        guard let config else { return 1.0 }
+        var value = 1.0
+        if ghostty_config_get(config, &value, "background-opacity", 18) {
+            return max(0, min(1, value))
+        }
+        return 1.0
+    }
+
     var backgroundColor: NSColor {
         configColor("background") ?? NSColor(srgbRed: 0.11, green: 0.11, blue: 0.14, alpha: 1)
     }

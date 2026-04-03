@@ -29,4 +29,8 @@ enum MuxyTheme {
     @MainActor static var accentSoft: Color {
         Color(nsColor: GhosttyService.shared.accentColor.withAlphaComponent(0.1))
     }
+
+    @MainActor static var terminalBg: Color {
+        Color(nsColor: GhosttyService.shared.backgroundColor.withAlphaComponent(GhosttyService.shared.backgroundOpacity))
+    }
 }
