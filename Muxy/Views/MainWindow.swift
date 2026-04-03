@@ -91,7 +91,7 @@ struct MainWindow: View {
                 }
                 Spacer(minLength: 0)
             }
-            .background(WindowDragRepresentable())
+            .background(WindowDragRepresentable(alwaysEnabled: true))
         }
     }
 

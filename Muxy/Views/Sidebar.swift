@@ -73,6 +73,7 @@ struct SidebarToolbar: View {
 struct Sidebar: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
+    @State private var dragState = ProjectDragState()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -83,20 +84,75 @@ struct Sidebar: View {
                         ProjectItem(
                             project: project,
                             selected: project.id == appState.activeProjectID,
+                            isAnyDragging: dragState.draggedID != nil,
                             shortcutIndex: index < 9 ? index + 1 : nil,
-                            onSelect: { appState.selectProject(project) },
                             onRemove: {
                                 appState.removeProject(project.id)
                                 projectStore.remove(id: project.id)
                             },
                             onRename: { projectStore.rename(id: project.id, to: $0) }
                         )
+                        .background(GeometryReader { geo in
+                            Color.clear.preference(
+                                key: ItemFramePreferenceKey.self,
+                                value: [project.id: geo.frame(in: .named("sidebar"))]
+                            )
+                        })
+                        .gesture(
+                            DragGesture(minimumDistance: 4, coordinateSpace: .named("sidebar"))
+                                .onChanged { value in
+                                    if dragState.draggedID == nil {
+                                        dragState.draggedID = project.id
+                                    }
+                                    reorderIfNeeded(at: value.location)
+                                }
+                                .onEnded { _ in
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        dragState.draggedID = nil
+                                    }
+                                }
+                        )
+                        .onTapGesture {
+                            guard dragState.draggedID == nil else { return }
+                            appState.selectProject(project)
+                        }
                     }
                 }
                 .padding(6)
+                .onPreferenceChange(ItemFramePreferenceKey.self) { dragState.frames = $0 }
             }
+            .coordinateSpace(name: "sidebar")
             SidebarFooter()
         }
+    }
+
+    private func reorderIfNeeded(at location: CGPoint) {
+        guard let draggedID = dragState.draggedID else { return }
+        for (id, frame) in dragState.frames where id != draggedID {
+            guard frame.contains(location) else { continue }
+            guard let sourceIndex = projectStore.projects.firstIndex(where: { $0.id == draggedID }),
+                  let destIndex = projectStore.projects.firstIndex(where: { $0.id == id })
+            else { return }
+            let offset = destIndex > sourceIndex ? destIndex + 1 : destIndex
+            withAnimation(.easeInOut(duration: 0.15)) {
+                projectStore.reorder(
+                    fromOffsets: IndexSet(integer: sourceIndex), toOffset: offset
+                )
+            }
+            return
+        }
+    }
+}
+
+private struct ProjectDragState {
+    var draggedID: UUID?
+    var frames: [UUID: CGRect] = [:]
+}
+
+private struct ItemFramePreferenceKey: PreferenceKey {
+    nonisolated(unsafe) static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
 }
 
@@ -130,8 +186,8 @@ struct SidebarFooter: View {
 private struct ProjectItem: View {
     let project: Project
     let selected: Bool
+    var isAnyDragging: Bool = false
     var shortcutIndex: Int?
-    let onSelect: () -> Void
     let onRemove: () -> Void
     let onRename: (String) -> Void
     @State private var hovered = false
@@ -178,8 +234,13 @@ private struct ProjectItem: View {
                     .padding(.trailing, 6)
             }
         }
-        .onTapGesture(perform: onSelect)
-        .onHover { hovered = $0 }
+        .onHover { hovering in
+            guard !isAnyDragging else { return }
+            hovered = hovering
+        }
+        .onChange(of: isAnyDragging) { _, dragging in
+            if dragging { hovered = false }
+        }
         .contextMenu {
             Button("Rename Project") { startRename() }
             Divider()
