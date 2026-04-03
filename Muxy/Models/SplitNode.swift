@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 enum SplitDirection {
@@ -111,6 +112,26 @@ extension SplitNode {
         case let .tabArea(area): area.id == id ? area : nil
         case let .split(branch):
             branch.first.findArea(id: id) ?? branch.second.findArea(id: id)
+        }
+    }
+
+    func areaFrames(in rect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)) -> [UUID: CGRect] {
+        switch self {
+        case let .tabArea(area):
+            return [area.id: rect]
+        case let .split(branch):
+            let ratio = min(max(branch.ratio, 0), 1)
+            if branch.direction == .horizontal {
+                let firstWidth = rect.width * ratio
+                let firstRect = CGRect(x: rect.minX, y: rect.minY, width: firstWidth, height: rect.height)
+                let secondRect = CGRect(x: rect.minX + firstWidth, y: rect.minY, width: rect.width - firstWidth, height: rect.height)
+                return branch.first.areaFrames(in: firstRect).merging(branch.second.areaFrames(in: secondRect)) { current, _ in current }
+            }
+
+            let firstHeight = rect.height * ratio
+            let firstRect = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: firstHeight)
+            let secondRect = CGRect(x: rect.minX, y: rect.minY + firstHeight, width: rect.width, height: rect.height - firstHeight)
+            return branch.first.areaFrames(in: firstRect).merging(branch.second.areaFrames(in: secondRect)) { current, _ in current }
         }
     }
 }

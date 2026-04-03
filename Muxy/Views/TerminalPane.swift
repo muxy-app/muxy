@@ -82,7 +82,7 @@ struct TerminalBridge: NSViewRepresentable {
             DispatchQueue.main.async {
                 nsView.window?.makeFirstResponder(nsView)
             }
-        } else if !focused, wasFocused {
+        } else if !focused {
             nsView.notifySurfaceUnfocused()
         }
     }

@@ -9,6 +9,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case splitRight
     case splitDown
     case closePane
+    case focusPaneLeft
+    case focusPaneRight
+    case focusPaneUp
+    case focusPaneDown
     case nextTab
     case previousTab
     case toggleSidebar
@@ -49,6 +53,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .splitRight: "Split Right"
         case .splitDown: "Split Down"
         case .closePane: "Close Pane"
+        case .focusPaneLeft: "Focus Pane Left"
+        case .focusPaneRight: "Focus Pane Right"
+        case .focusPaneUp: "Focus Pane Up"
+        case .focusPaneDown: "Focus Pane Down"
         case .nextTab: "Next Tab"
         case .previousTab: "Previous Tab"
         case .toggleSidebar: "Toggle Sidebar"
@@ -89,7 +97,11 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
             "Tabs"
         case .splitRight,
              .splitDown,
-             .closePane:
+             .closePane,
+             .focusPaneLeft,
+             .focusPaneRight,
+             .focusPaneUp,
+             .focusPaneDown:
             "Panes"
         case .nextTab,
              .previousTab,
@@ -159,6 +171,10 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
              .splitRight,
              .splitDown,
              .closePane,
+             .focusPaneLeft,
+             .focusPaneRight,
+             .focusPaneUp,
+             .focusPaneDown,
              .nextTab,
              .previousTab,
              .toggleSidebar,
@@ -197,19 +213,31 @@ enum ShortcutScope: String, Codable, CaseIterable {
 }
 
 struct KeyCombo: Codable, Equatable, Hashable {
+    static let supportedModifierMask: NSEvent.ModifierFlags = [.command, .shift, .control, .option]
+    static let leftArrowKey = "leftarrow"
+    static let rightArrowKey = "rightarrow"
+    static let upArrowKey = "uparrow"
+    static let downArrowKey = "downarrow"
+    private static let keyCodeLeftBracket = 33
+    private static let keyCodeRightBracket = 30
+    private static let keyCodeLeftArrow = 123
+    private static let keyCodeRightArrow = 124
+    private static let keyCodeDownArrow = 125
+    private static let keyCodeUpArrow = 126
+
     let key: String
     let modifiers: UInt
 
     init(key: String, modifiers: UInt) {
-        self.key = key.lowercased()
-        self.modifiers = modifiers
+        self.key = Self.normalized(key: key)
+        self.modifiers = Self.normalized(modifiers: modifiers)
     }
 
     init(
         key: String, command: Bool = false, shift: Bool = false, control: Bool = false,
         option: Bool = false
     ) {
-        self.key = key.lowercased()
+        self.key = Self.normalized(key: key)
         var flags: UInt = 0
         if command { flags |= NSEvent.ModifierFlags.command.rawValue }
         if shift { flags |= NSEvent.ModifierFlags.shift.rawValue }
@@ -219,7 +247,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
     }
 
     var nsModifierFlags: NSEvent.ModifierFlags {
-        NSEvent.ModifierFlags(rawValue: modifiers).intersection(.deviceIndependentFlagsMask)
+        NSEvent.ModifierFlags(rawValue: modifiers).intersection(Self.supportedModifierMask)
     }
 
     var swiftUIKeyEquivalent: KeyEquivalent {
@@ -227,6 +255,10 @@ struct KeyCombo: Codable, Equatable, Hashable {
         case "[": KeyEquivalent("[")
         case "]": KeyEquivalent("]")
         case ",": KeyEquivalent(",")
+        case Self.leftArrowKey: .leftArrow
+        case Self.rightArrowKey: .rightArrow
+        case Self.upArrowKey: .upArrow
+        case Self.downArrowKey: .downArrow
         default: KeyEquivalent(Character(key))
         }
     }
@@ -248,14 +280,56 @@ struct KeyCombo: Codable, Equatable, Hashable {
         if flags.contains(.option) { parts += "⌥" }
         if flags.contains(.shift) { parts += "⇧" }
         if flags.contains(.command) { parts += "⌘" }
-        parts += key.uppercased()
+        let keyDisplay: String = switch key {
+        case Self.leftArrowKey: "←"
+        case Self.rightArrowKey: "→"
+        case Self.upArrowKey: "↑"
+        case Self.downArrowKey: "↓"
+        default: key.uppercased()
+        }
+        parts += keyDisplay
         return parts
     }
 
     func matches(event: NSEvent) -> Bool {
-        let eventFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-        let eventKey = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        let eventFlags = event.modifierFlags.intersection(Self.supportedModifierMask).rawValue
+        let eventKey = Self.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
         return eventKey == key && eventFlags == modifiers
+    }
+
+    static func normalized(modifiers: UInt) -> UInt {
+        NSEvent.ModifierFlags(rawValue: modifiers).intersection(supportedModifierMask).rawValue
+    }
+
+    static func normalized(key: String, keyCode: UInt16? = nil) -> String {
+        if let keyCode {
+            switch Int(keyCode) {
+            case keyCodeLeftBracket: return "["
+            case keyCodeRightBracket: return "]"
+            case keyCodeLeftArrow: return leftArrowKey
+            case keyCodeRightArrow: return rightArrowKey
+            case keyCodeUpArrow: return upArrowKey
+            case keyCodeDownArrow: return downArrowKey
+            default: break
+            }
+        }
+
+        let lowercased = key.lowercased()
+        if lowercased == leftArrowKey || lowercased == rightArrowKey || lowercased == upArrowKey || lowercased == downArrowKey {
+            return lowercased
+        }
+
+        guard let scalar = lowercased.unicodeScalars.first, lowercased.unicodeScalars.count == 1 else {
+            return lowercased
+        }
+
+        switch Int(scalar.value) {
+        case NSLeftArrowFunctionKey: return leftArrowKey
+        case NSRightArrowFunctionKey: return rightArrowKey
+        case NSUpArrowFunctionKey: return upArrowKey
+        case NSDownArrowFunctionKey: return downArrowKey
+        default: return lowercased
+        }
     }
 }
 
@@ -273,6 +347,10 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .splitRight, combo: KeyCombo(key: "d", command: true)),
         Self(action: .splitDown, combo: KeyCombo(key: "d", command: true, shift: true)),
         Self(action: .closePane, combo: KeyCombo(key: "w", command: true, shift: true)),
+        Self(action: .focusPaneLeft, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, option: true)),
+        Self(action: .focusPaneRight, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, option: true)),
+        Self(action: .focusPaneUp, combo: KeyCombo(key: KeyCombo.upArrowKey, command: true, option: true)),
+        Self(action: .focusPaneDown, combo: KeyCombo(key: KeyCombo.downArrowKey, command: true, option: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true)),
         Self(action: .newProject, combo: KeyCombo(key: "n", command: true)),
