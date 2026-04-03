@@ -66,12 +66,12 @@ final class GhosttyService {
         self.app = createdApp
         self.config = cfg
 
-        let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.tick()
             }
         }
-        RunLoop.main.add(timer, forMode: .common)
+        RunLoop.main.add(timer, forMode: .default)
         tickTimer = timer
     }
 
