@@ -148,7 +148,6 @@ struct WindowConfigurator: NSViewRepresentable {
         func observe(window: NSWindow) {
             guard observations.isEmpty else { return }
             let names: [Notification.Name] = [
-                NSWindow.didResizeNotification,
                 NSWindow.didEndLiveResizeNotification,
                 NSWindow.didExitFullScreenNotification,
                 NSWindow.didEnterFullScreenNotification,
