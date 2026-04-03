@@ -7,6 +7,7 @@ struct PaneTabStrip: View {
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
+    let onCreateVCSTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onClose: () -> Void
@@ -65,6 +66,7 @@ struct PaneTabStrip: View {
                 IconButton(symbol: "square.split.2x1") { onSplit(.horizontal) }
                 IconButton(symbol: "square.split.1x2") { onSplit(.vertical) }
                 IconButton(symbol: "plus") { onCreateTab() }
+                FileDiffIconButton(action: onCreateVCSTab)
             }
             .padding(.trailing, 4)
             .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
@@ -188,8 +190,7 @@ private struct TabCell: View {
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: 6) {
-                Image(systemName: tab.isPinned ? "pin.fill" : "terminal")
-                    .font(.system(size: tab.isPinned ? 10 : 12, weight: .semibold))
+                tabIconView
                     .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
 
                 if isRenaming {
@@ -290,6 +291,21 @@ private struct TabCell: View {
 
     private func cancelRename() {
         isRenaming = false
+    }
+
+    @ViewBuilder
+    private var tabIconView: some View {
+        if tab.isPinned {
+            Image(systemName: "pin.fill")
+                .font(.system(size: 10, weight: .semibold))
+        } else if tab.kind == .vcs {
+            FileDiffIcon()
+                .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                .frame(width: 12, height: 12)
+        } else {
+            Image(systemName: "terminal")
+                .font(.system(size: 12, weight: .semibold))
+        }
     }
 }
 

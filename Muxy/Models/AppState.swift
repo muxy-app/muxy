@@ -8,6 +8,7 @@ final class AppState {
         case selectProject(projectID: UUID, projectPath: String)
         case removeProject(projectID: UUID)
         case createTab(projectID: UUID, areaID: UUID?)
+        case createVCSTab(projectID: UUID, areaID: UUID?)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, areaID: UUID?, index: Int)
@@ -110,6 +111,10 @@ final class AppState {
 
     func createTab(projectID: UUID) {
         dispatch(.createTab(projectID: projectID, areaID: nil))
+    }
+
+    func createVCSTab(projectID: UUID) {
+        dispatch(.createVCSTab(projectID: projectID, areaID: nil))
     }
 
     func closeTab(_ tabID: UUID, projectID: UUID) {
