@@ -8,6 +8,10 @@ final class GhosttyTerminalNSView: NSView {
     var onTitleChange: ((String) -> Void)?
     var onFocus: (() -> Void)?
     var onProcessExit: (() -> Void)?
+    var onSearchStart: ((String?) -> Void)?
+    var onSearchEnd: (() -> Void)?
+    var onSearchTotal: ((Int?) -> Void)?
+    var onSearchSelected: ((Int?) -> Void)?
     var isFocused: Bool = false
 
     private var _markedRange: NSRange = .init(location: NSNotFound, length: 0)
@@ -412,6 +416,35 @@ final class GhosttyTerminalNSView: NSView {
               let scalar = chars.unicodeScalars.first
         else { return 0 }
         return scalar.value
+    }
+
+    func sendSearchQuery(_ needle: String) {
+        guard let surface else { return }
+        let action = "search:\(needle)"
+        ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
+    }
+
+    func navigateSearch(direction: SearchDirection) {
+        guard let surface else { return }
+        let action = "navigate_search:\(direction.rawValue)"
+        ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
+    }
+
+    func endSearch() {
+        guard let surface else { return }
+        let action = "end_search"
+        ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
+    }
+
+    func startSearch() {
+        guard let surface else { return }
+        let action = "start_search"
+        ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
+    }
+
+    enum SearchDirection: String {
+        case next
+        case previous
     }
 }
 

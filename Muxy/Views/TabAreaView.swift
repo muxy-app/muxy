@@ -42,5 +42,13 @@ struct TabAreaView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .findInTerminal)) { _ in
+            guard isFocused, isActiveProject else { return }
+            guard let tabID = area.activeTabID,
+                  let tab = area.tabs.first(where: { $0.id == tabID })
+            else { return }
+            let paneID = tab.pane.id
+            TerminalViewRegistry.shared.existingView(for: paneID)?.startSearch()
+        }
     }
 }

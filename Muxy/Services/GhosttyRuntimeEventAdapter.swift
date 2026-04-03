@@ -25,19 +25,27 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
             return true
+        case GHOSTTY_ACTION_START_SEARCH:
+            handleStartSearch(target: target, search: action.action.start_search)
+            return true
+        case GHOSTTY_ACTION_END_SEARCH:
+            handleEndSearch(target: target)
+            return true
+        case GHOSTTY_ACTION_SEARCH_TOTAL:
+            handleSearchTotal(target: target, total: action.action.search_total)
+            return true
+        case GHOSTTY_ACTION_SEARCH_SELECTED:
+            handleSearchSelected(target: target, selected: action.action.search_selected)
+            return true
         default:
             return false
         }
     }
 
     private func handleSetTitle(target: ghostty_target_s, title: ghostty_action_set_title_s) {
-        guard target.tag == GHOSTTY_TARGET_SURFACE else { return }
-        guard let surface = target.target.surface else { return }
-        guard let userdata = ghostty_surface_userdata(surface) else { return }
+        guard let view = surfaceView(from: target) else { return }
         guard let titlePtr = title.title else { return }
-
         let titleString = String(cString: titlePtr)
-        let view = Unmanaged<GhosttyTerminalNSView>.fromOpaque(userdata).takeUnretainedValue()
         DispatchQueue.main.async {
             view.onTitleChange?(titleString)
         }
@@ -87,6 +95,44 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         DispatchQueue.main.async {
             view.onProcessExit?()
         }
+    }
+
+    private func handleStartSearch(target: ghostty_target_s, search: ghostty_action_start_search_s) {
+        guard let view = surfaceView(from: target) else { return }
+        let needle = search.needle.flatMap { String(cString: $0) }
+        DispatchQueue.main.async {
+            view.onSearchStart?(needle)
+        }
+    }
+
+    private func handleEndSearch(target: ghostty_target_s) {
+        guard let view = surfaceView(from: target) else { return }
+        DispatchQueue.main.async {
+            view.onSearchEnd?()
+        }
+    }
+
+    private func handleSearchTotal(target: ghostty_target_s, total: ghostty_action_search_total_s) {
+        guard let view = surfaceView(from: target) else { return }
+        let value = total.total >= 0 ? Int(total.total) : nil
+        DispatchQueue.main.async {
+            view.onSearchTotal?(value)
+        }
+    }
+
+    private func handleSearchSelected(target: ghostty_target_s, selected: ghostty_action_search_selected_s) {
+        guard let view = surfaceView(from: target) else { return }
+        let value = selected.selected >= 0 ? Int(selected.selected) : nil
+        DispatchQueue.main.async {
+            view.onSearchSelected?(value)
+        }
+    }
+
+    private func surfaceView(from target: ghostty_target_s) -> GhosttyTerminalNSView? {
+        guard target.tag == GHOSTTY_TARGET_SURFACE else { return nil }
+        guard let surface = target.target.surface else { return nil }
+        guard let userdata = ghostty_surface_userdata(surface) else { return nil }
+        return Unmanaged<GhosttyTerminalNSView>.fromOpaque(userdata).takeUnretainedValue()
     }
 
     private static func callbackSurface(from userdata: UnsafeMutableRawPointer?) -> ghostty_surface_t? {

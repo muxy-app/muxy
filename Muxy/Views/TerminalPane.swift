@@ -8,7 +8,28 @@ struct TerminalPane: View {
     let onProcessExit: () -> Void
 
     var body: some View {
-        TerminalBridge(state: state, focused: focused, onFocus: onFocus, onProcessExit: onProcessExit)
+        ZStack(alignment: .topTrailing) {
+            TerminalBridge(state: state, focused: focused, onFocus: onFocus, onProcessExit: onProcessExit)
+
+            if state.searchState.isVisible {
+                TerminalSearchBar(
+                    searchState: state.searchState,
+                    onNavigateNext: {
+                        let view = TerminalViewRegistry.shared.existingView(for: state.id)
+                        view?.navigateSearch(direction: .next)
+                    },
+                    onNavigatePrevious: {
+                        let view = TerminalViewRegistry.shared.existingView(for: state.id)
+                        view?.navigateSearch(direction: .previous)
+                    },
+                    onClose: {
+                        let view = TerminalViewRegistry.shared.existingView(for: state.id)
+                        view?.endSearch()
+                    }
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
     }
 }
 
@@ -36,6 +57,7 @@ struct TerminalBridge: NSViewRepresentable {
         view.onTitleChange = { [weak state] title in
             state?.title = title
         }
+        configureSearchCallbacks(view)
         context.coordinator.wasFocused = focused
         context.coordinator.paneID = state.id
         if focused {
@@ -52,6 +74,7 @@ struct TerminalBridge: NSViewRepresentable {
         nsView.onTitleChange = { [weak state] title in
             state?.title = title
         }
+        configureSearchCallbacks(nsView)
         let wasFocused = context.coordinator.wasFocused
         context.coordinator.wasFocused = focused
         nsView.isFocused = focused
@@ -61,6 +84,37 @@ struct TerminalBridge: NSViewRepresentable {
             }
         } else if !focused, wasFocused {
             nsView.notifySurfaceUnfocused()
+        }
+    }
+
+    private func configureSearchCallbacks(_ view: GhosttyTerminalNSView) {
+        view.onSearchStart = { [weak state] needle in
+            guard let state else { return }
+            let searchState = state.searchState
+            if let needle, !needle.isEmpty {
+                searchState.needle = needle
+            }
+            searchState.isVisible = true
+            searchState.startPublishing { [weak view] query in
+                view?.sendSearchQuery(query)
+            }
+            if !searchState.needle.isEmpty {
+                searchState.pushNeedle()
+            }
+        }
+        view.onSearchEnd = { [weak state] in
+            guard let state else { return }
+            state.searchState.stopPublishing()
+            state.searchState.isVisible = false
+            state.searchState.needle = ""
+            state.searchState.total = nil
+            state.searchState.selected = nil
+        }
+        view.onSearchTotal = { [weak state] total in
+            state?.searchState.total = total
+        }
+        view.onSearchSelected = { [weak state] selected in
+            state?.searchState.selected = selected
         }
     }
 }
