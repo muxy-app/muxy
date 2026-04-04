@@ -164,7 +164,7 @@ actor GitRepositoryService {
 
         let statusResult = try runGit(
             repoPath: repoPath,
-            arguments: ["-c", "core.quotepath=false", "status", "--porcelain=1", "-z"]
+            arguments: ["-c", "core.quotepath=false", "status", "--porcelain=1", "-z", "--untracked-files=all"]
         )
         guard statusResult.status == 0 else {
             throw GitError.commandFailed(statusResult.stderr.isEmpty ? "Failed to load Git status." : statusResult.stderr)
@@ -177,7 +177,29 @@ actor GitRepositoryService {
         )
         let stats = parseNumstat(numstatResult.stdout)
 
-        return parseStatusPorcelain(statusResult.stdoutData, stats: stats)
+        return parseStatusPorcelain(statusResult.stdoutData, stats: stats).map { file in
+            guard file.additions == nil, file.xStatus == "?" || file.xStatus == "A" else { return file }
+            let lineCount = Self.countLines(repoPath: repoPath, relativePath: file.path)
+            return GitStatusFile(
+                path: file.path,
+                oldPath: file.oldPath,
+                xStatus: file.xStatus,
+                yStatus: file.yStatus,
+                additions: lineCount,
+                deletions: 0,
+                isBinary: file.isBinary
+            )
+        }
+    }
+
+    private static func countLines(repoPath: String, relativePath: String) -> Int? {
+        let fullPath = (repoPath as NSString).appendingPathComponent(relativePath)
+        guard let data = FileManager.default.contents(atPath: fullPath),
+              let content = String(data: data, encoding: .utf8)
+        else {
+            return nil
+        }
+        return content.isEmpty ? 0 : content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).count
     }
 
     func patchAndCompare(
