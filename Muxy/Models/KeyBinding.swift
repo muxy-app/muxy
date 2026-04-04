@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+private struct ShortcutMetadata {
+    let displayName: String
+    let category: String
+    let scope: ShortcutScope
+}
+
 enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case newTab
     case closeTab
@@ -44,47 +50,47 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    private var metadata: (displayName: String, category: String, scope: ShortcutScope) {
+    private var metadata: ShortcutMetadata {
         switch self {
-        case .newTab: ("New Tab", "Tabs", .mainWindow)
-        case .closeTab: ("Close Tab", "Tabs", .mainWindow)
-        case .renameTab: ("Rename Tab", "Tabs", .mainWindow)
-        case .pinUnpinTab: ("Pin/Unpin Tab", "Tabs", .mainWindow)
-        case .splitRight: ("Split Right", "Panes", .mainWindow)
-        case .splitDown: ("Split Down", "Panes", .mainWindow)
-        case .closePane: ("Close Pane", "Panes", .mainWindow)
-        case .focusPaneLeft: ("Focus Pane Left", "Panes", .mainWindow)
-        case .focusPaneRight: ("Focus Pane Right", "Panes", .mainWindow)
-        case .focusPaneUp: ("Focus Pane Up", "Panes", .mainWindow)
-        case .focusPaneDown: ("Focus Pane Down", "Panes", .mainWindow)
-        case .nextTab: ("Next Tab", "Tab Navigation", .mainWindow)
-        case .previousTab: ("Previous Tab", "Tab Navigation", .mainWindow)
-        case .selectTab1: ("Tab 1", "Tab Navigation", .mainWindow)
-        case .selectTab2: ("Tab 2", "Tab Navigation", .mainWindow)
-        case .selectTab3: ("Tab 3", "Tab Navigation", .mainWindow)
-        case .selectTab4: ("Tab 4", "Tab Navigation", .mainWindow)
-        case .selectTab5: ("Tab 5", "Tab Navigation", .mainWindow)
-        case .selectTab6: ("Tab 6", "Tab Navigation", .mainWindow)
-        case .selectTab7: ("Tab 7", "Tab Navigation", .mainWindow)
-        case .selectTab8: ("Tab 8", "Tab Navigation", .mainWindow)
-        case .selectTab9: ("Tab 9", "Tab Navigation", .mainWindow)
-        case .nextProject: ("Next Project", "Project Navigation", .mainWindow)
-        case .previousProject: ("Previous Project", "Project Navigation", .mainWindow)
-        case .selectProject1: ("Project 1", "Project Navigation", .mainWindow)
-        case .selectProject2: ("Project 2", "Project Navigation", .mainWindow)
-        case .selectProject3: ("Project 3", "Project Navigation", .mainWindow)
-        case .selectProject4: ("Project 4", "Project Navigation", .mainWindow)
-        case .selectProject5: ("Project 5", "Project Navigation", .mainWindow)
-        case .selectProject6: ("Project 6", "Project Navigation", .mainWindow)
-        case .selectProject7: ("Project 7", "Project Navigation", .mainWindow)
-        case .selectProject8: ("Project 8", "Project Navigation", .mainWindow)
-        case .selectProject9: ("Project 9", "Project Navigation", .mainWindow)
-        case .findInTerminal: ("Find", "Terminal", .mainWindow)
-        case .toggleSidebar: ("Toggle Sidebar", "App", .mainWindow)
-        case .toggleThemePicker: ("Theme Picker", "App", .mainWindow)
-        case .newProject: ("New Project", "App", .mainWindow)
-        case .openProject: ("Open Project", "App", .mainWindow)
-        case .reloadConfig: ("Reload Configuration", "App", .global)
+        case .newTab: ShortcutMetadata(displayName: "New Tab", category: "Tabs", scope: .mainWindow)
+        case .closeTab: ShortcutMetadata(displayName: "Close Tab", category: "Tabs", scope: .mainWindow)
+        case .renameTab: ShortcutMetadata(displayName: "Rename Tab", category: "Tabs", scope: .mainWindow)
+        case .pinUnpinTab: ShortcutMetadata(displayName: "Pin/Unpin Tab", category: "Tabs", scope: .mainWindow)
+        case .splitRight: ShortcutMetadata(displayName: "Split Right", category: "Panes", scope: .mainWindow)
+        case .splitDown: ShortcutMetadata(displayName: "Split Down", category: "Panes", scope: .mainWindow)
+        case .closePane: ShortcutMetadata(displayName: "Close Pane", category: "Panes", scope: .mainWindow)
+        case .focusPaneLeft: ShortcutMetadata(displayName: "Focus Pane Left", category: "Panes", scope: .mainWindow)
+        case .focusPaneRight: ShortcutMetadata(displayName: "Focus Pane Right", category: "Panes", scope: .mainWindow)
+        case .focusPaneUp: ShortcutMetadata(displayName: "Focus Pane Up", category: "Panes", scope: .mainWindow)
+        case .focusPaneDown: ShortcutMetadata(displayName: "Focus Pane Down", category: "Panes", scope: .mainWindow)
+        case .nextTab: ShortcutMetadata(displayName: "Next Tab", category: "Tab Navigation", scope: .mainWindow)
+        case .previousTab: ShortcutMetadata(displayName: "Previous Tab", category: "Tab Navigation", scope: .mainWindow)
+        case .selectTab1: ShortcutMetadata(displayName: "Tab 1", category: "Tab Navigation", scope: .mainWindow)
+        case .selectTab2: ShortcutMetadata(displayName: "Tab 2", category: "Tab Navigation", scope: .mainWindow)
+        case .selectTab3: ShortcutMetadata(displayName: "Tab 3", category: "Tab Navigation", scope: .mainWindow)
+        case .selectTab4: ShortcutMetadata(displayName: "Tab 4", category: "Tab Navigation", scope: .mainWindow)
+        case .selectTab5: ShortcutMetadata(displayName: "Tab 5", category: "Tab Navigation", scope: .mainWindow)
+        case .selectTab6: ShortcutMetadata(displayName: "Tab 6", category: "Tab Navigation", scope: .mainWindow)
+        case .selectTab7: ShortcutMetadata(displayName: "Tab 7", category: "Tab Navigation", scope: .mainWindow)
+        case .selectTab8: ShortcutMetadata(displayName: "Tab 8", category: "Tab Navigation", scope: .mainWindow)
+        case .selectTab9: ShortcutMetadata(displayName: "Tab 9", category: "Tab Navigation", scope: .mainWindow)
+        case .nextProject: ShortcutMetadata(displayName: "Next Project", category: "Project Navigation", scope: .mainWindow)
+        case .previousProject: ShortcutMetadata(displayName: "Previous Project", category: "Project Navigation", scope: .mainWindow)
+        case .selectProject1: ShortcutMetadata(displayName: "Project 1", category: "Project Navigation", scope: .mainWindow)
+        case .selectProject2: ShortcutMetadata(displayName: "Project 2", category: "Project Navigation", scope: .mainWindow)
+        case .selectProject3: ShortcutMetadata(displayName: "Project 3", category: "Project Navigation", scope: .mainWindow)
+        case .selectProject4: ShortcutMetadata(displayName: "Project 4", category: "Project Navigation", scope: .mainWindow)
+        case .selectProject5: ShortcutMetadata(displayName: "Project 5", category: "Project Navigation", scope: .mainWindow)
+        case .selectProject6: ShortcutMetadata(displayName: "Project 6", category: "Project Navigation", scope: .mainWindow)
+        case .selectProject7: ShortcutMetadata(displayName: "Project 7", category: "Project Navigation", scope: .mainWindow)
+        case .selectProject8: ShortcutMetadata(displayName: "Project 8", category: "Project Navigation", scope: .mainWindow)
+        case .selectProject9: ShortcutMetadata(displayName: "Project 9", category: "Project Navigation", scope: .mainWindow)
+        case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .mainWindow)
+        case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
+        case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
+        case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
+        case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
+        case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
         }
     }
 
