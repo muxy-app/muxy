@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MuxyCommands: Commands {
@@ -56,12 +57,12 @@ struct MuxyCommands: Commands {
 
         CommandGroup(replacing: .newItem) {
             Button("New Project") {
-                projectStore.createDefaultProject(appState: appState)
+                newProject()
             }
             .shortcut(for: .newProject, store: keyBindings)
 
             Button("Open Project...") {
-                projectStore.openProjectViaPanel(appState: appState)
+                openProject()
             }
             .shortcut(for: .openProject, store: keyBindings)
 
@@ -224,5 +225,32 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .toggleThemePicker, store: keyBindings)
         }
+    }
+
+    private func newProject() {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+        let project = Project(
+            name: url.lastPathComponent,
+            path: url.path(percentEncoded: false),
+            sortOrder: projectStore.projects.count
+        )
+        projectStore.add(project)
+        appState.selectProject(project)
+    }
+
+    private func openProject() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a project folder"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let project = Project(
+            name: url.lastPathComponent,
+            path: url.path(percentEncoded: false),
+            sortOrder: projectStore.projects.count
+        )
+        projectStore.add(project)
+        appState.selectProject(project)
     }
 }

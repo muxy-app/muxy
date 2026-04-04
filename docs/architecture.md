@@ -20,7 +20,7 @@ Muxy/
     SplitNode.swift           Recursive binary tree for pane splits
     TabArea.swift             Container for tabs within a single pane
     TerminalTab.swift         Terminal or VCS tab model
-    TabDragCoordinator.swift  Cross-pane tab drag-and-drop
+    TabDragCoordinator.swift  Cross-pane tab drag-and-drop, TabMoveRequest, SplitPlacement
     KeyBinding.swift          ShortcutAction enum + KeyBinding defaults
     KeyCombo.swift            Key combo encoding, display, matching
     VCSTabState.swift         Git diff viewer state + loading orchestration
@@ -63,8 +63,7 @@ Muxy/
       MiddleClickView.swift   NSView for middle-click tab close
       UUIDFramePreferenceKey.swift  Generic PreferenceKey for frame tracking
     Terminal/
-      GhosttyTerminalNSView.swift       AppKit view wrapping ghostty_surface_t
-      GhosttyTerminalNSView+TextInput.swift  NSTextInputClient (IME support)
+      GhosttyTerminalNSView.swift       AppKit view wrapping ghostty_surface_t + NSTextInputClient
       TerminalPane.swift      SwiftUI wrapper for terminal + search
       TerminalSearchBar.swift Find-in-terminal UI
       TerminalViewRegistry.swift  Terminal view lifecycle management
