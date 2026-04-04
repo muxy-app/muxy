@@ -20,9 +20,13 @@ final class TabDragCoordinator {
 
     var activeDrag: DragInfo?
     var globalPosition: CGPoint = .zero
-    var areaFrames: [UUID: CGRect] = [:]
+    var areaFramesByProject: [UUID: [UUID: CGRect]] = [:]
     private(set) var hoveredAreaID: UUID?
     private(set) var hoveredZone: DropZone?
+
+    func setAreaFrames(_ frames: [UUID: CGRect], forProject projectID: UUID) {
+        areaFramesByProject[projectID] = frames
+    }
 
     func beginDrag(tabID: UUID, sourceAreaID: UUID, projectID: UUID) {
         activeDrag = DragInfo(tabID: tabID, sourceAreaID: sourceAreaID, projectID: projectID)
@@ -88,7 +92,11 @@ final class TabDragCoordinator {
         hoveredAreaID = nil
         hoveredZone = nil
 
-        for (areaID, frame) in areaFrames {
+        guard let projectID = activeDrag?.projectID,
+              let frames = areaFramesByProject[projectID]
+        else { return }
+
+        for (areaID, frame) in frames {
             guard frame.contains(globalPosition) else { continue }
             hoveredAreaID = areaID
             hoveredZone = zone(for: globalPosition, in: frame)
