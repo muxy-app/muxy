@@ -36,9 +36,12 @@ final class VCSTabState {
     var diffsByPath: [String: LoadedDiff] = [:]
     var loadingDiffPaths: Set<String> = []
     var diffErrorsByPath: [String: String] = [:]
+    var branchName: String?
+    var pullRequestInfo: GitRepositoryService.PRInfo?
 
     @ObservationIgnored private let git = GitRepositoryService()
     @ObservationIgnored private var loadFilesTask: Task<Void, Never>?
+    @ObservationIgnored private var branchTask: Task<Void, Never>?
     @ObservationIgnored private var loadDiffTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var watcher: GitDirectoryWatcher?
     @ObservationIgnored private var isRefreshing = false
@@ -51,6 +54,7 @@ final class VCSTabState {
 
     deinit {
         loadFilesTask?.cancel()
+        branchTask?.cancel()
         loadDiffTasks.values.forEach { $0.cancel() }
     }
 
@@ -82,6 +86,23 @@ final class VCSTabState {
         isRefreshing = true
         pendingRefresh = false
         errorMessage = nil
+
+        branchTask?.cancel()
+        branchTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let branch = try await git.currentBranch(repoPath: projectPath)
+                guard !Task.isCancelled else { return }
+                branchName = branch
+                let prInfo = await git.pullRequestInfo(repoPath: projectPath, branch: branch)
+                guard !Task.isCancelled else { return }
+                pullRequestInfo = prInfo
+            } catch {
+                guard !Task.isCancelled else { return }
+                branchName = nil
+                pullRequestInfo = nil
+            }
+        }
 
         loadFilesTask = Task { [weak self] in
             guard let self else { return }

@@ -24,6 +24,26 @@ struct VCSTabView: View {
 
     private var header: some View {
         HStack(spacing: 0) {
+            if let branch = state.branchName {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+
+                    Text(branch)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(MuxyTheme.fg)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    if let prInfo = state.pullRequestInfo {
+                        PRBadge(info: prInfo)
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+
             HStack(spacing: 0) {
                 ForEach(VCSTabState.ViewMode.allCases) { mode in
                     Button {
@@ -42,8 +62,7 @@ struct VCSTabView: View {
                     .buttonStyle(.plain)
                 }
             }
-
-            Spacer(minLength: 0)
+            .padding(.trailing, 6)
 
             Button {
                 if state.expandedFilePaths.isEmpty {
@@ -650,5 +669,36 @@ private final class DiffHighlightCache {
         }
 
         return result
+    }
+}
+
+private struct PRBadge: View {
+    let info: GitRepositoryService.PRInfo
+    @State private var hovered = false
+
+    var body: some View {
+        Button {
+            NSWorkspace.shared.open(URL(string: info.url)!)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.triangle.pull")
+                    .font(.system(size: 9, weight: .bold))
+                Text("#\(info.number)")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            }
+            .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(MuxyTheme.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(MuxyTheme.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
     }
 }

@@ -83,6 +83,79 @@ actor GitRepositoryService {
         }
     }
 
+    func currentBranch(repoPath: String) async throws -> String {
+        let result = try runGit(repoPath: repoPath, arguments: ["rev-parse", "--abbrev-ref", "HEAD"])
+        guard result.status == 0 else {
+            throw GitError.commandFailed("Failed to get current branch.")
+        }
+        return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    struct PRInfo {
+        let url: String
+        let number: Int
+    }
+
+    func pullRequestInfo(repoPath: String, branch: String) async -> PRInfo? {
+        guard let ghPath = resolveExecutable("gh") else { return nil }
+        let result = try? runCommand(
+            executable: ghPath,
+            arguments: ["pr", "view", branch, "--json", "url,number", "-q", ".url + \"\\n\" + (.number | tostring)"],
+            workingDirectory: repoPath
+        )
+        guard let result, result.status == 0 else { return nil }
+        let lines = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n")
+        guard lines.count >= 2,
+              let number = Int(lines[1])
+        else { return nil }
+        return PRInfo(url: String(lines[0]), number: number)
+    }
+
+    nonisolated private func resolveExecutable(_ name: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        process.arguments = [name]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return path?.isEmpty == false ? path : nil
+        } catch {
+            return nil
+        }
+    }
+
+    nonisolated private func runCommand(
+        executable: String,
+        arguments: [String],
+        workingDirectory: String
+    ) throws -> GitRunResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        return GitRunResult(status: process.terminationStatus, stdout: stdout, stdoutData: stdoutData, stderr: stderr, truncated: false)
+    }
+
     func changedFiles(repoPath: String, ignoreWhitespace: Bool = false) async throws -> [GitStatusFile] {
         let result = try runGit(repoPath: repoPath, arguments: ["rev-parse", "--is-inside-work-tree"])
         guard result.status == 0, result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true" else {
