@@ -214,23 +214,23 @@ actor GitRepositoryService {
         return try runGitSync(arguments: args, lineLimit: lineLimit)
     }
 
+    private static let searchPaths = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ]
+
     nonisolated private func resolveExecutable(_ name: String) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = [name]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return path?.isEmpty == false ? path : nil
-        } catch {
-            return nil
+        for directory in Self.searchPaths {
+            let path = "\(directory)/\(name)"
+            if FileManager.default.isExecutableFile(atPath: path) {
+                return path
+            }
         }
+        return nil
     }
 
     nonisolated private func runCommand(
