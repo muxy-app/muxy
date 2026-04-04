@@ -115,26 +115,13 @@ enum WorkspaceReducer {
         state: inout WorkspaceState,
         effects: inout WorkspaceSideEffects
     ) {
-        guard let root = state.workspaceRoots[projectID] else { return }
-        if let area = root.findArea(id: areaID) {
-            effects.paneIDsToRemove.append(contentsOf: area.tabs.compactMap { $0.content.pane?.id })
-        }
-        guard let newRoot = root.removing(areaID: areaID) else {
-            state.workspaceRoots.removeValue(forKey: projectID)
-            state.focusedAreaID.removeValue(forKey: projectID)
-            state.focusHistory.removeValue(forKey: projectID)
-            state.activeProjectID = nil
-            effects.projectIDsToRemove.append(projectID)
-            return
-        }
-
-        state.workspaceRoots[projectID] = newRoot
-        state.focusHistory[projectID]?.removeAll { $0 == areaID }
-        guard state.focusedAreaID[projectID] == areaID else { return }
-
-        let remaining = newRoot.allAreas()
-        let previousID = popFocusHistory(projectID: projectID, validAreas: remaining, state: &state)
-        state.focusedAreaID[projectID] = previousID ?? remaining.first?.id
+        let removed = removeAreaFromTree(areaID, projectID: projectID, state: &state, effects: &effects)
+        guard !removed else { return }
+        state.workspaceRoots.removeValue(forKey: projectID)
+        state.focusedAreaID.removeValue(forKey: projectID)
+        state.focusHistory.removeValue(forKey: projectID)
+        state.activeProjectID = nil
+        effects.projectIDsToRemove.append(projectID)
     }
 
     private static func moveTab(
@@ -199,17 +186,28 @@ enum WorkspaceReducer {
         state: inout WorkspaceState,
         effects: inout WorkspaceSideEffects
     ) {
-        guard let root = state.workspaceRoots[projectID] else { return }
+        _ = removeAreaFromTree(areaID, projectID: projectID, state: &state, effects: &effects)
+    }
+
+    @discardableResult
+    private static func removeAreaFromTree(
+        _ areaID: UUID,
+        projectID: UUID,
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
+    ) -> Bool {
+        guard let root = state.workspaceRoots[projectID] else { return false }
         if let area = root.findArea(id: areaID) {
             effects.paneIDsToRemove.append(contentsOf: area.tabs.compactMap { $0.content.pane?.id })
         }
-        guard let newRoot = root.removing(areaID: areaID) else { return }
+        guard let newRoot = root.removing(areaID: areaID) else { return false }
         state.workspaceRoots[projectID] = newRoot
         state.focusHistory[projectID]?.removeAll { $0 == areaID }
-        guard state.focusedAreaID[projectID] == areaID else { return }
+        guard state.focusedAreaID[projectID] == areaID else { return true }
         let remaining = newRoot.allAreas()
         let previousID = popFocusHistory(projectID: projectID, validAreas: remaining, state: &state)
         state.focusedAreaID[projectID] = previousID ?? remaining.first?.id
+        return true
     }
 
     private static func closeTab(

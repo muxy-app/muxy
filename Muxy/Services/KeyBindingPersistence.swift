@@ -8,7 +8,7 @@ protocol KeyBindingPersisting {
 final class FileKeyBindingPersistence: KeyBindingPersisting {
     private let fileURL: URL
 
-    init(fileURL: URL = FileKeyBindingPersistence.defaultFileURL()) {
+    init(fileURL: URL = MuxyFileStorage.fileURL(filename: "keybindings.json")) {
         self.fileURL = fileURL
     }
 
@@ -46,14 +46,5 @@ final class FileKeyBindingPersistence: KeyBindingPersisting {
         init(from decoder: Decoder) throws {
             binding = try? KeyBinding(from: decoder)
         }
-    }
-
-    private static func defaultFileURL() -> URL {
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            fatalError("Application Support directory unavailable")
-        }
-        let dir = appSupport.appendingPathComponent("Muxy", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        return dir.appendingPathComponent("keybindings.json")
     }
 }

@@ -118,7 +118,6 @@ final class VCSTabState {
                 guard !Task.isCancelled else { return }
 
                 let oldFilesByPath = Dictionary(files.map { ($0.path, $0) }, uniquingKeysWith: { _, b in b })
-                let newFilesByPath = Dictionary(newFiles.map { ($0.path, $0) }, uniquingKeysWith: { _, b in b })
 
                 let validPaths = Set(newFiles.map(\.path))
                 let removedPaths = Set(oldFilesByPath.keys).subtracting(validPaths)

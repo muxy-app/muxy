@@ -38,9 +38,4 @@ struct DropZoneHighlight: View {
     }
 }
 
-struct AreaFramePreferenceKey: PreferenceKey {
-    nonisolated(unsafe) static var defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue()) { $1 }
-    }
-}
+typealias AreaFramePreferenceKey = UUIDFramePreferenceKey<AreaFrameTag>

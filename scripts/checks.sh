@@ -137,10 +137,9 @@ fi
 
 if [ "$failed" -eq 0 ] && [ "$HAS_SWIFTLINT" -eq 1 ]; then
   if [ "$FIX" -eq 1 ]; then
-    run_step "Linting (fix)" swiftlint lint --fix --quiet || failed=1
-  else
-    run_step "Linting" swiftlint lint --strict --quiet || failed=1
+    run_step "Linting (fix)" swiftlint lint --fix --quiet || true
   fi
+  run_step "Linting" swiftlint lint --strict --quiet || failed=1
 fi
 
 if [ "$failed" -eq 0 ]; then

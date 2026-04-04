@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MuxyCommands: Commands {
@@ -25,10 +26,7 @@ struct MuxyCommands: Commands {
             Button("Reload Configuration") {
                 ghostty.reloadConfig()
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .reloadConfig).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .reloadConfig).swiftUIModifiers
-            )
+            .shortcut(for: .reloadConfig, store: keyBindings)
 
             Divider()
 
@@ -54,38 +52,26 @@ struct MuxyCommands: Commands {
                 guard isMainWindowFocused else { return }
                 NotificationCenter.default.post(name: .findInTerminal, object: nil)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .findInTerminal).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .findInTerminal).swiftUIModifiers
-            )
+            .shortcut(for: .findInTerminal, store: keyBindings)
         }
 
         CommandGroup(replacing: .newItem) {
             Button("New Project") {
                 newProject()
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .newProject).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .newProject).swiftUIModifiers
-            )
+            .shortcut(for: .newProject, store: keyBindings)
 
             Button("Open Project...") {
                 openProject()
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .openProject).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .openProject).swiftUIModifiers
-            )
+            .shortcut(for: .openProject, store: keyBindings)
 
             Button("New Tab") {
                 guard isMainWindowFocused else { return }
                 guard let projectID = appState.activeProjectID else { return }
                 appState.createTab(projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .newTab).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .newTab).swiftUIModifiers
-            )
+            .shortcut(for: .newTab, store: keyBindings)
 
             Button("Close Tab") {
                 guard isMainWindowFocused else {
@@ -98,10 +84,7 @@ struct MuxyCommands: Commands {
                 else { return }
                 appState.closeTab(tabID, projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .closeTab).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .closeTab).swiftUIModifiers
-            )
+            .shortcut(for: .closeTab, store: keyBindings)
 
             Divider()
 
@@ -109,20 +92,14 @@ struct MuxyCommands: Commands {
                 guard isMainWindowFocused else { return }
                 NotificationCenter.default.post(name: .renameActiveTab, object: nil)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .renameTab).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .renameTab).swiftUIModifiers
-            )
+            .shortcut(for: .renameTab, store: keyBindings)
 
             Button("Pin/Unpin Tab") {
                 guard isMainWindowFocused else { return }
                 guard let projectID = appState.activeProjectID else { return }
                 appState.togglePinActiveTab(projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .pinUnpinTab).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .pinUnpinTab).swiftUIModifiers
-            )
+            .shortcut(for: .pinUnpinTab, store: keyBindings)
 
             Divider()
 
@@ -131,20 +108,14 @@ struct MuxyCommands: Commands {
                 guard let projectID = appState.activeProjectID else { return }
                 appState.splitFocusedArea(direction: .horizontal, projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .splitRight).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .splitRight).swiftUIModifiers
-            )
+            .shortcut(for: .splitRight, store: keyBindings)
 
             Button("Split Down") {
                 guard isMainWindowFocused else { return }
                 guard let projectID = appState.activeProjectID else { return }
                 appState.splitFocusedArea(direction: .vertical, projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .splitDown).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .splitDown).swiftUIModifiers
-            )
+            .shortcut(for: .splitDown, store: keyBindings)
 
             Button("Close Pane") {
                 guard isMainWindowFocused else { return }
@@ -153,50 +124,35 @@ struct MuxyCommands: Commands {
                 else { return }
                 appState.closeArea(areaID, projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .closePane).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .closePane).swiftUIModifiers
-            )
+            .shortcut(for: .closePane, store: keyBindings)
 
             Button("Focus Pane Left") {
                 guard isMainWindowFocused else { return }
                 guard let projectID = appState.activeProjectID else { return }
                 appState.focusPaneLeft(projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .focusPaneLeft).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .focusPaneLeft).swiftUIModifiers
-            )
+            .shortcut(for: .focusPaneLeft, store: keyBindings)
 
             Button("Focus Pane Right") {
                 guard isMainWindowFocused else { return }
                 guard let projectID = appState.activeProjectID else { return }
                 appState.focusPaneRight(projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .focusPaneRight).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .focusPaneRight).swiftUIModifiers
-            )
+            .shortcut(for: .focusPaneRight, store: keyBindings)
 
             Button("Focus Pane Up") {
                 guard isMainWindowFocused else { return }
                 guard let projectID = appState.activeProjectID else { return }
                 appState.focusPaneUp(projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .focusPaneUp).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .focusPaneUp).swiftUIModifiers
-            )
+            .shortcut(for: .focusPaneUp, store: keyBindings)
 
             Button("Focus Pane Down") {
                 guard isMainWindowFocused else { return }
                 guard let projectID = appState.activeProjectID else { return }
                 appState.focusPaneDown(projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .focusPaneDown).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .focusPaneDown).swiftUIModifiers
-            )
+            .shortcut(for: .focusPaneDown, store: keyBindings)
         }
 
         CommandGroup(after: .windowList) {
@@ -205,20 +161,14 @@ struct MuxyCommands: Commands {
                 guard let projectID = appState.activeProjectID else { return }
                 appState.selectNextTab(projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .nextTab).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .nextTab).swiftUIModifiers
-            )
+            .shortcut(for: .nextTab, store: keyBindings)
 
             Button("Previous Tab") {
                 guard isMainWindowFocused else { return }
                 guard let projectID = appState.activeProjectID else { return }
                 appState.selectPreviousTab(projectID: projectID)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .previousTab).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .previousTab).swiftUIModifiers
-            )
+            .shortcut(for: .previousTab, store: keyBindings)
 
             Divider()
 
@@ -229,10 +179,7 @@ struct MuxyCommands: Commands {
                         guard let projectID = appState.activeProjectID else { return }
                         appState.selectTabByIndex(index - 1, projectID: projectID)
                     }
-                    .keyboardShortcut(
-                        keyBindings.combo(for: action).swiftUIKeyEquivalent,
-                        modifiers: keyBindings.combo(for: action).swiftUIModifiers
-                    )
+                    .shortcut(for: action, store: keyBindings)
                 }
             }
         }
@@ -242,19 +189,13 @@ struct MuxyCommands: Commands {
                 guard isMainWindowFocused else { return }
                 appState.selectNextProject(projects: projectStore.projects)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .nextProject).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .nextProject).swiftUIModifiers
-            )
+            .shortcut(for: .nextProject, store: keyBindings)
 
             Button("Previous Project") {
                 guard isMainWindowFocused else { return }
                 appState.selectPreviousProject(projects: projectStore.projects)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .previousProject).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .previousProject).swiftUIModifiers
-            )
+            .shortcut(for: .previousProject, store: keyBindings)
 
             Divider()
 
@@ -264,10 +205,7 @@ struct MuxyCommands: Commands {
                         guard isMainWindowFocused else { return }
                         appState.selectProjectByIndex(index - 1, projects: projectStore.projects)
                     }
-                    .keyboardShortcut(
-                        keyBindings.combo(for: action).swiftUIKeyEquivalent,
-                        modifiers: keyBindings.combo(for: action).swiftUIModifiers
-                    )
+                    .shortcut(for: action, store: keyBindings)
                 }
             }
 
@@ -279,19 +217,13 @@ struct MuxyCommands: Commands {
                     appState.sidebarVisible.toggle()
                 }
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .toggleSidebar).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .toggleSidebar).swiftUIModifiers
-            )
+            .shortcut(for: .toggleSidebar, store: keyBindings)
 
             Button("Theme Picker") {
                 guard isMainWindowFocused else { return }
                 NotificationCenter.default.post(name: .toggleThemePicker, object: nil)
             }
-            .keyboardShortcut(
-                keyBindings.combo(for: .toggleThemePicker).swiftUIKeyEquivalent,
-                modifiers: keyBindings.combo(for: .toggleThemePicker).swiftUIModifiers
-            )
+            .shortcut(for: .toggleThemePicker, store: keyBindings)
         }
     }
 

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SidebarToolbar: View {
@@ -94,7 +95,7 @@ struct Sidebar: View {
                         )
                         .background(GeometryReader { geo in
                             Color.clear.preference(
-                                key: ItemFramePreferenceKey.self,
+                                key: UUIDFramePreferenceKey<SidebarFrameTag>.self,
                                 value: [project.id: geo.frame(in: .named("sidebar"))]
                             )
                         })
@@ -119,7 +120,7 @@ struct Sidebar: View {
                     }
                 }
                 .padding(6)
-                .onPreferenceChange(ItemFramePreferenceKey.self) { dragState.frames = $0 }
+                .onPreferenceChange(UUIDFramePreferenceKey<SidebarFrameTag>.self) { dragState.frames = $0 }
             }
             .coordinateSpace(name: "sidebar")
             SidebarFooter()
@@ -147,13 +148,6 @@ struct Sidebar: View {
 private struct ProjectDragState {
     var draggedID: UUID?
     var frames: [UUID: CGRect] = [:]
-}
-
-private struct ItemFramePreferenceKey: PreferenceKey {
-    nonisolated(unsafe) static var defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue()) { $1 }
-    }
 }
 
 struct SidebarFooter: View {

@@ -139,70 +139,7 @@ private struct TabDragState {
     var stripFrameGlobal: CGRect = .zero
 }
 
-private struct TabFramePreferenceKey: PreferenceKey {
-    nonisolated(unsafe) static var defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue()) { $1 }
-    }
-}
-
-struct WindowDragRepresentable: NSViewRepresentable {
-    var alwaysEnabled: Bool = false
-
-    func makeNSView(context: Context) -> WindowDragView {
-        let view = WindowDragView()
-        view.alwaysEnabled = alwaysEnabled
-        return view
-    }
-
-    func updateNSView(_ nsView: WindowDragView, context: Context) {
-        nsView.alwaysEnabled = alwaysEnabled
-    }
-}
-
-final class WindowDragView: NSView {
-    var alwaysEnabled = false
-
-    private var isAtWindowTop: Bool {
-        guard let window else { return false }
-        let frameInWindow = convert(bounds, to: nil)
-        guard let contentHeight = window.contentView?.bounds.height else { return false }
-        return frameInWindow.maxY >= contentHeight - 1
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        guard alwaysEnabled || isAtWindowTop else {
-            super.mouseDown(with: event)
-            return
-        }
-        if event.clickCount == 2 {
-            let action = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "Maximize"
-            switch action {
-            case "Minimize":
-                window?.miniaturize(nil)
-            default:
-                window?.zoom(nil)
-            }
-            return
-        }
-        let threshold = NSEvent.doubleClickInterval
-        guard let next = window?.nextEvent(
-            matching: [.leftMouseUp, .leftMouseDown, .leftMouseDragged],
-            until: Date(timeIntervalSinceNow: threshold),
-            inMode: .eventTracking,
-            dequeue: true
-        )
-        else {
-            window?.performDrag(with: event)
-            return
-        }
-        if next.type == .leftMouseDragged {
-            window?.performDrag(with: event)
-        } else if next.type == .leftMouseDown {
-            mouseDown(with: next)
-        }
-    }
-}
+private typealias TabFramePreferenceKey = UUIDFramePreferenceKey<TabFrameTag>
 
 private struct TabCell: View {
     @Bindable var tab: TerminalTab
@@ -348,39 +285,5 @@ private struct TabCell: View {
             Image(systemName: "terminal")
                 .font(.system(size: 12, weight: .semibold))
         }
-    }
-}
-
-private struct MiddleClickView: NSViewRepresentable {
-    let action: () -> Void
-
-    func makeNSView(context: Context) -> MiddleClickNSView {
-        let view = MiddleClickNSView()
-        view.action = action
-        return view
-    }
-
-    func updateNSView(_ nsView: MiddleClickNSView, context: Context) {
-        nsView.action = action
-    }
-}
-
-private final class MiddleClickNSView: NSView {
-    var action: (() -> Void)?
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let currentEvent = NSApp.currentEvent,
-              currentEvent.type == .otherMouseDown,
-              currentEvent.buttonNumber == 2
-        else { return nil }
-        return super.hitTest(point)
-    }
-
-    override func otherMouseDown(with event: NSEvent) {
-        guard event.buttonNumber == 2 else {
-            super.otherMouseDown(with: event)
-            return
-        }
-        action?()
     }
 }
