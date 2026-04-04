@@ -37,7 +37,7 @@ an individual is officially representing the community in public spaces.
 ## Enforcement
 
 Instances of unacceptable behavior may be reported to the project maintainers at
-**muxy-app@github.com**. All complaints will be reviewed and investigated
+**me@saeedvaziry.com**. All complaints will be reviewed and investigated
 promptly and fairly.
 
 ## Attribution
