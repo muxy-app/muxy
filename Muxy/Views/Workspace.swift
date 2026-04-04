@@ -48,7 +48,7 @@ struct TerminalArea: View {
                 }
             )
             .onPreferenceChange(AreaFramePreferenceKey.self) { frames in
-                dragCoordinator.areaFrames = frames
+                dragCoordinator.setAreaFrames(frames, forProject: project.id)
             }
         }
     }
