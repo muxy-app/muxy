@@ -39,7 +39,7 @@ final class GhosttyTerminalNSView: NSView {
         metalLayer.framebufferOnly = false
         metalLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         metalLayer.needsDisplayOnBoundsChange = true
-        metalLayer.presentsWithTransaction = true
+        metalLayer.presentsWithTransaction = false
         return metalLayer
     }
 
