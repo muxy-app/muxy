@@ -93,16 +93,19 @@ struct MainWindow: View {
                 }
             )
         } else {
-            HStack {
-                if let project = activeProject {
-                    Text(project.name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(MuxyTheme.fgMuted)
-                        .padding(.leading, 12)
+            WindowDragRepresentable(alwaysEnabled: true)
+                .overlay {
+                    HStack {
+                        if let project = activeProject {
+                            Text(project.name)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(MuxyTheme.fgMuted)
+                                .padding(.leading, 12)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .allowsHitTesting(false)
                 }
-                Spacer(minLength: 0)
-            }
-            .background(WindowDragRepresentable(alwaysEnabled: true))
         }
     }
 
