@@ -218,9 +218,11 @@ enum WorkspaceReducer {
         state: inout WorkspaceState,
         effects: inout WorkspaceSideEffects
     ) {
-        guard let root = state.workspaceRoots[projectID],
-              let newRoot = root.removing(areaID: areaID)
-        else { return }
+        guard let root = state.workspaceRoots[projectID] else { return }
+        if let area = root.findArea(id: areaID) {
+            effects.paneIDsToRemove.append(contentsOf: area.tabs.compactMap { $0.content.pane?.id })
+        }
+        guard let newRoot = root.removing(areaID: areaID) else { return }
         state.workspaceRoots[projectID] = newRoot
         state.focusHistory[projectID]?.removeAll { $0 == areaID }
         guard state.focusedAreaID[projectID] == areaID else { return }

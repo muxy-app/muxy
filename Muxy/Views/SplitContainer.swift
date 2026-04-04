@@ -5,7 +5,7 @@ struct SplitContainer: View {
     let branch: SplitBranch
     let focusedAreaID: UUID?
     let isActiveProject: Bool
-    var projectID: UUID?
+    let projectID: UUID
     let onFocusArea: (UUID) -> Void
     let onSelectTab: (UUID, UUID) -> Void
     let onCreateTab: (UUID) -> Void
@@ -13,7 +13,7 @@ struct SplitContainer: View {
     let onCloseTab: (UUID, UUID) -> Void
     let onSplit: (UUID, SplitDirection) -> Void
     let onCloseArea: (UUID) -> Void
-    var onDropAction: ((TabDragCoordinator.DropResult) -> Void)?
+    let onDropAction: (TabDragCoordinator.DropResult) -> Void
 
     var body: some View {
         GeometryReader { geo in

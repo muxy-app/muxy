@@ -5,7 +5,7 @@ struct TabAreaView: View {
     let isFocused: Bool
     let isActiveProject: Bool
     let showTabStrip: Bool
-    var projectID: UUID?
+    let projectID: UUID
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
@@ -13,7 +13,7 @@ struct TabAreaView: View {
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onClose: () -> Void
-    var onDropAction: ((TabDragCoordinator.DropResult) -> Void)?
+    let onDropAction: (TabDragCoordinator.DropResult) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
 
     var body: some View {

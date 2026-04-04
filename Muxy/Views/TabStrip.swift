@@ -4,7 +4,7 @@ struct PaneTabStrip: View {
     let area: TabArea
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
-    var projectID: UUID?
+    let projectID: UUID
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
@@ -12,7 +12,7 @@ struct PaneTabStrip: View {
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onClose: () -> Void
-    var onDropAction: ((TabDragCoordinator.DropResult) -> Void)?
+    let onDropAction: (TabDragCoordinator.DropResult) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @State private var dragState = TabDragState()
 
@@ -92,7 +92,7 @@ struct PaneTabStrip: View {
         let verticalEscape = globalLocation.y < stripFrame.minY - 20
             || globalLocation.y > stripFrame.maxY + 20
 
-        if verticalEscape, !tab.isPinned, let projectID {
+        if verticalEscape, !tab.isPinned {
             dragState.isInSplitMode = true
             dragCoordinator.beginDrag(tabID: tab.id, sourceAreaID: area.id, projectID: projectID)
             dragCoordinator.updatePosition(globalLocation)
@@ -107,7 +107,7 @@ struct PaneTabStrip: View {
     private func handleDragEnded() {
         if dragState.isInSplitMode {
             if let result = dragCoordinator.endDrag() {
-                onDropAction?(result)
+                onDropAction(result)
             }
         }
         withAnimation(.easeInOut(duration: 0.15)) {

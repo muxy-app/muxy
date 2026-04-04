@@ -60,10 +60,11 @@ extension SplitNode {
             return (self, nil)
         case let .split(branch):
             let (newFirst, id1) = branch.first.splitting(areaID: areaID, direction: direction, projectPath: projectPath)
-            let (newSecond, id2) = branch.second.splitting(areaID: areaID, direction: direction, projectPath: projectPath)
             branch.first = newFirst
+            if id1 != nil { return (.split(branch), id1) }
+            let (newSecond, id2) = branch.second.splitting(areaID: areaID, direction: direction, projectPath: projectPath)
             branch.second = newSecond
-            return (.split(branch), id1 ?? id2)
+            return (.split(branch), id2)
         }
     }
 
@@ -87,12 +88,13 @@ extension SplitNode {
             let (newFirst, id1) = branch.first.splittingWithTab(
                 areaID: areaID, direction: direction, position: position, tab: tab, projectPath: projectPath
             )
+            branch.first = newFirst
+            if id1 != nil { return (.split(branch), id1) }
             let (newSecond, id2) = branch.second.splittingWithTab(
                 areaID: areaID, direction: direction, position: position, tab: tab, projectPath: projectPath
             )
-            branch.first = newFirst
             branch.second = newSecond
-            return (.split(branch), id1 ?? id2)
+            return (.split(branch), id2)
         }
     }
 

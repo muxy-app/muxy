@@ -85,20 +85,8 @@ final class TabArea: Identifiable {
     }
 
     func closeTab(_ tabID: UUID) -> UUID? {
-        guard let tab = tabs.first(where: { $0.id == tabID }), !tab.isPinned else { return nil }
-        let closedPaneID = tab.content.pane?.id
-        tabs.removeAll { $0.id == tabID }
-        tabHistory.removeAll { $0 == tabID }
-        guard activeTabID == tabID else { return closedPaneID }
-        let validIDs = Set(tabs.map(\.id))
-        while let prev = tabHistory.popLast() {
-            if validIDs.contains(prev) {
-                activeTabID = prev
-                return closedPaneID
-            }
-        }
-        activeTabID = tabs.last?.id
-        return closedPaneID
+        guard let tab = removeTab(tabID) else { return nil }
+        return tab.content.pane?.id
     }
 
     func selectTab(_ tabID: UUID) {

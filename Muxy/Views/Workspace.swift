@@ -44,50 +44,12 @@ struct TerminalArea: View {
                     appState.dispatch(.closeArea(projectID: project.id, areaID: areaID))
                 },
                 onDropAction: { result in
-                    handleDrop(result)
+                    appState.dispatch(result.action(projectID: project.id))
                 }
             )
             .onPreferenceChange(AreaFramePreferenceKey.self) { frames in
                 dragCoordinator.areaFrames = frames
             }
-        }
-    }
-
-    private func handleDrop(_ result: TabDragCoordinator.DropResult) {
-        let pid = project.id
-        let drag = result.drag
-        let targetAreaID = result.targetAreaID
-
-        switch result.zone {
-        case .center:
-            appState.dispatch(.moveTabToArea(
-                projectID: pid, tabID: drag.tabID,
-                sourceAreaID: drag.sourceAreaID, destinationAreaID: targetAreaID
-            ))
-        case .left:
-            appState.dispatch(.moveTabToNewSplit(
-                projectID: pid, tabID: drag.tabID,
-                sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                direction: .horizontal, position: .first
-            ))
-        case .right:
-            appState.dispatch(.moveTabToNewSplit(
-                projectID: pid, tabID: drag.tabID,
-                sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                direction: .horizontal, position: .second
-            ))
-        case .top:
-            appState.dispatch(.moveTabToNewSplit(
-                projectID: pid, tabID: drag.tabID,
-                sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                direction: .vertical, position: .first
-            ))
-        case .bottom:
-            appState.dispatch(.moveTabToNewSplit(
-                projectID: pid, tabID: drag.tabID,
-                sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                direction: .vertical, position: .second
-            ))
         }
     }
 }

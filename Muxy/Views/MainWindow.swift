@@ -89,7 +89,7 @@ struct MainWindow: View {
                     appState.dispatch(.closeArea(projectID: project.id, areaID: area.id))
                 },
                 onDropAction: { result in
-                    handleDrop(result)
+                    appState.dispatch(result.action(projectID: project.id))
                 }
             )
         } else {
@@ -103,45 +103,6 @@ struct MainWindow: View {
                 Spacer(minLength: 0)
             }
             .background(WindowDragRepresentable(alwaysEnabled: true))
-        }
-    }
-
-    private func handleDrop(_ result: TabDragCoordinator.DropResult) {
-        guard let project = activeProject else { return }
-        let pid = project.id
-        let drag = result.drag
-        let targetAreaID = result.targetAreaID
-
-        switch result.zone {
-        case .center:
-            appState.dispatch(.moveTabToArea(
-                projectID: pid, tabID: drag.tabID,
-                sourceAreaID: drag.sourceAreaID, destinationAreaID: targetAreaID
-            ))
-        case .left:
-            appState.dispatch(.moveTabToNewSplit(
-                projectID: pid, tabID: drag.tabID,
-                sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                direction: .horizontal, position: .first
-            ))
-        case .right:
-            appState.dispatch(.moveTabToNewSplit(
-                projectID: pid, tabID: drag.tabID,
-                sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                direction: .horizontal, position: .second
-            ))
-        case .top:
-            appState.dispatch(.moveTabToNewSplit(
-                projectID: pid, tabID: drag.tabID,
-                sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                direction: .vertical, position: .first
-            ))
-        case .bottom:
-            appState.dispatch(.moveTabToNewSplit(
-                projectID: pid, tabID: drag.tabID,
-                sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                direction: .vertical, position: .second
-            ))
         }
     }
 
