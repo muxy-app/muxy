@@ -1,5 +1,11 @@
 import Foundation
 
+struct NumstatEntry {
+    let additions: Int?
+    let deletions: Int?
+    let isBinary: Bool
+}
+
 struct GitStatusFile: Identifiable, Hashable {
     let path: String
     let oldPath: String?
@@ -271,7 +277,7 @@ actor GitRepositoryService {
 
     private func parseStatusPorcelain(
         _ data: Data,
-        stats: [String: (additions: Int?, deletions: Int?, isBinary: Bool)]
+        stats: [String: NumstatEntry]
     ) -> [GitStatusFile] {
         guard let decoded = String(data: data, encoding: .utf8), !decoded.isEmpty else { return [] }
         let tokens = decoded.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
@@ -321,8 +327,8 @@ actor GitRepositoryService {
         return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
-    private func parseNumstat(_ output: String) -> [String: (additions: Int?, deletions: Int?, isBinary: Bool)] {
-        var stats: [String: (additions: Int?, deletions: Int?, isBinary: Bool)] = [:]
+    private func parseNumstat(_ output: String) -> [String: NumstatEntry] {
+        var stats: [String: NumstatEntry] = [:]
 
         for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
             let fields = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
@@ -332,13 +338,15 @@ actor GitRepositoryService {
             let delsToken = String(fields[1])
             let rawPath = String(fields[2])
 
-            let isBinary = addsToken == "-" || delsToken == "-"
-            let additions = Int(addsToken)
-            let deletions = Int(delsToken)
+            let entry = NumstatEntry(
+                additions: Int(addsToken),
+                deletions: Int(delsToken),
+                isBinary: addsToken == "-" || delsToken == "-"
+            )
 
             let normalizedPath = normalizeNumstatPath(rawPath)
-            stats[normalizedPath] = (additions, deletions, isBinary)
-            stats[rawPath] = (additions, deletions, isBinary)
+            stats[normalizedPath] = entry
+            stats[rawPath] = entry
         }
 
         return stats
@@ -360,7 +368,13 @@ actor GitRepositoryService {
         return rawPath
     }
 
-    private func parseRows(_ patch: String) -> (rows: [DiffDisplayRow], additions: Int, deletions: Int) {
+    struct ParsedDiffRows {
+        let rows: [DiffDisplayRow]
+        let additions: Int
+        let deletions: Int
+    }
+
+    private func parseRows(_ patch: String) -> ParsedDiffRows {
         var rows: [DiffDisplayRow] = []
         var oldLineNumber = 0
         var newLineNumber = 0
@@ -435,7 +449,7 @@ actor GitRepositoryService {
             }
         }
 
-        return (rows, additions, deletions)
+        return ParsedDiffRows(rows: rows, additions: additions, deletions: deletions)
     }
 
     private func collapseContextRows(_ rows: [DiffDisplayRow]) -> [DiffDisplayRow] {

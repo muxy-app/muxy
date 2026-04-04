@@ -181,6 +181,20 @@ enum WorkspaceReducer {
         ensureWorkspaceExists(projectID: project.id, projectPath: project.path, state: &state)
     }
 
+    private struct PaneFocusScore: Comparable {
+        let overlapPenalty: Int
+        let axisGap: CGFloat
+        let crossDistance: CGFloat
+        let centerDistance: CGFloat
+
+        static func < (lhs: PaneFocusScore, rhs: PaneFocusScore) -> Bool {
+            if lhs.overlapPenalty != rhs.overlapPenalty { return lhs.overlapPenalty < rhs.overlapPenalty }
+            if lhs.axisGap != rhs.axisGap { return lhs.axisGap < rhs.axisGap }
+            if lhs.crossDistance != rhs.crossDistance { return lhs.crossDistance < rhs.crossDistance }
+            return lhs.centerDistance < rhs.centerDistance
+        }
+    }
+
     private enum PaneFocusDirection {
         case left
         case right
@@ -197,24 +211,13 @@ enum WorkspaceReducer {
         guard let focusedFrame = frames[focusedID] else { return }
 
         var bestCandidate: UUID?
-        var bestScore: (overlapPenalty: Int, axisGap: CGFloat, crossDistance: CGFloat, centerDistance: CGFloat)?
+        var bestScore: PaneFocusScore?
 
         for (candidateID, candidateFrame) in frames where candidateID != focusedID {
             guard isCandidate(candidateFrame, from: focusedFrame, direction: direction) else { continue }
 
             let score = scoreForCandidate(candidateFrame, from: focusedFrame, direction: direction)
-            if let currentBest = bestScore {
-                if score.overlapPenalty < currentBest.overlapPenalty ||
-                    (score.overlapPenalty == currentBest.overlapPenalty && score.axisGap < currentBest.axisGap) ||
-                    (score.overlapPenalty == currentBest.overlapPenalty && score.axisGap == currentBest.axisGap && score
-                        .crossDistance < currentBest.crossDistance) ||
-                    (score.overlapPenalty == currentBest.overlapPenalty && score.axisGap == currentBest.axisGap && score
-                        .crossDistance == currentBest.crossDistance && score.centerDistance < currentBest.centerDistance)
-                {
-                    bestCandidate = candidateID
-                    bestScore = score
-                }
-            } else {
+            if bestScore.map({ score < $0 }) ?? true {
                 bestCandidate = candidateID
                 bestScore = score
             }
@@ -237,7 +240,7 @@ enum WorkspaceReducer {
         _ candidate: CGRect,
         from focused: CGRect,
         direction: PaneFocusDirection
-    ) -> (overlapPenalty: Int, axisGap: CGFloat, crossDistance: CGFloat, centerDistance: CGFloat) {
+    ) -> PaneFocusScore {
         let overlap: CGFloat
         let axisGap: CGFloat
         let crossDistance: CGFloat
@@ -266,7 +269,7 @@ enum WorkspaceReducer {
             centerDistance = abs(focused.midY - candidate.midY)
         }
 
-        return (
+        return PaneFocusScore(
             overlapPenalty: overlap > 0 ? 0 : 1,
             axisGap: axisGap,
             crossDistance: crossDistance,

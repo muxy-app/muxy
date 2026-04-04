@@ -626,20 +626,27 @@ private final class DiffHighlightCache {
         return AttributedString(attributed)
     }
 
+    private struct RuleDefinition {
+        let pattern: String
+        let color: @MainActor () -> NSColor
+        let options: NSRegularExpression.Options
+    }
+
     private static func buildRules() -> [Rule] {
         var result: [Rule] = []
 
-        let patterns: [(String, @MainActor () -> NSColor, NSRegularExpression.Options)] = [
-            (#"'(?:\\.|[^'\\])*'"#, { MuxyTheme.nsDiffString }, []),
-            (#""(?:\\.|[^"\\])*""#, { MuxyTheme.nsDiffString }, []),
-            (#"`(?:\\.|[^`\\])*`"#, { MuxyTheme.nsDiffString }, []),
-            (#"\b\d+(?:\.\d+)?\b"#, { MuxyTheme.nsDiffNumber }, []),
-            (#"//.*$"#, { MuxyTheme.nsDiffComment }, [.anchorsMatchLines]),
+        let definitions: [RuleDefinition] = [
+            RuleDefinition(pattern: #"'(?:\\.|[^'\\])*'"#, color: { MuxyTheme.nsDiffString }, options: []),
+            RuleDefinition(pattern: #""(?:\\.|[^"\\])*""#, color: { MuxyTheme.nsDiffString }, options: []),
+            RuleDefinition(pattern: #"`(?:\\.|[^`\\])*`"#, color: { MuxyTheme.nsDiffString }, options: []),
+            RuleDefinition(pattern: #"\b\d+(?:\.\d+)?\b"#, color: { MuxyTheme.nsDiffNumber }, options: []),
+            RuleDefinition(pattern: #"//.*$"#, color: { MuxyTheme.nsDiffComment }, options: [.anchorsMatchLines]),
         ]
 
-        for (pattern, color, options) in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else { continue }
-            result.append(Rule(regex: regex, color: color))
+        for definition in definitions {
+            guard let regex = try? NSRegularExpression(pattern: definition.pattern, options: definition.options)
+            else { continue }
+            result.append(Rule(regex: regex, color: definition.color))
         }
 
         return result

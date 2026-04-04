@@ -25,7 +25,8 @@ final class GitDirectoryWatcher: @unchecked Sendable {
             { _, clientInfo, numEvents, eventPaths, eventFlags, _ in
                 guard let clientInfo, numEvents > 0 else { return }
                 let watcher = Unmanaged<GitDirectoryWatcher>.fromOpaque(clientInfo).takeUnretainedValue()
-                let paths = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue() as! [String]
+                guard let paths = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue() as? [String]
+                else { return }
                 let flags = Array(UnsafeBufferPointer(start: eventFlags, count: numEvents))
 
                 let dominated = zip(paths, flags).allSatisfy { path, flag in

@@ -114,10 +114,8 @@ final class VCSTabState {
                 }
 
                 var changedPaths: Set<String> = []
-                for file in newFiles {
-                    if oldFilesByPath[file.path] != file {
-                        changedPaths.insert(file.path)
-                    }
+                for file in newFiles where oldFilesByPath[file.path] != file {
+                    changedPaths.insert(file.path)
                 }
 
                 let listChanged = files.map(\.path) != newFiles.map(\.path) || !changedPaths.isEmpty
@@ -185,11 +183,17 @@ final class VCSTabState {
         performRefresh(incremental: false)
     }
 
-    func displayedStats(for file: GitStatusFile) -> (additions: Int?, deletions: Int?, binary: Bool) {
+    struct FileStats {
+        let additions: Int?
+        let deletions: Int?
+        let binary: Bool
+    }
+
+    func displayedStats(for file: GitStatusFile) -> FileStats {
         if let loaded = diffsByPath[file.path] {
-            return (loaded.additions, loaded.deletions, false)
+            return FileStats(additions: loaded.additions, deletions: loaded.deletions, binary: false)
         }
-        return (file.additions, file.deletions, file.isBinary)
+        return FileStats(additions: file.additions, deletions: file.deletions, binary: file.isBinary)
     }
 
     private func loadDiff(filePath: String, forceFull: Bool) {
