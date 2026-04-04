@@ -39,37 +39,31 @@ final class TabDragCoordinator {
         let targetAreaID: UUID
 
         func action(projectID: UUID) -> AppState.Action {
-            switch zone {
+            let request: TabMoveRequest = switch zone {
             case .center:
-                .moveTabToArea(
-                    projectID: projectID, tabID: drag.tabID,
-                    sourceAreaID: drag.sourceAreaID, destinationAreaID: targetAreaID
-                )
+                .toArea(tabID: drag.tabID, sourceAreaID: drag.sourceAreaID, destinationAreaID: targetAreaID)
             case .left:
-                .moveTabToNewSplit(
-                    projectID: projectID, tabID: drag.tabID,
-                    sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                    direction: .horizontal, position: .first
+                .toNewSplit(
+                    tabID: drag.tabID, sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
+                    split: SplitPlacement(direction: .horizontal, position: .first)
                 )
             case .right:
-                .moveTabToNewSplit(
-                    projectID: projectID, tabID: drag.tabID,
-                    sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                    direction: .horizontal, position: .second
+                .toNewSplit(
+                    tabID: drag.tabID, sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
                 )
             case .top:
-                .moveTabToNewSplit(
-                    projectID: projectID, tabID: drag.tabID,
-                    sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                    direction: .vertical, position: .first
+                .toNewSplit(
+                    tabID: drag.tabID, sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
+                    split: SplitPlacement(direction: .vertical, position: .first)
                 )
             case .bottom:
-                .moveTabToNewSplit(
-                    projectID: projectID, tabID: drag.tabID,
-                    sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
-                    direction: .vertical, position: .second
+                .toNewSplit(
+                    tabID: drag.tabID, sourceAreaID: drag.sourceAreaID, targetAreaID: targetAreaID,
+                    split: SplitPlacement(direction: .vertical, position: .second)
                 )
             }
+            return .moveTab(projectID: projectID, request: request)
         }
     }
 

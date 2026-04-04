@@ -21,11 +21,7 @@ final class AppState {
         case focusPaneRight(projectID: UUID)
         case focusPaneUp(projectID: UUID)
         case focusPaneDown(projectID: UUID)
-        case moveTabToArea(projectID: UUID, tabID: UUID, sourceAreaID: UUID, destinationAreaID: UUID)
-        case moveTabToNewSplit(
-            projectID: UUID, tabID: UUID, sourceAreaID: UUID,
-            targetAreaID: UUID, direction: SplitDirection, position: SplitPosition
-        )
+        case moveTab(projectID: UUID, request: TabMoveRequest)
         case selectNextProject(projects: [Project])
         case selectPreviousProject(projects: [Project])
     }

@@ -64,18 +64,8 @@ enum WorkspaceReducer {
         case let .closeArea(projectID, areaID):
             closeArea(areaID, projectID: projectID, state: &state, effects: &effects)
 
-        case let .moveTabToArea(projectID, tabID, sourceAreaID, destinationAreaID):
-            moveTabToArea(
-                tabID: tabID, sourceAreaID: sourceAreaID, destinationAreaID: destinationAreaID,
-                projectID: projectID, state: &state, effects: &effects
-            )
-
-        case let .moveTabToNewSplit(projectID, tabID, sourceAreaID, targetAreaID, direction, position):
-            moveTabToNewSplit(
-                tabID: tabID, sourceAreaID: sourceAreaID, targetAreaID: targetAreaID,
-                direction: direction, position: position,
-                projectID: projectID, state: &state, effects: &effects
-            )
+        case let .moveTab(projectID, request):
+            moveTab(request, projectID: projectID, state: &state, effects: &effects)
 
         case let .focusArea(projectID, areaID):
             focusArea(areaID, projectID: projectID, state: &state)
@@ -147,68 +137,59 @@ enum WorkspaceReducer {
         state.focusedAreaID[projectID] = previousID ?? remaining.first?.id
     }
 
-    private static func moveTabToArea(
-        tabID: UUID,
-        sourceAreaID: UUID,
-        destinationAreaID: UUID,
+    private static func moveTab(
+        _ request: TabMoveRequest,
         projectID: UUID,
         state: inout WorkspaceState,
         effects: inout WorkspaceSideEffects
     ) {
-        guard sourceAreaID != destinationAreaID else { return }
-        guard let root = state.workspaceRoots[projectID],
-              let sourceArea = root.findArea(id: sourceAreaID),
-              let destArea = root.findArea(id: destinationAreaID),
-              let tab = sourceArea.removeTab(tabID)
-        else { return }
+        switch request {
+        case let .toArea(tabID, sourceAreaID, destinationAreaID):
+            guard sourceAreaID != destinationAreaID else { return }
+            guard let root = state.workspaceRoots[projectID],
+                  let sourceArea = root.findArea(id: sourceAreaID),
+                  let destArea = root.findArea(id: destinationAreaID),
+                  let tab = sourceArea.removeTab(tabID)
+            else { return }
 
-        destArea.insertExistingTab(tab)
-        focusArea(destinationAreaID, projectID: projectID, state: &state)
+            destArea.insertExistingTab(tab)
+            focusArea(destinationAreaID, projectID: projectID, state: &state)
 
-        guard sourceArea.tabs.isEmpty else { return }
-        collapseEmptyArea(sourceAreaID, projectID: projectID, state: &state, effects: &effects)
-    }
-
-    private static func moveTabToNewSplit(
-        tabID: UUID,
-        sourceAreaID: UUID,
-        targetAreaID: UUID,
-        direction: SplitDirection,
-        position: SplitPosition,
-        projectID: UUID,
-        state: inout WorkspaceState,
-        effects: inout WorkspaceSideEffects
-    ) {
-        guard let root = state.workspaceRoots[projectID],
-              let sourceArea = root.findArea(id: sourceAreaID),
-              let tab = sourceArea.removeTab(tabID)
-        else { return }
-
-        let shouldCollapseSource = sourceArea.tabs.isEmpty
-        if shouldCollapseSource, sourceAreaID != targetAreaID {
+            guard sourceArea.tabs.isEmpty else { return }
             collapseEmptyArea(sourceAreaID, projectID: projectID, state: &state, effects: &effects)
-        }
 
-        guard let currentRoot = state.workspaceRoots[projectID] else { return }
-        let (newRoot, newAreaID) = currentRoot.splittingWithTab(
-            areaID: targetAreaID,
-            direction: direction,
-            position: position,
-            tab: tab,
-            projectPath: sourceArea.projectPath
-        )
-        state.workspaceRoots[projectID] = newRoot
+        case let .toNewSplit(tabID, sourceAreaID, targetAreaID, split):
+            guard let root = state.workspaceRoots[projectID],
+                  let sourceArea = root.findArea(id: sourceAreaID),
+                  let tab = sourceArea.removeTab(tabID)
+            else { return }
 
-        if let newAreaID {
-            focusArea(newAreaID, projectID: projectID, state: &state)
-        }
+            let shouldCollapseSource = sourceArea.tabs.isEmpty
+            if shouldCollapseSource, sourceAreaID != targetAreaID {
+                collapseEmptyArea(sourceAreaID, projectID: projectID, state: &state, effects: &effects)
+            }
 
-        guard shouldCollapseSource, sourceAreaID == targetAreaID else { return }
-        if let updatedRoot = state.workspaceRoots[projectID],
-           let emptyArea = updatedRoot.findArea(id: targetAreaID),
-           emptyArea.tabs.isEmpty
-        {
-            collapseEmptyArea(targetAreaID, projectID: projectID, state: &state, effects: &effects)
+            guard let currentRoot = state.workspaceRoots[projectID] else { return }
+            let (newRoot, newAreaID) = currentRoot.splittingWithTab(
+                areaID: targetAreaID,
+                direction: split.direction,
+                position: split.position,
+                tab: tab,
+                projectPath: sourceArea.projectPath
+            )
+            state.workspaceRoots[projectID] = newRoot
+
+            if let newAreaID {
+                focusArea(newAreaID, projectID: projectID, state: &state)
+            }
+
+            guard shouldCollapseSource, sourceAreaID == targetAreaID else { return }
+            if let updatedRoot = state.workspaceRoots[projectID],
+               let emptyArea = updatedRoot.findArea(id: targetAreaID),
+               emptyArea.tabs.isEmpty
+            {
+                collapseEmptyArea(targetAreaID, projectID: projectID, state: &state, effects: &effects)
+            }
         }
     }
 
