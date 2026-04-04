@@ -10,7 +10,7 @@ final class GhosttyService {
     static let shared = GhosttyService()
 
     @ObservationIgnored private(set) var app: ghostty_app_t?
-    @ObservationIgnored private(set) var config: ghostty_config_t?
+    private(set) var config: ghostty_config_t?
     private(set) var configVersion = 0
     @ObservationIgnored private var tickTimer: Timer?
     @ObservationIgnored private let runtimeEvents: any GhosttyRuntimeEventHandling = GhosttyRuntimeEventAdapter()

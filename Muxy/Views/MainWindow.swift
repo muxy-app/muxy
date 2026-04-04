@@ -48,7 +48,6 @@ struct MainWindow: View {
             }
         }
         .environment(dragCoordinator)
-        .id(ghostty.configVersion)
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
         .edgesIgnoringSafeArea(.top)
         .onAppear {
