@@ -44,99 +44,53 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var displayName: String {
+    private var metadata: (displayName: String, category: String, scope: ShortcutScope) {
         switch self {
-        case .newTab: "New Tab"
-        case .closeTab: "Close Tab"
-        case .renameTab: "Rename Tab"
-        case .pinUnpinTab: "Pin/Unpin Tab"
-        case .splitRight: "Split Right"
-        case .splitDown: "Split Down"
-        case .closePane: "Close Pane"
-        case .focusPaneLeft: "Focus Pane Left"
-        case .focusPaneRight: "Focus Pane Right"
-        case .focusPaneUp: "Focus Pane Up"
-        case .focusPaneDown: "Focus Pane Down"
-        case .nextTab: "Next Tab"
-        case .previousTab: "Previous Tab"
-        case .toggleSidebar: "Toggle Sidebar"
-        case .toggleThemePicker: "Theme Picker"
-        case .newProject: "New Project"
-        case .openProject: "Open Project"
-        case .reloadConfig: "Reload Configuration"
-        case .selectTab1: "Tab 1"
-        case .selectTab2: "Tab 2"
-        case .selectTab3: "Tab 3"
-        case .selectTab4: "Tab 4"
-        case .selectTab5: "Tab 5"
-        case .selectTab6: "Tab 6"
-        case .selectTab7: "Tab 7"
-        case .selectTab8: "Tab 8"
-        case .selectTab9: "Tab 9"
-        case .nextProject: "Next Project"
-        case .previousProject: "Previous Project"
-        case .selectProject1: "Project 1"
-        case .selectProject2: "Project 2"
-        case .selectProject3: "Project 3"
-        case .selectProject4: "Project 4"
-        case .selectProject5: "Project 5"
-        case .selectProject6: "Project 6"
-        case .selectProject7: "Project 7"
-        case .selectProject8: "Project 8"
-        case .selectProject9: "Project 9"
-        case .findInTerminal: "Find"
+        case .newTab: ("New Tab", "Tabs", .mainWindow)
+        case .closeTab: ("Close Tab", "Tabs", .mainWindow)
+        case .renameTab: ("Rename Tab", "Tabs", .mainWindow)
+        case .pinUnpinTab: ("Pin/Unpin Tab", "Tabs", .mainWindow)
+        case .splitRight: ("Split Right", "Panes", .mainWindow)
+        case .splitDown: ("Split Down", "Panes", .mainWindow)
+        case .closePane: ("Close Pane", "Panes", .mainWindow)
+        case .focusPaneLeft: ("Focus Pane Left", "Panes", .mainWindow)
+        case .focusPaneRight: ("Focus Pane Right", "Panes", .mainWindow)
+        case .focusPaneUp: ("Focus Pane Up", "Panes", .mainWindow)
+        case .focusPaneDown: ("Focus Pane Down", "Panes", .mainWindow)
+        case .nextTab: ("Next Tab", "Tab Navigation", .mainWindow)
+        case .previousTab: ("Previous Tab", "Tab Navigation", .mainWindow)
+        case .selectTab1: ("Tab 1", "Tab Navigation", .mainWindow)
+        case .selectTab2: ("Tab 2", "Tab Navigation", .mainWindow)
+        case .selectTab3: ("Tab 3", "Tab Navigation", .mainWindow)
+        case .selectTab4: ("Tab 4", "Tab Navigation", .mainWindow)
+        case .selectTab5: ("Tab 5", "Tab Navigation", .mainWindow)
+        case .selectTab6: ("Tab 6", "Tab Navigation", .mainWindow)
+        case .selectTab7: ("Tab 7", "Tab Navigation", .mainWindow)
+        case .selectTab8: ("Tab 8", "Tab Navigation", .mainWindow)
+        case .selectTab9: ("Tab 9", "Tab Navigation", .mainWindow)
+        case .nextProject: ("Next Project", "Project Navigation", .mainWindow)
+        case .previousProject: ("Previous Project", "Project Navigation", .mainWindow)
+        case .selectProject1: ("Project 1", "Project Navigation", .mainWindow)
+        case .selectProject2: ("Project 2", "Project Navigation", .mainWindow)
+        case .selectProject3: ("Project 3", "Project Navigation", .mainWindow)
+        case .selectProject4: ("Project 4", "Project Navigation", .mainWindow)
+        case .selectProject5: ("Project 5", "Project Navigation", .mainWindow)
+        case .selectProject6: ("Project 6", "Project Navigation", .mainWindow)
+        case .selectProject7: ("Project 7", "Project Navigation", .mainWindow)
+        case .selectProject8: ("Project 8", "Project Navigation", .mainWindow)
+        case .selectProject9: ("Project 9", "Project Navigation", .mainWindow)
+        case .findInTerminal: ("Find", "Terminal", .mainWindow)
+        case .toggleSidebar: ("Toggle Sidebar", "App", .mainWindow)
+        case .toggleThemePicker: ("Theme Picker", "App", .mainWindow)
+        case .newProject: ("New Project", "App", .mainWindow)
+        case .openProject: ("Open Project", "App", .mainWindow)
+        case .reloadConfig: ("Reload Configuration", "App", .global)
         }
     }
 
-    var category: String {
-        switch self {
-        case .newTab,
-             .closeTab,
-             .renameTab,
-             .pinUnpinTab:
-            "Tabs"
-        case .splitRight,
-             .splitDown,
-             .closePane,
-             .focusPaneLeft,
-             .focusPaneRight,
-             .focusPaneUp,
-             .focusPaneDown:
-            "Panes"
-        case .nextTab,
-             .previousTab,
-             .selectTab1,
-             .selectTab2,
-             .selectTab3,
-             .selectTab4,
-             .selectTab5,
-             .selectTab6,
-             .selectTab7,
-             .selectTab8,
-             .selectTab9:
-            "Tab Navigation"
-        case .nextProject,
-             .previousProject,
-             .selectProject1,
-             .selectProject2,
-             .selectProject3,
-             .selectProject4,
-             .selectProject5,
-             .selectProject6,
-             .selectProject7,
-             .selectProject8,
-             .selectProject9:
-            "Project Navigation"
-        case .findInTerminal:
-            "Terminal"
-        case .toggleSidebar,
-             .toggleThemePicker,
-             .newProject,
-             .openProject,
-             .reloadConfig:
-            "App"
-        }
-    }
+    var displayName: String { metadata.displayName }
+    var category: String { metadata.category }
+    var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
         ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Terminal", "App"]
@@ -158,178 +112,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         ]
         guard index >= 1, index <= actions.count else { return nil }
         return actions[index - 1]
-    }
-
-    var scope: ShortcutScope {
-        switch self {
-        case .reloadConfig:
-            .global
-        case .newTab,
-             .closeTab,
-             .renameTab,
-             .pinUnpinTab,
-             .splitRight,
-             .splitDown,
-             .closePane,
-             .focusPaneLeft,
-             .focusPaneRight,
-             .focusPaneUp,
-             .focusPaneDown,
-             .nextTab,
-             .previousTab,
-             .toggleSidebar,
-             .toggleThemePicker,
-             .newProject,
-             .openProject,
-             .selectTab1,
-             .selectTab2,
-             .selectTab3,
-             .selectTab4,
-             .selectTab5,
-             .selectTab6,
-             .selectTab7,
-             .selectTab8,
-             .selectTab9,
-             .nextProject,
-             .previousProject,
-             .selectProject1,
-             .selectProject2,
-             .selectProject3,
-             .selectProject4,
-             .selectProject5,
-             .selectProject6,
-             .selectProject7,
-             .selectProject8,
-             .selectProject9,
-             .findInTerminal:
-            .mainWindow
-        }
-    }
-}
-
-enum ShortcutScope: String, Codable, CaseIterable {
-    case global
-    case mainWindow
-}
-
-struct KeyCombo: Codable, Equatable, Hashable {
-    static let supportedModifierMask: NSEvent.ModifierFlags = [.command, .shift, .control, .option]
-    static let leftArrowKey = "leftarrow"
-    static let rightArrowKey = "rightarrow"
-    static let upArrowKey = "uparrow"
-    static let downArrowKey = "downarrow"
-    private static let keyCodeLeftBracket = 33
-    private static let keyCodeRightBracket = 30
-    private static let keyCodeLeftArrow = 123
-    private static let keyCodeRightArrow = 124
-    private static let keyCodeDownArrow = 125
-    private static let keyCodeUpArrow = 126
-
-    let key: String
-    let modifiers: UInt
-
-    init(key: String, modifiers: UInt) {
-        self.key = Self.normalized(key: key)
-        self.modifiers = Self.normalized(modifiers: modifiers)
-    }
-
-    init(
-        key: String, command: Bool = false, shift: Bool = false, control: Bool = false,
-        option: Bool = false
-    ) {
-        self.key = Self.normalized(key: key)
-        var flags: UInt = 0
-        if command { flags |= NSEvent.ModifierFlags.command.rawValue }
-        if shift { flags |= NSEvent.ModifierFlags.shift.rawValue }
-        if control { flags |= NSEvent.ModifierFlags.control.rawValue }
-        if option { flags |= NSEvent.ModifierFlags.option.rawValue }
-        self.modifiers = flags
-    }
-
-    var nsModifierFlags: NSEvent.ModifierFlags {
-        NSEvent.ModifierFlags(rawValue: modifiers).intersection(Self.supportedModifierMask)
-    }
-
-    var swiftUIKeyEquivalent: KeyEquivalent {
-        switch key {
-        case "[": KeyEquivalent("[")
-        case "]": KeyEquivalent("]")
-        case ",": KeyEquivalent(",")
-        case Self.leftArrowKey: .leftArrow
-        case Self.rightArrowKey: .rightArrow
-        case Self.upArrowKey: .upArrow
-        case Self.downArrowKey: .downArrow
-        default: KeyEquivalent(Character(key))
-        }
-    }
-
-    var swiftUIModifiers: EventModifiers {
-        var result: EventModifiers = []
-        let flags = nsModifierFlags
-        if flags.contains(.command) { result.insert(.command) }
-        if flags.contains(.shift) { result.insert(.shift) }
-        if flags.contains(.control) { result.insert(.control) }
-        if flags.contains(.option) { result.insert(.option) }
-        return result
-    }
-
-    var displayString: String {
-        var parts = ""
-        let flags = nsModifierFlags
-        if flags.contains(.control) { parts += "⌃" }
-        if flags.contains(.option) { parts += "⌥" }
-        if flags.contains(.shift) { parts += "⇧" }
-        if flags.contains(.command) { parts += "⌘" }
-        let keyDisplay: String = switch key {
-        case Self.leftArrowKey: "←"
-        case Self.rightArrowKey: "→"
-        case Self.upArrowKey: "↑"
-        case Self.downArrowKey: "↓"
-        default: key.uppercased()
-        }
-        parts += keyDisplay
-        return parts
-    }
-
-    func matches(event: NSEvent) -> Bool {
-        let eventFlags = event.modifierFlags.intersection(Self.supportedModifierMask).rawValue
-        let eventKey = Self.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
-        return eventKey == key && eventFlags == modifiers
-    }
-
-    static func normalized(modifiers: UInt) -> UInt {
-        NSEvent.ModifierFlags(rawValue: modifiers).intersection(supportedModifierMask).rawValue
-    }
-
-    static func normalized(key: String, keyCode: UInt16? = nil) -> String {
-        if let keyCode {
-            switch Int(keyCode) {
-            case keyCodeLeftBracket: return "["
-            case keyCodeRightBracket: return "]"
-            case keyCodeLeftArrow: return leftArrowKey
-            case keyCodeRightArrow: return rightArrowKey
-            case keyCodeUpArrow: return upArrowKey
-            case keyCodeDownArrow: return downArrowKey
-            default: break
-            }
-        }
-
-        let lowercased = key.lowercased()
-        if lowercased == leftArrowKey || lowercased == rightArrowKey || lowercased == upArrowKey || lowercased == downArrowKey {
-            return lowercased
-        }
-
-        guard let scalar = lowercased.unicodeScalars.first, lowercased.unicodeScalars.count == 1 else {
-            return lowercased
-        }
-
-        switch Int(scalar.value) {
-        case NSLeftArrowFunctionKey: return leftArrowKey
-        case NSRightArrowFunctionKey: return rightArrowKey
-        case NSUpArrowFunctionKey: return upArrowKey
-        case NSDownArrowFunctionKey: return downArrowKey
-        default: return lowercased
-        }
     }
 }
 

@@ -1,6 +1,14 @@
 import AppKit
 import Foundation
 
+struct ThemePreview: Identifiable {
+    let name: String
+    let background: NSColor
+    let foreground: NSColor
+    let palette: [NSColor]
+    var id: String { name }
+}
+
 @MainActor @Observable
 final class ThemeService {
     static let shared = ThemeService()

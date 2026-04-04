@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 
@@ -44,6 +45,33 @@ final class ProjectStore {
         } catch {
             logger.error("Failed to save projects: \(error)")
         }
+    }
+
+    func openProjectViaPanel(appState: AppState) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a project folder"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let project = Project(
+            name: url.lastPathComponent,
+            path: url.path(percentEncoded: false),
+            sortOrder: projects.count
+        )
+        add(project)
+        appState.selectProject(project)
+    }
+
+    func createDefaultProject(appState: AppState) {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+        let project = Project(
+            name: url.lastPathComponent,
+            path: url.path(percentEncoded: false),
+            sortOrder: projects.count
+        )
+        add(project)
+        appState.selectProject(project)
     }
 
     private func load() {

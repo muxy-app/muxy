@@ -9,8 +9,8 @@ struct SidebarToolbar: View {
     var body: some View {
         HStack(spacing: 4) {
             Spacer()
-            IconButton(symbol: "folder") { openProject() }
-            IconButton(symbol: "plus") { addProject() }
+            IconButton(symbol: "folder") { projectStore.openProjectViaPanel(appState: appState) }
+            IconButton(symbol: "plus") { projectStore.createDefaultProject(appState: appState) }
             IconButton(symbol: "sidebar.left") {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     appState.sidebarVisible.toggle()
@@ -41,33 +41,6 @@ struct SidebarToolbar: View {
         }
         .background(WindowDragRepresentable())
     }
-
-    private func openProject() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a project folder"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let project = Project(
-            name: url.lastPathComponent,
-            path: url.path(percentEncoded: false),
-            sortOrder: projectStore.projects.count
-        )
-        projectStore.add(project)
-        appState.selectProject(project)
-    }
-
-    private func addProject() {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-        let project = Project(
-            name: url.lastPathComponent,
-            path: url.path(percentEncoded: false),
-            sortOrder: projectStore.projects.count
-        )
-        projectStore.add(project)
-        appState.selectProject(project)
-    }
 }
 
 struct Sidebar: View {
@@ -94,7 +67,7 @@ struct Sidebar: View {
                         )
                         .background(GeometryReader { geo in
                             Color.clear.preference(
-                                key: ItemFramePreferenceKey.self,
+                                key: UUIDFramePreferenceKey<SidebarFrameTag>.self,
                                 value: [project.id: geo.frame(in: .named("sidebar"))]
                             )
                         })
@@ -119,7 +92,7 @@ struct Sidebar: View {
                     }
                 }
                 .padding(6)
-                .onPreferenceChange(ItemFramePreferenceKey.self) { dragState.frames = $0 }
+                .onPreferenceChange(UUIDFramePreferenceKey<SidebarFrameTag>.self) { dragState.frames = $0 }
             }
             .coordinateSpace(name: "sidebar")
             SidebarFooter()
@@ -147,13 +120,6 @@ struct Sidebar: View {
 private struct ProjectDragState {
     var draggedID: UUID?
     var frames: [UUID: CGRect] = [:]
-}
-
-private struct ItemFramePreferenceKey: PreferenceKey {
-    nonisolated(unsafe) static var defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue()) { $1 }
-    }
 }
 
 struct SidebarFooter: View {

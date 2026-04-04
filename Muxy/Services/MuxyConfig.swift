@@ -10,7 +10,7 @@ final class MuxyConfig {
     private static let systemGhosttyConfigPath = NSHomeDirectory() + "/.config/ghostty/config"
 
     private init() {
-        let dir = Self.appSupportDirectory()
+        let dir = MuxyFileStorage.appSupportDirectory()
         ghosttyConfigURL = dir.appendingPathComponent(Self.ghosttyConfigFilename)
         seedFromSystemGhosttyIfNeeded()
     }
@@ -32,20 +32,11 @@ final class MuxyConfig {
     func updateConfigValue(_ key: String, value: String) {
         let entry = "\(key) = \(value)"
         var content = readGhosttyConfig()
-
         var lines = content.components(separatedBy: "\n")
-        var replaced = false
-        for (i, line) in lines.enumerated() {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix(key) else { continue }
-            let afterKey = trimmed.dropFirst(key.count).trimmingCharacters(in: .whitespaces)
-            guard afterKey.hasPrefix("=") else { continue }
-            lines[i] = entry
-            replaced = true
-            break
-        }
 
-        if !replaced {
+        if let index = findConfigLineIndex(for: key, in: lines) {
+            lines[index] = entry
+        } else {
             lines.insert(entry, at: 0)
         }
 
@@ -54,13 +45,20 @@ final class MuxyConfig {
     }
 
     func configValue(for key: String) -> String? {
-        let content = readGhosttyConfig()
-        for line in content.components(separatedBy: .newlines) {
+        let lines = readGhosttyConfig().components(separatedBy: .newlines)
+        guard let index = findConfigLineIndex(for: key, in: lines) else { return nil }
+        let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+        let afterKey = trimmed.dropFirst(key.count).trimmingCharacters(in: .whitespaces)
+        return afterKey.dropFirst().trimmingCharacters(in: .whitespaces)
+    }
+
+    private func findConfigLineIndex(for key: String, in lines: [String]) -> Int? {
+        for (i, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard trimmed.hasPrefix(key) else { continue }
             let afterKey = trimmed.dropFirst(key.count).trimmingCharacters(in: .whitespaces)
             guard afterKey.hasPrefix("=") else { continue }
-            return afterKey.dropFirst().trimmingCharacters(in: .whitespaces)
+            return i
         }
         return nil
     }
@@ -76,15 +74,6 @@ final class MuxyConfig {
         }
 
         try? writeGhosttyConfig(systemContent)
-    }
-
-    private static func appSupportDirectory() -> URL {
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            fatalError("Application Support directory unavailable")
-        }
-        let dir = appSupport.appendingPathComponent("Muxy", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        return dir
     }
 
     private static func restrictFilePermissions(_ url: URL) {

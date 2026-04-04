@@ -3,7 +3,7 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "WorkspacePersistence")
 
-protocol WorkspacePersisting: Sendable {
+protocol WorkspacePersisting {
     func loadWorkspaces() -> [WorkspaceSnapshot]
     func saveWorkspaces(_ workspaces: [WorkspaceSnapshot])
 }
@@ -11,7 +11,7 @@ protocol WorkspacePersisting: Sendable {
 final class FileWorkspacePersistence: WorkspacePersisting {
     private let fileURL: URL
 
-    init(fileURL: URL = FileWorkspacePersistence.defaultFileURL()) {
+    init(fileURL: URL = MuxyFileStorage.fileURL(filename: "workspaces.json")) {
         self.fileURL = fileURL
     }
 
@@ -35,22 +35,5 @@ final class FileWorkspacePersistence: WorkspacePersisting {
         } catch {
             logger.error("Failed to save workspaces: \(error)")
         }
-    }
-
-    private static func defaultFileURL() -> URL {
-        guard let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first
-        else {
-            fatalError("Application Support directory unavailable")
-        }
-        let dir = appSupport.appendingPathComponent("Muxy", isDirectory: true)
-        try? FileManager.default.createDirectory(
-            at: dir,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        return dir.appendingPathComponent("workspaces.json")
     }
 }
