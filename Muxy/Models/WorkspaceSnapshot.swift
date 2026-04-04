@@ -65,10 +65,42 @@ struct TabAreaSnapshot: Codable {
 }
 
 struct TerminalTabSnapshot: Codable {
+    let kind: TerminalTab.Kind
     let customTitle: String?
     let isPinned: Bool
     let projectPath: String
     let paneTitle: String
+
+    init(
+        kind: TerminalTab.Kind,
+        customTitle: String?,
+        isPinned: Bool,
+        projectPath: String,
+        paneTitle: String?
+    ) {
+        self.kind = kind
+        self.customTitle = customTitle
+        self.isPinned = isPinned
+        self.projectPath = projectPath
+        self.paneTitle = paneTitle ?? "Terminal"
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case customTitle
+        case isPinned
+        case projectPath
+        case paneTitle
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(TerminalTab.Kind.self, forKey: .kind) ?? .terminal
+        customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
+        isPinned = try container.decode(Bool.self, forKey: .isPinned)
+        projectPath = try container.decode(String.self, forKey: .projectPath)
+        paneTitle = try container.decodeIfPresent(String.self, forKey: .paneTitle) ?? "Terminal"
+    }
 }
 
 struct RestoredWorkspace {

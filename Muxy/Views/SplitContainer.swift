@@ -8,6 +8,7 @@ struct SplitContainer: View {
     let onFocusArea: (UUID) -> Void
     let onSelectTab: (UUID, UUID) -> Void
     let onCreateTab: (UUID) -> Void
+    let onCreateVCSTab: (UUID) -> Void
     let onCloseTab: (UUID, UUID) -> Void
     let onSplit: (UUID, SplitDirection) -> Void
     let onCloseArea: (UUID) -> Void
@@ -61,6 +62,7 @@ struct SplitContainer: View {
             onFocusArea: onFocusArea,
             onSelectTab: onSelectTab,
             onCreateTab: onCreateTab,
+            onCreateVCSTab: onCreateVCSTab,
             onCloseTab: onCloseTab,
             onSplit: onSplit,
             onCloseArea: onCloseArea

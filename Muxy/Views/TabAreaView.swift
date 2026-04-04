@@ -8,6 +8,7 @@ struct TabAreaView: View {
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
+    let onCreateVCSTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onClose: () -> Void
@@ -21,6 +22,7 @@ struct TabAreaView: View {
                     onFocus: onFocus,
                     onSelectTab: onSelectTab,
                     onCreateTab: onCreateTab,
+                    onCreateVCSTab: onCreateVCSTab,
                     onCloseTab: onCloseTab,
                     onSplit: onSplit,
                     onClose: onClose
@@ -30,8 +32,8 @@ struct TabAreaView: View {
             ZStack {
                 ForEach(area.tabs) { tab in
                     let isActive = tab.id == area.activeTabID
-                    TerminalPane(
-                        state: tab.pane,
+                    TabContentView(
+                        tab: tab,
                         focused: isFocused && isActive && isActiveProject,
                         onFocus: onFocus,
                         onProcessExit: { onCloseTab(tab.id) }
@@ -47,8 +49,29 @@ struct TabAreaView: View {
             guard let tabID = area.activeTabID,
                   let tab = area.tabs.first(where: { $0.id == tabID })
             else { return }
-            let paneID = tab.pane.id
-            TerminalViewRegistry.shared.existingView(for: paneID)?.startSearch()
+            guard let pane = tab.content.pane else { return }
+            TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
+        }
+    }
+}
+
+private struct TabContentView: View {
+    let tab: TerminalTab
+    let focused: Bool
+    let onFocus: () -> Void
+    let onProcessExit: () -> Void
+
+    var body: some View {
+        switch tab.content {
+        case let .terminal(pane):
+            TerminalPane(
+                state: pane,
+                focused: focused,
+                onFocus: onFocus,
+                onProcessExit: onProcessExit
+            )
+        case let .vcs(vcsState):
+            VCSTabView(state: vcsState, focused: focused, onFocus: onFocus)
         }
     }
 }

@@ -32,6 +32,11 @@ enum WorkspaceReducer {
             focusArea(area.id, projectID: projectID, state: &state)
             area.createTab()
 
+        case let .createVCSTab(projectID, areaID):
+            guard let area = resolveArea(projectID: projectID, areaID: areaID, state: state) else { break }
+            focusArea(area.id, projectID: projectID, state: &state)
+            area.createVCSTab()
+
         case let .closeTab(projectID, areaID, tabID):
             closeTab(tabID, areaID: areaID, projectID: projectID, state: &state, effects: &effects)
 
@@ -109,7 +114,7 @@ enum WorkspaceReducer {
     ) {
         guard let root = state.workspaceRoots[projectID] else { return }
         if let area = root.findArea(id: areaID) {
-            effects.paneIDsToRemove.append(contentsOf: area.tabs.map(\.pane.id))
+            effects.paneIDsToRemove.append(contentsOf: area.tabs.compactMap { $0.content.pane?.id })
         }
         guard let newRoot = root.removing(areaID: areaID) else {
             state.workspaceRoots.removeValue(forKey: projectID)
@@ -275,7 +280,7 @@ enum WorkspaceReducer {
         effects: inout WorkspaceSideEffects
     ) {
         if let root = state.workspaceRoots[projectID] {
-            let paneIDs = root.allAreas().flatMap { $0.tabs.map(\.pane.id) }
+            let paneIDs = root.allAreas().flatMap { area in area.tabs.compactMap { $0.content.pane?.id } }
             effects.paneIDsToRemove.append(contentsOf: paneIDs)
         }
         state.workspaceRoots.removeValue(forKey: projectID)

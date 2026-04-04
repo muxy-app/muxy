@@ -93,10 +93,10 @@ final class GhosttyService {
     }
 
     var accentColor: NSColor {
-        paletteColor(4) ?? configColor("foreground") ?? .white
+        paletteColor(at: 4) ?? configColor("foreground") ?? .white
     }
 
-    private func paletteColor(_ index: Int) -> NSColor? {
+    func paletteColor(at index: Int) -> NSColor? {
         guard let config, index >= 0, index < 256 else { return nil }
         var palette = ghostty_config_palette_s()
         guard ghostty_config_get(config, &palette, "palette", 7) else { return nil }

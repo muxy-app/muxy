@@ -71,6 +71,9 @@ struct MainWindow: View {
                 onCreateTab: {
                     appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
                 },
+                onCreateVCSTab: {
+                    appState.dispatch(.createVCSTab(projectID: project.id, areaID: area.id))
+                },
                 onCloseTab: { tabID in
                     appState.dispatch(.closeTab(projectID: project.id, areaID: area.id, tabID: tabID))
                 },

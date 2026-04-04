@@ -27,6 +27,9 @@ struct TerminalArea: View {
                 onCreateTab: { areaID in
                     appState.dispatch(.createTab(projectID: project.id, areaID: areaID))
                 },
+                onCreateVCSTab: { areaID in
+                    appState.dispatch(.createVCSTab(projectID: project.id, areaID: areaID))
+                },
                 onCloseTab: { areaID, tabID in
                     appState.dispatch(.closeTab(projectID: project.id, areaID: areaID, tabID: tabID))
                 },

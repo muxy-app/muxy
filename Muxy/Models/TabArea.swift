@@ -48,7 +48,14 @@ final class TabArea: Identifiable {
     }
 
     func createTab() {
-        let tab = TerminalTab(pane: TerminalPaneState(projectPath: projectPath))
+        insertTab(TerminalTab(pane: TerminalPaneState(projectPath: projectPath)))
+    }
+
+    func createVCSTab() {
+        insertTab(TerminalTab(vcsState: VCSTabState(projectPath: projectPath)))
+    }
+
+    private func insertTab(_ tab: TerminalTab) {
         tabs.append(tab)
         if let current = activeTabID {
             tabHistory.append(current)
@@ -72,7 +79,7 @@ final class TabArea: Identifiable {
 
     func closeTab(_ tabID: UUID) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabID }), !tab.isPinned else { return nil }
-        let closedPaneID = tab.pane.id
+        let closedPaneID = tab.content.pane?.id
         tabs.removeAll { $0.id == tabID }
         tabHistory.removeAll { $0 == tabID }
         guard activeTabID == tabID else { return closedPaneID }
