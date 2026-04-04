@@ -64,6 +64,19 @@ enum WorkspaceReducer {
         case let .closeArea(projectID, areaID):
             closeArea(areaID, projectID: projectID, state: &state, effects: &effects)
 
+        case let .moveTabToArea(projectID, tabID, sourceAreaID, destinationAreaID):
+            moveTabToArea(
+                tabID: tabID, sourceAreaID: sourceAreaID, destinationAreaID: destinationAreaID,
+                projectID: projectID, state: &state, effects: &effects
+            )
+
+        case let .moveTabToNewSplit(projectID, tabID, sourceAreaID, targetAreaID, direction, position):
+            moveTabToNewSplit(
+                tabID: tabID, sourceAreaID: sourceAreaID, targetAreaID: targetAreaID,
+                direction: direction, position: position,
+                projectID: projectID, state: &state, effects: &effects
+            )
+
         case let .focusArea(projectID, areaID):
             focusArea(areaID, projectID: projectID, state: &state)
 
@@ -129,6 +142,88 @@ enum WorkspaceReducer {
         state.focusHistory[projectID]?.removeAll { $0 == areaID }
         guard state.focusedAreaID[projectID] == areaID else { return }
 
+        let remaining = newRoot.allAreas()
+        let previousID = popFocusHistory(projectID: projectID, validAreas: remaining, state: &state)
+        state.focusedAreaID[projectID] = previousID ?? remaining.first?.id
+    }
+
+    private static func moveTabToArea(
+        tabID: UUID,
+        sourceAreaID: UUID,
+        destinationAreaID: UUID,
+        projectID: UUID,
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
+    ) {
+        guard sourceAreaID != destinationAreaID else { return }
+        guard let root = state.workspaceRoots[projectID],
+              let sourceArea = root.findArea(id: sourceAreaID),
+              let destArea = root.findArea(id: destinationAreaID),
+              let tab = sourceArea.removeTab(tabID)
+        else { return }
+
+        destArea.insertExistingTab(tab)
+        focusArea(destinationAreaID, projectID: projectID, state: &state)
+
+        guard sourceArea.tabs.isEmpty else { return }
+        collapseEmptyArea(sourceAreaID, projectID: projectID, state: &state, effects: &effects)
+    }
+
+    private static func moveTabToNewSplit(
+        tabID: UUID,
+        sourceAreaID: UUID,
+        targetAreaID: UUID,
+        direction: SplitDirection,
+        position: SplitPosition,
+        projectID: UUID,
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
+    ) {
+        guard let root = state.workspaceRoots[projectID],
+              let sourceArea = root.findArea(id: sourceAreaID),
+              let tab = sourceArea.removeTab(tabID)
+        else { return }
+
+        let shouldCollapseSource = sourceArea.tabs.isEmpty
+        if shouldCollapseSource, sourceAreaID != targetAreaID {
+            collapseEmptyArea(sourceAreaID, projectID: projectID, state: &state, effects: &effects)
+        }
+
+        guard let currentRoot = state.workspaceRoots[projectID] else { return }
+        let (newRoot, newAreaID) = currentRoot.splittingWithTab(
+            areaID: targetAreaID,
+            direction: direction,
+            position: position,
+            tab: tab,
+            projectPath: sourceArea.projectPath
+        )
+        state.workspaceRoots[projectID] = newRoot
+
+        if let newAreaID {
+            focusArea(newAreaID, projectID: projectID, state: &state)
+        }
+
+        guard shouldCollapseSource, sourceAreaID == targetAreaID else { return }
+        if let updatedRoot = state.workspaceRoots[projectID],
+           let emptyArea = updatedRoot.findArea(id: targetAreaID),
+           emptyArea.tabs.isEmpty
+        {
+            collapseEmptyArea(targetAreaID, projectID: projectID, state: &state, effects: &effects)
+        }
+    }
+
+    private static func collapseEmptyArea(
+        _ areaID: UUID,
+        projectID: UUID,
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
+    ) {
+        guard let root = state.workspaceRoots[projectID],
+              let newRoot = root.removing(areaID: areaID)
+        else { return }
+        state.workspaceRoots[projectID] = newRoot
+        state.focusHistory[projectID]?.removeAll { $0 == areaID }
+        guard state.focusedAreaID[projectID] == areaID else { return }
         let remaining = newRoot.allAreas()
         let previousID = popFocusHistory(projectID: projectID, validAreas: remaining, state: &state)
         state.focusedAreaID[projectID] = previousID ?? remaining.first?.id

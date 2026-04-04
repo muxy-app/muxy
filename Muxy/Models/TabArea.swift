@@ -17,6 +17,13 @@ final class TabArea: Identifiable {
         activeTabID = tab.id
     }
 
+    init(projectPath: String, existingTab tab: TerminalTab) {
+        id = UUID()
+        self.projectPath = projectPath
+        tabs.append(tab)
+        activeTabID = tab.id
+    }
+
     init(restoring snapshot: TabAreaSnapshot) {
         id = snapshot.id
         projectPath = snapshot.projectPath
@@ -124,6 +131,33 @@ final class TabArea: Identifiable {
 
     func reorderTab(fromOffsets source: IndexSet, toOffset destination: Int) {
         tabs.move(fromOffsets: source, toOffset: destination)
+    }
+
+    func removeTab(_ tabID: UUID) -> TerminalTab? {
+        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
+        let tab = tabs[index]
+        guard !tab.isPinned else { return nil }
+        tabs.remove(at: index)
+        tabHistory.removeAll { $0 == tabID }
+        guard activeTabID == tabID else { return tab }
+        let validIDs = Set(tabs.map(\.id))
+        while let prev = tabHistory.popLast() {
+            if validIDs.contains(prev) {
+                activeTabID = prev
+                return tab
+            }
+        }
+        activeTabID = tabs.last?.id
+        return tab
+    }
+
+    func insertExistingTab(_ tab: TerminalTab) {
+        let insertIndex = tab.isPinned ? firstUnpinnedIndex : tabs.count
+        tabs.insert(tab, at: insertIndex)
+        if let current = activeTabID {
+            tabHistory.append(current)
+        }
+        activeTabID = tab.id
     }
 
     func togglePin(_ tabID: UUID) {
