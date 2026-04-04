@@ -82,19 +82,47 @@ run_step() {
   return "$exit_code"
 }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOL_VERSIONS_FILE="$SCRIPT_DIR/../.tool-versions"
+
+read_tool_version() {
+  local tool=$1
+  if [ ! -f "$TOOL_VERSIONS_FILE" ]; then
+    printf "  ${RED}${FAIL}${RESET} .tool-versions file not found\n"
+    exit 1
+  fi
+  grep "^$tool " "$TOOL_VERSIONS_FILE" | awk '{print $2}'
+}
+
+EXPECTED_SWIFTFORMAT=$(read_tool_version swiftformat)
+EXPECTED_SWIFTLINT=$(read_tool_version swiftlint)
+
 check_tool() {
   local tool=$1
+  local expected=$2
   if ! command -v "$tool" &>/dev/null; then
     printf "  ${RED}${FAIL}${RESET} %s not found. Install with: brew install %s\n" "$tool" "$tool"
+    exit 1
+  fi
+  local actual
+  if [ "$tool" = "swiftlint" ]; then
+    actual=$("$tool" version)
+  else
+    actual=$("$tool" --version)
+  fi
+  if [ "$actual" != "$expected" ]; then
+    printf "  ${RED}${FAIL}${RESET} %s version mismatch: local %s, expected %s (from .tool-versions)\n" "$tool" "$actual" "$expected"
     exit 1
   fi
 }
 
 HAS_SWIFTLINT=1
-check_tool swiftformat
+check_tool swiftformat "$EXPECTED_SWIFTFORMAT"
 if ! command -v swiftlint &>/dev/null; then
   HAS_SWIFTLINT=0
   printf "  ${YELLOW}!${RESET} swiftlint not found, skipping lint step. Install with: brew install swiftlint\n"
+else
+  check_tool swiftlint "$EXPECTED_SWIFTLINT"
 fi
 
 printf "\n"

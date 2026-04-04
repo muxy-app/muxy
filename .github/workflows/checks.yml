@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  SWIFTLINT_VERSION: "0.57.1"
-  SWIFTFORMAT_VERSION: "0.60.1"
-
 jobs:
   checks:
     name: Checks
@@ -17,6 +13,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read tool versions
+        run: |
+          echo "SWIFTFORMAT_VERSION=$(grep '^swiftformat ' .tool-versions | awk '{print $2}')" >> "$GITHUB_ENV"
+          echo "SWIFTLINT_VERSION=$(grep '^swiftlint ' .tool-versions | awk '{print $2}')" >> "$GITHUB_ENV"
 
       - name: Install SwiftFormat
         run: |

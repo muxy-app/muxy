@@ -678,7 +678,8 @@ private struct PRBadge: View {
 
     var body: some View {
         Button {
-            NSWorkspace.shared.open(URL(string: info.url)!)
+            guard let url = URL(string: info.url) else { return }
+            NSWorkspace.shared.open(url)
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "arrow.triangle.pull")
