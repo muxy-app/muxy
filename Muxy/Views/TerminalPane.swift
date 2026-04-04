@@ -79,6 +79,7 @@ struct TerminalBridge: NSViewRepresentable {
         context.coordinator.wasFocused = focused
         nsView.isFocused = focused
         if focused, !wasFocused {
+            nsView.notifySurfaceFocused()
             DispatchQueue.main.async {
                 nsView.window?.makeFirstResponder(nsView)
             }

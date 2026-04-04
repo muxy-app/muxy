@@ -17,6 +17,13 @@ final class TabArea: Identifiable {
         activeTabID = tab.id
     }
 
+    init(projectPath: String, existingTab tab: TerminalTab) {
+        id = UUID()
+        self.projectPath = projectPath
+        tabs.append(tab)
+        activeTabID = tab.id
+    }
+
     init(restoring snapshot: TabAreaSnapshot) {
         id = snapshot.id
         projectPath = snapshot.projectPath
@@ -78,20 +85,8 @@ final class TabArea: Identifiable {
     }
 
     func closeTab(_ tabID: UUID) -> UUID? {
-        guard let tab = tabs.first(where: { $0.id == tabID }), !tab.isPinned else { return nil }
-        let closedPaneID = tab.content.pane?.id
-        tabs.removeAll { $0.id == tabID }
-        tabHistory.removeAll { $0 == tabID }
-        guard activeTabID == tabID else { return closedPaneID }
-        let validIDs = Set(tabs.map(\.id))
-        while let prev = tabHistory.popLast() {
-            if validIDs.contains(prev) {
-                activeTabID = prev
-                return closedPaneID
-            }
-        }
-        activeTabID = tabs.last?.id
-        return closedPaneID
+        guard let tab = removeTab(tabID) else { return nil }
+        return tab.content.pane?.id
     }
 
     func selectTab(_ tabID: UUID) {
@@ -124,6 +119,33 @@ final class TabArea: Identifiable {
 
     func reorderTab(fromOffsets source: IndexSet, toOffset destination: Int) {
         tabs.move(fromOffsets: source, toOffset: destination)
+    }
+
+    func removeTab(_ tabID: UUID) -> TerminalTab? {
+        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
+        let tab = tabs[index]
+        guard !tab.isPinned else { return nil }
+        tabs.remove(at: index)
+        tabHistory.removeAll { $0 == tabID }
+        guard activeTabID == tabID else { return tab }
+        let validIDs = Set(tabs.map(\.id))
+        while let prev = tabHistory.popLast() {
+            if validIDs.contains(prev) {
+                activeTabID = prev
+                return tab
+            }
+        }
+        activeTabID = tabs.last?.id
+        return tab
+    }
+
+    func insertExistingTab(_ tab: TerminalTab) {
+        let insertIndex = tab.isPinned ? firstUnpinnedIndex : tabs.count
+        tabs.insert(tab, at: insertIndex)
+        if let current = activeTabID {
+            tabHistory.append(current)
+        }
+        activeTabID = tab.id
     }
 
     func togglePin(_ tabID: UUID) {

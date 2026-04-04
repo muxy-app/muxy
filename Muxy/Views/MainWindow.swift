@@ -4,6 +4,7 @@ struct MainWindow: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(GhosttyService.self) private var ghostty
+    @State private var dragCoordinator = TabDragCoordinator()
     private let sidebarWidth: CGFloat = 160
 
     var body: some View {
@@ -46,6 +47,7 @@ struct MainWindow: View {
                 }
             }
         }
+        .environment(dragCoordinator)
         .id(ghostty.configVersion)
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
         .edgesIgnoringSafeArea(.top)
@@ -64,6 +66,7 @@ struct MainWindow: View {
                 area: area,
                 isFocused: true,
                 isWindowTitleBar: true,
+                projectID: project.id,
                 onFocus: {},
                 onSelectTab: { tabID in
                     appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
@@ -78,10 +81,15 @@ struct MainWindow: View {
                     appState.dispatch(.closeTab(projectID: project.id, areaID: area.id, tabID: tabID))
                 },
                 onSplit: { dir in
-                    appState.dispatch(.splitArea(projectID: project.id, areaID: area.id, direction: dir, projectPath: project.path))
+                    appState.dispatch(.splitArea(
+                        projectID: project.id, areaID: area.id, direction: dir, projectPath: project.path
+                    ))
                 },
                 onClose: {
                     appState.dispatch(.closeArea(projectID: project.id, areaID: area.id))
+                },
+                onDropAction: { result in
+                    appState.dispatch(result.action(projectID: project.id))
                 }
             )
         } else {

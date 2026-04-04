@@ -4,6 +4,7 @@ struct TerminalArea: View {
     let project: Project
     let isActiveProject: Bool
     @Environment(AppState.self) private var appState
+    @Environment(TabDragCoordinator.self) private var dragCoordinator
 
     private var rootIsTabArea: Bool {
         guard let root = appState.workspaceRoot(for: project.id) else { return false }
@@ -18,6 +19,7 @@ struct TerminalArea: View {
                 focusedAreaID: appState.focusedAreaID[project.id],
                 isActiveProject: isActiveProject,
                 showTabStrip: !rootIsTabArea,
+                projectID: project.id,
                 onFocusArea: { areaID in
                     appState.dispatch(.focusArea(projectID: project.id, areaID: areaID))
                 },
@@ -34,12 +36,20 @@ struct TerminalArea: View {
                     appState.dispatch(.closeTab(projectID: project.id, areaID: areaID, tabID: tabID))
                 },
                 onSplit: { areaID, dir in
-                    appState.dispatch(.splitArea(projectID: project.id, areaID: areaID, direction: dir, projectPath: project.path))
+                    appState.dispatch(.splitArea(
+                        projectID: project.id, areaID: areaID, direction: dir, projectPath: project.path
+                    ))
                 },
                 onCloseArea: { areaID in
                     appState.dispatch(.closeArea(projectID: project.id, areaID: areaID))
+                },
+                onDropAction: { result in
+                    appState.dispatch(result.action(projectID: project.id))
                 }
             )
+            .onPreferenceChange(AreaFramePreferenceKey.self) { frames in
+                dragCoordinator.areaFrames = frames
+            }
         }
     }
 }

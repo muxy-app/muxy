@@ -4,6 +4,7 @@ struct PaneTabStrip: View {
     let area: TabArea
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
+    let projectID: UUID
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
@@ -11,6 +12,8 @@ struct PaneTabStrip: View {
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onClose: () -> Void
+    let onDropAction: (TabDragCoordinator.DropResult) -> Void
+    @Environment(TabDragCoordinator.self) private var dragCoordinator
     @State private var dragState = TabDragState()
 
     var body: some View {
@@ -38,21 +41,13 @@ struct PaneTabStrip: View {
                     )
                 })
                 .gesture(
-                    DragGesture(
-                        minimumDistance: 4,
-                        coordinateSpace: .named("tabstrip-\(area.id)")
-                    )
-                    .onChanged { value in
-                        if dragState.draggedID == nil {
-                            dragState.draggedID = tab.id
+                    DragGesture(minimumDistance: 4, coordinateSpace: .global)
+                        .onChanged { value in
+                            handleDragChanged(tab: tab, globalLocation: value.location)
                         }
-                        reorderIfNeeded(at: value.location)
-                    }
-                    .onEnded { _ in
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            dragState.draggedID = nil
+                        .onEnded { _ in
+                            handleDragEnded()
                         }
-                    }
                 )
                 .onTapGesture {
                     guard dragState.draggedID == nil else { return }
@@ -72,8 +67,53 @@ struct PaneTabStrip: View {
             .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
         }
         .frame(height: 32)
+        .background(GeometryReader { geo in
+            Color.clear
+                .onAppear { dragState.stripFrameGlobal = geo.frame(in: .global) }
+                .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                    dragState.stripFrameGlobal = newFrame
+                }
+        })
         .onPreferenceChange(TabFramePreferenceKey.self) { dragState.frames = $0 }
         .coordinateSpace(name: "tabstrip-\(area.id)")
+    }
+
+    private func handleDragChanged(tab: TerminalTab, globalLocation: CGPoint) {
+        if dragState.draggedID == nil {
+            dragState.draggedID = tab.id
+        }
+
+        if dragState.isInSplitMode {
+            dragCoordinator.updatePosition(globalLocation)
+            return
+        }
+
+        let stripFrame = dragState.stripFrameGlobal
+        let verticalEscape = globalLocation.y < stripFrame.minY - 20
+            || globalLocation.y > stripFrame.maxY + 20
+
+        if verticalEscape, !tab.isPinned {
+            dragState.isInSplitMode = true
+            dragCoordinator.beginDrag(tabID: tab.id, sourceAreaID: area.id, projectID: projectID)
+            dragCoordinator.updatePosition(globalLocation)
+            return
+        }
+
+        let localX = globalLocation.x - stripFrame.minX
+        let localY = globalLocation.y - stripFrame.minY
+        reorderIfNeeded(at: CGPoint(x: localX, y: localY))
+    }
+
+    private func handleDragEnded() {
+        if dragState.isInSplitMode {
+            if let result = dragCoordinator.endDrag() {
+                onDropAction(result)
+            }
+        }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            dragState.draggedID = nil
+            dragState.isInSplitMode = false
+        }
     }
 
     private func reorderIfNeeded(at location: CGPoint) {
@@ -95,6 +135,8 @@ struct PaneTabStrip: View {
 private struct TabDragState {
     var draggedID: UUID?
     var frames: [UUID: CGRect] = [:]
+    var isInSplitMode = false
+    var stripFrameGlobal: CGRect = .zero
 }
 
 private struct TabFramePreferenceKey: PreferenceKey {

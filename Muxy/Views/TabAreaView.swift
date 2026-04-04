@@ -5,6 +5,7 @@ struct TabAreaView: View {
     let isFocused: Bool
     let isActiveProject: Bool
     let showTabStrip: Bool
+    let projectID: UUID
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
@@ -12,6 +13,8 @@ struct TabAreaView: View {
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onClose: () -> Void
+    let onDropAction: (TabDragCoordinator.DropResult) -> Void
+    @Environment(TabDragCoordinator.self) private var dragCoordinator
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,13 +22,15 @@ struct TabAreaView: View {
                 PaneTabStrip(
                     area: area,
                     isFocused: isFocused,
+                    projectID: projectID,
                     onFocus: onFocus,
                     onSelectTab: onSelectTab,
                     onCreateTab: onCreateTab,
                     onCreateVCSTab: onCreateVCSTab,
                     onCloseTab: onCloseTab,
                     onSplit: onSplit,
-                    onClose: onClose
+                    onClose: onClose,
+                    onDropAction: onDropAction
                 )
                 Rectangle().fill(MuxyTheme.border).frame(height: 1)
             }
@@ -43,7 +48,20 @@ struct TabAreaView: View {
                     .allowsHitTesting(isActive)
                 }
             }
+            .overlay {
+                if dragCoordinator.activeDrag != nil, dragCoordinator.hoveredAreaID == area.id,
+                   let zone = dragCoordinator.hoveredZone
+                {
+                    DropZoneHighlight(zone: zone)
+                }
+            }
         }
+        .background(GeometryReader { geo in
+            Color.clear.preference(
+                key: AreaFramePreferenceKey.self,
+                value: [area.id: geo.frame(in: .global)]
+            )
+        })
         .onReceive(NotificationCenter.default.publisher(for: .findInTerminal)) { _ in
             guard isFocused, isActiveProject else { return }
             guard let tabID = area.activeTabID,
