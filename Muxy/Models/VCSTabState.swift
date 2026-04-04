@@ -93,7 +93,7 @@ final class VCSTabState {
                 }
             }
             do {
-                let newFiles = try await git.changedFiles(repoPath: projectPath)
+                let newFiles = try await git.changedFiles(repoPath: projectPath, ignoreWhitespace: hideWhitespace)
                 guard !Task.isCancelled else { return }
 
                 let oldFilesByPath = Dictionary(files.map { ($0.path, $0) }, uniquingKeysWith: { _, b in b })
@@ -182,9 +182,7 @@ final class VCSTabState {
     func toggleWhitespace() {
         hideWhitespace.toggle()
         diffsByPath.removeAll()
-        for path in expandedFilePaths {
-            loadDiff(filePath: path, forceFull: false)
-        }
+        performRefresh(incremental: false)
     }
 
     func displayedStats(for file: GitStatusFile) -> (additions: Int?, deletions: Int?, binary: Bool) {

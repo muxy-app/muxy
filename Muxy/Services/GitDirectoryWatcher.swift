@@ -51,6 +51,8 @@ final class GitDirectoryWatcher: @unchecked Sendable {
     }
 
     deinit {
+        handler = nil
+        debounceWork?.cancel()
         guard let stream else { return }
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
@@ -59,9 +61,8 @@ final class GitDirectoryWatcher: @unchecked Sendable {
 
     private func scheduleRefresh() {
         debounceWork?.cancel()
-        let handler = self.handler
-        let work = DispatchWorkItem {
-            handler?()
+        let work = DispatchWorkItem { [weak self] in
+            self?.handler?()
         }
         debounceWork = work
         queue.asyncAfter(deadline: .now() + 1.0, execute: work)

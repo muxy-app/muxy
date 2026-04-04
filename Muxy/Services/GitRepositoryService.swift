@@ -77,7 +77,7 @@ actor GitRepositoryService {
         }
     }
 
-    func changedFiles(repoPath: String) async throws -> [GitStatusFile] {
+    func changedFiles(repoPath: String, ignoreWhitespace: Bool = false) async throws -> [GitStatusFile] {
         let result = try runGit(repoPath: repoPath, arguments: ["rev-parse", "--is-inside-work-tree"])
         guard result.status == 0, result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true" else {
             throw GitError.notGitRepository
@@ -91,9 +91,10 @@ actor GitRepositoryService {
             throw GitError.commandFailed(statusResult.stderr.isEmpty ? "Failed to load Git status." : statusResult.stderr)
         }
 
+        let wsFlag = ignoreWhitespace ? ["-w"] : [String]()
         let numstatResult = try runGit(
             repoPath: repoPath,
-            arguments: ["-c", "core.quotepath=false", "diff", "--numstat", "--no-color", "--no-ext-diff"]
+            arguments: ["-c", "core.quotepath=false", "diff", "--numstat", "--no-color", "--no-ext-diff"] + wsFlag
         )
         let stats = parseNumstat(numstatResult.stdout)
 
@@ -160,6 +161,11 @@ actor GitRepositoryService {
 
     private func untrackedOrNewFileDiff(repoPath: String, filePath: String, lineLimit: Int?) throws -> PatchAndCompareResult {
         let fullPath = (repoPath as NSString).appendingPathComponent(filePath)
+        let resolvedRepo = (repoPath as NSString).standardizingPath
+        let resolvedFull = (fullPath as NSString).standardizingPath
+        guard resolvedFull.hasPrefix(resolvedRepo + "/") else {
+            throw GitError.commandFailed("File path is outside the repository.")
+        }
         guard let data = FileManager.default.contents(atPath: fullPath),
               let content = String(data: data, encoding: .utf8)
         else {

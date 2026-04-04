@@ -49,8 +49,8 @@ struct TabAreaView: View {
             guard let tabID = area.activeTabID,
                   let tab = area.tabs.first(where: { $0.id == tabID })
             else { return }
-            guard let paneID = tab.pane?.id else { return }
-            TerminalViewRegistry.shared.existingView(for: paneID)?.startSearch()
+            guard let pane = tab.content.pane else { return }
+            TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
         }
     }
 }
@@ -62,20 +62,16 @@ private struct TabContentView: View {
     let onProcessExit: () -> Void
 
     var body: some View {
-        switch tab.kind {
-        case .terminal:
-            if let pane = tab.pane {
-                TerminalPane(
-                    state: pane,
-                    focused: focused,
-                    onFocus: onFocus,
-                    onProcessExit: onProcessExit
-                )
-            }
-        case .vcs:
-            if let vcsState = tab.vcsState {
-                VCSTabView(state: vcsState, focused: focused, onFocus: onFocus)
-            }
+        switch tab.content {
+        case let .terminal(pane):
+            TerminalPane(
+                state: pane,
+                focused: focused,
+                onFocus: onFocus,
+                onProcessExit: onProcessExit
+            )
+        case let .vcs(vcsState):
+            VCSTabView(state: vcsState, focused: focused, onFocus: onFocus)
         }
     }
 }

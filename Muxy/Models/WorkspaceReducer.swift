@@ -114,7 +114,7 @@ enum WorkspaceReducer {
     ) {
         guard let root = state.workspaceRoots[projectID] else { return }
         if let area = root.findArea(id: areaID) {
-            effects.paneIDsToRemove.append(contentsOf: area.tabs.compactMap { $0.pane?.id })
+            effects.paneIDsToRemove.append(contentsOf: area.tabs.compactMap { $0.content.pane?.id })
         }
         guard let newRoot = root.removing(areaID: areaID) else {
             state.workspaceRoots.removeValue(forKey: projectID)
@@ -280,7 +280,7 @@ enum WorkspaceReducer {
         effects: inout WorkspaceSideEffects
     ) {
         if let root = state.workspaceRoots[projectID] {
-            let paneIDs = root.allAreas().flatMap { area in area.tabs.compactMap { $0.pane?.id } }
+            let paneIDs = root.allAreas().flatMap { area in area.tabs.compactMap { $0.content.pane?.id } }
             effects.paneIDsToRemove.append(contentsOf: paneIDs)
         }
         state.workspaceRoots.removeValue(forKey: projectID)

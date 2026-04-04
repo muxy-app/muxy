@@ -66,15 +66,10 @@ struct VCSTabView: View {
             .padding(.trailing, 6)
 
             Menu {
-                Button {
-                    state.toggleWhitespace()
-                } label: {
-                    if state.hideWhitespace {
-                        Label("Hide Whitespace Changes", systemImage: "checkmark")
-                    } else {
-                        Text("Hide Whitespace Changes")
-                    }
-                }
+                Toggle("Hide Whitespace Changes", isOn: Binding(
+                    get: { state.hideWhitespace },
+                    set: { _ in state.toggleWhitespace() }
+                ))
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 13, weight: .semibold))
@@ -211,9 +206,9 @@ struct VCSTabView: View {
 
                 switch state.mode {
                 case .unified:
-                    UnifiedDiffView(rows: diff.rows)
+                    UnifiedDiffView(rows: diff.rows, filePath: file.path)
                 case .split:
-                    SplitDiffView(rows: diff.rows)
+                    SplitDiffView(rows: diff.rows, filePath: file.path)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -231,6 +226,7 @@ struct VCSTabView: View {
 
 private struct UnifiedDiffView: View {
     let rows: [DiffDisplayRow]
+    let filePath: String
 
     var body: some View {
         LazyVStack(spacing: 0) {
@@ -238,15 +234,17 @@ private struct UnifiedDiffView: View {
                 if row.kind == .hunk || row.kind == .collapsed {
                     DiffSectionDivider(text: row.kind == .hunk ? hunkLabel(row.text) : row.text)
                 } else {
-                    HStack(spacing: 0) {
-                        numberCell(row.oldLineNumber)
-                        numberCell(row.newLineNumber)
-                        lineContent(row)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 8)
+                    DiffLineRow(filePath: filePath, lineNumber: row.newLineNumber ?? row.oldLineNumber) {
+                        HStack(spacing: 0) {
+                            numberCell(row.oldLineNumber)
+                            numberCell(row.newLineNumber)
+                            lineContent(row)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 8)
+                        }
+                        .frame(minHeight: 24)
+                        .background(rowBackground(row.kind, side: .both))
                     }
-                    .frame(minHeight: 24)
-                    .background(rowBackground(row.kind, side: .both))
                 }
             }
         }
@@ -286,9 +284,13 @@ private struct UnifiedDiffView: View {
 
 private struct SplitDiffView: View {
     let rows: [DiffDisplayRow]
+    let filePath: String
+    let pairedRows: [SplitDiffPairedRow]
 
-    private var pairedRows: [SplitDiffPairedRow] {
-        SplitDiffPairedRow.pair(rows)
+    init(rows: [DiffDisplayRow], filePath: String) {
+        self.rows = rows
+        self.filePath = filePath
+        pairedRows = SplitDiffPairedRow.pair(rows)
     }
 
     var body: some View {
@@ -313,22 +315,25 @@ private struct SplitDiffView: View {
     }
 
     private func contentRow(_ paired: SplitDiffPairedRow) -> some View {
-        HStack(spacing: 0) {
-            splitCell(
-                number: paired.left?.oldLineNumber,
-                text: paired.left?.oldText,
-                changeKind: paired.left?.kind ?? .context,
-                isLeft: true
-            )
-            Rectangle().fill(MuxyTheme.border).frame(width: 1)
-            splitCell(
-                number: paired.right?.newLineNumber,
-                text: paired.right?.newText,
-                changeKind: paired.right?.kind ?? .context,
-                isLeft: false
-            )
+        let lineNumber = paired.right?.newLineNumber ?? paired.left?.oldLineNumber
+        return DiffLineRow(filePath: filePath, lineNumber: lineNumber) {
+            HStack(spacing: 0) {
+                splitCell(
+                    number: paired.left?.oldLineNumber,
+                    text: paired.left?.oldText,
+                    changeKind: paired.left?.kind ?? .context,
+                    isLeft: true
+                )
+                Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                splitCell(
+                    number: paired.right?.newLineNumber,
+                    text: paired.right?.newText,
+                    changeKind: paired.right?.kind ?? .context,
+                    isLeft: false
+                )
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func splitCell(
@@ -363,6 +368,41 @@ private struct SplitDiffView: View {
                 .padding(.vertical, 2)
         }
         .background(rowBackground(bgKind, side: isLeft ? .left : .right))
+    }
+}
+
+private struct DiffLineRow<Content: View>: View {
+    let filePath: String
+    let lineNumber: Int?
+    @ViewBuilder let content: Content
+    @State private var hovered = false
+
+    var body: some View {
+        content
+            .overlay(alignment: .leading) {
+                if hovered, let lineNumber {
+                    Menu {
+                        Button("Copy Reference") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString("\(filePath):\(lineNumber)", forType: .string)
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(MuxyTheme.fgMuted)
+                            .frame(width: 20, height: 20)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(MuxyTheme.surface)
+                            )
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .frame(width: 20)
+                    .padding(.leading, 2)
+                }
+            }
+            .onHover { hovered = $0 }
     }
 }
 
@@ -506,14 +546,59 @@ private struct CodeHighlightedText: View {
     let kind: ChangeKind
 
     var body: some View {
-        Text(highlighted(text))
+        Text(DiffHighlightCache.shared.highlighted(text, kind: kind))
             .font(.system(size: 12, design: .monospaced))
             .lineLimit(1)
             .truncationMode(.tail)
             .textSelection(.enabled)
     }
+}
 
-    private func highlighted(_ source: String) -> AttributedString {
+@MainActor
+private final class DiffHighlightCache {
+    static let shared = DiffHighlightCache()
+
+    private struct CacheKey: Hashable {
+        let text: String
+        let kind: CodeHighlightedText.ChangeKind
+    }
+
+    private var cache: [CacheKey: AttributedString] = [:]
+    private var insertionOrder: [CacheKey] = []
+    private let maxEntries = 2000
+
+    struct Rule {
+        let regex: NSRegularExpression
+        let color: @MainActor () -> NSColor
+    }
+
+    let rules: [Rule]
+
+    private init() {
+        rules = Self.buildRules()
+    }
+
+    func highlighted(_ source: String, kind: CodeHighlightedText.ChangeKind) -> AttributedString {
+        let key = CacheKey(text: source, kind: kind)
+        if let cached = cache[key] {
+            return cached
+        }
+        let result = computeHighlighted(source, kind: kind)
+        if insertionOrder.count >= maxEntries {
+            let evicted = insertionOrder.removeFirst()
+            cache.removeValue(forKey: evicted)
+        }
+        cache[key] = result
+        insertionOrder.append(key)
+        return result
+    }
+
+    func invalidate() {
+        cache.removeAll()
+        insertionOrder.removeAll()
+    }
+
+    private func computeHighlighted(_ source: String, kind: CodeHighlightedText.ChangeKind) -> AttributedString {
         let fullRange = NSRange(location: 0, length: (source as NSString).length)
 
         let baseColor: NSColor = switch kind {
@@ -530,7 +615,7 @@ private struct CodeHighlightedText: View {
             ]
         )
 
-        for rule in DiffHighlightRules.shared.rules {
+        for rule in rules {
             let matches = rule.regex.matches(in: source, range: fullRange)
             let color = rule.color()
             for match in matches {
@@ -539,22 +624,6 @@ private struct CodeHighlightedText: View {
         }
 
         return AttributedString(attributed)
-    }
-}
-
-@MainActor
-private final class DiffHighlightRules {
-    static let shared = DiffHighlightRules()
-
-    struct Rule {
-        let regex: NSRegularExpression
-        let color: @MainActor () -> NSColor
-    }
-
-    let rules: [Rule]
-
-    private init() {
-        rules = Self.buildRules()
     }
 
     private static func buildRules() -> [Rule] {
@@ -566,7 +635,6 @@ private final class DiffHighlightRules {
             (#"`(?:\\.|[^`\\])*`"#, { MuxyTheme.nsDiffString }, []),
             (#"\b\d+(?:\.\d+)?\b"#, { MuxyTheme.nsDiffNumber }, []),
             (#"//.*$"#, { MuxyTheme.nsDiffComment }, [.anchorsMatchLines]),
-            (#"#.*$"#, { MuxyTheme.nsDiffComment }, [.anchorsMatchLines]),
         ]
 
         for (pattern, color, options) in patterns {

@@ -8,65 +8,80 @@ final class TerminalTab: Identifiable {
         case vcs
     }
 
+    enum Content {
+        case terminal(TerminalPaneState)
+        case vcs(VCSTabState)
+
+        var kind: Kind {
+            switch self {
+            case .terminal: .terminal
+            case .vcs: .vcs
+            }
+        }
+
+        var pane: TerminalPaneState? {
+            guard case let .terminal(pane) = self else { return nil }
+            return pane
+        }
+
+        var vcsState: VCSTabState? {
+            guard case let .vcs(state) = self else { return nil }
+            return state
+        }
+
+        var projectPath: String {
+            switch self {
+            case let .terminal(pane): pane.projectPath
+            case let .vcs(state): state.projectPath
+            }
+        }
+    }
+
     let id = UUID()
     var customTitle: String?
     var isPinned: Bool = false
-    let kind: Kind
-    let pane: TerminalPaneState?
-    let vcsState: VCSTabState?
+    let content: Content
+
+    var kind: Kind { content.kind }
 
     var title: String {
         if let customTitle {
             return customTitle
         }
-        switch kind {
-        case .terminal:
-            return pane?.title ?? "Terminal"
+        switch content {
+        case let .terminal(pane):
+            return pane.title
         case .vcs:
             return "Git Diff"
         }
     }
 
     init(pane: TerminalPaneState) {
-        kind = .terminal
-        self.pane = pane
-        vcsState = nil
+        content = .terminal(pane)
     }
 
     init(vcsState: VCSTabState) {
-        kind = .vcs
-        pane = nil
-        self.vcsState = vcsState
+        content = .vcs(vcsState)
     }
 
     init(restoring snapshot: TerminalTabSnapshot) {
         customTitle = snapshot.customTitle
         isPinned = snapshot.isPinned
-        kind = snapshot.kind
         switch snapshot.kind {
         case .terminal:
-            pane = TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle)
-            vcsState = nil
+            content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
         case .vcs:
-            pane = nil
-            vcsState = VCSTabState(projectPath: snapshot.projectPath)
+            content = .vcs(VCSTabState(projectPath: snapshot.projectPath))
         }
     }
 
     func snapshot() -> TerminalTabSnapshot {
-        let projectPath: String = switch kind {
-        case .terminal:
-            pane?.projectPath ?? ""
-        case .vcs:
-            vcsState?.projectPath ?? ""
-        }
-
-        return TerminalTabSnapshot(
-            kind: kind,
+        TerminalTabSnapshot(
+            kind: content.kind,
             customTitle: customTitle,
             isPinned: isPinned,
-            projectPath: projectPath,
-            paneTitle: pane?.title
+            projectPath: content.projectPath,
+            paneTitle: content.pane?.title
         )
     }
 }
