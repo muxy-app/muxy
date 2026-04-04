@@ -166,6 +166,11 @@ final class GhosttyTerminalNSView: NSView {
 
     private static let systemShortcutKeys: Set<String> = ["q", "h", "m", ","]
 
+    func notifySurfaceFocused() {
+        guard let surface else { return }
+        ghostty_surface_set_focus(surface, true)
+    }
+
     func notifySurfaceUnfocused() {
         guard let surface else { return }
         ghostty_surface_set_focus(surface, false)
@@ -317,7 +322,12 @@ final class GhosttyTerminalNSView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let surface else { return }
+        let alreadyFirstResponder = window?.firstResponder === self
         window?.makeFirstResponder(self)
+        if alreadyFirstResponder {
+            ghostty_surface_set_focus(surface, true)
+            onFocus?()
+        }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
