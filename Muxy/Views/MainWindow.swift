@@ -35,18 +35,14 @@ struct MainWindow: View {
                     MuxyTheme.terminalBg
                     if projectsWithWorkspaces.isEmpty {
                         WelcomeView()
-                    } else {
-                        ForEach(projectsWithWorkspaces) { project in
-                            let isActive = project.id == appState.activeProjectID
-                            TerminalArea(project: project, isActiveProject: isActive)
-                                .id(project.id)
-                                .opacity(isActive ? 1 : 0)
-                                .allowsHitTesting(isActive)
-                        }
+                    } else if let project = activeProjectWithWorkspace {
+                        TerminalArea(project: project, isActiveProject: true)
+                            .id(project.id)
                     }
                 }
             }
         }
+        .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
         .edgesIgnoringSafeArea(.top)
@@ -111,6 +107,13 @@ struct MainWindow: View {
     private var activeProject: Project? {
         guard let pid = appState.activeProjectID else { return nil }
         return projectStore.projects.first { $0.id == pid }
+    }
+
+    private var activeProjectWithWorkspace: Project? {
+        guard let project = activeProject,
+              appState.workspaceRoot(for: project.id) != nil
+        else { return nil }
+        return project
     }
 
     private var projectsWithWorkspaces: [Project] {

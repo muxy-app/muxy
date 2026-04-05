@@ -35,17 +35,14 @@ struct TabAreaView: View {
                 Rectangle().fill(MuxyTheme.border).frame(height: 1)
             }
             ZStack {
-                ForEach(area.tabs) { tab in
-                    let isActive = tab.id == area.activeTabID
+                if let tab = area.activeTab {
                     TabContentView(
                         tab: tab,
-                        focused: isFocused && isActive && isActiveProject,
+                        focused: isFocused && isActiveProject,
                         onFocus: onFocus,
                         onProcessExit: { onCloseTab(tab.id) }
                     )
                     .id(tab.id)
-                    .opacity(isActive ? 1 : 0)
-                    .allowsHitTesting(isActive)
                 }
             }
             .overlay {
@@ -59,7 +56,7 @@ struct TabAreaView: View {
         .background(GeometryReader { geo in
             Color.clear.preference(
                 key: AreaFramePreferenceKey.self,
-                value: [area.id: geo.frame(in: .global)]
+                value: [area.id: geo.frame(in: .named(DragCoordinateSpace.mainWindow))]
             )
         })
         .onReceive(NotificationCenter.default.publisher(for: .findInTerminal)) { _ in

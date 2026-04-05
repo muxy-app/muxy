@@ -93,23 +93,30 @@ struct Sidebar: View {
                             },
                             onRename: { projectStore.rename(id: project.id, to: $0) }
                         )
-                        .background(GeometryReader { geo in
-                            Color.clear.preference(
-                                key: UUIDFramePreferenceKey<SidebarFrameTag>.self,
-                                value: [project.id: geo.frame(in: .named("sidebar"))]
-                            )
-                        })
+                        .background {
+                            if dragState.draggedID != nil {
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: UUIDFramePreferenceKey<SidebarFrameTag>.self,
+                                        value: [project.id: geo.frame(in: .named("sidebar"))]
+                                    )
+                                }
+                            }
+                        }
                         .gesture(
                             DragGesture(minimumDistance: 4, coordinateSpace: .named("sidebar"))
                                 .onChanged { value in
                                     if dragState.draggedID == nil {
                                         dragState.draggedID = project.id
+                                        dragState.lastReorderTargetID = nil
                                     }
                                     reorderIfNeeded(at: value.location)
                                 }
                                 .onEnded { _ in
                                     withAnimation(.easeInOut(duration: 0.15)) {
                                         dragState.draggedID = nil
+                                        dragState.frames = [:]
+                                        dragState.lastReorderTargetID = nil
                                     }
                                 }
                         )
@@ -120,7 +127,10 @@ struct Sidebar: View {
                     }
                 }
                 .padding(6)
-                .onPreferenceChange(UUIDFramePreferenceKey<SidebarFrameTag>.self) { dragState.frames = $0 }
+                .onPreferenceChange(UUIDFramePreferenceKey<SidebarFrameTag>.self) { frames in
+                    guard dragState.draggedID != nil else { return }
+                    dragState.frames = frames
+                }
             }
             .coordinateSpace(name: "sidebar")
             SidebarFooter()
@@ -129,11 +139,18 @@ struct Sidebar: View {
 
     private func reorderIfNeeded(at location: CGPoint) {
         guard let draggedID = dragState.draggedID else { return }
+        var hoveredTargetID: UUID?
+
         for (id, frame) in dragState.frames where id != draggedID {
             guard frame.contains(location) else { continue }
+            hoveredTargetID = id
+            guard dragState.lastReorderTargetID != id else { return }
+
             guard let sourceIndex = projectStore.projects.firstIndex(where: { $0.id == draggedID }),
                   let destIndex = projectStore.projects.firstIndex(where: { $0.id == id })
             else { return }
+
+            dragState.lastReorderTargetID = id
             let offset = destIndex > sourceIndex ? destIndex + 1 : destIndex
             withAnimation(.easeInOut(duration: 0.15)) {
                 projectStore.reorder(
@@ -142,12 +159,17 @@ struct Sidebar: View {
             }
             return
         }
+
+        if hoveredTargetID == nil {
+            dragState.lastReorderTargetID = nil
+        }
     }
 }
 
 private struct ProjectDragState {
     var draggedID: UUID?
     var frames: [UUID: CGRect] = [:]
+    var lastReorderTargetID: UUID?
 }
 
 struct SidebarFooter: View {
