@@ -136,7 +136,11 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func updateMetalLayerSize() {
-        guard let surface else { return }
+        guard let surface, window != nil else { return }
+
+        let scaledSize = convertToBacking(bounds).size
+        guard scaledSize.width > 0, scaledSize.height > 0 else { return }
+
         let scale = Double(window?.backingScaleFactor ?? 2.0)
 
         if let metalLayer = layer as? CAMetalLayer {
@@ -148,9 +152,8 @@ final class GhosttyTerminalNSView: NSView {
 
         ghostty_surface_set_content_scale(surface, scale, scale)
 
-        let scaledSize = convertToBacking(bounds).size
-        let w = UInt32(max(1, scaledSize.width))
-        let h = UInt32(max(1, scaledSize.height))
+        let w = UInt32(scaledSize.width)
+        let h = UInt32(scaledSize.height)
         ghostty_surface_set_size(surface, w, h)
     }
 
