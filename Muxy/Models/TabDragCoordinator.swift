@@ -1,6 +1,10 @@
 import CoreGraphics
 import Foundation
 
+enum DragCoordinateSpace {
+    static let mainWindow = "main-window-drag-space"
+}
+
 enum TabMoveRequest {
     case toArea(tabID: UUID, sourceAreaID: UUID, destinationAreaID: UUID)
     case toNewSplit(tabID: UUID, sourceAreaID: UUID, targetAreaID: UUID, split: SplitPlacement)
@@ -22,6 +26,12 @@ enum DropZone: Equatable {
 @MainActor
 @Observable
 final class TabDragCoordinator {
+    private struct HoverMatch {
+        let areaID: UUID
+        let frame: CGRect
+        let metric: CGFloat
+    }
+
     struct DragInfo: Equatable {
         let tabID: UUID
         let sourceAreaID: UUID
@@ -106,15 +116,61 @@ final class TabDragCoordinator {
               let frames = areaFramesByProject[projectID]
         else { return }
 
+        var containingMatch: HoverMatch?
         for (areaID, frame) in frames {
             guard frame.contains(globalPosition) else { continue }
-            hoveredAreaID = areaID
-            hoveredZone = zone(for: globalPosition, in: frame)
+            let dx = globalPosition.x - frame.midX
+            let dy = globalPosition.y - frame.midY
+            let distanceToCenter = dx * dx + dy * dy
+
+            if let current = containingMatch, current.metric <= distanceToCenter {
+                continue
+            }
+            containingMatch = HoverMatch(areaID: areaID, frame: frame, metric: distanceToCenter)
+        }
+
+        if let containingMatch {
+            hoveredAreaID = containingMatch.areaID
+            hoveredZone = zone(for: globalPosition, in: containingMatch.frame)
             return
         }
+
+        let snapTolerance: CGFloat = 8
+        var nearestMatch: HoverMatch?
+
+        for (areaID, frame) in frames {
+            let distance = distance(from: globalPosition, to: frame)
+            guard distance <= snapTolerance else { continue }
+
+            if let current = nearestMatch, current.metric <= distance {
+                continue
+            }
+            nearestMatch = HoverMatch(areaID: areaID, frame: frame, metric: distance)
+        }
+
+        guard let nearestMatch else { return }
+        let clampedPosition = clamped(globalPosition, to: nearestMatch.frame)
+        hoveredAreaID = nearestMatch.areaID
+        hoveredZone = zone(for: clampedPosition, in: nearestMatch.frame)
+    }
+
+    private func distance(from point: CGPoint, to rect: CGRect) -> CGFloat {
+        let dx = max(rect.minX - point.x, max(0, point.x - rect.maxX))
+        let dy = max(rect.minY - point.y, max(0, point.y - rect.maxY))
+        return hypot(dx, dy)
+    }
+
+    private func clamped(_ point: CGPoint, to rect: CGRect) -> CGPoint {
+        CGPoint(
+            x: min(max(point.x, rect.minX), rect.maxX),
+            y: min(max(point.y, rect.minY), rect.maxY)
+        )
     }
 
     private func zone(for point: CGPoint, in rect: CGRect) -> DropZone {
+        guard rect.width > 0, rect.height > 0 else {
+            return .center
+        }
         let relX = (point.x - rect.minX) / rect.width
         let relY = (point.y - rect.minY) / rect.height
 

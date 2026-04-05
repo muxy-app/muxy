@@ -34,14 +34,18 @@ struct PaneTabStrip: View {
                     onCreateRight: { area.createTabAdjacent(to: tab.id, side: .right) },
                     onTogglePin: { area.togglePin(tab.id) }
                 )
-                .background(GeometryReader { geo in
-                    Color.clear.preference(
-                        key: TabFramePreferenceKey.self,
-                        value: [tab.id: geo.frame(in: .named("tabstrip-\(area.id)"))]
-                    )
-                })
+                .background {
+                    if dragState.draggedID != nil {
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: TabFramePreferenceKey.self,
+                                value: [tab.id: geo.frame(in: .named("tabstrip-\(area.id)"))]
+                            )
+                        }
+                    }
+                }
                 .gesture(
-                    DragGesture(minimumDistance: 4, coordinateSpace: .global)
+                    DragGesture(minimumDistance: 4, coordinateSpace: .named(DragCoordinateSpace.mainWindow))
                         .onChanged { value in
                             handleDragChanged(tab: tab, globalLocation: value.location)
                         }
@@ -69,18 +73,22 @@ struct PaneTabStrip: View {
         .frame(height: 32)
         .background(GeometryReader { geo in
             Color.clear
-                .onAppear { dragState.stripFrameGlobal = geo.frame(in: .global) }
-                .onChange(of: geo.frame(in: .global)) { _, newFrame in
+                .onAppear { dragState.stripFrameGlobal = geo.frame(in: .named(DragCoordinateSpace.mainWindow)) }
+                .onChange(of: geo.frame(in: .named(DragCoordinateSpace.mainWindow))) { _, newFrame in
                     dragState.stripFrameGlobal = newFrame
                 }
         })
-        .onPreferenceChange(TabFramePreferenceKey.self) { dragState.frames = $0 }
+        .onPreferenceChange(TabFramePreferenceKey.self) { frames in
+            guard dragState.draggedID != nil else { return }
+            dragState.frames = frames
+        }
         .coordinateSpace(name: "tabstrip-\(area.id)")
     }
 
     private func handleDragChanged(tab: TerminalTab, globalLocation: CGPoint) {
         if dragState.draggedID == nil {
             dragState.draggedID = tab.id
+            dragState.lastReorderTargetID = nil
         }
 
         if dragState.isInSplitMode {
@@ -113,21 +121,34 @@ struct PaneTabStrip: View {
         withAnimation(.easeInOut(duration: 0.15)) {
             dragState.draggedID = nil
             dragState.isInSplitMode = false
+            dragState.frames = [:]
+            dragState.lastReorderTargetID = nil
         }
     }
 
     private func reorderIfNeeded(at location: CGPoint) {
         guard let draggedID = dragState.draggedID else { return }
+        var hoveredTargetID: UUID?
+
         for (id, frame) in dragState.frames where id != draggedID {
             guard frame.contains(location) else { continue }
+            hoveredTargetID = id
+            guard dragState.lastReorderTargetID != id else { return }
+
             guard let sourceIndex = area.tabs.firstIndex(where: { $0.id == draggedID }),
                   let destIndex = area.tabs.firstIndex(where: { $0.id == id })
             else { return }
+
+            dragState.lastReorderTargetID = id
             let offset = destIndex > sourceIndex ? destIndex + 1 : destIndex
             withAnimation(.easeInOut(duration: 0.15)) {
                 area.reorderTab(fromOffsets: IndexSet(integer: sourceIndex), toOffset: offset)
             }
             return
+        }
+
+        if hoveredTargetID == nil {
+            dragState.lastReorderTargetID = nil
         }
     }
 }
@@ -137,6 +158,7 @@ private struct TabDragState {
     var frames: [UUID: CGRect] = [:]
     var isInSplitMode = false
     var stripFrameGlobal: CGRect = .zero
+    var lastReorderTargetID: UUID?
 }
 
 private typealias TabFramePreferenceKey = UUIDFramePreferenceKey<TabFrameTag>

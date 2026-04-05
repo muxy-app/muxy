@@ -42,6 +42,7 @@ struct MainWindow: View {
                 }
             }
         }
+        .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
         .edgesIgnoringSafeArea(.top)
