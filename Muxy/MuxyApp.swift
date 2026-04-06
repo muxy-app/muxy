@@ -144,10 +144,14 @@ struct WindowConfigurator: NSViewRepresentable {
         }
     }
 
+    static let trafficLightY: CGFloat = 3.5
+
     static func repositionTrafficLights(in window: NSWindow) {
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             guard let btn = window.standardWindowButton(button) else { continue }
-            btn.superview?.frame.origin.y = -3
+            var frame = btn.frame
+            frame.origin.y = trafficLightY
+            btn.frame = frame
         }
     }
 
@@ -156,7 +160,9 @@ struct WindowConfigurator: NSViewRepresentable {
 
         func observe(window: NSWindow) {
             guard observations.isEmpty else { return }
+
             let names: [Notification.Name] = [
+                NSWindow.didResizeNotification,
                 NSWindow.didEndLiveResizeNotification,
                 NSWindow.didExitFullScreenNotification,
                 NSWindow.didEnterFullScreenNotification,
