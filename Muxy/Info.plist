@@ -30,5 +30,31 @@
 	<string>public.app-category.developer-tools</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to use AppleScript.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to use Bluetooth.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to access your calendar.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to use the camera.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to access your contacts.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to access the local network.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to access your location information.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to use your microphone.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to access motion data.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to access your photo library.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to access your reminders.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>A process running in Muxy's terminal would like to use speech recognition.</string>
+	<key>NSSystemAdministrationUsageDescription</key>
+	<string>A process running in Muxy's terminal requires elevated privileges.</string>
 </dict>
 </plist>
