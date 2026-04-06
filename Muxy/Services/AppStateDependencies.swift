@@ -29,4 +29,5 @@ final class UserDefaultsActiveProjectSelectionStore: ActiveProjectSelectionStori
 @MainActor
 protocol TerminalViewRemoving {
     func removeView(for paneID: UUID)
+    func needsConfirmQuit(for paneID: UUID) -> Bool
 }

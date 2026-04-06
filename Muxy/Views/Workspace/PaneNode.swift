@@ -12,6 +12,7 @@ struct PaneNode: View {
     let onCreateTab: (UUID) -> Void
     let onCreateVCSTab: (UUID) -> Void
     let onCloseTab: (UUID, UUID) -> Void
+    let onForceCloseTab: (UUID, UUID) -> Void
     let onSplit: (UUID, SplitDirection) -> Void
     let onCloseArea: (UUID) -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
@@ -31,6 +32,7 @@ struct PaneNode: View {
                 onCreateTab: { onCreateTab(area.id) },
                 onCreateVCSTab: { onCreateVCSTab(area.id) },
                 onCloseTab: { tabID in onCloseTab(area.id, tabID) },
+                onForceCloseTab: { tabID in onForceCloseTab(area.id, tabID) },
                 onSplit: { dir in onSplit(area.id, dir) },
                 onClose: { onCloseArea(area.id) },
                 onDropAction: onDropAction
@@ -47,6 +49,7 @@ struct PaneNode: View {
                 onCreateTab: onCreateTab,
                 onCreateVCSTab: onCreateVCSTab,
                 onCloseTab: onCloseTab,
+                onForceCloseTab: onForceCloseTab,
                 onSplit: onSplit,
                 onCloseArea: onCloseArea,
                 onDropAction: onDropAction

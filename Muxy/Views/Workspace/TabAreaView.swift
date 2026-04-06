@@ -12,6 +12,7 @@ struct TabAreaView: View {
     let onCreateTab: () -> Void
     let onCreateVCSTab: () -> Void
     let onCloseTab: (UUID) -> Void
+    let onForceCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onClose: () -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
@@ -42,7 +43,7 @@ struct TabAreaView: View {
                         tab: tab,
                         focused: tab.id == area.activeTabID && isFocused && isActiveProject,
                         onFocus: onFocus,
-                        onProcessExit: { onCloseTab(tab.id) }
+                        onProcessExit: { onForceCloseTab(tab.id) }
                     )
                     .zIndex(tab.id == area.activeTabID ? 1 : 0)
                     .opacity(tab.id == area.activeTabID ? 1 : 0)

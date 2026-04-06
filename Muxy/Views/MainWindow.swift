@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MainWindow: View {
@@ -10,6 +11,29 @@ struct MainWindow: View {
         static let minWidth: CGFloat = 200
         static let defaultWidth: CGFloat = 400
         static let maxWidth: CGFloat = 800
+    }
+
+    private enum CloseConfirmationKind {
+        case lastTab
+        case runningProcess
+
+        var title: String {
+            switch self {
+            case .lastTab:
+                "Close Project?"
+            case .runningProcess:
+                "Close Tab?"
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .lastTab:
+                "This is the last tab. Closing it will remove the project from the sidebar."
+            case .runningProcess:
+                "A process is still running in this tab. Are you sure you want to close it?"
+            }
+        }
     }
 
     @State private var vcsPanelVisible = false
@@ -123,17 +147,13 @@ struct MainWindow: View {
             else { return }
             ensureVCSState(for: project)
         }
-        .alert(
-            "Close Project",
-            isPresented: Binding(
-                get: { appState.pendingLastTabClose != nil },
-                set: { if !$0 { appState.cancelCloseLastTab() } }
-            )
-        ) {
-            Button("Close", role: .destructive) { appState.confirmCloseLastTab() }
-            Button("Cancel", role: .cancel) { appState.cancelCloseLastTab() }
-        } message: {
-            Text("This is the last tab. Closing it will remove the project from the sidebar.")
+        .onChange(of: appState.pendingLastTabClose != nil) { _, isPresented in
+            guard isPresented else { return }
+            presentCloseConfirmation(.lastTab)
+        }
+        .onChange(of: appState.pendingProcessTabClose != nil) { _, isPresented in
+            guard isPresented else { return }
+            presentCloseConfirmation(.runningProcess)
         }
     }
 
@@ -252,5 +272,38 @@ struct MainWindow: View {
 
     private func pruneVCSStates(validProjectIDs: Set<UUID>) {
         vcsStates = vcsStates.filter { validProjectIDs.contains($0.key) }
+    }
+
+    private func presentCloseConfirmation(_ kind: CloseConfirmationKind) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else { return }
+
+        let alert = NSAlert()
+        alert.messageText = kind.title
+        alert.informativeText = kind.message
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.keyEquivalent = "\r"
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+
+        alert.beginSheetModal(for: window) { response in
+            switch kind {
+            case .lastTab:
+                if response == .alertFirstButtonReturn {
+                    appState.confirmCloseLastTab()
+                } else {
+                    appState.cancelCloseLastTab()
+                }
+            case .runningProcess:
+                if response == .alertFirstButtonReturn {
+                    appState.confirmCloseRunningTab()
+                } else {
+                    appState.cancelCloseRunningTab()
+                }
+            }
+        }
     }
 }
