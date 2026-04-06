@@ -68,7 +68,8 @@ Muxy/
       TerminalSearchBar.swift Find-in-terminal UI
       TerminalViewRegistry.swift  Terminal view lifecycle management
     VCS/
-      VCSTabView.swift        Git changes viewer (file list + diff)
+      VCSTabView.swift        Source control tab (commit, stage, diff, branch)
+      BranchPicker.swift      Branch selection dropdown with filter
       UnifiedDiffView.swift   Unified diff rendering
       SplitDiffView.swift     Side-by-side diff rendering
       DiffComponents.swift    Shared diff UI: line rows, highlighting, cache

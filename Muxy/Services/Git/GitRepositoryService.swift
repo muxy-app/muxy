@@ -201,6 +201,137 @@ actor GitRepositoryService {
         )
     }
 
+    func stageFiles(repoPath: String, paths: [String]) async throws {
+        for path in paths {
+            try validatePath(repoPath: repoPath, relativePath: path)
+        }
+        let result = try runGit(repoPath: repoPath, arguments: ["add", "--"] + paths)
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to stage files." : result.stderr)
+        }
+    }
+
+    func stageAll(repoPath: String) async throws {
+        let result = try runGit(repoPath: repoPath, arguments: ["add", "-A"])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to stage all files." : result.stderr)
+        }
+    }
+
+    func unstageFiles(repoPath: String, paths: [String]) async throws {
+        for path in paths {
+            try validatePath(repoPath: repoPath, relativePath: path)
+        }
+        let result = try runGit(repoPath: repoPath, arguments: ["reset", "HEAD", "--"] + paths)
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to unstage files." : result.stderr)
+        }
+    }
+
+    func unstageAll(repoPath: String) async throws {
+        let result = try runGit(repoPath: repoPath, arguments: ["reset", "HEAD"])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to unstage all files." : result.stderr)
+        }
+    }
+
+    func discardFiles(repoPath: String, paths: [String], untrackedPaths: [String]) async throws {
+        for path in paths + untrackedPaths {
+            try validatePath(repoPath: repoPath, relativePath: path)
+        }
+
+        if !paths.isEmpty {
+            let result = try runGit(repoPath: repoPath, arguments: ["checkout", "--"] + paths)
+            guard result.status == 0 else {
+                throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to discard changes." : result.stderr)
+            }
+        }
+
+        for relativePath in untrackedPaths {
+            let fullPath = (repoPath as NSString).appendingPathComponent(relativePath)
+            try FileManager.default.removeItem(atPath: fullPath)
+        }
+    }
+
+    func discardAll(repoPath: String) async throws {
+        let checkoutResult = try runGit(repoPath: repoPath, arguments: ["checkout", "--", "."])
+        guard checkoutResult.status == 0 else {
+            throw GitError.commandFailed(
+                checkoutResult.stderr.isEmpty ? "Failed to discard tracked changes." : checkoutResult.stderr
+            )
+        }
+
+        let cleanResult = try runGit(repoPath: repoPath, arguments: ["clean", "-fd"])
+        guard cleanResult.status == 0 else {
+            throw GitError.commandFailed(
+                cleanResult.stderr.isEmpty ? "Failed to clean untracked files." : cleanResult.stderr
+            )
+        }
+    }
+
+    func commit(repoPath: String, message: String) async throws -> String {
+        let result = try runGit(repoPath: repoPath, arguments: ["commit", "-m", message])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to commit." : result.stderr)
+        }
+
+        let hashResult = try runGit(repoPath: repoPath, arguments: ["rev-parse", "--short", "HEAD"])
+        guard hashResult.status == 0 else { return "" }
+        return hashResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func push(repoPath: String) async throws {
+        let result = try runGit(repoPath: repoPath, arguments: ["push"])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to push." : result.stderr)
+        }
+    }
+
+    func pull(repoPath: String) async throws {
+        let result = try runGit(repoPath: repoPath, arguments: ["pull"])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to pull." : result.stderr)
+        }
+    }
+
+    func listBranches(repoPath: String) async throws -> [String] {
+        let result = try runGit(
+            repoPath: repoPath,
+            arguments: ["branch", "--list", "--format=%(refname:short)"]
+        )
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to list branches." : result.stderr)
+        }
+        return result.stdout
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    private static let allowedBranchCharacters = CharacterSet.alphanumerics
+        .union(CharacterSet(charactersIn: "._/-"))
+
+    func switchBranch(repoPath: String, branch: String) async throws {
+        guard !branch.isEmpty,
+              branch.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
+        else {
+            throw GitError.commandFailed("Invalid branch name.")
+        }
+        let result = try runGit(repoPath: repoPath, arguments: ["switch", branch])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to switch branch." : result.stderr)
+        }
+    }
+
+    private func validatePath(repoPath: String, relativePath: String) throws {
+        let fullPath = (repoPath as NSString).appendingPathComponent(relativePath)
+        let resolvedRepo = (repoPath as NSString).standardizingPath
+        let resolvedFull = (fullPath as NSString).standardizingPath
+        guard resolvedFull.hasPrefix(resolvedRepo + "/") else {
+            throw GitError.commandFailed("File path is outside the repository.")
+        }
+    }
+
     private struct GitRunResult {
         let status: Int32
         let stdout: String
