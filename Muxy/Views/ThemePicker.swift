@@ -3,101 +3,28 @@ import SwiftUI
 struct ThemePicker: View {
     @Environment(ThemeService.self) private var themeService
     @State private var themes: [ThemePreview] = []
-    @State private var searchText = ""
     @State private var currentTheme: String?
-    @State private var highlightedIndex: Int?
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                    .font(.system(size: 12))
-                TextField("Search themes", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(MuxyTheme.fg)
-                    .onSubmit { confirmSelection() }
+        SearchableListPicker(
+            items: themes,
+            filterKey: \.name,
+            placeholder: "Search themes",
+            emptyLabel: "No themes found",
+            onSelect: { selectTheme($0) },
+            row: { theme, isHighlighted in
+                ThemeRow(
+                    theme: theme,
+                    isActive: theme.name == currentTheme,
+                    isHighlighted: isHighlighted
+                )
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-
-            Divider().overlay(MuxyTheme.border)
-
-            if themes.isEmpty {
-                Spacer()
-                VStack(spacing: 8) {
-                    Image(systemName: "paintpalette")
-                        .font(.system(size: 24))
-                        .foregroundStyle(MuxyTheme.fgMuted)
-                    Text("No themes found")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(MuxyTheme.fg)
-                    Text("Install Ghostty or add theme files to\n~/.config/ghostty/themes")
-                        .font(.system(size: 11))
-                        .foregroundStyle(MuxyTheme.fgMuted)
-                        .multilineTextAlignment(.center)
-                }
-                Spacer()
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(filteredThemes.enumerated()), id: \.element.id) { index, theme in
-                                ThemeRow(
-                                    theme: theme,
-                                    isActive: theme.name == currentTheme,
-                                    isHighlighted: index == highlightedIndex,
-                                    onSelect: { selectTheme(theme) }
-                                )
-                                .id(theme.id)
-                            }
-                        }
-                    }
-                    .onChange(of: highlightedIndex) { _, newIndex in
-                        guard let newIndex, newIndex < filteredThemes.count else { return }
-                        proxy.scrollTo(filteredThemes[newIndex].id, anchor: nil)
-                    }
-                }
-            }
-        }
+        )
         .frame(width: 280, height: 400)
-        .background(MuxyTheme.bg)
-        .onKeyPress(.upArrow) { moveHighlight(-1)
-            return .handled
-        }
-        .onKeyPress(.downArrow) { moveHighlight(1)
-            return .handled
-        }
-        .onKeyPress(.return) { confirmSelection()
-            return .handled
-        }
-        .onChange(of: searchText) { highlightedIndex = filteredThemes.isEmpty ? nil : 0 }
         .task {
             themes = await themeService.loadThemes()
             currentTheme = themeService.currentThemeName()
         }
-    }
-
-    private var filteredThemes: [ThemePreview] {
-        guard !searchText.isEmpty else { return themes }
-        return themes.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
-    }
-
-    private func moveHighlight(_ delta: Int) {
-        let list = filteredThemes
-        guard !list.isEmpty else { return }
-        guard let current = highlightedIndex else {
-            highlightedIndex = delta > 0 ? 0 : list.count - 1
-            return
-        }
-        highlightedIndex = max(0, min(list.count - 1, current + delta))
-    }
-
-    private func confirmSelection() {
-        let list = filteredThemes
-        guard let index = highlightedIndex, index < list.count else { return }
-        selectTheme(list[index])
     }
 
     private func selectTheme(_ theme: ThemePreview) {
@@ -110,7 +37,6 @@ private struct ThemeRow: View {
     let theme: ThemePreview
     let isActive: Bool
     let isHighlighted: Bool
-    let onSelect: () -> Void
     @State private var hovered = false
 
     var body: some View {
@@ -154,8 +80,6 @@ private struct ThemeRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
         .background(isHighlighted ? MuxyTheme.surface : (hovered ? MuxyTheme.hover : .clear))
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
         .onHover { hovered = $0 }
     }
 }

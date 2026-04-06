@@ -17,6 +17,16 @@ struct GitStatusFile: Identifiable, Hashable {
 
     var id: String { path }
 
+    var isStaged: Bool {
+        let staged: Set<Character> = ["A", "M", "D", "R", "C"]
+        return staged.contains(xStatus)
+    }
+
+    var isUnstaged: Bool {
+        let unstaged: Set<Character> = ["M", "D", "?"]
+        return unstaged.contains(yStatus) || (xStatus == "?" && yStatus == "?")
+    }
+
     var statusText: String {
         switch (xStatus, yStatus) {
         case ("A", _),
@@ -40,6 +50,17 @@ struct GitStatusFile: Identifiable, Hashable {
         default:
             "?"
         }
+    }
+
+    var stagedStatusText: String {
+        String(xStatus)
+    }
+
+    var unstagedStatusText: String {
+        if xStatus == "?", yStatus == "?" {
+            return "U"
+        }
+        return String(yStatus)
     }
 }
 

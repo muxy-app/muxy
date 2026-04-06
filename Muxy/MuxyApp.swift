@@ -57,6 +57,15 @@ struct MuxyApp: App {
             )
         }
 
+        Window("Source Control", id: "vcs") {
+            VCSWindowView()
+                .environment(appState)
+                .environment(projectStore)
+                .environment(GhosttyService.shared)
+                .preferredColorScheme(.dark)
+        }
+        .defaultSize(width: 700, height: 600)
+
         Settings {
             SettingsView()
                 .preferredColorScheme(.dark)

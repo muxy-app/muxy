@@ -73,6 +73,17 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .newTab, store: keyBindings)
 
+            Button("Source Control") {
+                guard isMainWindowFocused else { return }
+                guard let projectID = appState.activeProjectID else { return }
+                VCSDisplayMode.current.route(
+                    tab: { appState.createVCSTab(projectID: projectID) },
+                    window: { NotificationCenter.default.post(name: .openVCSWindow, object: nil) },
+                    attached: { NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil) }
+                )
+            }
+            .shortcut(for: .openVCSTab, store: keyBindings)
+
             Button("Close Tab") {
                 guard isMainWindowFocused else {
                     NSApp.keyWindow?.performClose(nil)

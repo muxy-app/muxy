@@ -4,6 +4,7 @@ struct AppearanceSettingsView: View {
     @State private var themeService = ThemeService.shared
     @State private var showThemePicker = false
     @State private var currentTheme: String?
+    @AppStorage("muxy.vcsDisplayMode") private var vcsDisplayMode = VCSDisplayMode.tab.rawValue
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,6 +33,23 @@ struct AppearanceSettingsView: View {
                     ThemePicker()
                         .environment(themeService)
                 }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            HStack {
+                Text("Source Control")
+                    .font(.system(size: 12))
+
+                Spacer()
+
+                Picker("", selection: $vcsDisplayMode) {
+                    ForEach(VCSDisplayMode.allCases) { mode in
+                        Text(mode.title).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 210)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

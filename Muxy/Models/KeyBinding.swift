@@ -47,6 +47,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case selectProject8
     case selectProject9
     case findInTerminal
+    case openVCSTab
 
     var id: String { rawValue }
 
@@ -86,6 +87,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .selectProject8: ShortcutMetadata(displayName: "Project 8", category: "Project Navigation", scope: .mainWindow)
         case .selectProject9: ShortcutMetadata(displayName: "Project 9", category: "Project Navigation", scope: .mainWindow)
         case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .mainWindow)
+        case .openVCSTab: ShortcutMetadata(displayName: "Source Control", category: "App", scope: .mainWindow)
         case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
         case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
@@ -140,7 +142,8 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .focusPaneUp, combo: KeyCombo(key: KeyCombo.upArrowKey, command: true, option: true)),
         Self(action: .focusPaneDown, combo: KeyCombo(key: KeyCombo.downArrowKey, command: true, option: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
-        Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true)),
+        Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
+        Self(action: .openVCSTab, combo: KeyCombo(key: "k", command: true)),
         Self(action: .newProject, combo: KeyCombo(key: "n", command: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),

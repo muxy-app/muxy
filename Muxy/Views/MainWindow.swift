@@ -4,7 +4,17 @@ struct MainWindow: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(GhosttyService.self) private var ghostty
+    @Environment(\.openWindow) private var openWindow
     @State private var dragCoordinator = TabDragCoordinator()
+    private enum AttachedVCSLayout {
+        static let minWidth: CGFloat = 200
+        static let defaultWidth: CGFloat = 400
+        static let maxWidth: CGFloat = 800
+    }
+
+    @State private var vcsPanelVisible = false
+    @State private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
+    @State private var vcsStates: [UUID: VCSTabState] = [:]
     private let sidebarWidth: CGFloat = 160
 
     var body: some View {
@@ -40,14 +50,78 @@ struct MainWindow: View {
                             .id(project.id)
                     }
                 }
+
+                if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
+                    HStack(spacing: 0) {
+                        Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                            .overlay {
+                                Color.clear
+                                    .frame(width: 5)
+                                    .contentShape(Rectangle())
+                                    .gesture(
+                                        DragGesture(minimumDistance: 1)
+                                            .onChanged { v in
+                                                let delta = v.translation.width
+                                                vcsPanelWidth = max(
+                                                    AttachedVCSLayout.minWidth,
+                                                    min(AttachedVCSLayout.maxWidth, vcsPanelWidth - delta)
+                                                )
+                                            }
+                                    )
+                                    .onHover { on in
+                                        if on { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                                    }
+                            }
+                        VCSTabView(state: state, focused: false, onFocus: {})
+                            .frame(width: vcsPanelWidth)
+                    }
+                }
             }
         }
+        .overlay(alignment: .bottom) {
+            if let toast = ToastState.shared.message {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(MuxyTheme.diffAddFg)
+                    Text(toast)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(MuxyTheme.fg)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(MuxyTheme.surface, in: Capsule())
+                .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))
+                .padding(.bottom, 16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .allowsHitTesting(false)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: ToastState.shared.message != nil)
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
         .edgesIgnoringSafeArea(.top)
         .onAppear {
             appState.restoreSelection(projects: projectStore.projects)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openVCSWindow)) { _ in
+            openWindow(id: "vcs")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleAttachedVCS)) { _ in
+            if let project = activeProject {
+                ensureVCSState(for: project)
+            }
+            vcsPanelVisible.toggle()
+        }
+        .onChange(of: projectStore.projects.map(\.id)) {
+            pruneVCSStates(validProjectIDs: Set(projectStore.projects.map(\.id)))
+        }
+        .onChange(of: appState.activeProjectID) {
+            guard vcsPanelVisible, VCSDisplayMode.current == .attached,
+                  let project = activeProject
+            else { return }
+            ensureVCSState(for: project)
         }
     }
 
@@ -70,7 +144,14 @@ struct MainWindow: View {
                     appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
                 },
                 onCreateVCSTab: {
-                    appState.dispatch(.createVCSTab(projectID: project.id, areaID: area.id))
+                    VCSDisplayMode.current.route(
+                        tab: { appState.dispatch(.createVCSTab(projectID: project.id, areaID: area.id)) },
+                        window: { openWindow(id: "vcs") },
+                        attached: {
+                            ensureVCSState(for: project)
+                            vcsPanelVisible.toggle()
+                        }
+                    )
                 },
                 onCloseTab: { tabID in
                     appState.dispatch(.closeTab(projectID: project.id, areaID: area.id, tabID: tabID))
@@ -118,5 +199,19 @@ struct MainWindow: View {
 
     private var projectsWithWorkspaces: [Project] {
         projectStore.projects.filter { appState.workspaceRoots[$0.id] != nil }
+    }
+
+    private var activeVCSState: VCSTabState? {
+        guard let project = activeProject else { return nil }
+        return vcsStates[project.id]
+    }
+
+    private func ensureVCSState(for project: Project) {
+        guard vcsStates[project.id] == nil else { return }
+        vcsStates[project.id] = VCSTabState(projectPath: project.path)
+    }
+
+    private func pruneVCSStates(validProjectIDs: Set<UUID>) {
+        vcsStates = vcsStates.filter { validProjectIDs.contains($0.key) }
     }
 }

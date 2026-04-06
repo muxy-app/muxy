@@ -39,9 +39,32 @@ final class VCSTabState {
     var branchName: String?
     var pullRequestInfo: GitRepositoryService.PRInfo?
 
+    var commitMessage = ""
+    var branches: [String] = []
+    var isCommitting = false
+    var isPushing = false
+    var isPulling = false
+    var isSwitchingBranch = false
+    var isLoadingBranches = false
+    var statusMessage: String?
+    var statusIsError = false
+
+    var stagedFiles: [GitStatusFile] {
+        files.filter(\.isStaged)
+    }
+
+    var unstagedFiles: [GitStatusFile] {
+        files.filter(\.isUnstaged)
+    }
+
+    var hasStagedChanges: Bool {
+        !stagedFiles.isEmpty
+    }
+
     @ObservationIgnored private let git = GitRepositoryService()
     @ObservationIgnored private var loadFilesTask: Task<Void, Never>?
     @ObservationIgnored private var branchTask: Task<Void, Never>?
+    @ObservationIgnored private var loadBranchesTask: Task<Void, Never>?
     @ObservationIgnored private var loadDiffTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var watcher: GitDirectoryWatcher?
     @ObservationIgnored private var isRefreshing = false
@@ -55,6 +78,7 @@ final class VCSTabState {
     deinit {
         loadFilesTask?.cancel()
         branchTask?.cancel()
+        loadBranchesTask?.cancel()
         loadDiffTasks.values.forEach { $0.cancel() }
     }
 
@@ -214,6 +238,174 @@ final class VCSTabState {
             return FileStats(additions: loaded.additions, deletions: loaded.deletions, binary: false)
         }
         return FileStats(additions: file.additions, deletions: file.deletions, binary: file.isBinary)
+    }
+
+    func loadBranches() {
+        loadBranchesTask?.cancel()
+        isLoadingBranches = true
+        loadBranchesTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.isLoadingBranches = false
+                self.loadBranchesTask = nil
+            }
+            do {
+                let result = try await git.listBranches(repoPath: projectPath)
+                guard !Task.isCancelled else { return }
+                branches = result
+            } catch {
+                guard !Task.isCancelled else { return }
+                branches = []
+            }
+        }
+    }
+
+    func switchBranch(_ name: String) {
+        guard name != branchName else { return }
+        isSwitchingBranch = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isSwitchingBranch = false }
+            do {
+                try await git.switchBranch(repoPath: projectPath, branch: name)
+                guard !Task.isCancelled else { return }
+                branchName = name
+                showStatus("Switched to \(name)", isError: false)
+                performRefresh(incremental: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func stageFile(_ path: String) {
+        performGitOperation {
+            try await self.git.stageFiles(repoPath: self.projectPath, paths: [path])
+        }
+    }
+
+    func unstageFile(_ path: String) {
+        performGitOperation {
+            try await self.git.unstageFiles(repoPath: self.projectPath, paths: [path])
+        }
+    }
+
+    func stageAll() {
+        performGitOperation {
+            try await self.git.stageAll(repoPath: self.projectPath)
+        }
+    }
+
+    func unstageAll() {
+        performGitOperation {
+            try await self.git.unstageAll(repoPath: self.projectPath)
+        }
+    }
+
+    func discardFile(_ path: String) {
+        let file = files.first { $0.path == path }
+        let isUntracked = file?.xStatus == "?" && file?.yStatus == "?"
+        performGitOperation {
+            if isUntracked {
+                try await self.git.discardFiles(repoPath: self.projectPath, paths: [], untrackedPaths: [path])
+            } else {
+                try await self.git.discardFiles(repoPath: self.projectPath, paths: [path], untrackedPaths: [])
+            }
+        }
+    }
+
+    func discardAll() {
+        performGitOperation {
+            try await self.git.discardAll(repoPath: self.projectPath)
+        }
+    }
+
+    func commit() {
+        let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else {
+            showStatus("Enter a commit message.", isError: true)
+            return
+        }
+        guard hasStagedChanges else {
+            showStatus("No staged changes to commit.", isError: true)
+            return
+        }
+        isCommitting = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isCommitting = false }
+            do {
+                let hash = try await git.commit(repoPath: projectPath, message: message)
+                guard !Task.isCancelled else { return }
+                commitMessage = ""
+                showStatus("Committed \(hash)", isError: false)
+                performRefresh(incremental: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func push() {
+        isPushing = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isPushing = false }
+            do {
+                try await git.push(repoPath: projectPath)
+                guard !Task.isCancelled else { return }
+                showStatus("Pushed", isError: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func pull() {
+        isPulling = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isPulling = false }
+            do {
+                try await git.pull(repoPath: projectPath)
+                guard !Task.isCancelled else { return }
+                showStatus("Pulled", isError: false)
+                performRefresh(incremental: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    private func performGitOperation(_ operation: @escaping () async throws -> Void) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await operation()
+                guard !Task.isCancelled else { return }
+                performRefresh(incremental: true)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    private func showStatus(_ message: String, isError: Bool) {
+        if isError {
+            statusMessage = message
+            statusIsError = true
+        } else {
+            ToastState.shared.show(message)
+        }
+    }
+
+    private func errorText(_ error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
     private func loadDiff(filePath: String, forceFull: Bool) {
