@@ -39,7 +39,7 @@ struct TerminalArea: View {
                     )
                 },
                 onCloseTab: { areaID, tabID in
-                    appState.dispatch(.closeTab(projectID: project.id, areaID: areaID, tabID: tabID))
+                    appState.closeTab(tabID, areaID: areaID, projectID: project.id)
                 },
                 onSplit: { areaID, dir in
                     appState.dispatch(.splitArea(

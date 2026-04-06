@@ -123,6 +123,18 @@ struct MainWindow: View {
             else { return }
             ensureVCSState(for: project)
         }
+        .alert(
+            "Close Project",
+            isPresented: Binding(
+                get: { appState.pendingLastTabClose != nil },
+                set: { if !$0 { appState.cancelCloseLastTab() } }
+            )
+        ) {
+            Button("Close", role: .destructive) { appState.confirmCloseLastTab() }
+            Button("Cancel", role: .cancel) { appState.cancelCloseLastTab() }
+        } message: {
+            Text("This is the last tab. Closing it will remove the project from the sidebar.")
+        }
     }
 
     @ViewBuilder
@@ -148,7 +160,7 @@ struct MainWindow: View {
                     openVCS(for: project, preferredAreaID: area.id)
                 },
                 onCloseTab: { tabID in
-                    appState.dispatch(.closeTab(projectID: project.id, areaID: area.id, tabID: tabID))
+                    appState.closeTab(tabID, areaID: area.id, projectID: project.id)
                 },
                 onSplit: { dir in
                     appState.dispatch(.splitArea(
