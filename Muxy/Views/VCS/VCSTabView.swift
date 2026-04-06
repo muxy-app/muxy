@@ -69,7 +69,7 @@ struct VCSTabView: View {
             BranchPicker(
                 currentBranch: state.branchName,
                 branches: state.branches,
-                isLoading: state.isSwitchingBranch,
+                isLoading: state.isLoadingBranches,
                 onSelect: { state.switchBranch($0) },
                 onRefresh: { state.loadBranches() }
             )

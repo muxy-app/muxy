@@ -45,6 +45,7 @@ final class VCSTabState {
     var isPushing = false
     var isPulling = false
     var isSwitchingBranch = false
+    var isLoadingBranches = false
     var statusMessage: String?
     var statusIsError = false
 
@@ -63,6 +64,7 @@ final class VCSTabState {
     @ObservationIgnored private let git = GitRepositoryService()
     @ObservationIgnored private var loadFilesTask: Task<Void, Never>?
     @ObservationIgnored private var branchTask: Task<Void, Never>?
+    @ObservationIgnored private var loadBranchesTask: Task<Void, Never>?
     @ObservationIgnored private var loadDiffTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var watcher: GitDirectoryWatcher?
     @ObservationIgnored private var isRefreshing = false
@@ -76,6 +78,7 @@ final class VCSTabState {
     deinit {
         loadFilesTask?.cancel()
         branchTask?.cancel()
+        loadBranchesTask?.cancel()
         loadDiffTasks.values.forEach { $0.cancel() }
     }
 
@@ -238,8 +241,14 @@ final class VCSTabState {
     }
 
     func loadBranches() {
-        Task { [weak self] in
+        loadBranchesTask?.cancel()
+        isLoadingBranches = true
+        loadBranchesTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                self.isLoadingBranches = false
+                self.loadBranchesTask = nil
+            }
             do {
                 let result = try await git.listBranches(repoPath: projectPath)
                 guard !Task.isCancelled else { return }

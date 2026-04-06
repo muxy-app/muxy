@@ -31,14 +31,11 @@ struct TerminalArea: View {
                     appState.dispatch(.createTab(projectID: project.id, areaID: areaID))
                 },
                 onCreateVCSTab: { areaID in
-                    switch VCSDisplayMode.current {
-                    case .tab:
-                        appState.dispatch(.createVCSTab(projectID: project.id, areaID: areaID))
-                    case .window:
-                        openWindow(id: "vcs")
-                    case .attached:
-                        NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil)
-                    }
+                    VCSDisplayMode.current.route(
+                        tab: { appState.dispatch(.createVCSTab(projectID: project.id, areaID: areaID)) },
+                        window: { openWindow(id: "vcs") },
+                        attached: { NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil) }
+                    )
                 },
                 onCloseTab: { areaID, tabID in
                     appState.dispatch(.closeTab(projectID: project.id, areaID: areaID, tabID: tabID))

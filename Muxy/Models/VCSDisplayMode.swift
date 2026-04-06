@@ -23,4 +23,15 @@ enum VCSDisplayMode: String, CaseIterable, Identifiable {
         else { return .tab }
         return mode
     }
+
+    func route(tab: () -> Void, window: () -> Void, attached: () -> Void) {
+        switch self {
+        case .tab:
+            tab()
+        case .window:
+            window()
+        case .attached:
+            attached()
+        }
+    }
 }

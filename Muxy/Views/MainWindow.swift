@@ -6,8 +6,14 @@ struct MainWindow: View {
     @Environment(GhosttyService.self) private var ghostty
     @Environment(\.openWindow) private var openWindow
     @State private var dragCoordinator = TabDragCoordinator()
+    private enum AttachedVCSLayout {
+        static let minWidth: CGFloat = 200
+        static let defaultWidth: CGFloat = 400
+        static let maxWidth: CGFloat = 800
+    }
+
     @State private var vcsPanelVisible = false
-    @State private var vcsPanelWidth: CGFloat = 400
+    @State private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
     @State private var vcsStates: [UUID: VCSTabState] = [:]
     private let sidebarWidth: CGFloat = 160
 
@@ -56,7 +62,10 @@ struct MainWindow: View {
                                         DragGesture(minimumDistance: 1)
                                             .onChanged { v in
                                                 let delta = v.translation.width
-                                                vcsPanelWidth = max(200, min(800, vcsPanelWidth - delta))
+                                                vcsPanelWidth = max(
+                                                    AttachedVCSLayout.minWidth,
+                                                    min(AttachedVCSLayout.maxWidth, vcsPanelWidth - delta)
+                                                )
                                             }
                                     )
                                     .onHover { on in
@@ -105,6 +114,9 @@ struct MainWindow: View {
             }
             vcsPanelVisible.toggle()
         }
+        .onChange(of: projectStore.projects.map(\.id)) {
+            pruneVCSStates(validProjectIDs: Set(projectStore.projects.map(\.id)))
+        }
         .onChange(of: appState.activeProjectID) {
             guard vcsPanelVisible, VCSDisplayMode.current == .attached,
                   let project = activeProject
@@ -132,15 +144,14 @@ struct MainWindow: View {
                     appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
                 },
                 onCreateVCSTab: {
-                    switch VCSDisplayMode.current {
-                    case .tab:
-                        appState.dispatch(.createVCSTab(projectID: project.id, areaID: area.id))
-                    case .window:
-                        openWindow(id: "vcs")
-                    case .attached:
-                        ensureVCSState(for: project)
-                        vcsPanelVisible.toggle()
-                    }
+                    VCSDisplayMode.current.route(
+                        tab: { appState.dispatch(.createVCSTab(projectID: project.id, areaID: area.id)) },
+                        window: { openWindow(id: "vcs") },
+                        attached: {
+                            ensureVCSState(for: project)
+                            vcsPanelVisible.toggle()
+                        }
+                    )
                 },
                 onCloseTab: { tabID in
                     appState.dispatch(.closeTab(projectID: project.id, areaID: area.id, tabID: tabID))
@@ -198,5 +209,9 @@ struct MainWindow: View {
     private func ensureVCSState(for project: Project) {
         guard vcsStates[project.id] == nil else { return }
         vcsStates[project.id] = VCSTabState(projectPath: project.path)
+    }
+
+    private func pruneVCSStates(validProjectIDs: Set<UUID>) {
+        vcsStates = vcsStates.filter { validProjectIDs.contains($0.key) }
     }
 }
