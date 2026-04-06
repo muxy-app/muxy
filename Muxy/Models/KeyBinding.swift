@@ -49,6 +49,48 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case findInTerminal
     case openVCSTab
 
+    static let allCases: [Self] = [
+        .newTab,
+        .closeTab,
+        .renameTab,
+        .pinUnpinTab,
+        .splitRight,
+        .splitDown,
+        .closePane,
+        .focusPaneLeft,
+        .focusPaneRight,
+        .focusPaneUp,
+        .focusPaneDown,
+        .nextTab,
+        .previousTab,
+        .toggleSidebar,
+        .toggleThemePicker,
+        .openProject,
+        .reloadConfig,
+        .selectTab1,
+        .selectTab2,
+        .selectTab3,
+        .selectTab4,
+        .selectTab5,
+        .selectTab6,
+        .selectTab7,
+        .selectTab8,
+        .selectTab9,
+        .nextProject,
+        .previousProject,
+        .selectProject1,
+        .selectProject2,
+        .selectProject3,
+        .selectProject4,
+        .selectProject5,
+        .selectProject6,
+        .selectProject7,
+        .selectProject8,
+        .selectProject9,
+        .findInTerminal,
+        .openVCSTab,
+    ]
+
     var id: String { rawValue }
 
     private var metadata: ShortcutMetadata {
@@ -144,7 +186,6 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
         Self(action: .openVCSTab, combo: KeyCombo(key: "k", command: true)),
-        Self(action: .newProject, combo: KeyCombo(key: "n", command: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),
         Self(action: .nextTab, combo: KeyCombo(key: "]", command: true)),
