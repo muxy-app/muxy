@@ -23,7 +23,7 @@ struct VCSWindowView: View {
             }
         }
         .frame(minWidth: 500, minHeight: 400)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(MuxyTheme.colorScheme)
         .onAppear {
             synchronizeState()
         }

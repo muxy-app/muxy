@@ -51,6 +51,13 @@ enum MuxyTheme {
         GhosttyService.shared.paletteColor(at: 8) ?? GhosttyService.shared.foregroundColor.withAlphaComponent(0.5)
     }
 
+    @MainActor static var colorScheme: ColorScheme {
+        let bg = GhosttyService.shared.backgroundColor
+        guard let srgb = bg.usingColorSpace(.sRGB) else { return .dark }
+        let luminance = 0.2126 * srgb.redComponent + 0.7152 * srgb.greenComponent + 0.0722 * srgb.blueComponent
+        return luminance > 0.5 ? .light : .dark
+    }
+
     @MainActor
     private static func fgAlpha(_ alpha: CGFloat) -> Color {
         Color(nsColor: GhosttyService.shared.foregroundColor.withAlphaComponent(alpha))

@@ -32,7 +32,7 @@ struct MuxyApp: App {
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
                 .environment(ThemeService.shared)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
@@ -62,13 +62,13 @@ struct MuxyApp: App {
                 .environment(appState)
                 .environment(projectStore)
                 .environment(GhosttyService.shared)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(MuxyTheme.colorScheme)
         }
         .defaultSize(width: 700, height: 600)
 
         Settings {
             SettingsView()
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(MuxyTheme.colorScheme)
         }
     }
 }
@@ -81,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
         setAppIcon()
         _ = GhosttyService.shared
+        ThemeService.shared.applyDefaultThemeIfNeeded()
         UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
     }

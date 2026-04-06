@@ -12,6 +12,8 @@ struct ThemePreview: Identifiable {
 @MainActor @Observable
 final class ThemeService {
     static let shared = ThemeService()
+    nonisolated static let defaultThemeName = "Muxy"
+    nonisolated static let pinnedThemeNames: Set<String> = ["Muxy", "Muxy Light"]
 
     @ObservationIgnored private let config: MuxyConfig
     @ObservationIgnored private let ghostty: GhosttyService
@@ -27,6 +29,11 @@ final class ThemeService {
 
     func currentThemeName() -> String? {
         config.configValue(for: "theme")?.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+    }
+
+    func applyDefaultThemeIfNeeded() {
+        guard currentThemeName() == nil else { return }
+        applyTheme(Self.defaultThemeName)
     }
 
     func applyTheme(_ name: String) {
@@ -47,7 +54,13 @@ final class ThemeService {
             }
         }
 
-        return themesByName.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        return themesByName.values.sorted {
+            let pinned0 = pinnedThemeNames.contains($0.name)
+            let pinned1 = pinnedThemeNames.contains($1.name)
+            if pinned0 != pinned1 { return pinned0 }
+            if pinned0, pinned1 { return $0.name < $1.name }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
     }
 
     nonisolated private static func themeDirectories() -> [String] {
@@ -65,6 +78,11 @@ final class ThemeService {
         }
 
         dirs.append(NSHomeDirectory() + "/.config/ghostty/themes")
+
+        if let bundledThemes = Bundle.appResources.resourceURL?.appendingPathComponent("themes").path {
+            dirs.append(bundledThemes)
+        }
+
         return dirs
     }
 
