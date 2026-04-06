@@ -21,7 +21,7 @@
 - **Project-based workflow** — Organize terminals by project with persistent workspace state
 - **Vertical tabs** — Sidebar tab strip with drag-and-drop reordering, pinning, renaming, and middle-click close
 - **Split panes** — Horizontal and vertical splits with keyboard navigation and resizable dividers
-- **Built-in Git diff** — Unified and side-by-side diff views with syntax highlighting, PR detection, and file watching
+- **Built-in VCS** — Simple and lightweight basic git diff and operations
 - **200+ themes** — Browse and search Ghostty themes with a built-in theme picker
 - **Customizable shortcuts** — 40+ configurable keyboard shortcuts with conflict detection
 - **Workspace persistence** — Tabs, splits, and focus state are saved and restored per project
