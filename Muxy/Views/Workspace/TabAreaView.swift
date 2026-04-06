@@ -35,14 +35,16 @@ struct TabAreaView: View {
                 Rectangle().fill(MuxyTheme.border).frame(height: 1)
             }
             ZStack {
-                if let tab = area.activeTab {
+                ForEach(area.tabs) { tab in
                     TabContentView(
                         tab: tab,
-                        focused: isFocused && isActiveProject,
+                        focused: tab.id == area.activeTabID && isFocused && isActiveProject,
                         onFocus: onFocus,
                         onProcessExit: { onCloseTab(tab.id) }
                     )
-                    .id(tab.id)
+                    .zIndex(tab.id == area.activeTabID ? 1 : 0)
+                    .opacity(tab.id == area.activeTabID ? 1 : 0)
+                    .allowsHitTesting(tab.id == area.activeTabID)
                 }
             }
             .overlay {

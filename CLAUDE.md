@@ -55,6 +55,12 @@ The xcframework is built via GitHub Actions on the [muxy-app/ghostty](https://gi
 - **Ghostty config:** `~/.config/ghostty/config`
 - **Terminal state (tabs, splits):** in-memory only, lost on app close
 
+## NSViewRepresentable Pitfalls
+
+- Never return a cached/reused NSView from `makeNSView`. SwiftUI assumes it gets a fresh view and breaks silently when it doesn't (blank views, lost input).
+- To keep an NSView alive across tab switches, keep the `NSViewRepresentable` mounted in the view tree (e.g. all tabs in a ZStack with `opacity(0)` + `allowsHitTesting(false)` for inactive ones) rather than conditionally removing it and relying on a registry cache.
+- When debugging blank/empty NSView issues, first check whether the NSView is being re-mounted from a detached state — that's the most common cause.
+
 ## Top Level Rules
 
 - Security first
