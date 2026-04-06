@@ -135,6 +135,18 @@ struct MainWindow: View {
         } message: {
             Text("This is the last tab. Closing it will remove the project from the sidebar.")
         }
+        .alert(
+            "Close Tab?",
+            isPresented: Binding(
+                get: { appState.pendingProcessTabClose != nil },
+                set: { if !$0 { appState.cancelCloseRunningTab() } }
+            )
+        ) {
+            Button("Close", role: .destructive) { appState.confirmCloseRunningTab() }
+            Button("Cancel", role: .cancel) { appState.cancelCloseRunningTab() }
+        } message: {
+            Text("A process is still running in this tab. Are you sure you want to close it?")
+        }
     }
 
     @ViewBuilder

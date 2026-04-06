@@ -24,6 +24,10 @@ final class TerminalViewRegistry {
     func removeView(for paneID: UUID) {
         views.removeValue(forKey: paneID)
     }
+
+    func needsConfirmQuit(for paneID: UUID) -> Bool {
+        views[paneID]?.needsConfirmQuit() ?? false
+    }
 }
 
 extension TerminalViewRegistry: TerminalViewRemoving {}

@@ -45,6 +45,7 @@ final class AppState {
     var workspaceRoots: [UUID: SplitNode] = [:]
     var focusedAreaID: [UUID: UUID] = [:]
     var pendingLastTabClose: PendingTabClose?
+    var pendingProcessTabClose: PendingTabClose?
     private var focusHistory: [UUID: [UUID]] = [:]
 
     init(
@@ -131,6 +132,28 @@ final class AppState {
     }
 
     func closeTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
+        if needsProcessConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
+            pendingProcessTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
+            return
+        }
+        closeTabWithLastCheck(tabID, areaID: areaID, projectID: projectID)
+    }
+
+    func forceCloseTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
+        closeTabWithLastCheck(tabID, areaID: areaID, projectID: projectID)
+    }
+
+    func confirmCloseRunningTab() {
+        guard let pending = pendingProcessTabClose else { return }
+        pendingProcessTabClose = nil
+        closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
+    }
+
+    func cancelCloseRunningTab() {
+        pendingProcessTabClose = nil
+    }
+
+    private func closeTabWithLastCheck(_ tabID: UUID, areaID: UUID, projectID: UUID) {
         if isLastTabInProject(tabID, areaID: areaID, projectID: projectID) {
             pendingLastTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
@@ -153,6 +176,15 @@ final class AppState {
         let allAreas = root.allAreas()
         let totalTabs = allAreas.reduce(0) { $0 + $1.tabs.count }
         return totalTabs <= 1
+    }
+
+    private func needsProcessConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
+        guard let root = workspaceRoots[projectID],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID }),
+              let paneID = tab.content.pane?.id
+        else { return false }
+        return terminalViews.needsConfirmQuit(for: paneID)
     }
 
     func selectTabByIndex(_ index: Int, projectID: UUID) {

@@ -169,6 +169,11 @@ final class GhosttyTerminalNSView: NSView {
 
     private static let systemShortcutKeys: Set<String> = ["q", "h", "m", ","]
 
+    func needsConfirmQuit() -> Bool {
+        guard let surface else { return false }
+        return ghostty_surface_needs_confirm_quit(surface)
+    }
+
     func notifySurfaceFocused() {
         guard let surface else { return }
         ghostty_surface_set_focus(surface, true)
