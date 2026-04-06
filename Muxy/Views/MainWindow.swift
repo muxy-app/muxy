@@ -135,6 +135,7 @@ struct MainWindow: View {
                 area: area,
                 isFocused: true,
                 isWindowTitleBar: true,
+                showVCSButton: true,
                 projectID: project.id,
                 onFocus: {},
                 onSelectTab: { tabID in
@@ -144,14 +145,7 @@ struct MainWindow: View {
                     appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
                 },
                 onCreateVCSTab: {
-                    VCSDisplayMode.current.route(
-                        tab: { appState.dispatch(.createVCSTab(projectID: project.id, areaID: area.id)) },
-                        window: { openWindow(id: "vcs") },
-                        attached: {
-                            ensureVCSState(for: project)
-                            vcsPanelVisible.toggle()
-                        }
-                    )
+                    openVCS(for: project, preferredAreaID: area.id)
                 },
                 onCloseTab: { tabID in
                     appState.dispatch(.closeTab(projectID: project.id, areaID: area.id, tabID: tabID))
@@ -182,6 +176,14 @@ struct MainWindow: View {
                     }
                     .allowsHitTesting(false)
                 }
+                .overlay(alignment: .trailing) {
+                    if let project = activeProject, activeProjectHasSplitWorkspace {
+                        FileDiffIconButton {
+                            openVCS(for: project)
+                        }
+                        .padding(.trailing, 4)
+                    }
+                }
         }
     }
 
@@ -197,6 +199,14 @@ struct MainWindow: View {
         return project
     }
 
+    private var activeProjectHasSplitWorkspace: Bool {
+        guard let project = activeProject,
+              let root = appState.workspaceRoot(for: project.id)
+        else { return false }
+        if case .split = root { return true }
+        return false
+    }
+
     private var projectsWithWorkspaces: [Project] {
         projectStore.projects.filter { appState.workspaceRoots[$0.id] != nil }
     }
@@ -209,6 +219,23 @@ struct MainWindow: View {
     private func ensureVCSState(for project: Project) {
         guard vcsStates[project.id] == nil else { return }
         vcsStates[project.id] = VCSTabState(projectPath: project.path)
+    }
+
+    private func openVCS(for project: Project, preferredAreaID: UUID? = nil) {
+        VCSDisplayMode.current.route(
+            tab: {
+                let areaID = preferredAreaID
+                    ?? appState.focusedAreaID[project.id]
+                    ?? appState.workspaceRoot(for: project.id)?.allAreas().first?.id
+                guard let areaID else { return }
+                appState.dispatch(.createVCSTab(projectID: project.id, areaID: areaID))
+            },
+            window: { openWindow(id: "vcs") },
+            attached: {
+                ensureVCSState(for: project)
+                vcsPanelVisible.toggle()
+            }
+        )
     }
 
     private func pruneVCSStates(validProjectIDs: Set<UUID>) {

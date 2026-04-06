@@ -20,6 +20,7 @@ struct TerminalArea: View {
                 focusedAreaID: appState.focusedAreaID[project.id],
                 isActiveProject: isActiveProject,
                 showTabStrip: !rootIsTabArea,
+                showVCSButton: false,
                 projectID: project.id,
                 onFocusArea: { areaID in
                     appState.dispatch(.focusArea(projectID: project.id, areaID: areaID))
