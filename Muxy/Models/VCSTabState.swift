@@ -67,7 +67,6 @@ final class VCSTabState {
     @ObservationIgnored private var watcher: GitDirectoryWatcher?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var pendingRefresh = false
-    @ObservationIgnored private var messageDismissTask: Task<Void, Never>?
 
     init(projectPath: String) {
         self.projectPath = projectPath
@@ -78,7 +77,6 @@ final class VCSTabState {
         loadFilesTask?.cancel()
         branchTask?.cancel()
         loadDiffTasks.values.forEach { $0.cancel() }
-        messageDismissTask?.cancel()
     }
 
     private func startWatching() {
@@ -389,14 +387,11 @@ final class VCSTabState {
     }
 
     private func showStatus(_ message: String, isError: Bool) {
-        statusMessage = message
-        statusIsError = isError
-        messageDismissTask?.cancel()
-        guard !isError else { return }
-        messageDismissTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            guard !Task.isCancelled, let self else { return }
-            self.statusMessage = nil
+        if isError {
+            statusMessage = message
+            statusIsError = true
+        } else {
+            ToastState.shared.show(message)
         }
     }
 

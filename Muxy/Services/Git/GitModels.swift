@@ -58,7 +58,7 @@ struct GitStatusFile: Identifiable, Hashable {
 
     var unstagedStatusText: String {
         if xStatus == "?", yStatus == "?" {
-            return "?"
+            return "U"
         }
         return String(yStatus)
     }

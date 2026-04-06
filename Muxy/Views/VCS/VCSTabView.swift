@@ -279,13 +279,6 @@ struct VCSTabView: View {
                 .buttonStyle(.plain)
                 .disabled(state.isPulling)
             }
-
-            if let message = state.statusMessage, !state.statusIsError {
-                Text(message)
-                    .font(.system(size: 11))
-                    .foregroundStyle(MuxyTheme.diffAddFg)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
         .padding(10)
         .background(MuxyTheme.bg)
@@ -467,8 +460,8 @@ private struct FileRow: View {
             MuxyTheme.accent
         case "R":
             MuxyTheme.accent
-        case "?":
-            MuxyTheme.fgDim
+        case "U":
+            MuxyTheme.diffAddFg
         default:
             MuxyTheme.fgMuted
         }

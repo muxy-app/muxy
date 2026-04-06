@@ -69,6 +69,26 @@ struct MainWindow: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            if let toast = ToastState.shared.message {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(MuxyTheme.diffAddFg)
+                    Text(toast)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(MuxyTheme.fg)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(MuxyTheme.surface, in: Capsule())
+                .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))
+                .padding(.bottom, 16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .allowsHitTesting(false)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: ToastState.shared.message != nil)
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
