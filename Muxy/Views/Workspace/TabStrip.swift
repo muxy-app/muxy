@@ -4,6 +4,7 @@ struct PaneTabStrip: View {
     let area: TabArea
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
+    var showVCSButton = true
     let projectID: UUID
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
@@ -65,7 +66,9 @@ struct PaneTabStrip: View {
                 IconButton(symbol: "square.split.2x1") { onSplit(.horizontal) }
                 IconButton(symbol: "square.split.1x2") { onSplit(.vertical) }
                 IconButton(symbol: "plus") { onCreateTab() }
-                FileDiffIconButton(action: onCreateVCSTab)
+                if showVCSButton {
+                    FileDiffIconButton(action: onCreateVCSTab)
+                }
             }
             .padding(.trailing, 4)
             .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))

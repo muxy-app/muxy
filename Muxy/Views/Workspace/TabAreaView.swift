@@ -5,6 +5,7 @@ struct TabAreaView: View {
     let isFocused: Bool
     let isActiveProject: Bool
     let showTabStrip: Bool
+    let showVCSButton: Bool
     let projectID: UUID
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
@@ -22,6 +23,7 @@ struct TabAreaView: View {
                 PaneTabStrip(
                     area: area,
                     isFocused: isFocused,
+                    showVCSButton: showVCSButton,
                     projectID: projectID,
                     onFocus: onFocus,
                     onSelectTab: onSelectTab,
