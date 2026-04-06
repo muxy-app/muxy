@@ -53,7 +53,6 @@ struct SidebarToolbar: View {
         projectStore.add(project)
         appState.selectProject(project)
     }
-
 }
 
 struct Sidebar: View {
