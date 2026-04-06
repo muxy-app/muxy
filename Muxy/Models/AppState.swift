@@ -35,9 +35,16 @@ final class AppState {
         didSet { saveSelection() }
     }
 
+    struct PendingTabClose: Equatable {
+        let projectID: UUID
+        let areaID: UUID
+        let tabID: UUID
+    }
+
     var sidebarVisible = true
     var workspaceRoots: [UUID: SplitNode] = [:]
     var focusedAreaID: [UUID: UUID] = [:]
+    var pendingLastTabClose: PendingTabClose?
     private var focusHistory: [UUID: [UUID]] = [:]
 
     init(
@@ -120,7 +127,32 @@ final class AppState {
 
     func closeTab(_ tabID: UUID, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
-        dispatch(.closeTab(projectID: projectID, areaID: area.id, tabID: tabID))
+        closeTab(tabID, areaID: area.id, projectID: projectID)
+    }
+
+    func closeTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
+        if isLastTabInProject(tabID, areaID: areaID, projectID: projectID) {
+            pendingLastTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
+            return
+        }
+        dispatch(.closeTab(projectID: projectID, areaID: areaID, tabID: tabID))
+    }
+
+    func confirmCloseLastTab() {
+        guard let pending = pendingLastTabClose else { return }
+        pendingLastTabClose = nil
+        dispatch(.closeTab(projectID: pending.projectID, areaID: pending.areaID, tabID: pending.tabID))
+    }
+
+    func cancelCloseLastTab() {
+        pendingLastTabClose = nil
+    }
+
+    private func isLastTabInProject(_ tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
+        guard let root = workspaceRoots[projectID] else { return false }
+        let allAreas = root.allAreas()
+        let totalTabs = allAreas.reduce(0) { $0 + $1.tabs.count }
+        return totalTabs <= 1
     }
 
     func selectTabByIndex(_ index: Int, projectID: UUID) {
