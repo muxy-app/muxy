@@ -76,7 +76,14 @@ struct MuxyCommands: Commands {
             Button("Source Control") {
                 guard isMainWindowFocused else { return }
                 guard let projectID = appState.activeProjectID else { return }
-                appState.createVCSTab(projectID: projectID)
+                switch VCSDisplayMode.current {
+                case .tab:
+                    appState.createVCSTab(projectID: projectID)
+                case .window:
+                    NotificationCenter.default.post(name: .openVCSWindow, object: nil)
+                case .attached:
+                    NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil)
+                }
             }
             .shortcut(for: .openVCSTab, store: keyBindings)
 
