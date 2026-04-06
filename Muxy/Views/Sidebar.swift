@@ -11,7 +11,6 @@ struct SidebarToolbar: View {
         HStack(spacing: 4) {
             Spacer()
             IconButton(symbol: "folder") { openProject() }
-            IconButton(symbol: "plus") { addProject() }
             IconButton(symbol: "sidebar.left") {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     appState.sidebarVisible.toggle()
@@ -25,10 +24,6 @@ struct SidebarToolbar: View {
                 HStack(spacing: 3) {
                     ShortcutBadge(
                         label: KeyBindingStore.shared.combo(for: .openProject).displayString,
-                        compact: true
-                    )
-                    ShortcutBadge(
-                        label: KeyBindingStore.shared.combo(for: .newProject).displayString,
                         compact: true
                     )
                     ShortcutBadge(
@@ -59,16 +54,6 @@ struct SidebarToolbar: View {
         appState.selectProject(project)
     }
 
-    private func addProject() {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-        let project = Project(
-            name: url.lastPathComponent,
-            path: url.path(percentEncoded: false),
-            sortOrder: projectStore.projects.count
-        )
-        projectStore.add(project)
-        appState.selectProject(project)
-    }
 }
 
 struct Sidebar: View {

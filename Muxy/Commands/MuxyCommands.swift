@@ -56,11 +56,6 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(replacing: .newItem) {
-            Button("New Project") {
-                newProject()
-            }
-            .shortcut(for: .newProject, store: keyBindings)
-
             Button("Open Project...") {
                 openProject()
             }
@@ -236,17 +231,6 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .toggleThemePicker, store: keyBindings)
         }
-    }
-
-    private func newProject() {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-        let project = Project(
-            name: url.lastPathComponent,
-            path: url.path(percentEncoded: false),
-            sortOrder: projectStore.projects.count
-        )
-        projectStore.add(project)
-        appState.selectProject(project)
     }
 
     private func openProject() {

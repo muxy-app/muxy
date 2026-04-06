@@ -79,3 +79,4 @@ The xcframework is built via GitHub Actions on the [muxy-app/ghostty](https://gi
 - Don't patch symptoms, fix root causes
 - For every task, Consider how it will impact the architecture and code quality, not just the immediate problem
 - Follow the existing code's pattern but offer refactors if they improve code quality and maintainability.
+- Treat the request as end-to-end behavior, not partial UI edits—verify every trigger path before saying it’s done.
