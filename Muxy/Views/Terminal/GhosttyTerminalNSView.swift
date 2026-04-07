@@ -381,7 +381,10 @@ final class GhosttyTerminalNSView: NSView {
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        if !consumed {
+            super.rightMouseUp(with: event)
+        }
     }
 
     private func presentContextMenu(with event: NSEvent) {
@@ -389,7 +392,7 @@ final class GhosttyTerminalNSView: NSView {
 
         let paste = NSMenuItem(title: "Paste", action: #selector(handleContextPaste(_:)), keyEquivalent: "")
         paste.target = self
-        paste.isEnabled = NSPasteboard.general.string(forType: .string)?.isEmpty == false
+        paste.isEnabled = NSPasteboard.general.string(forType: .string).map { !$0.isEmpty } ?? false
         menu.addItem(paste)
 
         menu.addItem(.separator())
