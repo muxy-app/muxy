@@ -46,23 +46,40 @@ final class SplitBranch: Identifiable {
 
 @MainActor
 extension SplitNode {
-    func splitting(areaID: UUID, direction: SplitDirection, projectPath: String) -> (node: SplitNode, newAreaID: UUID?) {
+    func splitting(
+        areaID: UUID,
+        direction: SplitDirection,
+        position: SplitPosition,
+        projectPath: String
+    ) -> (node: SplitNode, newAreaID: UUID?) {
         switch self {
         case let .tabArea(area) where area.id == areaID:
             let newArea = TabArea(projectPath: projectPath)
+            let first: SplitNode = position == .first ? .tabArea(newArea) : .tabArea(area)
+            let second: SplitNode = position == .first ? .tabArea(area) : .tabArea(newArea)
             let node = SplitNode.split(SplitBranch(
                 direction: direction,
-                first: .tabArea(area),
-                second: .tabArea(newArea)
+                first: first,
+                second: second
             ))
             return (node, newArea.id)
         case .tabArea:
             return (self, nil)
         case let .split(branch):
-            let (newFirst, id1) = branch.first.splitting(areaID: areaID, direction: direction, projectPath: projectPath)
+            let (newFirst, id1) = branch.first.splitting(
+                areaID: areaID,
+                direction: direction,
+                position: position,
+                projectPath: projectPath
+            )
             branch.first = newFirst
             if id1 != nil { return (.split(branch), id1) }
-            let (newSecond, id2) = branch.second.splitting(areaID: areaID, direction: direction, projectPath: projectPath)
+            let (newSecond, id2) = branch.second.splitting(
+                areaID: areaID,
+                direction: direction,
+                position: position,
+                projectPath: projectPath
+            )
             branch.second = newSecond
             return (.split(branch), id2)
         }

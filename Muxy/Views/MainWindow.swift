@@ -183,9 +183,13 @@ struct MainWindow: View {
                     appState.closeTab(tabID, areaID: area.id, projectID: project.id)
                 },
                 onSplit: { dir in
-                    appState.dispatch(.splitArea(
-                        projectID: project.id, areaID: area.id, direction: dir, projectPath: project.path
-                    ))
+                    appState.dispatch(.splitArea(.init(
+                        projectID: project.id,
+                        areaID: area.id,
+                        direction: dir,
+                        position: .second,
+                        projectPath: project.path
+                    )))
                 },
                 onClose: {
                     appState.dispatch(.closeArea(projectID: project.id, areaID: area.id))

@@ -45,9 +45,13 @@ struct TerminalArea: View {
                     appState.forceCloseTab(tabID, areaID: areaID, projectID: project.id)
                 },
                 onSplit: { areaID, dir in
-                    appState.dispatch(.splitArea(
-                        projectID: project.id, areaID: areaID, direction: dir, projectPath: project.path
-                    ))
+                    appState.dispatch(.splitArea(.init(
+                        projectID: project.id,
+                        areaID: areaID,
+                        direction: dir,
+                        position: .second,
+                        projectPath: project.path
+                    )))
                 },
                 onCloseArea: { areaID in
                     appState.dispatch(.closeArea(projectID: project.id, areaID: areaID))

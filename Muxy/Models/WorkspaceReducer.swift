@@ -58,8 +58,8 @@ enum WorkspaceReducer {
             guard let area = resolveArea(projectID: projectID, areaID: nil, state: state) else { break }
             area.selectPreviousTab()
 
-        case let .splitArea(projectID, areaID, direction, projectPath):
-            splitArea(areaID, direction: direction, projectID: projectID, projectPath: projectPath, state: &state)
+        case let .splitArea(request):
+            splitArea(request, state: &state)
 
         case let .closeArea(projectID, areaID):
             closeArea(areaID, projectID: projectID, state: &state, effects: &effects)
@@ -92,21 +92,20 @@ enum WorkspaceReducer {
         return effects
     }
 
-    private static func splitArea(
-        _ areaID: UUID,
-        direction: SplitDirection,
-        projectID: UUID,
-        projectPath: String,
-        state: inout WorkspaceState
-    ) {
-        guard let root = state.workspaceRoots[projectID] else { return }
-        let (newRoot, newAreaID) = root.splitting(areaID: areaID, direction: direction, projectPath: projectPath)
-        state.workspaceRoots[projectID] = newRoot
+    private static func splitArea(_ request: AppState.SplitAreaRequest, state: inout WorkspaceState) {
+        guard let root = state.workspaceRoots[request.projectID] else { return }
+        let (newRoot, newAreaID) = root.splitting(
+            areaID: request.areaID,
+            direction: request.direction,
+            position: request.position,
+            projectPath: request.projectPath
+        )
+        state.workspaceRoots[request.projectID] = newRoot
         guard let newAreaID else { return }
-        if let current = state.focusedAreaID[projectID] {
-            state.focusHistory[projectID, default: []].append(current)
+        if let current = state.focusedAreaID[request.projectID] {
+            state.focusHistory[request.projectID, default: []].append(current)
         }
-        state.focusedAreaID[projectID] = newAreaID
+        state.focusedAreaID[request.projectID] = newAreaID
     }
 
     private static func closeArea(

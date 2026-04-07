@@ -8,6 +8,7 @@ final class GhosttyTerminalNSView: NSView {
     var onTitleChange: ((String) -> Void)?
     var onFocus: (() -> Void)?
     var onProcessExit: (() -> Void)?
+    var onSplitRequest: ((SplitDirection, SplitPosition) -> Void)?
     var onSearchStart: ((String?) -> Void)?
     var onSearchEnd: (() -> Void)?
     var onSearchTotal: ((Int?) -> Void)?
@@ -372,7 +373,7 @@ final class GhosttyTerminalNSView: NSView {
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
         if !consumed {
-            super.rightMouseDown(with: event)
+            presentContextMenu(with: event)
         }
     }
 
@@ -380,9 +381,54 @@ final class GhosttyTerminalNSView: NSView {
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
-        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
-        if !consumed {
-            super.rightMouseUp(with: event)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+    }
+
+    private func presentContextMenu(with event: NSEvent) {
+        let menu = NSMenu(title: "Terminal")
+
+        let paste = NSMenuItem(title: "Paste", action: #selector(handleContextPaste(_:)), keyEquivalent: "")
+        paste.target = self
+        paste.isEnabled = NSPasteboard.general.string(forType: .string)?.isEmpty == false
+        menu.addItem(paste)
+
+        menu.addItem(.separator())
+
+        menu.addItem(contextSplitMenuItem(title: "Split Right", direction: .horizontal, position: .second))
+        menu.addItem(contextSplitMenuItem(title: "Split Left", direction: .horizontal, position: .first))
+        menu.addItem(contextSplitMenuItem(title: "Split Down", direction: .vertical, position: .second))
+        menu.addItem(contextSplitMenuItem(title: "Split Up", direction: .vertical, position: .first))
+
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    private func contextSplitMenuItem(title: String, direction: SplitDirection, position: SplitPosition) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: #selector(handleContextSplit(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = ContextSplit(direction: direction, position: position)
+        return item
+    }
+
+    @objc
+    private func handleContextPaste(_: Any?) {
+        window?.makeFirstResponder(self)
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
+        insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+    }
+
+    @objc
+    private func handleContextSplit(_ sender: NSMenuItem) {
+        guard let split = sender.representedObject as? ContextSplit else { return }
+        onSplitRequest?(split.direction, split.position)
+    }
+
+    private final class ContextSplit: NSObject {
+        let direction: SplitDirection
+        let position: SplitPosition
+
+        init(direction: SplitDirection, position: SplitPosition) {
+            self.direction = direction
+            self.position = position
         }
     }
 

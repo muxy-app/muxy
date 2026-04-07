@@ -4,6 +4,14 @@ import SwiftUI
 @MainActor
 @Observable
 final class AppState {
+    struct SplitAreaRequest {
+        let projectID: UUID
+        let areaID: UUID
+        let direction: SplitDirection
+        let position: SplitPosition
+        let projectPath: String
+    }
+
     enum Action {
         case selectProject(projectID: UUID, projectPath: String)
         case removeProject(projectID: UUID)
@@ -14,7 +22,7 @@ final class AppState {
         case selectTabByIndex(projectID: UUID, areaID: UUID?, index: Int)
         case selectNextTab(projectID: UUID)
         case selectPreviousTab(projectID: UUID)
-        case splitArea(projectID: UUID, areaID: UUID, direction: SplitDirection, projectPath: String)
+        case splitArea(SplitAreaRequest)
         case closeArea(projectID: UUID, areaID: UUID)
         case focusArea(projectID: UUID, areaID: UUID)
         case focusPaneLeft(projectID: UUID)
@@ -106,12 +114,13 @@ final class AppState {
 
     func splitFocusedArea(direction: SplitDirection, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
-        dispatch(.splitArea(
+        dispatch(.splitArea(.init(
             projectID: projectID,
             areaID: area.id,
             direction: direction,
+            position: .second,
             projectPath: area.projectPath
-        ))
+        )))
     }
 
     func closeArea(_ areaID: UUID, projectID: UUID) {

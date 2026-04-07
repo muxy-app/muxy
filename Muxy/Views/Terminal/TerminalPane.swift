@@ -6,10 +6,17 @@ struct TerminalPane: View {
     let focused: Bool
     let onFocus: () -> Void
     let onProcessExit: () -> Void
+    let onSplitRequest: (SplitDirection, SplitPosition) -> Void
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            TerminalBridge(state: state, focused: focused, onFocus: onFocus, onProcessExit: onProcessExit)
+            TerminalBridge(
+                state: state,
+                focused: focused,
+                onFocus: onFocus,
+                onProcessExit: onProcessExit,
+                onSplitRequest: onSplitRequest
+            )
 
             if state.searchState.isVisible {
                 TerminalSearchBar(
@@ -38,6 +45,7 @@ struct TerminalBridge: NSViewRepresentable {
     let focused: Bool
     let onFocus: () -> Void
     let onProcessExit: () -> Void
+    let onSplitRequest: (SplitDirection, SplitPosition) -> Void
 
     final class Coordinator {
         var wasFocused = false
@@ -54,6 +62,7 @@ struct TerminalBridge: NSViewRepresentable {
         view.isFocused = focused
         view.onFocus = onFocus
         view.onProcessExit = onProcessExit
+        view.onSplitRequest = onSplitRequest
         view.onTitleChange = { [weak state] title in
             state?.title = title
         }
@@ -71,6 +80,7 @@ struct TerminalBridge: NSViewRepresentable {
     func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
         nsView.onFocus = onFocus
         nsView.onProcessExit = onProcessExit
+        nsView.onSplitRequest = onSplitRequest
         nsView.onTitleChange = { [weak state] title in
             state?.title = title
         }

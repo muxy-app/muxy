@@ -17,6 +17,7 @@ struct TabAreaView: View {
     let onClose: () -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,7 +44,16 @@ struct TabAreaView: View {
                         tab: tab,
                         focused: tab.id == area.activeTabID && isFocused && isActiveProject,
                         onFocus: onFocus,
-                        onProcessExit: { onForceCloseTab(tab.id) }
+                        onProcessExit: { onForceCloseTab(tab.id) },
+                        onSplitRequest: { direction, position in
+                            appState.dispatch(.splitArea(.init(
+                                projectID: projectID,
+                                areaID: area.id,
+                                direction: direction,
+                                position: position,
+                                projectPath: area.projectPath
+                            )))
+                        }
                     )
                     .zIndex(tab.id == area.activeTabID ? 1 : 0)
                     .opacity(tab.id == area.activeTabID ? 1 : 0)
@@ -80,6 +90,7 @@ private struct TabContentView: View {
     let focused: Bool
     let onFocus: () -> Void
     let onProcessExit: () -> Void
+    let onSplitRequest: (SplitDirection, SplitPosition) -> Void
 
     var body: some View {
         switch tab.content {
@@ -88,7 +99,8 @@ private struct TabContentView: View {
                 state: pane,
                 focused: focused,
                 onFocus: onFocus,
-                onProcessExit: onProcessExit
+                onProcessExit: onProcessExit,
+                onSplitRequest: onSplitRequest
             )
         case let .vcs(vcsState):
             VCSTabView(state: vcsState, focused: focused, onFocus: onFocus)
