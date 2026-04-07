@@ -3,94 +3,129 @@ import SwiftUI
 struct SplitDiffView: View {
     let rows: [DiffDisplayRow]
     let filePath: String
-    let pairedRows: [SplitDiffPairedRow]
+
+    private var chunks: [SplitDiffChunk] {
+        buildSplitDiffChunks(from: rows)
+    }
 
     private var numberColumnWidth: CGFloat {
         lineNumberWidth(for: maxLineNumber(in: rows))
     }
 
-    init(rows: [DiffDisplayRow], filePath: String) {
-        self.rows = rows
-        self.filePath = filePath
-        pairedRows = SplitDiffPairedRow.pair(rows)
-    }
-
     var body: some View {
         LazyVStack(spacing: 0) {
-            ForEach(pairedRows) { paired in
-                switch paired.kind {
-                case .hunk,
-                     .collapsed:
-                    hunkOrCollapsedRow(paired)
-                case .content:
-                    contentRow(paired)
+            ForEach(chunks) { chunk in
+                switch chunk {
+                case let .divider(_, text, _):
+                    DiffSectionDivider(text: text)
+                case let .codeBlock(_, leftRows, rightRows):
+                    splitCodeBlock(leftRows: leftRows, rightRows: rightRows)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func hunkOrCollapsedRow(_ paired: SplitDiffPairedRow) -> some View {
-        let rawText = paired.left?.text ?? paired.right?.text ?? ""
-        let label = paired.kind == .hunk ? hunkLabel(rawText) : rawText
-        return DiffSectionDivider(text: label)
-    }
+    private func splitCodeBlock(leftRows: [DiffDisplayRow], rightRows: [DiffDisplayRow]) -> some View {
+        let lineCount = max(leftRows.count, rightRows.count)
+        let height = CGFloat(lineCount) * 20
+        let (_, leftMeta) = buildDiffAttributedString(from: leftRows)
+        let (_, rightMeta) = buildDiffAttributedString(from: rightRows)
 
-    private func contentRow(_ paired: SplitDiffPairedRow) -> some View {
-        let lineNumber = paired.right?.newLineNumber ?? paired.left?.oldLineNumber
-        return DiffLineRow(filePath: filePath, lineNumber: lineNumber) {
-            HStack(spacing: 0) {
-                splitCell(
-                    number: paired.left?.oldLineNumber,
-                    text: paired.left?.oldText,
-                    changeKind: paired.left?.kind ?? .context,
-                    isLeft: true
+        return HStack(alignment: .top, spacing: 0) {
+            DiffGutterBridge(metadata: leftMeta, filePath: filePath, mode: .singleOld, columnWidth: numberColumnWidth)
+                .frame(width: numberColumnWidth + 1, height: height)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                DiffContentBridge(
+                    rows: leftRows,
+                    backgroundSide: .left
                 )
-                Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                splitCell(
-                    number: paired.right?.newLineNumber,
-                    text: paired.right?.newText,
-                    changeKind: paired.right?.kind ?? .context,
-                    isLeft: false
+                .frame(height: height)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Rectangle().fill(MuxyTheme.border).frame(width: 1)
+
+            DiffGutterBridge(metadata: rightMeta, filePath: filePath, mode: .singleNew, columnWidth: numberColumnWidth)
+                .frame(width: numberColumnWidth + 1, height: height)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                DiffContentBridge(
+                    rows: rightRows,
+                    backgroundSide: .right
                 )
+                .frame(height: height)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(height: height)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+    }
+}
+
+enum SplitDiffChunk: Identifiable {
+    case divider(id: UUID, text: String, isHunk: Bool)
+    case codeBlock(id: UUID, leftRows: [DiffDisplayRow], rightRows: [DiffDisplayRow])
+
+    var id: UUID {
+        switch self {
+        case let .divider(id, _, _): id
+        case let .codeBlock(id, _, _): id
+        }
+    }
+}
+
+func buildSplitDiffChunks(from rows: [DiffDisplayRow]) -> [SplitDiffChunk] {
+    let paired = SplitDiffPairedRow.pair(rows)
+    var chunks: [SplitDiffChunk] = []
+    var leftRows: [DiffDisplayRow] = []
+    var rightRows: [DiffDisplayRow] = []
+
+    for paired in paired {
+        if paired.kind == .hunk || paired.kind == .collapsed {
+            if !leftRows.isEmpty || !rightRows.isEmpty {
+                padToEqualLength(&leftRows, &rightRows)
+                chunks.append(.codeBlock(id: UUID(), leftRows: leftRows, rightRows: rightRows))
+                leftRows = []
+                rightRows = []
+            }
+            let rawText = paired.left?.text ?? paired.right?.text ?? ""
+            let label = paired.kind == .hunk ? hunkLabel(rawText) : rawText
+            chunks.append(.divider(id: UUID(), text: label, isHunk: paired.kind == .hunk))
+        } else {
+            leftRows.append(paired.left ?? emptyRow(kind: .context))
+            rightRows.append(paired.right ?? emptyRow(kind: .context))
+        }
     }
 
-    private func splitCell(
-        number: Int?,
-        text: String?,
-        changeKind: DiffDisplayRow.Kind,
-        isLeft: Bool
-    ) -> some View {
-        let highlightKind: CodeHighlightedText.ChangeKind = switch changeKind {
-        case .deletion: .deletion
-        case .addition: .addition
-        default: .context
-        }
-        let bgKind: DiffDisplayRow.Kind = isLeft
-            ? (changeKind == .deletion ? .deletion : .context)
-            : (changeKind == .addition ? .addition : .context)
-
-        return HStack(spacing: 0) {
-            Text(number.map(String.init) ?? "")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(MuxyTheme.fgDim)
-                .frame(width: numberColumnWidth, alignment: .trailing)
-                .padding(.trailing, 4)
-                .background(.clear)
-                .overlay(alignment: .trailing) {
-                    Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                }
-
-            CodeHighlightedText(text: text ?? "", kind: highlightKind)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-        }
-        .background(rowBackground(bgKind, side: isLeft ? .left : .right))
+    if !leftRows.isEmpty || !rightRows.isEmpty {
+        padToEqualLength(&leftRows, &rightRows)
+        chunks.append(.codeBlock(id: UUID(), leftRows: leftRows, rightRows: rightRows))
     }
+
+    return chunks
+}
+
+private func padToEqualLength(_ left: inout [DiffDisplayRow], _ right: inout [DiffDisplayRow]) {
+    while left.count < right.count {
+        left.append(emptyRow(kind: .context))
+    }
+    while right.count < left.count {
+        right.append(emptyRow(kind: .context))
+    }
+}
+
+private func emptyRow(kind: DiffDisplayRow.Kind) -> DiffDisplayRow {
+    DiffDisplayRow(
+        kind: kind,
+        oldLineNumber: nil,
+        newLineNumber: nil,
+        oldText: nil,
+        newText: nil,
+        text: ""
+    )
 }
 
 struct SplitDiffPairedRow: Identifiable {

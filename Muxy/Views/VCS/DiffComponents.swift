@@ -1,41 +1,6 @@
 import AppKit
 import SwiftUI
 
-struct DiffLineRow<Content: View>: View {
-    let filePath: String
-    let lineNumber: Int?
-    @ViewBuilder let content: Content
-    @State private var hovered = false
-
-    var body: some View {
-        content
-            .overlay(alignment: .leading) {
-                if hovered, let lineNumber {
-                    Menu {
-                        Button("Copy Reference") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString("\(filePath):\(lineNumber)", forType: .string)
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(MuxyTheme.fgMuted)
-                            .frame(width: 20, height: 20)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(MuxyTheme.surface)
-                            )
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .frame(width: 20)
-                    .padding(.leading, 2)
-                }
-            }
-            .onHover { hovered = $0 }
-    }
-}
-
 struct DiffSectionDivider: View {
     let text: String
 
@@ -71,7 +36,7 @@ func hunkLabel(_ raw: String) -> String {
 
 func lineNumberWidth(for maxLineNumber: Int) -> CGFloat {
     let digitCount = max(String(maxLineNumber).count, 1)
-    return CGFloat(digitCount) * 7 + 6
+    return CGFloat(digitCount) * 8 + 12
 }
 
 func maxLineNumber(in rows: [DiffDisplayRow]) -> Int {
@@ -87,64 +52,8 @@ enum DiffBackgroundSide {
 }
 
 @MainActor
-func rowBackground(_ kind: DiffDisplayRow.Kind, side: DiffBackgroundSide) -> Color {
-    switch kind {
-    case .addition:
-        switch side {
-        case .left:
-            .clear
-        case .right,
-             .both:
-            MuxyTheme.diffAddBg
-        }
-    case .deletion:
-        switch side {
-        case .left,
-             .both:
-            MuxyTheme.diffRemoveBg
-        case .right:
-            .clear
-        }
-    case .hunk:
-        MuxyTheme.diffHunkBg
-    case .collapsed:
-        MuxyTheme.bg
-    case .context:
-        .clear
-    }
-}
-
-struct CodeHighlightedText: View {
-    enum ChangeKind {
-        case context
-        case addition
-        case deletion
-    }
-
-    let text: String
-    let kind: ChangeKind
-
-    var body: some View {
-        Text(DiffHighlightCache.shared.highlighted(text, kind: kind))
-            .font(.system(size: 12, design: .monospaced))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .textSelection(.enabled)
-    }
-}
-
-@MainActor
 final class DiffHighlightCache {
     static let shared = DiffHighlightCache()
-
-    private struct CacheKey: Hashable {
-        let text: String
-        let kind: CodeHighlightedText.ChangeKind
-    }
-
-    private var cache: [CacheKey: AttributedString] = [:]
-    private var insertionOrder: [CacheKey] = []
-    private let maxEntries = 2000
 
     struct Rule {
         let regex: NSRegularExpression
@@ -157,53 +66,7 @@ final class DiffHighlightCache {
         rules = Self.buildRules()
     }
 
-    func highlighted(_ source: String, kind: CodeHighlightedText.ChangeKind) -> AttributedString {
-        let key = CacheKey(text: source, kind: kind)
-        if let cached = cache[key] {
-            return cached
-        }
-        let result = computeHighlighted(source, kind: kind)
-        if insertionOrder.count >= maxEntries {
-            let evicted = insertionOrder.removeFirst()
-            cache.removeValue(forKey: evicted)
-        }
-        cache[key] = result
-        insertionOrder.append(key)
-        return result
-    }
-
-    func invalidate() {
-        cache.removeAll()
-        insertionOrder.removeAll()
-    }
-
-    private func computeHighlighted(_ source: String, kind: CodeHighlightedText.ChangeKind) -> AttributedString {
-        let fullRange = NSRange(location: 0, length: (source as NSString).length)
-
-        let baseColor: NSColor = switch kind {
-        case .addition: MuxyTheme.nsDiffAdd
-        case .deletion: MuxyTheme.nsDiffRemove
-        case .context: GhosttyService.shared.foregroundColor
-        }
-
-        let attributed = NSMutableAttributedString(
-            string: source,
-            attributes: [
-                .foregroundColor: baseColor,
-                .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-            ]
-        )
-
-        for rule in rules {
-            let matches = rule.regex.matches(in: source, range: fullRange)
-            let color = rule.color()
-            for match in matches {
-                attributed.addAttribute(.foregroundColor, value: color, range: match.range)
-            }
-        }
-
-        return AttributedString(attributed)
-    }
+    func invalidate() {}
 
     private struct RuleDefinition {
         let pattern: String

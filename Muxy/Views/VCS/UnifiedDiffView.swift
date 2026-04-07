@@ -4,60 +4,50 @@ struct UnifiedDiffView: View {
     let rows: [DiffDisplayRow]
     let filePath: String
 
+    private var chunks: [DiffChunk] {
+        buildDiffChunks(from: rows)
+    }
+
     private var numberColumnWidth: CGFloat {
         lineNumberWidth(for: maxLineNumber(in: rows))
     }
 
     var body: some View {
         LazyVStack(spacing: 0) {
-            ForEach(rows) { row in
-                if row.kind == .hunk || row.kind == .collapsed {
-                    DiffSectionDivider(text: row.kind == .hunk ? hunkLabel(row.text) : row.text)
-                } else {
-                    DiffLineRow(filePath: filePath, lineNumber: row.newLineNumber ?? row.oldLineNumber) {
-                        HStack(spacing: 0) {
-                            numberCell(row.oldLineNumber)
-                            numberCell(row.newLineNumber)
-                            lineContent(row)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 6)
-                        }
-                        .frame(minHeight: 24)
-                        .background(rowBackground(row.kind, side: .both))
-                    }
+            ForEach(chunks) { chunk in
+                switch chunk {
+                case let .divider(_, text, _):
+                    DiffSectionDivider(text: text)
+                case let .codeBlock(_, blockRows):
+                    unifiedCodeBlock(blockRows)
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func numberCell(_ number: Int?) -> some View {
-        Text(number.map(String.init) ?? "")
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(MuxyTheme.fgDim)
-            .frame(width: numberColumnWidth, alignment: .trailing)
-            .padding(.trailing, 4)
-            .background(.clear)
-            .overlay(alignment: .trailing) {
-                Rectangle().fill(MuxyTheme.border).frame(width: 1)
-            }
+    private var gutterWidth: CGFloat {
+        numberColumnWidth * 2 + 2 + DiffGutterNSView.prefixColumnWidth
     }
 
-    @ViewBuilder
-    private func lineContent(_ row: DiffDisplayRow) -> some View {
-        switch row.kind {
-        case .context:
-            CodeHighlightedText(text: row.newText ?? "", kind: .context)
-                .padding(.vertical, 2)
-        case .addition:
-            CodeHighlightedText(text: row.newText ?? "", kind: .addition)
-                .padding(.vertical, 2)
-        case .deletion:
-            CodeHighlightedText(text: row.oldText ?? "", kind: .deletion)
-                .padding(.vertical, 2)
-        case .hunk,
-             .collapsed:
-            EmptyView()
+    private func unifiedCodeBlock(_ blockRows: [DiffDisplayRow]) -> some View {
+        let height = CGFloat(blockRows.count) * 20
+        let (_, metadata) = buildDiffAttributedString(from: blockRows)
+        return HStack(alignment: .top, spacing: 0) {
+            DiffGutterBridge(metadata: metadata, filePath: filePath, mode: .unified, columnWidth: numberColumnWidth)
+                .frame(width: gutterWidth, height: height)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                DiffContentBridge(
+                    rows: blockRows,
+                    backgroundSide: .both
+                )
+                .frame(height: height)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(height: height)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
     }
 }
