@@ -1,16 +1,16 @@
 import AppKit
 import SwiftUI
 
-private let diffLineHeight: CGFloat = 20
+let diffLineHeight: CGFloat = 20
 @MainActor private let diffFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 
 enum DiffChunk: Identifiable {
-    case divider(id: UUID, text: String, isHunk: Bool)
+    case divider(id: UUID, text: String)
     case codeBlock(id: UUID, rows: [DiffDisplayRow])
 
     var id: UUID {
         switch self {
-        case let .divider(id, _, _): id
+        case let .divider(id, _): id
         case let .codeBlock(id, _): id
         }
     }
@@ -27,7 +27,7 @@ func buildDiffChunks(from rows: [DiffDisplayRow]) -> [DiffChunk] {
                 currentRows = []
             }
             let label = row.kind == .hunk ? hunkLabel(row.text) : row.text
-            chunks.append(.divider(id: UUID(), text: label, isHunk: row.kind == .hunk))
+            chunks.append(.divider(id: UUID(), text: label))
         } else {
             currentRows.append(row)
         }
@@ -38,6 +38,16 @@ func buildDiffChunks(from rows: [DiffDisplayRow]) -> [DiffChunk] {
     }
 
     return chunks
+}
+
+func buildDiffMetadata(from rows: [DiffDisplayRow]) -> [DiffLineMetadata] {
+    rows.map {
+        DiffLineMetadata(
+            kind: $0.kind,
+            oldLineNumber: $0.oldLineNumber,
+            newLineNumber: $0.newLineNumber
+        )
+    }
 }
 
 @MainActor
@@ -114,7 +124,7 @@ struct DiffContentBridge: NSViewRepresentable {
     let backgroundSide: DiffBackgroundSide
 
     final class Coordinator {
-        var configuredRowCount = -1
+        var configuredSignature = Int.min
     }
 
     func makeCoordinator() -> Coordinator {
@@ -128,8 +138,24 @@ struct DiffContentBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: DiffContentNSView, context: Context) {
-        guard rows.count != context.coordinator.configuredRowCount else { return }
+        let signature = contentSignature
+        guard signature != context.coordinator.configuredSignature else { return }
         configureView(nsView, context: context)
+    }
+
+    private var contentSignature: Int {
+        var hasher = Hasher()
+        hasher.combine(backgroundSideHash(backgroundSide))
+        hasher.combine(rows.count)
+        for row in rows {
+            hasher.combine(diffRowKindHash(row.kind))
+            hasher.combine(row.oldLineNumber)
+            hasher.combine(row.newLineNumber)
+            hasher.combine(row.oldText)
+            hasher.combine(row.newText)
+            hasher.combine(row.text)
+        }
+        return hasher.finalize()
     }
 
     private func configureView(_ view: DiffContentNSView, context: Context) {
@@ -141,7 +167,7 @@ struct DiffContentBridge: NSViewRepresentable {
             lineBackgrounds: backgrounds,
             lineHeight: diffLineHeight
         )
-        context.coordinator.configuredRowCount = rows.count
+        context.coordinator.configuredSignature = contentSignature
     }
 }
 
@@ -152,7 +178,7 @@ struct DiffGutterBridge: NSViewRepresentable {
     let columnWidth: CGFloat
 
     final class Coordinator {
-        var configuredCount = -1
+        var configuredSignature = Int.min
     }
 
     func makeCoordinator() -> Coordinator {
@@ -166,8 +192,23 @@ struct DiffGutterBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: DiffGutterNSView, context: Context) {
-        guard metadata.count != context.coordinator.configuredCount else { return }
+        let signature = gutterSignature
+        guard signature != context.coordinator.configuredSignature else { return }
         configureView(nsView, context: context)
+    }
+
+    private var gutterSignature: Int {
+        var hasher = Hasher()
+        hasher.combine(filePath)
+        hasher.combine(gutterModeHash(mode))
+        hasher.combine(columnWidth)
+        hasher.combine(metadata.count)
+        for line in metadata {
+            hasher.combine(diffRowKindHash(line.kind))
+            hasher.combine(line.oldLineNumber)
+            hasher.combine(line.newLineNumber)
+        }
+        return hasher.finalize()
     }
 
     private func configureView(_ view: DiffGutterNSView, context: Context) {
@@ -186,6 +227,32 @@ struct DiffGutterBridge: NSViewRepresentable {
         view.cachedRemoveColor = MuxyTheme.nsDiffRemove
         view.invalidateIntrinsicContentSize()
         view.needsDisplay = true
-        context.coordinator.configuredCount = metadata.count
+        context.coordinator.configuredSignature = gutterSignature
+    }
+}
+
+private func diffRowKindHash(_ kind: DiffDisplayRow.Kind) -> Int {
+    switch kind {
+    case .hunk: 1
+    case .context: 2
+    case .addition: 3
+    case .deletion: 4
+    case .collapsed: 5
+    }
+}
+
+private func backgroundSideHash(_ side: DiffBackgroundSide) -> Int {
+    switch side {
+    case .left: 1
+    case .right: 2
+    case .both: 3
+    }
+}
+
+private func gutterModeHash(_ mode: DiffGutterMode) -> Int {
+    switch mode {
+    case .unified: 1
+    case .singleOld: 2
+    case .singleNew: 3
     }
 }

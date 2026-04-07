@@ -16,7 +16,7 @@ struct UnifiedDiffView: View {
         LazyVStack(spacing: 0) {
             ForEach(chunks) { chunk in
                 switch chunk {
-                case let .divider(_, text, _):
+                case let .divider(_, text):
                     DiffSectionDivider(text: text)
                 case let .codeBlock(_, blockRows):
                     unifiedCodeBlock(blockRows)
@@ -31,8 +31,8 @@ struct UnifiedDiffView: View {
     }
 
     private func unifiedCodeBlock(_ blockRows: [DiffDisplayRow]) -> some View {
-        let height = CGFloat(blockRows.count) * 20
-        let (_, metadata) = buildDiffAttributedString(from: blockRows)
+        let height = CGFloat(blockRows.count) * diffLineHeight
+        let metadata = buildDiffMetadata(from: blockRows)
         return HStack(alignment: .top, spacing: 0) {
             DiffGutterBridge(metadata: metadata, filePath: filePath, mode: .unified, columnWidth: numberColumnWidth)
                 .frame(width: gutterWidth, height: height)

@@ -18,33 +18,35 @@ final class DiffBackgroundLayoutManager: NSLayoutManager {
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
 
-        guard let textContainer = textContainers.first else { return }
+        guard let textContainer = textContainers.first,
+              let storage = textStorage
+        else { return }
 
-        enumerateLineFragments(forGlyphRange: glyphsToShow) { [self] _, usedRect, _, glyphRange, _ in
-            let charIndex = self.characterIndexForGlyph(at: glyphRange.location)
-            guard let storage = self.textStorage else { return }
-            let fullText = storage.string as NSString
-            var lineIndex = 0
-            var pos = 0
-            while pos < charIndex, pos < fullText.length {
-                if fullText.character(at: pos) == 0x0A {
-                    lineIndex += 1
-                }
-                pos += 1
+        let fullText = storage.string as NSString
+        let startCharIndex = characterIndexForGlyph(at: glyphsToShow.location)
+        var lineIndex = 0
+        var pos = 0
+        while pos < startCharIndex, pos < fullText.length {
+            if fullText.character(at: pos) == 0x0A {
+                lineIndex += 1
             }
+            pos += 1
+        }
 
-            guard lineIndex < self.lineBackgrounds.count,
-                  let bgColor = self.lineBackgrounds[lineIndex]
-            else { return }
-
-            bgColor.setFill()
-            let rect = NSRect(
-                x: usedRect.origin.x + origin.x - textContainer.lineFragmentPadding,
-                y: usedRect.origin.y + origin.y,
-                width: max(usedRect.width + textContainer.lineFragmentPadding * 2, textContainer.size.width),
-                height: usedRect.height
-            )
-            rect.fill()
+        enumerateLineFragments(forGlyphRange: glyphsToShow) { [self] _, usedRect, _, _, _ in
+            if lineIndex < self.lineBackgrounds.count,
+               let bgColor = self.lineBackgrounds[lineIndex]
+            {
+                bgColor.setFill()
+                let rect = NSRect(
+                    x: usedRect.origin.x + origin.x - textContainer.lineFragmentPadding,
+                    y: usedRect.origin.y + origin.y,
+                    width: max(usedRect.width + textContainer.lineFragmentPadding * 2, textContainer.size.width),
+                    height: usedRect.height
+                )
+                rect.fill()
+            }
+            lineIndex += 1
         }
     }
 }

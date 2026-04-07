@@ -16,7 +16,7 @@ struct SplitDiffView: View {
         LazyVStack(spacing: 0) {
             ForEach(chunks) { chunk in
                 switch chunk {
-                case let .divider(_, text, _):
+                case let .divider(_, text):
                     DiffSectionDivider(text: text)
                 case let .codeBlock(_, leftRows, rightRows):
                     splitCodeBlock(leftRows: leftRows, rightRows: rightRows)
@@ -28,9 +28,9 @@ struct SplitDiffView: View {
 
     private func splitCodeBlock(leftRows: [DiffDisplayRow], rightRows: [DiffDisplayRow]) -> some View {
         let lineCount = max(leftRows.count, rightRows.count)
-        let height = CGFloat(lineCount) * 20
-        let (_, leftMeta) = buildDiffAttributedString(from: leftRows)
-        let (_, rightMeta) = buildDiffAttributedString(from: rightRows)
+        let height = CGFloat(lineCount) * diffLineHeight
+        let leftMeta = buildDiffMetadata(from: leftRows)
+        let rightMeta = buildDiffMetadata(from: rightRows)
 
         return HStack(alignment: .top, spacing: 0) {
             DiffGutterBridge(metadata: leftMeta, filePath: filePath, mode: .singleOld, columnWidth: numberColumnWidth)
@@ -66,12 +66,12 @@ struct SplitDiffView: View {
 }
 
 enum SplitDiffChunk: Identifiable {
-    case divider(id: UUID, text: String, isHunk: Bool)
+    case divider(id: UUID, text: String)
     case codeBlock(id: UUID, leftRows: [DiffDisplayRow], rightRows: [DiffDisplayRow])
 
     var id: UUID {
         switch self {
-        case let .divider(id, _, _): id
+        case let .divider(id, _): id
         case let .codeBlock(id, _, _): id
         }
     }
@@ -93,7 +93,7 @@ func buildSplitDiffChunks(from rows: [DiffDisplayRow]) -> [SplitDiffChunk] {
             }
             let rawText = paired.left?.text ?? paired.right?.text ?? ""
             let label = paired.kind == .hunk ? hunkLabel(rawText) : rawText
-            chunks.append(.divider(id: UUID(), text: label, isHunk: paired.kind == .hunk))
+            chunks.append(.divider(id: UUID(), text: label))
         } else {
             leftRows.append(paired.left ?? emptyRow(kind: .context))
             rightRows.append(paired.right ?? emptyRow(kind: .context))
