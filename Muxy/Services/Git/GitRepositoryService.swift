@@ -335,6 +335,7 @@ actor GitRepositoryService {
             repoPath: repoPath,
             arguments: [
                 "log",
+                "--decorate=full",
                 "--format=\(Self.logFormat)",
                 "--max-count=\(maxCount)",
                 "--skip=\(skip)",
@@ -390,14 +391,25 @@ actor GitRepositoryService {
             }
             if trimmed.hasPrefix("HEAD -> ") {
                 let branch = String(trimmed.dropFirst("HEAD -> ".count))
+                    .replacingOccurrences(of: "refs/heads/", with: "")
                 return GitRef(name: branch, kind: .localBranch)
             }
             if trimmed.hasPrefix("tag: ") {
                 let tag = String(trimmed.dropFirst("tag: ".count))
+                    .replacingOccurrences(of: "refs/tags/", with: "")
                 return GitRef(name: tag, kind: .tag)
             }
-            if trimmed.contains("/") {
-                return GitRef(name: trimmed, kind: .remoteBranch)
+            if trimmed.hasPrefix("refs/heads/") {
+                let name = String(trimmed.dropFirst("refs/heads/".count))
+                return GitRef(name: name, kind: .localBranch)
+            }
+            if trimmed.hasPrefix("refs/remotes/") {
+                let name = String(trimmed.dropFirst("refs/remotes/".count))
+                return GitRef(name: name, kind: .remoteBranch)
+            }
+            if trimmed.hasPrefix("refs/tags/") {
+                let name = String(trimmed.dropFirst("refs/tags/".count))
+                return GitRef(name: name, kind: .tag)
             }
             return GitRef(name: trimmed, kind: .localBranch)
         }
@@ -412,13 +424,15 @@ actor GitRepositoryService {
     }
 
     func createBranch(repoPath: String, name: String, startPoint: String) async throws {
-        guard !name.isEmpty,
-              name.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty,
+              !trimmedName.hasPrefix("-"),
+              trimmedName.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
         else {
             throw GitError.commandFailed("Invalid branch name.")
         }
         try validateHash(startPoint)
-        let result = try runGit(repoPath: repoPath, arguments: ["branch", name, startPoint])
+        let result = try runGit(repoPath: repoPath, arguments: ["branch", "--", trimmedName, startPoint])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to create branch." : result.stderr)
         }
@@ -428,13 +442,15 @@ actor GitRepositoryService {
         .union(CharacterSet(charactersIn: "._/-"))
 
     func createTag(repoPath: String, name: String, hash: String) async throws {
-        guard !name.isEmpty,
-              name.unicodeScalars.allSatisfy({ Self.allowedTagCharacters.contains($0) })
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty,
+              !trimmedName.hasPrefix("-"),
+              trimmedName.unicodeScalars.allSatisfy({ Self.allowedTagCharacters.contains($0) })
         else {
             throw GitError.commandFailed("Invalid tag name.")
         }
         try validateHash(hash)
-        let result = try runGit(repoPath: repoPath, arguments: ["tag", name, hash])
+        let result = try runGit(repoPath: repoPath, arguments: ["tag", "--", trimmedName, hash])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to create tag." : result.stderr)
         }

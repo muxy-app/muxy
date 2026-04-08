@@ -75,7 +75,8 @@ struct CommitHistoryView: View {
                 actionTitle: "Create",
                 name: $branchNameInput,
                 onSubmit: {
-                    state.createBranch(name: branchNameInput, from: prompt.hash)
+                    let trimmedName = branchNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    state.createBranch(name: trimmedName, from: prompt.hash)
                     branchNameInput = ""
                     pendingBranchHash = nil
                 },
@@ -95,7 +96,8 @@ struct CommitHistoryView: View {
                 actionTitle: "Create",
                 name: $tagNameInput,
                 onSubmit: {
-                    state.createTag(name: tagNameInput, at: prompt.hash)
+                    let trimmedName = tagNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                    state.createTag(name: trimmedName, at: prompt.hash)
                     tagNameInput = ""
                     pendingTagHash = nil
                 },

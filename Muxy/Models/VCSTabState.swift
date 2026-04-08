@@ -139,7 +139,7 @@ final class VCSTabState {
             }
         }
 
-        if !historyCollapsed {
+        if !historyCollapsed, !incremental || commits.isEmpty {
             loadCommits()
         }
 
@@ -450,12 +450,13 @@ final class VCSTabState {
     }
 
     func createBranch(name: String, from hash: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await git.createBranch(repoPath: projectPath, name: name, startPoint: hash)
+                try await git.createBranch(repoPath: projectPath, name: trimmedName, startPoint: hash)
                 guard !Task.isCancelled else { return }
-                showStatus("Created branch \(name)", isError: false)
+                showStatus("Created branch \(trimmedName)", isError: false)
                 loadBranches()
                 loadCommits()
             } catch {
@@ -466,12 +467,13 @@ final class VCSTabState {
     }
 
     func createTag(name: String, at hash: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await git.createTag(repoPath: projectPath, name: name, hash: hash)
+                try await git.createTag(repoPath: projectPath, name: trimmedName, hash: hash)
                 guard !Task.isCancelled else { return }
-                showStatus("Created tag \(name)", isError: false)
+                showStatus("Created tag \(trimmedName)", isError: false)
                 loadCommits()
             } catch {
                 guard !Task.isCancelled else { return }
