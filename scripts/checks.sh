@@ -97,6 +97,11 @@ read_tool_version() {
 EXPECTED_SWIFTFORMAT=$(read_tool_version swiftformat)
 EXPECTED_SWIFTLINT=$(read_tool_version swiftlint)
 
+version_gte() {
+  # Returns 0 (true) if $1 >= $2, comparing as dot-separated version numbers
+  [ "$(printf '%s\n%s' "$1" "$2" | sort -V | head -1)" = "$2" ]
+}
+
 check_tool() {
   local tool=$1
   local expected=$2
@@ -110,8 +115,8 @@ check_tool() {
   else
     actual=$("$tool" --version)
   fi
-  if [ "$actual" != "$expected" ]; then
-    printf "  ${RED}${FAIL}${RESET} %s version mismatch: local %s, expected %s (from .tool-versions)\n" "$tool" "$actual" "$expected"
+  if ! version_gte "$actual" "$expected"; then
+    printf "  ${RED}${FAIL}${RESET} %s version too old: local %s, minimum %s (from .tool-versions)\n" "$tool" "$actual" "$expected"
     exit 1
   fi
 }

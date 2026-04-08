@@ -14,7 +14,7 @@ final class QuickTerminalService: NSObject {
 
     private let paneState = TerminalPaneState(projectPath: NSHomeDirectory())
 
-    private override init() {
+    override private init() {
         super.init()
         NotificationCenter.default.addObserver(
             self,
@@ -25,7 +25,8 @@ final class QuickTerminalService: NSObject {
         registerCarbonHotKey()
     }
 
-    @objc func toggle() {
+    @objc
+    func toggle() {
         if isVisible {
             hide()
         } else {
@@ -43,7 +44,7 @@ final class QuickTerminalService: NSObject {
         let modifiers = carbonModifiers(for: combo)
 
         var hotKeyID = EventHotKeyID()
-        hotKeyID.signature = OSType(0x4D555859) // "MUXY"
+        hotKeyID.signature = OSType(0x4D55_5859) // "MUXY"
         hotKeyID.id = 1
 
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -52,7 +53,15 @@ final class QuickTerminalService: NSObject {
         InstallEventHandler(GetApplicationEventTarget(), { _, event, userData -> OSStatus in
             guard let userData else { return OSStatus(eventNotHandledErr) }
             var hotKeyID = EventHotKeyID()
-            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+            GetEventParameter(
+                event,
+                EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID),
+                nil,
+                MemoryLayout<EventHotKeyID>.size,
+                nil,
+                &hotKeyID
+            )
             if hotKeyID.id == 1 {
                 let service = Unmanaged<QuickTerminalService>.fromOpaque(userData).takeUnretainedValue()
                 DispatchQueue.main.async { service.toggle() }

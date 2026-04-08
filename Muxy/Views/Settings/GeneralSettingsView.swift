@@ -21,7 +21,7 @@ struct GeneralSettingsView: View {
             Section("Quick Terminal") {
                 LabeledContent("Width") {
                     HStack {
-                        Slider(value: $quickTerminalWidth, in: 0.2...1.0, step: 0.05)
+                        Slider(value: $quickTerminalWidth, in: 0.2 ... 1.0, step: 0.05)
                         Text("\(Int(quickTerminalWidth * 100))%")
                             .monospacedDigit()
                             .frame(width: 36, alignment: .trailing)
@@ -30,7 +30,7 @@ struct GeneralSettingsView: View {
 
                 LabeledContent("Height") {
                     HStack {
-                        Slider(value: $quickTerminalHeight, in: 0.2...1.0, step: 0.05)
+                        Slider(value: $quickTerminalHeight, in: 0.2 ... 1.0, step: 0.05)
                         Text("\(Int(quickTerminalHeight * 100))%")
                             .monospacedDigit()
                             .frame(width: 36, alignment: .trailing)
@@ -45,7 +45,7 @@ struct GeneralSettingsView: View {
             Section("Window") {
                 LabeledContent("Background Opacity") {
                     HStack {
-                        Slider(value: $windowOpacity, in: 0.1...1.0, step: 0.05)
+                        Slider(value: $windowOpacity, in: 0.1 ... 1.0, step: 0.05)
                             .disabled(windowBlur)
                         Text("\(Int(windowOpacity * 100))%")
                             .monospacedDigit()
