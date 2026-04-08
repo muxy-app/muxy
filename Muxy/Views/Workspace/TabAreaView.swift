@@ -82,6 +82,13 @@ struct TabAreaView: View {
             guard let pane = tab.content.pane else { return }
             TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .saveActiveEditor)) { _ in
+            guard isFocused, isActiveProject else { return }
+            guard let tabID = area.activeTabID,
+                  let tab = area.tabs.first(where: { $0.id == tabID })
+            else { return }
+            tab.content.editorState?.saveFile()
+        }
     }
 }
 
@@ -104,6 +111,8 @@ private struct TabContentView: View {
             )
         case let .vcs(vcsState):
             VCSTabView(state: vcsState, focused: focused, onFocus: onFocus)
+        case let .editor(editorState):
+            EditorPane(state: editorState, focused: focused, onFocus: onFocus)
         }
     }
 }

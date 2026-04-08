@@ -6,16 +6,19 @@ final class TerminalTab: Identifiable {
     enum Kind: String, Codable {
         case terminal
         case vcs
+        case editor
     }
 
     enum Content {
         case terminal(TerminalPaneState)
         case vcs(VCSTabState)
+        case editor(EditorTabState)
 
         var kind: Kind {
             switch self {
             case .terminal: .terminal
             case .vcs: .vcs
+            case .editor: .editor
             }
         }
 
@@ -29,10 +32,16 @@ final class TerminalTab: Identifiable {
             return state
         }
 
+        var editorState: EditorTabState? {
+            guard case let .editor(state) = self else { return nil }
+            return state
+        }
+
         var projectPath: String {
             switch self {
             case let .terminal(pane): pane.projectPath
             case let .vcs(state): state.projectPath
+            case let .editor(state): state.projectPath
             }
         }
     }
@@ -53,6 +62,8 @@ final class TerminalTab: Identifiable {
             return pane.title
         case .vcs:
             return "Git Diff"
+        case let .editor(state):
+            return state.displayTitle
         }
     }
 
@@ -64,6 +75,10 @@ final class TerminalTab: Identifiable {
         content = .vcs(vcsState)
     }
 
+    init(editorState: EditorTabState) {
+        content = .editor(editorState)
+    }
+
     init(restoring snapshot: TerminalTabSnapshot) {
         customTitle = snapshot.customTitle
         isPinned = snapshot.isPinned
@@ -72,6 +87,12 @@ final class TerminalTab: Identifiable {
             content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
         case .vcs:
             content = .vcs(VCSTabState(projectPath: snapshot.projectPath))
+        case .editor:
+            if let filePath = snapshot.filePath {
+                content = .editor(EditorTabState(projectPath: snapshot.projectPath, filePath: filePath))
+            } else {
+                content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
+            }
         }
     }
 
@@ -81,7 +102,8 @@ final class TerminalTab: Identifiable {
             customTitle: customTitle,
             isPinned: isPinned,
             projectPath: content.projectPath,
-            paneTitle: content.pane?.title
+            paneTitle: content.pane?.title,
+            filePath: content.editorState?.filePath
         )
     }
 }

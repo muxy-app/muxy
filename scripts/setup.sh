@@ -31,5 +31,31 @@ rm GhosttyKit.xcframework.tar.gz
 echo "==> Syncing ghostty.h from xcframework"
 cp "$XCFRAMEWORK_DIR/macos-arm64_x86_64/Headers/ghostty.h" "$PROJECT_ROOT/GhosttyKit/ghostty.h"
 
+echo "==> Resolving SPM dependencies"
+cd "$PROJECT_ROOT"
+swift package resolve
+
+SYMBOLS_PKG="$PROJECT_ROOT/.build/checkouts/CodeEditSymbols/Package.swift"
+if [[ -f "$SYMBOLS_PKG" ]] && ! grep -q "resources:" "$SYMBOLS_PKG"; then
+    echo "==> Patching CodeEditSymbols Package.swift (adding resource declarations)"
+    chmod u+w "$SYMBOLS_PKG"
+    cat > "$SYMBOLS_PKG" << 'PKGEOF'
+// swift-tools-version: 5.5
+import PackageDescription
+let package = Package(
+    name: "CodeEditSymbols",
+    platforms: [.macOS(.v12)],
+    products: [.library(name: "CodeEditSymbols", targets: ["CodeEditSymbols"])],
+    dependencies: [],
+    targets: [
+        .target(name: "CodeEditSymbols", dependencies: [], resources: [
+            .process("Symbols.xcassets"),
+            .process("Documentation.docc"),
+        ]),
+    ]
+)
+PKGEOF
+fi
+
 echo "==> Done"
 echo "    Run 'swift build' to build the project"

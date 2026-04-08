@@ -17,6 +17,7 @@ final class AppState {
         case removeProject(projectID: UUID)
         case createTab(projectID: UUID, areaID: UUID?)
         case createVCSTab(projectID: UUID, areaID: UUID?)
+        case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, areaID: UUID?, index: Int)
@@ -135,12 +136,26 @@ final class AppState {
         dispatch(.createVCSTab(projectID: projectID, areaID: nil))
     }
 
+    func openFile(_ filePath: String, projectID: UUID) {
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
+                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                return
+            }
+        }
+        dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath))
+    }
+
     func closeTab(_ tabID: UUID, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
         closeTab(tabID, areaID: area.id, projectID: projectID)
     }
 
     func closeTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
+        if needsUnsavedEditorConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
+            pendingProcessTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
+            return
+        }
         if needsProcessConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
             pendingProcessTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
@@ -196,6 +211,15 @@ final class AppState {
         let allAreas = root.allAreas()
         let totalTabs = allAreas.reduce(0) { $0 + $1.tabs.count }
         return totalTabs <= 1
+    }
+
+    private func needsUnsavedEditorConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
+        guard let root = workspaceRoots[projectID],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID }),
+              let editorState = tab.content.editorState
+        else { return false }
+        return editorState.isModified
     }
 
     private func needsProcessConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {

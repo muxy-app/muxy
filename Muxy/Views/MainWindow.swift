@@ -39,6 +39,7 @@ struct MainWindow: View {
     @State private var vcsPanelVisible = false
     @State private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
     @State private var vcsStates: [UUID: VCSTabState] = [:]
+    @State private var showQuickOpen = false
     private let sidebarWidth: CGFloat = 160
 
     var body: some View {
@@ -121,6 +122,20 @@ struct MainWindow: View {
                 .allowsHitTesting(false)
             }
         }
+        .overlay {
+            if showQuickOpen, let project = activeProject {
+                QuickOpenOverlay(
+                    projectPath: project.path,
+                    onSelect: { filePath in
+                        showQuickOpen = false
+                        appState.openFile(filePath, projectID: project.id)
+                    },
+                    onDismiss: { showQuickOpen = false }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
         .animation(.easeInOut(duration: 0.2), value: ToastState.shared.message != nil)
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
@@ -128,6 +143,9 @@ struct MainWindow: View {
         .edgesIgnoringSafeArea(.top)
         .onAppear {
             appState.restoreSelection(projects: projectStore.projects)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quickOpen)) { _ in
+            showQuickOpen.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openVCSWindow)) { _ in
             openWindow(id: "vcs")

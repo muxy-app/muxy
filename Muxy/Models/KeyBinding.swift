@@ -48,6 +48,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case selectProject9
     case findInTerminal
     case openVCSTab
+    case quickOpen
+    case saveFile
 
     static let allCases: [Self] = [
         .newTab,
@@ -89,6 +91,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .selectProject9,
         .findInTerminal,
         .openVCSTab,
+        .quickOpen,
+        .saveFile,
     ]
 
     var id: String { rawValue }
@@ -130,6 +134,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .selectProject9: ShortcutMetadata(displayName: "Project 9", category: "Project Navigation", scope: .mainWindow)
         case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .mainWindow)
         case .openVCSTab: ShortcutMetadata(displayName: "Source Control", category: "App", scope: .mainWindow)
+        case .quickOpen: ShortcutMetadata(displayName: "Quick Open", category: "App", scope: .mainWindow)
+        case .saveFile: ShortcutMetadata(displayName: "Save File", category: "Editor", scope: .mainWindow)
         case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
         case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
@@ -143,7 +149,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Terminal", "App"]
+        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Terminal", "Editor", "App"]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -211,5 +217,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .selectProject8, combo: KeyCombo(key: "8", control: true)),
         Self(action: .selectProject9, combo: KeyCombo(key: "9", control: true)),
         Self(action: .findInTerminal, combo: KeyCombo(key: "f", command: true)),
+        Self(action: .quickOpen, combo: KeyCombo(key: "p", command: true)),
+        Self(action: .saveFile, combo: KeyCombo(key: "s", command: true)),
     ]
 }

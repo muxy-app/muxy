@@ -79,6 +79,21 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .openVCSTab, store: keyBindings)
 
+            Button("Quick Open") {
+                guard isMainWindowFocused else { return }
+                guard appState.activeProjectID != nil else { return }
+                NotificationCenter.default.post(name: .quickOpen, object: nil)
+            }
+            .shortcut(for: .quickOpen, store: keyBindings)
+
+            Button("Save") {
+                guard isMainWindowFocused else { return }
+                NotificationCenter.default.post(name: .saveActiveEditor, object: nil)
+            }
+            .shortcut(for: .saveFile, store: keyBindings)
+
+            Divider()
+
             Button("Close Tab") {
                 guard isMainWindowFocused else {
                     NSApp.keyWindow?.performClose(nil)
