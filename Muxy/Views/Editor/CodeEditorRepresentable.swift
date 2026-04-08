@@ -4,6 +4,7 @@ import SwiftUI
 struct CodeEditorView: NSViewRepresentable {
     @Bindable var state: EditorTabState
     let themeVersion: Int
+    let searchNeedle: String
 
     func makeCoordinator() -> Coordinator {
         Coordinator(state: state)
@@ -82,6 +83,11 @@ struct CodeEditorView: NSViewRepresentable {
         if contentChanged || themeChanged {
             coordinator.applyHighlighting()
         }
+
+        if coordinator.lastSearchNeedle != searchNeedle {
+            coordinator.lastSearchNeedle = searchNeedle
+            coordinator.performSearch(searchNeedle)
+        }
     }
 
     @MainActor
@@ -90,9 +96,27 @@ struct CodeEditorView: NSViewRepresentable {
         weak var textView: NSTextView?
         var isUpdating = false
         var lastThemeVersion = -1
+        var lastSearchNeedle = ""
 
         init(state: EditorTabState) {
             self.state = state
+            super.init()
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleSearchNavigate),
+                name: .editorSearchNavigate,
+                object: nil
+            )
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        @objc
+        private func handleSearchNavigate(_ notification: Notification) {
+            let direction = notification.object as? String ?? "next"
+            navigateSearch(forward: direction == "next")
         }
 
         func textDidChange(_: Notification) {
@@ -118,19 +142,73 @@ struct CodeEditorView: NSViewRepresentable {
         func applyHighlighting() {
             guard let textView, let storage = textView.textStorage else { return }
             guard storage.length > 0 else { return }
+            let scrollPos = textView.enclosingScrollView?.contentView.bounds.origin
             let fullRange = NSRange(location: 0, length: storage.length)
             let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            textView.undoManager?.disableUndoRegistration()
             storage.beginEditing()
             storage.addAttribute(.font, value: font, range: fullRange)
             storage.addAttribute(.foregroundColor, value: GhosttyService.shared.foregroundColor, range: fullRange)
             SyntaxHighlightExtension(fileExtension: state.fileExtension)
                 .applyTextAttributes(to: storage, fullRange: fullRange)
             storage.endEditing()
+            textView.undoManager?.enableUndoRegistration()
+            if let scrollPos {
+                textView.enclosingScrollView?.contentView.setBoundsOrigin(scrollPos)
+            }
             textView.needsDisplay = true
+        }
+
+        private var searchMatches: [NSRange] = []
+
+        func performSearch(_ needle: String) {
+            guard let textView else { return }
+            searchMatches = []
+            guard !needle.isEmpty else {
+                state.searchMatchCount = 0
+                state.searchCurrentIndex = 0
+                return
+            }
+            let content = textView.string as NSString
+            var searchRange = NSRange(location: 0, length: content.length)
+            while searchRange.location < content.length {
+                let found = content.range(of: needle, options: .caseInsensitive, range: searchRange)
+                guard found.location != NSNotFound else { break }
+                searchMatches.append(found)
+                searchRange.location = found.location + found.length
+                searchRange.length = content.length - searchRange.location
+            }
+            state.searchMatchCount = searchMatches.count
+            if !searchMatches.isEmpty {
+                state.searchCurrentIndex = 1
+                selectMatch(at: 0)
+            } else {
+                state.searchCurrentIndex = 0
+            }
+        }
+
+        func navigateSearch(forward: Bool) {
+            guard !searchMatches.isEmpty else { return }
+            var idx = state.searchCurrentIndex - 1
+            if forward {
+                idx = (idx + 1) % searchMatches.count
+            } else {
+                idx = (idx - 1 + searchMatches.count) % searchMatches.count
+            }
+            state.searchCurrentIndex = idx + 1
+            selectMatch(at: idx)
+        }
+
+        private func selectMatch(at index: Int) {
+            guard let textView, index >= 0, index < searchMatches.count else { return }
+            let range = searchMatches[index]
+            textView.setSelectedRange(range)
+            textView.scrollRangeToVisible(range)
         }
 
         @objc
         func handleReturn(_ textView: NSTextView) -> Bool {
+            textView.breakUndoCoalescing()
             let content = textView.string
             let range = textView.selectedRange()
             let loc = min(range.location, content.count)
@@ -147,10 +225,47 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func textView(_: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard commandSelector == #selector(NSResponder.insertNewline(_:)),
-                  let textView
-            else { return false }
-            return handleReturn(textView)
+            guard let textView else { return false }
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                return handleReturn(textView)
+            }
+            if commandSelector == #selector(NSResponder.deleteWordBackward(_:)) {
+                return handleDeleteWordBackward(textView)
+            }
+            return false
+        }
+
+        private func handleDeleteWordBackward(_ textView: NSTextView) -> Bool {
+            let content = textView.string
+            let range = textView.selectedRange()
+            guard range.location > 0 else { return false }
+            textView.breakUndoCoalescing()
+
+            let nsContent = content as NSString
+            let cursorPos = range.location
+            let charBefore = nsContent.character(at: cursorPos - 1)
+
+            if charBefore == 0x0A {
+                textView.replaceCharacters(in: NSRange(location: cursorPos - 1, length: 1), with: "")
+                return true
+            }
+
+            let scalar = Unicode.Scalar(charBefore)
+            if let scalar, CharacterSet.punctuationCharacters.union(.symbols).contains(scalar) {
+                textView.replaceCharacters(in: NSRange(location: cursorPos - 1, length: 1), with: "")
+                return true
+            }
+
+            let lineRange = nsContent.lineRange(for: NSRange(location: cursorPos, length: 0))
+            let lineStart = lineRange.location
+            let textBeforeCursor = nsContent.substring(with: NSRange(location: lineStart, length: cursorPos - lineStart))
+
+            if textBeforeCursor.allSatisfy({ $0 == " " || $0 == "\t" }) {
+                textView.replaceCharacters(in: NSRange(location: lineStart, length: cursorPos - lineStart), with: "")
+                return true
+            }
+
+            return false
         }
     }
 }

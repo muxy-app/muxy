@@ -9,4 +9,5 @@ extension Notification.Name {
     static let toggleAttachedVCS = Notification.Name("MuxyToggleAttachedVCS")
     static let quickOpen = Notification.Name("MuxyQuickOpen")
     static let saveActiveEditor = Notification.Name("MuxySaveActiveEditor")
+    static let editorSearchNavigate = Notification.Name("MuxyEditorSearchNavigate")
 }

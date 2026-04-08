@@ -306,6 +306,7 @@ private struct SectionSplitLayout: View {
     let onFocus: () -> Void
     @Binding var showDiscardAllConfirmation: Bool
     @Binding var pendingDiscardPath: String?
+    @Environment(AppState.self) private var appState
 
     private static let sectionHeaderHeight: CGFloat = 30
 
@@ -573,6 +574,14 @@ private struct SectionSplitLayout: View {
         }
     }
 
+    private func openFileInEditor(_ relativePath: String) {
+        guard let projectID = appState.activeProjectID else { return }
+        let fullPath = state.projectPath.hasSuffix("/")
+            ? state.projectPath + relativePath
+            : state.projectPath + "/" + relativePath
+        appState.openFile(fullPath, projectID: projectID)
+    }
+
     private func fileSection(_ file: GitStatusFile, isStaged: Bool) -> some View {
         let expanded = state.expandedFilePaths.contains(file.path)
         let stats = state.displayedStats(for: file)
@@ -591,7 +600,8 @@ private struct SectionSplitLayout: View {
                 },
                 onStage: { state.stageFile(file.path) },
                 onUnstage: { state.unstageFile(file.path) },
-                onDiscard: { pendingDiscardPath = file.path }
+                onDiscard: { pendingDiscardPath = file.path },
+                onOpenInEditor: { openFileInEditor(file.path) }
             )
 
             if expanded {
@@ -688,6 +698,7 @@ private struct FileRow: View {
     let onStage: () -> Void
     let onUnstage: () -> Void
     let onDiscard: () -> Void
+    let onOpenInEditor: () -> Void
     @State private var hovered = false
 
     private var statusColor: Color {
@@ -761,6 +772,8 @@ private struct FileRow: View {
 
     private var actionButtons: some View {
         HStack(spacing: 0) {
+            IconButton(symbol: "doc.text", size: 11, action: onOpenInEditor)
+                .help("Open in Editor")
             if isStaged {
                 IconButton(symbol: "minus", size: 11, action: onUnstage)
                     .help("Unstage")

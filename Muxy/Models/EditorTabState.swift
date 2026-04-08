@@ -13,6 +13,10 @@ final class EditorTabState: Identifiable {
     var errorMessage: String?
     var cursorLine: Int = 1
     var cursorColumn: Int = 1
+    var searchVisible = false
+    var searchNeedle = ""
+    var searchMatchCount = 0
+    var searchCurrentIndex = 0
 
     var fileName: String {
         URL(fileURLWithPath: filePath).lastPathComponent

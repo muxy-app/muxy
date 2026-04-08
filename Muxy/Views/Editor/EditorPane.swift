@@ -15,14 +15,38 @@ struct EditorPane: View {
             } else if let error = state.errorMessage {
                 errorView(error)
             } else {
-                HStack(spacing: 0) {
-                    LineNumberColumn(lineCount: state.content.components(separatedBy: "\n").count)
-                    Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                    CodeEditorView(state: state, themeVersion: ghostty.configVersion)
+                ZStack(alignment: .topTrailing) {
+                    HStack(spacing: 0) {
+                        LineNumberColumn(lineCount: state.content.components(separatedBy: "\n").count)
+                        Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                        CodeEditorView(state: state, themeVersion: ghostty.configVersion, searchNeedle: state.searchNeedle)
+                    }
+
+                    if state.searchVisible {
+                        EditorSearchBar(
+                            state: state,
+                            onNext: {
+                                NotificationCenter.default.post(name: .editorSearchNavigate, object: "next")
+                            },
+                            onPrevious: {
+                                NotificationCenter.default.post(name: .editorSearchNavigate, object: "previous")
+                            },
+                            onClose: {
+                                state.searchVisible = false
+                                state.searchNeedle = ""
+                                state.searchMatchCount = 0
+                                state.searchCurrentIndex = 0
+                            }
+                        )
+                    }
                 }
             }
         }
         .background(MuxyTheme.bg)
+        .onReceive(NotificationCenter.default.publisher(for: .findInTerminal)) { _ in
+            guard focused else { return }
+            state.searchVisible = true
+        }
     }
 
     private var loadingView: some View {
@@ -104,7 +128,7 @@ private struct EditorBreadcrumb: View {
                 .foregroundStyle(MuxyTheme.fgDim)
         }
         .padding(.horizontal, 10)
-        .frame(height: 28)
+        .frame(height: 32)
         .background(MuxyTheme.bg)
     }
 }
