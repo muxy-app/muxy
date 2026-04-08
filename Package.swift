@@ -9,7 +9,6 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
-        .package(url: "https://github.com/CodeEditApp/CodeEditSourceEditor.git", from: "0.15.2"),
     ],
     targets: [
         .target(
@@ -22,7 +21,6 @@ let package = Package(
             dependencies: [
                 "GhosttyKit",
                 .product(name: "Sparkle", package: "Sparkle"),
-                .product(name: "CodeEditSourceEditor", package: "CodeEditSourceEditor"),
             ],
             path: "Muxy",
             exclude: ["Info.plist", "Muxy.entitlements"],

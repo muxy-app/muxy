@@ -4,27 +4,70 @@ struct EditorPane: View {
     @Bindable var state: EditorTabState
     let focused: Bool
     let onFocus: () -> Void
+    @Environment(GhosttyService.self) private var ghostty
 
     var body: some View {
         VStack(spacing: 0) {
             EditorBreadcrumb(state: state)
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
             if state.isLoading {
-                Spacer()
-                ProgressView()
-                    .controlSize(.small)
-                Spacer()
+                loadingView
             } else if let error = state.errorMessage {
-                Spacer()
-                Text(error)
-                    .font(.system(size: 12))
-                    .foregroundStyle(MuxyTheme.diffRemoveFg)
-                Spacer()
+                errorView(error)
             } else {
-                CodeEditorView(state: state)
+                HStack(spacing: 0) {
+                    LineNumberColumn(lineCount: state.content.components(separatedBy: "\n").count)
+                    Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                    CodeEditorView(state: state, themeVersion: ghostty.configVersion)
+                }
             }
         }
         .background(MuxyTheme.bg)
+    }
+
+    private var loadingView: some View {
+        VStack {
+            Spacer()
+            ProgressView().controlSize(.small)
+            Spacer()
+        }
+    }
+
+    private func errorView(_ error: String) -> some View {
+        VStack {
+            Spacer()
+            Text(error)
+                .font(.system(size: 12))
+                .foregroundStyle(MuxyTheme.diffRemoveFg)
+            Spacer()
+        }
+    }
+}
+
+private struct LineNumberColumn: View {
+    let lineCount: Int
+
+    private var gutterWidth: CGFloat {
+        CGFloat(max(2, String(max(1, lineCount)).count)) * 9 + 16
+    }
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(alignment: .trailing, spacing: 0) {
+                ForEach(1 ... max(1, lineCount), id: \.self) { number in
+                    Text("\(number)")
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(MuxyTheme.fgDim)
+                        .frame(height: 17, alignment: .trailing)
+                }
+            }
+            .padding(.top, 4)
+            .padding(.trailing, 8)
+            .padding(.leading, 4)
+        }
+        .frame(width: gutterWidth)
+        .background(MuxyTheme.bg)
+        .scrollDisabled(true)
     }
 }
 

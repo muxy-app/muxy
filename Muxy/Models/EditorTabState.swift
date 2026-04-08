@@ -1,4 +1,3 @@
-import CodeEditSourceEditor
 import Foundation
 
 @MainActor
@@ -12,7 +11,8 @@ final class EditorTabState: Identifiable {
     var isModified = false
     var isSaving = false
     var errorMessage: String?
-    var editorState = SourceEditorState()
+    var cursorLine: Int = 1
+    var cursorColumn: Int = 1
 
     var fileName: String {
         URL(fileURLWithPath: filePath).lastPathComponent
@@ -25,14 +25,6 @@ final class EditorTabState: Identifiable {
     var displayTitle: String {
         let name = fileName
         return isModified ? "\(name) \u{2022}" : name
-    }
-
-    var cursorLine: Int {
-        editorState.cursorPositions?.first?.start.line ?? 1
-    }
-
-    var cursorColumn: Int {
-        editorState.cursorPositions?.first?.start.column ?? 1
     }
 
     @ObservationIgnored private var loadTask: Task<Void, Never>?

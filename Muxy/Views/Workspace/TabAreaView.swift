@@ -40,9 +40,10 @@ struct TabAreaView: View {
             }
             ZStack {
                 ForEach(area.tabs) { tab in
+                    let isActive = tab.id == area.activeTabID
                     TabContentView(
                         tab: tab,
-                        focused: tab.id == area.activeTabID && isFocused && isActiveProject,
+                        focused: isActive && isFocused && isActiveProject,
                         onFocus: onFocus,
                         onProcessExit: { onForceCloseTab(tab.id) },
                         onSplitRequest: { direction, position in
@@ -55,9 +56,9 @@ struct TabAreaView: View {
                             )))
                         }
                     )
-                    .zIndex(tab.id == area.activeTabID ? 1 : 0)
-                    .opacity(tab.id == area.activeTabID ? 1 : 0)
-                    .allowsHitTesting(tab.id == area.activeTabID)
+                    .zIndex(isActive ? 1 : 0)
+                    .opacity(isActive ? 1 : 0)
+                    .allowsHitTesting(isActive)
                 }
             }
             .overlay {
