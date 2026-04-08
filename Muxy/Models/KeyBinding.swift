@@ -48,6 +48,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case selectProject9
     case findInTerminal
     case openVCSTab
+    case toggleQuickTerminal
 
     static let allCases: [Self] = [
         .newTab,
@@ -89,6 +90,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .selectProject9,
         .findInTerminal,
         .openVCSTab,
+        .toggleQuickTerminal,
     ]
 
     var id: String { rawValue }
@@ -130,6 +132,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .selectProject9: ShortcutMetadata(displayName: "Project 9", category: "Project Navigation", scope: .mainWindow)
         case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .mainWindow)
         case .openVCSTab: ShortcutMetadata(displayName: "Source Control", category: "App", scope: .mainWindow)
+        case .toggleQuickTerminal: ShortcutMetadata(displayName: "Toggle Quick Terminal", category: "App", scope: .global)
         case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
         case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
@@ -211,5 +214,6 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .selectProject8, combo: KeyCombo(key: "8", control: true)),
         Self(action: .selectProject9, combo: KeyCombo(key: "9", control: true)),
         Self(action: .findInTerminal, combo: KeyCombo(key: "f", command: true)),
+        Self(action: .toggleQuickTerminal, combo: KeyCombo(key: "`", control: true)),
     ]
 }

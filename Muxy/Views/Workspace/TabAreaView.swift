@@ -18,10 +18,18 @@ struct TabAreaView: View {
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @Environment(AppState.self) private var appState
+    @AppStorage(MuxySettings.hideTabBarWhenSingleTabKey)
+    private var hideTabBarWhenSingleTab: Bool = MuxySettings.defaultHideTabBarWhenSingleTab
+
+    private var shouldShowTabStrip: Bool {
+        guard showTabStrip else { return false }
+        if hideTabBarWhenSingleTab, area.tabs.count <= 1 { return false }
+        return true
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            if showTabStrip {
+            if shouldShowTabStrip {
                 PaneTabStrip(
                     area: area,
                     isFocused: isFocused,

@@ -36,6 +36,9 @@ struct MainWindow: View {
         }
     }
 
+    @AppStorage(MuxySettings.hideTabBarWhenSingleTabKey)
+    private var hideTabBarWhenSingleTab: Bool = MuxySettings.defaultHideTabBarWhenSingleTab
+
     @State private var vcsPanelVisible = false
     @State private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
     @State private var vcsStates: [UUID: VCSTabState] = [:]
@@ -161,7 +164,8 @@ struct MainWindow: View {
     private var topBarContent: some View {
         if let project = activeProject,
            let root = appState.workspaceRoot(for: project.id),
-           case let .tabArea(area) = root
+           case let .tabArea(area) = root,
+           !(hideTabBarWhenSingleTab && area.tabs.count <= 1)
         {
             PaneTabStrip(
                 area: area,

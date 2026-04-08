@@ -81,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
         setAppIcon()
         _ = GhosttyService.shared
+        _ = QuickTerminalService.shared
         ThemeService.shared.applyDefaultThemeIfNeeded()
         UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
@@ -134,15 +135,52 @@ struct WindowConfigurator: NSViewRepresentable {
         Self.applyWindowBackground(w)
     }
 
-    private static func applyWindowBackground(_ window: NSWindow) {
-        let opacity = GhosttyService.shared.backgroundOpacity
-        if opacity < 1.0 {
-            window.isOpaque = false
-            window.backgroundColor = .clear
+    static func applyWindowBackground(_ window: NSWindow) {
+        let blur = UserDefaults.standard.bool(forKey: MuxySettings.windowBackgroundBlurKey)
+        let settingsOpacity = UserDefaults.standard.double(forKey: MuxySettings.windowBackgroundOpacityKey)
+        let opacity = settingsOpacity > 0 ? settingsOpacity : MuxySettings.defaultWindowBackgroundOpacity
+
+        if blur {
+            applyBlur(window)
+            window.alphaValue = 1.0
         } else {
-            window.isOpaque = true
-            window.backgroundColor = MuxyTheme.nsBg
+            removeBlur(window)
+            window.alphaValue = opacity
+            // Window must be non-opaque for alphaValue < 1 to show through
+            if opacity < 1.0 || GhosttyService.shared.backgroundOpacity < 1.0 {
+                window.isOpaque = false
+                window.backgroundColor = .clear
+            } else {
+                window.isOpaque = true
+                window.backgroundColor = MuxyTheme.nsBg
+            }
         }
+    }
+
+    private static func applyBlur(_ window: NSWindow) {
+        guard !(window.contentView is NSVisualEffectView) else { return }
+        guard let hostingView = window.contentView else { return }
+
+        let vev = NSVisualEffectView()
+        vev.material = .hudWindow
+        vev.blendingMode = .behindWindow
+        vev.state = .active
+
+        hostingView.autoresizingMask = [.width, .height]
+        window.contentView = vev
+        vev.addSubview(hostingView)
+        hostingView.frame = vev.bounds
+
+        window.isOpaque = false
+        window.backgroundColor = .clear
+    }
+
+    private static func removeBlur(_ window: NSWindow) {
+        guard let vev = window.contentView as? NSVisualEffectView else { return }
+        guard let hostingView = vev.subviews.first else { return }
+        hostingView.autoresizingMask = [.width, .height]
+        window.contentView = hostingView
+        hostingView.frame = window.contentView?.bounds ?? .zero
     }
 
     static let trafficLightY: CGFloat = 3.5
@@ -162,13 +200,13 @@ struct WindowConfigurator: NSViewRepresentable {
         func observe(window: NSWindow) {
             guard observations.isEmpty else { return }
 
-            let names: [Notification.Name] = [
+            let windowNames: [Notification.Name] = [
                 NSWindow.didResizeNotification,
                 NSWindow.didEndLiveResizeNotification,
                 NSWindow.didExitFullScreenNotification,
                 NSWindow.didEnterFullScreenNotification,
             ]
-            for name in names {
+            for name in windowNames {
                 let token = NotificationCenter.default.addObserver(
                     forName: name,
                     object: window,
@@ -181,6 +219,18 @@ struct WindowConfigurator: NSViewRepresentable {
                 }
                 observations.append(token)
             }
+
+            let settingsToken = NotificationCenter.default.addObserver(
+                forName: .windowBackgroundSettingChanged,
+                object: nil,
+                queue: .main
+            ) { [weak window] _ in
+                guard let w = window else { return }
+                MainActor.assumeIsolated {
+                    WindowConfigurator.applyWindowBackground(w)
+                }
+            }
+            observations.append(settingsToken)
         }
 
         deinit {

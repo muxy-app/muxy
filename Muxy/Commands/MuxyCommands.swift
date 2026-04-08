@@ -230,6 +230,11 @@ struct MuxyCommands: Commands {
                 NotificationCenter.default.post(name: .toggleThemePicker, object: nil)
             }
             .shortcut(for: .toggleThemePicker, store: keyBindings)
+
+            Button("Toggle Quick Terminal") {
+                NotificationCenter.default.post(name: .toggleQuickTerminal, object: nil)
+            }
+            .shortcut(for: .toggleQuickTerminal, store: keyBindings)
         }
     }
 
