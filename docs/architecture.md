@@ -74,6 +74,7 @@ Muxy/
       SplitDiffView.swift     Side-by-side diff rendering
       DiffComponents.swift    Shared diff UI: line rows, highlighting, cache
       PRBadge.swift           Pull request link badge
+      CommitHistoryView.swift Commit history list with context menu actions
     Workspace/
       Workspace.swift         Workspace container (split tree root)
       PaneNode.swift          Recursive split pane rendering

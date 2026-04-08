@@ -49,6 +49,14 @@ final class VCSTabState {
     var statusMessage: String?
     var statusIsError = false
 
+    var commits: [GitCommit] = []
+    var isLoadingCommits = false
+    var hasMoreCommits = true
+    var stagedCollapsed = false
+    var changesCollapsed = false
+    var historyCollapsed = false
+    var sectionRatios: [CGFloat] = [0.33, 0.33, 0.34]
+
     var stagedFiles: [GitStatusFile] {
         files.filter(\.isStaged)
     }
@@ -66,9 +74,11 @@ final class VCSTabState {
     @ObservationIgnored private var branchTask: Task<Void, Never>?
     @ObservationIgnored private var loadBranchesTask: Task<Void, Never>?
     @ObservationIgnored private var loadDiffTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var commitLogTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: GitDirectoryWatcher?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var pendingRefresh = false
+    @ObservationIgnored private static let commitsPerPage = 100
 
     init(projectPath: String) {
         self.projectPath = projectPath
@@ -79,6 +89,7 @@ final class VCSTabState {
         loadFilesTask?.cancel()
         branchTask?.cancel()
         loadBranchesTask?.cancel()
+        commitLogTask?.cancel()
         loadDiffTasks.values.forEach { $0.cancel() }
     }
 
@@ -126,6 +137,10 @@ final class VCSTabState {
                 branchName = nil
                 pullRequestInfo = nil
             }
+        }
+
+        if !historyCollapsed {
+            loadCommits()
         }
 
         loadFilesTask = Task { [weak self] in
@@ -373,6 +388,105 @@ final class VCSTabState {
                 try await git.pull(repoPath: projectPath)
                 guard !Task.isCancelled else { return }
                 showStatus("Pulled", isError: false)
+                performRefresh(incremental: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func loadCommits() {
+        commitLogTask?.cancel()
+        isLoadingCommits = true
+        commitLogTask = Task { [weak self] in
+            guard let self else { return }
+            defer { isLoadingCommits = false }
+            do {
+                let result = try await git.commitLog(repoPath: projectPath, maxCount: Self.commitsPerPage, skip: 0)
+                guard !Task.isCancelled else { return }
+                commits = result
+                hasMoreCommits = result.count == Self.commitsPerPage
+            } catch {
+                guard !Task.isCancelled else { return }
+                commits = []
+                hasMoreCommits = false
+            }
+        }
+    }
+
+    func loadMoreCommits() {
+        guard !isLoadingCommits, hasMoreCommits else { return }
+        isLoadingCommits = true
+        let skip = commits.count
+        commitLogTask?.cancel()
+        commitLogTask = Task { [weak self] in
+            guard let self else { return }
+            defer { isLoadingCommits = false }
+            do {
+                let result = try await git.commitLog(repoPath: projectPath, maxCount: Self.commitsPerPage, skip: skip)
+                guard !Task.isCancelled else { return }
+                commits.append(contentsOf: result)
+                hasMoreCommits = result.count == Self.commitsPerPage
+            } catch {
+                guard !Task.isCancelled else { return }
+            }
+        }
+    }
+
+    func cherryPick(_ hash: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await git.cherryPick(repoPath: projectPath, hash: hash)
+                guard !Task.isCancelled else { return }
+                showStatus("Cherry-picked \(String(hash.prefix(7)))", isError: false)
+                performRefresh(incremental: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func createBranch(name: String, from hash: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await git.createBranch(repoPath: projectPath, name: name, startPoint: hash)
+                guard !Task.isCancelled else { return }
+                showStatus("Created branch \(name)", isError: false)
+                loadBranches()
+                loadCommits()
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func createTag(name: String, at hash: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await git.createTag(repoPath: projectPath, name: name, hash: hash)
+                guard !Task.isCancelled else { return }
+                showStatus("Created tag \(name)", isError: false)
+                loadCommits()
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func checkoutDetached(_ hash: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await git.checkoutDetached(repoPath: projectPath, hash: hash)
+                guard !Task.isCancelled else { return }
+                showStatus("Checked out \(String(hash.prefix(7)))", isError: false)
                 performRefresh(incremental: false)
             } catch {
                 guard !Task.isCancelled else { return }

@@ -64,6 +64,31 @@ struct GitStatusFile: Identifiable, Hashable {
     }
 }
 
+struct GitCommit: Identifiable {
+    let hash: String
+    let shortHash: String
+    let subject: String
+    let authorName: String
+    let authorDate: Date
+    let refs: [GitRef]
+    let parentHashes: [String]
+
+    var id: String { hash }
+    var isMerge: Bool { parentHashes.count > 1 }
+}
+
+struct GitRef {
+    enum Kind {
+        case localBranch
+        case remoteBranch
+        case tag
+        case head
+    }
+
+    let name: String
+    let kind: Kind
+}
+
 struct DiffDisplayRow: Identifiable {
     enum Kind {
         case hunk

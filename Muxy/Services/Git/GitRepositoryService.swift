@@ -323,6 +323,142 @@ actor GitRepositoryService {
         }
     }
 
+    private static let commitFieldSeparator = "\u{1F}"
+    private static let commitRecordSeparator = "\u{1E}"
+
+    private static let logFormat = [
+        "%H", "%h", "%s", "%an", "%aI", "%D", "%P",
+    ].joined(separator: commitFieldSeparator) + commitRecordSeparator
+
+    func commitLog(repoPath: String, maxCount: Int = 100, skip: Int = 0) async throws -> [GitCommit] {
+        let result = try runGit(
+            repoPath: repoPath,
+            arguments: [
+                "log",
+                "--format=\(Self.logFormat)",
+                "--max-count=\(maxCount)",
+                "--skip=\(skip)",
+                "--all",
+            ]
+        )
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load commit history." : result.stderr)
+        }
+        return parseCommitLog(result.stdout)
+    }
+
+    private func parseCommitLog(_ raw: String) -> [GitCommit] {
+        let records = raw.split(separator: Character(Self.commitRecordSeparator), omittingEmptySubsequences: true)
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withInternetDateTime]
+
+        return records.compactMap { record in
+            let fields = record.trimmingCharacters(in: .whitespacesAndNewlines)
+                .split(separator: Character(Self.commitFieldSeparator), maxSplits: 6, omittingEmptySubsequences: false)
+            guard fields.count >= 7 else { return nil }
+
+            let hash = String(fields[0])
+            let shortHash = String(fields[1])
+            let subject = String(fields[2])
+            let authorName = String(fields[3])
+            let dateString = String(fields[4])
+            let refsRaw = String(fields[5])
+            let parentsRaw = String(fields[6])
+
+            let date = dateFormatter.date(from: dateString) ?? Date.distantPast
+            let refs = Self.parseRefs(refsRaw)
+            let parents = parentsRaw.split(separator: " ").map(String.init)
+
+            return GitCommit(
+                hash: hash,
+                shortHash: shortHash,
+                subject: subject,
+                authorName: authorName,
+                authorDate: date,
+                refs: refs,
+                parentHashes: parents
+            )
+        }
+    }
+
+    private static func parseRefs(_ raw: String) -> [GitRef] {
+        guard !raw.isEmpty else { return [] }
+        return raw.split(separator: ",").compactMap { segment in
+            let trimmed = segment.trimmingCharacters(in: .whitespaces)
+            if trimmed == "HEAD" {
+                return GitRef(name: "HEAD", kind: .head)
+            }
+            if trimmed.hasPrefix("HEAD -> ") {
+                let branch = String(trimmed.dropFirst("HEAD -> ".count))
+                return GitRef(name: branch, kind: .localBranch)
+            }
+            if trimmed.hasPrefix("tag: ") {
+                let tag = String(trimmed.dropFirst("tag: ".count))
+                return GitRef(name: tag, kind: .tag)
+            }
+            if trimmed.contains("/") {
+                return GitRef(name: trimmed, kind: .remoteBranch)
+            }
+            return GitRef(name: trimmed, kind: .localBranch)
+        }
+    }
+
+    func cherryPick(repoPath: String, hash: String) async throws {
+        try validateHash(hash)
+        let result = try runGit(repoPath: repoPath, arguments: ["cherry-pick", hash])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to cherry-pick." : result.stderr)
+        }
+    }
+
+    func createBranch(repoPath: String, name: String, startPoint: String) async throws {
+        guard !name.isEmpty,
+              name.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
+        else {
+            throw GitError.commandFailed("Invalid branch name.")
+        }
+        try validateHash(startPoint)
+        let result = try runGit(repoPath: repoPath, arguments: ["branch", name, startPoint])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to create branch." : result.stderr)
+        }
+    }
+
+    private static let allowedTagCharacters = CharacterSet.alphanumerics
+        .union(CharacterSet(charactersIn: "._/-"))
+
+    func createTag(repoPath: String, name: String, hash: String) async throws {
+        guard !name.isEmpty,
+              name.unicodeScalars.allSatisfy({ Self.allowedTagCharacters.contains($0) })
+        else {
+            throw GitError.commandFailed("Invalid tag name.")
+        }
+        try validateHash(hash)
+        let result = try runGit(repoPath: repoPath, arguments: ["tag", name, hash])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to create tag." : result.stderr)
+        }
+    }
+
+    func checkoutDetached(repoPath: String, hash: String) async throws {
+        try validateHash(hash)
+        let result = try runGit(repoPath: repoPath, arguments: ["checkout", "--detach", hash])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to checkout." : result.stderr)
+        }
+    }
+
+    private static let hexCharacters = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
+
+    private func validateHash(_ hash: String) throws {
+        guard !hash.isEmpty,
+              hash.count <= 40,
+              hash.unicodeScalars.allSatisfy({ Self.hexCharacters.contains($0) })
+        else {
+            throw GitError.commandFailed("Invalid commit hash.")
+        }
+    }
+
     private func validatePath(repoPath: String, relativePath: String) throws {
         let fullPath = (repoPath as NSString).appendingPathComponent(relativePath)
         let resolvedRepo = (repoPath as NSString).standardizingPath

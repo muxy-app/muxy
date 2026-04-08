@@ -157,25 +157,14 @@ struct VCSTabView: View {
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ScrollView {
-                VStack(spacing: 0) {
-                    commitArea
-                    Rectangle().fill(MuxyTheme.border).frame(height: 1)
-
-                    if state.files.isEmpty {
-                        Text("No changes")
-                            .font(.system(size: 12))
-                            .foregroundStyle(MuxyTheme.fgMuted)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 40)
-                    } else {
-                        if !state.stagedFiles.isEmpty {
-                            stagedSection
-                        }
-                        changesSection
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 0) {
+                commitArea
+                SectionSplitLayout(
+                    state: state,
+                    onFocus: onFocus,
+                    showDiscardAllConfirmation: $showDiscardAllConfirmation,
+                    pendingDiscardPath: $pendingDiscardPath
+                )
             }
         }
     }
@@ -284,60 +273,255 @@ struct VCSTabView: View {
         .background(MuxyTheme.bg)
     }
 
-    private var stagedSection: some View {
-        VStack(spacing: 0) {
-            sectionHeader(
-                title: "Staged Changes",
-                count: state.stagedFiles.count,
-                actions: {
-                    IconButton(symbol: "minus", size: 11) {
-                        state.unstageAll()
-                    }
-                    .help("Unstage all")
-                }
-            )
-
-            ForEach(state.stagedFiles) { file in
-                fileSection(file, isStaged: true)
-            }
-        }
-    }
-
-    private var changesSection: some View {
-        VStack(spacing: 0) {
-            sectionHeader(
-                title: "Changes",
-                count: state.unstagedFiles.count,
-                actions: {
-                    IconButton(symbol: "plus", size: 11) {
-                        state.stageAll()
-                    }
-                    .help("Stage all")
-
-                    IconButton(symbol: "arrow.uturn.backward", size: 11) {
-                        showDiscardAllConfirmation = true
-                    }
-                    .help("Discard all changes")
-                }
-            )
-
-            ForEach(state.unstagedFiles) { file in
-                fileSection(file, isStaged: false)
-            }
-        }
-    }
-
-    private func sectionHeader(
+    private func presentDiscardConfirmation(
         title: String,
-        count: Int,
-        @ViewBuilder actions: () -> some View
-    ) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fgMuted)
+        message: String,
+        buttonTitle: String,
+        onConfirm: @escaping () -> Void
+    ) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else { return }
 
-            Text("\(count)")
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: buttonTitle)
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.keyEquivalent = "\r"
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn {
+                onConfirm()
+            }
+        }
+    }
+}
+
+private struct SectionSplitLayout: View {
+    @Bindable var state: VCSTabState
+    let onFocus: () -> Void
+    @Binding var showDiscardAllConfirmation: Bool
+    @Binding var pendingDiscardPath: String?
+
+    private static let sectionHeaderHeight: CGFloat = 30
+
+    private var hasStaged: Bool { !state.stagedFiles.isEmpty }
+
+    private var sections: [SectionKind] {
+        var result: [SectionKind] = []
+        if hasStaged { result.append(.staged) }
+        result.append(.changes)
+        result.append(.history)
+        return result
+    }
+
+    private func isCollapsed(_ kind: SectionKind) -> Bool {
+        switch kind {
+        case .staged: state.stagedCollapsed
+        case .changes: state.changesCollapsed
+        case .history: state.historyCollapsed
+        }
+    }
+
+    private func toggleCollapsed(_ kind: SectionKind) {
+        switch kind {
+        case .staged: state.stagedCollapsed.toggle()
+        case .changes: state.changesCollapsed.toggle()
+        case .history:
+            state.historyCollapsed.toggle()
+            if !state.historyCollapsed, state.commits.isEmpty {
+                state.loadCommits()
+            }
+        }
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let allSections = sections
+            let expandedSections = allSections.filter { !isCollapsed($0) }
+            let collapsedSections = allSections.filter { isCollapsed($0) }
+            let collapsedHeight = CGFloat(collapsedSections.count) * Self.sectionHeaderHeight
+            let borderCount = CGFloat(allSections.count + 1)
+            let availableForExpanded = max(0, geo.size.height - collapsedHeight - borderCount)
+            let ratios = distributedRatios(allSections: allSections, expandedSections: expandedSections)
+
+            VStack(spacing: 0) {
+                ForEach(Array(allSections.enumerated()), id: \.element) { index, section in
+                    let collapsed = isCollapsed(section)
+                    let prevExpanded = previousExpandedSection(before: index, in: allSections)
+                    let needsDraggableDivider = !collapsed && prevExpanded != nil
+
+                    if needsDraggableDivider, let prev = prevExpanded {
+                        sectionDivider(
+                            above: prev,
+                            below: section,
+                            totalHeight: availableForExpanded,
+                            allSections: allSections
+                        )
+                    } else {
+                        Rectangle().fill(MuxyTheme.border).frame(height: 1)
+                    }
+
+                    if collapsed {
+                        sectionHeader(for: section, collapsed: true)
+                            .frame(height: Self.sectionHeaderHeight)
+                    } else {
+                        let ratio = ratios[section] ?? 0
+                        let sectionHeight = max(Self.sectionHeaderHeight, availableForExpanded * ratio)
+                        sectionView(for: section, height: sectionHeight)
+                    }
+                }
+                Rectangle().fill(MuxyTheme.border).frame(height: 1)
+            }
+        }
+    }
+
+    private func distributedRatios(
+        allSections: [SectionKind],
+        expandedSections: [SectionKind]
+    ) -> [SectionKind: CGFloat] {
+        guard !expandedSections.isEmpty else { return [:] }
+
+        let rawRatios: [CGFloat] = allSections.enumerated().compactMap { idx, section in
+            guard !isCollapsed(section) else { return nil }
+            return state.sectionRatios[safe: idx] ?? (1.0 / CGFloat(expandedSections.count))
+        }
+
+        let sum = rawRatios.reduce(0, +)
+        guard sum > 0 else { return [:] }
+
+        var result: [SectionKind: CGFloat] = [:]
+        var rawIdx = 0
+        for section in expandedSections {
+            result[section] = rawRatios[rawIdx] / sum
+            rawIdx += 1
+        }
+        return result
+    }
+
+    private func previousExpandedSection(before index: Int, in allSections: [SectionKind]) -> SectionKind? {
+        for i in stride(from: index - 1, through: 0, by: -1) where !isCollapsed(allSections[i]) {
+            return allSections[i]
+        }
+        return nil
+    }
+
+    private func sectionDivider(
+        above: SectionKind,
+        below: SectionKind,
+        totalHeight: CGFloat,
+        allSections: [SectionKind]
+    ) -> some View {
+        Rectangle().fill(MuxyTheme.border).frame(height: 1)
+            .overlay {
+                Color.clear
+                    .frame(height: 5)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { v in
+                                guard totalHeight > 0 else { return }
+                                let delta = v.translation.height / totalHeight
+
+                                guard let aboveIdx = allSections.firstIndex(of: above),
+                                      let belowIdx = allSections.firstIndex(of: below)
+                                else { return }
+
+                                var ratios = state.sectionRatios
+                                let minRatio: CGFloat = 0.08
+
+                                ratios[aboveIdx] += delta
+                                ratios[belowIdx] -= delta
+
+                                ratios[aboveIdx] = max(minRatio, ratios[aboveIdx])
+                                ratios[belowIdx] = max(minRatio, ratios[belowIdx])
+
+                                let sum = ratios.reduce(0, +)
+                                if sum > 0 {
+                                    ratios = ratios.map { $0 / sum }
+                                }
+
+                                state.sectionRatios = ratios
+                            }
+                    )
+                    .onHover { on in
+                        if on { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+                    }
+            }
+    }
+
+    @ViewBuilder
+    private func sectionView(for section: SectionKind, height: CGFloat) -> some View {
+        switch section {
+        case .staged:
+            VStack(spacing: 0) {
+                sectionHeader(for: .staged, collapsed: false)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(state.stagedFiles) { file in
+                            fileSection(file, isStaged: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .frame(height: height)
+
+        case .changes:
+            VStack(spacing: 0) {
+                sectionHeader(for: .changes, collapsed: false)
+                if state.files.isEmpty {
+                    Text("No changes")
+                        .font(.system(size: 12))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            ForEach(state.unstagedFiles) { file in
+                                fileSection(file, isStaged: false)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .frame(height: height)
+
+        case .history:
+            VStack(spacing: 0) {
+                sectionHeader(for: .history, collapsed: false)
+                CommitHistoryView(state: state)
+            }
+            .frame(height: height)
+        }
+    }
+
+    private func sectionHeader(for section: SectionKind, collapsed: Bool) -> some View {
+        let isCollapsedState = collapsed
+
+        return HStack(spacing: 6) {
+            Button {
+                toggleCollapsed(section)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isCollapsedState ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(MuxyTheme.fgDim)
+                        .frame(width: 10)
+
+                    Text(section.title)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Text("\(sectionCount(for: section))")
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(MuxyTheme.bg)
                 .padding(.horizontal, 6)
@@ -346,11 +530,47 @@ struct VCSTabView: View {
 
             Spacer(minLength: 0)
 
-            actions()
+            sectionActions(for: section)
         }
         .padding(.horizontal, 10)
-        .frame(height: 30)
+        .frame(height: Self.sectionHeaderHeight)
         .background(MuxyTheme.bg)
+    }
+
+    private func sectionCount(for section: SectionKind) -> Int {
+        switch section {
+        case .staged: state.stagedFiles.count
+        case .changes: state.unstagedFiles.count
+        case .history: state.commits.count
+        }
+    }
+
+    @ViewBuilder
+    private func sectionActions(for section: SectionKind) -> some View {
+        switch section {
+        case .staged:
+            IconButton(symbol: "minus", size: 11) {
+                state.unstageAll()
+            }
+            .help("Unstage all")
+
+        case .changes:
+            IconButton(symbol: "plus", size: 11) {
+                state.stageAll()
+            }
+            .help("Stage all")
+
+            IconButton(symbol: "arrow.uturn.backward", size: 11) {
+                showDiscardAllConfirmation = true
+            }
+            .help("Discard all changes")
+
+        case .history:
+            IconButton(symbol: "arrow.clockwise", size: 11) {
+                state.loadCommits()
+            }
+            .help("Refresh history")
+        }
     }
 
     private func fileSection(_ file: GitStatusFile, isStaged: Bool) -> some View {
@@ -436,32 +656,25 @@ struct VCSTabView: View {
                 .background(MuxyTheme.terminalBg)
         }
     }
+}
 
-    private func presentDiscardConfirmation(
-        title: String,
-        message: String,
-        buttonTitle: String,
-        onConfirm: @escaping () -> Void
-    ) {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              window.attachedSheet == nil
-        else { return }
+private enum SectionKind: Hashable {
+    case staged
+    case changes
+    case history
 
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: buttonTitle)
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.keyEquivalent = "\r"
-        alert.buttons.last?.keyEquivalent = "\u{1b}"
-
-        alert.beginSheetModal(for: window) { response in
-            if response == .alertFirstButtonReturn {
-                onConfirm()
-            }
+    var title: String {
+        switch self {
+        case .staged: "Staged Changes"
+        case .changes: "Changes"
+        case .history: "History"
         }
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
 
