@@ -25,6 +25,7 @@ Muxy/
     KeyCombo.swift            Key combo encoding, display, matching
     VCSTabState.swift         Git diff viewer state + loading orchestration
     EditorTabState.swift      Code editor tab state (file content, cursor, save)
+    EditorSettings.swift      @Observable editor preferences (font, word wrap, tab size)
     Project.swift             Project folder metadata
     TerminalPaneState.swift   Per-pane terminal state
     TerminalSearchState.swift Terminal find-in-page state
@@ -93,6 +94,7 @@ Muxy/
     Settings/
       SettingsView.swift      Settings window layout
       AppearanceSettingsView.swift  Theme settings tab
+      EditorSettingsView.swift  Editor preferences tab (font, wrap, tab size)
       KeyboardShortcutsSettingsView.swift  Shortcut config tab
       ShortcutRecorderView.swift  Shortcut capture field
       ShortcutBadge.swift     Shortcut label display

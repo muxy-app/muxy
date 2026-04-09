@@ -9,6 +9,7 @@ struct LineLayoutInfo: Equatable {
 
 struct CodeEditorView: NSViewRepresentable {
     @Bindable var state: EditorTabState
+    let editorSettings: EditorSettings
     let themeVersion: Int
     let searchNeedle: String
     let searchNavigationVersion: Int
@@ -16,7 +17,7 @@ struct CodeEditorView: NSViewRepresentable {
     let onLineLayoutChange: ([LineLayoutInfo]) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(state: state)
+        Coordinator(state: state, editorSettings: editorSettings)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -40,12 +41,10 @@ struct CodeEditorView: NSViewRepresentable {
         textView.isGrammarCheckingEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
         textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 8
         textView.textContainerInset = NSSize(width: 0, height: 4)
 
-        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let font = editorSettings.resolvedFont
         textView.font = font
         textView.backgroundColor = GhosttyService.shared.backgroundColor
         textView.insertionPointColor = GhosttyService.shared.foregroundColor
@@ -58,8 +57,9 @@ struct CodeEditorView: NSViewRepresentable {
             .backgroundColor: GhosttyService.shared.foregroundColor.withAlphaComponent(0.15),
         ]
 
+        Self.applyWordWrap(editorSettings.wordWrap, to: textView, scrollView: scrollView)
+
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
@@ -70,6 +70,26 @@ struct CodeEditorView: NSViewRepresentable {
         context.coordinator.setScrollObserver(for: scrollView, onLineLayoutChange: onLineLayoutChange)
 
         return scrollView
+    }
+
+    private static func applyWordWrap(_ wrap: Bool, to textView: NSTextView, scrollView: NSScrollView) {
+        if wrap {
+            textView.isHorizontallyResizable = false
+            textView.textContainer?.widthTracksTextView = true
+            textView.textContainer?.containerSize = NSSize(
+                width: scrollView.contentSize.width,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            scrollView.hasHorizontalScroller = false
+        } else {
+            textView.isHorizontallyResizable = true
+            textView.textContainer?.widthTracksTextView = false
+            textView.textContainer?.containerSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            scrollView.hasHorizontalScroller = true
+        }
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -91,11 +111,24 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.lastThemeVersion = themeVersion
         }
 
-        if contentChanged || themeChanged {
+        let font = editorSettings.resolvedFont
+        let fontChanged = textView.font != font
+        if fontChanged {
+            textView.font = font
+            textView.typingAttributes[.font] = font
+        }
+
+        let wrapChanged = coordinator.lastWordWrap != editorSettings.wordWrap
+        if wrapChanged {
+            coordinator.lastWordWrap = editorSettings.wordWrap
+            Self.applyWordWrap(editorSettings.wordWrap, to: textView, scrollView: scrollView)
+        }
+
+        coordinator.tabSize = editorSettings.tabSize
+        coordinator.showInvisibles = editorSettings.showInvisibles
+
+        if contentChanged || themeChanged || fontChanged {
             coordinator.applyHighlighting()
-            DispatchQueue.main.async {
-                coordinator.reportLineLayouts()
-            }
         }
 
         if coordinator.lastSearchNeedle != searchNeedle {
@@ -109,23 +142,49 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         coordinator.onLineLayoutChange = onLineLayoutChange
-        coordinator.reportLineLayouts()
+
+        if contentChanged || themeChanged || fontChanged || wrapChanged {
+            coordinator.invalidateAndReportLayouts()
+        } else {
+            coordinator.reportLineLayouts()
+        }
     }
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         let state: EditorTabState
-        weak var textView: NSTextView?
+        let editorSettings: EditorSettings
+        weak var textView: NSTextView? {
+            didSet {
+                observeTextViewFrame()
+                setupLineHighlight()
+            }
+        }
+
         var isUpdating = false
         var lastThemeVersion = -1
         var lastSearchNeedle = ""
         var lastSearchNavigationVersion = -1
+        var lastWordWrap = true
+        var tabSize = 4
+        var showInvisibles = false
         var onLineLayoutChange: ([LineLayoutInfo]) -> Void = { _ in }
         private weak var observedContentView: NSClipView?
+        private weak var observedTextView: NSTextView?
         private var lastReportedLayouts: [LineLayoutInfo] = []
+        private let lineHighlightView: NSView = {
+            let view = NSView()
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.06).cgColor
+            return view
+        }()
 
-        init(state: EditorTabState) {
+        init(state: EditorTabState, editorSettings: EditorSettings) {
             self.state = state
+            self.editorSettings = editorSettings
+            self.lastWordWrap = editorSettings.wordWrap
+            self.tabSize = editorSettings.tabSize
+            self.showInvisibles = editorSettings.showInvisibles
             super.init()
         }
 
@@ -158,9 +217,71 @@ struct CodeEditorView: NSViewRepresentable {
             observedContentView = nil
         }
 
+        private func setupLineHighlight() {
+            guard let textView else { return }
+            lineHighlightView.removeFromSuperview()
+            textView.addSubview(lineHighlightView, positioned: .below, relativeTo: nil)
+            updateLineHighlight()
+        }
+
+        func updateLineHighlight() {
+            guard let textView, let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer
+            else { return }
+
+            let highlightColor = GhosttyService.shared.foregroundColor.withAlphaComponent(0.06)
+            lineHighlightView.layer?.backgroundColor = highlightColor.cgColor
+
+            let content = textView.string as NSString
+            let selectedRange = textView.selectedRange()
+            guard content.length > 0, selectedRange.location <= content.length else {
+                lineHighlightView.frame = .zero
+                return
+            }
+
+            let lineRange = content.lineRange(for: NSRange(location: selectedRange.location, length: 0))
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+            var lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            lineRect.origin.x = 0
+            lineRect.origin.y += textView.textContainerOrigin.y
+            lineRect.size.width = max(textView.bounds.width, textView.enclosingScrollView?.contentSize.width ?? 0)
+
+            lineHighlightView.frame = lineRect
+        }
+
+        private func observeTextViewFrame() {
+            guard let textView, observedTextView !== textView else { return }
+            observedTextView = textView
+            textView.postsFrameChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleFrameChange),
+                name: NSView.frameDidChangeNotification,
+                object: textView
+            )
+        }
+
         @objc
         private func handleScrollBoundsChange() {
             reportLineLayouts()
+        }
+
+        @objc
+        private func handleFrameChange() {
+            DispatchQueue.main.async { [weak self] in
+                self?.reportLineLayouts()
+            }
+        }
+
+        func invalidateAndReportLayouts() {
+            lastReportedLayouts = []
+            guard let textView, let layoutManager = textView.layoutManager,
+                  let container = textView.textContainer
+            else { return }
+            layoutManager.ensureLayout(for: container)
+            DispatchQueue.main.async { [weak self] in
+                self?.reportLineLayouts()
+            }
         }
 
         func reportLineLayouts() {
@@ -233,6 +354,7 @@ struct CodeEditorView: NSViewRepresentable {
             let lineRange = str.lineRange(for: index ..< index)
             state.cursorLine = str[str.startIndex ..< lineRange.lowerBound].count(where: { $0 == "\n" }) + 1
             state.cursorColumn = str.distance(from: lineRange.lowerBound, to: index) + 1
+            updateLineHighlight()
         }
 
         func applyHighlighting() {
@@ -240,7 +362,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard storage.length > 0 else { return }
             let scrollPos = textView.enclosingScrollView?.contentView.bounds.origin
             let fullRange = NSRange(location: 0, length: storage.length)
-            let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            let font = editorSettings.resolvedFont
             textView.undoManager?.disableUndoRegistration()
             storage.beginEditing()
             storage.addAttribute(.font, value: font, range: fullRange)
@@ -315,7 +437,8 @@ struct CodeEditorView: NSViewRepresentable {
             let trimmed = lineText.trimmingCharacters(in: .whitespaces)
             let extra = trimmed.hasSuffix("{") || trimmed.hasSuffix("(")
                 || trimmed.hasSuffix("[")
-            let indent = extra ? leading + "    " : leading
+            let indentUnit = String(repeating: " ", count: tabSize)
+            let indent = extra ? leading + indentUnit : leading
             textView.insertText("\n" + indent, replacementRange: range)
             return true
         }

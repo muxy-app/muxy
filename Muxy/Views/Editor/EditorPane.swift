@@ -5,6 +5,7 @@ struct EditorPane: View {
     let focused: Bool
     let onFocus: () -> Void
     @Environment(GhosttyService.self) private var ghostty
+    @State private var editorSettings = EditorSettings.shared
     @State private var lineLayouts: [LineLayoutInfo] = []
 
     var body: some View {
@@ -18,10 +19,18 @@ struct EditorPane: View {
             } else {
                 ZStack(alignment: .topTrailing) {
                     HStack(spacing: 0) {
-                        LineNumberGutter(layouts: lineLayouts)
-                        Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                        if editorSettings.showLineNumbers {
+                            LineNumberGutter(
+                                layouts: lineLayouts,
+                                fontSize: editorSettings.fontSize,
+                                fontFamily: editorSettings.fontFamily,
+                                activeLine: state.cursorLine
+                            )
+                            Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                        }
                         CodeEditorView(
                             state: state,
+                            editorSettings: editorSettings,
                             themeVersion: ghostty.configVersion,
                             searchNeedle: state.searchNeedle,
                             searchNavigationVersion: state.searchNavigationVersion,
@@ -82,20 +91,30 @@ struct EditorPane: View {
 
 private struct LineNumberGutter: View {
     let layouts: [LineLayoutInfo]
+    let fontSize: CGFloat
+    let fontFamily: String
+    let activeLine: Int
+
+    private var gutterFontSize: CGFloat {
+        max(9, fontSize - 2)
+    }
 
     private var gutterWidth: CGFloat {
         let maxLine = layouts.last?.lineNumber ?? 1
-        return CGFloat(max(2, String(maxLine).count)) * 9 + 16
+        let charWidth = gutterFontSize * 0.65
+        return CGFloat(max(2, String(maxLine).count)) * charWidth + 16
     }
 
     var body: some View {
         Canvas { context, size in
-            let font = Font.system(size: 11, design: .monospaced)
-            let color = Color(MuxyTheme.fgDim)
+            let font = Font.custom(fontFamily, size: gutterFontSize)
+            let dimColor = Color(MuxyTheme.fgDim)
+            let activeColor = Color(MuxyTheme.fgMuted)
             for layout in layouts {
+                let isActive = layout.lineNumber == activeLine
                 let text = Text(verbatim: "\(layout.lineNumber)")
                     .font(font)
-                    .foregroundStyle(color)
+                    .foregroundStyle(isActive ? activeColor : dimColor)
                 let resolved = context.resolve(text)
                 let textSize = resolved.measure(in: size)
                 let x = size.width - textSize.width - 8
