@@ -105,7 +105,6 @@ struct CodeEditorView: NSViewRepresentable {
         var lastThemeVersion = -1
         var lastSearchNeedle = ""
         var lastSearchNavigationVersion = -1
-        private var highlightDebounceTask: DispatchWorkItem?
 
         init(state: EditorTabState) {
             self.state = state
@@ -117,17 +116,7 @@ struct CodeEditorView: NSViewRepresentable {
             isUpdating = true
             state.content = textView.string
             state.markModified()
-            scheduleHighlighting()
             isUpdating = false
-        }
-
-        private func scheduleHighlighting() {
-            highlightDebounceTask?.cancel()
-            let task = DispatchWorkItem { [weak self] in
-                self?.applyHighlighting()
-            }
-            highlightDebounceTask = task
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: task)
         }
 
         func textViewDidChangeSelection(_: Notification) {
@@ -220,7 +209,7 @@ struct CodeEditorView: NSViewRepresentable {
             let leading = String(lineText.prefix(while: { $0 == " " || $0 == "\t" }))
             let trimmed = lineText.trimmingCharacters(in: .whitespaces)
             let extra = trimmed.hasSuffix("{") || trimmed.hasSuffix("(")
-                || trimmed.hasSuffix("[") || trimmed.hasSuffix(":") || trimmed.hasSuffix("->")
+                || trimmed.hasSuffix("[")
             let indent = extra ? leading + "    " : leading
             textView.insertText("\n" + indent, replacementRange: range)
             return true

@@ -57,36 +57,32 @@ final class EditorTabState: Identifiable {
         loadTask?.cancel()
         let path = filePath
         loadTask = Task { [weak self] in
-            let result = await Self.readFile(at: path)
-            guard !Task.isCancelled, let self else { return }
-            switch result {
-            case let .success(text):
+            do {
+                let text = try await Self.readFile(at: path)
+                guard !Task.isCancelled, let self else { return }
                 content = text
                 isModified = false
-            case let .failure(message):
-                errorMessage = message
+                isLoading = false
+            } catch {
+                guard !Task.isCancelled, let self else { return }
+                errorMessage = error.localizedDescription
+                isLoading = false
             }
-            isLoading = false
         }
     }
 
-    private enum FileIOResult {
-        case success(String)
-        case failure(String)
-    }
-
-    private static func readFile(at path: String) async -> FileIOResult {
-        await withCheckedContinuation { continuation in
+    private static func readFile(at path: String) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let data = try Data(contentsOf: URL(fileURLWithPath: path))
                     guard let text = String(bytes: data, encoding: .utf8) else {
-                        continuation.resume(returning: .failure("File is not valid UTF-8"))
+                        continuation.resume(throwing: CocoaError(.fileReadUnknownStringEncoding))
                         return
                     }
-                    continuation.resume(returning: .success(text))
+                    continuation.resume(returning: text)
                 } catch {
-                    continuation.resume(returning: .failure(error.localizedDescription))
+                    continuation.resume(throwing: error)
                 }
             }
         }
@@ -98,26 +94,27 @@ final class EditorTabState: Identifiable {
         let path = filePath
         isSaving = true
         Task { [weak self] in
-            let result = await Self.writeFile(text: textToSave, path: path)
-            guard !Task.isCancelled, let self else { return }
-            isSaving = false
-            switch result {
-            case .success:
+            do {
+                try await Self.writeFile(text: textToSave, path: path)
+                guard !Task.isCancelled, let self else { return }
+                isSaving = false
                 isModified = false
-            case let .failure(message):
-                errorMessage = message
+            } catch {
+                guard !Task.isCancelled, let self else { return }
+                isSaving = false
+                errorMessage = error.localizedDescription
             }
         }
     }
 
-    private static func writeFile(text: String, path: String) async -> FileIOResult {
-        await withCheckedContinuation { continuation in
+    private static func writeFile(text: String, path: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     try text.write(toFile: path, atomically: true, encoding: .utf8)
-                    continuation.resume(returning: .success(""))
+                    continuation.resume()
                 } catch {
-                    continuation.resume(returning: .failure(error.localizedDescription))
+                    continuation.resume(throwing: error)
                 }
             }
         }
