@@ -106,7 +106,8 @@ struct QuickOpenOverlay: View {
                             ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
                                 FileResultRow(
                                     result: result,
-                                    isHighlighted: index == highlightedIndex
+                                    isHighlighted: index == highlightedIndex,
+                                    onHover: { highlightedIndex = index }
                                 )
                                 .contentShape(Rectangle())
                                 .onTapGesture { onSelect(result.absolutePath) }
@@ -166,6 +167,8 @@ struct QuickOpenOverlay: View {
 private struct FileResultRow: View {
     let result: FileSearchResult
     let isHighlighted: Bool
+    let onHover: () -> Void
+    @State private var hovered = false
 
     private var fileIcon: String {
         let ext = URL(fileURLWithPath: result.absolutePath).pathExtension.lowercased()
@@ -216,6 +219,10 @@ private struct FileResultRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(isHighlighted ? MuxyTheme.surface : .clear)
+        .background(isHighlighted ? MuxyTheme.surface : hovered ? MuxyTheme.hover : .clear)
+        .onHover { isHovered in
+            hovered = isHovered
+            if isHovered { onHover() }
+        }
     }
 }

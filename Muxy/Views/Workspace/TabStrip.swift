@@ -69,6 +69,9 @@ struct PaneTabStrip: View {
                     }
                     .padding(.trailing, 4)
                 }
+                IconButton(symbol: "magnifyingglass", size: 12) {
+                    NotificationCenter.default.post(name: .quickOpen, object: nil)
+                }
                 IconButton(symbol: "square.split.2x1") { onSplit(.horizontal) }
                 IconButton(symbol: "square.split.1x2") { onSplit(.vertical) }
                 IconButton(symbol: "plus") { onCreateTab() }
