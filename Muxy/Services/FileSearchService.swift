@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 struct FileSearchResult: Identifiable {
@@ -105,7 +104,7 @@ actor FileSearchService {
         guard let enumerator = fileManager.enumerator(
             at: baseURL,
             includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles]
+            options: []
         )
         else { return [] }
 

@@ -105,6 +105,7 @@ struct CodeEditorView: NSViewRepresentable {
         var lastThemeVersion = -1
         var lastSearchNeedle = ""
         var lastSearchNavigationVersion = -1
+        private var highlightDebounceTask: DispatchWorkItem?
 
         init(state: EditorTabState) {
             self.state = state
@@ -116,8 +117,17 @@ struct CodeEditorView: NSViewRepresentable {
             isUpdating = true
             state.content = textView.string
             state.markModified()
-            applyHighlighting()
+            scheduleHighlighting()
             isUpdating = false
+        }
+
+        private func scheduleHighlighting() {
+            highlightDebounceTask?.cancel()
+            let task = DispatchWorkItem { [weak self] in
+                self?.applyHighlighting()
+            }
+            highlightDebounceTask = task
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: task)
         }
 
         func textViewDidChangeSelection(_: Notification) {

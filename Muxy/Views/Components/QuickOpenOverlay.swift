@@ -126,7 +126,6 @@ struct QuickOpenOverlay: View {
 
     private func loadInitialResults() {
         searchTask = Task {
-            await FileSearchService.shared.invalidateCache(projectPath: projectPath)
             let allFiles = await FileSearchService.shared.search(query: "", projectPath: projectPath)
             guard !Task.isCancelled else { return }
             await MainActor.run {

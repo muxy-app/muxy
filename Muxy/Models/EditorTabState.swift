@@ -70,12 +70,12 @@ final class EditorTabState: Identifiable {
         }
     }
 
-    private enum FileReadResult {
+    private enum FileIOResult {
         case success(String)
         case failure(String)
     }
 
-    private static func readFile(at path: String) async -> FileReadResult {
+    private static func readFile(at path: String) async -> FileIOResult {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
@@ -93,19 +93,32 @@ final class EditorTabState: Identifiable {
     }
 
     func saveFile() {
-        let textToSave = content
         guard !isSaving else { return }
+        let textToSave = content
+        let path = filePath
         isSaving = true
         Task { [weak self] in
-            guard let self else { return }
-            defer { isSaving = false }
-            do {
-                try textToSave.write(toFile: filePath, atomically: true, encoding: .utf8)
-                guard !Task.isCancelled else { return }
+            let result = await Self.writeFile(text: textToSave, path: path)
+            guard !Task.isCancelled, let self else { return }
+            isSaving = false
+            switch result {
+            case .success:
                 isModified = false
-            } catch {
-                guard !Task.isCancelled else { return }
-                errorMessage = error.localizedDescription
+            case let .failure(message):
+                errorMessage = message
+            }
+        }
+    }
+
+    private static func writeFile(text: String, path: String) async -> FileIOResult {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try text.write(toFile: path, atomically: true, encoding: .utf8)
+                    continuation.resume(returning: .success(""))
+                } catch {
+                    continuation.resume(returning: .failure(error.localizedDescription))
+                }
             }
         }
     }
