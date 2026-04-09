@@ -1,12 +1,19 @@
 import AppKit
 import SwiftUI
 
+struct LineLayoutInfo: Equatable {
+    let lineNumber: Int
+    let yOffset: CGFloat
+    let height: CGFloat
+}
+
 struct CodeEditorView: NSViewRepresentable {
     @Bindable var state: EditorTabState
     let themeVersion: Int
     let searchNeedle: String
     let searchNavigationVersion: Int
     let searchNavigationDirection: EditorSearchNavigationDirection
+    let onLineLayoutChange: ([LineLayoutInfo]) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(state: state)
@@ -56,9 +63,11 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
+        scrollView.contentView.postsBoundsChangedNotifications = true
 
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
+        context.coordinator.setScrollObserver(for: scrollView, onLineLayoutChange: onLineLayoutChange)
 
         return scrollView
     }
@@ -84,6 +93,9 @@ struct CodeEditorView: NSViewRepresentable {
 
         if contentChanged || themeChanged {
             coordinator.applyHighlighting()
+            DispatchQueue.main.async {
+                coordinator.reportLineLayouts()
+            }
         }
 
         if coordinator.lastSearchNeedle != searchNeedle {
@@ -95,6 +107,9 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.lastSearchNavigationVersion = searchNavigationVersion
             coordinator.navigateSearch(forward: searchNavigationDirection == .next)
         }
+
+        coordinator.onLineLayoutChange = onLineLayoutChange
+        coordinator.reportLineLayouts()
     }
 
     @MainActor
@@ -105,10 +120,99 @@ struct CodeEditorView: NSViewRepresentable {
         var lastThemeVersion = -1
         var lastSearchNeedle = ""
         var lastSearchNavigationVersion = -1
+        var onLineLayoutChange: ([LineLayoutInfo]) -> Void = { _ in }
+        private weak var observedContentView: NSClipView?
+        private var lastReportedLayouts: [LineLayoutInfo] = []
 
         init(state: EditorTabState) {
             self.state = state
             super.init()
+        }
+
+        func setScrollObserver(for scrollView: NSScrollView, onLineLayoutChange: @escaping ([LineLayoutInfo]) -> Void) {
+            self.onLineLayoutChange = onLineLayoutChange
+
+            guard observedContentView !== scrollView.contentView else {
+                reportLineLayouts()
+                return
+            }
+
+            removeScrollObserver()
+            observedContentView = scrollView.contentView
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleScrollBoundsChange),
+                name: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView
+            )
+
+            reportLineLayouts()
+        }
+
+        private func removeScrollObserver() {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSView.boundsDidChangeNotification,
+                object: observedContentView
+            )
+            observedContentView = nil
+        }
+
+        @objc
+        private func handleScrollBoundsChange() {
+            reportLineLayouts()
+        }
+
+        func reportLineLayouts() {
+            guard let textView, let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer,
+                  let scrollView = textView.enclosingScrollView
+            else { return }
+
+            let visibleRect = scrollView.contentView.bounds
+            let containerOriginY = textView.textContainerOrigin.y
+            let content = textView.string as NSString
+            guard content.length > 0 else {
+                let info = [LineLayoutInfo(lineNumber: 1, yOffset: containerOriginY - visibleRect.origin.y, height: 16)]
+                guard info != lastReportedLayouts else { return }
+                lastReportedLayouts = info
+                onLineLayoutChange(info)
+                return
+            }
+
+            let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+            let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
+
+            var lineNumber = 1
+            var index = 0
+            while index < visibleCharRange.location {
+                let lineRange = content.lineRange(for: NSRange(location: index, length: 0))
+                index = NSMaxRange(lineRange)
+                lineNumber += 1
+            }
+
+            var layouts: [LineLayoutInfo] = []
+            index = visibleCharRange.location
+            while index <= NSMaxRange(visibleCharRange), index < content.length {
+                let lineRange = content.lineRange(for: NSRange(location: index, length: 0))
+                let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+                let lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+
+                layouts.append(LineLayoutInfo(
+                    lineNumber: lineNumber,
+                    yOffset: lineRect.origin.y + containerOriginY - visibleRect.origin.y,
+                    height: lineRect.height
+                ))
+
+                lineNumber += 1
+                let nextIndex = NSMaxRange(lineRange)
+                if nextIndex <= index { break }
+                index = nextIndex
+            }
+
+            guard layouts != lastReportedLayouts else { return }
+            lastReportedLayouts = layouts
+            onLineLayoutChange(layouts)
         }
 
         func textDidChange(_: Notification) {
@@ -117,6 +221,7 @@ struct CodeEditorView: NSViewRepresentable {
             state.content = textView.string
             state.markModified()
             isUpdating = false
+            reportLineLayouts()
         }
 
         func textViewDidChangeSelection(_: Notification) {

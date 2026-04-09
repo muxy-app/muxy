@@ -5,6 +5,7 @@ struct EditorPane: View {
     let focused: Bool
     let onFocus: () -> Void
     @Environment(GhosttyService.self) private var ghostty
+    @State private var lineLayouts: [LineLayoutInfo] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,14 +18,17 @@ struct EditorPane: View {
             } else {
                 ZStack(alignment: .topTrailing) {
                     HStack(spacing: 0) {
-                        LineNumberColumn(lineCount: state.content.components(separatedBy: "\n").count)
+                        LineNumberGutter(layouts: lineLayouts)
                         Rectangle().fill(MuxyTheme.border).frame(width: 1)
                         CodeEditorView(
                             state: state,
                             themeVersion: ghostty.configVersion,
                             searchNeedle: state.searchNeedle,
                             searchNavigationVersion: state.searchNavigationVersion,
-                            searchNavigationDirection: state.searchNavigationDirection
+                            searchNavigationDirection: state.searchNavigationDirection,
+                            onLineLayoutChange: { layouts in
+                                lineLayouts = layouts
+                            }
                         )
                     }
 
@@ -76,28 +80,28 @@ struct EditorPane: View {
     }
 }
 
-private struct LineNumberColumn: View {
-    let lineCount: Int
+private struct LineNumberGutter: View {
+    let layouts: [LineLayoutInfo]
 
     private var gutterWidth: CGFloat {
-        CGFloat(max(2, String(max(1, lineCount)).count)) * 9 + 16
-    }
-
-    private var lineNumbersText: String {
-        let maxLine = max(1, lineCount)
-        return (1 ... maxLine).map(String.init).joined(separator: "\n")
+        let maxLine = layouts.last?.lineNumber ?? 1
+        return CGFloat(max(2, String(maxLine).count)) * 9 + 16
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Text(lineNumbersText)
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(MuxyTheme.fgDim)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.top, 4)
-                .padding(.trailing, 8)
-                .padding(.leading, 4)
-            Spacer(minLength: 0)
+        Canvas { context, size in
+            let font = Font.system(size: 11, design: .monospaced)
+            let color = Color(MuxyTheme.fgDim)
+            for layout in layouts {
+                let text = Text(verbatim: "\(layout.lineNumber)")
+                    .font(font)
+                    .foregroundStyle(color)
+                let resolved = context.resolve(text)
+                let textSize = resolved.measure(in: size)
+                let x = size.width - textSize.width - 8
+                let y = layout.yOffset + (layout.height - textSize.height) / 2
+                context.draw(resolved, at: CGPoint(x: x, y: y), anchor: .topLeading)
+            }
         }
         .frame(width: gutterWidth)
         .background(MuxyTheme.bg)
