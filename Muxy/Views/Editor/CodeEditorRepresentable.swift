@@ -7,6 +7,12 @@ struct LineLayoutInfo: Equatable {
     let height: CGFloat
 }
 
+private final class PlainPasteTextView: NSTextView {
+    override func paste(_ sender: Any?) {
+        pasteAsPlainText(sender)
+    }
+}
+
 struct CodeEditorView: NSViewRepresentable {
     @Bindable var state: EditorTabState
     let editorSettings: EditorSettings
@@ -21,8 +27,30 @@ struct CodeEditorView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
-        guard let textView = scrollView.documentView as? NSTextView else { return scrollView }
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autoresizingMask = [.width, .height]
+
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+
+        let textContainer = NSTextContainer(containerSize: NSSize(
+            width: scrollView.contentSize.width,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+        textContainer.widthTracksTextView = true
+        textContainer.lineFragmentPadding = 8
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = PlainPasteTextView(frame: NSRect(origin: .zero, size: scrollView.contentSize), textContainer: textContainer)
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        scrollView.documentView = textView
 
         textView.isEditable = true
         textView.isSelectable = true
@@ -40,8 +68,6 @@ struct CodeEditorView: NSViewRepresentable {
         textView.smartInsertDeleteEnabled = false
         textView.isGrammarCheckingEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
-        textView.isVerticallyResizable = true
-        textView.textContainer?.lineFragmentPadding = 8
         textView.textContainerInset = NSSize(width: 0, height: 4)
 
         let font = editorSettings.resolvedFont
@@ -59,7 +85,6 @@ struct CodeEditorView: NSViewRepresentable {
 
         Self.applyWordWrap(editorSettings.wordWrap, to: textView, scrollView: scrollView)
 
-        scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder

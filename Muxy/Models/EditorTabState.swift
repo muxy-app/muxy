@@ -30,7 +30,10 @@ final class EditorTabState: Identifiable {
     }
 
     var fileExtension: String {
-        URL(fileURLWithPath: filePath).pathExtension.lowercased()
+        let url = URL(fileURLWithPath: filePath)
+        let ext = url.pathExtension.lowercased()
+        guard ext.isEmpty else { return ext }
+        return url.lastPathComponent
     }
 
     var displayTitle: String {

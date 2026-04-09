@@ -149,6 +149,7 @@ private struct EditorBreadcrumb: View {
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .textSelection(.enabled)
             if state.isModified {
                 Circle()
                     .fill(MuxyTheme.fg)

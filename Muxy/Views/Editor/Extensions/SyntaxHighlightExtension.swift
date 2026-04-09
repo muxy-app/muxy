@@ -65,6 +65,35 @@ private enum SyntaxRules {
         case "toml": toml
         case "md",
              "markdown": markdown
+        case "java": java
+        case "kt",
+             "kts": kotlin
+        case "cs": csharp
+        case "php": php
+        case "lua": lua
+        case "dart": dart
+        case "ex",
+             "exs": elixir
+        case "hs": haskell
+        case "scala",
+             "sc": scala
+        case "zig": zig
+        case "sql": sql
+        case "xml",
+             "plist",
+             "xib",
+             "storyboard",
+             "svg": xml
+        case "r": rLang
+        case "pl",
+             "pm": perl
+        case "m",
+             "mm": objc
+        case "Dockerfile",
+             "dockerfile": dockerfile
+        case "Makefile",
+             "makefile",
+             "GNUmakefile": makefile
         default: []
         }
     }
@@ -122,6 +151,14 @@ private enum SyntaxRules {
 
     private static func kw(_ words: [String]) -> SyntaxRule {
         SyntaxRule(pattern: "\\b(?:\(words.joined(separator: "|")))\\b", color: keyword)
+    }
+
+    private static func ciKw(_ words: [String], color: @escaping @MainActor () -> NSColor = keyword) -> SyntaxRule {
+        SyntaxRule(
+            pattern: "\\b(?:\(words.joined(separator: "|")))\\b",
+            color: color,
+            options: .caseInsensitive
+        )
     }
 
     private static var funcCall: SyntaxRule {
@@ -319,5 +356,278 @@ private enum SyntaxRules {
         SyntaxRule(pattern: "\\*\\*[^*]+\\*\\*", color: keyword),
         SyntaxRule(pattern: "`[^`]+`", color: string),
         SyntaxRule(pattern: "\\[([^\\]]+)\\]\\([^)]+\\)", color: function),
+    ]
+
+    static let java: [SyntaxRule] = [
+        lineComment("//"), blockComment, dqString, sqString,
+        kw([
+            "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
+            "class", "const", "continue", "default", "do", "double", "else", "enum",
+            "extends", "final", "finally", "float", "for", "goto", "if", "implements",
+            "import", "instanceof", "int", "interface", "long", "native", "new",
+            "package", "private", "protected", "public", "return", "short", "static",
+            "strictfp", "super", "switch", "synchronized", "this", "throw", "throws",
+            "transient", "try", "void", "volatile", "while", "true", "false", "null",
+            "var", "yield", "record", "sealed", "permits", "non-sealed",
+        ]),
+        SyntaxRule(pattern: "@[a-zA-Z_][a-zA-Z0-9_.]*", color: function),
+        numberLit, funcCall,
+    ]
+
+    static let kotlin: [SyntaxRule] = [
+        lineComment("//"), blockComment, dqString, sqString,
+        SyntaxRule(pattern: "\"\"\"[\\s\\S]*?\"\"\"", color: string, options: .dotMatchesLineSeparators),
+        kw([
+            "abstract", "actual", "annotation", "as", "break", "by", "catch", "class",
+            "companion", "const", "constructor", "continue", "crossinline", "data",
+            "delegate", "do", "else", "enum", "expect", "external", "false", "final",
+            "finally", "for", "fun", "get", "if", "import", "in", "infix", "init",
+            "inline", "inner", "interface", "internal", "is", "lateinit", "noinline",
+            "null", "object", "open", "operator", "out", "override", "package",
+            "private", "protected", "public", "reified", "return", "sealed", "set",
+            "super", "suspend", "tailrec", "this", "throw", "true", "try", "typealias",
+            "val", "var", "vararg", "when", "where", "while",
+        ]),
+        SyntaxRule(pattern: "@[a-zA-Z_][a-zA-Z0-9_.]*", color: function),
+        numberLit, funcCall,
+    ]
+
+    static let csharp: [SyntaxRule] = [
+        lineComment("//"), blockComment, dqString, sqString,
+        SyntaxRule(pattern: "@\"(?:[^\"]|\"\")*\"", color: string),
+        kw([
+            "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char",
+            "checked", "class", "const", "continue", "decimal", "default", "delegate",
+            "do", "double", "else", "enum", "event", "explicit", "extern", "false",
+            "finally", "fixed", "float", "for", "foreach", "goto", "if", "implicit",
+            "in", "int", "interface", "internal", "is", "lock", "long", "namespace",
+            "new", "null", "object", "operator", "out", "override", "params", "private",
+            "protected", "public", "readonly", "ref", "return", "sbyte", "sealed",
+            "short", "sizeof", "stackalloc", "static", "string", "struct", "switch",
+            "this", "throw", "true", "try", "typeof", "uint", "ulong", "unchecked",
+            "unsafe", "ushort", "using", "var", "virtual", "void", "volatile", "while",
+            "async", "await", "record", "init", "required", "global",
+        ]),
+        SyntaxRule(pattern: "\\[\\w+(?:\\([^)]*\\))?\\]", color: function),
+        numberLit, funcCall,
+    ]
+
+    static let php: [SyntaxRule] = [
+        lineComment("//"), lineComment("#"), blockComment,
+        dqString, sqString,
+        kw([
+            "abstract", "and", "array", "as", "break", "callable", "case", "catch",
+            "class", "clone", "const", "continue", "declare", "default", "die", "do",
+            "echo", "else", "elseif", "empty", "enddeclare", "endfor", "endforeach",
+            "endif", "endswitch", "endwhile", "eval", "exit", "extends", "final",
+            "finally", "fn", "for", "foreach", "function", "global", "goto", "if",
+            "implements", "include", "include_once", "instanceof", "insteadof",
+            "interface", "isset", "list", "match", "namespace", "new", "or", "print",
+            "private", "protected", "public", "readonly", "require", "require_once",
+            "return", "static", "switch", "throw", "trait", "try", "unset", "use",
+            "var", "while", "xor", "yield", "true", "false", "null", "enum",
+        ]),
+        SyntaxRule(pattern: "\\$[a-zA-Z_][a-zA-Z0-9_]*", color: type),
+        numberLit, funcCall,
+    ]
+
+    static let lua: [SyntaxRule] = [
+        SyntaxRule(pattern: "--\\[\\[[\\s\\S]*?\\]\\]", color: comment, options: .dotMatchesLineSeparators),
+        lineComment("--"),
+        SyntaxRule(pattern: "\\[\\[[\\s\\S]*?\\]\\]", color: string, options: .dotMatchesLineSeparators),
+        dqString, sqString,
+        kw([
+            "and", "break", "do", "else", "elseif", "end", "false", "for", "function",
+            "goto", "if", "in", "local", "nil", "not", "or", "repeat", "return",
+            "then", "true", "until", "while",
+        ]),
+        numberLit, funcCall,
+    ]
+
+    static let dart: [SyntaxRule] = [
+        lineComment("//"), blockComment, dqString, sqString,
+        SyntaxRule(pattern: "\"\"\"[\\s\\S]*?\"\"\"", color: string, options: .dotMatchesLineSeparators),
+        SyntaxRule(pattern: "'''[\\s\\S]*?'''", color: string, options: .dotMatchesLineSeparators),
+        kw([
+            "abstract", "as", "assert", "async", "await", "base", "break", "case",
+            "catch", "class", "const", "continue", "covariant", "default", "deferred",
+            "do", "dynamic", "else", "enum", "export", "extends", "extension",
+            "external", "factory", "false", "final", "finally", "for", "Function",
+            "get", "hide", "if", "implements", "import", "in", "interface", "is",
+            "late", "library", "mixin", "new", "null", "on", "operator", "part",
+            "required", "rethrow", "return", "sealed", "set", "show", "static",
+            "super", "switch", "sync", "this", "throw", "true", "try", "typedef",
+            "var", "void", "when", "while", "with", "yield",
+        ]),
+        SyntaxRule(pattern: "@[a-zA-Z_][a-zA-Z0-9_.]*", color: function),
+        numberLit, funcCall,
+    ]
+
+    static let elixir: [SyntaxRule] = [
+        lineComment("#"),
+        SyntaxRule(pattern: "\"\"\"[\\s\\S]*?\"\"\"", color: string, options: .dotMatchesLineSeparators),
+        dqString, sqString,
+        kw([
+            "after", "alias", "and", "case", "catch", "cond", "def", "defp",
+            "defmodule", "defstruct", "defprotocol", "defimpl", "defmacro", "defmacrop",
+            "defguard", "defdelegate", "defexception", "defoverridable", "do", "else",
+            "end", "false", "fn", "for", "if", "import", "in", "nil", "not", "or",
+            "quote", "raise", "receive", "require", "rescue", "true", "try", "unless",
+            "unquote", "use", "when", "with",
+        ]),
+        SyntaxRule(pattern: ":[a-zA-Z_][a-zA-Z0-9_]*", color: string),
+        SyntaxRule(pattern: "@[a-zA-Z_][a-zA-Z0-9_]*", color: type),
+        numberLit, funcCall,
+    ]
+
+    static let haskell: [SyntaxRule] = [
+        SyntaxRule(pattern: "\\{-[\\s\\S]*?-\\}", color: comment, options: .dotMatchesLineSeparators),
+        lineComment("--"),
+        dqString, sqString,
+        kw([
+            "as", "case", "class", "data", "default", "deriving", "do", "else",
+            "forall", "foreign", "hiding", "if", "import", "in", "infix", "infixl",
+            "infixr", "instance", "let", "module", "newtype", "of", "qualified",
+            "then", "type", "where", "True", "False",
+        ]),
+        SyntaxRule(pattern: "\\b[A-Z][a-zA-Z0-9_']*", color: type),
+        numberLit, funcCall,
+    ]
+
+    static let scala: [SyntaxRule] = [
+        lineComment("//"), blockComment, dqString, sqString,
+        SyntaxRule(pattern: "\"\"\"[\\s\\S]*?\"\"\"", color: string, options: .dotMatchesLineSeparators),
+        kw([
+            "abstract", "case", "catch", "class", "def", "do", "else", "enum",
+            "export", "extends", "extension", "false", "final", "finally", "for",
+            "given", "if", "implicit", "import", "lazy", "match", "new", "null",
+            "object", "override", "package", "private", "protected", "return",
+            "sealed", "super", "then", "this", "throw", "trait", "true", "try",
+            "type", "val", "var", "while", "with", "yield",
+        ]),
+        SyntaxRule(pattern: "@[a-zA-Z_][a-zA-Z0-9_.]*", color: function),
+        numberLit, funcCall,
+    ]
+
+    static let zig: [SyntaxRule] = [
+        lineComment("//"), dqString, sqString,
+        kw([
+            "addrspace", "align", "allowzero", "and", "anyframe", "anytype", "asm",
+            "async", "await", "break", "callconv", "catch", "comptime", "const",
+            "continue", "defer", "else", "enum", "errdefer", "error", "export",
+            "extern", "false", "fn", "for", "if", "inline", "linksection",
+            "noalias", "nosuspend", "null", "opaque", "or", "orelse", "packed",
+            "pub", "resume", "return", "struct", "suspend", "switch", "test",
+            "threadlocal", "true", "try", "undefined", "union", "unreachable",
+            "usingnamespace", "var", "volatile", "while",
+        ]),
+        SyntaxRule(pattern: "@[a-zA-Z_][a-zA-Z0-9_]*", color: function),
+        numberLit, funcCall,
+    ]
+
+    static let sql: [SyntaxRule] = [
+        lineComment("--"), blockComment,
+        dqString, sqString,
+        ciKw([
+            "ADD", "ALL", "ALTER", "AND", "AS", "ASC", "BEGIN", "BETWEEN", "BY",
+            "CASCADE", "CASE", "CHECK", "COLUMN", "COMMIT", "CONSTRAINT", "CREATE",
+            "CROSS", "DATABASE", "DEFAULT", "DELETE", "DESC", "DISTINCT", "DROP",
+            "ELSE", "END", "EXCEPT", "EXISTS", "FALSE", "FETCH", "FOREIGN", "FROM",
+            "FULL", "GRANT", "GROUP", "HAVING", "IF", "IN", "INDEX", "INNER", "INSERT",
+            "INTERSECT", "INTO", "IS", "JOIN", "KEY", "LEFT", "LIKE", "LIMIT", "NOT",
+            "NULL", "OFFSET", "ON", "OR", "ORDER", "OUTER", "PRIMARY", "REFERENCES",
+            "REPLACE", "RETURNING", "REVOKE", "RIGHT", "ROLLBACK", "SELECT", "SET",
+            "TABLE", "THEN", "TO", "TRANSACTION", "TRUE", "TRUNCATE", "UNION",
+            "UNIQUE", "UPDATE", "USING", "VALUES", "VIEW", "WHEN", "WHERE", "WITH",
+        ]),
+        ciKw([
+            "INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "FLOAT", "DOUBLE",
+            "DECIMAL", "NUMERIC", "REAL", "CHAR", "VARCHAR", "TEXT", "BLOB", "DATE",
+            "TIME", "TIMESTAMP", "DATETIME", "BOOLEAN", "SERIAL", "UUID",
+        ], color: type),
+        numberLit,
+    ]
+
+    static let xml: [SyntaxRule] = [
+        SyntaxRule(pattern: "<!--[\\s\\S]*?-->", color: comment, options: .dotMatchesLineSeparators),
+        SyntaxRule(pattern: "<\\?.*?\\?>", color: function),
+        SyntaxRule(pattern: "<!\\w+[^>]*>", color: function),
+        SyntaxRule(pattern: "</?[a-zA-Z_][a-zA-Z0-9_:.-]*", color: keyword),
+        SyntaxRule(pattern: "/?>", color: keyword),
+        SyntaxRule(pattern: "\\b[a-zA-Z_:][a-zA-Z0-9_:.-]*(?==)", color: function),
+        dqString, sqString,
+    ]
+
+    static let rLang: [SyntaxRule] = [
+        lineComment("#"), dqString, sqString,
+        kw([
+            "break", "else", "for", "function", "if", "in", "next", "repeat",
+            "return", "while", "TRUE", "FALSE", "NULL", "NA", "NA_integer_",
+            "NA_real_", "NA_complex_", "NA_character_", "Inf", "NaN",
+            "library", "require", "source",
+        ]),
+        SyntaxRule(pattern: "<-|->|<<-|->>", color: keyword),
+        numberLit, funcCall,
+    ]
+
+    static let perl: [SyntaxRule] = [
+        lineComment("#"), dqString, sqString,
+        kw([
+            "chomp", "chop", "chr", "crypt", "die", "do", "dump", "each", "else",
+            "elsif", "eval", "exit", "for", "foreach", "goto", "grep", "if", "keys",
+            "last", "local", "map", "my", "next", "no", "our", "package", "pop",
+            "print", "push", "redo", "require", "return", "say", "shift", "sort",
+            "sub", "tr", "unless", "unshift", "until", "use", "values", "while",
+        ]),
+        SyntaxRule(pattern: "\\$[a-zA-Z_][a-zA-Z0-9_]*", color: type),
+        SyntaxRule(pattern: "@[a-zA-Z_][a-zA-Z0-9_]*", color: type),
+        SyntaxRule(pattern: "%[a-zA-Z_][a-zA-Z0-9_]*", color: type),
+        numberLit, funcCall,
+    ]
+
+    private static let objcDirectives = [
+        "interface", "implementation", "protocol", "end", "property",
+        "synthesize", "dynamic", "selector", "encode", "class",
+        "public", "private", "protected", "optional", "required",
+        "throw", "try", "catch", "finally", "autoreleasepool",
+        "synchronized", "import",
+    ]
+
+    static let objc: [SyntaxRule] = cLang + [
+        kw([
+            "class", "id", "self", "super", "nil", "Nil", "YES", "NO",
+            "instancetype", "nonatomic", "strong", "weak", "copy", "assign",
+            "readonly", "readwrite", "atomic", "retain", "nullable", "nonnull",
+        ]),
+        SyntaxRule(
+            pattern: "@(?:\(objcDirectives.joined(separator: "|")))\\b",
+            color: keyword
+        ),
+        SyntaxRule(pattern: "@\"(?:[^\"\\\\]|\\\\.)*\"", color: string),
+    ]
+
+    static let dockerfile: [SyntaxRule] = [
+        lineComment("#"), dqString, sqString,
+        kw([
+            "FROM", "AS", "RUN", "CMD", "LABEL", "MAINTAINER", "EXPOSE", "ENV",
+            "ADD", "COPY", "ENTRYPOINT", "VOLUME", "USER", "WORKDIR", "ARG",
+            "ONBUILD", "STOPSIGNAL", "HEALTHCHECK", "SHELL",
+        ]),
+        SyntaxRule(pattern: "\\$\\{?[a-zA-Z_][a-zA-Z0-9_]*\\}?", color: type),
+        numberLit,
+    ]
+
+    static let makefile: [SyntaxRule] = [
+        lineComment("#"), dqString, sqString,
+        SyntaxRule(pattern: "^[a-zA-Z_][a-zA-Z0-9_.-]*\\s*(?::?=|\\?=|\\+=)", color: type, options: .anchorsMatchLines),
+        SyntaxRule(pattern: "^[a-zA-Z_][a-zA-Z0-9_./-]*(?=\\s*:(?!=))", color: function, options: .anchorsMatchLines),
+        SyntaxRule(pattern: "\\$[({][a-zA-Z_][a-zA-Z0-9_]*[)}]", color: type),
+        SyntaxRule(pattern: "\\$[@<^?*%+]", color: type),
+        kw([
+            "ifeq", "ifneq", "ifdef", "ifndef", "else", "endif", "define",
+            "endef", "include", "override", "export", "unexport", "vpath",
+            ".PHONY", ".DEFAULT", ".PRECIOUS", ".INTERMEDIATE", ".SECONDARY",
+            ".SUFFIXES", ".DELETE_ON_ERROR",
+        ]),
     ]
 }
