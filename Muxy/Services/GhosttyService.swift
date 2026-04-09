@@ -155,41 +155,26 @@ final class GhosttyService {
         NSHomeDirectory() + "/Applications/Ghostty.app/Contents/Resources/ghostty",
     ]
 
-    private static let bundledZshEnv = """
-    if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
-        builtin export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
-        builtin unset GHOSTTY_ZSH_ZDOTDIR
-    else
-        builtin unset ZDOTDIR
-    fi
-
-    _muxy_user_zshenv=${ZDOTDIR-$HOME}/.zshenv
-    if [[ -r "$_muxy_user_zshenv" ]]; then
-        builtin source -- "$_muxy_user_zshenv"
-    fi
-    builtin unset _muxy_user_zshenv
-
-    if [[ -o interactive ]]; then
-        _muxy_integration="${${(%):-%x}:A:h}"/ghostty-integration
-        if [[ -r "$_muxy_integration" ]]; then
-            builtin source -- "$_muxy_integration"
-        fi
-        builtin unset _muxy_integration
-    fi
-    """
-
     private func resolveGhosttyResources() {
-        if let existing = getenv("GHOSTTY_RESOURCES_DIR").map({ String(cString: $0) }) {
-            if FileManager.default.fileExists(atPath: existing + "/shell-integration") {
-                return
-            } else {
-                unsetenv("GHOSTTY_RESOURCES_DIR")
-            }
-        }
+        let existing = getenv("GHOSTTY_RESOURCES_DIR").map { String(cString: $0) }
 
         if let bundledResources = bundledGhosttyResourcesPath() {
+            if let existing, existing != bundledResources {
+                unsetenv("GHOSTTY_RESOURCES_DIR")
+            }
             setenv("GHOSTTY_RESOURCES_DIR", bundledResources, 1)
             return
+        }
+
+        if let existing,
+           Self.fallbackResourceParents.contains(existing),
+           Self.hasShellIntegration(at: existing)
+        {
+            return
+        }
+
+        if existing != nil {
+            unsetenv("GHOSTTY_RESOURCES_DIR")
         }
 
         for path in Self.fallbackResourceParents {
@@ -200,7 +185,9 @@ final class GhosttyService {
     }
 
     private func bundledGhosttyResourcesPath() -> String? {
-        guard let integrationSource = Bundle.module.url(forResource: "ghostty-integration", withExtension: nil) else {
+        guard let zshEnvSource = bundledShellIntegrationResource(named: "ghostty-zshenv"),
+              let integrationSource = bundledShellIntegrationResource(named: "ghostty-integration")
+        else {
             return nil
         }
 
@@ -216,9 +203,8 @@ final class GhosttyService {
                 withIntermediateDirectories: true,
                 attributes: [.posixPermissions: 0o700]
             )
-            try Self.bundledZshEnv.write(to: zshEnvURL, atomically: true, encoding: .utf8)
-            let integrationContents = try String(contentsOf: integrationSource, encoding: .utf8)
-            try integrationContents.write(to: integrationURL, atomically: true, encoding: .utf8)
+            try copyResource(from: zshEnvSource, to: zshEnvURL)
+            try copyResource(from: integrationSource, to: integrationURL)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: zshEnvURL.path)
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: integrationURL.path)
             return root.path
@@ -226,5 +212,26 @@ final class GhosttyService {
             logger.error("Failed to prepare bundled Ghostty resources: \(error)")
             return nil
         }
+    }
+
+    private func copyResource(from source: URL, to destination: URL) throws {
+        let data = try Data(contentsOf: source)
+        if let existingData = try? Data(contentsOf: destination), existingData == data {
+            return
+        }
+        try data.write(to: destination, options: .atomic)
+    }
+
+    private func bundledShellIntegrationResource(named name: String) -> URL? {
+        let subdirectory = "ghostty/shell-integration/zsh"
+        // SwiftPM flattens local resource bundles in debug builds, so keep a top-level fallback.
+        if let url = Bundle.module.url(forResource: name, withExtension: nil, subdirectory: subdirectory) {
+            return url
+        }
+        return Bundle.module.url(forResource: name, withExtension: nil)
+    }
+
+    private static func hasShellIntegration(at path: String) -> Bool {
+        FileManager.default.fileExists(atPath: path + "/shell-integration")
     }
 }

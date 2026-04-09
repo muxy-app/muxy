@@ -15,8 +15,10 @@ struct TerminalPane: View {
                 state: state,
                 focused: focused,
                 onWorkingDirectoryChange: { path in
+                    guard state.lastKnownWorkingDirectory != path else { return }
                     state.lastKnownWorkingDirectory = path
-                    appState.saveWorkspaces()
+                    guard state.workingDirectoryMode == .rememberLast else { return }
+                    appState.scheduleWorkspaceSave()
                 },
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
