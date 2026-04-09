@@ -5,6 +5,8 @@ struct FileSearchResult: Identifiable {
     let relativePath: String
     let absolutePath: String
     let fileName: String
+    let lowerFileName: String
+    let lowerRelativePath: String
 }
 
 private struct GitignoreRule {
@@ -58,28 +60,28 @@ actor FileSearchService {
         return results
     }
 
-    func search(query: String, projectPath: String) async -> [FileSearchResult] {
-        let index = await indexProject(projectPath)
+    func getIndex(projectPath: String) async -> [FileSearchResult] {
+        await indexProject(projectPath)
+    }
+
+    static func search(query: String, in index: [FileSearchResult]) -> [FileSearchResult] {
         guard !query.isEmpty else { return Array(index.prefix(200)) }
 
         let lowerQuery = query.lowercased()
         var scored: [(result: FileSearchResult, score: Int)] = []
 
         for file in index {
-            let lowerPath = file.relativePath.lowercased()
-            let lowerName = file.fileName.lowercased()
-
-            if lowerName == lowerQuery {
+            if file.lowerFileName == lowerQuery {
                 scored.append((file, 1000))
-            } else if lowerName.hasPrefix(lowerQuery) {
+            } else if file.lowerFileName.hasPrefix(lowerQuery) {
                 scored.append((file, 800))
-            } else if lowerName.contains(lowerQuery) {
+            } else if file.lowerFileName.contains(lowerQuery) {
                 scored.append((file, 600))
-            } else if fuzzyMatch(query: lowerQuery, target: lowerName) {
+            } else if fuzzyMatch(query: lowerQuery, target: file.lowerFileName) {
                 scored.append((file, 400))
-            } else if lowerPath.contains(lowerQuery) {
+            } else if file.lowerRelativePath.contains(lowerQuery) {
                 scored.append((file, 200))
-            } else if fuzzyMatch(query: lowerQuery, target: lowerPath) {
+            } else if fuzzyMatch(query: lowerQuery, target: file.lowerRelativePath) {
                 scored.append((file, 100))
             }
         }
@@ -130,11 +132,14 @@ actor FileSearchService {
 
             guard !matchesGitignore(relativePath, rules: gitignoreRules) else { continue }
 
+            let absolutePath = url.path(percentEncoded: false)
             results.append(FileSearchResult(
-                id: url.path(percentEncoded: false),
+                id: absolutePath,
                 relativePath: relativePath,
-                absolutePath: url.path(percentEncoded: false),
-                fileName: name
+                absolutePath: absolutePath,
+                fileName: name,
+                lowerFileName: name.lowercased(),
+                lowerRelativePath: relativePath.lowercased()
             ))
         }
 
@@ -142,18 +147,14 @@ actor FileSearchService {
         return results
     }
 
-    private func fuzzyMatch(query: String, target: String) -> Bool {
-        var queryIndex = query.startIndex
-        var targetIndex = target.startIndex
-
-        while queryIndex < query.endIndex, targetIndex < target.endIndex {
-            if query[queryIndex] == target[targetIndex] {
-                queryIndex = query.index(after: queryIndex)
-            }
-            targetIndex = target.index(after: targetIndex)
+    private static func fuzzyMatch(query: String, target: String) -> Bool {
+        var queryIterator = query.utf8.makeIterator()
+        guard var queryByte = queryIterator.next() else { return true }
+        for targetByte in target.utf8 where targetByte == queryByte {
+            guard let next = queryIterator.next() else { return true }
+            queryByte = next
         }
-
-        return queryIndex == query.endIndex
+        return false
     }
 
     private func loadGitignore(at projectPath: String) -> [GitignoreRule] {
