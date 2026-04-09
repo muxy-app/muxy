@@ -5,6 +5,7 @@ struct VCSTabView: View {
     @Bindable var state: VCSTabState
     let focused: Bool
     let onFocus: () -> Void
+    @Environment(AppState.self) private var appState
     @State private var showDiscardAllConfirmation = false
     @State private var pendingDiscardPath: String?
 
@@ -22,7 +23,7 @@ struct VCSTabView: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onFocus)
         .onAppear {
-            if state.files.isEmpty, !state.isLoadingFiles {
+            if !state.hasCompletedInitialLoad, !state.isLoadingFiles {
                 state.refresh()
             }
         }
@@ -163,7 +164,8 @@ struct VCSTabView: View {
                     state: state,
                     onFocus: onFocus,
                     showDiscardAllConfirmation: $showDiscardAllConfirmation,
-                    pendingDiscardPath: $pendingDiscardPath
+                    pendingDiscardPath: $pendingDiscardPath,
+                    onOpenInEditor: openFileInEditor
                 )
             }
         }
@@ -299,6 +301,14 @@ struct VCSTabView: View {
             }
         }
     }
+
+    private func openFileInEditor(_ relativePath: String) {
+        guard let projectID = appState.activeProjectID else { return }
+        let fullPath = state.projectPath.hasSuffix("/")
+            ? state.projectPath + relativePath
+            : state.projectPath + "/" + relativePath
+        appState.openFile(fullPath, projectID: projectID)
+    }
 }
 
 private struct SectionSplitLayout: View {
@@ -306,6 +316,7 @@ private struct SectionSplitLayout: View {
     let onFocus: () -> Void
     @Binding var showDiscardAllConfirmation: Bool
     @Binding var pendingDiscardPath: String?
+    let onOpenInEditor: (String) -> Void
 
     private static let sectionHeaderHeight: CGFloat = 30
 
@@ -591,7 +602,8 @@ private struct SectionSplitLayout: View {
                 },
                 onStage: { state.stageFile(file.path) },
                 onUnstage: { state.unstageFile(file.path) },
-                onDiscard: { pendingDiscardPath = file.path }
+                onDiscard: { pendingDiscardPath = file.path },
+                onOpenInEditor: { onOpenInEditor(file.path) }
             )
 
             if expanded {
@@ -688,6 +700,7 @@ private struct FileRow: View {
     let onStage: () -> Void
     let onUnstage: () -> Void
     let onDiscard: () -> Void
+    let onOpenInEditor: () -> Void
     @State private var hovered = false
 
     private var statusColor: Color {
@@ -761,6 +774,8 @@ private struct FileRow: View {
 
     private var actionButtons: some View {
         HStack(spacing: 0) {
+            IconButton(symbol: "doc.text", size: 11, action: onOpenInEditor)
+                .help("Open in Editor")
             if isStaged {
                 IconButton(symbol: "minus", size: 11, action: onUnstage)
                     .help("Unstage")

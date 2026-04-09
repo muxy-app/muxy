@@ -339,7 +339,6 @@ actor GitRepositoryService {
                 "--format=\(Self.logFormat)",
                 "--max-count=\(maxCount)",
                 "--skip=\(skip)",
-                "--all",
             ]
         )
         guard result.status == 0 else {

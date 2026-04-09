@@ -72,12 +72,14 @@ final class VCSTabState {
     @ObservationIgnored private let git = GitRepositoryService()
     @ObservationIgnored private var loadFilesTask: Task<Void, Never>?
     @ObservationIgnored private var branchTask: Task<Void, Never>?
+    @ObservationIgnored private var prInfoTask: Task<Void, Never>?
     @ObservationIgnored private var loadBranchesTask: Task<Void, Never>?
     @ObservationIgnored private var loadDiffTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var commitLogTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: GitDirectoryWatcher?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var pendingRefresh = false
+    private(set) var hasCompletedInitialLoad = false
     @ObservationIgnored private static let commitsPerPage = 100
 
     init(projectPath: String) {
@@ -88,6 +90,7 @@ final class VCSTabState {
     deinit {
         loadFilesTask?.cancel()
         branchTask?.cancel()
+        prInfoTask?.cancel()
         loadBranchesTask?.cancel()
         commitLogTask?.cancel()
         loadDiffTasks.values.forEach { $0.cancel() }
@@ -123,15 +126,14 @@ final class VCSTabState {
         errorMessage = nil
 
         branchTask?.cancel()
+        prInfoTask?.cancel()
         branchTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let branch = try await git.currentBranch(repoPath: projectPath)
                 guard !Task.isCancelled else { return }
                 branchName = branch
-                let prInfo = await git.pullRequestInfo(repoPath: projectPath, branch: branch)
-                guard !Task.isCancelled else { return }
-                pullRequestInfo = prInfo
+                fetchPRInfo(branch: branch)
             } catch {
                 guard !Task.isCancelled else { return }
                 branchName = nil
@@ -139,7 +141,7 @@ final class VCSTabState {
             }
         }
 
-        if !historyCollapsed, !incremental || commits.isEmpty {
+        if !historyCollapsed, commits.isEmpty {
             loadCommits()
         }
 
@@ -182,6 +184,7 @@ final class VCSTabState {
                     files = newFiles
                 }
                 isLoadingFiles = false
+                hasCompletedInitialLoad = true
 
                 if incremental {
                     for path in expandedFilePaths where changedPaths.contains(path) {
@@ -285,6 +288,7 @@ final class VCSTabState {
                 try await git.switchBranch(repoPath: projectPath, branch: name)
                 guard !Task.isCancelled else { return }
                 branchName = name
+                commits = []
                 showStatus("Switched to \(name)", isError: false)
                 performRefresh(incremental: false)
             } catch {
@@ -354,6 +358,7 @@ final class VCSTabState {
                 let hash = try await git.commit(repoPath: projectPath, message: message)
                 guard !Task.isCancelled else { return }
                 commitMessage = ""
+                commits = []
                 showStatus("Committed \(hash)", isError: false)
                 performRefresh(incremental: false)
             } catch {
@@ -440,6 +445,7 @@ final class VCSTabState {
             do {
                 try await git.cherryPick(repoPath: projectPath, hash: hash)
                 guard !Task.isCancelled else { return }
+                commits = []
                 showStatus("Cherry-picked \(String(hash.prefix(7)))", isError: false)
                 performRefresh(incremental: false)
             } catch {
@@ -488,6 +494,7 @@ final class VCSTabState {
             do {
                 try await git.checkoutDetached(repoPath: projectPath, hash: hash)
                 guard !Task.isCancelled else { return }
+                commits = []
                 showStatus("Checked out \(String(hash.prefix(7)))", isError: false)
                 performRefresh(incremental: false)
             } catch {
@@ -508,6 +515,16 @@ final class VCSTabState {
                 guard !Task.isCancelled else { return }
                 showStatus(errorText(error), isError: true)
             }
+        }
+    }
+
+    private func fetchPRInfo(branch: String) {
+        prInfoTask?.cancel()
+        prInfoTask = Task { [weak self] in
+            guard let self else { return }
+            let prInfo = await git.pullRequestInfo(repoPath: projectPath, branch: branch)
+            guard !Task.isCancelled else { return }
+            pullRequestInfo = prInfo
         }
     }
 

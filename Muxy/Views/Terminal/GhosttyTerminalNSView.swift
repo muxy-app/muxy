@@ -102,19 +102,37 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     deinit {
+        screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         if let surface {
             ghostty_surface_free(surface)
         }
     }
 
+    nonisolated(unsafe) private var screenChangeObserver: NSObjectProtocol?
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil, surface == nil {
+
+        screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
+        screenChangeObserver = nil
+
+        guard let window else { return }
+
+        if surface == nil {
             createSurface()
         }
-        if window != nil {
-            updateMetalLayerSize()
+
+        screenChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeScreenNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateMetalLayerSize()
+            }
         }
+
+        updateMetalLayerSize()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -138,12 +156,12 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func updateMetalLayerSize() {
-        guard let surface, window != nil else { return }
+        guard let surface, let window else { return }
 
         let scaledSize = convertToBacking(bounds).size
         guard scaledSize.width > 0, scaledSize.height > 0 else { return }
 
-        let scale = Double(window?.backingScaleFactor ?? 2.0)
+        let scale = Double(window.backingScaleFactor)
 
         if let metalLayer = layer as? CAMetalLayer {
             CATransaction.begin()
@@ -153,6 +171,12 @@ final class GhosttyTerminalNSView: NSView {
         }
 
         ghostty_surface_set_content_scale(surface, scale, scale)
+
+        if let screen = window.screen,
+           let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
+        {
+            ghostty_surface_set_display_id(surface, displayID)
+        }
 
         let w = UInt32(scaledSize.width)
         let h = UInt32(scaledSize.height)

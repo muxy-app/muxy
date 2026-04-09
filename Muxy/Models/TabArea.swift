@@ -62,6 +62,14 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(vcsState: VCSTabState(projectPath: projectPath)))
     }
 
+    func createEditorTab(filePath: String) {
+        if let existing = tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
+            selectTab(existing.id)
+            return
+        }
+        insertTab(TerminalTab(editorState: EditorTabState(projectPath: projectPath, filePath: filePath)))
+    }
+
     private func insertTab(_ tab: TerminalTab) {
         tabs.append(tab)
         if let current = activeTabID {

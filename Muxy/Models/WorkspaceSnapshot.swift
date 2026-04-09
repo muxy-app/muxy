@@ -72,6 +72,7 @@ struct TerminalTabSnapshot: Codable {
     let paneTitle: String
     let workingDirectoryMode: TerminalPaneState.WorkingDirectoryMode
     let defaultWorkingDirectory: String?
+    let filePath: String?
 
     init(
         kind: TerminalTab.Kind,
@@ -80,7 +81,8 @@ struct TerminalTabSnapshot: Codable {
         projectPath: String,
         paneTitle: String?,
         workingDirectoryMode: TerminalPaneState.WorkingDirectoryMode? = nil,
-        defaultWorkingDirectory: String? = nil
+        defaultWorkingDirectory: String? = nil,
+        filePath: String? = nil
     ) {
         self.kind = kind
         self.customTitle = customTitle
@@ -89,6 +91,7 @@ struct TerminalTabSnapshot: Codable {
         self.paneTitle = paneTitle ?? "Terminal"
         self.workingDirectoryMode = workingDirectoryMode ?? .projectRoot
         self.defaultWorkingDirectory = defaultWorkingDirectory
+        self.filePath = filePath
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -99,6 +102,7 @@ struct TerminalTabSnapshot: Codable {
         case paneTitle
         case workingDirectoryMode
         case defaultWorkingDirectory
+        case filePath
     }
 
     init(from decoder: Decoder) throws {
@@ -116,6 +120,7 @@ struct TerminalTabSnapshot: Codable {
             .projectRoot
         }
         defaultWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .defaultWorkingDirectory)
+        filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
     }
 }
 

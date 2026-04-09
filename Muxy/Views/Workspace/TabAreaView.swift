@@ -40,9 +40,10 @@ struct TabAreaView: View {
             }
             ZStack {
                 ForEach(area.tabs) { tab in
+                    let isActive = tab.id == area.activeTabID
                     TabContentView(
                         tab: tab,
-                        focused: tab.id == area.activeTabID && isFocused && isActiveProject,
+                        focused: isActive && isFocused && isActiveProject,
                         onFocus: onFocus,
                         onProcessExit: { onForceCloseTab(tab.id) },
                         onSplitRequest: { direction, position in
@@ -55,9 +56,9 @@ struct TabAreaView: View {
                             )))
                         }
                     )
-                    .zIndex(tab.id == area.activeTabID ? 1 : 0)
-                    .opacity(tab.id == area.activeTabID ? 1 : 0)
-                    .allowsHitTesting(tab.id == area.activeTabID)
+                    .zIndex(isActive ? 1 : 0)
+                    .opacity(isActive ? 1 : 0)
+                    .allowsHitTesting(isActive)
                 }
             }
             .overlay {
@@ -82,6 +83,13 @@ struct TabAreaView: View {
             guard let pane = tab.content.pane else { return }
             TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .saveActiveEditor)) { _ in
+            guard isFocused, isActiveProject else { return }
+            guard let tabID = area.activeTabID,
+                  let tab = area.tabs.first(where: { $0.id == tabID })
+            else { return }
+            tab.content.editorState?.saveFile()
+        }
     }
 }
 
@@ -104,6 +112,8 @@ private struct TabContentView: View {
             )
         case let .vcs(vcsState):
             VCSTabView(state: vcsState, focused: focused, onFocus: onFocus)
+        case let .editor(editorState):
+            EditorPane(state: editorState, focused: focused, onFocus: onFocus)
         }
     }
 }

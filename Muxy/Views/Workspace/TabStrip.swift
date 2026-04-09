@@ -83,6 +83,9 @@ struct PaneTabStrip: View {
                     }
                     .padding(.trailing, 4)
                 }
+                IconButton(symbol: "magnifyingglass", size: 12) {
+                    NotificationCenter.default.post(name: .quickOpen, object: nil)
+                }
                 IconButton(symbol: "square.split.2x1") { onSplit(.horizontal) }
                 IconButton(symbol: "square.split.1x2") { onSplit(.vertical) }
                 IconButton(symbol: "plus") { onCreateTab() }
@@ -371,6 +374,9 @@ private struct TabCell: View {
             FileDiffIcon()
                 .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                 .frame(width: 12, height: 12)
+        } else if tab.kind == .editor {
+            Image(systemName: "pencil.line")
+                .font(.system(size: 12, weight: .semibold))
         } else {
             Image(systemName: "terminal")
                 .font(.system(size: 12, weight: .semibold))

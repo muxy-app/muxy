@@ -24,6 +24,8 @@ Muxy/
     KeyBinding.swift          ShortcutAction enum + KeyBinding defaults
     KeyCombo.swift            Key combo encoding, display, matching
     VCSTabState.swift         Git diff viewer state + loading orchestration
+    EditorTabState.swift      Code editor tab state (file content, cursor, save)
+    EditorSettings.swift      @Observable editor preferences (font, word wrap, tab size)
     Project.swift             Project folder metadata
     TerminalPaneState.swift   Per-pane terminal state
     TerminalSearchState.swift Terminal find-in-page state
@@ -36,6 +38,7 @@ Muxy/
       GitStatusParser.swift       Porcelain + numstat output parsing
       GitModels.swift             GitStatusFile, DiffDisplayRow, NumstatEntry
     GitDirectoryWatcher.swift FSEvents watcher for .git changes
+    FileSearchService.swift   Project file indexing + fuzzy search for quick open
     ThemeService.swift        Theme discovery + application
     MuxyConfig.swift          Ghostty config file read/write
     KeyBindingStore.swift     @Observable store for keyboard shortcuts
@@ -62,11 +65,17 @@ Muxy/
       WindowDragView.swift    NSView for window title bar dragging
       MiddleClickView.swift   NSView for middle-click tab close
       UUIDFramePreferenceKey.swift  Generic PreferenceKey for frame tracking
+      QuickOpenOverlay.swift  Cmd+P file search overlay (fuzzy file finder)
     Terminal/
       GhosttyTerminalNSView.swift       AppKit view wrapping ghostty_surface_t + NSTextInputClient
       TerminalPane.swift      SwiftUI wrapper for terminal + search
       TerminalSearchBar.swift Find-in-terminal UI
       TerminalViewRegistry.swift  Terminal view lifecycle management
+    Editor/
+      CodeEditorRepresentable.swift  NSViewRepresentable bridge for code editor
+      EditorPane.swift        SwiftUI wrapper for editor tab (breadcrumb + editor)
+      Extensions/
+        SyntaxHighlightExtension.swift  Regex-based syntax highlighting rules for code editor
     VCS/
       VCSTabView.swift        Source control tab (commit, stage, diff, branch)
       BranchPicker.swift      Branch selection dropdown with filter
@@ -85,6 +94,7 @@ Muxy/
     Settings/
       SettingsView.swift      Settings window layout
       AppearanceSettingsView.swift  Theme settings tab
+      EditorSettingsView.swift  Editor preferences tab (font, wrap, tab size)
       KeyboardShortcutsSettingsView.swift  Shortcut config tab
       ShortcutRecorderView.swift  Shortcut capture field
       ShortcutBadge.swift     Shortcut label display
