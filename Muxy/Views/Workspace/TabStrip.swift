@@ -293,19 +293,6 @@ private struct TabCell: View {
                 }
                 if let pane {
                     Divider()
-                    Toggle("Save working directory", isOn: Binding(
-                        get: { pane.workingDirectoryMode == .rememberLast },
-                        set: { enabled in
-                            if enabled {
-                                pane.workingDirectoryMode = .rememberLast
-                            } else if pane.workingDirectoryMode == .rememberLast {
-                                pane.workingDirectoryMode = .projectRoot
-                            }
-                            onWorkspaceMutation()
-                        }
-                    ))
-                    .disabled(pane.workingDirectoryMode == .fixedDefault)
-
                     Toggle("Set default directory", isOn: Binding(
                         get: { pane.workingDirectoryMode == .fixedDefault },
                         set: { enabled in
@@ -323,7 +310,6 @@ private struct TabCell: View {
                             onWorkspaceMutation()
                         }
                     ))
-                    .disabled(pane.workingDirectoryMode == .rememberLast)
                 }
                 Divider()
                 Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") {
@@ -367,7 +353,7 @@ private struct TabCell: View {
         panel.allowsMultipleSelection = false
         panel.message = "Select a default directory for this tab"
 
-        let initialPath = pane.lastKnownWorkingDirectory ?? pane.projectPath
+        let initialPath = pane.defaultWorkingDirectory ?? pane.projectPath
         if FileManager.default.fileExists(atPath: initialPath) {
             panel.directoryURL = URL(fileURLWithPath: initialPath, isDirectory: true)
         }

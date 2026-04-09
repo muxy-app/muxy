@@ -6,7 +6,6 @@ final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     private let workingDirectory: String
     var onTitleChange: ((String) -> Void)?
-    var onWorkingDirectoryChange: ((String) -> Void)?
     var onFocus: (() -> Void)?
     var onProcessExit: (() -> Void)?
     var onSplitRequest: ((SplitDirection, SplitPosition) -> Void)?

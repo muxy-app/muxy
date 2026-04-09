@@ -5,7 +5,6 @@ import Foundation
 final class TerminalPaneState: Identifiable {
     enum WorkingDirectoryMode: String, Codable {
         case projectRoot
-        case rememberLast
         case fixedDefault
     }
 
@@ -13,7 +12,6 @@ final class TerminalPaneState: Identifiable {
     let projectPath: String
     var title: String = "Terminal"
     var workingDirectoryMode: WorkingDirectoryMode = .projectRoot
-    var lastKnownWorkingDirectory: String?
     var defaultWorkingDirectory: String?
     let searchState = TerminalSearchState()
 
@@ -25,13 +23,11 @@ final class TerminalPaneState: Identifiable {
         projectPath: String,
         title: String,
         workingDirectoryMode: WorkingDirectoryMode = .projectRoot,
-        lastKnownWorkingDirectory: String? = nil,
         defaultWorkingDirectory: String? = nil
     ) {
         self.projectPath = projectPath
         self.title = title
         self.workingDirectoryMode = workingDirectoryMode
-        self.lastKnownWorkingDirectory = lastKnownWorkingDirectory
         self.defaultWorkingDirectory = defaultWorkingDirectory
     }
 
@@ -39,8 +35,6 @@ final class TerminalPaneState: Identifiable {
         let candidate: String? = switch workingDirectoryMode {
         case .projectRoot:
             projectPath
-        case .rememberLast:
-            lastKnownWorkingDirectory ?? projectPath
         case .fixedDefault:
             defaultWorkingDirectory ?? projectPath
         }

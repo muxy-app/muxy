@@ -73,7 +73,6 @@ final class TerminalTab: Identifiable {
                 projectPath: snapshot.projectPath,
                 title: snapshot.paneTitle,
                 workingDirectoryMode: snapshot.workingDirectoryMode,
-                lastKnownWorkingDirectory: snapshot.lastKnownWorkingDirectory,
                 defaultWorkingDirectory: snapshot.defaultWorkingDirectory
             ))
         case .vcs:
@@ -89,7 +88,6 @@ final class TerminalTab: Identifiable {
             projectPath: content.projectPath,
             paneTitle: content.pane?.title,
             workingDirectoryMode: content.pane?.workingDirectoryMode,
-            lastKnownWorkingDirectory: content.pane?.lastKnownWorkingDirectory,
             defaultWorkingDirectory: content.pane?.defaultWorkingDirectory
         )
     }

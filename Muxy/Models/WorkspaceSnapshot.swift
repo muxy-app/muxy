@@ -71,7 +71,6 @@ struct TerminalTabSnapshot: Codable {
     let projectPath: String
     let paneTitle: String
     let workingDirectoryMode: TerminalPaneState.WorkingDirectoryMode
-    let lastKnownWorkingDirectory: String?
     let defaultWorkingDirectory: String?
 
     init(
@@ -81,7 +80,6 @@ struct TerminalTabSnapshot: Codable {
         projectPath: String,
         paneTitle: String?,
         workingDirectoryMode: TerminalPaneState.WorkingDirectoryMode? = nil,
-        lastKnownWorkingDirectory: String? = nil,
         defaultWorkingDirectory: String? = nil
     ) {
         self.kind = kind
@@ -90,7 +88,6 @@ struct TerminalTabSnapshot: Codable {
         self.projectPath = projectPath
         self.paneTitle = paneTitle ?? "Terminal"
         self.workingDirectoryMode = workingDirectoryMode ?? .projectRoot
-        self.lastKnownWorkingDirectory = lastKnownWorkingDirectory
         self.defaultWorkingDirectory = defaultWorkingDirectory
     }
 
@@ -101,7 +98,6 @@ struct TerminalTabSnapshot: Codable {
         case projectPath
         case paneTitle
         case workingDirectoryMode
-        case lastKnownWorkingDirectory
         case defaultWorkingDirectory
     }
 
@@ -112,11 +108,13 @@ struct TerminalTabSnapshot: Codable {
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
         projectPath = try container.decode(String.self, forKey: .projectPath)
         paneTitle = try container.decodeIfPresent(String.self, forKey: .paneTitle) ?? "Terminal"
-        workingDirectoryMode = try container.decodeIfPresent(
-            TerminalPaneState.WorkingDirectoryMode.self,
-            forKey: .workingDirectoryMode
-        ) ?? .projectRoot
-        lastKnownWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .lastKnownWorkingDirectory)
+        let workingDirectoryModeValue = try container.decodeIfPresent(String.self, forKey: .workingDirectoryMode)
+        workingDirectoryMode = switch workingDirectoryModeValue {
+        case TerminalPaneState.WorkingDirectoryMode.fixedDefault.rawValue:
+            .fixedDefault
+        default:
+            .projectRoot
+        }
         defaultWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .defaultWorkingDirectory)
     }
 }

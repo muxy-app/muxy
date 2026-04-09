@@ -37,7 +37,6 @@ final class AppState {
     private let selectionStore: any ActiveProjectSelectionStoring
     private let terminalViews: any TerminalViewRemoving
     private let workspacePersistence: any WorkspacePersisting
-    @ObservationIgnored private var pendingWorkspaceSaveTask: Task<Void, Never>?
     var onProjectsEmptied: (([UUID]) -> Void)?
 
     var activeProjectID: UUID? {
@@ -83,22 +82,6 @@ final class AppState {
     }
 
     func saveWorkspaces() {
-        pendingWorkspaceSaveTask?.cancel()
-        pendingWorkspaceSaveTask = nil
-        persistWorkspaces()
-    }
-
-    func scheduleWorkspaceSave(after delay: Duration = .milliseconds(750)) {
-        pendingWorkspaceSaveTask?.cancel()
-        pendingWorkspaceSaveTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: delay)
-            guard let self, !Task.isCancelled else { return }
-            pendingWorkspaceSaveTask = nil
-            persistWorkspaces()
-        }
-    }
-
-    private func persistWorkspaces() {
         let snapshots = WorkspaceRestorer.snapshotAll(
             workspaceRoots: workspaceRoots,
             focusedAreaID: focusedAreaID

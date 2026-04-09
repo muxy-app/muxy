@@ -150,88 +150,24 @@ final class GhosttyService {
         ghostty_app_tick(app)
     }
 
-    private static let fallbackResourceParents = [
+    private static let allowedResourceParents = [
         "/Applications/Ghostty.app/Contents/Resources/ghostty",
         NSHomeDirectory() + "/Applications/Ghostty.app/Contents/Resources/ghostty",
     ]
 
     private func resolveGhosttyResources() {
-        let existing = getenv("GHOSTTY_RESOURCES_DIR").map { String(cString: $0) }
-
-        if let bundledResources = bundledGhosttyResourcesPath() {
-            if let existing, existing != bundledResources {
+        if let existing = getenv("GHOSTTY_RESOURCES_DIR").map({ String(cString: $0) }) {
+            guard Self.allowedResourceParents.contains(where: { existing.hasPrefix($0) }) else {
                 unsetenv("GHOSTTY_RESOURCES_DIR")
+                return
             }
-            setenv("GHOSTTY_RESOURCES_DIR", bundledResources, 1)
             return
         }
 
-        if let existing,
-           Self.fallbackResourceParents.contains(existing),
-           Self.hasShellIntegration(at: existing)
-        {
-            return
-        }
-
-        if existing != nil {
-            unsetenv("GHOSTTY_RESOURCES_DIR")
-        }
-
-        for path in Self.fallbackResourceParents {
+        for path in Self.allowedResourceParents {
             guard FileManager.default.fileExists(atPath: path + "/shell-integration") else { continue }
             setenv("GHOSTTY_RESOURCES_DIR", path, 1)
             return
         }
-    }
-
-    private func bundledGhosttyResourcesPath() -> String? {
-        guard let zshEnvSource = bundledShellIntegrationResource(named: "ghostty-zshenv"),
-              let integrationSource = bundledShellIntegrationResource(named: "ghostty-integration")
-        else {
-            return nil
-        }
-
-        let root = MuxyFileStorage.appSupportDirectory()
-            .appendingPathComponent("ghostty", isDirectory: true)
-        let zshDir = root.appendingPathComponent("shell-integration/zsh", isDirectory: true)
-        let zshEnvURL = zshDir.appendingPathComponent(".zshenv", isDirectory: false)
-        let integrationURL = zshDir.appendingPathComponent("ghostty-integration", isDirectory: false)
-
-        do {
-            try FileManager.default.createDirectory(
-                at: zshDir,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-            try copyResource(from: zshEnvSource, to: zshEnvURL)
-            try copyResource(from: integrationSource, to: integrationURL)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: zshEnvURL.path)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: integrationURL.path)
-            return root.path
-        } catch {
-            logger.error("Failed to prepare bundled Ghostty resources: \(error)")
-            return nil
-        }
-    }
-
-    private func copyResource(from source: URL, to destination: URL) throws {
-        let data = try Data(contentsOf: source)
-        if let existingData = try? Data(contentsOf: destination), existingData == data {
-            return
-        }
-        try data.write(to: destination, options: .atomic)
-    }
-
-    private func bundledShellIntegrationResource(named name: String) -> URL? {
-        let subdirectory = "ghostty/shell-integration/zsh"
-        // SwiftPM flattens local resource bundles in debug builds, so keep a top-level fallback.
-        if let url = Bundle.module.url(forResource: name, withExtension: nil, subdirectory: subdirectory) {
-            return url
-        }
-        return Bundle.module.url(forResource: name, withExtension: nil)
-    }
-
-    private static func hasShellIntegration(at path: String) -> Bool {
-        FileManager.default.fileExists(atPath: path + "/shell-integration")
     }
 }
