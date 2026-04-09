@@ -5,6 +5,8 @@ struct CodeEditorView: NSViewRepresentable {
     @Bindable var state: EditorTabState
     let themeVersion: Int
     let searchNeedle: String
+    let searchNavigationVersion: Int
+    let searchNavigationDirection: EditorSearchNavigationDirection
 
     func makeCoordinator() -> Coordinator {
         Coordinator(state: state)
@@ -88,6 +90,11 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.lastSearchNeedle = searchNeedle
             coordinator.performSearch(searchNeedle)
         }
+
+        if coordinator.lastSearchNavigationVersion != searchNavigationVersion {
+            coordinator.lastSearchNavigationVersion = searchNavigationVersion
+            coordinator.navigateSearch(forward: searchNavigationDirection == .next)
+        }
     }
 
     @MainActor
@@ -97,26 +104,11 @@ struct CodeEditorView: NSViewRepresentable {
         var isUpdating = false
         var lastThemeVersion = -1
         var lastSearchNeedle = ""
+        var lastSearchNavigationVersion = -1
 
         init(state: EditorTabState) {
             self.state = state
             super.init()
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(handleSearchNavigate),
-                name: .editorSearchNavigate,
-                object: nil
-            )
-        }
-
-        deinit {
-            NotificationCenter.default.removeObserver(self)
-        }
-
-        @objc
-        private func handleSearchNavigate(_ notification: Notification) {
-            let direction = notification.object as? String ?? "next"
-            navigateSearch(forward: direction == "next")
         }
 
         func textDidChange(_: Notification) {

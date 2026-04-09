@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct FileSearchResult: Identifiable {
@@ -5,6 +6,13 @@ struct FileSearchResult: Identifiable {
     let relativePath: String
     let absolutePath: String
     let fileName: String
+}
+
+private struct GitignoreRule {
+    let pattern: String
+    let isNegated: Bool
+    let isDirectoryOnly: Bool
+    let isAnchored: Bool
 }
 
 actor FileSearchService {
@@ -101,7 +109,7 @@ actor FileSearchService {
         )
         else { return [] }
 
-        let gitignorePatterns = loadGitignore(at: projectPath)
+        let gitignoreRules = loadGitignore(at: projectPath)
 
         while let url = enumerator.nextObject() as? URL {
             if Task.isCancelled { break }
@@ -121,7 +129,7 @@ actor FileSearchService {
 
             let relativePath = String(url.path(percentEncoded: false).dropFirst(projectPath.count + 1))
 
-            guard !matchesGitignore(relativePath, patterns: gitignorePatterns) else { continue }
+            guard !matchesGitignore(relativePath, rules: gitignoreRules) else { continue }
 
             results.append(FileSearchResult(
                 id: url.path(percentEncoded: false),
@@ -149,7 +157,7 @@ actor FileSearchService {
         return queryIndex == query.endIndex
     }
 
-    private func loadGitignore(at projectPath: String) -> [String] {
+    private func loadGitignore(at projectPath: String) -> [GitignoreRule] {
         let gitignorePath = projectPath + "/.gitignore"
         guard let content = try? String(contentsOfFile: gitignorePath, encoding: .utf8) else {
             return []
@@ -157,14 +165,79 @@ actor FileSearchService {
         return content
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+            .compactMap(parseGitignoreRule)
     }
 
-    private func matchesGitignore(_ path: String, patterns: [String]) -> Bool {
-        for pattern in patterns {
-            let cleanPattern = pattern.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            if path.contains(cleanPattern) { return true }
+    private func parseGitignoreRule(_ line: String) -> GitignoreRule? {
+        guard !line.isEmpty, !line.hasPrefix("#") else { return nil }
+        let isNegated = line.hasPrefix("!")
+        let rawPattern = isNegated ? String(line.dropFirst()) : line
+        guard !rawPattern.isEmpty else { return nil }
+        let isDirectoryOnly = rawPattern.hasSuffix("/")
+        let isAnchored = rawPattern.hasPrefix("/")
+        let pattern = rawPattern
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .replacingOccurrences(of: "**", with: "*")
+        guard !pattern.isEmpty else { return nil }
+        return GitignoreRule(
+            pattern: pattern,
+            isNegated: isNegated,
+            isDirectoryOnly: isDirectoryOnly,
+            isAnchored: isAnchored
+        )
+    }
+
+    private func matchesGitignore(_ path: String, rules: [GitignoreRule]) -> Bool {
+        let normalizedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let pathParts = normalizedPath.split(separator: "/").map(String.init)
+        let directoryPrefixes = directoryPrefixPaths(pathParts: pathParts)
+
+        var isIgnored = false
+        for rule in rules {
+            if rule.isDirectoryOnly {
+                if directoryPrefixes.contains(where: { matchesRule(rule, candidate: $0) }) {
+                    isIgnored = !rule.isNegated
+                }
+                continue
+            }
+
+            if matchesRule(rule, candidate: normalizedPath) {
+                isIgnored = !rule.isNegated
+            }
+        }
+        return isIgnored
+    }
+
+    private func matchesRule(_ rule: GitignoreRule, candidate: String) -> Bool {
+        if wildcardMatch(pattern: rule.pattern, text: candidate) {
+            return true
+        }
+        guard !rule.isAnchored else { return false }
+        let parts = candidate.split(separator: "/").map(String.init)
+        guard parts.count > 1 else { return false }
+        for index in 1 ..< parts.count {
+            let suffix = parts[index...].joined(separator: "/")
+            if wildcardMatch(pattern: rule.pattern, text: suffix) {
+                return true
+            }
         }
         return false
+    }
+
+    private func wildcardMatch(pattern: String, text: String) -> Bool {
+        pattern.withCString { patternCString in
+            text.withCString { textCString in
+                fnmatch(patternCString, textCString, 0) == 0
+            }
+        }
+    }
+
+    private func directoryPrefixPaths(pathParts: [String]) -> [String] {
+        guard pathParts.count > 1 else { return [] }
+        var prefixes: [String] = []
+        for index in 0 ..< (pathParts.count - 1) {
+            prefixes.append(pathParts[0 ... index].joined(separator: "/"))
+        }
+        return prefixes
     }
 }

@@ -19,17 +19,23 @@ struct EditorPane: View {
                     HStack(spacing: 0) {
                         LineNumberColumn(lineCount: state.content.components(separatedBy: "\n").count)
                         Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                        CodeEditorView(state: state, themeVersion: ghostty.configVersion, searchNeedle: state.searchNeedle)
+                        CodeEditorView(
+                            state: state,
+                            themeVersion: ghostty.configVersion,
+                            searchNeedle: state.searchNeedle,
+                            searchNavigationVersion: state.searchNavigationVersion,
+                            searchNavigationDirection: state.searchNavigationDirection
+                        )
                     }
 
                     if state.searchVisible {
                         EditorSearchBar(
                             state: state,
                             onNext: {
-                                NotificationCenter.default.post(name: .editorSearchNavigate, object: "next")
+                                state.navigateSearch(.next)
                             },
                             onPrevious: {
-                                NotificationCenter.default.post(name: .editorSearchNavigate, object: "previous")
+                                state.navigateSearch(.previous)
                             },
                             onClose: {
                                 state.searchVisible = false
@@ -43,6 +49,8 @@ struct EditorPane: View {
             }
         }
         .background(MuxyTheme.bg)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onFocus)
         .onReceive(NotificationCenter.default.publisher(for: .findInTerminal)) { _ in
             guard focused else { return }
             state.searchVisible = true
@@ -75,23 +83,24 @@ private struct LineNumberColumn: View {
         CGFloat(max(2, String(max(1, lineCount)).count)) * 9 + 16
     }
 
+    private var lineNumbersText: String {
+        let maxLine = max(1, lineCount)
+        return (1 ... maxLine).map(String.init).joined(separator: "\n")
+    }
+
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(alignment: .trailing, spacing: 0) {
-                ForEach(1 ... max(1, lineCount), id: \.self) { number in
-                    Text("\(number)")
-                        .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(MuxyTheme.fgDim)
-                        .frame(height: 17, alignment: .trailing)
-                }
-            }
-            .padding(.top, 4)
-            .padding(.trailing, 8)
-            .padding(.leading, 4)
+        VStack(spacing: 0) {
+            Text(lineNumbersText)
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundStyle(MuxyTheme.fgDim)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.top, 4)
+                .padding(.trailing, 8)
+                .padding(.leading, 4)
+            Spacer(minLength: 0)
         }
         .frame(width: gutterWidth)
         .background(MuxyTheme.bg)
-        .scrollDisabled(true)
     }
 }
 

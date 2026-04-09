@@ -54,6 +54,7 @@ final class AppState {
     var workspaceRoots: [UUID: SplitNode] = [:]
     var focusedAreaID: [UUID: UUID] = [:]
     var pendingLastTabClose: PendingTabClose?
+    var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
     private var focusHistory: [UUID: [UUID]] = [:]
 
@@ -153,7 +154,7 @@ final class AppState {
 
     func closeTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
         if needsUnsavedEditorConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
-            pendingProcessTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
+            pendingUnsavedEditorTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
         }
         if needsProcessConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
@@ -177,6 +178,16 @@ final class AppState {
 
     func cancelCloseRunningTab() {
         pendingProcessTabClose = nil
+    }
+
+    func confirmCloseUnsavedEditorTab() {
+        guard let pending = pendingUnsavedEditorTabClose else { return }
+        pendingUnsavedEditorTabClose = nil
+        closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
+    }
+
+    func cancelCloseUnsavedEditorTab() {
+        pendingUnsavedEditorTabClose = nil
     }
 
     private func closeTabWithLastCheck(_ tabID: UUID, areaID: UUID, projectID: UUID) {
@@ -294,6 +305,12 @@ final class AppState {
            !tabExists(tabID: pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
         {
             pendingLastTabClose = nil
+        }
+
+        if let pending = pendingUnsavedEditorTabClose,
+           !tabExists(tabID: pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
+        {
+            pendingUnsavedEditorTabClose = nil
         }
 
         if let pending = pendingProcessTabClose,

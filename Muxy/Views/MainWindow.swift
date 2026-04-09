@@ -15,12 +15,15 @@ struct MainWindow: View {
 
     private enum CloseConfirmationKind {
         case lastTab
+        case unsavedEditor
         case runningProcess
 
         var title: String {
             switch self {
             case .lastTab:
                 "Close Project?"
+            case .unsavedEditor:
+                "Discard Unsaved Changes?"
             case .runningProcess:
                 "Close Tab?"
             }
@@ -30,6 +33,8 @@ struct MainWindow: View {
             switch self {
             case .lastTab:
                 "This is the last tab. Closing it will remove the project from the sidebar."
+            case .unsavedEditor:
+                "This file has unsaved changes. Closing this tab will discard them."
             case .runningProcess:
                 "A process is still running in this tab. Are you sure you want to close it?"
             }
@@ -168,6 +173,10 @@ struct MainWindow: View {
         .onChange(of: appState.pendingLastTabClose != nil) { _, isPresented in
             guard isPresented else { return }
             presentCloseConfirmation(.lastTab)
+        }
+        .onChange(of: appState.pendingUnsavedEditorTabClose != nil) { _, isPresented in
+            guard isPresented else { return }
+            presentCloseConfirmation(.unsavedEditor)
         }
         .onChange(of: appState.pendingProcessTabClose != nil) { _, isPresented in
             guard isPresented else { return }
@@ -326,6 +335,12 @@ struct MainWindow: View {
                     appState.confirmCloseLastTab()
                 } else {
                     appState.cancelCloseLastTab()
+                }
+            case .unsavedEditor:
+                if response == .alertFirstButtonReturn {
+                    appState.confirmCloseUnsavedEditorTab()
+                } else {
+                    appState.cancelCloseUnsavedEditorTab()
                 }
             case .runningProcess:
                 if response == .alertFirstButtonReturn {

@@ -38,7 +38,6 @@ Muxy/
       GitModels.swift             GitStatusFile, DiffDisplayRow, NumstatEntry
     GitDirectoryWatcher.swift FSEvents watcher for .git changes
     FileSearchService.swift   Project file indexing + fuzzy search for quick open
-    SyntaxHighlightService.swift  Regex-based syntax highlighting for code editor
     ThemeService.swift        Theme discovery + application
     MuxyConfig.swift          Ghostty config file read/write
     KeyBindingStore.swift     @Observable store for keyboard shortcuts
@@ -74,6 +73,8 @@ Muxy/
     Editor/
       CodeEditorRepresentable.swift  NSViewRepresentable bridge for code editor
       EditorPane.swift        SwiftUI wrapper for editor tab (breadcrumb + editor)
+      Extensions/
+        SyntaxHighlightExtension.swift  Regex-based syntax highlighting rules for code editor
     VCS/
       VCSTabView.swift        Source control tab (commit, stage, diff, branch)
       BranchPicker.swift      Branch selection dropdown with filter

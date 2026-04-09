@@ -5,6 +5,7 @@ struct VCSTabView: View {
     @Bindable var state: VCSTabState
     let focused: Bool
     let onFocus: () -> Void
+    @Environment(AppState.self) private var appState
     @State private var showDiscardAllConfirmation = false
     @State private var pendingDiscardPath: String?
 
@@ -163,7 +164,8 @@ struct VCSTabView: View {
                     state: state,
                     onFocus: onFocus,
                     showDiscardAllConfirmation: $showDiscardAllConfirmation,
-                    pendingDiscardPath: $pendingDiscardPath
+                    pendingDiscardPath: $pendingDiscardPath,
+                    onOpenInEditor: openFileInEditor
                 )
             }
         }
@@ -299,6 +301,14 @@ struct VCSTabView: View {
             }
         }
     }
+
+    private func openFileInEditor(_ relativePath: String) {
+        guard let projectID = appState.activeProjectID else { return }
+        let fullPath = state.projectPath.hasSuffix("/")
+            ? state.projectPath + relativePath
+            : state.projectPath + "/" + relativePath
+        appState.openFile(fullPath, projectID: projectID)
+    }
 }
 
 private struct SectionSplitLayout: View {
@@ -306,7 +316,7 @@ private struct SectionSplitLayout: View {
     let onFocus: () -> Void
     @Binding var showDiscardAllConfirmation: Bool
     @Binding var pendingDiscardPath: String?
-    @Environment(AppState.self) private var appState
+    let onOpenInEditor: (String) -> Void
 
     private static let sectionHeaderHeight: CGFloat = 30
 
@@ -574,14 +584,6 @@ private struct SectionSplitLayout: View {
         }
     }
 
-    private func openFileInEditor(_ relativePath: String) {
-        guard let projectID = appState.activeProjectID else { return }
-        let fullPath = state.projectPath.hasSuffix("/")
-            ? state.projectPath + relativePath
-            : state.projectPath + "/" + relativePath
-        appState.openFile(fullPath, projectID: projectID)
-    }
-
     private func fileSection(_ file: GitStatusFile, isStaged: Bool) -> some View {
         let expanded = state.expandedFilePaths.contains(file.path)
         let stats = state.displayedStats(for: file)
@@ -601,7 +603,7 @@ private struct SectionSplitLayout: View {
                 onStage: { state.stageFile(file.path) },
                 onUnstage: { state.unstageFile(file.path) },
                 onDiscard: { pendingDiscardPath = file.path },
-                onOpenInEditor: { openFileInEditor(file.path) }
+                onOpenInEditor: { onOpenInEditor(file.path) }
             )
 
             if expanded {

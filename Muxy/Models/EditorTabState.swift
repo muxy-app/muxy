@@ -1,5 +1,10 @@
 import Foundation
 
+enum EditorSearchNavigationDirection {
+    case next
+    case previous
+}
+
 @MainActor
 @Observable
 final class EditorTabState: Identifiable {
@@ -17,6 +22,8 @@ final class EditorTabState: Identifiable {
     var searchNeedle = ""
     var searchMatchCount = 0
     var searchCurrentIndex = 0
+    var searchNavigationVersion = 0
+    var searchNavigationDirection: EditorSearchNavigationDirection = .next
 
     var fileName: String {
         URL(fileURLWithPath: filePath).lastPathComponent
@@ -106,5 +113,10 @@ final class EditorTabState: Identifiable {
     func markModified() {
         guard !isModified else { return }
         isModified = true
+    }
+
+    func navigateSearch(_ direction: EditorSearchNavigationDirection) {
+        searchNavigationDirection = direction
+        searchNavigationVersion += 1
     }
 }
