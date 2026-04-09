@@ -48,6 +48,7 @@ final class VCSTabState {
     var isLoadingBranches = false
     var statusMessage: String?
     var statusIsError = false
+    var showPushUpstreamConfirmation = false
 
     var commits: [GitCommit] = []
     var isLoadingCommits = false
@@ -377,6 +378,26 @@ final class VCSTabState {
                 try await git.push(repoPath: projectPath)
                 guard !Task.isCancelled else { return }
                 showStatus("Pushed", isError: false)
+            } catch GitRepositoryService.GitError.noUpstreamBranch {
+                guard !Task.isCancelled else { return }
+                showPushUpstreamConfirmation = true
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func pushSetUpstream() {
+        guard let branch = branchName else { return }
+        isPushing = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isPushing = false }
+            do {
+                try await git.pushSetUpstream(repoPath: projectPath, branch: branch)
+                guard !Task.isCancelled else { return }
+                showStatus("Pushed to origin/\(branch)", isError: false)
             } catch {
                 guard !Task.isCancelled else { return }
                 showStatus(errorText(error), isError: true)

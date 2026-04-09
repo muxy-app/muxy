@@ -10,12 +10,15 @@ actor GitRepositoryService {
 
     enum GitError: LocalizedError {
         case notGitRepository
+        case noUpstreamBranch
         case commandFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .notGitRepository:
                 "This folder is not a Git repository."
+            case .noUpstreamBranch:
+                "The current branch has no upstream branch on the remote."
             case let .commandFailed(message):
                 message
             }
@@ -282,6 +285,16 @@ actor GitRepositoryService {
 
     func push(repoPath: String) async throws {
         let result = try runGit(repoPath: repoPath, arguments: ["push"])
+        guard result.status == 0 else {
+            if result.stderr.contains("has no upstream branch") {
+                throw GitError.noUpstreamBranch
+            }
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to push." : result.stderr)
+        }
+    }
+
+    func pushSetUpstream(repoPath: String, branch: String) async throws {
+        let result = try runGit(repoPath: repoPath, arguments: ["push", "--set-upstream", "origin", branch])
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to push." : result.stderr)
         }

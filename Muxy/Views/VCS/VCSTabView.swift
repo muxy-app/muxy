@@ -27,6 +27,11 @@ struct VCSTabView: View {
                 state.refresh()
             }
         }
+        .onChange(of: state.showPushUpstreamConfirmation) { _, show in
+            guard show else { return }
+            state.showPushUpstreamConfirmation = false
+            presentPushUpstreamConfirmation()
+        }
         .onChange(of: showDiscardAllConfirmation) { _, show in
             guard show else { return }
             showDiscardAllConfirmation = false
@@ -298,6 +303,29 @@ struct VCSTabView: View {
         alert.beginSheetModal(for: window) { response in
             if response == .alertFirstButtonReturn {
                 onConfirm()
+            }
+        }
+    }
+
+    private func presentPushUpstreamConfirmation() {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else { return }
+
+        let branch = state.branchName ?? "current branch"
+        let alert = NSAlert()
+        alert.messageText = "Push to Remote?"
+        alert.informativeText = "The branch \"\(branch)\" has no upstream on the remote. Push and set upstream to origin/\(branch)?"
+        alert.alertStyle = .informational
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Push")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.keyEquivalent = "\r"
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn {
+                state.pushSetUpstream()
             }
         }
     }
