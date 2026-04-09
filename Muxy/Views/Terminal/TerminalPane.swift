@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct TerminalPane: View {
+    @Environment(AppState.self) private var appState
     let state: TerminalPaneState
     let focused: Bool
     let onFocus: () -> Void
@@ -13,6 +14,10 @@ struct TerminalPane: View {
             TerminalBridge(
                 state: state,
                 focused: focused,
+                onWorkingDirectoryChange: { path in
+                    state.lastKnownWorkingDirectory = path
+                    appState.saveWorkspaces()
+                },
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
@@ -43,6 +48,7 @@ struct TerminalPane: View {
 struct TerminalBridge: NSViewRepresentable {
     let state: TerminalPaneState
     let focused: Bool
+    let onWorkingDirectoryChange: (String) -> Void
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
@@ -58,7 +64,7 @@ struct TerminalBridge: NSViewRepresentable {
 
     func makeNSView(context: Context) -> GhosttyTerminalNSView {
         let registry = TerminalViewRegistry.shared
-        let view = registry.view(for: state.id, workingDirectory: state.projectPath)
+        let view = registry.view(for: state.id, workingDirectory: state.initialWorkingDirectory)
         view.isFocused = focused
         view.onFocus = onFocus
         view.onProcessExit = onProcessExit
@@ -66,6 +72,7 @@ struct TerminalBridge: NSViewRepresentable {
         view.onTitleChange = { [weak state] title in
             state?.title = title
         }
+        view.onWorkingDirectoryChange = onWorkingDirectoryChange
         configureSearchCallbacks(view)
         context.coordinator.wasFocused = focused
         context.coordinator.paneID = state.id
@@ -84,6 +91,7 @@ struct TerminalBridge: NSViewRepresentable {
         nsView.onTitleChange = { [weak state] title in
             state?.title = title
         }
+        nsView.onWorkingDirectoryChange = onWorkingDirectoryChange
         configureSearchCallbacks(nsView)
         let wasFocused = context.coordinator.wasFocused
         context.coordinator.wasFocused = focused

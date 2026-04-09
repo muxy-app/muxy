@@ -1,6 +1,8 @@
+import AppKit
 import SwiftUI
 
 struct PaneTabStrip: View {
+    @Environment(AppState.self) private var appState
     let area: TabArea
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
@@ -31,9 +33,21 @@ struct PaneTabStrip: View {
                         onSelectTab(tab.id)
                     },
                     onClose: { onCloseTab(tab.id) },
-                    onCreateLeft: { area.createTabAdjacent(to: tab.id, side: .left) },
-                    onCreateRight: { area.createTabAdjacent(to: tab.id, side: .right) },
-                    onTogglePin: { area.togglePin(tab.id) }
+                    onCreateLeft: {
+                        area.createTabAdjacent(to: tab.id, side: .left)
+                        appState.saveWorkspaces()
+                    },
+                    onCreateRight: {
+                        area.createTabAdjacent(to: tab.id, side: .right)
+                        appState.saveWorkspaces()
+                    },
+                    onTogglePin: {
+                        area.togglePin(tab.id)
+                        appState.saveWorkspaces()
+                    },
+                    onWorkspaceMutation: {
+                        appState.saveWorkspaces()
+                    }
                 )
                 .background {
                     if dragState.draggedID != nil {
@@ -183,6 +197,7 @@ private struct TabCell: View {
     let onCreateLeft: () -> Void
     let onCreateRight: () -> Void
     let onTogglePin: () -> Void
+    let onWorkspaceMutation: () -> Void
     @State private var hovered = false
     @State private var isRenaming = false
     @State private var renameText = ""
@@ -195,6 +210,10 @@ private struct TabCell: View {
         return ModifierKeyMonitor.shared.isHolding(
             modifiers: KeyBindingStore.shared.combo(for: action).modifiers
         )
+    }
+
+    private var pane: TerminalPaneState? {
+        tab.content.pane
     }
 
     var body: some View {
@@ -267,7 +286,44 @@ private struct TabCell: View {
                 Divider()
                 Button("Rename Tab") { startRename() }
                 if tab.customTitle != nil {
-                    Button("Reset Title") { tab.customTitle = nil }
+                    Button("Reset Title") {
+                        tab.customTitle = nil
+                        onWorkspaceMutation()
+                    }
+                }
+                if let pane {
+                    Divider()
+                    Toggle("Save working directory", isOn: Binding(
+                        get: { pane.workingDirectoryMode == .rememberLast },
+                        set: { enabled in
+                            if enabled {
+                                pane.workingDirectoryMode = .rememberLast
+                            } else if pane.workingDirectoryMode == .rememberLast {
+                                pane.workingDirectoryMode = .projectRoot
+                            }
+                            onWorkspaceMutation()
+                        }
+                    ))
+                    .disabled(pane.workingDirectoryMode == .fixedDefault)
+
+                    Toggle("Set default directory", isOn: Binding(
+                        get: { pane.workingDirectoryMode == .fixedDefault },
+                        set: { enabled in
+                            if !enabled, pane.workingDirectoryMode == .fixedDefault {
+                                pane.defaultWorkingDirectory = nil
+                                pane.workingDirectoryMode = .projectRoot
+                                onWorkspaceMutation()
+                                return
+                            }
+
+                            guard enabled else { return }
+                            guard let selectedPath = chooseDefaultDirectory(for: pane) else { return }
+                            pane.defaultWorkingDirectory = selectedPath
+                            pane.workingDirectoryMode = .fixedDefault
+                            onWorkspaceMutation()
+                        }
+                    ))
+                    .disabled(pane.workingDirectoryMode == .rememberLast)
                 }
                 Divider()
                 Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") {
@@ -297,10 +353,27 @@ private struct TabCell: View {
         let trimmed = renameText.trimmingCharacters(in: .whitespaces)
         tab.customTitle = trimmed.isEmpty ? nil : trimmed
         isRenaming = false
+        onWorkspaceMutation()
     }
 
     private func cancelRename() {
         isRenaming = false
+    }
+
+    private func chooseDefaultDirectory(for pane: TerminalPaneState) -> String? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select a default directory for this tab"
+
+        let initialPath = pane.lastKnownWorkingDirectory ?? pane.projectPath
+        if FileManager.default.fileExists(atPath: initialPath) {
+            panel.directoryURL = URL(fileURLWithPath: initialPath, isDirectory: true)
+        }
+
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return url.path(percentEncoded: false)
     }
 
     @ViewBuilder

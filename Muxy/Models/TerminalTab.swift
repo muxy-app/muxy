@@ -69,7 +69,13 @@ final class TerminalTab: Identifiable {
         isPinned = snapshot.isPinned
         switch snapshot.kind {
         case .terminal:
-            content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
+            content = .terminal(TerminalPaneState(
+                projectPath: snapshot.projectPath,
+                title: snapshot.paneTitle,
+                workingDirectoryMode: snapshot.workingDirectoryMode,
+                lastKnownWorkingDirectory: snapshot.lastKnownWorkingDirectory,
+                defaultWorkingDirectory: snapshot.defaultWorkingDirectory
+            ))
         case .vcs:
             content = .vcs(VCSTabState(projectPath: snapshot.projectPath))
         }
@@ -81,7 +87,10 @@ final class TerminalTab: Identifiable {
             customTitle: customTitle,
             isPinned: isPinned,
             projectPath: content.projectPath,
-            paneTitle: content.pane?.title
+            paneTitle: content.pane?.title,
+            workingDirectoryMode: content.pane?.workingDirectoryMode,
+            lastKnownWorkingDirectory: content.pane?.lastKnownWorkingDirectory,
+            defaultWorkingDirectory: content.pane?.defaultWorkingDirectory
         )
     }
 }

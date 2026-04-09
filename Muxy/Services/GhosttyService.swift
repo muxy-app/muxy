@@ -150,24 +150,81 @@ final class GhosttyService {
         ghostty_app_tick(app)
     }
 
-    private static let allowedResourceParents = [
+    private static let fallbackResourceParents = [
         "/Applications/Ghostty.app/Contents/Resources/ghostty",
         NSHomeDirectory() + "/Applications/Ghostty.app/Contents/Resources/ghostty",
     ]
 
+    private static let bundledZshEnv = """
+    if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
+        builtin export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
+        builtin unset GHOSTTY_ZSH_ZDOTDIR
+    else
+        builtin unset ZDOTDIR
+    fi
+
+    _muxy_user_zshenv=${ZDOTDIR-$HOME}/.zshenv
+    if [[ -r "$_muxy_user_zshenv" ]]; then
+        builtin source -- "$_muxy_user_zshenv"
+    fi
+    builtin unset _muxy_user_zshenv
+
+    if [[ -o interactive ]]; then
+        _muxy_integration="${${(%):-%x}:A:h}"/ghostty-integration
+        if [[ -r "$_muxy_integration" ]]; then
+            builtin source -- "$_muxy_integration"
+        fi
+        builtin unset _muxy_integration
+    fi
+    """
+
     private func resolveGhosttyResources() {
         if let existing = getenv("GHOSTTY_RESOURCES_DIR").map({ String(cString: $0) }) {
-            guard Self.allowedResourceParents.contains(where: { existing.hasPrefix($0) }) else {
-                unsetenv("GHOSTTY_RESOURCES_DIR")
+            if FileManager.default.fileExists(atPath: existing + "/shell-integration") {
                 return
+            } else {
+                unsetenv("GHOSTTY_RESOURCES_DIR")
             }
+        }
+
+        if let bundledResources = bundledGhosttyResourcesPath() {
+            setenv("GHOSTTY_RESOURCES_DIR", bundledResources, 1)
             return
         }
 
-        for path in Self.allowedResourceParents {
+        for path in Self.fallbackResourceParents {
             guard FileManager.default.fileExists(atPath: path + "/shell-integration") else { continue }
             setenv("GHOSTTY_RESOURCES_DIR", path, 1)
             return
+        }
+    }
+
+    private func bundledGhosttyResourcesPath() -> String? {
+        guard let integrationSource = Bundle.module.url(forResource: "ghostty-integration", withExtension: nil) else {
+            return nil
+        }
+
+        let root = MuxyFileStorage.appSupportDirectory()
+            .appendingPathComponent("ghostty", isDirectory: true)
+        let zshDir = root.appendingPathComponent("shell-integration/zsh", isDirectory: true)
+        let zshEnvURL = zshDir.appendingPathComponent(".zshenv", isDirectory: false)
+        let integrationURL = zshDir.appendingPathComponent("ghostty-integration", isDirectory: false)
+
+        do {
+            try FileManager.default.createDirectory(
+                at: zshDir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            try Self.bundledZshEnv.write(to: zshEnvURL, atomically: true, encoding: .utf8)
+            let integrationContents = try String(contentsOf: integrationSource, encoding: .utf8)
+            try integrationContents.write(to: integrationURL, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: zshEnvURL.path)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: integrationURL.path)
+            return root.path
+        } catch {
+            logger.error("Failed to prepare bundled Ghostty resources: \(error)")
+            return nil
         }
     }
 }

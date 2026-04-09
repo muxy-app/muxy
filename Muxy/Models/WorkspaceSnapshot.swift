@@ -70,19 +70,28 @@ struct TerminalTabSnapshot: Codable {
     let isPinned: Bool
     let projectPath: String
     let paneTitle: String
+    let workingDirectoryMode: TerminalPaneState.WorkingDirectoryMode
+    let lastKnownWorkingDirectory: String?
+    let defaultWorkingDirectory: String?
 
     init(
         kind: TerminalTab.Kind,
         customTitle: String?,
         isPinned: Bool,
         projectPath: String,
-        paneTitle: String?
+        paneTitle: String?,
+        workingDirectoryMode: TerminalPaneState.WorkingDirectoryMode? = nil,
+        lastKnownWorkingDirectory: String? = nil,
+        defaultWorkingDirectory: String? = nil
     ) {
         self.kind = kind
         self.customTitle = customTitle
         self.isPinned = isPinned
         self.projectPath = projectPath
         self.paneTitle = paneTitle ?? "Terminal"
+        self.workingDirectoryMode = workingDirectoryMode ?? .projectRoot
+        self.lastKnownWorkingDirectory = lastKnownWorkingDirectory
+        self.defaultWorkingDirectory = defaultWorkingDirectory
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -91,6 +100,9 @@ struct TerminalTabSnapshot: Codable {
         case isPinned
         case projectPath
         case paneTitle
+        case workingDirectoryMode
+        case lastKnownWorkingDirectory
+        case defaultWorkingDirectory
     }
 
     init(from decoder: Decoder) throws {
@@ -100,6 +112,12 @@ struct TerminalTabSnapshot: Codable {
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
         projectPath = try container.decode(String.self, forKey: .projectPath)
         paneTitle = try container.decodeIfPresent(String.self, forKey: .paneTitle) ?? "Terminal"
+        workingDirectoryMode = try container.decodeIfPresent(
+            TerminalPaneState.WorkingDirectoryMode.self,
+            forKey: .workingDirectoryMode
+        ) ?? .projectRoot
+        lastKnownWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .lastKnownWorkingDirectory)
+        defaultWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .defaultWorkingDirectory)
     }
 }
 

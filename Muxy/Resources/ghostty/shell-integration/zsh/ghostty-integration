@@ -1,0 +1,24 @@
+if [[ -n "${_MUXY_GHOSTTY_ZSH_INTEGRATION+X}" ]]; then
+    return
+fi
+typeset -g _MUXY_GHOSTTY_ZSH_INTEGRATION=1
+
+if [[ ! -o interactive ]]; then
+    return
+fi
+
+if [[ -t 1 ]]; then
+    exec {_muxy_ghostty_fd}>&1
+else
+    exec {_muxy_ghostty_fd}>/dev/tty
+fi
+
+_muxy_ghostty_report_pwd() {
+    builtin emulate -L zsh
+    builtin print -nu $_muxy_ghostty_fd '\e]7;kitty-shell-cwd://'"$HOST""$PWD"'\a'
+}
+
+chpwd_functions=(${chpwd_functions[@]} "_muxy_ghostty_report_pwd")
+precmd_functions=(${precmd_functions[@]} "_muxy_ghostty_report_pwd")
+
+_muxy_ghostty_report_pwd
