@@ -20,6 +20,8 @@ struct CodeEditorView: NSViewRepresentable {
     let searchNeedle: String
     let searchNavigationVersion: Int
     let searchNavigationDirection: EditorSearchNavigationDirection
+    let searchCaseSensitive: Bool
+    let searchUseRegex: Bool
     let onLineLayoutChange: ([LineLayoutInfo]) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -156,9 +158,13 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.applyHighlighting()
         }
 
-        if coordinator.lastSearchNeedle != searchNeedle {
+        let searchOptionsChanged = coordinator.lastSearchCaseSensitive != searchCaseSensitive
+            || coordinator.lastSearchUseRegex != searchUseRegex
+        if coordinator.lastSearchNeedle != searchNeedle || searchOptionsChanged {
             coordinator.lastSearchNeedle = searchNeedle
-            coordinator.performSearch(searchNeedle)
+            coordinator.lastSearchCaseSensitive = searchCaseSensitive
+            coordinator.lastSearchUseRegex = searchUseRegex
+            coordinator.performSearch(searchNeedle, caseSensitive: searchCaseSensitive, useRegex: searchUseRegex)
         }
 
         if coordinator.lastSearchNavigationVersion != searchNavigationVersion {
@@ -190,6 +196,8 @@ struct CodeEditorView: NSViewRepresentable {
         var lastThemeVersion = -1
         var lastSearchNeedle = ""
         var lastSearchNavigationVersion = -1
+        var lastSearchCaseSensitive = false
+        var lastSearchUseRegex = false
         var lastWordWrap = true
         var tabSize = 4
         var showInvisibles = false
@@ -404,23 +412,46 @@ struct CodeEditorView: NSViewRepresentable {
 
         private var searchMatches: [NSRange] = []
 
-        func performSearch(_ needle: String) {
+        func performSearch(_ needle: String, caseSensitive: Bool, useRegex: Bool) {
             guard let textView else { return }
             searchMatches = []
+            state.searchInvalidRegex = false
             guard !needle.isEmpty else {
                 state.searchMatchCount = 0
                 state.searchCurrentIndex = 0
                 return
             }
             let content = textView.string as NSString
-            var searchRange = NSRange(location: 0, length: content.length)
-            while searchRange.location < content.length {
-                let found = content.range(of: needle, options: .caseInsensitive, range: searchRange)
-                guard found.location != NSNotFound else { break }
-                searchMatches.append(found)
-                searchRange.location = found.location + found.length
-                searchRange.length = content.length - searchRange.location
+            let fullRange = NSRange(location: 0, length: content.length)
+
+            if useRegex {
+                var options: NSRegularExpression.Options = []
+                if !caseSensitive { options.insert(.caseInsensitive) }
+                do {
+                    let regex = try NSRegularExpression(pattern: needle, options: options)
+                    regex.enumerateMatches(in: textView.string, options: [], range: fullRange) { match, _, _ in
+                        guard let match, match.range.length > 0 else { return }
+                        searchMatches.append(match.range)
+                    }
+                } catch {
+                    state.searchInvalidRegex = true
+                    state.searchMatchCount = 0
+                    state.searchCurrentIndex = 0
+                    return
+                }
+            } else {
+                var options: NSString.CompareOptions = []
+                if !caseSensitive { options.insert(.caseInsensitive) }
+                var searchRange = fullRange
+                while searchRange.location < content.length {
+                    let found = content.range(of: needle, options: options, range: searchRange)
+                    guard found.location != NSNotFound else { break }
+                    searchMatches.append(found)
+                    searchRange.location = found.location + found.length
+                    searchRange.length = content.length - searchRange.location
+                }
             }
+
             state.searchMatchCount = searchMatches.count
             if !searchMatches.isEmpty {
                 state.searchCurrentIndex = 1

@@ -10,6 +10,7 @@ struct EditorSearchBar: View {
 
     private var displayText: String {
         guard !state.searchNeedle.isEmpty else { return "" }
+        if state.searchUseRegex, state.searchInvalidRegex { return "Invalid regex" }
         guard state.searchMatchCount > 0 else { return "No results" }
         return "\(state.searchCurrentIndex) of \(state.searchMatchCount)"
     }
@@ -36,6 +37,18 @@ struct EditorSearchBar: View {
                             .lineLimit(1)
                             .fixedSize()
                     }
+
+                    EditorSearchOptionToggle(
+                        label: "Aa",
+                        isOn: $state.searchCaseSensitive,
+                        help: "Match Case"
+                    )
+
+                    EditorSearchOptionToggle(
+                        label: ".*",
+                        isOn: $state.searchUseRegex,
+                        help: "Regular Expression"
+                    )
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
@@ -86,5 +99,26 @@ private struct EditorSearchButtonStyle: ButtonStyle {
             .foregroundStyle(MuxyTheme.fgMuted)
             .background(configuration.isPressed ? MuxyTheme.surface : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+private struct EditorSearchOptionToggle: View {
+    let label: String
+    @Binding var isOn: Bool
+    let help: String
+
+    var body: some View {
+        Button {
+            isOn.toggle()
+        } label: {
+            Text(label)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(isOn ? MuxyTheme.fg : MuxyTheme.fgMuted)
+                .frame(width: 20, height: 18)
+                .background(isOn ? MuxyTheme.border : .clear)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }

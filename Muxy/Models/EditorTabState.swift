@@ -24,6 +24,9 @@ final class EditorTabState: Identifiable {
     var searchCurrentIndex = 0
     var searchNavigationVersion = 0
     var searchNavigationDirection: EditorSearchNavigationDirection = .next
+    var searchCaseSensitive = false
+    var searchUseRegex = false
+    var searchInvalidRegex = false
 
     var fileName: String {
         URL(fileURLWithPath: filePath).lastPathComponent

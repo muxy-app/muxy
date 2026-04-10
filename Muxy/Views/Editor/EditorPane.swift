@@ -35,6 +35,8 @@ struct EditorPane: View {
                             searchNeedle: state.searchNeedle,
                             searchNavigationVersion: state.searchNavigationVersion,
                             searchNavigationDirection: state.searchNavigationDirection,
+                            searchCaseSensitive: state.searchCaseSensitive,
+                            searchUseRegex: state.searchUseRegex,
                             onLineLayoutChange: { layouts in
                                 lineLayouts = layouts
                             }
