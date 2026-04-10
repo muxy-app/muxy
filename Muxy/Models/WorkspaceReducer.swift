@@ -107,10 +107,7 @@ enum WorkspaceReducer {
         )
         state.workspaceRoots[request.projectID] = newRoot
         guard let newAreaID else { return }
-        if let current = state.focusedAreaID[request.projectID] {
-            state.focusHistory[request.projectID, default: []].append(current)
-        }
-        state.focusedAreaID[request.projectID] = newAreaID
+        focusArea(newAreaID, projectID: request.projectID, state: &state)
     }
 
     private static func closeArea(
@@ -243,9 +240,16 @@ enum WorkspaceReducer {
         effects.projectIDsToRemove.append(projectID)
     }
 
+    private static let focusHistoryLimit = 20
+
     private static func focusArea(_ areaID: UUID, projectID: UUID, state: inout WorkspaceState) {
         if let current = state.focusedAreaID[projectID], current != areaID {
-            state.focusHistory[projectID, default: []].append(current)
+            var history = state.focusHistory[projectID, default: []]
+            history.append(current)
+            if history.count > focusHistoryLimit {
+                history.removeFirst(history.count - focusHistoryLimit)
+            }
+            state.focusHistory[projectID] = history
         }
         state.focusedAreaID[projectID] = areaID
     }

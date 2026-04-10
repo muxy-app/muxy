@@ -4,6 +4,7 @@ import SwiftUI
 struct TerminalPane: View {
     let state: TerminalPaneState
     let focused: Bool
+    let visible: Bool
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
@@ -13,6 +14,7 @@ struct TerminalPane: View {
             TerminalBridge(
                 state: state,
                 focused: focused,
+                visible: visible,
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
@@ -43,6 +45,7 @@ struct TerminalPane: View {
 struct TerminalBridge: NSViewRepresentable {
     let state: TerminalPaneState
     let focused: Bool
+    let visible: Bool
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
@@ -60,6 +63,7 @@ struct TerminalBridge: NSViewRepresentable {
         let registry = TerminalViewRegistry.shared
         let view = registry.view(for: state.id, workingDirectory: state.projectPath)
         view.isFocused = focused
+        view.isHidden = !visible
         view.onFocus = onFocus
         view.onProcessExit = onProcessExit
         view.onSplitRequest = onSplitRequest
@@ -78,6 +82,7 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
+        nsView.isHidden = !visible
         nsView.onFocus = onFocus
         nsView.onProcessExit = onProcessExit
         nsView.onSplitRequest = onSplitRequest

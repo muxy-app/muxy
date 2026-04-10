@@ -1,6 +1,5 @@
 import AppKit
 import GhosttyKit
-import QuartzCore
 
 final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
@@ -34,19 +33,6 @@ final class GhosttyTerminalNSView: NSView {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }
-
-    override func makeBackingLayer() -> CALayer {
-        let metalLayer = CAMetalLayer()
-        metalLayer.pixelFormat = .bgra8Unorm
-        metalLayer.isOpaque = false
-        metalLayer.framebufferOnly = false
-        metalLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        metalLayer.needsDisplayOnBoundsChange = true
-        metalLayer.presentsWithTransaction = false
-        return metalLayer
-    }
-
-    override var wantsUpdateLayer: Bool { true }
 
     private var pendingSurfaceCreation = false
 
@@ -100,6 +86,23 @@ final class GhosttyTerminalNSView: NSView {
             ghostty_surface_free(surface)
         }
         surface = nil
+    }
+
+    func tearDown() {
+        onTitleChange = nil
+        onFocus = nil
+        onProcessExit = nil
+        onSplitRequest = nil
+        onSearchStart = nil
+        onSearchEnd = nil
+        onSearchTotal = nil
+        onSearchSelected = nil
+        if let observer = screenChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            screenChangeObserver = nil
+        }
+        destroySurface()
+        removeFromSuperview()
     }
 
     deinit {
@@ -163,13 +166,6 @@ final class GhosttyTerminalNSView: NSView {
         guard scaledSize.width > 0, scaledSize.height > 0 else { return }
 
         let scale = Double(window.backingScaleFactor)
-
-        if let metalLayer = layer as? CAMetalLayer {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            metalLayer.contentsScale = CGFloat(scale)
-            CATransaction.commit()
-        }
 
         ghostty_surface_set_content_scale(surface, scale, scale)
 

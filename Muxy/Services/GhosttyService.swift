@@ -12,7 +12,6 @@ final class GhosttyService {
     @ObservationIgnored private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
     private(set) var configVersion = 0
-    @ObservationIgnored private var tickTimer: Timer?
     @ObservationIgnored private let runtimeEvents: any GhosttyRuntimeEventHandling = GhosttyRuntimeEventAdapter()
     @ObservationIgnored private let muxyConfig: MuxyConfig
 
@@ -65,14 +64,6 @@ final class GhosttyService {
 
         self.app = createdApp
         self.config = cfg
-
-        let timer = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.tick()
-            }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        tickTimer = timer
     }
 
     var backgroundOpacity: Double {

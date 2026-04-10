@@ -214,6 +214,7 @@ final class VCSTabState {
     func toggleExpanded(filePath: String) {
         if expandedFilePaths.contains(filePath) {
             expandedFilePaths.remove(filePath)
+            evictDiff(filePath: filePath)
             return
         }
 
@@ -225,6 +226,19 @@ final class VCSTabState {
 
     func collapseAll() {
         expandedFilePaths.removeAll()
+        diffsByPath.removeAll()
+        diffErrorsByPath.removeAll()
+        loadDiffTasks.values.forEach { $0.cancel() }
+        loadDiffTasks.removeAll()
+        loadingDiffPaths.removeAll()
+    }
+
+    private func evictDiff(filePath: String) {
+        diffsByPath.removeValue(forKey: filePath)
+        diffErrorsByPath.removeValue(forKey: filePath)
+        loadDiffTasks[filePath]?.cancel()
+        loadDiffTasks.removeValue(forKey: filePath)
+        loadingDiffPaths.remove(filePath)
     }
 
     func expandAll() {

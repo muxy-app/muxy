@@ -44,6 +44,7 @@ struct TabAreaView: View {
                     TabContentView(
                         tab: tab,
                         focused: isActive && isFocused && isActiveProject,
+                        visible: isActive,
                         onFocus: onFocus,
                         onProcessExit: { onForceCloseTab(tab.id) },
                         onSplitRequest: { direction, position in
@@ -96,6 +97,7 @@ struct TabAreaView: View {
 private struct TabContentView: View {
     let tab: TerminalTab
     let focused: Bool
+    let visible: Bool
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
@@ -106,6 +108,7 @@ private struct TabContentView: View {
             TerminalPane(
                 state: pane,
                 focused: focused,
+                visible: visible,
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
