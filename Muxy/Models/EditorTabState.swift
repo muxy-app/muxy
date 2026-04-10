@@ -171,6 +171,9 @@ final class EditorTabState: Identifiable {
 
     func saveFileAsync() async throws {
         guard !isSaving else { return }
+        if !content.isEmpty, !content.hasSuffix("\n") {
+            content.append("\n")
+        }
         let textToSave = content
         let path = filePath
         refreshReadOnlyStatus()

@@ -17,6 +17,7 @@ struct CodeEditorView: NSViewRepresentable {
     @Bindable var state: EditorTabState
     let editorSettings: EditorSettings
     let themeVersion: Int
+    let focused: Bool
     let searchNeedle: String
     let searchNavigationVersion: Int
     let searchNavigationDirection: EditorSearchNavigationDirection
@@ -102,6 +103,20 @@ struct CodeEditorView: NSViewRepresentable {
         return scrollView
     }
 
+    private static func claimFirstResponder(textView: NSTextView, attemptsRemaining: Int) {
+        guard attemptsRemaining > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak textView] in
+            guard let textView else { return }
+            guard let window = textView.window else {
+                claimFirstResponder(textView: textView, attemptsRemaining: attemptsRemaining - 1)
+                return
+            }
+            window.makeFirstResponder(textView)
+            textView.setSelectedRange(NSRange(location: 0, length: 0))
+            textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
+        }
+    }
+
     private static func applyWordWrap(_ wrap: Bool, to textView: NSTextView, scrollView: NSScrollView) {
         if wrap {
             textView.isHorizontallyResizable = false
@@ -131,6 +146,15 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.isUpdating = true
             textView.string = state.content
             coordinator.isUpdating = false
+        }
+
+        if !coordinator.hasAppliedInitialContent, !state.content.isEmpty || contentChanged {
+            coordinator.hasAppliedInitialContent = true
+            textView.setSelectedRange(NSRange(location: 0, length: 0))
+            textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
+            if focused {
+                Self.claimFirstResponder(textView: textView, attemptsRemaining: 20)
+            }
         }
 
         textView.backgroundColor = GhosttyService.shared.backgroundColor
@@ -219,6 +243,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         var isUpdating = false
+        var hasAppliedInitialContent = false
         var lastThemeVersion = -1
         var lastSearchNeedle = ""
         var lastSearchNavigationVersion = -1
@@ -322,12 +347,41 @@ struct CodeEditorView: NSViewRepresentable {
 
             let lineRange = content.lineRange(for: NSRange(location: selectedRange.location, length: 0))
             let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-            var lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            var lineRect = Self.lineFragmentRect(
+                for: glyphRange,
+                layoutManager: layoutManager,
+                textContainer: textContainer
+            )
             lineRect.origin.x = 0
             lineRect.origin.y += textView.textContainerOrigin.y
             lineRect.size.width = max(textView.bounds.width, textView.enclosingScrollView?.contentSize.width ?? 0)
 
             lineHighlightView.frame = lineRect
+        }
+
+        static func lineFragmentRect(
+            for glyphRange: NSRange,
+            layoutManager: NSLayoutManager,
+            textContainer: NSTextContainer
+        ) -> CGRect {
+            guard glyphRange.length > 0 else {
+                return layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            }
+            var effectiveRange = NSRange(location: 0, length: 0)
+            var rect = layoutManager.lineFragmentRect(
+                forGlyphAt: glyphRange.location,
+                effectiveRange: &effectiveRange
+            )
+            var nextGlyph = NSMaxRange(effectiveRange)
+            while nextGlyph < NSMaxRange(glyphRange) {
+                let fragment = layoutManager.lineFragmentRect(
+                    forGlyphAt: nextGlyph,
+                    effectiveRange: &effectiveRange
+                )
+                rect = rect.union(fragment)
+                nextGlyph = NSMaxRange(effectiveRange)
+            }
+            return rect
         }
 
         private func observeTextViewFrame() {
@@ -399,7 +453,11 @@ struct CodeEditorView: NSViewRepresentable {
             while index <= NSMaxRange(visibleCharRange), index < content.length {
                 let lineRange = content.lineRange(for: NSRange(location: index, length: 0))
                 let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-                let lineRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+                let lineRect = Self.lineFragmentRect(
+                    for: glyphRange,
+                    layoutManager: layoutManager,
+                    textContainer: textContainer
+                )
 
                 layouts.append(LineLayoutInfo(
                     lineNumber: lineNumber,
