@@ -110,6 +110,7 @@ struct CodeEditorView: NSViewRepresentable {
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        coordinator.state.flushEditorContent(textView.string)
         coordinator.state.registerContentProvider(nil)
         textView.undoManager?.removeAllActions()
         if let window = textView.window, window.firstResponder === textView {
@@ -322,6 +323,8 @@ struct CodeEditorView: NSViewRepresentable {
         private var lineStartOffsets: [Int] = [0]
         private var pendingEditRange: NSRange?
         private var pendingEditReplacement = ""
+        private var hasPendingEdit = false
+        private var hasMultiplePendingEdits = false
         private var lastReportedLayouts: [LineLayoutInfo] = []
         private let lineHighlightView: NSView = {
             let view = NSView()
@@ -535,11 +538,13 @@ struct CodeEditorView: NSViewRepresentable {
         func textDidChange(_: Notification) {
             guard let textView, !isUpdating else { return }
             isUpdating = true
-            if !applyPendingLineStartOffsetEdit() {
+            let canApplyIncrementalEdit = hasPendingEdit
+                && !hasMultiplePendingEdits
+                && applyPendingLineStartOffsetEdit()
+            if !canApplyIncrementalEdit {
                 rebuildLineStartOffsets(using: textView.string as NSString)
             }
-            pendingEditRange = nil
-            pendingEditReplacement = ""
+            resetPendingEditState()
             state.markModified()
             isUpdating = false
         }
@@ -550,15 +555,31 @@ struct CodeEditorView: NSViewRepresentable {
             replacementString: String?
         ) -> Bool {
             guard !isUpdating else { return true }
+            if hasPendingEdit {
+                hasMultiplePendingEdits = true
+                pendingEditRange = nil
+                pendingEditReplacement = ""
+                return true
+            }
             let textLength = (textView.string as NSString).length
             if isValidEditRange(affectedCharRange, textLength: textLength) {
                 pendingEditRange = affectedCharRange
                 pendingEditReplacement = replacementString ?? ""
+                hasPendingEdit = true
             } else {
                 pendingEditRange = nil
                 pendingEditReplacement = ""
+                hasPendingEdit = true
+                hasMultiplePendingEdits = true
             }
             return true
+        }
+
+        private func resetPendingEditState() {
+            pendingEditRange = nil
+            pendingEditReplacement = ""
+            hasPendingEdit = false
+            hasMultiplePendingEdits = false
         }
 
         func textViewDidChangeSelection(_: Notification) {

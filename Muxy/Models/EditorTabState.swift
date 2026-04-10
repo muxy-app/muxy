@@ -308,26 +308,24 @@ final class EditorTabState: Identifiable {
 
     func saveFileAsync() async throws {
         guard !isSaving else { return }
-        let hasLiveEditor = contentProvider != nil
-        let liveContent: String = if let provided = contentProvider?() {
-            provided
+        isSaving = true
+        let liveContent = contentProvider?() ?? content
+        let textToSave: String = if !liveContent.isEmpty, !liveContent.hasSuffix("\n") {
+            liveContent + "\n"
         } else {
-            content
+            liveContent
         }
-        let textToSave = liveContent
         let path = filePath
         refreshReadOnlyStatus()
         guard Self.canWriteFile(at: path) else {
+            isSaving = false
             throw SaveError.fileIsReadOnly(path)
         }
-        isSaving = true
         do {
             try await Self.writeFile(text: textToSave, path: path)
             isSaving = false
-            if !hasLiveEditor {
-                setContent(textToSave)
-                resetStreamAppendSignal()
-            }
+            content = liveContent
+            resetStreamAppendSignal()
             isModified = false
         } catch {
             isSaving = false
@@ -396,6 +394,11 @@ final class EditorTabState: Identifiable {
 
     func registerContentProvider(_ provider: (() -> String?)?) {
         contentProvider = provider
+    }
+
+    func flushEditorContent(_ newContent: String) {
+        content = newContent
+        pendingAppendChunks.removeAll(keepingCapacity: false)
     }
 
     func navigateSearch(_ direction: EditorSearchNavigationDirection) {
