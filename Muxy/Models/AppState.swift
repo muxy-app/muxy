@@ -186,6 +186,27 @@ final class AppState {
         closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
     }
 
+    func saveAndCloseUnsavedEditorTab() {
+        guard let pending = pendingUnsavedEditorTabClose else { return }
+        guard let root = workspaceRoots[pending.projectID],
+              let area = root.findArea(id: pending.areaID),
+              let tab = area.tabs.first(where: { $0.id == pending.tabID }),
+              let editorState = tab.content.editorState
+        else {
+            pendingUnsavedEditorTabClose = nil
+            return
+        }
+        pendingUnsavedEditorTabClose = nil
+        Task { [weak self] in
+            do {
+                try await editorState.saveFileAsync()
+                self?.closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
+            } catch {
+                return
+            }
+        }
+    }
+
     func cancelCloseUnsavedEditorTab() {
         pendingUnsavedEditorTabClose = nil
     }
@@ -222,6 +243,20 @@ final class AppState {
         let allAreas = root.allAreas()
         let totalTabs = allAreas.reduce(0) { $0 + $1.tabs.count }
         return totalTabs <= 1
+    }
+
+    func unsavedEditorTabs() -> [EditorTabState] {
+        var result: [EditorTabState] = []
+        for (_, root) in workspaceRoots {
+            for area in root.allAreas() {
+                for tab in area.tabs {
+                    if let state = tab.content.editorState, state.isModified {
+                        result.append(state)
+                    }
+                }
+            }
+        }
+        return result
     }
 
     private func needsUnsavedEditorConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {

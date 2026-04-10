@@ -37,6 +37,9 @@ struct MuxyApp: App {
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
                     }
+                    appDelegate.hasUnsavedEditorTabs = { [appState] in
+                        appState.unsavedEditorTabs()
+                    }
                     appState.onProjectsEmptied = { [projectStore] projectIDs in
                         for id in projectIDs {
                             projectStore.remove(id: id)
@@ -75,6 +78,7 @@ struct MuxyApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var onTerminate: (() -> Void)?
+    var hasUnsavedEditorTabs: (() -> [EditorTabState])?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -84,6 +88,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ThemeService.shared.applyDefaultThemeIfNeeded()
         UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let unsaved = hasUnsavedEditorTabs?() ?? []
+        guard !unsaved.isEmpty else { return .terminateNow }
+
+        let alert = NSAlert()
+        alert.messageText = unsaved.count == 1
+            ? "You have unsaved changes in 1 file."
+            : "You have unsaved changes in \(unsaved.count) files."
+        alert.informativeText = "If you quit without saving, your changes will be lost."
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Save All")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Discard")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            Task { @MainActor in
+                for state in unsaved {
+                    try? await state.saveFileAsync()
+                }
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        case .alertThirdButtonReturn:
+            return .terminateNow
+        default:
+            return .terminateCancel
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

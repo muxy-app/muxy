@@ -23,7 +23,7 @@ struct MainWindow: View {
             case .lastTab:
                 "Close Project?"
             case .unsavedEditor:
-                "Discard Unsaved Changes?"
+                "Save Changes Before Closing?"
             case .runningProcess:
                 "Close Tab?"
             }
@@ -34,7 +34,7 @@ struct MainWindow: View {
             case .lastTab:
                 "This is the last tab. Closing it will remove the project from the sidebar."
             case .unsavedEditor:
-                "This file has unsaved changes. Closing this tab will discard them."
+                "This file has unsaved changes. If you don't save, your changes will be lost."
             case .runningProcess:
                 "A process is still running in this tab. Are you sure you want to close it?"
             }
@@ -323,10 +323,23 @@ struct MainWindow: View {
         alert.informativeText = kind.message
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Close")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.keyEquivalent = "\r"
-        alert.buttons.last?.keyEquivalent = "\u{1b}"
+
+        switch kind {
+        case .unsavedEditor:
+            alert.addButton(withTitle: "Save")
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Don't Save")
+            alert.buttons[0].keyEquivalent = "\r"
+            alert.buttons[1].keyEquivalent = "\u{1b}"
+            alert.buttons[2].keyEquivalent = "d"
+            alert.buttons[2].keyEquivalentModifierMask = [.command]
+        case .lastTab,
+             .runningProcess:
+            alert.addButton(withTitle: "Close")
+            alert.addButton(withTitle: "Cancel")
+            alert.buttons[0].keyEquivalent = "\r"
+            alert.buttons[1].keyEquivalent = "\u{1b}"
+        }
 
         alert.beginSheetModal(for: window) { response in
             switch kind {
@@ -337,9 +350,12 @@ struct MainWindow: View {
                     appState.cancelCloseLastTab()
                 }
             case .unsavedEditor:
-                if response == .alertFirstButtonReturn {
+                switch response {
+                case .alertFirstButtonReturn:
+                    appState.saveAndCloseUnsavedEditorTab()
+                case .alertThirdButtonReturn:
                     appState.confirmCloseUnsavedEditorTab()
-                } else {
+                default:
                     appState.cancelCloseUnsavedEditorTab()
                 }
             case .runningProcess:

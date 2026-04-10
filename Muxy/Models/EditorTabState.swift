@@ -92,21 +92,24 @@ final class EditorTabState: Identifiable {
     }
 
     func saveFile() {
+        Task { [weak self] in
+            try? await self?.saveFileAsync()
+        }
+    }
+
+    func saveFileAsync() async throws {
         guard !isSaving else { return }
         let textToSave = content
         let path = filePath
         isSaving = true
-        Task { [weak self] in
-            do {
-                try await Self.writeFile(text: textToSave, path: path)
-                guard !Task.isCancelled, let self else { return }
-                isSaving = false
-                isModified = false
-            } catch {
-                guard !Task.isCancelled, let self else { return }
-                isSaving = false
-                errorMessage = error.localizedDescription
-            }
+        do {
+            try await Self.writeFile(text: textToSave, path: path)
+            isSaving = false
+            isModified = false
+        } catch {
+            isSaving = false
+            errorMessage = error.localizedDescription
+            throw error
         }
     }
 
