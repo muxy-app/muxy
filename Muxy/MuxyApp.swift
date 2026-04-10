@@ -111,10 +111,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch response {
         case .alertFirstButtonReturn:
             Task { @MainActor in
+                var failures: [String] = []
                 for state in unsaved {
-                    try? await state.saveFileAsync()
+                    do {
+                        try await state.saveFileAsync()
+                    } catch {
+                        failures.append("\(state.fileName): \(error.localizedDescription)")
+                    }
                 }
-                NSApp.reply(toApplicationShouldTerminate: true)
+                if failures.isEmpty {
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                    return
+                }
+                Self.presentSaveFailureAlert(failures: failures)
+                NSApp.reply(toApplicationShouldTerminate: false)
             }
             return .terminateLater
         case .alertThirdButtonReturn:
@@ -122,6 +132,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             return .terminateCancel
         }
+    }
+
+    @MainActor
+    private static func presentSaveFailureAlert(failures: [String]) {
+        let alert = NSAlert()
+        alert.messageText = failures.count == 1
+            ? "Could Not Save File"
+            : "Could Not Save \(failures.count) Files"
+        alert.informativeText = failures.joined(separator: "\n")
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "OK")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.runModal()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

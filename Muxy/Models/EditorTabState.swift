@@ -166,7 +166,6 @@ final class EditorTabState: Identifiable {
             isModified = false
         } catch {
             isSaving = false
-            errorMessage = error.localizedDescription
             throw error
         }
     }

@@ -182,6 +182,10 @@ struct MainWindow: View {
             guard isPresented else { return }
             presentCloseConfirmation(.runningProcess)
         }
+        .onChange(of: appState.pendingSaveErrorMessage != nil) { _, isPresented in
+            guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
+            presentSaveErrorAlert(message: message)
+        }
     }
 
     @ViewBuilder
@@ -365,6 +369,27 @@ struct MainWindow: View {
                     appState.cancelCloseRunningTab()
                 }
             }
+        }
+    }
+
+    private func presentSaveErrorAlert(message: String) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else {
+            appState.pendingSaveErrorMessage = nil
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Could Not Save File"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "OK")
+        alert.buttons[0].keyEquivalent = "\r"
+
+        alert.beginSheetModal(for: window) { _ in
+            appState.pendingSaveErrorMessage = nil
         }
     }
 }

@@ -903,13 +903,26 @@ private struct BracketScanState {
     private var inSingleQuote = false
     private var inDoubleQuote = false
     private var inLineComment = false
+    private var inBlockComment = false
     private var escaped = false
+    private var pendingBlockCommentExit = false
 
     var isInSkipRegion: Bool {
-        inSingleQuote || inDoubleQuote || inLineComment
+        inSingleQuote || inDoubleQuote || inLineComment || inBlockComment
     }
 
     mutating func advance(current: Character, next: Character?) {
+        if inBlockComment {
+            if pendingBlockCommentExit {
+                pendingBlockCommentExit = false
+                inBlockComment = false
+                return
+            }
+            if current == "*", next == "/" {
+                pendingBlockCommentExit = true
+            }
+            return
+        }
         if inLineComment {
             if current == "\n" { inLineComment = false }
             return
@@ -934,6 +947,10 @@ private struct BracketScanState {
         }
         if current == "/", next == "/" {
             inLineComment = true
+            return
+        }
+        if current == "/", next == "*" {
+            inBlockComment = true
             return
         }
         if current == "\"" {

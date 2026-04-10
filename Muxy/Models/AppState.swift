@@ -56,6 +56,7 @@ final class AppState {
     var pendingLastTabClose: PendingTabClose?
     var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
+    var pendingSaveErrorMessage: String?
     private var focusHistory: [UUID: [UUID]] = [:]
 
     init(
@@ -197,12 +198,13 @@ final class AppState {
             return
         }
         pendingUnsavedEditorTabClose = nil
+        let fileName = editorState.fileName
         Task { [weak self] in
             do {
                 try await editorState.saveFileAsync()
                 self?.closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
             } catch {
-                return
+                self?.pendingSaveErrorMessage = "Failed to save \(fileName): \(error.localizedDescription)"
             }
         }
     }
