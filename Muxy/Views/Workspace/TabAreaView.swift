@@ -89,7 +89,14 @@ struct TabAreaView: View {
             guard let tabID = area.activeTabID,
                   let tab = area.tabs.first(where: { $0.id == tabID })
             else { return }
-            tab.content.editorState?.saveFile()
+            guard let editorState = tab.content.editorState else { return }
+            Task { @MainActor in
+                do {
+                    try await editorState.saveFileAsync()
+                } catch {
+                    appState.pendingSaveErrorMessage = error.localizedDescription
+                }
+            }
         }
     }
 }

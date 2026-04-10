@@ -16,6 +16,7 @@ final class EditorTabState: Identifiable {
     var isModified = false
     var isSaving = false
     var errorMessage: String?
+    var isReadOnly = false
     var cursorLine: Int = 1
     var cursorColumn: Int = 1
     var searchVisible = false
@@ -57,6 +58,17 @@ final class EditorTabState: Identifiable {
 
     @ObservationIgnored private var loadTask: Task<Void, Never>?
 
+    private enum SaveError: LocalizedError {
+        case fileIsReadOnly(String)
+
+        var errorDescription: String? {
+            switch self {
+            case let .fileIsReadOnly(path):
+                "File is read-only: \(URL(fileURLWithPath: path).lastPathComponent)"
+            }
+        }
+    }
+
     init(projectPath: String, filePath: String) {
         self.projectPath = projectPath
         self.filePath = filePath
@@ -70,6 +82,7 @@ final class EditorTabState: Identifiable {
     func loadFile() {
         guard !isLoading else { return }
         errorMessage = nil
+        refreshReadOnlyStatus()
 
         let size = fileSize(at: filePath)
         if size >= Self.largeFileRefuseThreshold {
@@ -108,6 +121,7 @@ final class EditorTabState: Identifiable {
                 let text = try await Self.readFile(at: path)
                 guard !Task.isCancelled, let self else { return }
                 content = text
+                refreshReadOnlyStatus()
                 isModified = false
                 isLoading = false
             } catch {
@@ -159,6 +173,10 @@ final class EditorTabState: Identifiable {
         guard !isSaving else { return }
         let textToSave = content
         let path = filePath
+        refreshReadOnlyStatus()
+        guard Self.canWriteFile(at: path) else {
+            throw SaveError.fileIsReadOnly(path)
+        }
         isSaving = true
         do {
             try await Self.writeFile(text: textToSave, path: path)
@@ -168,6 +186,14 @@ final class EditorTabState: Identifiable {
             isSaving = false
             throw error
         }
+    }
+
+    private static func canWriteFile(at path: String) -> Bool {
+        FileManager.default.isWritableFile(atPath: path)
+    }
+
+    private func refreshReadOnlyStatus() {
+        isReadOnly = !Self.canWriteFile(at: filePath)
     }
 
     private static func writeFile(text: String, path: String) async throws {

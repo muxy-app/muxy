@@ -205,6 +205,11 @@ private struct EditorBreadcrumb: View {
                     .fill(MuxyTheme.fg)
                     .frame(width: 6, height: 6)
             }
+            if state.isReadOnly {
+                Label("Read-only", systemImage: "lock.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.diffHunkFg)
+            }
             Spacer()
             Text("Ln \(state.cursorLine), Col \(state.cursorColumn)")
                 .font(.system(size: 10, design: .monospaced))
