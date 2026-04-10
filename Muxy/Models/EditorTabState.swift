@@ -33,6 +33,11 @@ final class EditorTabState: Identifiable {
     var replaceVersion = 0
     var replaceAllVersion = 0
     var currentSelection = ""
+    var awaitingLargeFileConfirmation = false
+    var largeFileSize: Int64 = 0
+
+    static let largeFileWarningThreshold: Int64 = 5 * 1024 * 1024
+    static let largeFileRefuseThreshold: Int64 = 50 * 1024 * 1024
 
     var fileName: String {
         URL(fileURLWithPath: filePath).lastPathComponent
@@ -64,6 +69,36 @@ final class EditorTabState: Identifiable {
 
     func loadFile() {
         guard !isLoading else { return }
+        errorMessage = nil
+
+        let size = fileSize(at: filePath)
+        if size >= Self.largeFileRefuseThreshold {
+            errorMessage = "File is too large to open (\(Self.formatBytes(size))). " +
+                "Use a dedicated editor for files over \(Self.formatBytes(Self.largeFileRefuseThreshold))."
+            isLoading = false
+            return
+        }
+        if size >= Self.largeFileWarningThreshold {
+            largeFileSize = size
+            awaitingLargeFileConfirmation = true
+            isLoading = false
+            return
+        }
+
+        performLoad()
+    }
+
+    func confirmLargeFileOpen() {
+        awaitingLargeFileConfirmation = false
+        performLoad()
+    }
+
+    func cancelLargeFileOpen() {
+        awaitingLargeFileConfirmation = false
+        errorMessage = "File load cancelled."
+    }
+
+    private func performLoad() {
         isLoading = true
         errorMessage = nil
         loadTask?.cancel()
@@ -81,6 +116,20 @@ final class EditorTabState: Identifiable {
                 isLoading = false
             }
         }
+    }
+
+    private func fileSize(at path: String) -> Int64 {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? NSNumber
+        else { return 0 }
+        return size.int64Value
+    }
+
+    private static func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useKB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 
     private static func readFile(at path: String) async throws -> String {

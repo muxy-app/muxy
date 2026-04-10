@@ -12,7 +12,9 @@ struct EditorPane: View {
         VStack(spacing: 0) {
             EditorBreadcrumb(state: state)
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            if state.isLoading {
+            if state.awaitingLargeFileConfirmation {
+                largeFileConfirmation
+            } else if state.isLoading {
                 loadingView
             } else if let error = state.errorMessage {
                 errorView(error)
@@ -88,6 +90,42 @@ struct EditorPane: View {
             ProgressView().controlSize(.small)
             Spacer()
         }
+    }
+
+    private var largeFileConfirmation: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 28))
+                .foregroundStyle(MuxyTheme.fgMuted)
+            Text("Large File")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+            Text("This file is \(formattedLargeFileSize). Large files may slow down the editor.")
+                .font(.system(size: 12))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+            HStack(spacing: 8) {
+                Button("Cancel") {
+                    state.cancelLargeFileOpen()
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("Open Anyway") {
+                    state.confirmLargeFileOpen()
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var formattedLargeFileSize: String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useKB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: state.largeFileSize)
     }
 
     private func errorView(_ error: String) -> some View {
