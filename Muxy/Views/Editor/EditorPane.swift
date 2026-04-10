@@ -49,6 +49,25 @@ struct EditorPane: View {
                         )
                     }
 
+                    if state.isIncrementalLoading {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.mini)
+                            Text("Loading full file...")
+                                .font(.system(size: 11))
+                                .foregroundStyle(MuxyTheme.fgMuted)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(MuxyTheme.bg.opacity(0.92))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(MuxyTheme.border, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .padding(.top, 6)
+                        .padding(.trailing, state.searchVisible ? 260 : 8)
+                    }
+
                     if state.searchVisible {
                         EditorSearchBar(
                             state: state,

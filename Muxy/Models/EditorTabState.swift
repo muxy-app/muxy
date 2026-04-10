@@ -12,7 +12,10 @@ final class EditorTabState: Identifiable {
     let projectPath: String
     let filePath: String
     var content: String = ""
+    var contentVersion = 0
+    var streamAppendVersion = 0
     var isLoading = false
+    var isIncrementalLoading = false
     var isModified = false
     var isSaving = false
     var errorMessage: String?
@@ -39,6 +42,9 @@ final class EditorTabState: Identifiable {
 
     static let largeFileWarningThreshold: Int64 = 5 * 1024 * 1024
     static let largeFileRefuseThreshold: Int64 = 50 * 1024 * 1024
+    static let initialOpenChunkSize = 512 * 1024
+    static let streamChunkSize = 4 * 1024 * 1024
+    static let streamYieldChunkSize = 2 * 1024 * 1024
 
     var fileName: String {
         URL(fileURLWithPath: filePath).lastPathComponent
@@ -57,6 +63,14 @@ final class EditorTabState: Identifiable {
     }
 
     @ObservationIgnored private var loadTask: Task<Void, Never>?
+    @ObservationIgnored private var contentProvider: (() -> String?)?
+    @ObservationIgnored private var pendingAppendChunks: [String] = []
+
+    private enum FileLoadEvent {
+        case initial(String, hasMore: Bool)
+        case appended(String)
+        case finished
+    }
 
     private enum SaveError: LocalizedError {
         case fileIsReadOnly(String)
@@ -82,6 +96,8 @@ final class EditorTabState: Identifiable {
     func loadFile() {
         guard !isLoading else { return }
         errorMessage = nil
+        isIncrementalLoading = false
+        resetStreamAppendSignal()
         refreshReadOnlyStatus()
 
         let size = fileSize(at: filePath)
@@ -89,12 +105,16 @@ final class EditorTabState: Identifiable {
             errorMessage = "File is too large to open (\(Self.formatBytes(size))). " +
                 "Use a dedicated editor for files over \(Self.formatBytes(Self.largeFileRefuseThreshold))."
             isLoading = false
+            isIncrementalLoading = false
+            resetStreamAppendSignal()
             return
         }
         if size >= Self.largeFileWarningThreshold {
             largeFileSize = size
             awaitingLargeFileConfirmation = true
             isLoading = false
+            isIncrementalLoading = false
+            resetStreamAppendSignal()
             return
         }
 
@@ -103,31 +123,70 @@ final class EditorTabState: Identifiable {
 
     func confirmLargeFileOpen() {
         awaitingLargeFileConfirmation = false
+        isIncrementalLoading = false
+        resetStreamAppendSignal()
         performLoad()
     }
 
     func cancelLargeFileOpen() {
         awaitingLargeFileConfirmation = false
+        isIncrementalLoading = false
+        resetStreamAppendSignal()
         errorMessage = "File load cancelled."
     }
 
     private func performLoad() {
         isLoading = true
+        isIncrementalLoading = false
+        isModified = false
         errorMessage = nil
+        resetStreamAppendSignal()
         loadTask?.cancel()
         let path = filePath
         loadTask = Task { [weak self] in
             do {
-                let text = try await Self.readFile(at: path)
-                guard !Task.isCancelled, let self else { return }
-                content = text
-                refreshReadOnlyStatus()
-                isModified = false
-                isLoading = false
+                var hasInitialChunk = false
+                for try await event in Self.streamFile(at: path) {
+                    guard !Task.isCancelled, let self else { return }
+                    switch event {
+                    case let .initial(text, hasMore):
+                        hasInitialChunk = true
+                        setContent(text)
+                        refreshReadOnlyStatus()
+                        isModified = false
+                        isLoading = false
+                        isIncrementalLoading = hasMore
+                    case let .appended(text):
+                        emitStreamAppend(text)
+                        if isLoading {
+                            isLoading = false
+                        }
+                        if !isIncrementalLoading {
+                            isIncrementalLoading = true
+                        }
+                    case .finished:
+                        refreshReadOnlyStatus()
+                        if isLoading {
+                            isLoading = false
+                        }
+                        if isIncrementalLoading {
+                            isIncrementalLoading = false
+                        }
+                    }
+                }
+
+                guard let self else { return }
+                if !hasInitialChunk {
+                    isLoading = false
+                    isIncrementalLoading = false
+                    resetStreamAppendSignal()
+                }
             } catch {
                 guard !Task.isCancelled, let self else { return }
                 errorMessage = error.localizedDescription
                 isLoading = false
+                isIncrementalLoading = false
+                resetStreamAppendSignal()
             }
         }
     }
@@ -146,19 +205,97 @@ final class EditorTabState: Identifiable {
         return formatter.string(fromByteCount: bytes)
     }
 
-    private static func readFile(at path: String) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
+    private static func streamFile(at path: String) -> AsyncThrowingStream<FileLoadEvent, Error> {
+        let initialChunkSize = initialOpenChunkSize
+        let streamChunkSize = Self.streamChunkSize
+        let yieldChunkSize = Self.streamYieldChunkSize
+        return AsyncThrowingStream { continuation in
+            let workerTask = Task.detached(priority: .userInitiated) {
+                let url = URL(fileURLWithPath: path)
                 do {
-                    let data = try Data(contentsOf: URL(fileURLWithPath: path))
-                    guard let text = String(bytes: data, encoding: .utf8) else {
-                        continuation.resume(throwing: CocoaError(.fileReadUnknownStringEncoding))
+                    let attrs = try FileManager.default.attributesOfItem(atPath: path)
+                    let fileSize = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+                    var pendingUTF8 = Data()
+
+                    func decodeChunk(_ chunk: Data, isFinal: Bool) throws -> String {
+                        var combined = Data()
+                        combined.reserveCapacity(pendingUTF8.count + chunk.count)
+                        combined.append(pendingUTF8)
+                        combined.append(chunk)
+
+                        let maxTrim = min(3, combined.count)
+                        for trim in 0 ... maxTrim {
+                            let end = combined.count - trim
+                            let prefix = combined.prefix(end)
+                            guard let text = String(bytes: prefix, encoding: .utf8) else { continue }
+                            pendingUTF8 = Data(combined.suffix(trim))
+                            if isFinal {
+                                if pendingUTF8.isEmpty { return text }
+                                guard let tail = String(bytes: pendingUTF8, encoding: .utf8) else {
+                                    throw CocoaError(.fileReadUnknownStringEncoding)
+                                }
+                                pendingUTF8.removeAll(keepingCapacity: false)
+                                return text + tail
+                            }
+                            return text
+                        }
+
+                        throw CocoaError(.fileReadUnknownStringEncoding)
+                    }
+
+                    let handle = try FileHandle(forReadingFrom: url)
+                    defer {
+                        try? handle.close()
+                    }
+
+                    let initialData = try handle.read(upToCount: initialChunkSize) ?? Data()
+                    let initialText = try decodeChunk(initialData, isFinal: false)
+                    let initialDataCount = Int64(initialData.count)
+                    let hasMore = initialDataCount < fileSize
+                    if !hasMore {
+                        let tail = try decodeChunk(Data(), isFinal: true)
+                        continuation.yield(FileLoadEvent.initial(initialText + tail, hasMore: false))
+                        continuation.finish()
                         return
                     }
-                    continuation.resume(returning: text)
+
+                    continuation.yield(FileLoadEvent.initial(initialText, hasMore: true))
+
+                    var batch = ""
+                    batch.reserveCapacity(yieldChunkSize)
+                    var batchBytes = 0
+
+                    while true {
+                        try Task.checkCancellation()
+                        let data = try handle.read(upToCount: streamChunkSize) ?? Data()
+                        if data.isEmpty { break }
+                        let text = try decodeChunk(data, isFinal: false)
+                        if text.isEmpty { continue }
+                        batch += text
+                        batchBytes += data.count
+                        if batchBytes >= yieldChunkSize {
+                            continuation.yield(FileLoadEvent.appended(batch))
+                            batch = ""
+                            batchBytes = 0
+                        }
+                    }
+
+                    let tail = try decodeChunk(Data(), isFinal: true)
+                    if !tail.isEmpty {
+                        batch += tail
+                    }
+                    if !batch.isEmpty {
+                        continuation.yield(FileLoadEvent.appended(batch))
+                    }
+                    continuation.yield(FileLoadEvent.finished)
+                    continuation.finish()
                 } catch {
-                    continuation.resume(throwing: error)
+                    continuation.finish(throwing: error)
                 }
+            }
+
+            continuation.onTermination = { _ in
+                workerTask.cancel()
             }
         }
     }
@@ -171,10 +308,13 @@ final class EditorTabState: Identifiable {
 
     func saveFileAsync() async throws {
         guard !isSaving else { return }
-        if !content.isEmpty, !content.hasSuffix("\n") {
-            content.append("\n")
+        let hasLiveEditor = contentProvider != nil
+        let liveContent: String = if let provided = contentProvider?() {
+            provided
+        } else {
+            content
         }
-        let textToSave = content
+        let textToSave = liveContent
         let path = filePath
         refreshReadOnlyStatus()
         guard Self.canWriteFile(at: path) else {
@@ -184,6 +324,10 @@ final class EditorTabState: Identifiable {
         do {
             try await Self.writeFile(text: textToSave, path: path)
             isSaving = false
+            if !hasLiveEditor {
+                setContent(textToSave)
+                resetStreamAppendSignal()
+            }
             isModified = false
         } catch {
             isSaving = false
@@ -201,7 +345,7 @@ final class EditorTabState: Identifiable {
 
     private static func writeFile(text: String, path: String) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
                 do {
                     try text.write(toFile: path, atomically: true, encoding: .utf8)
                     continuation.resume()
@@ -215,6 +359,43 @@ final class EditorTabState: Identifiable {
     func markModified() {
         guard !isModified else { return }
         isModified = true
+    }
+
+    func setContent(_ newContent: String) {
+        content = newContent
+        contentVersion += 1
+    }
+
+    private func emitStreamAppend(_ chunk: String) {
+        guard !chunk.isEmpty else { return }
+        pendingAppendChunks.append(chunk)
+        streamAppendVersion += 1
+    }
+
+    private func resetStreamAppendSignal() {
+        pendingAppendChunks.removeAll(keepingCapacity: true)
+        streamAppendVersion += 1
+    }
+
+    func dequeuePendingAppendChunks(maxCount: Int) -> [String] {
+        guard maxCount > 0, !pendingAppendChunks.isEmpty else { return [] }
+        let count = min(maxCount, pendingAppendChunks.count)
+        let chunks = Array(pendingAppendChunks.prefix(count))
+        pendingAppendChunks.removeFirst(count)
+        return chunks
+    }
+
+    var hasPendingAppendChunks: Bool {
+        !pendingAppendChunks.isEmpty
+    }
+
+    func requestPendingAppendDrainIfNeeded() {
+        guard hasPendingAppendChunks else { return }
+        streamAppendVersion += 1
+    }
+
+    func registerContentProvider(_ provider: (() -> String?)?) {
+        contentProvider = provider
     }
 
     func navigateSearch(_ direction: EditorSearchNavigationDirection) {
