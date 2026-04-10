@@ -237,6 +237,19 @@ struct CodeEditorView: NSViewRepresentable {
             return view
         }()
 
+        private let bracketHighlightViews: [NSView] = [
+            Coordinator.makeBracketHighlightView(),
+            Coordinator.makeBracketHighlightView(),
+        ]
+
+        private static func makeBracketHighlightView() -> NSView {
+            let view = NSView()
+            view.wantsLayer = true
+            view.layer?.cornerRadius = 2
+            view.isHidden = true
+            return view
+        }
+
         init(state: EditorTabState, editorSettings: EditorSettings) {
             self.state = state
             self.editorSettings = editorSettings
@@ -279,7 +292,12 @@ struct CodeEditorView: NSViewRepresentable {
             guard let textView else { return }
             lineHighlightView.removeFromSuperview()
             textView.addSubview(lineHighlightView, positioned: .below, relativeTo: nil)
+            for view in bracketHighlightViews {
+                view.removeFromSuperview()
+                textView.addSubview(view, positioned: .below, relativeTo: nil)
+            }
             updateLineHighlight()
+            updateBracketMatching()
         }
 
         func updateLineHighlight() {
@@ -414,6 +432,7 @@ struct CodeEditorView: NSViewRepresentable {
             state.cursorColumn = str.distance(from: lineRange.lowerBound, to: index) + 1
             updateCurrentSelection(in: textView, range: range)
             updateLineHighlight()
+            updateBracketMatching()
         }
 
         private func updateCurrentSelection(in textView: NSTextView, range: NSRange) {
@@ -432,6 +451,155 @@ struct CodeEditorView: NSViewRepresentable {
                 return
             }
             state.currentSelection = selected
+        }
+
+        func updateBracketMatching() {
+            hideBracketHighlights()
+            guard let textView else { return }
+            let selectedRange = textView.selectedRange()
+            guard selectedRange.length == 0 else { return }
+
+            let content = textView.string as NSString
+            let length = content.length
+            guard length > 0 else { return }
+
+            let cursor = selectedRange.location
+            guard let match = findBracketMatch(in: content, cursor: cursor) else { return }
+
+            highlightBracket(at: match.first, view: bracketHighlightViews[0])
+            highlightBracket(at: match.second, view: bracketHighlightViews[1])
+        }
+
+        private func hideBracketHighlights() {
+            for view in bracketHighlightViews {
+                view.isHidden = true
+            }
+        }
+
+        private func highlightBracket(at location: Int, view: NSView) {
+            guard let textView, let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer
+            else { return }
+
+            let charRange = NSRange(location: location, length: 1)
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+            var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            rect.origin.y += textView.textContainerOrigin.y
+            rect.origin.x += textView.textContainerOrigin.x
+
+            let color = GhosttyService.shared.foregroundColor.withAlphaComponent(0.25)
+            view.layer?.backgroundColor = color.cgColor
+            view.frame = rect
+            view.isHidden = false
+        }
+
+        private struct BracketMatch {
+            let first: Int
+            let second: Int
+        }
+
+        private func findBracketMatch(in content: NSString, cursor: Int) -> BracketMatch? {
+            let length = content.length
+
+            if cursor < length {
+                let char = character(at: cursor, in: content)
+                if let match = findMatchingBracket(for: char, at: cursor, in: content) {
+                    return BracketMatch(first: cursor, second: match)
+                }
+            }
+
+            if cursor > 0 {
+                let prev = cursor - 1
+                let char = character(at: prev, in: content)
+                if let match = findMatchingBracket(for: char, at: prev, in: content) {
+                    return BracketMatch(first: prev, second: match)
+                }
+            }
+
+            return nil
+        }
+
+        private func findMatchingBracket(for char: Character, at location: Int, in content: NSString) -> Int? {
+            let openers: [Character: Character] = ["(": ")", "[": "]", "{": "}"]
+            let closers: [Character: Character] = [")": "(", "]": "[", "}": "{"]
+
+            if let match = openers[char] {
+                return scanForward(from: location + 1, open: char, close: match, in: content)
+            }
+            if let match = closers[char] {
+                return scanBackward(from: location - 1, open: match, close: char, in: content)
+            }
+            return nil
+        }
+
+        private static let bracketScanLimit = 5000
+
+        private func scanForward(from start: Int, open: Character, close: Character, in content: NSString) -> Int? {
+            let length = content.length
+            let end = min(length, start + Coordinator.bracketScanLimit)
+            var depth = 1
+            var state = BracketScanState()
+            var index = start
+            while index < end {
+                let ch = character(at: index, in: content)
+                let next = index + 1 < length ? character(at: index + 1, in: content) : nil
+                state.advance(current: ch, next: next)
+                if state.isInSkipRegion {
+                    index += 1
+                    continue
+                }
+                if ch == open {
+                    depth += 1
+                } else if ch == close {
+                    depth -= 1
+                    if depth == 0 { return index }
+                }
+                index += 1
+            }
+            return nil
+        }
+
+        private func scanBackward(from start: Int, open: Character, close: Character, in content: NSString) -> Int? {
+            guard start >= 0 else { return nil }
+            let scanStart = max(0, start - Coordinator.bracketScanLimit)
+
+            var skipMask: [Bool] = []
+            skipMask.reserveCapacity(start - scanStart + 1)
+            var state = BracketScanState()
+            var i = scanStart
+            while i <= start {
+                let ch = character(at: i, in: content)
+                let next = i + 1 < content.length ? character(at: i + 1, in: content) : nil
+                state.advance(current: ch, next: next)
+                skipMask.append(state.isInSkipRegion)
+                i += 1
+            }
+
+            var depth = 1
+            var index = start
+            while index >= scanStart {
+                let maskIndex = index - scanStart
+                if skipMask[maskIndex] {
+                    index -= 1
+                    continue
+                }
+                let ch = character(at: index, in: content)
+                if ch == close {
+                    depth += 1
+                } else if ch == open {
+                    depth -= 1
+                    if depth == 0 { return index }
+                }
+                index -= 1
+            }
+            return nil
+        }
+
+        private func character(at index: Int, in content: NSString) -> Character {
+            guard let scalar = UnicodeScalar(content.character(at: index)) else {
+                return "\u{FFFD}"
+            }
+            return Character(scalar)
         }
 
         func applyHighlighting() {
@@ -657,6 +825,54 @@ struct CodeEditorView: NSViewRepresentable {
             }
 
             return false
+        }
+    }
+}
+
+private struct BracketScanState {
+    private var inSingleQuote = false
+    private var inDoubleQuote = false
+    private var inLineComment = false
+    private var escaped = false
+
+    var isInSkipRegion: Bool {
+        inSingleQuote || inDoubleQuote || inLineComment
+    }
+
+    mutating func advance(current: Character, next: Character?) {
+        if inLineComment {
+            if current == "\n" { inLineComment = false }
+            return
+        }
+        if escaped {
+            escaped = false
+            return
+        }
+        if inSingleQuote {
+            if current == "\\" { escaped = true
+                return
+            }
+            if current == "'" { inSingleQuote = false }
+            return
+        }
+        if inDoubleQuote {
+            if current == "\\" { escaped = true
+                return
+            }
+            if current == "\"" { inDoubleQuote = false }
+            return
+        }
+        if current == "/", next == "/" {
+            inLineComment = true
+            return
+        }
+        if current == "\"" {
+            inDoubleQuote = true
+            return
+        }
+        if current == "'" {
+            inSingleQuote = true
+            return
         }
     }
 }
