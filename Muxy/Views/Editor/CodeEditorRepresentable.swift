@@ -157,7 +157,10 @@ struct CodeEditorView: NSViewRepresentable {
         coordinator.tabSize = editorSettings.tabSize
         coordinator.showInvisibles = editorSettings.showInvisibles
 
-        if contentChanged || themeChanged || fontChanged {
+        if contentChanged {
+            coordinator.resetHighlightedRange()
+            coordinator.highlightVisibleRange(force: true)
+        } else if themeChanged || fontChanged {
             coordinator.applyHighlighting()
         }
 
@@ -224,6 +227,8 @@ struct CodeEditorView: NSViewRepresentable {
         var lastReplaceVersion = 0
         var lastReplaceAllVersion = 0
         var lastWordWrap = true
+        var lastHighlightedRange: NSRange = .init(location: 0, length: 0)
+        private static let highlightBuffer = 2000
         var tabSize = 4
         var showInvisibles = false
         var onLineLayoutChange: ([LineLayoutInfo]) -> Void = { _ in }
@@ -340,6 +345,7 @@ struct CodeEditorView: NSViewRepresentable {
         @objc
         private func handleScrollBoundsChange() {
             reportLineLayouts()
+            highlightVisibleRange()
         }
 
         @objc
@@ -620,6 +626,70 @@ struct CodeEditorView: NSViewRepresentable {
                 textView.enclosingScrollView?.contentView.setBoundsOrigin(scrollPos)
             }
             textView.needsDisplay = true
+            lastHighlightedRange = fullRange
+        }
+
+        func highlightVisibleRange(force: Bool = false) {
+            guard let textView, let storage = textView.textStorage,
+                  let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer,
+                  let scrollView = textView.enclosingScrollView
+            else { return }
+            guard storage.length > 0 else {
+                lastHighlightedRange = NSRange(location: 0, length: 0)
+                return
+            }
+
+            let visibleRect = scrollView.contentView.bounds
+            let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+            let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
+
+            let total = storage.length
+            let bufferStart = max(0, visibleCharRange.location - Coordinator.highlightBuffer)
+            let bufferEnd = min(total, NSMaxRange(visibleCharRange) + Coordinator.highlightBuffer)
+
+            let nsContent = storage.string as NSString
+            let expandedStart = nsContent.lineRange(for: NSRange(location: bufferStart, length: 0)).location
+            let expandedEndRange = bufferEnd >= total
+                ? NSRange(location: total, length: 0)
+                : nsContent.lineRange(for: NSRange(location: bufferEnd, length: 0))
+            let expandedEnd = min(total, NSMaxRange(expandedEndRange))
+
+            let range = NSRange(location: expandedStart, length: expandedEnd - expandedStart)
+            guard range.length > 0 else { return }
+
+            if !force, rangeContains(lastHighlightedRange, other: range) {
+                return
+            }
+
+            let font = editorSettings.resolvedFont
+            textView.undoManager?.disableUndoRegistration()
+            storage.beginEditing()
+            storage.addAttribute(.font, value: font, range: range)
+            storage.addAttribute(.foregroundColor, value: GhosttyService.shared.foregroundColor, range: range)
+            SyntaxHighlightExtension(fileExtension: state.fileExtension)
+                .applyTextAttributes(to: storage, fullRange: range)
+            storage.endEditing()
+            textView.undoManager?.enableUndoRegistration()
+            textView.needsDisplay = true
+
+            lastHighlightedRange = unionRange(lastHighlightedRange, range)
+        }
+
+        func resetHighlightedRange() {
+            lastHighlightedRange = NSRange(location: 0, length: 0)
+        }
+
+        private func rangeContains(_ outer: NSRange, other: NSRange) -> Bool {
+            guard outer.length > 0 else { return false }
+            return outer.location <= other.location && NSMaxRange(outer) >= NSMaxRange(other)
+        }
+
+        private func unionRange(_ a: NSRange, _ b: NSRange) -> NSRange {
+            guard a.length > 0 else { return b }
+            let start = min(a.location, b.location)
+            let end = max(NSMaxRange(a), NSMaxRange(b))
+            return NSRange(location: start, length: end - start)
         }
 
         private var searchMatches: [NSRange] = []
