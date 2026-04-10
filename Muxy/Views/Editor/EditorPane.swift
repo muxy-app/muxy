@@ -37,6 +37,9 @@ struct EditorPane: View {
                             searchNavigationDirection: state.searchNavigationDirection,
                             searchCaseSensitive: state.searchCaseSensitive,
                             searchUseRegex: state.searchUseRegex,
+                            replaceText: state.replaceText,
+                            replaceVersion: state.replaceVersion,
+                            replaceAllVersion: state.replaceAllVersion,
                             onLineLayoutChange: { layouts in
                                 lineLayouts = layouts
                             }
@@ -52,11 +55,14 @@ struct EditorPane: View {
                             onPrevious: {
                                 state.navigateSearch(.previous)
                             },
+                            onReplace: {
+                                state.requestReplaceCurrent()
+                            },
+                            onReplaceAll: {
+                                state.requestReplaceAll()
+                            },
                             onClose: {
                                 state.searchVisible = false
-                                state.searchNeedle = ""
-                                state.searchMatchCount = 0
-                                state.searchCurrentIndex = 0
                             }
                         )
                     }
@@ -68,7 +74,11 @@ struct EditorPane: View {
         .onTapGesture(perform: onFocus)
         .onReceive(NotificationCenter.default.publisher(for: .findInTerminal)) { _ in
             guard focused else { return }
+            if !state.currentSelection.isEmpty {
+                state.searchNeedle = state.currentSelection
+            }
             state.searchVisible = true
+            state.searchFocusVersion += 1
         }
     }
 

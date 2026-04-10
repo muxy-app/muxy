@@ -22,6 +22,9 @@ struct CodeEditorView: NSViewRepresentable {
     let searchNavigationDirection: EditorSearchNavigationDirection
     let searchCaseSensitive: Bool
     let searchUseRegex: Bool
+    let replaceText: String
+    let replaceVersion: Int
+    let replaceAllVersion: Int
     let onLineLayoutChange: ([LineLayoutInfo]) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -172,6 +175,26 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.navigateSearch(forward: searchNavigationDirection == .next)
         }
 
+        if coordinator.lastReplaceVersion != replaceVersion {
+            coordinator.lastReplaceVersion = replaceVersion
+            coordinator.replaceCurrent(
+                with: replaceText,
+                needle: searchNeedle,
+                caseSensitive: searchCaseSensitive,
+                useRegex: searchUseRegex
+            )
+        }
+
+        if coordinator.lastReplaceAllVersion != replaceAllVersion {
+            coordinator.lastReplaceAllVersion = replaceAllVersion
+            coordinator.replaceAll(
+                with: replaceText,
+                needle: searchNeedle,
+                caseSensitive: searchCaseSensitive,
+                useRegex: searchUseRegex
+            )
+        }
+
         coordinator.onLineLayoutChange = onLineLayoutChange
 
         if contentChanged || themeChanged || fontChanged || wrapChanged {
@@ -198,6 +221,8 @@ struct CodeEditorView: NSViewRepresentable {
         var lastSearchNavigationVersion = -1
         var lastSearchCaseSensitive = false
         var lastSearchUseRegex = false
+        var lastReplaceVersion = 0
+        var lastReplaceAllVersion = 0
         var lastWordWrap = true
         var tabSize = 4
         var showInvisibles = false
@@ -387,7 +412,26 @@ struct CodeEditorView: NSViewRepresentable {
             let lineRange = str.lineRange(for: index ..< index)
             state.cursorLine = str[str.startIndex ..< lineRange.lowerBound].count(where: { $0 == "\n" }) + 1
             state.cursorColumn = str.distance(from: lineRange.lowerBound, to: index) + 1
+            updateCurrentSelection(in: textView, range: range)
             updateLineHighlight()
+        }
+
+        private func updateCurrentSelection(in textView: NSTextView, range: NSRange) {
+            guard range.length > 0, range.length <= 200 else {
+                state.currentSelection = ""
+                return
+            }
+            let nsContent = textView.string as NSString
+            guard NSMaxRange(range) <= nsContent.length else {
+                state.currentSelection = ""
+                return
+            }
+            let selected = nsContent.substring(with: range)
+            if selected.contains("\n") {
+                state.currentSelection = ""
+                return
+            }
+            state.currentSelection = selected
         }
 
         func applyHighlighting() {
@@ -480,6 +524,71 @@ struct CodeEditorView: NSViewRepresentable {
             textView.scrollRangeToVisible(range)
         }
 
+        func replaceCurrent(with replacement: String, needle: String, caseSensitive: Bool, useRegex: Bool) {
+            guard let textView, !needle.isEmpty, !searchMatches.isEmpty else { return }
+            let currentIndex = max(0, state.searchCurrentIndex - 1)
+            guard currentIndex < searchMatches.count else { return }
+            let range = searchMatches[currentIndex]
+            guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
+
+            let expanded = expandReplacement(
+                template: replacement,
+                matchedRange: range,
+                needle: needle,
+                caseSensitive: caseSensitive,
+                useRegex: useRegex
+            )
+            textView.insertText(expanded, replacementRange: range)
+            state.content = textView.string
+            state.markModified()
+
+            performSearch(needle, caseSensitive: caseSensitive, useRegex: useRegex)
+
+            guard !searchMatches.isEmpty else { return }
+            let nextLocation = range.location + (expanded as NSString).length
+            let nextIndex = searchMatches.firstIndex(where: { $0.location >= nextLocation }) ?? 0
+            state.searchCurrentIndex = nextIndex + 1
+            selectMatch(at: nextIndex)
+        }
+
+        func replaceAll(with replacement: String, needle: String, caseSensitive: Bool, useRegex: Bool) {
+            guard let textView, !needle.isEmpty, !searchMatches.isEmpty else { return }
+            let matches = searchMatches
+            textView.breakUndoCoalescing()
+            for range in matches.reversed() {
+                guard textView.shouldChangeText(in: range, replacementString: replacement) else { continue }
+                let expanded = expandReplacement(
+                    template: replacement,
+                    matchedRange: range,
+                    needle: needle,
+                    caseSensitive: caseSensitive,
+                    useRegex: useRegex
+                )
+                textView.insertText(expanded, replacementRange: range)
+            }
+            state.content = textView.string
+            state.markModified()
+            performSearch(needle, caseSensitive: caseSensitive, useRegex: useRegex)
+        }
+
+        private func expandReplacement(
+            template: String,
+            matchedRange: NSRange,
+            needle: String,
+            caseSensitive: Bool,
+            useRegex: Bool
+        ) -> String {
+            guard useRegex, let textView else { return template }
+            var options: NSRegularExpression.Options = []
+            if !caseSensitive { options.insert(.caseInsensitive) }
+            guard let regex = try? NSRegularExpression(pattern: needle, options: options) else { return template }
+            let source = textView.string as NSString
+            let matchedText = source.substring(with: matchedRange)
+            let scoped = NSRange(location: 0, length: (matchedText as NSString).length)
+            guard let match = regex.firstMatch(in: matchedText, options: [], range: scoped) else { return template }
+            return regex.replacementString(for: match, in: matchedText, offset: 0, template: template)
+        }
+
         @objc
         func handleReturn(_ textView: NSTextView) -> Bool {
             textView.breakUndoCoalescing()
@@ -501,6 +610,10 @@ struct CodeEditorView: NSViewRepresentable {
 
         func textView(_: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             guard let textView else { return false }
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)), state.searchVisible {
+                state.searchVisible = false
+                return true
+            }
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 return handleReturn(textView)
             }

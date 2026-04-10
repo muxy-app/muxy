@@ -19,6 +19,7 @@ final class EditorTabState: Identifiable {
     var cursorLine: Int = 1
     var cursorColumn: Int = 1
     var searchVisible = false
+    var searchFocusVersion = 0
     var searchNeedle = ""
     var searchMatchCount = 0
     var searchCurrentIndex = 0
@@ -27,6 +28,11 @@ final class EditorTabState: Identifiable {
     var searchCaseSensitive = false
     var searchUseRegex = false
     var searchInvalidRegex = false
+    var replaceVisible = false
+    var replaceText = ""
+    var replaceVersion = 0
+    var replaceAllVersion = 0
+    var currentSelection = ""
 
     var fileName: String {
         URL(fileURLWithPath: filePath).lastPathComponent
@@ -137,5 +143,13 @@ final class EditorTabState: Identifiable {
     func navigateSearch(_ direction: EditorSearchNavigationDirection) {
         searchNavigationDirection = direction
         searchNavigationVersion += 1
+    }
+
+    func requestReplaceCurrent() {
+        replaceVersion += 1
+    }
+
+    func requestReplaceAll() {
+        replaceAllVersion += 1
     }
 }
