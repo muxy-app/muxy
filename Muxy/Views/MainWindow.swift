@@ -165,9 +165,8 @@ struct MainWindow: View {
             pruneVCSStates(validProjectIDs: Set(projectStore.projects.map(\.id)))
         }
         .onChange(of: appState.activeProjectID) {
-            guard vcsPanelVisible, VCSDisplayMode.current == .attached,
-                  let project = activeProject
-            else { return }
+            guard let project = activeProject else { return }
+            guard vcsPanelVisible, VCSDisplayMode.current == .attached else { return }
             ensureVCSState(for: project)
         }
         .onChange(of: appState.pendingLastTabClose != nil) { _, isPresented in

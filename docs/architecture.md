@@ -38,7 +38,7 @@ Muxy/
       GitStatusParser.swift       Porcelain + numstat output parsing
       GitModels.swift             GitStatusFile, DiffDisplayRow, NumstatEntry
     GitDirectoryWatcher.swift FSEvents watcher for .git changes
-    FileSearchService.swift   Project file indexing + fuzzy search for quick open
+    FileSearchService.swift   Quick open file search via /usr/bin/find subprocess
     ThemeService.swift        Theme discovery + application
     MuxyConfig.swift          Ghostty config file read/write
     KeyBindingStore.swift     @Observable store for keyboard shortcuts
@@ -65,7 +65,7 @@ Muxy/
       WindowDragView.swift    NSView for window title bar dragging
       MiddleClickView.swift   NSView for middle-click tab close
       UUIDFramePreferenceKey.swift  Generic PreferenceKey for frame tracking
-      QuickOpenOverlay.swift  Cmd+P file search overlay (fuzzy file finder)
+      QuickOpenOverlay.swift  Cmd+P file search overlay (name substring match via find)
     Terminal/
       GhosttyTerminalNSView.swift       AppKit view wrapping ghostty_surface_t + NSTextInputClient
       TerminalPane.swift      SwiftUI wrapper for terminal + search

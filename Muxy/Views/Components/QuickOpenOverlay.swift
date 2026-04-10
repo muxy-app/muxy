@@ -7,11 +7,9 @@ struct QuickOpenOverlay: View {
 
     @State private var query = ""
     @State private var results: [FileSearchResult] = []
-    @State private var fileIndex: [FileSearchResult] = []
     @State private var highlightedIndex: Int? = 0
-    @State private var isIndexing = true
+    @State private var isSearching = false
     @FocusState private var searchFieldFocused: Bool
-    @State private var indexTask: Task<Void, Never>?
     @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
@@ -35,10 +33,9 @@ struct QuickOpenOverlay: View {
         }
         .onAppear {
             searchFieldFocused = true
-            loadInitialResults()
+            performSearch()
         }
         .onDisappear {
-            indexTask?.cancel()
             searchTask?.cancel()
         }
         .onKeyPress(.escape) {
@@ -83,18 +80,7 @@ struct QuickOpenOverlay: View {
 
     private var resultsList: some View {
         Group {
-            if isIndexing {
-                VStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Indexing files...")
-                        .font(.system(size: 12))
-                        .foregroundStyle(MuxyTheme.fgMuted)
-                        .padding(.top, 4)
-                    Spacer()
-                }
-            } else if results.isEmpty {
+            if results.isEmpty, !isSearching {
                 VStack {
                     Spacer()
                     Text(query.isEmpty ? "No files found" : "No matching files")
@@ -128,30 +114,24 @@ struct QuickOpenOverlay: View {
         .frame(maxHeight: .infinity)
     }
 
-    private func loadInitialResults() {
-        indexTask = Task {
-            let index = await FileSearchService.shared.getIndex(projectPath: projectPath)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                fileIndex = index
-                results = Array(index.prefix(200))
-                isIndexing = false
-                highlightedIndex = results.isEmpty ? nil : 0
-            }
-        }
-    }
-
     private func performSearch() {
         searchTask?.cancel()
-        let currentIndex = fileIndex
-        guard !currentIndex.isEmpty else { return }
+
         let currentQuery = query
-        searchTask = Task.detached(priority: .userInitiated) {
-            let searchResults = FileSearchService.search(query: currentQuery, in: currentIndex)
+        let currentProjectPath = projectPath
+        isSearching = true
+
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(50))
             guard !Task.isCancelled else { return }
+
+            let found = await FileSearchService.search(query: currentQuery, in: currentProjectPath)
+            guard !Task.isCancelled else { return }
+
             await MainActor.run {
-                results = searchResults
-                highlightedIndex = searchResults.isEmpty ? nil : 0
+                results = found
+                highlightedIndex = found.isEmpty ? nil : 0
+                isSearching = false
             }
         }
     }
