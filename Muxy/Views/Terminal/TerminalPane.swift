@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct TerminalPane: View {
+    @Environment(AppState.self) private var appState
     let state: TerminalPaneState
     let focused: Bool
     let onFocus: () -> Void
@@ -15,7 +16,14 @@ struct TerminalPane: View {
                 focused: focused,
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
-                onSplitRequest: onSplitRequest
+                onSplitRequest: onSplitRequest,
+                onWorkingDirectoryChange: { path in
+                    state.supportsWorkingDirectoryTracking = true
+                    guard state.lastKnownWorkingDirectory != path else { return }
+                    state.lastKnownWorkingDirectory = path
+                    guard state.workingDirectoryMode == .rememberLast else { return }
+                    appState.scheduleWorkspaceSave()
+                }
             )
 
             if state.searchState.isVisible {
@@ -46,6 +54,7 @@ struct TerminalBridge: NSViewRepresentable {
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
+    let onWorkingDirectoryChange: (String) -> Void
 
     final class Coordinator {
         var wasFocused = false
@@ -66,6 +75,7 @@ struct TerminalBridge: NSViewRepresentable {
         view.onTitleChange = { [weak state] title in
             state?.title = title
         }
+        view.onWorkingDirectoryChange = onWorkingDirectoryChange
         configureSearchCallbacks(view)
         context.coordinator.wasFocused = focused
         context.coordinator.paneID = state.id
@@ -84,6 +94,7 @@ struct TerminalBridge: NSViewRepresentable {
         nsView.onTitleChange = { [weak state] title in
             state?.title = title
         }
+        nsView.onWorkingDirectoryChange = onWorkingDirectoryChange
         configureSearchCallbacks(nsView)
         let wasFocused = context.coordinator.wasFocused
         context.coordinator.wasFocused = focused

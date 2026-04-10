@@ -5,14 +5,15 @@ import Foundation
 final class TerminalPaneState: Identifiable {
     enum WorkingDirectoryMode: String, Codable {
         case projectRoot
-        case fixedDefault
+        case rememberLast
     }
 
     let id = UUID()
     let projectPath: String
     var title: String = "Terminal"
     var workingDirectoryMode: WorkingDirectoryMode = .projectRoot
-    var defaultWorkingDirectory: String?
+    var lastKnownWorkingDirectory: String?
+    var supportsWorkingDirectoryTracking = false
     let searchState = TerminalSearchState()
 
     init(projectPath: String) {
@@ -23,20 +24,20 @@ final class TerminalPaneState: Identifiable {
         projectPath: String,
         title: String,
         workingDirectoryMode: WorkingDirectoryMode = .projectRoot,
-        defaultWorkingDirectory: String? = nil
+        lastKnownWorkingDirectory: String? = nil
     ) {
         self.projectPath = projectPath
         self.title = title
         self.workingDirectoryMode = workingDirectoryMode
-        self.defaultWorkingDirectory = defaultWorkingDirectory
+        self.lastKnownWorkingDirectory = lastKnownWorkingDirectory
     }
 
     var initialWorkingDirectory: String {
         let candidate: String? = switch workingDirectoryMode {
         case .projectRoot:
             projectPath
-        case .fixedDefault:
-            defaultWorkingDirectory ?? projectPath
+        case .rememberLast:
+            lastKnownWorkingDirectory ?? projectPath
         }
         return Self.isUsableDirectory(candidate) ? candidate ?? projectPath : projectPath
     }

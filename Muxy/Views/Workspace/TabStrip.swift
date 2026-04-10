@@ -296,23 +296,19 @@ private struct TabCell: View {
                 }
                 if let pane {
                     Divider()
-                    Toggle("Set default directory", isOn: Binding(
-                        get: { pane.workingDirectoryMode == .fixedDefault },
-                        set: { enabled in
-                            if !enabled, pane.workingDirectoryMode == .fixedDefault {
-                                pane.defaultWorkingDirectory = nil
-                                pane.workingDirectoryMode = .projectRoot
+                    if pane.supportsWorkingDirectoryTracking || pane.workingDirectoryMode == .rememberLast {
+                        Toggle("Remember last directory", isOn: Binding(
+                            get: { pane.workingDirectoryMode == .rememberLast },
+                            set: { enabled in
+                                if enabled {
+                                    pane.workingDirectoryMode = .rememberLast
+                                } else if pane.workingDirectoryMode == .rememberLast {
+                                    pane.workingDirectoryMode = .projectRoot
+                                }
                                 onWorkspaceMutation()
-                                return
                             }
-
-                            guard enabled else { return }
-                            guard let selectedPath = chooseDefaultDirectory(for: pane) else { return }
-                            pane.defaultWorkingDirectory = selectedPath
-                            pane.workingDirectoryMode = .fixedDefault
-                            onWorkspaceMutation()
-                        }
-                    ))
+                        ))
+                    }
                 }
                 Divider()
                 Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") {
@@ -348,23 +344,6 @@ private struct TabCell: View {
     private func cancelRename() {
         isRenaming = false
     }
-
-    private func chooseDefaultDirectory(for pane: TerminalPaneState) -> String? {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a default directory for this tab"
-
-        let initialPath = pane.defaultWorkingDirectory ?? pane.projectPath
-        if FileManager.default.fileExists(atPath: initialPath) {
-            panel.directoryURL = URL(fileURLWithPath: initialPath, isDirectory: true)
-        }
-
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        return url.path(percentEncoded: false)
-    }
-
     @ViewBuilder
     private var tabIconView: some View {
         if tab.isPinned {

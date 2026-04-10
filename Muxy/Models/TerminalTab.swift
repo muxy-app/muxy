@@ -88,7 +88,7 @@ final class TerminalTab: Identifiable {
                 projectPath: snapshot.projectPath,
                 title: snapshot.paneTitle,
                 workingDirectoryMode: snapshot.workingDirectoryMode,
-                defaultWorkingDirectory: snapshot.defaultWorkingDirectory
+                lastKnownWorkingDirectory: snapshot.lastKnownWorkingDirectory
             ))
         case .vcs:
             content = .vcs(VCSTabState(projectPath: snapshot.projectPath))
@@ -109,7 +109,7 @@ final class TerminalTab: Identifiable {
             projectPath: content.projectPath,
             paneTitle: content.pane?.title,
             workingDirectoryMode: content.pane?.workingDirectoryMode,
-            defaultWorkingDirectory: content.pane?.defaultWorkingDirectory,
+            lastKnownWorkingDirectory: content.pane?.lastKnownWorkingDirectory,
             filePath: content.editorState?.filePath
         )
     }

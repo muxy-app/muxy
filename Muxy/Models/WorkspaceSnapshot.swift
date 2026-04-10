@@ -71,7 +71,7 @@ struct TerminalTabSnapshot: Codable {
     let projectPath: String
     let paneTitle: String
     let workingDirectoryMode: TerminalPaneState.WorkingDirectoryMode
-    let defaultWorkingDirectory: String?
+    let lastKnownWorkingDirectory: String?
     let filePath: String?
 
     init(
@@ -81,7 +81,7 @@ struct TerminalTabSnapshot: Codable {
         projectPath: String,
         paneTitle: String?,
         workingDirectoryMode: TerminalPaneState.WorkingDirectoryMode? = nil,
-        defaultWorkingDirectory: String? = nil,
+        lastKnownWorkingDirectory: String? = nil,
         filePath: String? = nil
     ) {
         self.kind = kind
@@ -90,7 +90,7 @@ struct TerminalTabSnapshot: Codable {
         self.projectPath = projectPath
         self.paneTitle = paneTitle ?? "Terminal"
         self.workingDirectoryMode = workingDirectoryMode ?? .projectRoot
-        self.defaultWorkingDirectory = defaultWorkingDirectory
+        self.lastKnownWorkingDirectory = lastKnownWorkingDirectory
         self.filePath = filePath
     }
 
@@ -101,7 +101,7 @@ struct TerminalTabSnapshot: Codable {
         case projectPath
         case paneTitle
         case workingDirectoryMode
-        case defaultWorkingDirectory
+        case lastKnownWorkingDirectory
         case filePath
     }
 
@@ -114,12 +114,12 @@ struct TerminalTabSnapshot: Codable {
         paneTitle = try container.decodeIfPresent(String.self, forKey: .paneTitle) ?? "Terminal"
         let workingDirectoryModeValue = try container.decodeIfPresent(String.self, forKey: .workingDirectoryMode)
         workingDirectoryMode = switch workingDirectoryModeValue {
-        case TerminalPaneState.WorkingDirectoryMode.fixedDefault.rawValue:
-            .fixedDefault
+        case TerminalPaneState.WorkingDirectoryMode.rememberLast.rawValue:
+            .rememberLast
         default:
             .projectRoot
         }
-        defaultWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .defaultWorkingDirectory)
+        lastKnownWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .lastKnownWorkingDirectory)
         filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
     }
 }
