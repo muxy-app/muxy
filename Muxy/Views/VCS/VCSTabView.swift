@@ -20,19 +20,15 @@ struct VCSTabView: View {
     }
 
     private var owningProject: Project? {
-        projectStore.projects.first { project in
-            worktreeStore.list(for: project.id).contains { $0.path == state.projectPath }
-                || project.path == state.projectPath
+        if let id = worktreeStore.projectID(forWorktreePath: state.projectPath) {
+            return projectStore.projects.first { $0.id == id }
         }
-    }
-
-    private var owningWorktrees: [Worktree] {
-        guard let project = owningProject else { return [] }
-        return worktreeStore.list(for: project.id)
+        return projectStore.projects.first { $0.path == state.projectPath }
     }
 
     private var activeWorktreeForTab: Worktree? {
-        owningWorktrees.first { $0.path == state.projectPath }
+        guard let project = owningProject else { return nil }
+        return worktreeStore.list(for: project.id).first { $0.path == state.projectPath }
     }
 
     var body: some View {
@@ -718,14 +714,7 @@ private struct SectionSplitLayout: View {
     private func expandCollapseButton(for files: [GitStatusFile]) -> some View {
         let anyExpanded = files.contains { state.expandedFilePaths.contains($0.path) }
         Button {
-            for file in files {
-                let isExpanded = state.expandedFilePaths.contains(file.path)
-                if anyExpanded, isExpanded {
-                    state.toggleExpanded(filePath: file.path)
-                } else if !anyExpanded, !isExpanded {
-                    state.toggleExpanded(filePath: file.path)
-                }
-            }
+            state.setExpanded(files: files, expanded: !anyExpanded)
         } label: {
             Image(systemName: anyExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                 .font(.system(size: 10, weight: .semibold))

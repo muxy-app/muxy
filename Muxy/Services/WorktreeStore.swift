@@ -7,6 +7,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "WorktreeStore")
 @Observable
 final class WorktreeStore {
     private(set) var worktrees: [UUID: [Worktree]] = [:]
+    private var projectIDByPath: [String: UUID] = [:]
     private let persistence: any WorktreePersisting
 
     init(persistence: any WorktreePersisting) {
@@ -21,10 +22,10 @@ final class WorktreeStore {
                     loaded.insert(makePrimary(for: project), at: 0)
                     try? persistence.saveWorktrees(loaded, projectID: project.id)
                 }
-                worktrees[project.id] = sortPrimaryFirst(loaded)
+                setWorktrees(sortPrimaryFirst(loaded), for: project.id)
             } catch {
                 logger.error("Failed to load worktrees for project \(project.id): \(error)")
-                worktrees[project.id] = [makePrimary(for: project)]
+                setWorktrees([makePrimary(for: project)], for: project.id)
                 save(projectID: project.id)
             }
         }
@@ -34,12 +35,16 @@ final class WorktreeStore {
         var list = worktrees[project.id] ?? []
         if list.contains(where: \.isPrimary) { return }
         list.insert(makePrimary(for: project), at: 0)
-        worktrees[project.id] = sortPrimaryFirst(list)
+        setWorktrees(sortPrimaryFirst(list), for: project.id)
         save(projectID: project.id)
     }
 
     func list(for projectID: UUID) -> [Worktree] {
         worktrees[projectID] ?? []
+    }
+
+    func projectID(forWorktreePath path: String) -> UUID? {
+        projectIDByPath[path]
     }
 
     func primary(for projectID: UUID) -> Worktree? {
@@ -53,14 +58,14 @@ final class WorktreeStore {
     func add(_ worktree: Worktree, to projectID: UUID) {
         var list = worktrees[projectID] ?? []
         list.append(worktree)
-        worktrees[projectID] = sortPrimaryFirst(list)
+        setWorktrees(sortPrimaryFirst(list), for: projectID)
         save(projectID: projectID)
     }
 
     func remove(worktreeID: UUID, from projectID: UUID) {
         guard var list = worktrees[projectID] else { return }
         list.removeAll { $0.id == worktreeID && !$0.isPrimary }
-        worktrees[projectID] = list
+        setWorktrees(list, for: projectID)
         save(projectID: projectID)
     }
 
@@ -127,7 +132,7 @@ final class WorktreeStore {
               let index = list.firstIndex(where: { $0.id == worktreeID })
         else { return }
         list[index].name = newName
-        worktrees[projectID] = list
+        setWorktrees(list, for: projectID)
         save(projectID: projectID)
     }
 
@@ -136,17 +141,34 @@ final class WorktreeStore {
               let index = list.firstIndex(where: { $0.id == worktreeID })
         else { return }
         list[index].branch = branch
-        worktrees[projectID] = list
+        setWorktrees(list, for: projectID)
         save(projectID: projectID)
     }
 
     func removeProject(_ projectID: UUID) {
+        if let existing = worktrees[projectID] {
+            for worktree in existing where projectIDByPath[worktree.path] == projectID {
+                projectIDByPath.removeValue(forKey: worktree.path)
+            }
+        }
         worktrees.removeValue(forKey: projectID)
         do {
             try persistence.removeWorktrees(projectID: projectID)
         } catch {
             logger.error("Failed to remove worktrees file for project \(projectID): \(error)")
         }
+    }
+
+    private func setWorktrees(_ list: [Worktree], for projectID: UUID) {
+        if let previous = worktrees[projectID] {
+            for worktree in previous where projectIDByPath[worktree.path] == projectID {
+                projectIDByPath.removeValue(forKey: worktree.path)
+            }
+        }
+        for worktree in list {
+            projectIDByPath[worktree.path] = projectID
+        }
+        worktrees[projectID] = list
     }
 
     private func makePrimary(for project: Project) -> Worktree {
