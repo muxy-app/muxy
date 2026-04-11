@@ -3,7 +3,6 @@ import SwiftUI
 enum CreateWorktreeResult {
     case created(Worktree, runSetup: Bool)
     case cancelled
-    case failed(String)
 }
 
 struct CreateWorktreeSheet: View {
@@ -13,10 +12,12 @@ struct CreateWorktreeSheet: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var name: String = ""
     @State private var branchName: String = ""
+    @State private var branchNameEdited = false
     @State private var createNewBranch = true
     @State private var selectedExistingBranch: String = ""
     @State private var availableBranches: [String] = []
-    @State private var runSetup = true
+    @State private var setupCommands: [String] = []
+    @State private var runSetup = false
     @State private var inProgress = false
     @State private var errorMessage: String?
 
@@ -46,6 +47,7 @@ struct CreateWorktreeSheet: View {
                     Text("Branch Name").font(.system(size: 11)).foregroundStyle(MuxyTheme.fgMuted)
                     TextField("feature-x", text: $branchName)
                         .textFieldStyle(.roundedBorder)
+                        .onChange(of: branchName) { _, _ in branchNameEdited = true }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 6) {
@@ -59,8 +61,9 @@ struct CreateWorktreeSheet: View {
                 }
             }
 
-            Toggle("Run setup commands from .muxy/worktree.json", isOn: $runSetup)
-                .font(.system(size: 11))
+            if !setupCommands.isEmpty {
+                setupCommandsSection
+            }
 
             if let errorMessage {
                 Text(errorMessage)
@@ -79,17 +82,56 @@ struct CreateWorktreeSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 420)
-        .task { await loadBranches() }
+        .frame(width: 460)
+        .task {
+            await loadBranches()
+            loadSetupCommands()
+        }
         .onChange(of: name) { _, newValue in
-            if createNewBranch, branchName.isEmpty || branchName == oldNameToBranch {
-                branchName = newValue
-            }
-            oldNameToBranch = branchName
+            guard createNewBranch, !branchNameEdited else { return }
+            branchName = newValue
         }
     }
 
-    @State private var oldNameToBranch: String = ""
+    private var setupCommandsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(MuxyTheme.diffRemoveFg)
+                Text("Setup commands from .muxy/worktree.json")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fg)
+            }
+            Text("These commands will run in the new worktree's terminal. Only enable this if you trust this repository.")
+                .font(.system(size: 10))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(setupCommands, id: \.self) { command in
+                    Text(command)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(MuxyTheme.fg)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(8)
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 4))
+            Toggle("Run these commands after creating the worktree", isOn: $runSetup)
+                .font(.system(size: 11))
+        }
+        .padding(10)
+        .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func loadSetupCommands() {
+        guard let config = WorktreeConfig.load(fromProjectPath: project.path) else {
+            setupCommands = []
+            return
+        }
+        setupCommands = config.setup.map(\.command).filter { !$0.isEmpty }
+    }
 
     private var canCreate: Bool {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }

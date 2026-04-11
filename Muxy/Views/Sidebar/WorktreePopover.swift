@@ -120,7 +120,7 @@ struct WorktreePopover: View {
                         onRemove: worktree.isPrimary ? nil : {
                             let capturedWorktree = worktree
                             let repoPath = project.path
-                            appState.removeWorktree(projectID: project.id, worktreeID: worktree.id)
+                            appState.removeWorktree(projectID: project.id, worktree: capturedWorktree)
                             worktreeStore.remove(worktreeID: capturedWorktree.id, from: project.id)
                             Task.detached {
                                 await WorktreeStore.cleanupOnDisk(

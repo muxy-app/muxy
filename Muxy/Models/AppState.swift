@@ -33,8 +33,8 @@ final class AppState {
         case focusPaneUp(projectID: UUID)
         case focusPaneDown(projectID: UUID)
         case moveTab(projectID: UUID, request: TabMoveRequest)
-        case selectNextProject(projects: [Project])
-        case selectPreviousProject(projects: [Project])
+        case selectNextProject(projects: [Project], worktrees: [UUID: [Worktree]])
+        case selectPreviousProject(projects: [Project], worktrees: [UUID: [Worktree]])
     }
 
     private let selectionStore: any ActiveProjectSelectionStoring
@@ -434,19 +434,20 @@ final class AppState {
         selectProject(project, worktree: target)
     }
 
-    func selectNextProject(projects: [Project]) {
-        dispatch(.selectNextProject(projects: projects))
+    func selectNextProject(projects: [Project], worktrees: [UUID: [Worktree]]) {
+        dispatch(.selectNextProject(projects: projects, worktrees: worktrees))
     }
 
-    func selectPreviousProject(projects: [Project]) {
-        dispatch(.selectPreviousProject(projects: projects))
+    func selectPreviousProject(projects: [Project], worktrees: [UUID: [Worktree]]) {
+        dispatch(.selectPreviousProject(projects: projects, worktrees: worktrees))
     }
 
     func removeProject(_ projectID: UUID) {
         dispatch(.removeProject(projectID: projectID))
     }
 
-    func removeWorktree(projectID: UUID, worktreeID: UUID) {
-        dispatch(.removeWorktree(projectID: projectID, worktreeID: worktreeID))
+    func removeWorktree(projectID: UUID, worktree: Worktree) {
+        guard !worktree.isPrimary else { return }
+        dispatch(.removeWorktree(projectID: projectID, worktreeID: worktree.id))
     }
 }

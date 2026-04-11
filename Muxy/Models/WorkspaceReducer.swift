@@ -129,11 +129,11 @@ enum WorkspaceReducer {
             guard let key = activeKey(projectID: projectID, state: state) else { break }
             focusPane(key: key, direction: .down, state: &state)
 
-        case let .selectNextProject(projects):
-            cycleProject(projects: projects, forward: true, state: &state)
+        case let .selectNextProject(projects, worktrees):
+            cycleProject(projects: projects, worktrees: worktrees, forward: true, state: &state)
 
-        case let .selectPreviousProject(projects):
-            cycleProject(projects: projects, forward: false, state: &state)
+        case let .selectPreviousProject(projects, worktrees):
+            cycleProject(projects: projects, worktrees: worktrees, forward: false, state: &state)
         }
 
         return effects
@@ -317,20 +317,30 @@ enum WorkspaceReducer {
         state.focusedAreaID[key] = areaID
     }
 
-    private static func cycleProject(projects: [Project], forward: Bool, state: inout WorkspaceState) {
+    private static func cycleProject(
+        projects: [Project],
+        worktrees: [UUID: [Worktree]],
+        forward: Bool,
+        state: inout WorkspaceState
+    ) {
         guard projects.count > 1,
               let currentID = state.activeProjectID,
               let index = projects.firstIndex(where: { $0.id == currentID })
         else { return }
         let next = forward ? (index + 1) % projects.count : (index - 1 + projects.count) % projects.count
         let project = projects[next]
+        let list = worktrees[project.id] ?? []
+        let existingID = state.activeWorktreeID[project.id]
+        let target = list.first(where: { $0.id == existingID })
+            ?? list.first(where: { $0.isPrimary })
+            ?? list.first
+        guard let worktree = target else { return }
         state.activeProjectID = project.id
-        let worktreeID = state.activeWorktreeID[project.id] ?? project.id
-        state.activeWorktreeID[project.id] = worktreeID
+        state.activeWorktreeID[project.id] = worktree.id
         ensureWorkspaceExists(
             projectID: project.id,
-            worktreeID: worktreeID,
-            worktreePath: project.path,
+            worktreeID: worktree.id,
+            worktreePath: worktree.path,
             state: &state
         )
     }

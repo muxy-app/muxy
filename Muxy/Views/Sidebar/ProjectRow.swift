@@ -18,7 +18,6 @@ struct ProjectRow: View {
     @State private var showWorktreePopover = false
     @State private var isGitRepo = false
     @State private var showCreateWorktreeSheet = false
-    @State private var createError: String?
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -100,15 +99,6 @@ struct ProjectRow: View {
                 handleCreateWorktreeResult(result)
             }
         }
-        .alert(
-            "Failed to Add Worktree",
-            isPresented: Binding(
-                get: { createError != nil },
-                set: { if !$0 { createError = nil } }
-            ),
-            actions: { Button("OK") { createError = nil } },
-            message: { Text(createError ?? "") }
-        )
     }
 
     @ViewBuilder
@@ -210,8 +200,6 @@ struct ProjectRow: View {
                     )
                 }
             }
-        case let .failed(message):
-            createError = message
         case .cancelled:
             break
         }

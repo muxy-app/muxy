@@ -209,13 +209,19 @@ struct MuxyCommands: Commands {
         CommandGroup(after: .sidebar) {
             Button("Next Project") {
                 guard isMainWindowFocused else { return }
-                appState.selectNextProject(projects: projectStore.projects)
+                appState.selectNextProject(
+                    projects: projectStore.projects,
+                    worktrees: worktreeStore.worktrees
+                )
             }
             .shortcut(for: .nextProject, store: keyBindings)
 
             Button("Previous Project") {
                 guard isMainWindowFocused else { return }
-                appState.selectPreviousProject(projects: projectStore.projects)
+                appState.selectPreviousProject(
+                    projects: projectStore.projects,
+                    worktrees: worktreeStore.worktrees
+                )
             }
             .shortcut(for: .previousProject, store: keyBindings)
 
