@@ -47,7 +47,9 @@ struct CreateWorktreeSheet: View {
                     Text("Branch Name").font(.system(size: 11)).foregroundStyle(MuxyTheme.fgMuted)
                     TextField("feature-x", text: $branchName)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: branchName) { _, _ in branchNameEdited = true }
+                        .onChange(of: branchName) { _, newValue in
+                            branchNameEdited = newValue != name
+                        }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 6) {
@@ -61,7 +63,9 @@ struct CreateWorktreeSheet: View {
                 }
             }
 
-            if !setupCommands.isEmpty {
+            if setupCommands.isEmpty {
+                setupCommandsGuideSection
+            } else {
                 setupCommandsSection
             }
 
@@ -90,6 +94,10 @@ struct CreateWorktreeSheet: View {
         .onChange(of: name) { _, newValue in
             guard createNewBranch, !branchNameEdited else { return }
             branchName = newValue
+        }
+        .onChange(of: createNewBranch) { _, isCreatingNewBranch in
+            guard isCreatingNewBranch, !branchNameEdited else { return }
+            branchName = name
         }
     }
 
@@ -120,6 +128,36 @@ struct CreateWorktreeSheet: View {
             .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 4))
             Toggle("Run these commands after creating the worktree", isOn: $runSetup)
                 .font(.system(size: 11))
+        }
+        .padding(10)
+        .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var setupCommandsGuideSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 10))
+                    .foregroundStyle(MuxyTheme.fgDim)
+                Text("Optional setup commands")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fg)
+            }
+            Text("To run setup commands after creating a worktree, add .muxy/worktree.json in this repository.")
+                .font(.system(size: 10))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("\(project.path)/.muxy/worktree.json")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(MuxyTheme.fg)
+                .textSelection(.enabled)
+            Text("{\n  \"setup\": [\n    \"pnpm install\",\n    \"pnpm dev\"\n  ]\n}")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(MuxyTheme.fg)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 4))
         }
         .padding(10)
         .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: 6))
@@ -197,6 +235,7 @@ struct CreateWorktreeSheet: View {
             name: trimmedName,
             path: worktreeDirectory,
             branch: branch,
+            ownsBranch: createNewBranch,
             isPrimary: false
         )
         await MainActor.run {

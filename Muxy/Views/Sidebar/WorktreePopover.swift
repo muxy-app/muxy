@@ -120,7 +120,15 @@ struct WorktreePopover: View {
                         onRemove: worktree.isPrimary ? nil : {
                             let capturedWorktree = worktree
                             let repoPath = project.path
-                            appState.removeWorktree(projectID: project.id, worktree: capturedWorktree)
+                            let remaining = worktrees.filter { $0.id != capturedWorktree.id }
+                            let replacement = remaining.first(where: { $0.id == activeWorktreeID })
+                                ?? remaining.first(where: { $0.isPrimary })
+                                ?? remaining.first
+                            appState.removeWorktree(
+                                projectID: project.id,
+                                worktree: capturedWorktree,
+                                replacement: replacement
+                            )
                             worktreeStore.remove(worktreeID: capturedWorktree.id, from: project.id)
                             Task.detached {
                                 await WorktreeStore.cleanupOnDisk(

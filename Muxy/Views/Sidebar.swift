@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct SidebarToolbar: View {
@@ -9,8 +8,14 @@ struct SidebarToolbar: View {
     var body: some View {
         HStack(spacing: 4) {
             Spacer()
-            IconButton(symbol: "folder") { openProject() }
-                .help(shortcutTooltip("Open Project", for: .openProject))
+            IconButton(symbol: "folder") {
+                ProjectOpenService.openProject(
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore
+                )
+            }
+            .help(shortcutTooltip("Open Project", for: .openProject))
             IconButton(symbol: "sidebar.left") {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     appState.sidebarVisible.toggle()
@@ -25,24 +30,6 @@ struct SidebarToolbar: View {
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
         "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
-    }
-
-    private func openProject() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a project folder"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let project = Project(
-            name: url.lastPathComponent,
-            path: url.path(percentEncoded: false),
-            sortOrder: projectStore.projects.count
-        )
-        projectStore.add(project)
-        worktreeStore.ensurePrimary(for: project)
-        guard let primary = worktreeStore.primary(for: project.id) else { return }
-        appState.selectProject(project, worktree: primary)
     }
 }
 
@@ -148,8 +135,9 @@ struct Sidebar: View {
 
     private func remove(_ project: Project) {
         let capturedProject = project
+        let knownWorktrees = worktreeStore.list(for: project.id)
         Task.detached {
-            await WorktreeStore.cleanupOnDisk(for: capturedProject)
+            await WorktreeStore.cleanupOnDisk(for: capturedProject, knownWorktrees: knownWorktrees)
         }
         appState.removeProject(project.id)
         projectStore.remove(id: project.id)

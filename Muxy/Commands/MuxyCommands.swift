@@ -58,7 +58,11 @@ struct MuxyCommands: Commands {
 
         CommandGroup(replacing: .newItem) {
             Button("Open Project...") {
-                openProject()
+                ProjectOpenService.openProject(
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore
+                )
             }
             .shortcut(for: .openProject, store: keyBindings)
 
@@ -257,23 +261,5 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .toggleThemePicker, store: keyBindings)
         }
-    }
-
-    private func openProject() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a project folder"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let project = Project(
-            name: url.lastPathComponent,
-            path: url.path(percentEncoded: false),
-            sortOrder: projectStore.projects.count
-        )
-        projectStore.add(project)
-        worktreeStore.ensurePrimary(for: project)
-        guard let primary = worktreeStore.primary(for: project.id) else { return }
-        appState.selectProject(project, worktree: primary)
     }
 }

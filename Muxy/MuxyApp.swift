@@ -49,8 +49,12 @@ struct MuxyApp: App {
                     appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
                         for id in projectIDs {
                             if let project = projectStore.projects.first(where: { $0.id == id }) {
+                                let knownWorktrees = worktreeStore.list(for: id)
                                 Task.detached {
-                                    await WorktreeStore.cleanupOnDisk(for: project)
+                                    await WorktreeStore.cleanupOnDisk(
+                                        for: project,
+                                        knownWorktrees: knownWorktrees
+                                    )
                                 }
                             }
                             projectStore.remove(id: id)

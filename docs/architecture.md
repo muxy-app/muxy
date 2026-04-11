@@ -51,6 +51,7 @@ Muxy/
     ProjectPersistence.swift  JSON persistence for projects
     WorktreeStore.swift       @Observable store for per-project worktrees
     WorktreePersistence.swift JSON persistence for worktrees (one file per project)
+    ProjectOpenService.swift  Shared open-project flow used by commands and sidebar
     WorktreeSetupRunner.swift Dispatches .muxy/worktree.json setup commands to a new tab
     WorkspacePersistence.swift JSON persistence for workspaces
     JSONFilePersistence.swift Shared App Support directory helper

@@ -17,6 +17,11 @@ struct WorkspaceSideEffects {
 
 @MainActor
 enum WorkspaceReducer {
+    private struct WorktreeReplacement {
+        let id: UUID
+        let path: String
+    }
+
     static func reduce(action: AppState.Action, state: inout WorkspaceState) -> WorkspaceSideEffects {
         var effects = WorkspaceSideEffects()
 
@@ -44,8 +49,21 @@ enum WorkspaceReducer {
         case let .removeProject(projectID):
             removeProject(projectID: projectID, state: &state, effects: &effects)
 
-        case let .removeWorktree(projectID, worktreeID):
-            removeWorktree(projectID: projectID, worktreeID: worktreeID, state: &state, effects: &effects)
+        case let .removeWorktree(projectID, worktreeID, replacementWorktreeID, replacementWorktreePath):
+            let replacement: WorktreeReplacement? = if let replacementWorktreeID,
+                                                       let replacementWorktreePath
+            {
+                WorktreeReplacement(id: replacementWorktreeID, path: replacementWorktreePath)
+            } else {
+                nil
+            }
+            removeWorktree(
+                projectID: projectID,
+                worktreeID: worktreeID,
+                replacement: replacement,
+                state: &state,
+                effects: &effects
+            )
 
         case let .createTab(projectID, areaID):
             guard let key = activeKey(projectID: projectID, state: state),
@@ -465,6 +483,7 @@ enum WorkspaceReducer {
     private static func removeWorktree(
         projectID: UUID,
         worktreeID: UUID,
+        replacement: WorktreeReplacement?,
         state: inout WorkspaceState,
         effects: inout WorkspaceSideEffects
     ) {
@@ -478,15 +497,30 @@ enum WorkspaceReducer {
         state.focusHistory.removeValue(forKey: key)
 
         guard state.activeWorktreeID[projectID] == worktreeID else { return }
-        let remainingKey = state.workspaceRoots.keys.first { $0.projectID == projectID }
-        if let remainingKey {
-            state.activeWorktreeID[projectID] = remainingKey.worktreeID
-        } else {
-            state.activeWorktreeID.removeValue(forKey: projectID)
-            if state.activeProjectID == projectID {
-                state.activeProjectID = nil
-            }
-            effects.projectIDsToRemove.append(projectID)
+        if let replacement {
+            state.activeWorktreeID[projectID] = replacement.id
+            ensureWorkspaceExists(
+                projectID: projectID,
+                worktreeID: replacement.id,
+                worktreePath: replacement.path,
+                state: &state
+            )
+            return
+        }
+
+        let hasProjectWorkspace = state.workspaceRoots.keys.contains { $0.projectID == projectID }
+        if hasProjectWorkspace,
+           let fallback = state.workspaceRoots.keys
+           .filter({ $0.projectID == projectID })
+           .min(by: { $0.worktreeID.uuidString < $1.worktreeID.uuidString })
+        {
+            state.activeWorktreeID[projectID] = fallback.worktreeID
+            return
+        }
+
+        state.activeWorktreeID.removeValue(forKey: projectID)
+        if state.activeProjectID == projectID {
+            state.activeProjectID = nil
         }
     }
 

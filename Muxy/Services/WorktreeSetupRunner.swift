@@ -10,14 +10,18 @@ enum WorktreeSetupRunner {
               !config.setup.isEmpty
         else { return }
 
-        let commands = config.setup.map(\.command).joined(separator: " && ")
+        let commands = config.setup
+            .map(\.command)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " && ")
         guard !commands.isEmpty else { return }
-        let input = commands + "\n"
 
         for _ in 0 ..< 50 {
             try? await Task.sleep(nanoseconds: 100_000_000)
             if let view = TerminalViewRegistry.shared.view(for: paneID), view.hasLiveSurface {
-                view.sendText(input)
+                view.sendText(commands)
+                view.sendReturnKey()
                 return
             }
         }

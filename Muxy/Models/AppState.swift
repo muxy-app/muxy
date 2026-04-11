@@ -16,7 +16,12 @@ final class AppState {
         case selectProject(projectID: UUID, worktreeID: UUID, worktreePath: String)
         case selectWorktree(projectID: UUID, worktreeID: UUID, worktreePath: String)
         case removeProject(projectID: UUID)
-        case removeWorktree(projectID: UUID, worktreeID: UUID)
+        case removeWorktree(
+            projectID: UUID,
+            worktreeID: UUID,
+            replacementWorktreeID: UUID?,
+            replacementWorktreePath: String?
+        )
         case createTab(projectID: UUID, areaID: UUID?)
         case createVCSTab(projectID: UUID, areaID: UUID?)
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String)
@@ -446,8 +451,13 @@ final class AppState {
         dispatch(.removeProject(projectID: projectID))
     }
 
-    func removeWorktree(projectID: UUID, worktree: Worktree) {
+    func removeWorktree(projectID: UUID, worktree: Worktree, replacement: Worktree?) {
         guard !worktree.isPrimary else { return }
-        dispatch(.removeWorktree(projectID: projectID, worktreeID: worktree.id))
+        dispatch(.removeWorktree(
+            projectID: projectID,
+            worktreeID: worktree.id,
+            replacementWorktreeID: replacement?.id,
+            replacementWorktreePath: replacement?.path
+        ))
     }
 }

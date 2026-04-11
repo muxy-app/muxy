@@ -76,11 +76,30 @@ final class WorktreeStore {
                 force: true
             )
         } catch {
-            try? FileManager.default.removeItem(atPath: worktree.path)
+            logger.error("Failed to remove git worktree at \(worktree.path): \(error)")
         }
+
+        if worktree.ownsBranch,
+           let branch = worktree.branch?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !branch.isEmpty
+        {
+            do {
+                try await GitWorktreeService.shared.deleteBranch(repoPath: repoPath, branch: branch)
+            } catch {
+                logger.error("Failed to delete branch \(branch) for worktree \(worktree.path): \(error)")
+            }
+        }
+
+        try? FileManager.default.removeItem(atPath: worktree.path)
+        removeParentDirectoryIfEmpty(for: worktree.path)
     }
 
-    static func cleanupOnDisk(for project: Project) async {
+    static func cleanupOnDisk(for project: Project, knownWorktrees: [Worktree]) async {
+        let secondaryWorktrees = knownWorktrees.filter { !$0.isPrimary }
+        for worktree in secondaryWorktrees {
+            await cleanupOnDisk(worktree: worktree, repoPath: project.path)
+        }
+
         let root = MuxyFileStorage.worktreeRoot(forProjectID: project.id)
         guard FileManager.default.fileExists(atPath: root.path) else { return }
         let children = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
@@ -94,6 +113,13 @@ final class WorktreeStore {
             try? FileManager.default.removeItem(atPath: childPath)
         }
         try? FileManager.default.removeItem(at: root)
+    }
+
+    private static func removeParentDirectoryIfEmpty(for path: String) {
+        let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
+        let children = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
+        guard children.isEmpty else { return }
+        try? FileManager.default.removeItem(at: parent)
     }
 
     func rename(worktreeID: UUID, in projectID: UUID, to newName: String) {

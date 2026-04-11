@@ -560,6 +560,23 @@ final class GhosttyTerminalNSView: NSView {
         }
     }
 
+    func sendReturnKey() {
+        guard let surface else { return }
+        var press = ghostty_input_key_s()
+        press.action = GHOSTTY_ACTION_PRESS
+        press.keycode = 36
+        press.mods = GHOSTTY_MODS_NONE
+        press.consumed_mods = GHOSTTY_MODS_NONE
+        press.composing = false
+        press.text = nil
+        press.unshifted_codepoint = 13
+        _ = ghostty_surface_key(surface, press)
+
+        var release = press
+        release.action = GHOSTTY_ACTION_RELEASE
+        _ = ghostty_surface_key(surface, release)
+    }
+
     var hasLiveSurface: Bool {
         surface != nil
     }
