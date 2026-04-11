@@ -10,8 +10,10 @@ final class WorktreeStore {
     private var projectIDByPath: [String: UUID] = [:]
     private let persistence: any WorktreePersisting
 
-    init(persistence: any WorktreePersisting) {
+    init(persistence: any WorktreePersisting, projects: [Project] = []) {
         self.persistence = persistence
+        guard !projects.isEmpty else { return }
+        loadAll(projects: projects)
     }
 
     func loadAll(projects: [Project]) {

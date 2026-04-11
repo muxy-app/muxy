@@ -11,21 +11,23 @@ struct MuxyApp: App {
 
     init() {
         let environment = AppEnvironment.live
-        _appState = State(
-            initialValue: AppState(
-                selectionStore: environment.selectionStore,
-                terminalViews: environment.terminalViews,
-                workspacePersistence: environment.workspacePersistence
-            )
+        let projectStore = ProjectStore(persistence: environment.projectPersistence)
+        let worktreeStore = WorktreeStore(
+            persistence: environment.worktreePersistence,
+            projects: projectStore.projects
         )
-        _projectStore = State(
-            initialValue: ProjectStore(
-                persistence: environment.projectPersistence
-            )
+        let appState = AppState(
+            selectionStore: environment.selectionStore,
+            terminalViews: environment.terminalViews,
+            workspacePersistence: environment.workspacePersistence
         )
-        _worktreeStore = State(
-            initialValue: WorktreeStore(persistence: environment.worktreePersistence)
+        appState.restoreSelection(
+            projects: projectStore.projects,
+            worktrees: worktreeStore.worktrees
         )
+        _appState = State(initialValue: appState)
+        _projectStore = State(initialValue: projectStore)
+        _worktreeStore = State(initialValue: worktreeStore)
     }
 
     var body: some Scene {
@@ -39,7 +41,6 @@ struct MuxyApp: App {
                 .environment(ThemeService.shared)
                 .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
-                    worktreeStore.loadAll(projects: projectStore.projects)
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
                     }

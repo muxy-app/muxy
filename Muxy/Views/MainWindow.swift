@@ -157,12 +157,6 @@ struct MainWindow: View {
         .environment(dragCoordinator)
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
         .edgesIgnoringSafeArea(.top)
-        .onAppear {
-            appState.restoreSelection(
-                projects: projectStore.projects,
-                worktrees: worktreeStore.worktrees
-            )
-        }
         .onReceive(NotificationCenter.default.publisher(for: .quickOpen)) { _ in
             showQuickOpen.toggle()
         }

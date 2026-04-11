@@ -46,9 +46,7 @@ final class AppState {
     private let workspacePersistence: any WorkspacePersisting
     var onProjectsEmptied: (([UUID]) -> Void)?
 
-    var activeProjectID: UUID? {
-        didSet { saveSelection() }
-    }
+    var activeProjectID: UUID?
 
     var activeWorktreeID: [UUID: UUID] = [:]
 
@@ -87,13 +85,25 @@ final class AppState {
             workspaceRoots[entry.key] = entry.root
             focusedAreaID[entry.key] = entry.focusedAreaID
         }
+
+        let savedWorktreeIDs = selectionStore.loadActiveWorktreeIDs()
+        for project in projects {
+            let restoredKeysForProject = restored.map(\.key).filter { $0.projectID == project.id }
+            guard !restoredKeysForProject.isEmpty else { continue }
+            if let savedWorktreeID = savedWorktreeIDs[project.id],
+               restoredKeysForProject.contains(where: { $0.worktreeID == savedWorktreeID })
+            {
+                activeWorktreeID[project.id] = savedWorktreeID
+                continue
+            }
+            activeWorktreeID[project.id] = restoredKeysForProject[0].worktreeID
+        }
+
         guard let id = selectionStore.loadActiveProjectID(),
-              let project = projects.first(where: { $0.id == id })
+              projects.contains(where: { $0.id == id }),
+              activeWorktreeID[id] != nil
         else { return }
-        let worktreeList = worktrees[project.id] ?? []
-        let primary = worktreeList.first(where: { $0.isPrimary }) ?? worktreeList.first
-        guard let worktree = primary else { return }
-        selectProject(project, worktree: worktree)
+        activeProjectID = id
     }
 
     func saveWorkspaces() {
@@ -106,6 +116,7 @@ final class AppState {
 
     private func saveSelection() {
         selectionStore.saveActiveProjectID(activeProjectID)
+        selectionStore.saveActiveWorktreeIDs(activeWorktreeID)
     }
 
     func activeWorktreeKey(for projectID: UUID) -> WorktreeKey? {
@@ -370,6 +381,7 @@ final class AppState {
         }
 
         saveWorkspaces()
+        saveSelection()
     }
 
     private func clearPendingProcessCloseIfMatching(tabID: UUID, areaID: UUID, projectID: UUID) {
