@@ -29,6 +29,10 @@ final class TerminalViewRegistry {
     func needsConfirmQuit(for paneID: UUID) -> Bool {
         views[paneID]?.needsConfirmQuit() ?? false
     }
+
+    func view(for paneID: UUID) -> GhosttyTerminalNSView? {
+        views[paneID]
+    }
 }
 
 extension TerminalViewRegistry: TerminalViewRemoving {}

@@ -13,8 +13,10 @@ final class AppState {
     }
 
     enum Action {
-        case selectProject(projectID: UUID, projectPath: String)
+        case selectProject(projectID: UUID, worktreeID: UUID, worktreePath: String)
+        case selectWorktree(projectID: UUID, worktreeID: UUID, worktreePath: String)
         case removeProject(projectID: UUID)
+        case removeWorktree(projectID: UUID, worktreeID: UUID)
         case createTab(projectID: UUID, areaID: UUID?)
         case createVCSTab(projectID: UUID, areaID: UUID?)
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String)
@@ -44,6 +46,8 @@ final class AppState {
         didSet { saveSelection() }
     }
 
+    var activeWorktreeID: [UUID: UUID] = [:]
+
     struct PendingTabClose: Equatable {
         let projectID: UUID
         let areaID: UUID
@@ -51,13 +55,13 @@ final class AppState {
     }
 
     var sidebarVisible = true
-    var workspaceRoots: [UUID: SplitNode] = [:]
-    var focusedAreaID: [UUID: UUID] = [:]
+    var workspaceRoots: [WorktreeKey: SplitNode] = [:]
+    var focusedAreaID: [WorktreeKey: UUID] = [:]
     var pendingLastTabClose: PendingTabClose?
     var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
     var pendingSaveErrorMessage: String?
-    private var focusHistory: [UUID: [UUID]] = [:]
+    private var focusHistory: [WorktreeKey: [UUID]] = [:]
 
     init(
         selectionStore: any ActiveProjectSelectionStoring,
@@ -69,19 +73,23 @@ final class AppState {
         self.workspacePersistence = workspacePersistence
     }
 
-    func restoreSelection(projects: [Project]) {
+    func restoreSelection(projects: [Project], worktrees: [UUID: [Worktree]]) {
         let restored = WorkspaceRestorer.restoreAll(
             from: workspacePersistence.loadWorkspaces(),
-            validProjectIDs: Set(projects.map(\.id))
+            projects: projects,
+            worktrees: worktrees
         )
         for entry in restored {
-            workspaceRoots[entry.projectID] = entry.root
-            focusedAreaID[entry.projectID] = entry.focusedAreaID
+            workspaceRoots[entry.key] = entry.root
+            focusedAreaID[entry.key] = entry.focusedAreaID
         }
         guard let id = selectionStore.loadActiveProjectID(),
               let project = projects.first(where: { $0.id == id })
         else { return }
-        selectProject(project)
+        let worktreeList = worktrees[project.id] ?? []
+        let primary = worktreeList.first(where: { $0.isPrimary }) ?? worktreeList.first
+        guard let worktree = primary else { return }
+        selectProject(project, worktree: worktree)
     }
 
     func saveWorkspaces() {
@@ -96,23 +104,48 @@ final class AppState {
         selectionStore.saveActiveProjectID(activeProjectID)
     }
 
-    func workspaceRoot(for projectID: UUID) -> SplitNode? {
-        workspaceRoots[projectID]
+    func activeWorktreeKey(for projectID: UUID) -> WorktreeKey? {
+        guard let worktreeID = activeWorktreeID[projectID] else { return nil }
+        return WorktreeKey(projectID: projectID, worktreeID: worktreeID)
     }
 
-    func selectProject(_ project: Project) {
-        dispatch(.selectProject(projectID: project.id, projectPath: project.path))
+    func workspaceRoot(for projectID: UUID) -> SplitNode? {
+        guard let key = activeWorktreeKey(for: projectID) else { return nil }
+        return workspaceRoots[key]
+    }
+
+    func focusedAreaID(for projectID: UUID) -> UUID? {
+        guard let key = activeWorktreeKey(for: projectID) else { return nil }
+        return focusedAreaID[key]
+    }
+
+    func selectProject(_ project: Project, worktree: Worktree) {
+        dispatch(.selectProject(
+            projectID: project.id,
+            worktreeID: worktree.id,
+            worktreePath: worktree.path
+        ))
+    }
+
+    func selectWorktree(projectID: UUID, worktree: Worktree) {
+        dispatch(.selectWorktree(
+            projectID: projectID,
+            worktreeID: worktree.id,
+            worktreePath: worktree.path
+        ))
     }
 
     func focusedArea(for projectID: UUID) -> TabArea? {
-        guard let root = workspaceRoots[projectID],
-              let areaID = focusedAreaID[projectID]
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
+              let areaID = focusedAreaID[key]
         else { return nil }
         return root.findArea(id: areaID)
     }
 
     func allAreas(for projectID: UUID) -> [TabArea] {
-        workspaceRoots[projectID]?.allAreas() ?? []
+        guard let key = activeWorktreeKey(for: projectID) else { return [] }
+        return workspaceRoots[key]?.allAreas() ?? []
     }
 
     func splitFocusedArea(direction: SplitDirection, projectID: UUID) {
@@ -189,7 +222,8 @@ final class AppState {
 
     func saveAndCloseUnsavedEditorTab() {
         guard let pending = pendingUnsavedEditorTabClose else { return }
-        guard let root = workspaceRoots[pending.projectID],
+        guard let key = activeWorktreeKey(for: pending.projectID),
+              let root = workspaceRoots[key],
               let area = root.findArea(id: pending.areaID),
               let tab = area.tabs.first(where: { $0.id == pending.tabID }),
               let editorState = tab.content.editorState
@@ -232,7 +266,8 @@ final class AppState {
     }
 
     private func unpinTabIfNeeded(_ tabID: UUID, areaID: UUID, projectID: UUID) {
-        guard let root = workspaceRoots[projectID],
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
               let area = root.findArea(id: areaID),
               let tab = area.tabs.first(where: { $0.id == tabID }),
               tab.isPinned
@@ -241,7 +276,9 @@ final class AppState {
     }
 
     private func isLastTabInProject(_ tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
-        guard let root = workspaceRoots[projectID] else { return false }
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key]
+        else { return false }
         let allAreas = root.allAreas()
         let totalTabs = allAreas.reduce(0) { $0 + $1.tabs.count }
         return totalTabs <= 1
@@ -262,7 +299,8 @@ final class AppState {
     }
 
     private func needsUnsavedEditorConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
-        guard let root = workspaceRoots[projectID],
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
               let area = root.findArea(id: areaID),
               let tab = area.tabs.first(where: { $0.id == tabID }),
               let editorState = tab.content.editorState
@@ -271,7 +309,8 @@ final class AppState {
     }
 
     private func needsProcessConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
-        guard let root = workspaceRoots[projectID],
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
               let area = root.findArea(id: areaID),
               let tab = area.tabs.first(where: { $0.id == tabID }),
               let paneID = tab.content.pane?.id
@@ -306,12 +345,14 @@ final class AppState {
     func dispatch(_ action: Action) {
         var workspace = WorkspaceState(
             activeProjectID: activeProjectID,
+            activeWorktreeID: activeWorktreeID,
             workspaceRoots: workspaceRoots,
             focusedAreaID: focusedAreaID,
             focusHistory: focusHistory
         )
         let effects = WorkspaceReducer.reduce(action: action, state: &workspace)
         activeProjectID = workspace.activeProjectID
+        activeWorktreeID = workspace.activeWorktreeID
         workspaceRoots = workspace.workspaceRoots
         focusedAreaID = workspace.focusedAreaID
         focusHistory = workspace.focusHistory
@@ -358,7 +399,8 @@ final class AppState {
     }
 
     private func tabExists(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
-        guard let root = workspaceRoots[projectID],
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
               let area = root.findArea(id: areaID)
         else { return false }
         return area.tabs.contains(where: { $0.id == tabID })
@@ -384,9 +426,12 @@ final class AppState {
         dispatch(.focusPaneDown(projectID: projectID))
     }
 
-    func selectProjectByIndex(_ index: Int, projects: [Project]) {
+    func selectProjectByIndex(_ index: Int, projects: [Project], worktrees: [UUID: [Worktree]]) {
         guard index >= 0, index < projects.count else { return }
-        selectProject(projects[index])
+        let project = projects[index]
+        let list = worktrees[project.id] ?? []
+        guard let target = list.first(where: { $0.isPrimary }) ?? list.first else { return }
+        selectProject(project, worktree: target)
     }
 
     func selectNextProject(projects: [Project]) {
@@ -399,5 +444,9 @@ final class AppState {
 
     func removeProject(_ projectID: UUID) {
         dispatch(.removeProject(projectID: projectID))
+    }
+
+    func removeWorktree(projectID: UUID, worktreeID: UUID) {
+        dispatch(.removeWorktree(projectID: projectID, worktreeID: worktreeID))
     }
 }

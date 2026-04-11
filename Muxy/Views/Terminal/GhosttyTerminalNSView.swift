@@ -553,6 +553,17 @@ final class GhosttyTerminalNSView: NSView {
         ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
     }
 
+    func sendText(_ text: String) {
+        guard let surface else { return }
+        text.withCString { ptr in
+            ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
+        }
+    }
+
+    var hasLiveSurface: Bool {
+        surface != nil
+    }
+
     enum SearchDirection: String {
         case next
         case previous

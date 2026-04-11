@@ -2,22 +2,31 @@ import SwiftUI
 
 struct TerminalArea: View {
     let project: Project
+    let worktreeKey: WorktreeKey
     let isActiveProject: Bool
     @Environment(AppState.self) private var appState
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @Environment(\.openWindow) private var openWindow
 
+    private var root: SplitNode? {
+        appState.workspaceRoots[worktreeKey]
+    }
+
+    private var focusedAreaID: UUID? {
+        appState.focusedAreaID[worktreeKey]
+    }
+
     private var rootIsTabArea: Bool {
-        guard let root = appState.workspaceRoot(for: project.id) else { return false }
+        guard let root else { return false }
         if case .tabArea = root { return true }
         return false
     }
 
     var body: some View {
-        if let root = appState.workspaceRoot(for: project.id) {
+        if let root {
             PaneNode(
                 node: root,
-                focusedAreaID: appState.focusedAreaID[project.id],
+                focusedAreaID: focusedAreaID,
                 isActiveProject: isActiveProject,
                 showTabStrip: !rootIsTabArea,
                 showVCSButton: false,
@@ -61,6 +70,7 @@ struct TerminalArea: View {
                 }
             )
             .onPreferenceChange(AreaFramePreferenceKey.self) { frames in
+                guard isActiveProject else { return }
                 dragCoordinator.setAreaFrames(frames, forProject: project.id)
             }
         }

@@ -27,6 +27,11 @@ struct VCSTabView: View {
                 state.refresh()
             }
         }
+        .onChange(of: state.projectPath) {
+            if !state.hasCompletedInitialLoad, !state.isLoadingFiles {
+                state.refresh()
+            }
+        }
         .onChange(of: state.showPushUpstreamConfirmation) { _, show in
             guard show else { return }
             state.showPushUpstreamConfirmation = false

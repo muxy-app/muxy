@@ -4,6 +4,7 @@ import SwiftUI
 struct MuxyCommands: Commands {
     let appState: AppState
     let projectStore: ProjectStore
+    let worktreeStore: WorktreeStore
     let keyBindings: KeyBindingStore
     let config: MuxyConfig
     let ghostty: GhosttyService
@@ -141,7 +142,7 @@ struct MuxyCommands: Commands {
             Button("Close Pane") {
                 guard isMainWindowFocused else { return }
                 guard let projectID = appState.activeProjectID,
-                      let areaID = appState.focusedAreaID[projectID]
+                      let areaID = appState.focusedAreaID(for: projectID)
                 else { return }
                 appState.closeArea(areaID, projectID: projectID)
             }
@@ -224,7 +225,11 @@ struct MuxyCommands: Commands {
                 if let action = ShortcutAction.projectAction(for: index) {
                     Button("Project \(index)") {
                         guard isMainWindowFocused else { return }
-                        appState.selectProjectByIndex(index - 1, projects: projectStore.projects)
+                        appState.selectProjectByIndex(
+                            index - 1,
+                            projects: projectStore.projects,
+                            worktrees: worktreeStore.worktrees
+                        )
                     }
                     .shortcut(for: action, store: keyBindings)
                 }
@@ -261,6 +266,8 @@ struct MuxyCommands: Commands {
             sortOrder: projectStore.projects.count
         )
         projectStore.add(project)
-        appState.selectProject(project)
+        worktreeStore.ensurePrimary(for: project)
+        guard let primary = worktreeStore.primary(for: project.id) else { return }
+        appState.selectProject(project, worktree: primary)
     }
 }

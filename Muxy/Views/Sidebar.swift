@@ -4,6 +4,7 @@ import SwiftUI
 struct SidebarToolbar: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
+    @Environment(WorktreeStore.self) private var worktreeStore
 
     var body: some View {
         HStack(spacing: 4) {
@@ -39,74 +40,120 @@ struct SidebarToolbar: View {
             sortOrder: projectStore.projects.count
         )
         projectStore.add(project)
-        appState.selectProject(project)
+        worktreeStore.ensurePrimary(for: project)
+        guard let primary = worktreeStore.primary(for: project.id) else { return }
+        appState.selectProject(project, worktree: primary)
     }
 }
 
 struct Sidebar: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
+    @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 2) {
-                    ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) {
-                        index, project in
-                        ProjectItem(
-                            project: project,
-                            selected: project.id == appState.activeProjectID,
-                            isAnyDragging: dragState.draggedID != nil,
-                            shortcutIndex: index < 9 ? index + 1 : nil,
-                            onRemove: {
-                                appState.removeProject(project.id)
-                                projectStore.remove(id: project.id)
-                            },
-                            onRename: { projectStore.rename(id: project.id, to: $0) }
-                        )
-                        .background {
-                            if dragState.draggedID != nil {
-                                GeometryReader { geo in
-                                    Color.clear.preference(
-                                        key: UUIDFramePreferenceKey<SidebarFrameTag>.self,
-                                        value: [project.id: geo.frame(in: .named("sidebar"))]
-                                    )
-                                }
-                            }
-                        }
-                        .gesture(
-                            DragGesture(minimumDistance: 4, coordinateSpace: .named("sidebar"))
-                                .onChanged { value in
-                                    if dragState.draggedID == nil {
-                                        dragState.draggedID = project.id
-                                        dragState.lastReorderTargetID = nil
-                                    }
-                                    reorderIfNeeded(at: value.location)
-                                }
-                                .onEnded { _ in
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        dragState.draggedID = nil
-                                        dragState.frames = [:]
-                                        dragState.lastReorderTargetID = nil
-                                    }
-                                }
-                        )
-                        .onTapGesture {
-                            guard dragState.draggedID == nil else { return }
-                            appState.selectProject(project)
-                        }
-                    }
-                }
-                .padding(6)
-                .onPreferenceChange(UUIDFramePreferenceKey<SidebarFrameTag>.self) { frames in
-                    guard dragState.draggedID != nil else { return }
-                    dragState.frames = frames
-                }
+            if projectStore.projects.isEmpty {
+                emptyState
+            } else {
+                projectList
             }
-            .coordinateSpace(name: "sidebar")
+            Spacer(minLength: 0)
             SidebarFooter()
         }
+    }
+
+    private var projectList: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: 2) {
+                ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) { index, project in
+                    ProjectRow(
+                        project: project,
+                        shortcutIndex: index < 9 ? index + 1 : nil,
+                        isAnyDragging: dragState.draggedID != nil,
+                        onSelect: { select(project) },
+                        onRemove: { remove(project) },
+                        onRename: { projectStore.rename(id: project.id, to: $0) }
+                    )
+                    .background {
+                        if dragState.draggedID != nil {
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: UUIDFramePreferenceKey<SidebarFrameTag>.self,
+                                    value: [project.id: geo.frame(in: .named("sidebar"))]
+                                )
+                            }
+                        }
+                    }
+                    .gesture(projectDragGesture(for: project))
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 10)
+            .onPreferenceChange(UUIDFramePreferenceKey<SidebarFrameTag>.self) { frames in
+                guard dragState.draggedID != nil else { return }
+                dragState.frames = frames
+            }
+        }
+        .coordinateSpace(name: "sidebar")
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "folder.badge.plus")
+                .font(.system(size: 26, weight: .regular))
+                .foregroundStyle(MuxyTheme.fgDim)
+            Text("No projects yet")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(MuxyTheme.fgMuted)
+            Text("Click \(Image(systemName: "folder")) above to open one")
+                .font(.system(size: 10))
+                .foregroundStyle(MuxyTheme.fgDim)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 32)
+    }
+
+    private func projectDragGesture(for project: Project) -> some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .named("sidebar"))
+            .onChanged { value in
+                if dragState.draggedID == nil {
+                    dragState.draggedID = project.id
+                    dragState.lastReorderTargetID = nil
+                }
+                reorderIfNeeded(at: value.location)
+            }
+            .onEnded { _ in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    dragState.draggedID = nil
+                    dragState.frames = [:]
+                    dragState.lastReorderTargetID = nil
+                }
+            }
+    }
+
+    private func select(_ project: Project) {
+        worktreeStore.ensurePrimary(for: project)
+        let list = worktreeStore.list(for: project.id)
+        let existingID = appState.activeWorktreeID[project.id]
+        let worktree = list.first(where: { $0.id == existingID })
+            ?? list.first(where: { $0.isPrimary })
+            ?? list.first
+        guard let worktree else { return }
+        appState.selectProject(project, worktree: worktree)
+    }
+
+    private func remove(_ project: Project) {
+        let capturedProject = project
+        Task.detached {
+            await WorktreeStore.cleanupOnDisk(for: capturedProject)
+        }
+        appState.removeProject(project.id)
+        projectStore.remove(id: project.id)
+        worktreeStore.removeProject(project.id)
     }
 
     private func reorderIfNeeded(at location: CGPoint) {
@@ -169,95 +216,5 @@ struct SidebarFooter: View {
         .onReceive(NotificationCenter.default.publisher(for: .toggleThemePicker)) { _ in
             showThemePicker.toggle()
         }
-    }
-}
-
-private struct ProjectItem: View {
-    let project: Project
-    let selected: Bool
-    var isAnyDragging: Bool = false
-    var shortcutIndex: Int?
-    let onRemove: () -> Void
-    let onRename: (String) -> Void
-    @State private var hovered = false
-    @State private var isRenaming = false
-    @State private var renameText = ""
-    @FocusState private var renameFieldFocused: Bool
-
-    private var showBadge: Bool {
-        guard let shortcutIndex,
-              let action = ShortcutAction.projectAction(for: shortcutIndex)
-        else { return false }
-        return ModifierKeyMonitor.shared.isHolding(
-            modifiers: KeyBindingStore.shared.combo(for: action).modifiers
-        )
-    }
-
-    var body: some View {
-        Group {
-            if isRenaming {
-                TextField("", text: $renameText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(MuxyTheme.fg)
-                    .focused($renameFieldFocused)
-                    .onSubmit { commitRename() }
-                    .onExitCommand { cancelRename() }
-            } else {
-                Text(project.name)
-                    .font(.system(size: 12))
-                    .foregroundStyle(selected ? MuxyTheme.accent : MuxyTheme.fgMuted)
-            }
-        }
-        .lineLimit(1)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(background, in: RoundedRectangle(cornerRadius: 6))
-        .contentShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(alignment: .trailing) {
-            if showBadge, let shortcutIndex,
-               let action = ShortcutAction.projectAction(for: shortcutIndex)
-            {
-                ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
-                    .padding(.trailing, 6)
-            }
-        }
-        .onHover { hovering in
-            guard !isAnyDragging else { return }
-            hovered = hovering
-        }
-        .onChange(of: isAnyDragging) { _, dragging in
-            if dragging { hovered = false }
-        }
-        .contextMenu {
-            Button("Rename Project") { startRename() }
-            Divider()
-            Button("Remove Project", role: .destructive, action: onRemove)
-        }
-    }
-
-    private var background: some ShapeStyle {
-        if selected { return AnyShapeStyle(MuxyTheme.accentSoft) }
-        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
-        return AnyShapeStyle(.clear)
-    }
-
-    private func startRename() {
-        renameText = project.name
-        isRenaming = true
-        renameFieldFocused = true
-    }
-
-    private func commitRename() {
-        let trimmed = renameText.trimmingCharacters(in: .whitespaces)
-        if !trimmed.isEmpty {
-            onRename(trimmed)
-        }
-        isRenaming = false
-    }
-
-    private func cancelRename() {
-        isRenaming = false
     }
 }

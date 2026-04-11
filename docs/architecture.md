@@ -27,6 +27,9 @@ Muxy/
     EditorTabState.swift      Code editor tab state (file content, cursor, save)
     EditorSettings.swift      @Observable editor preferences (font, word wrap, tab size)
     Project.swift             Project folder metadata
+    Worktree.swift            Per-project worktree slot (primary or git worktree)
+    WorktreeKey.swift         Hashable (projectID, worktreeID) key for workspace maps
+    WorktreeConfig.swift      Decoder for .muxy/worktree.json setup commands
     TerminalPaneState.swift   Per-pane terminal state
     TerminalSearchState.swift Terminal find-in-page state
   Services/
@@ -34,6 +37,7 @@ Muxy/
     GhosttyRuntimeEventAdapter.swift  C callback bridge from libghostty
     Git/
       GitRepositoryService.swift  Git command execution (actor)
+      GitWorktreeService.swift    git worktree list/add/remove (actor)
       GitDiffParser.swift         Diff patch parsing, context collapsing
       GitStatusParser.swift       Porcelain + numstat output parsing
       GitModels.swift             GitStatusFile, DiffDisplayRow, NumstatEntry
@@ -45,6 +49,9 @@ Muxy/
     KeyBindingPersistence.swift  JSON persistence for shortcuts
     ProjectStore.swift        @Observable store for projects list
     ProjectPersistence.swift  JSON persistence for projects
+    WorktreeStore.swift       @Observable store for per-project worktrees
+    WorktreePersistence.swift JSON persistence for worktrees (one file per project)
+    WorktreeSetupRunner.swift Dispatches .muxy/worktree.json setup commands to a new tab
     WorkspacePersistence.swift JSON persistence for workspaces
     JSONFilePersistence.swift Shared App Support directory helper
     ModifierKeyMonitor.swift  Global modifier key state tracking
@@ -57,6 +64,10 @@ Muxy/
   Views/
     MainWindow.swift          Main window layout (sidebar + workspace)
     Sidebar.swift             Project list sidebar
+    Sidebar/
+      ProjectRow.swift          Avatar + label row, worktree-chevron trigger on active row, ProjectAvatar
+      WorktreePopover.swift     Worktree picker popover triggered from the active project row
+      CreateWorktreeSheet.swift Sheet for creating a new git worktree
     ThemePicker.swift         Theme selection popover
     WelcomeView.swift         Empty state view
     Components/
@@ -100,6 +111,19 @@ Muxy/
       ShortcutBadge.swift     Shortcut label display
 ```
 
+## Hierarchy
+
+```
+Project → Worktree → SplitNode (splits/tab areas) → TerminalTab → Pane
+```
+
+Each project has at least one **primary** worktree pointing at `Project.path`. Git
+projects may add more worktrees via `git worktree add`, each with their own split
+tree, tabs, focus state, and working directory. Workspace state is keyed by
+`WorktreeKey(projectID, worktreeID)` in `AppState` so every per-project map is
+actually per-worktree. `AppState.activeWorktreeID[projectID]` tracks which
+worktree is currently visible for each project.
+
 ## Data Flow
 
 ```
@@ -115,6 +139,6 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
 ## Key Integration Points
 
 - **GhosttyKit**: C module wrapping `ghostty.h`. Precompiled xcframework from `muxy-app/ghostty` fork. Surfaces created/destroyed via `TerminalViewRegistry`.
-- **Persistence**: All files in `~/Library/Application Support/Muxy/`. Shared directory helper: `MuxyFileStorage`.
+- **Persistence**: All files in `~/Library/Application Support/Muxy/`. Shared directory helper: `MuxyFileStorage`. Worktrees are persisted per-project at `worktrees/{projectID}.json`. Worktree setup commands live in-repo at `{Project.path}/.muxy/worktree.json`.
 - **Ghostty Config**: Managed by `MuxyConfig`, stored at `~/Library/Application Support/Muxy/ghostty.conf`. Seeded from `~/.config/ghostty/config` on first run.
 - **Updates**: Sparkle framework via `UpdateService`.

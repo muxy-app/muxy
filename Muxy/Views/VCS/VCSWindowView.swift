@@ -3,7 +3,8 @@ import SwiftUI
 struct VCSWindowView: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
-    @State private var vcsStates: [UUID: VCSTabState] = [:]
+    @Environment(WorktreeStore.self) private var worktreeStore
+    @State private var vcsStates: [WorktreeKey: VCSTabState] = [:]
     @State private var activeState: VCSTabState?
 
     private var activeProject: Project? {
@@ -30,27 +31,40 @@ struct VCSWindowView: View {
         .onChange(of: appState.activeProjectID) {
             synchronizeState()
         }
+        .onChange(of: appState.activeWorktreeID) {
+            synchronizeState()
+        }
         .onChange(of: projectStore.projects.map(\.id)) {
+            synchronizeState()
+        }
+        .onChange(of: worktreeStore.worktrees.mapValues { $0.map(\.id) }) {
             synchronizeState()
         }
     }
 
     private func synchronizeState() {
-        let validProjectIDs = Set(projectStore.projects.map(\.id))
-        vcsStates = vcsStates.filter { validProjectIDs.contains($0.key) }
+        vcsStates = vcsStates.filter { entry in
+            worktreeStore.list(for: entry.key.projectID)
+                .contains(where: { $0.id == entry.key.worktreeID })
+        }
 
-        guard let project = activeProject else {
+        guard let project = activeProject,
+              let key = appState.activeWorktreeKey(for: project.id)
+        else {
             activeState = nil
             return
         }
 
-        if let existing = vcsStates[project.id] {
+        if let existing = vcsStates[key] {
             activeState = existing
             return
         }
 
-        let state = VCSTabState(projectPath: project.path)
-        vcsStates[project.id] = state
+        let worktreePath = worktreeStore
+            .worktree(projectID: project.id, worktreeID: key.worktreeID)?
+            .path ?? project.path
+        let state = VCSTabState(projectPath: worktreePath)
+        vcsStates[key] = state
         activeState = state
     }
 }

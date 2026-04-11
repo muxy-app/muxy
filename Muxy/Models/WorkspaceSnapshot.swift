@@ -2,8 +2,41 @@ import Foundation
 
 struct WorkspaceSnapshot: Codable {
     let projectID: UUID
+    let worktreeID: UUID?
+    let worktreePath: String?
     let focusedAreaID: UUID?
     let root: SplitNodeSnapshot
+
+    init(
+        projectID: UUID,
+        worktreeID: UUID?,
+        worktreePath: String?,
+        focusedAreaID: UUID?,
+        root: SplitNodeSnapshot
+    ) {
+        self.projectID = projectID
+        self.worktreeID = worktreeID
+        self.worktreePath = worktreePath
+        self.focusedAreaID = focusedAreaID
+        self.root = root
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case projectID
+        case worktreeID
+        case worktreePath
+        case focusedAreaID
+        case root
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        projectID = try container.decode(UUID.self, forKey: .projectID)
+        worktreeID = try container.decodeIfPresent(UUID.self, forKey: .worktreeID)
+        worktreePath = try container.decodeIfPresent(String.self, forKey: .worktreePath)
+        focusedAreaID = try container.decodeIfPresent(UUID.self, forKey: .focusedAreaID)
+        root = try container.decode(SplitNodeSnapshot.self, forKey: .root)
+    }
 }
 
 indirect enum SplitNodeSnapshot: Codable {
@@ -109,7 +142,7 @@ struct TerminalTabSnapshot: Codable {
 }
 
 struct RestoredWorkspace {
-    let projectID: UUID
+    let key: WorktreeKey
     let root: SplitNode
     let focusedAreaID: UUID
 }
@@ -118,11 +151,15 @@ struct RestoredWorkspace {
 enum WorkspaceRestorer {
     static func restoreAll(
         from snapshots: [WorkspaceSnapshot],
-        validProjectIDs: Set<UUID>
+        projects: [Project],
+        worktrees: [UUID: [Worktree]]
     ) -> [RestoredWorkspace] {
+        let projectByID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
         var results: [RestoredWorkspace] = []
         for snapshot in snapshots {
-            guard validProjectIDs.contains(snapshot.projectID) else { continue }
+            guard projectByID[snapshot.projectID] != nil else { continue }
+            let worktreeList = worktrees[snapshot.projectID] ?? []
+            guard let targetWorktree = resolveWorktree(for: snapshot, in: worktreeList) else { continue }
             let root = restoreSplitNode(from: snapshot.root)
             let areas = root.allAreas()
             guard !areas.isEmpty else { continue }
@@ -131,20 +168,36 @@ enum WorkspaceRestorer {
             } else {
                 areas[0].id
             }
-            results.append(RestoredWorkspace(projectID: snapshot.projectID, root: root, focusedAreaID: focusedID))
+            let key = WorktreeKey(projectID: snapshot.projectID, worktreeID: targetWorktree.id)
+            results.append(RestoredWorkspace(key: key, root: root, focusedAreaID: focusedID))
         }
         return results
     }
 
+    private static func resolveWorktree(for snapshot: WorkspaceSnapshot, in worktrees: [Worktree]) -> Worktree? {
+        if let worktreeID = snapshot.worktreeID,
+           let match = worktrees.first(where: { $0.id == worktreeID })
+        {
+            return match
+        }
+        return worktrees.first(where: { $0.isPrimary }) ?? worktrees.first
+    }
+
     static func snapshotAll(
-        workspaceRoots: [UUID: SplitNode],
-        focusedAreaID: [UUID: UUID]
+        workspaceRoots: [WorktreeKey: SplitNode],
+        focusedAreaID: [WorktreeKey: UUID]
     ) -> [WorkspaceSnapshot] {
         var snapshots: [WorkspaceSnapshot] = []
-        for (projectID, root) in workspaceRoots {
+        for (key, root) in workspaceRoots {
+            let path: String? = {
+                if case let .tabArea(area) = root { return area.projectPath }
+                return root.allAreas().first?.projectPath
+            }()
             snapshots.append(WorkspaceSnapshot(
-                projectID: projectID,
-                focusedAreaID: focusedAreaID[projectID],
+                projectID: key.projectID,
+                worktreeID: key.worktreeID,
+                worktreePath: path,
+                focusedAreaID: focusedAreaID[key],
                 root: snapshotSplitNode(root)
             ))
         }

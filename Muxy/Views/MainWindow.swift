@@ -4,6 +4,7 @@ import SwiftUI
 struct MainWindow: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
+    @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(GhosttyService.self) private var ghostty
     @Environment(\.openWindow) private var openWindow
     @State private var dragCoordinator = TabDragCoordinator()
@@ -43,9 +44,9 @@ struct MainWindow: View {
 
     @State private var vcsPanelVisible = false
     @State private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
-    @State private var vcsStates: [UUID: VCSTabState] = [:]
+    @State private var vcsStates: [WorktreeKey: VCSTabState] = [:]
     @State private var showQuickOpen = false
-    private let sidebarWidth: CGFloat = 160
+    private let sidebarWidth: CGFloat = 180
 
     var body: some View {
         VStack(spacing: 0) {
@@ -75,9 +76,19 @@ struct MainWindow: View {
                     MuxyTheme.terminalBg
                     if projectsWithWorkspaces.isEmpty {
                         WelcomeView()
-                    } else if let project = activeProjectWithWorkspace {
-                        TerminalArea(project: project, isActiveProject: true)
-                            .id(project.id)
+                    } else if let project = activeProjectWithWorkspace,
+                              let activeKey = appState.activeWorktreeKey(for: project.id)
+                    {
+                        ForEach(mountedWorktreeKeys(for: project), id: \.self) { key in
+                            TerminalArea(
+                                project: project,
+                                worktreeKey: key,
+                                isActiveProject: key == activeKey
+                            )
+                            .opacity(key == activeKey ? 1 : 0)
+                            .allowsHitTesting(key == activeKey)
+                            .zIndex(key == activeKey ? 1 : 0)
+                        }
                     }
                 }
 
@@ -147,7 +158,10 @@ struct MainWindow: View {
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
         .edgesIgnoringSafeArea(.top)
         .onAppear {
-            appState.restoreSelection(projects: projectStore.projects)
+            appState.restoreSelection(
+                projects: projectStore.projects,
+                worktrees: worktreeStore.worktrees
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .quickOpen)) { _ in
             showQuickOpen.toggle()
@@ -161,10 +175,10 @@ struct MainWindow: View {
             }
             vcsPanelVisible.toggle()
         }
-        .onChange(of: projectStore.projects.map(\.id)) {
-            pruneVCSStates(validProjectIDs: Set(projectStore.projects.map(\.id)))
+        .onChange(of: vcsPruneSignature) {
+            pruneVCSStates()
         }
-        .onChange(of: appState.activeProjectID) {
+        .onChange(of: vcsEnsureSignature) {
             guard let project = activeProject else { return }
             guard vcsPanelVisible, VCSDisplayMode.current == .attached else { return }
             ensureVCSState(for: project)
@@ -273,6 +287,12 @@ struct MainWindow: View {
         return project
     }
 
+    private func mountedWorktreeKeys(for project: Project) -> [WorktreeKey] {
+        appState.workspaceRoots.keys
+            .filter { $0.projectID == project.id }
+            .sorted { $0.worktreeID.uuidString < $1.worktreeID.uuidString }
+    }
+
     private var activeProjectHasSplitWorkspace: Bool {
         guard let project = activeProject,
               let root = appState.workspaceRoot(for: project.id)
@@ -282,24 +302,30 @@ struct MainWindow: View {
     }
 
     private var projectsWithWorkspaces: [Project] {
-        projectStore.projects.filter { appState.workspaceRoots[$0.id] != nil }
+        projectStore.projects.filter { appState.workspaceRoot(for: $0.id) != nil }
     }
 
     private var activeVCSState: VCSTabState? {
-        guard let project = activeProject else { return nil }
-        return vcsStates[project.id]
+        guard let project = activeProject,
+              let key = appState.activeWorktreeKey(for: project.id)
+        else { return nil }
+        return vcsStates[key]
     }
 
     private func ensureVCSState(for project: Project) {
-        guard vcsStates[project.id] == nil else { return }
-        vcsStates[project.id] = VCSTabState(projectPath: project.path)
+        guard let key = appState.activeWorktreeKey(for: project.id) else { return }
+        guard vcsStates[key] == nil else { return }
+        let worktreePath = worktreeStore
+            .worktree(projectID: project.id, worktreeID: key.worktreeID)?
+            .path ?? project.path
+        vcsStates[key] = VCSTabState(projectPath: worktreePath)
     }
 
     private func openVCS(for project: Project, preferredAreaID: UUID? = nil) {
         VCSDisplayMode.current.route(
             tab: {
                 let areaID = preferredAreaID
-                    ?? appState.focusedAreaID[project.id]
+                    ?? appState.focusedAreaID(for: project.id)
                     ?? appState.workspaceRoot(for: project.id)?.allAreas().first?.id
                 guard let areaID else { return }
                 appState.dispatch(.createVCSTab(projectID: project.id, areaID: areaID))
@@ -312,8 +338,36 @@ struct MainWindow: View {
         )
     }
 
-    private func pruneVCSStates(validProjectIDs: Set<UUID>) {
-        vcsStates = vcsStates.filter { validProjectIDs.contains($0.key) }
+    private func pruneVCSStates() {
+        let validKeys = validVCSKeys()
+        vcsStates = vcsStates.filter { validKeys.contains($0.key) }
+    }
+
+    private func validVCSKeys() -> Set<WorktreeKey> {
+        var keys: Set<WorktreeKey> = []
+        for project in projectStore.projects {
+            for worktree in worktreeStore.list(for: project.id) {
+                keys.insert(WorktreeKey(projectID: project.id, worktreeID: worktree.id))
+            }
+        }
+        return keys
+    }
+
+    private var vcsPruneSignature: [String] {
+        var result: [String] = []
+        for project in projectStore.projects {
+            result.append(project.id.uuidString)
+            for worktree in worktreeStore.list(for: project.id) {
+                result.append(worktree.id.uuidString)
+            }
+        }
+        return result
+    }
+
+    private var vcsEnsureSignature: String {
+        let projectID = appState.activeProjectID?.uuidString ?? ""
+        let worktreeID = appState.activeProjectID.flatMap { appState.activeWorktreeID[$0] }?.uuidString ?? ""
+        return "\(projectID):\(worktreeID)"
     }
 
     private func presentCloseConfirmation(_ kind: CloseConfirmationKind) {

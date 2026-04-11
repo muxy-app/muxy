@@ -6,6 +6,7 @@ struct MuxyApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState: AppState
     @State private var projectStore: ProjectStore
+    @State private var worktreeStore: WorktreeStore
     private let updateService = UpdateService.shared
 
     init() {
@@ -22,6 +23,9 @@ struct MuxyApp: App {
                 persistence: environment.projectPersistence
             )
         )
+        _worktreeStore = State(
+            initialValue: WorktreeStore(persistence: environment.worktreePersistence)
+        )
     }
 
     var body: some Scene {
@@ -29,20 +33,28 @@ struct MuxyApp: App {
             MainWindow()
                 .environment(appState)
                 .environment(projectStore)
+                .environment(worktreeStore)
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
                 .environment(ThemeService.shared)
                 .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
+                    worktreeStore.loadAll(projects: projectStore.projects)
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
                     }
                     appDelegate.hasUnsavedEditorTabs = { [appState] in
                         appState.unsavedEditorTabs()
                     }
-                    appState.onProjectsEmptied = { [projectStore] projectIDs in
+                    appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
                         for id in projectIDs {
+                            if let project = projectStore.projects.first(where: { $0.id == id }) {
+                                Task.detached {
+                                    await WorktreeStore.cleanupOnDisk(for: project)
+                                }
+                            }
                             projectStore.remove(id: id)
+                            worktreeStore.removeProject(id)
                         }
                     }
                 }
@@ -53,6 +65,7 @@ struct MuxyApp: App {
             MuxyCommands(
                 appState: appState,
                 projectStore: projectStore,
+                worktreeStore: worktreeStore,
                 keyBindings: .shared,
                 config: .shared,
                 ghostty: .shared,
@@ -64,6 +77,7 @@ struct MuxyApp: App {
             VCSWindowView()
                 .environment(appState)
                 .environment(projectStore)
+                .environment(worktreeStore)
                 .environment(GhosttyService.shared)
                 .preferredColorScheme(MuxyTheme.colorScheme)
         }

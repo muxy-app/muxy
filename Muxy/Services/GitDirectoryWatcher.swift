@@ -8,11 +8,8 @@ final class GitDirectoryWatcher: @unchecked Sendable {
     private var handler: (@Sendable () -> Void)?
 
     init?(directoryPath: String, handler: @escaping @Sendable () -> Void) {
-        let gitDir = (directoryPath as NSString).appendingPathComponent(".git")
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: gitDir, isDirectory: &isDirectory),
-              isDirectory.boolValue
-        else { return nil }
+        let gitPath = (directoryPath as NSString).appendingPathComponent(".git")
+        guard FileManager.default.fileExists(atPath: gitPath) else { return nil }
 
         self.handler = handler
 
