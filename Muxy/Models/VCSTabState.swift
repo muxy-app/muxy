@@ -313,6 +313,28 @@ final class VCSTabState {
         }
     }
 
+    func createAndSwitchBranch(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isSwitchingBranch = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isSwitchingBranch = false }
+            do {
+                try await git.createAndSwitchBranch(repoPath: projectPath, name: trimmed)
+                guard !Task.isCancelled else { return }
+                branchName = trimmed
+                commits = []
+                showStatus("Created and switched to \(trimmed)", isError: false)
+                loadBranches()
+                performRefresh(incremental: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
     func stageFile(_ path: String) {
         performGitOperation {
             try await self.git.stageFiles(repoPath: self.projectPath, paths: [path])

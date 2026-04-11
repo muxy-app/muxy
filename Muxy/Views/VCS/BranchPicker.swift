@@ -6,6 +6,7 @@ struct BranchPicker: View {
     let isLoading: Bool
     let onSelect: (String) -> Void
     let onRefresh: () -> Void
+    let onCreateBranch: (() -> Void)?
     @State private var showPopover = false
 
     private var branchItems: [BranchItem] {
@@ -17,47 +18,54 @@ struct BranchPicker: View {
             onRefresh()
             showPopover.toggle()
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-
+                    .font(.system(size: 9, weight: .semibold))
                 Text(currentBranch ?? "detached")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(MuxyTheme.fg)
+                    .font(.system(size: 10, weight: .medium))
                     .lineLimit(1)
-                    .truncationMode(.middle)
-
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 120, alignment: .leading)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
+                    .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
+            .foregroundStyle(MuxyTheme.fg.opacity(0.85))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
+            .contentShape(RoundedRectangle(cornerRadius: 5))
         }
         .buttonStyle(.plain)
-        .popover(isPresented: $showPopover, arrowEdge: .bottom) {
-            if isLoading {
-                ProgressView()
-                    .frame(width: 240, height: 60)
-            } else {
-                SearchableListPicker(
-                    items: branchItems,
-                    filterKey: \.name,
-                    placeholder: "Filter branches",
-                    emptyLabel: "No branches found",
-                    onSelect: { item in
+        .help(currentBranch ?? "detached")
+        .popover(isPresented: $showPopover, arrowEdge: .top) {
+            PopoverPicker(
+                items: branchItems,
+                filterKey: \.name,
+                searchPlaceholder: "Search branches…",
+                emptyLabel: isLoading ? "Loading…" : "No branches found",
+                footerTitle: onCreateBranch != nil ? "New Branch…" : nil,
+                footerIcon: onCreateBranch != nil ? "plus.square.dashed" : nil,
+                onFooterAction: onCreateBranch.map { action in
+                    {
                         showPopover = false
-                        onSelect(item.name)
-                    },
-                    row: { item, isHighlighted in
-                        BranchRow(
-                            name: item.name,
-                            isActive: item.name == currentBranch,
-                            isHighlighted: isHighlighted
-                        )
+                        action()
                     }
-                )
-                .frame(width: 240, height: 300)
-            }
+                },
+                onSelect: { item in
+                    showPopover = false
+                    onSelect(item.name)
+                },
+                row: { item, isHighlighted in
+                    BranchRow(
+                        name: item.name,
+                        isActive: item.name == currentBranch,
+                        isHighlighted: isHighlighted
+                    )
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                }
+            )
         }
     }
 }
@@ -74,24 +82,36 @@ private struct BranchRow: View {
     @State private var hovered = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(isActive ? MuxyTheme.accent : MuxyTheme.fgDim.opacity(0.35))
+                .frame(width: 7, height: 7)
+                .frame(width: 10)
+
             Text(name)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(isActive ? MuxyTheme.accent : MuxyTheme.fg)
+                .font(.system(size: 12, weight: isActive ? .semibold : .medium, design: .monospaced))
+                .foregroundStyle(isActive ? MuxyTheme.fg : MuxyTheme.fg.opacity(0.9))
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 4)
 
             if isActive {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(MuxyTheme.accent)
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(isHighlighted ? MuxyTheme.surface : (hovered ? MuxyTheme.hover : .clear))
+        .padding(.vertical, 7)
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: 6))
         .onHover { hovered = $0 }
+    }
+
+    private var rowBackground: AnyShapeStyle {
+        if isActive { return AnyShapeStyle(MuxyTheme.accentSoft) }
+        if isHighlighted { return AnyShapeStyle(MuxyTheme.surface) }
+        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
+        return AnyShapeStyle(Color.clear)
     }
 }

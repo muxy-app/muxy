@@ -27,24 +27,6 @@ struct ProjectRow: View {
         worktreeStore.list(for: project.id)
     }
 
-    private var activeWorktree: Worktree? {
-        guard isActive, let id = appState.activeWorktreeID[project.id] else { return nil }
-        return worktrees.first { $0.id == id }
-    }
-
-    private var showWorktreeTrigger: Bool {
-        isActive
-    }
-
-    private var triggerLabel: String {
-        guard let activeWorktree else { return "main" }
-        if activeWorktree.isPrimary {
-            if let branch = activeWorktree.branch, !branch.isEmpty { return branch }
-            return "main"
-        }
-        return activeWorktree.name
-    }
-
     var body: some View {
         HStack(spacing: 8) {
             label
@@ -93,6 +75,19 @@ struct ProjectRow: View {
             Divider()
             Button("Remove Project", role: .destructive, action: onRemove)
         }
+        .popover(isPresented: $showWorktreePopover, arrowEdge: .trailing) {
+            WorktreePopover(
+                project: project,
+                isGitRepo: isGitRepo,
+                onDismiss: { showWorktreePopover = false },
+                onRequestCreate: {
+                    showWorktreePopover = false
+                    showCreateWorktreeSheet = true
+                }
+            )
+            .environment(appState)
+            .environment(worktreeStore)
+        }
         .sheet(isPresented: $showCreateWorktreeSheet) {
             CreateWorktreeSheet(project: project) { result in
                 showCreateWorktreeSheet = false
@@ -126,42 +121,6 @@ struct ProjectRow: View {
            let action = ShortcutAction.projectAction(for: shortcutIndex)
         {
             ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
-        } else if showWorktreeTrigger, !isRenaming {
-            Button {
-                showWorktreePopover = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 9, weight: .semibold))
-                    Text(triggerLabel)
-                        .font(.system(size: 10, weight: .medium))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(MuxyTheme.fgDim)
-                }
-                .foregroundStyle(MuxyTheme.fg.opacity(0.85))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
-                .contentShape(RoundedRectangle(cornerRadius: 5))
-            }
-            .buttonStyle(.plain)
-            .help("Switch Worktree")
-            .popover(isPresented: $showWorktreePopover, arrowEdge: .trailing) {
-                WorktreePopover(
-                    project: project,
-                    isGitRepo: isGitRepo,
-                    onDismiss: { showWorktreePopover = false },
-                    onRequestCreate: {
-                        showWorktreePopover = false
-                        showCreateWorktreeSheet = true
-                    }
-                )
-                .environment(appState)
-                .environment(worktreeStore)
-            }
         }
     }
 

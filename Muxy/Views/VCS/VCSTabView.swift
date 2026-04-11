@@ -6,11 +6,33 @@ struct VCSTabView: View {
     let focused: Bool
     let onFocus: () -> Void
     @Environment(AppState.self) private var appState
+    @Environment(ProjectStore.self) private var projectStore
+    @Environment(WorktreeStore.self) private var worktreeStore
     @State private var showDiscardAllConfirmation = false
     @State private var pendingDiscardPath: String?
+    @State private var showCreateWorktreeSheet = false
+    @State private var showCreateBranchSheet = false
+    @State private var showWorktreePopover = false
+    @State private var isGitRepo = false
 
     private var commitEnabled: Bool {
         state.hasStagedChanges && !state.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var owningProject: Project? {
+        projectStore.projects.first { project in
+            worktreeStore.list(for: project.id).contains { $0.path == state.projectPath }
+                || project.path == state.projectPath
+        }
+    }
+
+    private var owningWorktrees: [Worktree] {
+        guard let project = owningProject else { return [] }
+        return worktreeStore.list(for: project.id)
+    }
+
+    private var activeWorktreeForTab: Worktree? {
+        owningWorktrees.first { $0.path == state.projectPath }
     }
 
     var body: some View {
@@ -76,85 +98,142 @@ struct VCSTabView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 6) {
+            worktreeTrigger
+
             BranchPicker(
                 currentBranch: state.branchName,
                 branches: state.branches,
                 isLoading: state.isLoadingBranches,
                 onSelect: { state.switchBranch($0) },
-                onRefresh: { state.loadBranches() }
+                onRefresh: { state.loadBranches() },
+                onCreateBranch: { showCreateBranchSheet = true }
             )
 
             if let prInfo = state.pullRequestInfo {
                 PRBadge(info: prInfo)
-                    .padding(.leading, 6)
             }
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 0) {
-                ForEach(VCSTabState.ViewMode.allCases) { mode in
-                    Button {
-                        state.mode = mode
-                    } label: {
-                        Text(mode.title)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(state.mode == mode ? MuxyTheme.fg : MuxyTheme.fgDim)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(state.mode == mode ? MuxyTheme.surface : .clear)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.trailing, 6)
-
-            Button {
-                if state.expandedFilePaths.isEmpty {
-                    state.expandAll()
-                } else {
-                    state.collapseAll()
-                }
-            } label: {
-                Text(state.expandedFilePaths.isEmpty ? "Expand all" : "Collapse all")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(MuxyTheme.fgDim)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(MuxyTheme.surface)
-                    )
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, 6)
-
-            Menu {
-                Toggle("Hide Whitespace Changes", isOn: Binding(
-                    get: { state.hideWhitespace },
-                    set: { _ in state.toggleWhitespace() }
-                ))
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                    .frame(width: 24, height: 24)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(width: 24)
+            settingsMenu
 
             IconButton(symbol: "arrow.clockwise") {
                 state.refresh()
             }
         }
-        .padding(.trailing, 4)
-        .padding(.leading, 8)
+        .padding(.horizontal, 8)
         .frame(height: 32)
         .background(MuxyTheme.bg)
+        .task(id: owningProject?.path) {
+            if let path = owningProject?.path {
+                isGitRepo = await GitWorktreeService.shared.isGitRepository(path)
+            }
+        }
+        .sheet(isPresented: $showCreateWorktreeSheet) {
+            if let project = owningProject {
+                CreateWorktreeSheet(project: project) { result in
+                    showCreateWorktreeSheet = false
+                    handleCreateWorktreeResult(result, project: project)
+                }
+            }
+        }
+        .sheet(isPresented: $showCreateBranchSheet) {
+            CreateBranchSheet(
+                currentBranch: state.branchName,
+                onCreate: { name in
+                    showCreateBranchSheet = false
+                    state.createAndSwitchBranch(name)
+                },
+                onCancel: { showCreateBranchSheet = false }
+            )
+        }
+    }
+
+    private var settingsMenu: some View {
+        Menu {
+            Toggle("Hide Whitespace Changes", isOn: Binding(
+                get: { state.hideWhitespace },
+                set: { _ in state.toggleWhitespace() }
+            ))
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: 24, height: 24)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 24)
+    }
+
+    @ViewBuilder
+    private var worktreeTrigger: some View {
+        if let project = owningProject {
+            Button {
+                showWorktreePopover = true
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "square.stack.3d.up")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(worktreeTriggerLabel)
+                        .font(.system(size: 10, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: 120, alignment: .leading)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(MuxyTheme.fgDim)
+                }
+                .foregroundStyle(MuxyTheme.fg.opacity(0.85))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
+                .contentShape(RoundedRectangle(cornerRadius: 5))
+            }
+            .buttonStyle(.plain)
+            .help(worktreeTriggerLabel)
+            .popover(isPresented: $showWorktreePopover, arrowEdge: .top) {
+                WorktreePopover(
+                    project: project,
+                    isGitRepo: isGitRepo,
+                    onDismiss: { showWorktreePopover = false },
+                    onRequestCreate: {
+                        showWorktreePopover = false
+                        showCreateWorktreeSheet = true
+                    }
+                )
+                .environment(appState)
+                .environment(worktreeStore)
+            }
+        }
+    }
+
+    private var worktreeTriggerLabel: String {
+        guard let worktree = activeWorktreeForTab else { return "default" }
+        if worktree.isPrimary {
+            return worktree.name.isEmpty ? "default" : worktree.name
+        }
+        return worktree.name
+    }
+
+    private func handleCreateWorktreeResult(_ result: CreateWorktreeResult, project: Project) {
+        switch result {
+        case let .created(worktree, runSetup):
+            appState.selectWorktree(projectID: project.id, worktree: worktree)
+            if runSetup,
+               let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
+            {
+                Task {
+                    await WorktreeSetupRunner.run(
+                        sourceProjectPath: project.path,
+                        paneID: paneID
+                    )
+                }
+            }
+        case .cancelled:
+            break
+        }
     }
 
     @ViewBuilder
@@ -593,12 +672,16 @@ private struct SectionSplitLayout: View {
     private func sectionActions(for section: SectionKind) -> some View {
         switch section {
         case .staged:
+            diffModeToggle
+            expandCollapseButton(for: state.stagedFiles)
             IconButton(symbol: "minus", size: 11) {
                 state.unstageAll()
             }
             .help("Unstage all")
 
         case .changes:
+            diffModeToggle
+            expandCollapseButton(for: state.unstagedFiles)
             IconButton(symbol: "plus", size: 11) {
                 state.stageAll()
             }
@@ -615,6 +698,43 @@ private struct SectionSplitLayout: View {
             }
             .help("Refresh history")
         }
+    }
+
+    private var diffModeToggle: some View {
+        Button {
+            state.mode = state.mode == .unified ? .split : .unified
+        } label: {
+            Image(systemName: state.mode == .unified ? "rectangle.split.2x1" : "rectangle")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(state.mode == .unified ? "Switch to Split View" : "Switch to Unified View")
+    }
+
+    @ViewBuilder
+    private func expandCollapseButton(for files: [GitStatusFile]) -> some View {
+        let anyExpanded = files.contains { state.expandedFilePaths.contains($0.path) }
+        Button {
+            for file in files {
+                let isExpanded = state.expandedFilePaths.contains(file.path)
+                if anyExpanded, isExpanded {
+                    state.toggleExpanded(filePath: file.path)
+                } else if !anyExpanded, !isExpanded {
+                    state.toggleExpanded(filePath: file.path)
+                }
+            }
+        } label: {
+            Image(systemName: anyExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(anyExpanded ? "Collapse all" : "Expand all")
     }
 
     private func fileSection(_ file: GitStatusFile, isStaged: Bool) -> some View {

@@ -336,6 +336,20 @@ actor GitRepositoryService {
         }
     }
 
+    func createAndSwitchBranch(repoPath: String, name: String) async throws {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty,
+              !trimmedName.hasPrefix("-"),
+              trimmedName.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
+        else {
+            throw GitError.commandFailed("Invalid branch name.")
+        }
+        let result = try runGit(repoPath: repoPath, arguments: ["switch", "-c", trimmedName])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to create branch." : result.stderr)
+        }
+    }
+
     private static let commitFieldSeparator = "\u{1F}"
     private static let commitRecordSeparator = "\u{1E}"
 

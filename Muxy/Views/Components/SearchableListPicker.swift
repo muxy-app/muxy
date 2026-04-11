@@ -56,6 +56,7 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
                                     .id(item.id)
                             }
                         }
+                        .padding(.vertical, 4)
                     }
                     .onChange(of: highlightedIndex) { _, newIndex in
                         guard let newIndex, newIndex < filteredItems.count else { return }

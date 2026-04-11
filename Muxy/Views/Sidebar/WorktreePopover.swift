@@ -9,18 +9,9 @@ struct WorktreePopover: View {
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
-    @State private var searchText = ""
 
     private var worktrees: [Worktree] {
         worktreeStore.list(for: project.id)
-    }
-
-    private var filteredWorktrees: [Worktree] {
-        guard !searchText.isEmpty else { return worktrees }
-        return worktrees.filter { worktree in
-            worktree.name.localizedCaseInsensitiveContains(searchText)
-                || (worktree.branch?.localizedCaseInsensitiveContains(searchText) ?? false)
-        }
     }
 
     private var activeWorktreeID: UUID? {
@@ -28,105 +19,43 @@ struct WorktreePopover: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().overlay(MuxyTheme.border.opacity(0.55))
-            if worktrees.count > 4 {
-                searchField
-                Divider().overlay(MuxyTheme.border.opacity(0.55))
+        PopoverPicker(
+            items: worktrees,
+            filterKey: { worktree in
+                worktree.name + " " + (worktree.branch ?? "")
+            },
+            searchPlaceholder: "Search worktrees…",
+            emptyLabel: "No matches",
+            footerTitle: isGitRepo ? "New Worktree…" : nil,
+            footerIcon: isGitRepo ? "plus.square.dashed" : nil,
+            onFooterAction: isGitRepo ? onRequestCreate : nil,
+            onSelect: { worktree in
+                appState.selectWorktree(projectID: project.id, worktree: worktree)
+                onDismiss()
+            },
+            row: { worktree, _ in
+                WorktreePopoverRow(
+                    worktree: worktree,
+                    selected: worktree.id == activeWorktreeID,
+                    onSelect: {
+                        appState.selectWorktree(projectID: project.id, worktree: worktree)
+                        onDismiss()
+                    },
+                    onRename: { newName in
+                        worktreeStore.rename(
+                            worktreeID: worktree.id,
+                            in: project.id,
+                            to: newName
+                        )
+                    },
+                    onRemove: worktree.isPrimary ? nil : {
+                        Task { await requestRemove(worktree: worktree) }
+                    }
+                )
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
             }
-            if filteredWorktrees.isEmpty {
-                emptyResults
-            } else {
-                worktreeList
-            }
-            if isGitRepo {
-                Divider().overlay(MuxyTheme.border.opacity(0.55))
-                newWorktreeButton
-            }
-        }
-        .frame(width: 300)
-        .frame(maxHeight: 420)
-        .background(MuxyTheme.bg)
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            Text("WORKTREES")
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(MuxyTheme.fgDim)
-            Text("·")
-                .font(.system(size: 10))
-                .foregroundStyle(MuxyTheme.fgDim)
-            Text(project.name)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer()
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 11))
-                .foregroundStyle(MuxyTheme.fgMuted)
-            ZStack(alignment: .leading) {
-                if searchText.isEmpty {
-                    Text("Search worktrees…")
-                        .font(.system(size: 12))
-                        .foregroundStyle(MuxyTheme.fgDim)
-                }
-                TextField("", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .foregroundStyle(MuxyTheme.fg)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-
-    private var emptyResults: some View {
-        Text("No matches")
-            .font(.system(size: 12))
-            .foregroundStyle(MuxyTheme.fgMuted)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
-    }
-
-    private var worktreeList: some View {
-        ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(filteredWorktrees) { worktree in
-                    WorktreePopoverRow(
-                        worktree: worktree,
-                        selected: worktree.id == activeWorktreeID,
-                        onSelect: {
-                            appState.selectWorktree(projectID: project.id, worktree: worktree)
-                            onDismiss()
-                        },
-                        onRename: { newName in
-                            worktreeStore.rename(
-                                worktreeID: worktree.id,
-                                in: project.id,
-                                to: newName
-                            )
-                        },
-                        onRemove: worktree.isPrimary ? nil : {
-                            Task { await requestRemove(worktree: worktree) }
-                        }
-                    )
-                }
-            }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 6)
-        }
+        )
     }
 
     private func requestRemove(worktree: Worktree) async {
@@ -179,22 +108,6 @@ struct WorktreePopover: View {
         }
     }
 
-    private var newWorktreeButton: some View {
-        Button(action: onRequestCreate) {
-            HStack(spacing: 8) {
-                Image(systemName: "plus.square.dashed")
-                    .font(.system(size: 12))
-                Text("New Worktree…")
-                    .font(.system(size: 12, weight: .medium))
-                Spacer()
-            }
-            .foregroundStyle(MuxyTheme.fg)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 private struct WorktreePopoverRow: View {
