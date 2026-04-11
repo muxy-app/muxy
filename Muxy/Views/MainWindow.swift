@@ -141,7 +141,7 @@ struct MainWindow: View {
         .overlay {
             if showQuickOpen, let project = activeProject {
                 QuickOpenOverlay(
-                    projectPath: project.path,
+                    projectPath: activeWorktreePath(for: project),
                     onSelect: { filePath in
                         showQuickOpen = false
                         appState.openFile(filePath, projectID: project.id)
@@ -231,8 +231,7 @@ struct MainWindow: View {
                         projectID: project.id,
                         areaID: area.id,
                         direction: dir,
-                        position: .second,
-                        projectPath: project.path
+                        position: .second
                     )))
                 },
                 onClose: {
@@ -315,10 +314,14 @@ struct MainWindow: View {
     private func ensureVCSState(for project: Project) {
         guard let key = appState.activeWorktreeKey(for: project.id) else { return }
         guard vcsStates[key] == nil else { return }
-        let worktreePath = worktreeStore
+        vcsStates[key] = VCSTabState(projectPath: activeWorktreePath(for: project))
+    }
+
+    private func activeWorktreePath(for project: Project) -> String {
+        guard let key = appState.activeWorktreeKey(for: project.id) else { return project.path }
+        return worktreeStore
             .worktree(projectID: project.id, worktreeID: key.worktreeID)?
             .path ?? project.path
-        vcsStates[key] = VCSTabState(projectPath: worktreePath)
     }
 
     private func openVCS(for project: Project, preferredAreaID: UUID? = nil) {

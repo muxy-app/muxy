@@ -32,6 +32,18 @@ actor GitWorktreeService {
         return result.status == 0 && result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
     }
 
+    func hasUncommittedChanges(worktreePath: String) async -> Bool {
+        guard let result = try? runGit(
+            repoPath: worktreePath,
+            arguments: ["status", "--porcelain=1", "--untracked-files=all"]
+        )
+        else {
+            return false
+        }
+        guard result.status == 0 else { return false }
+        return !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord] {
         let result = try runGit(repoPath: repoPath, arguments: ["worktree", "list", "--porcelain"])
         guard result.status == 0 else {
@@ -42,15 +54,25 @@ actor GitWorktreeService {
         return parsePorcelain(result.stdout)
     }
 
-    func addWorktree(repoPath: String, path: String, branch: String, createBranch: Bool) async throws {
-        guard !branch.isEmpty else {
-            throw GitWorktreeError.commandFailed("Branch name is required.")
+    static let allowedBranchCharacters = CharacterSet.alphanumerics
+        .union(CharacterSet(charactersIn: "._/-"))
+
+    private static func validateBranchName(_ branch: String) throws {
+        guard !branch.isEmpty,
+              !branch.hasPrefix("-"),
+              branch.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
+        else {
+            throw GitWorktreeError.commandFailed("Invalid branch name.")
         }
+    }
+
+    func addWorktree(repoPath: String, path: String, branch: String, createBranch: Bool) async throws {
+        try Self.validateBranchName(branch)
         var args: [String] = ["worktree", "add"]
         if createBranch {
-            args += ["-b", branch, path]
+            args += ["-b", branch, "--", path]
         } else {
-            args += [path, branch]
+            args += ["--", path, branch]
         }
         let result = try runGit(repoPath: repoPath, arguments: args)
         guard result.status == 0 else {
@@ -63,7 +85,7 @@ actor GitWorktreeService {
     func removeWorktree(repoPath: String, path: String, force: Bool = false) async throws {
         var args: [String] = ["worktree", "remove"]
         if force { args.append("--force") }
-        args.append(path)
+        args += ["--", path]
         let result = try runGit(repoPath: repoPath, arguments: args)
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
@@ -73,9 +95,8 @@ actor GitWorktreeService {
     }
 
     func deleteBranch(repoPath: String, branch: String, force: Bool = true) async throws {
-        var args = ["branch"]
-        args.append(force ? "-D" : "-d")
-        args.append(branch)
+        try Self.validateBranchName(branch)
+        let args = ["branch", force ? "-D" : "-d", "--", branch]
         let result = try runGit(repoPath: repoPath, arguments: args)
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(

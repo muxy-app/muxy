@@ -58,8 +58,7 @@ struct TerminalArea: View {
                         projectID: project.id,
                         areaID: areaID,
                         direction: dir,
-                        position: .second,
-                        projectPath: project.path
+                        position: .second
                     )))
                 },
                 onCloseArea: { areaID in

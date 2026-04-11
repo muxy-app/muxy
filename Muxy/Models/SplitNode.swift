@@ -49,12 +49,11 @@ extension SplitNode {
     func splitting(
         areaID: UUID,
         direction: SplitDirection,
-        position: SplitPosition,
-        projectPath: String
+        position: SplitPosition
     ) -> (node: SplitNode, newAreaID: UUID?) {
         switch self {
         case let .tabArea(area) where area.id == areaID:
-            let newArea = TabArea(projectPath: projectPath)
+            let newArea = TabArea(projectPath: area.projectPath)
             let first: SplitNode = position == .first ? .tabArea(newArea) : .tabArea(area)
             let second: SplitNode = position == .first ? .tabArea(area) : .tabArea(newArea)
             let node = SplitNode.split(SplitBranch(
@@ -69,16 +68,14 @@ extension SplitNode {
             let (newFirst, id1) = branch.first.splitting(
                 areaID: areaID,
                 direction: direction,
-                position: position,
-                projectPath: projectPath
+                position: position
             )
             branch.first = newFirst
             if id1 != nil { return (.split(branch), id1) }
             let (newSecond, id2) = branch.second.splitting(
                 areaID: areaID,
                 direction: direction,
-                position: position,
-                projectPath: projectPath
+                position: position
             )
             branch.second = newSecond
             return (.split(branch), id2)
@@ -89,12 +86,11 @@ extension SplitNode {
         areaID: UUID,
         direction: SplitDirection,
         position: SplitPosition,
-        tab: TerminalTab,
-        projectPath: String
+        tab: TerminalTab
     ) -> (node: SplitNode, newAreaID: UUID?) {
         switch self {
         case let .tabArea(area) where area.id == areaID:
-            let newArea = TabArea(projectPath: projectPath, existingTab: tab)
+            let newArea = TabArea(projectPath: area.projectPath, existingTab: tab)
             let first: SplitNode = position == .first ? .tabArea(newArea) : .tabArea(area)
             let second: SplitNode = position == .first ? .tabArea(area) : .tabArea(newArea)
             let node = SplitNode.split(SplitBranch(direction: direction, first: first, second: second))
@@ -103,12 +99,12 @@ extension SplitNode {
             return (self, nil)
         case let .split(branch):
             let (newFirst, id1) = branch.first.splittingWithTab(
-                areaID: areaID, direction: direction, position: position, tab: tab, projectPath: projectPath
+                areaID: areaID, direction: direction, position: position, tab: tab
             )
             branch.first = newFirst
             if id1 != nil { return (.split(branch), id1) }
             let (newSecond, id2) = branch.second.splittingWithTab(
-                areaID: areaID, direction: direction, position: position, tab: tab, projectPath: projectPath
+                areaID: areaID, direction: direction, position: position, tab: tab
             )
             branch.second = newSecond
             return (.split(branch), id2)

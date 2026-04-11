@@ -169,8 +169,7 @@ enum WorkspaceReducer {
         let (newRoot, newAreaID) = root.splitting(
             areaID: request.areaID,
             direction: request.direction,
-            position: request.position,
-            projectPath: request.projectPath
+            position: request.position
         )
         state.workspaceRoots[key] = newRoot
         guard let newAreaID else { return }
@@ -246,8 +245,7 @@ enum WorkspaceReducer {
                 areaID: targetAreaID,
                 direction: split.direction,
                 position: split.position,
-                tab: tab,
-                projectPath: sourceArea.projectPath
+                tab: tab
             )
             state.workspaceRoots[key] = newRoot
 

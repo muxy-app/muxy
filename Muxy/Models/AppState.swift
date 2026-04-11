@@ -9,7 +9,6 @@ final class AppState {
         let areaID: UUID
         let direction: SplitDirection
         let position: SplitPosition
-        let projectPath: String
     }
 
     enum Action {
@@ -159,8 +158,7 @@ final class AppState {
             projectID: projectID,
             areaID: area.id,
             direction: direction,
-            position: .second,
-            projectPath: area.projectPath
+            position: .second
         )))
     }
 

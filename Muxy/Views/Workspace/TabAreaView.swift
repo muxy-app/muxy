@@ -53,8 +53,7 @@ struct TabAreaView: View {
                                     projectID: projectID,
                                     areaID: area.id,
                                     direction: direction,
-                                    position: position,
-                                    projectPath: area.projectPath
+                                    position: position
                                 )))
                             }
                         )

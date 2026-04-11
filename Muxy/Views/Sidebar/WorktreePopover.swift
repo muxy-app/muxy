@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct WorktreePopover: View {
@@ -118,30 +119,63 @@ struct WorktreePopover: View {
                             )
                         },
                         onRemove: worktree.isPrimary ? nil : {
-                            let capturedWorktree = worktree
-                            let repoPath = project.path
-                            let remaining = worktrees.filter { $0.id != capturedWorktree.id }
-                            let replacement = remaining.first(where: { $0.id == activeWorktreeID })
-                                ?? remaining.first(where: { $0.isPrimary })
-                                ?? remaining.first
-                            appState.removeWorktree(
-                                projectID: project.id,
-                                worktree: capturedWorktree,
-                                replacement: replacement
-                            )
-                            worktreeStore.remove(worktreeID: capturedWorktree.id, from: project.id)
-                            Task.detached {
-                                await WorktreeStore.cleanupOnDisk(
-                                    worktree: capturedWorktree,
-                                    repoPath: repoPath
-                                )
-                            }
+                            Task { await requestRemove(worktree: worktree) }
                         }
                     )
                 }
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 6)
+        }
+    }
+
+    private func requestRemove(worktree: Worktree) async {
+        let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(worktreePath: worktree.path)
+        if !hasChanges {
+            performRemove(worktree: worktree)
+            return
+        }
+        presentRemoveConfirmation(worktree: worktree)
+    }
+
+    private func presentRemoveConfirmation(worktree: Worktree) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Remove worktree \"\(worktree.name)\"?"
+        alert.informativeText = "This worktree has uncommitted changes. Removing it will permanently discard them."
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            performRemove(worktree: worktree)
+        }
+    }
+
+    private func performRemove(worktree: Worktree) {
+        let repoPath = project.path
+        let remaining = worktrees.filter { $0.id != worktree.id }
+        let replacement = remaining.first(where: { $0.id == activeWorktreeID })
+            ?? remaining.first(where: { $0.isPrimary })
+            ?? remaining.first
+        appState.removeWorktree(
+            projectID: project.id,
+            worktree: worktree,
+            replacement: replacement
+        )
+        worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+        Task.detached {
+            await WorktreeStore.cleanupOnDisk(
+                worktree: worktree,
+                repoPath: repoPath
+            )
         }
     }
 
