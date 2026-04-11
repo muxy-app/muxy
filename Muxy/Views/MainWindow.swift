@@ -73,7 +73,7 @@ struct MainWindow: View {
                 }
 
                 ZStack {
-                    MuxyTheme.terminalBg
+                    MuxyTheme.bg
                     if projectsWithWorkspaces.isEmpty {
                         WelcomeView()
                     } else if let project = activeProjectWithWorkspace,

@@ -215,14 +215,8 @@ struct WindowConfigurator: NSViewRepresentable {
     }
 
     private static func applyWindowBackground(_ window: NSWindow) {
-        let opacity = GhosttyService.shared.backgroundOpacity
-        if opacity < 1.0 {
-            window.isOpaque = false
-            window.backgroundColor = .clear
-        } else {
-            window.isOpaque = true
-            window.backgroundColor = MuxyTheme.nsBg
-        }
+        window.isOpaque = true
+        window.backgroundColor = MuxyTheme.nsBg
     }
 
     static let trafficLightY: CGFloat = 3.5

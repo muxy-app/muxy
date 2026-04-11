@@ -19,7 +19,7 @@ struct VCSTabView: View {
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
             content
         }
-        .background(MuxyTheme.terminalBg)
+        .background(MuxyTheme.bg)
         .contentShape(Rectangle())
         .onTapGesture(perform: onFocus)
         .onAppear {
@@ -654,14 +654,14 @@ private struct SectionSplitLayout: View {
             ProgressView()
                 .frame(maxWidth: .infinity)
                 .padding(14)
-                .background(MuxyTheme.terminalBg)
+                .background(MuxyTheme.bg)
         } else if let error = state.diffErrorsByPath[file.path] {
             Text(error)
                 .font(.system(size: 12))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(MuxyTheme.terminalBg)
+                .background(MuxyTheme.bg)
         } else if let diff = state.diffsByPath[file.path] {
             VStack(spacing: 0) {
                 if diff.truncated {
@@ -691,14 +691,14 @@ private struct SectionSplitLayout: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MuxyTheme.terminalBg)
+            .background(MuxyTheme.bg)
         } else {
             Text("No diff output")
                 .font(.system(size: 12))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(MuxyTheme.terminalBg)
+                .background(MuxyTheme.bg)
         }
     }
 }

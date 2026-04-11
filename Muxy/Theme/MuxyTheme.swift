@@ -16,10 +16,6 @@ enum MuxyTheme {
         Color(nsColor: GhosttyService.shared.accentColor.withAlphaComponent(0.1))
     }
 
-    @MainActor static var terminalBg: Color {
-        Color(nsColor: GhosttyService.shared.backgroundColor.withAlphaComponent(GhosttyService.shared.backgroundOpacity))
-    }
-
     @MainActor static var diffAddFg: Color { Color(nsColor: nsDiffAdd) }
     @MainActor static var diffRemoveFg: Color { Color(nsColor: nsDiffRemove) }
     @MainActor static var diffHunkFg: Color { Color(nsColor: nsDiffHunk) }
