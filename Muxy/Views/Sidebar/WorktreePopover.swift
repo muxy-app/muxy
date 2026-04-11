@@ -107,7 +107,6 @@ struct WorktreePopover: View {
             )
         }
     }
-
 }
 
 private struct WorktreePopoverRow: View {
