@@ -29,10 +29,10 @@ struct WorktreePopover: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider().overlay(MuxyTheme.border)
+            Divider().overlay(MuxyTheme.border.opacity(0.55))
             if worktrees.count > 4 {
                 searchField
-                Divider().overlay(MuxyTheme.border)
+                Divider().overlay(MuxyTheme.border.opacity(0.55))
             }
             if filteredWorktrees.isEmpty {
                 emptyResults
@@ -40,7 +40,7 @@ struct WorktreePopover: View {
                 worktreeList
             }
             if isGitRepo {
-                Divider().overlay(MuxyTheme.border)
+                Divider().overlay(MuxyTheme.border.opacity(0.55))
                 newWorktreeButton
             }
         }
