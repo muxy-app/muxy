@@ -89,6 +89,7 @@ Muxy/
       CodeEditorRepresentable.swift  NSViewRepresentable bridge for code editor
       EditorPane.swift        SwiftUI wrapper for editor tab (breadcrumb + editor)
       Extensions/
+        AutoIndentExtension.swift  Pure auto-indent engine (return, electric close brackets, comment/list continuation)
         SyntaxHighlightExtension.swift  Regex-based syntax highlighting rules for code editor
     VCS/
       VCSTabView.swift        Source control tab (commit, stage, diff, branch) + PRPill + PRPopover
