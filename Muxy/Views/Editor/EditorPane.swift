@@ -176,7 +176,7 @@ private struct LineNumberGutter: View {
     }
 
     private var gutterWidth: CGFloat {
-        let digits = max(2, String(max(1, totalLineCount)).count)
+        let digits = max(4, String(max(1, totalLineCount)).count)
         let charWidth = gutterFontSize * 0.65
         return CGFloat(digits) * charWidth + 16
     }

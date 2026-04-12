@@ -169,12 +169,12 @@ struct CodeEditorView: NSViewRepresentable {
             guard let textView = coordinator.textView else { return }
             coordinator.state.flushEditorContent(textView.string)
             coordinator.state.registerContentProvider(nil)
-            textView.undoManager?.removeAllActions()
         }
-        if let textView = coordinator.textView,
-           let window = textView.window, window.firstResponder === textView
-        {
-            window.makeFirstResponder(nil)
+        if let textView = coordinator.textView {
+            textView.undoManager?.removeAllActions()
+            if let window = textView.window, window.firstResponder === textView {
+                window.makeFirstResponder(nil)
+            }
         }
         coordinator.textView?.delegate = nil
     }
@@ -505,6 +505,7 @@ struct CodeEditorView: NSViewRepresentable {
         var isViewportMode = false
 
         var isUpdating = false
+        private var isEditingViewport = false
         var hasAppliedInitialContent = false
         var lastThemeVersion = -1
         var lastSearchNeedle = ""
@@ -602,7 +603,8 @@ struct CodeEditorView: NSViewRepresentable {
         func enterViewportMode(scrollView: NSScrollView) {
             guard let store = state.backingStore, let textView else { return }
             isViewportMode = true
-            textView.allowsUndo = true
+            textView.allowsUndo = false
+            textView.undoManager?.removeAllActions()
             textView.usesFindBar = false
 
             let viewport = ViewportState(backingStore: store)
@@ -655,7 +657,6 @@ struct CodeEditorView: NSViewRepresentable {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
 
-            textView.undoManager?.disableUndoRegistration()
             textView.string = text
             let font = editorSettings.resolvedFont
             if let storage = textView.textStorage, storage.length > 0 {
@@ -664,7 +665,6 @@ struct CodeEditorView: NSViewRepresentable {
                 storage.addAttribute(.font, value: font, range: fullRange)
                 storage.endEditing()
             }
-            textView.undoManager?.enableUndoRegistration()
 
             let estimatedHeight = viewport.estimatedLineHeight * CGFloat(newRange.count) + textView.textContainerInset.height * 2
             textView.frame = NSRect(
@@ -1034,7 +1034,9 @@ struct CodeEditorView: NSViewRepresentable {
         @objc
         private func handleScrollBoundsChange() {
             if isViewportMode {
-                refreshViewport(force: false)
+                if !isEditingViewport {
+                    refreshViewport(force: false)
+                }
                 reportLineLayoutsViewport()
             } else {
                 reportLineLayouts()
@@ -1143,7 +1145,8 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         private func handleTextDidChangeViewport(_ textView: NSTextView) {
-            guard let viewport = viewportState else { return }
+            guard let viewport = viewportState, let scrollView else { return }
+            let cursorLocation = textView.selectedRange().location
             let newLocalText = textView.string
             let newLocalLines = newLocalText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
             let oldLineCount = viewport.viewportEndLine - viewport.viewportStartLine
@@ -1152,12 +1155,78 @@ struct CodeEditorView: NSViewRepresentable {
             _ = viewport.backingStore.replaceLines(in: oldRange, with: newLocalLines)
             viewport.applyViewport(viewport.viewportStartLine ..< viewport.viewportStartLine + newLineCount)
             state.markModified()
+
+            isEditingViewport = true
+            defer { isEditingViewport = false }
+
             if newLineCount != oldLineCount {
                 rebuildLineStartOffsetsForViewport()
                 updateContainerHeight()
+
+                let estimatedHeight = viewport.estimatedLineHeight * CGFloat(newLineCount) + textView.textContainerInset.height * 2
+                textView.frame = NSRect(
+                    x: 0,
+                    y: viewport.viewportYOffset(),
+                    width: scrollView.contentSize.width,
+                    height: max(estimatedHeight, 100)
+                )
             }
+
+            scrollCursorVisibleInViewport(textView: textView, cursorLocation: cursorLocation)
+
+            let scrollY = scrollView.contentView.bounds.origin.y
+            let visibleHeight = scrollView.contentView.bounds.height
+            if viewport.shouldUpdateViewport(scrollY: scrollY, visibleHeight: visibleHeight) {
+                let localLine = lineNumber(atCharacterLocation: cursorLocation)
+                let globalLine = viewport.backingStoreLine(forViewportLine: localLine - 1)
+                let columnOffset = cursorLocation - lineStartOffsets[max(0, min(localLine - 1, lineStartOffsets.count - 1))]
+
+                refreshViewport(force: true)
+
+                if let newLocalLine = viewport.viewportLine(forBackingStoreLine: globalLine) {
+                    let newCharOffset = charOffsetForLocalLine(newLocalLine)
+                    let content = textView.string as NSString
+                    let lineRange = content.lineRange(for: NSRange(location: newCharOffset, length: 0))
+                    let lineLength = lineRange.length - (NSMaxRange(lineRange) < content.length ? 1 : 0)
+                    let newCursor = newCharOffset + min(columnOffset, max(0, lineLength))
+                    let safeCursor = min(newCursor, content.length)
+                    textView.setSelectedRange(NSRange(location: safeCursor, length: 0))
+                    scrollCursorVisibleInViewport(textView: textView, cursorLocation: safeCursor)
+                }
+            }
+
             if editorSettings.syntaxHighlighting {
                 scheduleHighlight()
+            }
+        }
+
+        private func scrollCursorVisibleInViewport(textView: NSTextView, cursorLocation: Int) {
+            guard let scrollView,
+                  let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer
+            else { return }
+
+            let content = textView.string as NSString
+            let safeLoc = min(cursorLocation, content.length)
+            layoutManager.ensureLayout(forCharacterRange: NSRange(location: safeLoc, length: 0))
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: NSRange(location: safeLoc, length: 0),
+                actualCharacterRange: nil
+            )
+            var cursorRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            cursorRect.origin.y += textView.textContainerOrigin.y + textView.frame.origin.y
+
+            let clipBounds = scrollView.contentView.bounds
+            let visibleMinY = clipBounds.origin.y
+            let visibleMaxY = visibleMinY + clipBounds.height
+
+            if cursorRect.maxY > visibleMaxY {
+                let newY = cursorRect.maxY - clipBounds.height
+                scrollView.contentView.setBoundsOrigin(NSPoint(x: clipBounds.origin.x, y: newY))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            } else if cursorRect.origin.y < visibleMinY {
+                scrollView.contentView.setBoundsOrigin(NSPoint(x: clipBounds.origin.x, y: cursorRect.origin.y))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
             }
         }
 
