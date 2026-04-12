@@ -436,8 +436,7 @@ struct VCSTabView: View {
                     state: state,
                     onFocus: onFocus,
                     showDiscardAllConfirmation: $showDiscardAllConfirmation,
-                    pendingDiscardPath: $pendingDiscardPath,
-                    onOpenInEditor: openFileInEditor
+                    pendingDiscardPath: $pendingDiscardPath
                 )
             }
         }
@@ -654,14 +653,6 @@ struct VCSTabView: View {
                 state.pushSetUpstream()
             }
         }
-    }
-
-    private func openFileInEditor(_ relativePath: String) {
-        guard let projectID = appState.activeProjectID else { return }
-        let fullPath = state.projectPath.hasSuffix("/")
-            ? state.projectPath + relativePath
-            : state.projectPath + "/" + relativePath
-        appState.openFile(fullPath, projectID: projectID)
     }
 }
 
@@ -1056,7 +1047,6 @@ private struct SectionSplitLayout: View {
     let onFocus: () -> Void
     @Binding var showDiscardAllConfirmation: Bool
     @Binding var pendingDiscardPath: String?
-    let onOpenInEditor: (String) -> Void
 
     private static let sectionHeaderHeight: CGFloat = 30
 
@@ -1376,8 +1366,7 @@ private struct SectionSplitLayout: View {
                 },
                 onStage: { state.stageFile(file.path) },
                 onUnstage: { state.unstageFile(file.path) },
-                onDiscard: { pendingDiscardPath = file.path },
-                onOpenInEditor: { onOpenInEditor(file.path) }
+                onDiscard: { pendingDiscardPath = file.path }
             )
 
             if expanded {
@@ -1474,7 +1463,6 @@ private struct FileRow: View {
     let onStage: () -> Void
     let onUnstage: () -> Void
     let onDiscard: () -> Void
-    let onOpenInEditor: () -> Void
     @State private var hovered = false
 
     private var statusColor: Color {
@@ -1548,8 +1536,6 @@ private struct FileRow: View {
 
     private var actionButtons: some View {
         HStack(spacing: 0) {
-            IconButton(symbol: "doc.text", size: 11, action: onOpenInEditor)
-                .help("Open in Editor")
             if isStaged {
                 IconButton(symbol: "minus", size: 11, action: onUnstage)
                     .help("Unstage")

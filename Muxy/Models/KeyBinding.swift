@@ -50,7 +50,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case openVCSTab
     case quickOpen
     case switchWorktree
-    case saveFile
 
     static let allCases: [Self] = [
         .newTab,
@@ -94,7 +93,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .openVCSTab,
         .quickOpen,
         .switchWorktree,
-        .saveFile,
     ]
 
     var id: String { rawValue }
@@ -138,7 +136,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .openVCSTab: ShortcutMetadata(displayName: "Source Control", category: "App", scope: .mainWindow)
         case .quickOpen: ShortcutMetadata(displayName: "Quick Open", category: "App", scope: .mainWindow)
         case .switchWorktree: ShortcutMetadata(displayName: "Switch Worktree", category: "Project Navigation", scope: .mainWindow)
-        case .saveFile: ShortcutMetadata(displayName: "Save File", category: "Editor", scope: .mainWindow)
         case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
         case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
@@ -152,7 +149,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Terminal", "Editor", "App"]
+        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Terminal", "App"]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -222,6 +219,5 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .findInTerminal, combo: KeyCombo(key: "f", command: true)),
         Self(action: .quickOpen, combo: KeyCombo(key: "p", command: true)),
         Self(action: .switchWorktree, combo: KeyCombo(key: "o", command: true, shift: true)),
-        Self(action: .saveFile, combo: KeyCombo(key: "s", command: true)),
     ]
 }

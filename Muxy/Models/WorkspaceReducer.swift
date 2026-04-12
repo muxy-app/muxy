@@ -79,13 +79,6 @@ enum WorkspaceReducer {
             focusArea(area.id, key: key, state: &state)
             area.createVCSTab()
 
-        case let .createEditorTab(projectID, areaID, filePath):
-            guard let key = activeKey(projectID: projectID, state: state),
-                  let area = resolveArea(key: key, areaID: areaID, state: state)
-            else { break }
-            focusArea(area.id, key: key, state: &state)
-            area.createEditorTab(filePath: filePath)
-
         case let .closeTab(projectID, areaID, tabID):
             guard let key = activeKey(projectID: projectID, state: state) else { break }
             closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)

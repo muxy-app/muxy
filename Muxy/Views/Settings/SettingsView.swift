@@ -5,8 +5,6 @@ struct SettingsView: View {
         TabView {
             AppearanceSettingsView()
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
-            EditorSettingsView()
-                .tabItem { Label("Editor", systemImage: "pencil.line") }
             KeyboardShortcutsSettingsView()
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
         }

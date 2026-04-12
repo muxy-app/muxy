@@ -91,12 +91,6 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .quickOpen, store: keyBindings)
 
-            Button("Save") {
-                guard isMainWindowFocused else { return }
-                NotificationCenter.default.post(name: .saveActiveEditor, object: nil)
-            }
-            .shortcut(for: .saveFile, store: keyBindings)
-
             Divider()
 
             Button("Close Tab") {

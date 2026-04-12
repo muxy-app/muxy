@@ -23,7 +23,6 @@ final class AppState {
         )
         case createTab(projectID: UUID, areaID: UUID?)
         case createVCSTab(projectID: UUID, areaID: UUID?)
-        case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, areaID: UUID?, index: Int)
@@ -60,9 +59,7 @@ final class AppState {
     var workspaceRoots: [WorktreeKey: SplitNode] = [:]
     var focusedAreaID: [WorktreeKey: UUID] = [:]
     var pendingLastTabClose: PendingTabClose?
-    var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
-    var pendingSaveErrorMessage: String?
     private var focusHistory: [WorktreeKey: [UUID]] = [:]
 
     init(
@@ -185,26 +182,12 @@ final class AppState {
         dispatch(.createVCSTab(projectID: projectID, areaID: nil))
     }
 
-    func openFile(_ filePath: String, projectID: UUID) {
-        for area in allAreas(for: projectID) {
-            if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
-                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
-                return
-            }
-        }
-        dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath))
-    }
-
     func closeTab(_ tabID: UUID, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
         closeTab(tabID, areaID: area.id, projectID: projectID)
     }
 
     func closeTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
-        if needsUnsavedEditorConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
-            pendingUnsavedEditorTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
-            return
-        }
         if needsProcessConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
             pendingProcessTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
@@ -226,39 +209,6 @@ final class AppState {
 
     func cancelCloseRunningTab() {
         pendingProcessTabClose = nil
-    }
-
-    func confirmCloseUnsavedEditorTab() {
-        guard let pending = pendingUnsavedEditorTabClose else { return }
-        pendingUnsavedEditorTabClose = nil
-        closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
-    }
-
-    func saveAndCloseUnsavedEditorTab() {
-        guard let pending = pendingUnsavedEditorTabClose else { return }
-        guard let key = activeWorktreeKey(for: pending.projectID),
-              let root = workspaceRoots[key],
-              let area = root.findArea(id: pending.areaID),
-              let tab = area.tabs.first(where: { $0.id == pending.tabID }),
-              let editorState = tab.content.editorState
-        else {
-            pendingUnsavedEditorTabClose = nil
-            return
-        }
-        pendingUnsavedEditorTabClose = nil
-        let fileName = editorState.fileName
-        Task { [weak self] in
-            do {
-                try await editorState.saveFileAsync()
-                self?.closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
-            } catch {
-                self?.pendingSaveErrorMessage = "Failed to save \(fileName): \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func cancelCloseUnsavedEditorTab() {
-        pendingUnsavedEditorTabClose = nil
     }
 
     private func closeTabWithLastCheck(_ tabID: UUID, areaID: UUID, projectID: UUID) {
@@ -296,30 +246,6 @@ final class AppState {
         let allAreas = root.allAreas()
         let totalTabs = allAreas.reduce(0) { $0 + $1.tabs.count }
         return totalTabs <= 1
-    }
-
-    func unsavedEditorTabs() -> [EditorTabState] {
-        var result: [EditorTabState] = []
-        for (_, root) in workspaceRoots {
-            for area in root.allAreas() {
-                for tab in area.tabs {
-                    if let state = tab.content.editorState, state.isModified {
-                        result.append(state)
-                    }
-                }
-            }
-        }
-        return result
-    }
-
-    private func needsUnsavedEditorConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
-        guard let key = activeWorktreeKey(for: projectID),
-              let root = workspaceRoots[key],
-              let area = root.findArea(id: areaID),
-              let tab = area.tabs.first(where: { $0.id == tabID }),
-              let editorState = tab.content.editorState
-        else { return false }
-        return editorState.isModified
     }
 
     private func needsProcessConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
@@ -398,12 +324,6 @@ final class AppState {
            !tabExists(tabID: pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
         {
             pendingLastTabClose = nil
-        }
-
-        if let pending = pendingUnsavedEditorTabClose,
-           !tabExists(tabID: pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
-        {
-            pendingUnsavedEditorTabClose = nil
         }
 
         if let pending = pendingProcessTabClose,

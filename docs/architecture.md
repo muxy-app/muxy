@@ -24,8 +24,6 @@ Muxy/
     KeyBinding.swift          ShortcutAction enum + KeyBinding defaults
     KeyCombo.swift            Key combo encoding, display, matching
     VCSTabState.swift         Git diff viewer state + loading orchestration
-    EditorTabState.swift      Code editor tab state (file content, cursor, save)
-    EditorSettings.swift      @Observable editor preferences (font, word wrap, tab size)
     Project.swift             Project folder metadata
     Worktree.swift            Per-project worktree slot (primary or git worktree)
     WorktreeKey.swift         Hashable (projectID, worktreeID) key for workspace maps
@@ -85,12 +83,6 @@ Muxy/
       TerminalPane.swift      SwiftUI wrapper for terminal + search
       TerminalSearchBar.swift Find-in-terminal UI
       TerminalViewRegistry.swift  Terminal view lifecycle management
-    Editor/
-      CodeEditorRepresentable.swift  NSViewRepresentable bridge for code editor
-      EditorPane.swift        SwiftUI wrapper for editor tab (breadcrumb + editor)
-      Extensions/
-        AutoIndentExtension.swift  Pure auto-indent engine (return, electric close brackets, comment/list continuation)
-        SyntaxHighlightExtension.swift  Regex-based syntax highlighting rules for code editor
     VCS/
       VCSTabView.swift        Source control tab (commit, stage, diff, branch) + PRPill + PRPopover
       BranchPicker.swift      Branch selection dropdown with filter and right-click delete
@@ -109,7 +101,6 @@ Muxy/
     Settings/
       SettingsView.swift      Settings window layout
       AppearanceSettingsView.swift  Theme settings tab
-      EditorSettingsView.swift  Editor preferences tab (font, wrap, tab size)
       KeyboardShortcutsSettingsView.swift  Shortcut config tab
       ShortcutRecorderView.swift  Shortcut capture field
       ShortcutBadge.swift     Shortcut label display

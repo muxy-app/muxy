@@ -324,9 +324,6 @@ private struct TabCell: View {
             FileDiffIcon()
                 .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                 .frame(width: 12, height: 12)
-        } else if tab.kind == .editor {
-            Image(systemName: "pencil.line")
-                .font(.system(size: 12, weight: .semibold))
         } else {
             Image(systemName: "terminal")
                 .font(.system(size: 12, weight: .semibold))

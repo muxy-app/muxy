@@ -16,15 +16,12 @@ struct MainWindow: View {
 
     private enum CloseConfirmationKind {
         case lastTab
-        case unsavedEditor
         case runningProcess
 
         var title: String {
             switch self {
             case .lastTab:
                 "Close Project?"
-            case .unsavedEditor:
-                "Save Changes Before Closing?"
             case .runningProcess:
                 "Close Tab?"
             }
@@ -34,8 +31,6 @@ struct MainWindow: View {
             switch self {
             case .lastTab:
                 "This is the last tab. Closing it will remove the project from the sidebar."
-            case .unsavedEditor:
-                "This file has unsaved changes. If you don't save, your changes will be lost."
             case .runningProcess:
                 "A process is still running in this tab. Are you sure you want to close it?"
             }
@@ -143,9 +138,8 @@ struct MainWindow: View {
             if showQuickOpen, let project = activeProject {
                 QuickOpenOverlay(
                     projectPath: activeWorktreePath(for: project),
-                    onSelect: { filePath in
+                    onSelect: { _ in
                         showQuickOpen = false
-                        appState.openFile(filePath, projectID: project.id)
                     },
                     onDismiss: { showQuickOpen = false }
                 )
@@ -205,17 +199,9 @@ struct MainWindow: View {
             guard isPresented else { return }
             presentCloseConfirmation(.lastTab)
         }
-        .onChange(of: appState.pendingUnsavedEditorTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.unsavedEditor)
-        }
         .onChange(of: appState.pendingProcessTabClose != nil) { _, isPresented in
             guard isPresented else { return }
             presentCloseConfirmation(.runningProcess)
-        }
-        .onChange(of: appState.pendingSaveErrorMessage != nil) { _, isPresented in
-            guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
-            presentSaveErrorAlert(message: message)
         }
     }
 
@@ -421,22 +407,10 @@ struct MainWindow: View {
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage
 
-        switch kind {
-        case .unsavedEditor:
-            alert.addButton(withTitle: "Save")
-            alert.addButton(withTitle: "Cancel")
-            alert.addButton(withTitle: "Don't Save")
-            alert.buttons[0].keyEquivalent = "\r"
-            alert.buttons[1].keyEquivalent = "\u{1b}"
-            alert.buttons[2].keyEquivalent = "d"
-            alert.buttons[2].keyEquivalentModifierMask = [.command]
-        case .lastTab,
-             .runningProcess:
-            alert.addButton(withTitle: "Close")
-            alert.addButton(withTitle: "Cancel")
-            alert.buttons[0].keyEquivalent = "\r"
-            alert.buttons[1].keyEquivalent = "\u{1b}"
-        }
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
 
         alert.beginSheetModal(for: window) { response in
             switch kind {
@@ -446,15 +420,6 @@ struct MainWindow: View {
                 } else {
                     appState.cancelCloseLastTab()
                 }
-            case .unsavedEditor:
-                switch response {
-                case .alertFirstButtonReturn:
-                    appState.saveAndCloseUnsavedEditorTab()
-                case .alertThirdButtonReturn:
-                    appState.confirmCloseUnsavedEditorTab()
-                default:
-                    appState.cancelCloseUnsavedEditorTab()
-                }
             case .runningProcess:
                 if response == .alertFirstButtonReturn {
                     appState.confirmCloseRunningTab()
@@ -462,27 +427,6 @@ struct MainWindow: View {
                     appState.cancelCloseRunningTab()
                 }
             }
-        }
-    }
-
-    private func presentSaveErrorAlert(message: String) {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              window.attachedSheet == nil
-        else {
-            appState.pendingSaveErrorMessage = nil
-            return
-        }
-
-        let alert = NSAlert()
-        alert.messageText = "Could Not Save File"
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "OK")
-        alert.buttons[0].keyEquivalent = "\r"
-
-        alert.beginSheetModal(for: window) { _ in
-            appState.pendingSaveErrorMessage = nil
         }
     }
 }
