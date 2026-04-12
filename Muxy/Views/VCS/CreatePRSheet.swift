@@ -270,6 +270,6 @@ struct CreatePRSheet: View {
         let collapsed = String(scalars)
             .split(separator: "-", omittingEmptySubsequences: true)
             .joined(separator: "-")
-        return String(collapsed.prefix(60))
+        return String(collapsed.prefix(20))
     }
 }
