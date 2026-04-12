@@ -20,7 +20,7 @@ enum VCSDisplayMode: String, CaseIterable, Identifiable {
     static var current: VCSDisplayMode {
         guard let raw = UserDefaults.standard.string(forKey: key),
               let mode = VCSDisplayMode(rawValue: raw)
-        else { return .tab }
+        else { return .attached }
         return mode
     }
 
