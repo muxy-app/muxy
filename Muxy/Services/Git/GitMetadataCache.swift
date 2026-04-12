@@ -10,7 +10,7 @@ final class GitMetadataCache: @unchecked Sendable {
     }
 
     private struct PREntry {
-        let info: GitRepositoryService.PRInfo?
+        let info: PRInfo?
         let storedAt: Date
     }
 
@@ -23,7 +23,7 @@ final class GitMetadataCache: @unchecked Sendable {
 
     private init() {}
 
-    func cachedPRInfo(repoPath: String, branch: String, headSha: String) -> GitRepositoryService.PRInfo?? {
+    func cachedPRInfo(repoPath: String, branch: String, headSha: String) -> PRInfo?? {
         lock.lock()
         defer { lock.unlock() }
         let key = PRKey(repoPath: repoPath, branch: branch, headSha: headSha)
@@ -35,7 +35,7 @@ final class GitMetadataCache: @unchecked Sendable {
         return .some(entry.info)
     }
 
-    func storePRInfo(_ info: GitRepositoryService.PRInfo?, repoPath: String, branch: String, headSha: String) {
+    func storePRInfo(_ info: PRInfo?, repoPath: String, branch: String, headSha: String) {
         lock.lock()
         defer { lock.unlock() }
         let key = PRKey(repoPath: repoPath, branch: branch, headSha: headSha)

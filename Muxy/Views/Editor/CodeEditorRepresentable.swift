@@ -15,6 +15,14 @@ private final class CodeEditorTextView: NSTextView {
     var onRedoRequest: (() -> Bool)?
     var canUndoRequest: (() -> Bool)?
     var canRedoRequest: (() -> Bool)?
+    var onDidMoveToWindow: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            onDidMoveToWindow?()
+        }
+    }
 
     override func paste(_ sender: Any?) {
         pasteAsPlainText(sender)
@@ -210,6 +218,10 @@ struct CodeEditorView: NSViewRepresentable {
         textView.canRedoRequest = { [weak coordinator] in
             coordinator?.canPerformRedoRequest() ?? false
         }
+        textView.onDidMoveToWindow = { [weak coordinator, weak textView] in
+            guard let coordinator, let textView else { return }
+            coordinator.handleDidMoveToWindow(textView: textView)
+        }
         coordinator.setScrollObserver(for: scrollView, onLineLayoutChange: onLineLayoutChange)
 
         textView.undoManager?.removeAllActions()
@@ -228,23 +240,17 @@ struct CodeEditorView: NSViewRepresentable {
                 codeTextView.onRedoRequest = nil
                 codeTextView.canUndoRequest = nil
                 codeTextView.canRedoRequest = nil
+                codeTextView.onDidMoveToWindow = nil
             }
         }
         coordinator.textView?.delegate = nil
     }
 
-    private static func claimFirstResponder(textView: NSTextView, attemptsRemaining: Int) {
-        guard attemptsRemaining > 0 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak textView] in
-            guard let textView else { return }
-            guard let window = textView.window else {
-                claimFirstResponder(textView: textView, attemptsRemaining: attemptsRemaining - 1)
-                return
-            }
-            window.makeFirstResponder(textView)
-            textView.setSelectedRange(NSRange(location: 0, length: 0))
-            textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
-        }
+    private static func claimFirstResponder(textView: NSTextView) {
+        guard let window = textView.window else { return }
+        window.makeFirstResponder(textView)
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
     }
 
     private static func applyWordWrap(_ wrap: Bool, to textView: NSTextView, scrollView: NSScrollView) {
@@ -302,7 +308,11 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.hasAppliedInitialContent = true
             coordinator.refreshViewport(force: true)
             if focused {
-                Self.claimFirstResponder(textView: textView, attemptsRemaining: 20)
+                if textView.window != nil {
+                    Self.claimFirstResponder(textView: textView)
+                } else {
+                    coordinator.pendingFirstResponderClaim = true
+                }
             }
         }
 
@@ -413,28 +423,11 @@ struct CodeEditorView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
-        private struct ViewportCursor {
-            let line: Int
-            let column: Int
-        }
-
         private struct PendingViewportEdit {
             let startLine: Int
             let oldLines: [String]
             let newLines: [String]
-            let selectionBefore: ViewportCursor
-        }
-
-        private struct ViewportEdit {
-            let startLine: Int
-            let oldLines: [String]
-            let newLines: [String]
-            let selectionBefore: ViewportCursor
-            let selectionAfter: ViewportCursor
-        }
-
-        private struct ViewportEditGroup {
-            var edits: [ViewportEdit]
+            let selectionBefore: EditorViewportUndoManager.ViewportCursor
         }
 
         let state: EditorTabState
@@ -476,21 +469,15 @@ struct CodeEditorView: NSViewRepresentable {
         private weak var observedTextView: NSTextView?
         private(set) var lineStartOffsets: [Int] = [0]
         private var lastReportedLayouts: [LineLayoutInfo] = []
-        private var highlightDebounceWork: DispatchWorkItem?
-        private var pendingHighlightEditLocation: Int?
-        private static let highlightDebounceDelay: TimeInterval = 0.15
-        private static let highlightEditLineRadius = 3
-        private static let viewportUndoLimit = 200
-        private static let viewportUndoCoalesceInterval: CFTimeInterval = 1.0
         private static let undoCommandSelector = #selector(CodeEditorTextView.undo(_:))
         private static let redoCommandSelector = #selector(CodeEditorTextView.redo(_:))
-        private var highlightGeneration = 0
-        private var activeHighlightTask: Task<Void, Never>?
         private var pendingViewportEdit: PendingViewportEdit?
-        private var viewportUndoStack: [ViewportEditGroup] = []
-        private var viewportRedoStack: [ViewportEditGroup] = []
-        private var lastViewportEditTimestamp: CFTimeInterval?
         private var isApplyingViewportHistory = false
+        private let undoManager = EditorViewportUndoManager()
+        private let bracketMatcher = EditorBracketMatcher()
+        private let syntaxHighlighter = EditorSyntaxHighlighter()
+        var pendingFirstResponderClaim = false
+        private var pendingFocusPreservation = false
         private var recentlyEdited = false
         private var recentlyEditedResetWork: DispatchWorkItem?
         private let lineHighlightView: NSView = {
@@ -658,13 +645,13 @@ struct CodeEditorView: NSViewRepresentable {
 
             if highlightMode == .async, editorSettings.syntaxHighlighting {
                 let fullRange = NSRange(location: 0, length: (text as NSString).length)
-                let generation = nextHighlightGeneration()
-                let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
-                activeHighlightTask = Task { [weak self] in
-                    let result = await highlighter.computeHighlightsAsync(text: text, range: fullRange)
-                    guard let self, self.highlightGeneration == generation else { return }
-                    self.applyHighlightResult(result, range: fullRange)
-                    self.applySearchHighlights()
+                syntaxHighlighter.applyFullHighlight(
+                    textView: textView,
+                    range: fullRange,
+                    fileExtension: state.fileExtension
+                ) { [weak self] result, range in
+                    self?.applyHighlightResult(result, range: range)
+                    self?.applySearchHighlights()
                 }
             } else {
                 applySearchHighlights()
@@ -779,6 +766,21 @@ struct CodeEditorView: NSViewRepresentable {
 
         // MARK: - Editor Focus
 
+        func handleDidMoveToWindow(textView: NSTextView) {
+            if pendingFirstResponderClaim {
+                pendingFirstResponderClaim = false
+                guard let window = textView.window else { return }
+                window.makeFirstResponder(textView)
+                textView.setSelectedRange(NSRange(location: 0, length: 0))
+                textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
+            }
+            if pendingFocusPreservation {
+                pendingFocusPreservation = false
+                guard let window = textView.window else { return }
+                window.makeFirstResponder(textView)
+            }
+        }
+
         func focusEditorPreservingSelection() {
             guard let textView else { return }
             if let viewport = viewportState, !viewportSearchMatches.isEmpty {
@@ -798,9 +800,10 @@ struct CodeEditorView: NSViewRepresentable {
                     }
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak textView] in
-                guard let textView, let window = textView.window else { return }
+            if let window = textView.window {
                 window.makeFirstResponder(textView)
+            } else {
+                pendingFocusPreservation = true
             }
         }
 
@@ -1148,7 +1151,7 @@ struct CodeEditorView: NSViewRepresentable {
                !isApplyingViewportHistory,
                let selectionAfter = globalCursorFromLocalLocation(cursorLocation)
             {
-                pushViewportEdit(ViewportEdit(
+                pushViewportEdit(EditorViewportUndoManager.ViewportEdit(
                     startLine: pendingEdit.startLine,
                     oldLines: pendingEdit.oldLines,
                     newLines: pendingEdit.newLines,
@@ -1215,9 +1218,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         func clearViewportHistory() {
             pendingViewportEdit = nil
-            viewportUndoStack.removeAll(keepingCapacity: false)
-            viewportRedoStack.removeAll(keepingCapacity: false)
-            lastViewportEditTimestamp = nil
+            undoManager.clear()
         }
 
         func performUndoRequest() -> Bool {
@@ -1229,16 +1230,16 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func canPerformUndoRequest() -> Bool {
-            !viewportUndoStack.isEmpty
+            undoManager.canUndo
         }
 
         func canPerformRedoRequest() -> Bool {
-            !viewportRedoStack.isEmpty
+            undoManager.canRedo
         }
 
         private func performViewportUndo() -> Bool {
             guard let viewport = viewportState, let textView else { return false }
-            guard let group = viewportUndoStack.popLast(), !group.edits.isEmpty else { return false }
+            guard let group = undoManager.popUndo(), !group.edits.isEmpty else { return false }
 
             isApplyingViewportHistory = true
             defer { isApplyingViewportHistory = false }
@@ -1253,17 +1254,16 @@ struct CodeEditorView: NSViewRepresentable {
                 )
             }
             state.markModified()
-            appendViewportRedo(group)
+            undoManager.appendRedo(group)
             if let selection = group.edits.first?.selectionBefore {
                 applyViewportHistorySelection(selection, textView: textView)
             }
-            lastViewportEditTimestamp = nil
             return true
         }
 
         private func performViewportRedo() -> Bool {
             guard let viewport = viewportState, let textView else { return false }
-            guard let group = viewportRedoStack.popLast(), !group.edits.isEmpty else { return false }
+            guard let group = undoManager.popRedo(), !group.edits.isEmpty else { return false }
 
             isApplyingViewportHistory = true
             defer { isApplyingViewportHistory = false }
@@ -1278,46 +1278,15 @@ struct CodeEditorView: NSViewRepresentable {
                 )
             }
             state.markModified()
-            appendViewportUndo(group)
+            undoManager.appendUndo(group)
             if let selection = group.edits.last?.selectionAfter {
                 applyViewportHistorySelection(selection, textView: textView)
             }
-            lastViewportEditTimestamp = nil
             return true
         }
 
-        private func pushViewportEdit(_ edit: ViewportEdit) {
-            let now = CFAbsoluteTimeGetCurrent()
-            if shouldCoalesceViewportEdit(edit, now: now), var group = viewportUndoStack.popLast() {
-                group.edits.append(edit)
-                viewportUndoStack.append(group)
-            } else {
-                appendViewportUndo(ViewportEditGroup(edits: [edit]))
-            }
-            viewportRedoStack.removeAll(keepingCapacity: false)
-            lastViewportEditTimestamp = now
-        }
-
-        private func appendViewportUndo(_ group: ViewportEditGroup) {
-            viewportUndoStack.append(group)
-            if viewportUndoStack.count > Self.viewportUndoLimit {
-                viewportUndoStack.removeFirst(viewportUndoStack.count - Self.viewportUndoLimit)
-            }
-        }
-
-        private func appendViewportRedo(_ group: ViewportEditGroup) {
-            viewportRedoStack.append(group)
-            if viewportRedoStack.count > Self.viewportUndoLimit {
-                viewportRedoStack.removeFirst(viewportRedoStack.count - Self.viewportUndoLimit)
-            }
-        }
-
-        private func shouldCoalesceViewportEdit(_ edit: ViewportEdit, now: CFAbsoluteTime) -> Bool {
-            guard let lastTimestamp = lastViewportEditTimestamp else { return false }
-            guard now - lastTimestamp <= Self.viewportUndoCoalesceInterval else { return false }
-            guard let lastEdit = viewportUndoStack.last?.edits.last else { return false }
-            return lastEdit.selectionAfter.line == edit.selectionBefore.line
-                && lastEdit.selectionAfter.column == edit.selectionBefore.column
+        private func pushViewportEdit(_ edit: EditorViewportUndoManager.ViewportEdit) {
+            undoManager.push(edit)
         }
 
         private func adjustViewportRangeForReplacement(
@@ -1346,7 +1315,7 @@ struct CodeEditorView: NSViewRepresentable {
             viewport.applyViewport(newStart ..< newEnd)
         }
 
-        private func applyViewportHistorySelection(_ selection: ViewportCursor, textView: NSTextView) {
+        private func applyViewportHistorySelection(_ selection: EditorViewportUndoManager.ViewportCursor, textView: NSTextView) {
             guard let viewport = viewportState, let scrollView else { return }
 
             updateContainerHeight()
@@ -1419,7 +1388,7 @@ struct CodeEditorView: NSViewRepresentable {
             )
         }
 
-        private func globalCursorFromLocalLocation(_ location: Int) -> ViewportCursor? {
+        private func globalCursorFromLocalLocation(_ location: Int) -> EditorViewportUndoManager.ViewportCursor? {
             guard let viewport = viewportState, let textView, !lineStartOffsets.isEmpty else { return nil }
             let content = textView.string as NSString
             let safeLocation = min(max(0, location), content.length)
@@ -1428,7 +1397,7 @@ struct CodeEditorView: NSViewRepresentable {
             let lineStart = lineStartOffsets[localLineIndex]
             let column = max(0, safeLocation - lineStart)
             let globalLine = viewport.backingStoreLine(forViewportLine: localLineIndex)
-            return ViewportCursor(line: globalLine, column: column)
+            return EditorViewportUndoManager.ViewportCursor(line: globalLine, column: column)
         }
 
         private func scrollCursorVisibleInViewport(textView: NSTextView, cursorLocation: Int) {
@@ -1591,8 +1560,6 @@ struct CodeEditorView: NSViewRepresentable {
             state.currentSelection = selected
         }
 
-        // MARK: - Bracket Matching
-
         func updateBracketMatching() {
             hideBracketHighlights()
             guard editorSettings.bracketMatching, !isUpdating else { return }
@@ -1601,12 +1568,10 @@ struct CodeEditorView: NSViewRepresentable {
             guard selectedRange.length == 0 else { return }
 
             let content = textView.string as NSString
-            let length = content.length
-            guard length > 0 else { return }
-            guard selectedRange.location != NSNotFound, selectedRange.location <= length else { return }
+            guard content.length > 0 else { return }
+            guard selectedRange.location != NSNotFound, selectedRange.location <= content.length else { return }
 
-            let cursor = selectedRange.location
-            guard let match = findBracketMatch(in: content, cursor: cursor) else { return }
+            guard let match = bracketMatcher.findMatch(in: content, cursor: selectedRange.location) else { return }
 
             highlightBracket(at: match.first, view: bracketHighlightViews[0])
             highlightBracket(at: match.second, view: bracketHighlightViews[1])
@@ -1635,175 +1600,13 @@ struct CodeEditorView: NSViewRepresentable {
             view.isHidden = false
         }
 
-        private struct BracketMatch {
-            let first: Int
-            let second: Int
-        }
-
-        private func findBracketMatch(in content: NSString, cursor: Int) -> BracketMatch? {
-            let length = content.length
-
-            if cursor < length {
-                let char = character(at: cursor, in: content)
-                if let match = findMatchingBracket(for: char, at: cursor, in: content) {
-                    return BracketMatch(first: cursor, second: match)
-                }
-            }
-
-            if cursor > 0 {
-                let prev = cursor - 1
-                let char = character(at: prev, in: content)
-                if let match = findMatchingBracket(for: char, at: prev, in: content) {
-                    return BracketMatch(first: prev, second: match)
-                }
-            }
-
-            return nil
-        }
-
-        private func findMatchingBracket(for char: Character, at location: Int, in content: NSString) -> Int? {
-            let openers: [Character: Character] = ["(": ")", "[": "]", "{": "}"]
-            let closers: [Character: Character] = [")": "(", "]": "[", "}": "{"]
-
-            if let match = openers[char] {
-                return scanForward(from: location + 1, open: char, close: match, in: content)
-            }
-            if let match = closers[char] {
-                return scanBackward(from: location - 1, open: match, close: char, in: content)
-            }
-            return nil
-        }
-
-        private static let bracketScanLimit = 5000
-
-        private func scanForward(from start: Int, open: Character, close: Character, in content: NSString) -> Int? {
-            let length = content.length
-            let end = min(length, start + Coordinator.bracketScanLimit)
-            var depth = 1
-            var state = BracketScanState()
-            var index = start
-            while index < end {
-                let ch = character(at: index, in: content)
-                let next = index + 1 < length ? character(at: index + 1, in: content) : nil
-                state.advance(current: ch, next: next)
-                if state.isInSkipRegion {
-                    index += 1
-                    continue
-                }
-                if ch == open {
-                    depth += 1
-                } else if ch == close {
-                    depth -= 1
-                    if depth == 0 { return index }
-                }
-                index += 1
-            }
-            return nil
-        }
-
-        private func scanBackward(from start: Int, open: Character, close: Character, in content: NSString) -> Int? {
-            guard start >= 0 else { return nil }
-            let scanStart = max(0, start - Coordinator.bracketScanLimit)
-
-            var skipMask: [Bool] = []
-            skipMask.reserveCapacity(start - scanStart + 1)
-            var state = BracketScanState()
-            var i = scanStart
-            while i <= start {
-                let ch = character(at: i, in: content)
-                let next = i + 1 < content.length ? character(at: i + 1, in: content) : nil
-                state.advance(current: ch, next: next)
-                skipMask.append(state.isInSkipRegion)
-                i += 1
-            }
-
-            var depth = 1
-            var index = start
-            while index >= scanStart {
-                let maskIndex = index - scanStart
-                if skipMask[maskIndex] {
-                    index -= 1
-                    continue
-                }
-                let ch = character(at: index, in: content)
-                if ch == close {
-                    depth += 1
-                } else if ch == open {
-                    depth -= 1
-                    if depth == 0 { return index }
-                }
-                index -= 1
-            }
-            return nil
-        }
-
-        private func character(at index: Int, in content: NSString) -> Character {
-            guard let scalar = UnicodeScalar(content.character(at: index)) else {
-                return "\u{FFFD}"
-            }
-            return Character(scalar)
-        }
-
-        // MARK: - Syntax Highlighting
-
-        private func nextHighlightGeneration() -> Int {
-            highlightGeneration += 1
-            activeHighlightTask?.cancel()
-            activeHighlightTask = nil
-            return highlightGeneration
-        }
-
         func scheduleHighlight() {
-            if let textView {
-                let loc = textView.selectedRange().location
-                pendingHighlightEditLocation = loc
-            }
-            highlightDebounceWork?.cancel()
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.applyEditHighlight()
-                self.pendingHighlightEditLocation = nil
-            }
-            highlightDebounceWork = work
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + Coordinator.highlightDebounceDelay,
-                execute: work
-            )
-        }
-
-        private func applyEditHighlight() {
-            guard let textView, let storage = textView.textStorage else { return }
-            guard storage.length > 0 else { return }
-            let content = storage.string as NSString
-            let editLoc = pendingHighlightEditLocation ?? textView.selectedRange().location
-            let safeLoc = min(editLoc, content.length)
-
-            let editLineRange = content.lineRange(for: NSRange(location: safeLoc, length: 0))
-            var startLoc = editLineRange.location
-            var endLoc = NSMaxRange(editLineRange)
-
-            for _ in 0 ..< Coordinator.highlightEditLineRadius {
-                if startLoc > 0 {
-                    let prev = content.lineRange(for: NSRange(location: max(0, startLoc - 1), length: 0))
-                    startLoc = prev.location
-                }
-                if endLoc < content.length {
-                    let next = content.lineRange(for: NSRange(location: min(endLoc, content.length - 1), length: 0))
-                    endLoc = NSMaxRange(next)
-                }
-            }
-
-            let range = NSRange(location: startLoc, length: endLoc - startLoc)
-            guard range.length > 0 else { return }
-
-            let text = storage.string
-            let generation = nextHighlightGeneration()
-            let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
-
-            activeHighlightTask = Task { [weak self] in
-                let result = await highlighter.computeHighlightsAsync(text: text, range: range)
-                guard let self, self.highlightGeneration == generation else { return }
-                self.applyHighlightResult(result, range: range)
+            guard let textView else { return }
+            syntaxHighlighter.scheduleHighlight(
+                textView: textView,
+                fileExtension: state.fileExtension
+            ) { [weak self] result, range in
+                self?.applyHighlightResult(result, range: range)
             }
         }
 
@@ -1910,71 +1713,6 @@ struct CodeEditorView: NSViewRepresentable {
             }
 
             return false
-        }
-    }
-}
-
-private struct BracketScanState {
-    private var inSingleQuote = false
-    private var inDoubleQuote = false
-    private var inLineComment = false
-    private var inBlockComment = false
-    private var escaped = false
-    private var pendingBlockCommentExit = false
-
-    var isInSkipRegion: Bool {
-        inSingleQuote || inDoubleQuote || inLineComment || inBlockComment
-    }
-
-    mutating func advance(current: Character, next: Character?) {
-        if inBlockComment {
-            if pendingBlockCommentExit {
-                pendingBlockCommentExit = false
-                inBlockComment = false
-                return
-            }
-            if current == "*", next == "/" {
-                pendingBlockCommentExit = true
-            }
-            return
-        }
-        if inLineComment {
-            if current == "\n" { inLineComment = false }
-            return
-        }
-        if escaped {
-            escaped = false
-            return
-        }
-        if inSingleQuote {
-            if current == "\\" { escaped = true
-                return
-            }
-            if current == "'" { inSingleQuote = false }
-            return
-        }
-        if inDoubleQuote {
-            if current == "\\" { escaped = true
-                return
-            }
-            if current == "\"" { inDoubleQuote = false }
-            return
-        }
-        if current == "/", next == "/" {
-            inLineComment = true
-            return
-        }
-        if current == "/", next == "*" {
-            inBlockComment = true
-            return
-        }
-        if current == "\"" {
-            inDoubleQuote = true
-            return
-        }
-        if current == "'" {
-            inSingleQuote = true
-            return
         }
     }
 }
