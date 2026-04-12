@@ -116,7 +116,7 @@ struct VCSTabView: View {
             PRPill(
                 state: state,
                 onRequestCreate: { requestOpenPR() },
-                onRequestMerge: { prInfo in performMerge(prInfo: prInfo) },
+                onRequestMerge: { prInfo, method in performMerge(prInfo: prInfo, method: method) },
                 onRequestClose: { prInfo in pendingClosePR = prInfo }
             )
 
@@ -245,23 +245,23 @@ struct VCSTabView: View {
         return worktree.name
     }
 
-    private func performMerge(prInfo: GitRepositoryService.PRInfo) {
+    private func performMerge(prInfo: GitRepositoryService.PRInfo, method: GitRepositoryService.PRMergeMethod) {
         if prInfo.checks.status == .failure || prInfo.checks.status == .pending {
-            presentChecksMergeConfirmation(prInfo: prInfo)
+            presentChecksMergeConfirmation(prInfo: prInfo, method: method)
             return
         }
-        continueMergeAfterChecks(prInfo: prInfo)
+        continueMergeAfterChecks(prInfo: prInfo, method: method)
     }
 
-    private func continueMergeAfterChecks(prInfo: GitRepositoryService.PRInfo) {
+    private func continueMergeAfterChecks(prInfo: GitRepositoryService.PRInfo, method: GitRepositoryService.PRMergeMethod) {
         if state.hasAnyChanges {
-            presentDirtyMergeConfirmation(prInfo: prInfo)
+            presentDirtyMergeConfirmation(prInfo: prInfo, method: method)
             return
         }
-        executeMerge(prInfo: prInfo)
+        executeMerge(prInfo: prInfo, method: method)
     }
 
-    private func presentChecksMergeConfirmation(prInfo: GitRepositoryService.PRInfo) {
+    private func presentChecksMergeConfirmation(prInfo: GitRepositoryService.PRInfo, method: GitRepositoryService.PRMergeMethod) {
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
               window.attachedSheet == nil
         else { return }
@@ -286,16 +286,16 @@ struct VCSTabView: View {
 
         alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else { return }
-            continueMergeAfterChecks(prInfo: prInfo)
+            continueMergeAfterChecks(prInfo: prInfo, method: method)
         }
     }
 
-    private func executeMerge(prInfo: GitRepositoryService.PRInfo) {
+    private func executeMerge(prInfo: GitRepositoryService.PRInfo, method: GitRepositoryService.PRMergeMethod) {
         let project = owningProject
         let worktree = activeWorktreeForTab
         let defaultBranch = state.defaultBranch
         let isWorktreeMerge = worktree.map { !$0.isPrimary } ?? false
-        state.mergePullRequest(deleteBranch: !isWorktreeMerge) { _, mergedBranch in
+        state.mergePullRequest(method: method, deleteBranch: !isWorktreeMerge) { _, mergedBranch in
             ToastState.shared.show("Merged PR #\(prInfo.number)")
             Task { @MainActor in
                 await cleanupAfterMerge(
@@ -308,7 +308,7 @@ struct VCSTabView: View {
         }
     }
 
-    private func presentDirtyMergeConfirmation(prInfo: GitRepositoryService.PRInfo) {
+    private func presentDirtyMergeConfirmation(prInfo: GitRepositoryService.PRInfo, method: GitRepositoryService.PRMergeMethod) {
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
               window.attachedSheet == nil
         else { return }
@@ -337,7 +337,7 @@ struct VCSTabView: View {
 
         alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else { return }
-            executeMerge(prInfo: prInfo)
+            executeMerge(prInfo: prInfo, method: method)
         }
     }
 
@@ -668,7 +668,7 @@ struct VCSTabView: View {
 struct PRPill: View {
     @Bindable var state: VCSTabState
     let onRequestCreate: () -> Void
-    let onRequestMerge: (GitRepositoryService.PRInfo) -> Void
+    let onRequestMerge: (GitRepositoryService.PRInfo, GitRepositoryService.PRMergeMethod) -> Void
     let onRequestClose: (GitRepositoryService.PRInfo) -> Void
 
     @State private var showPRPopover = false
@@ -734,14 +734,14 @@ struct PRPill: View {
             PRPopover(
                 state: state,
                 info: info,
-                onMerge: {
+                onMerge: { method in
                     let needsConfirmation = state.hasAnyChanges
                         || info.checks.status == .failure
                         || info.checks.status == .pending
                     if needsConfirmation {
                         showPRPopover = false
                     }
-                    onRequestMerge(info)
+                    onRequestMerge(info, method)
                 },
                 onClose: {
                     showPRPopover = false
@@ -824,10 +824,12 @@ struct PRPill: View {
 struct PRPopover: View {
     @Bindable var state: VCSTabState
     let info: GitRepositoryService.PRInfo
-    let onMerge: () -> Void
+    let onMerge: (GitRepositoryService.PRMergeMethod) -> Void
     let onClose: () -> Void
     let onOpenInBrowser: () -> Void
     let onRefresh: () -> Void
+
+    @State private var mergeMethod: GitRepositoryService.PRMergeMethod = .squash
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -886,7 +888,15 @@ struct PRPopover: View {
             .buttonStyle(.plain)
 
             if info.state == .open {
-                Button(action: onMerge) {
+                Picker("Method", selection: $mergeMethod) {
+                    ForEach(GitRepositoryService.PRMergeMethod.allCases) { method in
+                        Text(method.shortLabel).tag(method)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                Button { onMerge(mergeMethod) } label: {
                     HStack(spacing: 6) {
                         if state.isMergingPullRequest {
                             ProgressView().controlSize(.mini)
@@ -894,7 +904,7 @@ struct PRPopover: View {
                             Image(systemName: "arrow.triangle.merge")
                                 .font(.system(size: 11, weight: .bold))
                         }
-                        Text(state.isMergingPullRequest ? "Merging…" : "Merge")
+                        Text(state.isMergingPullRequest ? "Merging…" : mergeMethod.label)
                             .font(.system(size: 11, weight: .medium))
                         Spacer(minLength: 0)
                     }

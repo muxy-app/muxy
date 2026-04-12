@@ -76,16 +76,34 @@ struct GitRepositoryService {
         }
     }
 
-    enum PRMergeMethod {
-        case merge
+    enum PRMergeMethod: String, CaseIterable, Identifiable {
         case squash
+        case merge
         case rebase
+
+        var id: String { rawValue }
 
         var ghFlag: String {
             switch self {
             case .merge: "--merge"
             case .squash: "--squash"
             case .rebase: "--rebase"
+            }
+        }
+
+        var shortLabel: String {
+            switch self {
+            case .merge: "Merge"
+            case .squash: "Squash"
+            case .rebase: "Rebase"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .merge: "Merge Commit"
+            case .squash: "Squash and Merge"
+            case .rebase: "Rebase and Merge"
             }
         }
     }

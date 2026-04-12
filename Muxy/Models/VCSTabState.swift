@@ -904,7 +904,7 @@ final class VCSTabState {
     }
 
     func mergePullRequest(
-        method: GitRepositoryService.PRMergeMethod = .merge,
+        method: GitRepositoryService.PRMergeMethod = .squash,
         deleteBranch: Bool = true,
         onSuccess: @escaping (GitRepositoryService.PRInfo, String) -> Void
     ) {
