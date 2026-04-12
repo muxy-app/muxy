@@ -11,9 +11,7 @@ final class EditorTabState: Identifiable {
     let id = UUID()
     let projectPath: String
     let filePath: String
-    var content: String = ""
-    var contentVersion = 0
-    var streamAppendVersion = 0
+    var backingStoreVersion = 0
     var isLoading = false
     var isIncrementalLoading = false
     var isModified = false
@@ -24,6 +22,7 @@ final class EditorTabState: Identifiable {
     var cursorColumn: Int = 1
     var searchVisible = false
     var searchFocusVersion = 0
+    var editorFocusVersion = 0
     var searchNeedle = ""
     var searchMatchCount = 0
     var searchCurrentIndex = 0
@@ -40,9 +39,6 @@ final class EditorTabState: Identifiable {
     var awaitingLargeFileConfirmation = false
     var largeFileSize: Int64 = 0
     var backingStore: TextBackingStore?
-    var backingStoreVersion = 0
-
-    var isViewportMode: Bool { backingStore != nil }
 
     static let largeFileWarningThreshold: Int64 = 5 * 1024 * 1024
     static let largeFileRefuseThreshold: Int64 = 50 * 1024 * 1024
@@ -67,8 +63,6 @@ final class EditorTabState: Identifiable {
     }
 
     @ObservationIgnored private var loadTask: Task<Void, Never>?
-    @ObservationIgnored private var contentProvider: (() -> String?)?
-    @ObservationIgnored private var pendingAppendChunks: [String] = []
 
     private enum FileLoadEvent {
         case initial(String, hasMore: Bool)
@@ -101,7 +95,6 @@ final class EditorTabState: Identifiable {
         guard !isLoading else { return }
         errorMessage = nil
         isIncrementalLoading = false
-        resetStreamAppendSignal()
         refreshReadOnlyStatus()
 
         let size = fileSize(at: filePath)
@@ -110,7 +103,6 @@ final class EditorTabState: Identifiable {
                 "Use a dedicated editor for files over \(Self.formatBytes(Self.largeFileRefuseThreshold))."
             isLoading = false
             isIncrementalLoading = false
-            resetStreamAppendSignal()
             return
         }
         if size >= Self.largeFileWarningThreshold {
@@ -118,7 +110,6 @@ final class EditorTabState: Identifiable {
             awaitingLargeFileConfirmation = true
             isLoading = false
             isIncrementalLoading = false
-            resetStreamAppendSignal()
             return
         }
 
@@ -128,14 +119,12 @@ final class EditorTabState: Identifiable {
     func confirmLargeFileOpen() {
         awaitingLargeFileConfirmation = false
         isIncrementalLoading = false
-        resetStreamAppendSignal()
         performLoad()
     }
 
     func cancelLargeFileOpen() {
         awaitingLargeFileConfirmation = false
         isIncrementalLoading = false
-        resetStreamAppendSignal()
         errorMessage = "File load cancelled."
     }
 
@@ -145,11 +134,8 @@ final class EditorTabState: Identifiable {
         isModified = false
         errorMessage = nil
         backingStore = nil
-        resetStreamAppendSignal()
         loadTask?.cancel()
         let path = filePath
-        let size = fileSize(at: path)
-        let useViewport = size >= Self.viewportSizeThreshold
         loadTask = Task { [weak self] in
             do {
                 var hasInitialChunk = false
@@ -158,25 +144,18 @@ final class EditorTabState: Identifiable {
                     switch event {
                     case let .initial(text, hasMore):
                         hasInitialChunk = true
-                        if useViewport {
-                            let store = TextBackingStore()
-                            store.loadFromText(text)
-                            backingStore = store
-                            content = ""
-                            backingStoreVersion += 1
-                        } else {
-                            setContent(text)
-                        }
+                        let store = TextBackingStore()
+                        store.loadFromText(text)
+                        backingStore = store
+                        backingStoreVersion += 1
                         refreshReadOnlyStatus()
                         isModified = false
                         isLoading = false
                         isIncrementalLoading = hasMore
                     case let .appended(text):
-                        if useViewport, let store = backingStore {
-                            store.appendText(text)
+                        if let backingStore {
+                            backingStore.appendText(text)
                             backingStoreVersion += 1
-                        } else {
-                            emitStreamAppend(text)
                         }
                         if isLoading {
                             isLoading = false
@@ -185,8 +164,8 @@ final class EditorTabState: Identifiable {
                             isIncrementalLoading = true
                         }
                     case .finished:
-                        if useViewport {
-                            backingStore?.finishLoading()
+                        if let backingStore {
+                            backingStore.finishLoading()
                             backingStoreVersion += 1
                         }
                         refreshReadOnlyStatus()
@@ -203,19 +182,15 @@ final class EditorTabState: Identifiable {
                 if !hasInitialChunk {
                     isLoading = false
                     isIncrementalLoading = false
-                    resetStreamAppendSignal()
                 }
             } catch {
                 guard !Task.isCancelled, let self else { return }
                 errorMessage = error.localizedDescription
                 isLoading = false
                 isIncrementalLoading = false
-                resetStreamAppendSignal()
             }
         }
     }
-
-    private static let viewportSizeThreshold: Int64 = 512 * 1024
 
     private func fileSize(at path: String) -> Int64 {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
@@ -335,11 +310,11 @@ final class EditorTabState: Identifiable {
     func saveFileAsync() async throws {
         guard !isSaving else { return }
         isSaving = true
-        let liveContent: String = if let store = backingStore {
-            store.fullText()
-        } else {
-            contentProvider?() ?? content
+        guard let store = backingStore else {
+            isSaving = false
+            return
         }
+        let liveContent = store.fullText()
         let textToSave: String = if !liveContent.isEmpty, !liveContent.hasSuffix("\n") {
             liveContent + "\n"
         } else {
@@ -354,10 +329,6 @@ final class EditorTabState: Identifiable {
         do {
             try await Self.writeFile(text: textToSave, path: path)
             isSaving = false
-            if backingStore == nil {
-                content = liveContent
-                resetStreamAppendSignal()
-            }
             isModified = false
         } catch {
             isSaving = false
@@ -389,50 +360,6 @@ final class EditorTabState: Identifiable {
     func markModified() {
         guard !isModified else { return }
         isModified = true
-    }
-
-    func setContent(_ newContent: String) {
-        content = newContent
-        contentVersion += 1
-    }
-
-    private func emitStreamAppend(_ chunk: String) {
-        guard !chunk.isEmpty else { return }
-        pendingAppendChunks.append(chunk)
-        streamAppendVersion += 1
-    }
-
-    private func resetStreamAppendSignal() {
-        pendingAppendChunks.removeAll(keepingCapacity: true)
-        streamAppendVersion += 1
-    }
-
-    func dequeuePendingAppendChunks(maxCount: Int) -> [String] {
-        guard maxCount > 0, !pendingAppendChunks.isEmpty else { return [] }
-        let count = min(maxCount, pendingAppendChunks.count)
-        let chunks = Array(pendingAppendChunks.prefix(count))
-        pendingAppendChunks.removeFirst(count)
-        return chunks
-    }
-
-    var hasPendingAppendChunks: Bool {
-        !pendingAppendChunks.isEmpty
-    }
-
-    func requestPendingAppendDrainIfNeeded() {
-        guard hasPendingAppendChunks else { return }
-        streamAppendVersion += 1
-    }
-
-    func registerContentProvider(_ provider: (() -> String?)?) {
-        contentProvider = provider
-    }
-
-    func flushEditorContent(_ newContent: String) {
-        if backingStore == nil {
-            content = newContent
-        }
-        pendingAppendChunks.removeAll(keepingCapacity: false)
     }
 
     func navigateSearch(_ direction: EditorSearchNavigationDirection) {

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct EditorPane: View {
@@ -45,6 +46,7 @@ struct EditorPane: View {
                             replaceText: state.replaceText,
                             replaceVersion: state.replaceVersion,
                             replaceAllVersion: state.replaceAllVersion,
+                            editorFocusVersion: state.editorFocusVersion,
                             onLineLayoutChange: { layouts in
                                 lineLayouts = layouts
                             },
@@ -90,6 +92,7 @@ struct EditorPane: View {
                             },
                             onClose: {
                                 state.searchVisible = false
+                                state.editorFocusVersion += 1
                             }
                         )
                     }
@@ -177,8 +180,10 @@ private struct LineNumberGutter: View {
 
     private var gutterWidth: CGFloat {
         let digits = max(4, String(max(1, totalLineCount)).count)
-        let charWidth = gutterFontSize * 0.65
-        return CGFloat(digits) * charWidth + 16
+        let sample = String(repeating: "8", count: digits)
+        let font = NSFont(name: fontFamily, size: gutterFontSize) ?? .monospacedDigitSystemFont(ofSize: gutterFontSize, weight: .regular)
+        let textWidth = (sample as NSString).size(withAttributes: [.font: font]).width
+        return ceil(textWidth) + 16
     }
 
     var body: some View {

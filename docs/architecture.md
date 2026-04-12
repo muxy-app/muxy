@@ -24,10 +24,10 @@ Muxy/
     KeyBinding.swift          ShortcutAction enum + KeyBinding defaults
     KeyCombo.swift            Key combo encoding, display, matching
     VCSTabState.swift         Git diff viewer state + loading orchestration
-    EditorTabState.swift      Code editor tab state (file content, cursor, save, viewport mode)
+    EditorTabState.swift      Code editor tab state (backing store, cursor, search, save)
     EditorSettings.swift      @Observable editor preferences (font, wrap, tab size, feature toggles)
-    TextBackingStore.swift    Line-array backing store for large files (viewport mode)
-    ViewportState.swift       Viewport window computation and line mapping for large files
+    TextBackingStore.swift    Line-array backing store for editor documents
+    ViewportState.swift       Viewport window computation and line mapping for editor documents
     Project.swift             Project folder metadata
     Worktree.swift            Per-project worktree slot (primary or git worktree)
     WorktreeKey.swift         Hashable (projectID, worktreeID) key for workspace maps
@@ -88,7 +88,7 @@ Muxy/
       TerminalSearchBar.swift Find-in-terminal UI
       TerminalViewRegistry.swift  Terminal view lifecycle management
     Editor/
-      CodeEditorRepresentable.swift  NSViewRepresentable bridge for code editor (direct + viewport modes)
+      CodeEditorRepresentable.swift  NSViewRepresentable bridge for code editor (viewport rendering path)
       EditorPane.swift        SwiftUI wrapper for editor tab (breadcrumb + editor)
       Extensions/
         SyntaxHighlightExtension.swift  Regex-based syntax highlighting rules for code editor
@@ -143,6 +143,7 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
 
 ## Key Integration Points
 
+- **Editor Pipeline**: All opened files are loaded into `TextBackingStore` and rendered through the viewport pipeline in `CodeEditorRepresentable`. The size thresholds in `EditorTabState` control only large-file warning/refusal UX, not editor mode selection.
 - **GhosttyKit**: C module wrapping `ghostty.h`. Precompiled xcframework from `muxy-app/ghostty` fork. Surfaces created/destroyed via `TerminalViewRegistry`.
 - **Persistence**: All files in `~/Library/Application Support/Muxy/`. Shared directory helper: `MuxyFileStorage`. Worktrees are persisted per-project at `worktrees/{projectID}.json`. Worktree setup commands live in-repo at `{Project.path}/.muxy/worktree.json`.
 - **Ghostty Config**: Managed by `MuxyConfig`, stored at `~/Library/Application Support/Muxy/ghostty.conf`. Seeded from `~/.config/ghostty/config` on first run.

@@ -8,8 +8,42 @@ struct LineLayoutInfo: Equatable {
 }
 
 private final class CodeEditorTextView: NSTextView {
+    private static let undoActionSelector = #selector(CodeEditorTextView.undo(_:))
+    private static let redoActionSelector = #selector(CodeEditorTextView.redo(_:))
+
+    var onUndoRequest: (() -> Bool)?
+    var onRedoRequest: (() -> Bool)?
+    var canUndoRequest: (() -> Bool)?
+    var canRedoRequest: (() -> Bool)?
+
     override func paste(_ sender: Any?) {
         pasteAsPlainText(sender)
+    }
+
+    @objc
+    func undo(_ sender: Any?) {
+        if onUndoRequest?() == true {
+            return
+        }
+        undoManager?.undo()
+    }
+
+    @objc
+    func redo(_ sender: Any?) {
+        if onRedoRequest?() == true {
+            return
+        }
+        undoManager?.redo()
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == Self.undoActionSelector, let canUndoRequest {
+            return canUndoRequest()
+        }
+        if item.action == Self.redoActionSelector, let canRedoRequest {
+            return canRedoRequest()
+        }
+        return super.validateUserInterfaceItem(item)
     }
 
     override func scrollRangeToVisible(_ range: NSRange) {
@@ -22,6 +56,9 @@ private final class CodeEditorTextView: NSTextView {
         var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
         rect.origin.y += textContainerOrigin.y
         rect.origin.x += textContainerOrigin.x
+        if let documentView = scrollView.documentView {
+            rect = convert(rect, to: documentView)
+        }
 
         let clipBounds = scrollView.contentView.bounds
         let visibleMinY = clipBounds.origin.y
@@ -30,12 +67,19 @@ private final class CodeEditorTextView: NSTextView {
         let cursorMinY = rect.origin.y
         let cursorMaxY = rect.origin.y + rect.height
 
+        let maxScrollY: CGFloat = if let documentView = scrollView.documentView {
+            max(0, documentView.bounds.height - clipBounds.height)
+        } else {
+            0
+        }
+
         if cursorMaxY > visibleMaxY {
-            let newY = cursorMaxY - clipBounds.height
+            let newY = min(maxScrollY, max(0, cursorMaxY - clipBounds.height))
             scrollView.contentView.setBoundsOrigin(NSPoint(x: clipBounds.origin.x, y: newY))
             scrollView.reflectScrolledClipView(scrollView.contentView)
         } else if cursorMinY < visibleMinY {
-            scrollView.contentView.setBoundsOrigin(NSPoint(x: clipBounds.origin.x, y: cursorMinY))
+            let newY = min(maxScrollY, max(0, cursorMinY))
+            scrollView.contentView.setBoundsOrigin(NSPoint(x: clipBounds.origin.x, y: newY))
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
     }
@@ -78,6 +122,7 @@ struct CodeEditorView: NSViewRepresentable {
     let replaceText: String
     let replaceVersion: Int
     let replaceAllVersion: Int
+    let editorFocusVersion: Int
     let onLineLayoutChange: ([LineLayoutInfo]) -> Void
     let onTotalLineCountChange: (Int) -> Void
 
@@ -149,13 +194,23 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.contentView.postsBoundsChangedNotifications = true
 
-        textView.delegate = context.coordinator
-        context.coordinator.textView = textView
-        context.coordinator.scrollView = scrollView
-        state.registerContentProvider { [weak textView] in
-            textView?.string
+        let coordinator = context.coordinator
+        textView.delegate = coordinator
+        coordinator.textView = textView
+        coordinator.scrollView = scrollView
+        textView.onUndoRequest = { [weak coordinator] in
+            coordinator?.performUndoRequest() ?? false
         }
-        context.coordinator.setScrollObserver(for: scrollView, onLineLayoutChange: onLineLayoutChange)
+        textView.onRedoRequest = { [weak coordinator] in
+            coordinator?.performRedoRequest() ?? false
+        }
+        textView.canUndoRequest = { [weak coordinator] in
+            coordinator?.canPerformUndoRequest() ?? false
+        }
+        textView.canRedoRequest = { [weak coordinator] in
+            coordinator?.canPerformRedoRequest() ?? false
+        }
+        coordinator.setScrollObserver(for: scrollView, onLineLayoutChange: onLineLayoutChange)
 
         textView.undoManager?.removeAllActions()
 
@@ -163,17 +218,16 @@ struct CodeEditorView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        if coordinator.isViewportMode {
-            coordinator.state.registerContentProvider(nil)
-        } else {
-            guard let textView = coordinator.textView else { return }
-            coordinator.state.flushEditorContent(textView.string)
-            coordinator.state.registerContentProvider(nil)
-        }
         if let textView = coordinator.textView {
             textView.undoManager?.removeAllActions()
             if let window = textView.window, window.firstResponder === textView {
                 window.makeFirstResponder(nil)
+            }
+            if let codeTextView = textView as? CodeEditorTextView {
+                codeTextView.onUndoRequest = nil
+                codeTextView.onRedoRequest = nil
+                codeTextView.canUndoRequest = nil
+                codeTextView.canRedoRequest = nil
             }
         }
         coordinator.textView?.delegate = nil
@@ -219,122 +273,14 @@ struct CodeEditorView: NSViewRepresentable {
         guard let textView = context.coordinator.textView else { return }
         let coordinator = context.coordinator
 
-        if state.isViewportMode, !coordinator.isViewportMode {
+        if state.backingStore != nil, coordinator.viewportState == nil {
             coordinator.enterViewportMode(scrollView: scrollView)
         }
 
-        if coordinator.isViewportMode {
-            updateNSViewViewportMode(scrollView: scrollView, textView: textView, coordinator: coordinator)
-        } else {
-            updateNSViewDirectMode(scrollView: scrollView, textView: textView, coordinator: coordinator)
-        }
+        updateNSViewViewportMode(scrollView: scrollView, textView: textView, coordinator: coordinator)
     }
 
-    // MARK: - Direct Mode (small files, unchanged from before)
-
-    private func updateNSViewDirectMode(scrollView: NSScrollView, textView: NSTextView, coordinator: Coordinator) {
-        let stateContentChanged = coordinator.lastSyncedContentVersion != state.contentVersion
-        var replacedFullContent = false
-        if stateContentChanged {
-            coordinator.isUpdating = true
-            textView.undoManager?.disableUndoRegistration()
-            textView.string = state.content
-            textView.undoManager?.enableUndoRegistration()
-            textView.undoManager?.removeAllActions()
-            coordinator.isUpdating = false
-            coordinator.rebuildLineStartOffsets(using: state.content as NSString)
-            coordinator.lastSyncedContentVersion = state.contentVersion
-            replacedFullContent = true
-        }
-
-        let streamAppendChanged = coordinator.lastSyncedStreamAppendVersion != state.streamAppendVersion
-        var appendedChunk = false
-        if streamAppendChanged {
-            coordinator.lastSyncedStreamAppendVersion = state.streamAppendVersion
-            let chunks = state.dequeuePendingAppendChunks(maxCount: 2)
-            if !chunks.isEmpty {
-                coordinator.isUpdating = true
-                textView.undoManager?.disableUndoRegistration()
-                for chunk in chunks {
-                    coordinator.appendChunkToTextView(chunk, textView: textView)
-                }
-                textView.didChangeText()
-                textView.undoManager?.enableUndoRegistration()
-                textView.undoManager?.removeAllActions()
-                coordinator.isUpdating = false
-                appendedChunk = true
-            }
-            if state.hasPendingAppendChunks {
-                state.requestPendingAppendDrainIfNeeded()
-            }
-        }
-
-        let contentChanged = replacedFullContent || appendedChunk
-        let incrementalFinished = coordinator.wasIncrementalLoading && !state.isIncrementalLoading
-        coordinator.wasIncrementalLoading = state.isIncrementalLoading
-
-        if !coordinator.hasAppliedInitialContent, !state.content.isEmpty || contentChanged {
-            coordinator.hasAppliedInitialContent = true
-            textView.setSelectedRange(NSRange(location: 0, length: 0))
-            textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
-            if focused {
-                Self.claimFirstResponder(textView: textView, attemptsRemaining: 20)
-            }
-        }
-
-        applyThemeAndFont(textView: textView, coordinator: coordinator)
-
-        let themeChanged = coordinator.lastThemeVersion != themeVersion
-        let font = editorSettings.resolvedFont
-        let fontChanged = textView.font != font
-
-        let wrapChanged = coordinator.lastWordWrap != editorSettings.wordWrap
-        if wrapChanged {
-            coordinator.lastWordWrap = editorSettings.wordWrap
-            Self.applyWordWrap(editorSettings.wordWrap, to: textView, scrollView: textView.enclosingScrollView ?? NSScrollView())
-        }
-
-        coordinator.tabSize = editorSettings.tabSize
-        let syntaxToggleChanged = coordinator.applyFeatureToggleChanges(editorSettings: editorSettings)
-
-        if editorSettings.syntaxHighlighting {
-            if contentChanged {
-                if appendedChunk {
-                    if !state.isIncrementalLoading {
-                        coordinator.resetHighlightedRange()
-                        coordinator.highlightVisibleRange(force: true)
-                    }
-                } else {
-                    coordinator.resetHighlightedRange()
-                    coordinator.highlightVisibleRange(force: true)
-                }
-            } else if incrementalFinished {
-                coordinator.resetHighlightedRange()
-                coordinator.highlightVisibleRange(force: true)
-            } else if themeChanged || fontChanged || syntaxToggleChanged {
-                coordinator.applyHighlighting()
-            }
-        } else if syntaxToggleChanged {
-            coordinator.stripHighlighting()
-        }
-
-        if themeChanged {
-            coordinator.lastThemeVersion = themeVersion
-        }
-
-        updateSearch(coordinator: coordinator)
-
-        coordinator.onLineLayoutChange = onLineLayoutChange
-        coordinator.onTotalLineCountChange = onTotalLineCountChange
-        coordinator.reportTotalLineCount()
-
-        let shouldInvalidateLayouts = themeChanged || fontChanged || wrapChanged || replacedFullContent
-        if shouldInvalidateLayouts || incrementalFinished {
-            coordinator.invalidateAndReportLayouts()
-        }
-    }
-
-    // MARK: - Viewport Mode (large files)
+    // MARK: - Viewport Mode
 
     private func updateNSViewViewportMode(scrollView: NSScrollView, textView: NSTextView, coordinator: Coordinator) {
         guard let viewport = coordinator.viewportState else { return }
@@ -342,6 +288,7 @@ struct CodeEditorView: NSViewRepresentable {
         let backingStoreChanged = coordinator.lastSyncedBackingStoreVersion != state.backingStoreVersion
         if backingStoreChanged {
             coordinator.lastSyncedBackingStoreVersion = state.backingStoreVersion
+            coordinator.clearViewportHistory()
         }
 
         let incrementalFinished = coordinator.wasIncrementalLoading && !state.isIncrementalLoading
@@ -393,6 +340,11 @@ struct CodeEditorView: NSViewRepresentable {
 
         updateSearchViewport(coordinator: coordinator)
 
+        if coordinator.lastEditorFocusVersion != editorFocusVersion {
+            coordinator.lastEditorFocusVersion = editorFocusVersion
+            coordinator.focusEditorPreservingSelection()
+        }
+
         coordinator.onLineLayoutChange = onLineLayoutChange
         coordinator.onTotalLineCountChange = onTotalLineCountChange
         coordinator.reportTotalLineCountViewport()
@@ -414,43 +366,14 @@ struct CodeEditorView: NSViewRepresentable {
         }
     }
 
-    private func updateSearch(coordinator: Coordinator) {
-        let searchOptionsChanged = coordinator.lastSearchCaseSensitive != searchCaseSensitive
-            || coordinator.lastSearchUseRegex != searchUseRegex
-        if coordinator.lastSearchNeedle != searchNeedle || searchOptionsChanged {
-            coordinator.lastSearchNeedle = searchNeedle
-            coordinator.lastSearchCaseSensitive = searchCaseSensitive
-            coordinator.lastSearchUseRegex = searchUseRegex
-            coordinator.performSearch(searchNeedle, caseSensitive: searchCaseSensitive, useRegex: searchUseRegex)
-        }
-
-        if coordinator.lastSearchNavigationVersion != searchNavigationVersion {
-            coordinator.lastSearchNavigationVersion = searchNavigationVersion
-            coordinator.navigateSearch(forward: searchNavigationDirection == .next)
-        }
-
-        if coordinator.lastReplaceVersion != replaceVersion {
-            coordinator.lastReplaceVersion = replaceVersion
-            coordinator.replaceCurrent(
-                with: replaceText,
-                needle: searchNeedle,
-                caseSensitive: searchCaseSensitive,
-                useRegex: searchUseRegex
-            )
-        }
-
-        if coordinator.lastReplaceAllVersion != replaceAllVersion {
-            coordinator.lastReplaceAllVersion = replaceAllVersion
-            coordinator.replaceAll(
-                with: replaceText,
-                needle: searchNeedle,
-                caseSensitive: searchCaseSensitive,
-                useRegex: searchUseRegex
-            )
-        }
-    }
-
     private func updateSearchViewport(coordinator: Coordinator) {
+        if !state.searchVisible, coordinator.lastSearchVisible {
+            coordinator.lastSearchVisible = false
+            coordinator.clearSearchHighlights()
+            return
+        }
+        coordinator.lastSearchVisible = state.searchVisible
+
         let searchOptionsChanged = coordinator.lastSearchCaseSensitive != searchCaseSensitive
             || coordinator.lastSearchUseRegex != searchUseRegex
         if coordinator.lastSearchNeedle != searchNeedle || searchOptionsChanged {
@@ -490,6 +413,30 @@ struct CodeEditorView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
+        private struct ViewportCursor {
+            let line: Int
+            let column: Int
+        }
+
+        private struct PendingViewportEdit {
+            let startLine: Int
+            let oldLines: [String]
+            let newLines: [String]
+            let selectionBefore: ViewportCursor
+        }
+
+        private struct ViewportEdit {
+            let startLine: Int
+            let oldLines: [String]
+            let newLines: [String]
+            let selectionBefore: ViewportCursor
+            let selectionAfter: ViewportCursor
+        }
+
+        private struct ViewportEditGroup {
+            var edits: [ViewportEdit]
+        }
+
         let state: EditorTabState
         let editorSettings: EditorSettings
         weak var textView: NSTextView? {
@@ -502,28 +449,25 @@ struct CodeEditorView: NSViewRepresentable {
         weak var scrollView: NSScrollView?
         var viewportState: ViewportState?
         var containerView: ViewportContainerView?
-        var isViewportMode = false
 
         var isUpdating = false
         private var isEditingViewport = false
         var hasAppliedInitialContent = false
         var lastThemeVersion = -1
+        var lastSearchVisible = false
         var lastSearchNeedle = ""
         var lastSearchNavigationVersion = -1
         var lastSearchCaseSensitive = false
         var lastSearchUseRegex = false
         var lastReplaceVersion = 0
         var lastReplaceAllVersion = 0
+        var lastEditorFocusVersion = 0
         var lastWordWrap = true
         var lastSyntaxHighlighting = true
         var lastCurrentLineHighlight = true
         var lastBracketMatching = true
-        var lastSyncedContentVersion = -1
-        var lastSyncedStreamAppendVersion = -1
         var lastSyncedBackingStoreVersion = -1
         var wasIncrementalLoading = false
-        var lastHighlightedRange: NSRange = .init(location: 0, length: 0)
-        private static let highlightBuffer = 2000
         private static let initialViewportLineLimit = 1100
         var tabSize = 4
         var onLineLayoutChange: ([LineLayoutInfo]) -> Void = { _ in }
@@ -531,17 +475,22 @@ struct CodeEditorView: NSViewRepresentable {
         private weak var observedContentView: NSClipView?
         private weak var observedTextView: NSTextView?
         private(set) var lineStartOffsets: [Int] = [0]
-        private var pendingEditRange: NSRange?
-        private var pendingEditReplacement = ""
-        private var hasPendingEdit = false
-        private var hasMultiplePendingEdits = false
         private var lastReportedLayouts: [LineLayoutInfo] = []
         private var highlightDebounceWork: DispatchWorkItem?
         private var pendingHighlightEditLocation: Int?
         private static let highlightDebounceDelay: TimeInterval = 0.15
         private static let highlightEditLineRadius = 3
+        private static let viewportUndoLimit = 200
+        private static let viewportUndoCoalesceInterval: CFTimeInterval = 1.0
+        private static let undoCommandSelector = #selector(CodeEditorTextView.undo(_:))
+        private static let redoCommandSelector = #selector(CodeEditorTextView.redo(_:))
         private var highlightGeneration = 0
         private var activeHighlightTask: Task<Void, Never>?
+        private var pendingViewportEdit: PendingViewportEdit?
+        private var viewportUndoStack: [ViewportEditGroup] = []
+        private var viewportRedoStack: [ViewportEditGroup] = []
+        private var lastViewportEditTimestamp: CFTimeInterval?
+        private var isApplyingViewportHistory = false
         private let lineHighlightView: NSView = {
             let view = NSView()
             view.wantsLayer = true
@@ -602,10 +551,10 @@ struct CodeEditorView: NSViewRepresentable {
 
         func enterViewportMode(scrollView: NSScrollView) {
             guard let store = state.backingStore, let textView else { return }
-            isViewportMode = true
             textView.allowsUndo = false
             textView.undoManager?.removeAllActions()
             textView.usesFindBar = false
+            clearViewportHistory()
 
             let viewport = ViewportState(backingStore: store)
             viewport.updateEstimatedLineHeight(font: editorSettings.resolvedFont)
@@ -630,8 +579,6 @@ struct CodeEditorView: NSViewRepresentable {
                 width: scrollView.contentSize.width,
                 height: viewport.estimatedLineHeight * CGFloat(min(Self.initialViewportLineLimit, store.lineCount))
             )
-
-            state.registerContentProvider(nil)
         }
 
         func updateContainerHeight() {
@@ -646,6 +593,9 @@ struct CodeEditorView: NSViewRepresentable {
             let visibleHeight = scrollView.contentView.bounds.height
 
             guard force || viewport.shouldUpdateViewport(scrollY: scrollY, visibleHeight: visibleHeight) else { return }
+
+            let savedCursor = globalCursorFromLocalLocation(textView.selectedRange().location)
+            let savedSelectionLength = textView.selectedRange().length
 
             let newRange = viewport.computeViewport(scrollY: scrollY, visibleHeight: visibleHeight)
             viewport.applyViewport(newRange)
@@ -674,12 +624,27 @@ struct CodeEditorView: NSViewRepresentable {
             )
 
             CATransaction.commit()
-            isUpdating = false
 
             rebuildLineStartOffsetsForViewport()
 
+            if let savedCursor,
+               let newLocalLine = viewport.viewportLine(forBackingStoreLine: savedCursor.line)
+            {
+                let newCharOffset = charOffsetForLocalLine(newLocalLine)
+                let newContent = textView.string as NSString
+                let lineRange = newContent.lineRange(for: NSRange(location: min(newCharOffset, newContent.length), length: 0))
+                let lineLength = lineRange.length - (NSMaxRange(lineRange) < newContent.length ? 1 : 0)
+                let newCursor = newCharOffset + min(savedCursor.column, max(0, lineLength))
+                let safeCursor = min(newCursor, newContent.length)
+                textView.setSelectedRange(NSRange(location: safeCursor, length: min(savedSelectionLength, newContent.length - safeCursor)))
+            }
+
+            isUpdating = false
+
             if editorSettings.syntaxHighlighting {
                 highlightViewportAsync(text: text)
+            } else {
+                applySearchHighlights()
             }
         }
 
@@ -693,6 +658,7 @@ struct CodeEditorView: NSViewRepresentable {
                 let result = await highlighter.computeHighlightsAsync(text: text, range: fullRange)
                 guard let self, self.highlightGeneration == generation else { return }
                 self.applyHighlightResult(result, range: fullRange)
+                self.applySearchHighlights()
             }
         }
 
@@ -796,6 +762,82 @@ struct CodeEditorView: NSViewRepresentable {
             onTotalLineCountChange(viewport.backingStore.lineCount)
         }
 
+        // MARK: - Editor Focus
+
+        func focusEditorPreservingSelection() {
+            guard let textView else { return }
+            if let viewport = viewportState, !viewportSearchMatches.isEmpty {
+                let currentIndex = max(0, state.searchCurrentIndex - 1)
+                if currentIndex < viewportSearchMatches.count {
+                    let match = viewportSearchMatches[currentIndex]
+                    if let localLine = viewport.viewportLine(forBackingStoreLine: match.lineIndex) {
+                        let localCharOffset = charOffsetForLocalLine(localLine)
+                        let selectRange = NSRange(
+                            location: localCharOffset + match.range.location,
+                            length: match.range.length
+                        )
+                        let content = textView.string as NSString
+                        if NSMaxRange(selectRange) <= content.length {
+                            textView.setSelectedRange(selectRange)
+                        }
+                    }
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak textView] in
+                guard let textView, let window = textView.window else { return }
+                window.makeFirstResponder(textView)
+            }
+        }
+
+        // MARK: - Search Highlighting
+
+        func clearSearchHighlights() {
+            viewportSearchMatches = []
+            state.searchMatchCount = 0
+            state.searchCurrentIndex = 0
+            applySearchHighlights()
+        }
+
+        func applySearchHighlights() {
+            guard let textView, let layoutManager = textView.layoutManager else { return }
+            let storageLength = textView.textStorage?.length ?? 0
+            guard storageLength > 0 else { return }
+
+            layoutManager.removeTemporaryAttribute(
+                .backgroundColor,
+                forCharacterRange: NSRange(location: 0, length: storageLength)
+            )
+
+            guard let viewport = viewportState, !viewportSearchMatches.isEmpty else {
+                textView.needsDisplay = true
+                return
+            }
+
+            let matchBg = GhosttyService.shared.foregroundColor.withAlphaComponent(0.2)
+            let themeYellow = GhosttyService.shared.paletteColor(at: 3) ?? NSColor.systemYellow
+            let currentMatchBg = themeYellow.withAlphaComponent(0.85)
+            let currentMatchFg = GhosttyService.shared.backgroundColor
+            let currentIndex = max(0, state.searchCurrentIndex - 1)
+
+            for (i, match) in viewportSearchMatches.enumerated() {
+                guard let localLine = viewport.viewportLine(forBackingStoreLine: match.lineIndex) else { continue }
+                let localCharOffset = charOffsetForLocalLine(localLine)
+                let highlightRange = NSRange(
+                    location: localCharOffset + match.range.location,
+                    length: match.range.length
+                )
+                guard NSMaxRange(highlightRange) <= storageLength else { continue }
+                if i == currentIndex {
+                    layoutManager.addTemporaryAttribute(.backgroundColor, value: currentMatchBg, forCharacterRange: highlightRange)
+                    layoutManager.addTemporaryAttribute(.foregroundColor, value: currentMatchFg, forCharacterRange: highlightRange)
+                } else {
+                    layoutManager.addTemporaryAttribute(.backgroundColor, value: matchBg, forCharacterRange: highlightRange)
+                }
+            }
+
+            textView.needsDisplay = true
+        }
+
         // MARK: - Viewport Search
 
         private var viewportSearchMatches: [TextBackingStore.SearchMatch] = []
@@ -807,6 +849,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard !needle.isEmpty else {
                 state.searchMatchCount = 0
                 state.searchCurrentIndex = 0
+                applySearchHighlights()
                 return
             }
             if useRegex {
@@ -814,6 +857,7 @@ struct CodeEditorView: NSViewRepresentable {
                     state.searchInvalidRegex = true
                     state.searchMatchCount = 0
                     state.searchCurrentIndex = 0
+                    applySearchHighlights()
                     return
                 }
             }
@@ -824,6 +868,7 @@ struct CodeEditorView: NSViewRepresentable {
                 scrollToSearchMatch(at: 0)
             } else {
                 state.searchCurrentIndex = 0
+                applySearchHighlights()
             }
         }
 
@@ -841,6 +886,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         func replaceCurrentViewport(with replacement: String, needle: String, caseSensitive: Bool, useRegex: Bool) {
             guard let store = state.backingStore, !needle.isEmpty, !viewportSearchMatches.isEmpty else { return }
+            clearViewportHistory()
             let currentIndex = max(0, state.searchCurrentIndex - 1)
             guard currentIndex < viewportSearchMatches.count else { return }
             let match = viewportSearchMatches[currentIndex]
@@ -856,6 +902,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         func replaceAllViewport(with replacement: String, needle: String, caseSensitive: Bool, useRegex: Bool) {
             guard let store = state.backingStore, !needle.isEmpty, !viewportSearchMatches.isEmpty else { return }
+            clearViewportHistory()
             var grouped: [Int: [NSRange]] = [:]
             for match in viewportSearchMatches {
                 grouped[match.lineIndex, default: []].append(match.range)
@@ -889,10 +936,11 @@ struct CodeEditorView: NSViewRepresentable {
 
             guard let localLine = viewport.viewportLine(forBackingStoreLine: match.lineIndex) else { return }
             let localCharOffset = charOffsetForLocalLine(localLine)
-            let selectRange = NSRange(location: localCharOffset + match.range.location, length: match.range.length)
+            let matchStart = localCharOffset + match.range.location
             let content = textView.string as NSString
-            guard NSMaxRange(selectRange) <= content.length else { return }
-            textView.setSelectedRange(selectRange)
+            guard matchStart <= content.length else { return }
+            textView.setSelectedRange(NSRange(location: matchStart, length: 0))
+            applySearchHighlights()
         }
 
         private func charOffsetForLocalLine(_ localLine: Int) -> Int {
@@ -906,11 +954,7 @@ struct CodeEditorView: NSViewRepresentable {
             self.onLineLayoutChange = onLineLayoutChange
 
             guard observedContentView !== scrollView.contentView else {
-                if isViewportMode {
-                    reportLineLayoutsViewport()
-                } else {
-                    reportLineLayouts()
-                }
+                reportLineLayoutsViewport()
                 return
             }
 
@@ -923,11 +967,7 @@ struct CodeEditorView: NSViewRepresentable {
                 object: scrollView.contentView
             )
 
-            if isViewportMode {
-                reportLineLayoutsViewport()
-            } else {
-                reportLineLayouts()
-            }
+            reportLineLayoutsViewport()
         }
 
         private func removeScrollObserver() {
@@ -1033,137 +1073,83 @@ struct CodeEditorView: NSViewRepresentable {
 
         @objc
         private func handleScrollBoundsChange() {
-            if isViewportMode {
-                if !isEditingViewport {
-                    refreshViewport(force: false)
-                }
-                reportLineLayoutsViewport()
-            } else {
-                reportLineLayouts()
-                if editorSettings.syntaxHighlighting {
-                    highlightVisibleRange()
-                }
+            if !isEditingViewport {
+                refreshViewport(force: false)
             }
+            reportLineLayoutsViewport()
         }
 
         @objc
         private func handleFrameChange() {
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if isViewportMode {
-                    reportLineLayoutsViewport()
-                } else {
-                    reportLineLayouts()
-                }
+                self?.reportLineLayoutsViewport()
             }
-        }
-
-        func invalidateAndReportLayouts() {
-            lastReportedLayouts = []
-            guard let textView, let layoutManager = textView.layoutManager,
-                  let container = textView.textContainer
-            else { return }
-            layoutManager.ensureLayout(for: container)
-            DispatchQueue.main.async { [weak self] in
-                self?.reportLineLayouts()
-            }
-        }
-
-        func reportLineLayouts() {
-            guard let textView, let layoutManager = textView.layoutManager,
-                  let textContainer = textView.textContainer,
-                  let scrollView = textView.enclosingScrollView
-            else { return }
-
-            let visibleRect = scrollView.contentView.bounds
-            let containerOriginY = textView.textContainerOrigin.y
-            let content = textView.string as NSString
-            guard content.length > 0 else {
-                let info = [LineLayoutInfo(lineNumber: 1, yOffset: containerOriginY - visibleRect.origin.y, height: 16)]
-                guard info != lastReportedLayouts else { return }
-                lastReportedLayouts = info
-                onLineLayoutChange(info)
-                return
-            }
-
-            let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-            let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
-
-            var lineNumber = lineNumber(atCharacterLocation: visibleCharRange.location)
-
-            var layouts: [LineLayoutInfo] = []
-            var index = visibleCharRange.location
-            while index <= NSMaxRange(visibleCharRange), index < content.length {
-                let lineRange = content.lineRange(for: NSRange(location: index, length: 0))
-                let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-                let lineRect = Self.lineFragmentRect(
-                    for: glyphRange,
-                    layoutManager: layoutManager,
-                    textContainer: textContainer
-                )
-
-                layouts.append(LineLayoutInfo(
-                    lineNumber: lineNumber,
-                    yOffset: lineRect.origin.y + containerOriginY - visibleRect.origin.y,
-                    height: lineRect.height
-                ))
-
-                lineNumber += 1
-                let nextIndex = NSMaxRange(lineRange)
-                if nextIndex <= index { break }
-                index = nextIndex
-            }
-
-            guard layouts != lastReportedLayouts else { return }
-            lastReportedLayouts = layouts
-            onLineLayoutChange(layouts)
         }
 
         // MARK: - NSTextViewDelegate
 
         func textDidChange(_: Notification) {
             guard let textView, !isUpdating else { return }
-
-            if isViewportMode {
-                handleTextDidChangeViewport(textView)
-                return
-            }
-
-            isUpdating = true
-            let canApplyIncrementalEdit = hasPendingEdit
-                && !hasMultiplePendingEdits
-                && applyPendingLineStartOffsetEdit()
-            if !canApplyIncrementalEdit {
-                rebuildLineStartOffsets(using: textView.string as NSString)
-            }
-            resetPendingEditState()
-            state.markModified()
-            isUpdating = false
-            if editorSettings.syntaxHighlighting {
-                scheduleHighlight()
-            }
+            handleTextDidChangeViewport(textView)
         }
 
         private func handleTextDidChangeViewport(_ textView: NSTextView) {
             guard let viewport = viewportState, let scrollView else { return }
+            let pendingEdit = pendingViewportEdit
+            pendingViewportEdit = nil
             let cursorLocation = textView.selectedRange().location
-            let newLocalText = textView.string
-            let newLocalLines = newLocalText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-            let oldLineCount = viewport.viewportEndLine - viewport.viewportStartLine
-            let newLineCount = newLocalLines.count
-            let oldRange = viewport.viewportStartLine ..< viewport.viewportEndLine
-            _ = viewport.backingStore.replaceLines(in: oldRange, with: newLocalLines)
-            viewport.applyViewport(viewport.viewportStartLine ..< viewport.viewportStartLine + newLineCount)
+            let viewportStartLine = viewport.viewportStartLine
+            var lineDelta = 0
+            var recordedViewportEdit = false
+
+            if let pendingEdit {
+                let oldRange = pendingEdit.startLine ..< pendingEdit.startLine + pendingEdit.oldLines.count
+                _ = viewport.backingStore.replaceLines(in: oldRange, with: pendingEdit.newLines)
+                lineDelta = pendingEdit.newLines.count - pendingEdit.oldLines.count
+                let newViewportEnd = max(viewportStartLine, viewport.viewportEndLine + lineDelta)
+                viewport.applyViewport(viewportStartLine ..< newViewportEnd)
+            } else {
+                if !isApplyingViewportHistory {
+                    clearViewportHistory()
+                }
+                let newLocalText = textView.string
+                let newLocalLines = newLocalText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+                let oldRange = viewport.viewportStartLine ..< viewport.viewportEndLine
+                _ = viewport.backingStore.replaceLines(in: oldRange, with: newLocalLines)
+                lineDelta = newLocalLines.count - oldRange.count
+                viewport.applyViewport(viewport.viewportStartLine ..< viewport.viewportStartLine + newLocalLines.count)
+            }
+
             state.markModified()
 
             isEditingViewport = true
             defer { isEditingViewport = false }
 
-            if newLineCount != oldLineCount {
-                rebuildLineStartOffsetsForViewport()
+            rebuildLineStartOffsetsForViewport()
+
+            if let pendingEdit,
+               !isApplyingViewportHistory,
+               let selectionAfter = globalCursorFromLocalLocation(cursorLocation)
+            {
+                pushViewportEdit(ViewportEdit(
+                    startLine: pendingEdit.startLine,
+                    oldLines: pendingEdit.oldLines,
+                    newLines: pendingEdit.newLines,
+                    selectionBefore: pendingEdit.selectionBefore,
+                    selectionAfter: selectionAfter
+                ))
+                recordedViewportEdit = true
+            }
+
+            if pendingEdit != nil, !recordedViewportEdit, !isApplyingViewportHistory {
+                clearViewportHistory()
+            }
+
+            if lineDelta != 0 {
                 updateContainerHeight()
 
-                let estimatedHeight = viewport.estimatedLineHeight * CGFloat(newLineCount) + textView.textContainerInset.height * 2
+                let estimatedHeight = viewport.estimatedLineHeight * CGFloat(max(1, viewport.viewportLineCount))
+                    + textView.textContainerInset.height * 2
                 textView.frame = NSRect(
                     x: 0,
                     y: viewport.viewportYOffset(),
@@ -1198,6 +1184,224 @@ struct CodeEditorView: NSViewRepresentable {
             if editorSettings.syntaxHighlighting {
                 scheduleHighlight()
             }
+        }
+
+        func clearViewportHistory() {
+            pendingViewportEdit = nil
+            viewportUndoStack.removeAll(keepingCapacity: false)
+            viewportRedoStack.removeAll(keepingCapacity: false)
+            lastViewportEditTimestamp = nil
+        }
+
+        func performUndoRequest() -> Bool {
+            performViewportUndo()
+        }
+
+        func performRedoRequest() -> Bool {
+            performViewportRedo()
+        }
+
+        func canPerformUndoRequest() -> Bool {
+            !viewportUndoStack.isEmpty
+        }
+
+        func canPerformRedoRequest() -> Bool {
+            !viewportRedoStack.isEmpty
+        }
+
+        private func performViewportUndo() -> Bool {
+            guard let viewport = viewportState, let textView else { return false }
+            guard let group = viewportUndoStack.popLast(), !group.edits.isEmpty else { return false }
+
+            isApplyingViewportHistory = true
+            defer { isApplyingViewportHistory = false }
+
+            for edit in group.edits.reversed() {
+                let replaceRange = edit.startLine ..< edit.startLine + edit.newLines.count
+                _ = viewport.backingStore.replaceLines(in: replaceRange, with: edit.oldLines)
+                adjustViewportRangeForReplacement(
+                    startLine: edit.startLine,
+                    replacedLineCount: edit.newLines.count,
+                    insertedLineCount: edit.oldLines.count
+                )
+            }
+            state.markModified()
+            appendViewportRedo(group)
+            if let selection = group.edits.first?.selectionBefore {
+                applyViewportHistorySelection(selection, textView: textView)
+            }
+            lastViewportEditTimestamp = nil
+            return true
+        }
+
+        private func performViewportRedo() -> Bool {
+            guard let viewport = viewportState, let textView else { return false }
+            guard let group = viewportRedoStack.popLast(), !group.edits.isEmpty else { return false }
+
+            isApplyingViewportHistory = true
+            defer { isApplyingViewportHistory = false }
+
+            for edit in group.edits {
+                let replaceRange = edit.startLine ..< edit.startLine + edit.oldLines.count
+                _ = viewport.backingStore.replaceLines(in: replaceRange, with: edit.newLines)
+                adjustViewportRangeForReplacement(
+                    startLine: edit.startLine,
+                    replacedLineCount: edit.oldLines.count,
+                    insertedLineCount: edit.newLines.count
+                )
+            }
+            state.markModified()
+            appendViewportUndo(group)
+            if let selection = group.edits.last?.selectionAfter {
+                applyViewportHistorySelection(selection, textView: textView)
+            }
+            lastViewportEditTimestamp = nil
+            return true
+        }
+
+        private func pushViewportEdit(_ edit: ViewportEdit) {
+            let now = CFAbsoluteTimeGetCurrent()
+            if shouldCoalesceViewportEdit(edit, now: now), var group = viewportUndoStack.popLast() {
+                group.edits.append(edit)
+                viewportUndoStack.append(group)
+            } else {
+                appendViewportUndo(ViewportEditGroup(edits: [edit]))
+            }
+            viewportRedoStack.removeAll(keepingCapacity: false)
+            lastViewportEditTimestamp = now
+        }
+
+        private func appendViewportUndo(_ group: ViewportEditGroup) {
+            viewportUndoStack.append(group)
+            if viewportUndoStack.count > Self.viewportUndoLimit {
+                viewportUndoStack.removeFirst(viewportUndoStack.count - Self.viewportUndoLimit)
+            }
+        }
+
+        private func appendViewportRedo(_ group: ViewportEditGroup) {
+            viewportRedoStack.append(group)
+            if viewportRedoStack.count > Self.viewportUndoLimit {
+                viewportRedoStack.removeFirst(viewportRedoStack.count - Self.viewportUndoLimit)
+            }
+        }
+
+        private func shouldCoalesceViewportEdit(_ edit: ViewportEdit, now: CFAbsoluteTime) -> Bool {
+            guard let lastTimestamp = lastViewportEditTimestamp else { return false }
+            guard now - lastTimestamp <= Self.viewportUndoCoalesceInterval else { return false }
+            guard let lastEdit = viewportUndoStack.last?.edits.last else { return false }
+            return lastEdit.selectionAfter.line == edit.selectionBefore.line
+                && lastEdit.selectionAfter.column == edit.selectionBefore.column
+        }
+
+        private func adjustViewportRangeForReplacement(
+            startLine: Int,
+            replacedLineCount: Int,
+            insertedLineCount: Int
+        ) {
+            guard let viewport = viewportState else { return }
+            let lineDelta = insertedLineCount - replacedLineCount
+            guard lineDelta != 0 else { return }
+
+            let changeEnd = startLine + replacedLineCount
+            var newStart = viewport.viewportStartLine
+            var newEnd = viewport.viewportEndLine
+
+            if changeEnd <= newStart {
+                newStart += lineDelta
+                newEnd += lineDelta
+            } else if startLine < newEnd {
+                newEnd += lineDelta
+            }
+
+            let maxLine = max(1, viewport.backingStore.lineCount)
+            newStart = max(0, min(newStart, maxLine - 1))
+            newEnd = max(newStart + 1, min(newEnd, maxLine))
+            viewport.applyViewport(newStart ..< newEnd)
+        }
+
+        private func applyViewportHistorySelection(_ selection: ViewportCursor, textView: NSTextView) {
+            guard let viewport = viewportState, let scrollView else { return }
+
+            updateContainerHeight()
+            let visibleHeight = scrollView.contentView.bounds.height
+            let targetY = viewport.scrollY(forLine: selection.line)
+            let maxScrollY = max(0, viewport.totalDocumentHeight - visibleHeight)
+            let centeredY = min(maxScrollY, max(0, targetY - visibleHeight / 2))
+            scrollView.contentView.setBoundsOrigin(NSPoint(x: scrollView.contentView.bounds.origin.x, y: centeredY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+
+            refreshViewport(force: true)
+            rebuildLineStartOffsetsForViewport()
+
+            guard let localLine = viewport.viewportLine(forBackingStoreLine: selection.line) else { return }
+            let lineStart = charOffsetForLocalLine(localLine)
+            let content = textView.string as NSString
+            let safeLineStart = min(lineStart, content.length)
+            let lineRange = content.lineRange(for: NSRange(location: safeLineStart, length: 0))
+            let lineLength = lineRange.length - (NSMaxRange(lineRange) < content.length ? 1 : 0)
+            let location = min(content.length, safeLineStart + min(selection.column, max(0, lineLength)))
+
+            textView.setSelectedRange(NSRange(location: location, length: 0))
+            scrollCursorVisibleInViewport(textView: textView, cursorLocation: location)
+        }
+
+        private func captureViewportPendingEdit(
+            textView: NSTextView,
+            affectedCharRange: NSRange,
+            replacementString: String?
+        ) {
+            pendingViewportEdit = nil
+            guard let viewport = viewportState else { return }
+
+            let content = textView.string as NSString
+            guard isValidEditRange(affectedCharRange, textLength: content.length) else { return }
+            guard let selectionBefore = globalCursorFromLocalLocation(textView.selectedRange().location) else { return }
+            guard !lineStartOffsets.isEmpty else { return }
+
+            let safeStart = min(max(0, affectedCharRange.location), content.length)
+            let safeEnd = min(content.length, NSMaxRange(affectedCharRange))
+            let startLocalLine = max(0, lineNumber(atCharacterLocation: safeStart) - 1)
+            let endLocalLine = max(startLocalLine, lineNumber(atCharacterLocation: safeEnd) - 1)
+            let maxLocalLine = lineStartOffsets.count - 1
+            let clampedStartLocalLine = min(startLocalLine, maxLocalLine)
+            let clampedEndLocalLine = min(endLocalLine, maxLocalLine)
+
+            let globalStartLine = viewport.backingStoreLine(forViewportLine: clampedStartLocalLine)
+            let globalEndLine = viewport.backingStoreLine(forViewportLine: clampedEndLocalLine)
+            let oldRange = globalStartLine ..< globalEndLine + 1
+            let oldLines = oldRange.map { viewport.backingStore.line(at: $0) }
+            guard !oldLines.isEmpty else { return }
+
+            let oldBlock = oldLines.joined(separator: "\n") as NSString
+            let blockStartOffset = lineStartOffsets[clampedStartLocalLine]
+            let relativeRange = NSRange(
+                location: affectedCharRange.location - blockStartOffset,
+                length: affectedCharRange.length
+            )
+            guard isValidEditRange(relativeRange, textLength: oldBlock.length) else { return }
+
+            let replacement = replacementString ?? ""
+            let newBlock = oldBlock.replacingCharacters(in: relativeRange, with: replacement)
+            let newLines = newBlock.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+            pendingViewportEdit = PendingViewportEdit(
+                startLine: globalStartLine,
+                oldLines: oldLines,
+                newLines: newLines,
+                selectionBefore: selectionBefore
+            )
+        }
+
+        private func globalCursorFromLocalLocation(_ location: Int) -> ViewportCursor? {
+            guard let viewport = viewportState, let textView, !lineStartOffsets.isEmpty else { return nil }
+            let content = textView.string as NSString
+            let safeLocation = min(max(0, location), content.length)
+            let localLine = lineNumber(atCharacterLocation: safeLocation)
+            let localLineIndex = max(0, min(localLine - 1, lineStartOffsets.count - 1))
+            let lineStart = lineStartOffsets[localLineIndex]
+            let column = max(0, safeLocation - lineStart)
+            let globalLine = viewport.backingStoreLine(forViewportLine: localLineIndex)
+            return ViewportCursor(line: globalLine, column: column)
         }
 
         private func scrollCursorVisibleInViewport(textView: NSTextView, cursorLocation: Int) {
@@ -1236,32 +1440,12 @@ struct CodeEditorView: NSViewRepresentable {
             replacementString: String?
         ) -> Bool {
             guard !isUpdating else { return true }
-            if isViewportMode { return true }
-            if hasPendingEdit {
-                hasMultiplePendingEdits = true
-                pendingEditRange = nil
-                pendingEditReplacement = ""
-                return true
-            }
-            let textLength = (textView.string as NSString).length
-            if isValidEditRange(affectedCharRange, textLength: textLength) {
-                pendingEditRange = affectedCharRange
-                pendingEditReplacement = replacementString ?? ""
-                hasPendingEdit = true
-            } else {
-                pendingEditRange = nil
-                pendingEditReplacement = ""
-                hasPendingEdit = true
-                hasMultiplePendingEdits = true
-            }
+            captureViewportPendingEdit(
+                textView: textView,
+                affectedCharRange: affectedCharRange,
+                replacementString: replacementString
+            )
             return true
-        }
-
-        private func resetPendingEditState() {
-            pendingEditRange = nil
-            pendingEditReplacement = ""
-            hasPendingEdit = false
-            hasMultiplePendingEdits = false
         }
 
         func textViewDidChangeSelection(_: Notification) {
@@ -1270,20 +1454,94 @@ struct CodeEditorView: NSViewRepresentable {
             let content = textView.string as NSString
             let loc = min(range.location, content.length)
 
-            if isViewportMode {
-                let localLine = lineNumber(atCharacterLocation: loc)
-                let globalLine = viewportState?.backingStoreLine(forViewportLine: localLine - 1) ?? localLine
-                state.cursorLine = globalLine + 1
-                let localLineStart = lineStartOffsets[max(0, min(localLine - 1, lineStartOffsets.count - 1))]
-                state.cursorColumn = max(1, loc - localLineStart + 1)
-            } else {
-                let line = lineNumber(atCharacterLocation: loc)
-                state.cursorLine = line
-                let lineStart = lineStartOffsets[max(0, min(line - 1, lineStartOffsets.count - 1))]
-                state.cursorColumn = max(1, loc - lineStart + 1)
-            }
+            let localLine = lineNumber(atCharacterLocation: loc)
+            let localLineIndex = localLine - 1
+
+            let globalLine = viewportState?.backingStoreLine(forViewportLine: localLineIndex) ?? localLine
+            state.cursorLine = globalLine + 1
+            let localLineStart = lineStartOffsets[max(0, min(localLineIndex, lineStartOffsets.count - 1))]
+            state.cursorColumn = max(1, loc - localLineStart + 1)
 
             updateCurrentSelection(in: textView, range: range)
+            updateLineHighlight()
+            updateBracketMatching()
+        }
+
+        private func handleMoveAtViewportBoundary(direction: Int) -> Bool {
+            guard let viewport = viewportState, let textView, let scrollView else { return false }
+            let range = textView.selectedRange()
+            let content = textView.string as NSString
+            let loc = min(range.location, content.length)
+            let localLine = lineNumber(atCharacterLocation: loc)
+            let localLineIndex = localLine - 1
+            let totalLocalLines = lineStartOffsets.count
+
+            let atFirstLine = localLineIndex <= 0
+            let atLastLine = localLineIndex >= totalLocalLines - 1
+
+            if direction < 0, atFirstLine, viewport.viewportStartLine > 0 {
+                let lineStart = lineStartOffsets[max(0, min(localLineIndex, lineStartOffsets.count - 1))]
+                let column = max(0, loc - lineStart)
+                let globalLine = viewport.backingStoreLine(forViewportLine: localLineIndex)
+                let targetGlobalLine = max(0, globalLine - 1)
+                scrollToGlobalLine(targetGlobalLine, column: column)
+                return true
+            }
+
+            if direction > 0, atLastLine, viewport.viewportEndLine < viewport.backingStore.lineCount {
+                let lineStart = lineStartOffsets[max(0, min(localLineIndex, lineStartOffsets.count - 1))]
+                let column = max(0, loc - lineStart)
+                let globalLine = viewport.backingStoreLine(forViewportLine: localLineIndex)
+                let targetGlobalLine = min(viewport.backingStore.lineCount - 1, globalLine + 1)
+                scrollToGlobalLine(targetGlobalLine, column: column)
+                return true
+            }
+
+            return false
+        }
+
+        private func scrollToGlobalLine(_ globalLine: Int, column: Int) {
+            guard let viewport = viewportState, let scrollView, let textView else { return }
+
+            let targetScrollY = viewport.scrollY(forLine: globalLine)
+            let visibleHeight = scrollView.contentView.bounds.height
+            let currentScrollY = scrollView.contentView.bounds.origin.y
+
+            let lineTop = targetScrollY
+            let lineBottom = targetScrollY + viewport.estimatedLineHeight
+
+            var newScrollY = currentScrollY
+            if lineBottom > currentScrollY + visibleHeight {
+                newScrollY = lineBottom - visibleHeight
+            } else if lineTop < currentScrollY {
+                newScrollY = lineTop
+            }
+
+            let maxScrollY = max(0, viewport.totalDocumentHeight - visibleHeight)
+            newScrollY = min(maxScrollY, max(0, newScrollY))
+
+            scrollView.contentView.setBoundsOrigin(NSPoint(x: scrollView.contentView.bounds.origin.x, y: newScrollY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+
+            refreshViewport(force: true)
+            rebuildLineStartOffsetsForViewport()
+
+            guard let newLocalLine = viewport.viewportLine(forBackingStoreLine: globalLine) else { return }
+            let newCharOffset = charOffsetForLocalLine(newLocalLine)
+            let newContent = textView.string as NSString
+            let lineRange = newContent.lineRange(for: NSRange(location: min(newCharOffset, newContent.length), length: 0))
+            let lineLength = lineRange.length - (NSMaxRange(lineRange) < newContent.length ? 1 : 0)
+            let newCursor = newCharOffset + min(column, max(0, lineLength))
+            let safeCursor = min(newCursor, newContent.length)
+
+            isUpdating = true
+            textView.setSelectedRange(NSRange(location: safeCursor, length: 0))
+            isUpdating = false
+
+            state.cursorLine = globalLine + 1
+            let cursorLineStart = lineStartOffsets[max(0, min(newLocalLine, lineStartOffsets.count - 1))]
+            state.cursorColumn = max(1, safeCursor - cursorLineStart + 1)
+
             updateLineHighlight()
             updateBracketMatching()
         }
@@ -1459,98 +1717,13 @@ struct CodeEditorView: NSViewRepresentable {
             return Character(scalar)
         }
 
-        // MARK: - Syntax Highlighting (direct mode)
+        // MARK: - Syntax Highlighting
 
         private func nextHighlightGeneration() -> Int {
             highlightGeneration += 1
             activeHighlightTask?.cancel()
             activeHighlightTask = nil
             return highlightGeneration
-        }
-
-        func applyHighlighting() {
-            guard let textView, let storage = textView.textStorage else { return }
-            guard storage.length > 0 else { return }
-            let fullRange = NSRange(location: 0, length: storage.length)
-            let text = storage.string
-            let scrollPos = textView.enclosingScrollView?.contentView.bounds.origin
-            let generation = nextHighlightGeneration()
-            let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
-
-            activeHighlightTask = Task { [weak self] in
-                let result = await highlighter.computeHighlightsAsync(text: text, range: fullRange)
-                guard let self, self.highlightGeneration == generation else { return }
-                self.applyHighlightResult(result, range: fullRange)
-                if let scrollPos {
-                    self.textView?.enclosingScrollView?.contentView.setBoundsOrigin(scrollPos)
-                }
-                self.lastHighlightedRange = fullRange
-            }
-        }
-
-        func stripHighlighting() {
-            _ = nextHighlightGeneration()
-            guard let textView, let layoutManager = textView.layoutManager,
-                  let storage = textView.textStorage
-            else { return }
-            guard storage.length > 0 else { return }
-            let fullRange = NSRange(location: 0, length: storage.length)
-            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
-            textView.needsDisplay = true
-            lastHighlightedRange = NSRange(location: 0, length: 0)
-        }
-
-        func highlightVisibleRange(force: Bool = false) {
-            guard let textView, let storage = textView.textStorage,
-                  let layoutManager = textView.layoutManager,
-                  let textContainer = textView.textContainer,
-                  let scrollView = textView.enclosingScrollView
-            else { return }
-            guard storage.length > 0 else {
-                lastHighlightedRange = NSRange(location: 0, length: 0)
-                return
-            }
-
-            let visibleRect = scrollView.contentView.bounds
-            let visibleGlyphRange = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
-            let visibleCharRange = layoutManager.characterRange(forGlyphRange: visibleGlyphRange, actualGlyphRange: nil)
-            guard visibleCharRange.location != NSNotFound else {
-                lastHighlightedRange = NSRange(location: 0, length: 0)
-                return
-            }
-
-            let total = storage.length
-            let bufferStart = max(0, visibleCharRange.location - Coordinator.highlightBuffer)
-            let bufferEnd = min(total, NSMaxRange(visibleCharRange) + Coordinator.highlightBuffer)
-
-            let nsContent = storage.string as NSString
-            let expandedStart = nsContent.lineRange(for: NSRange(location: bufferStart, length: 0)).location
-            let expandedEndRange = bufferEnd >= total
-                ? NSRange(location: total, length: 0)
-                : nsContent.lineRange(for: NSRange(location: bufferEnd, length: 0))
-            let expandedEnd = min(total, NSMaxRange(expandedEndRange))
-
-            let range = NSRange(location: expandedStart, length: expandedEnd - expandedStart)
-            guard range.length > 0 else { return }
-
-            if !force, rangeContains(lastHighlightedRange, other: range) {
-                return
-            }
-
-            let text = storage.string
-            let generation = nextHighlightGeneration()
-            let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
-
-            activeHighlightTask = Task { [weak self] in
-                let result = await highlighter.computeHighlightsAsync(text: text, range: range)
-                guard let self, self.highlightGeneration == generation else { return }
-                self.applyHighlightResult(result, range: range)
-                self.lastHighlightedRange = self.unionRange(self.lastHighlightedRange, range)
-            }
-        }
-
-        func resetHighlightedRange() {
-            lastHighlightedRange = NSRange(location: 0, length: 0)
         }
 
         func scheduleHighlight() {
@@ -1622,207 +1795,7 @@ struct CodeEditorView: NSViewRepresentable {
             textView.needsDisplay = true
         }
 
-        private func rangeContains(_ outer: NSRange, other: NSRange) -> Bool {
-            guard outer.length > 0 else { return false }
-            return outer.location <= other.location && NSMaxRange(outer) >= NSMaxRange(other)
-        }
-
-        private func unionRange(_ a: NSRange, _ b: NSRange) -> NSRange {
-            guard a.length > 0 else { return b }
-            let start = min(a.location, b.location)
-            let end = max(NSMaxRange(a), NSMaxRange(b))
-            return NSRange(location: start, length: end - start)
-        }
-
-        // MARK: - Search (direct mode)
-
-        private var searchMatches: [NSRange] = []
-
-        func performSearch(_ needle: String, caseSensitive: Bool, useRegex: Bool) {
-            guard let textView else { return }
-            searchMatches = []
-            state.searchInvalidRegex = false
-            guard !needle.isEmpty else {
-                state.searchMatchCount = 0
-                state.searchCurrentIndex = 0
-                return
-            }
-            let content = textView.string as NSString
-            let fullRange = NSRange(location: 0, length: content.length)
-
-            if useRegex {
-                var options: NSRegularExpression.Options = []
-                if !caseSensitive { options.insert(.caseInsensitive) }
-                do {
-                    let regex = try NSRegularExpression(pattern: needle, options: options)
-                    regex.enumerateMatches(in: textView.string, options: [], range: fullRange) { match, _, _ in
-                        guard let match, match.range.length > 0 else { return }
-                        searchMatches.append(match.range)
-                    }
-                } catch {
-                    state.searchInvalidRegex = true
-                    state.searchMatchCount = 0
-                    state.searchCurrentIndex = 0
-                    return
-                }
-            } else {
-                var options: NSString.CompareOptions = []
-                if !caseSensitive { options.insert(.caseInsensitive) }
-                var searchRange = fullRange
-                while searchRange.location < content.length {
-                    let found = content.range(of: needle, options: options, range: searchRange)
-                    guard found.location != NSNotFound else { break }
-                    searchMatches.append(found)
-                    searchRange.location = found.location + found.length
-                    searchRange.length = content.length - searchRange.location
-                }
-            }
-
-            state.searchMatchCount = searchMatches.count
-            if !searchMatches.isEmpty {
-                state.searchCurrentIndex = 1
-                selectMatch(at: 0)
-            } else {
-                state.searchCurrentIndex = 0
-            }
-        }
-
-        func navigateSearch(forward: Bool) {
-            guard !searchMatches.isEmpty else { return }
-            var idx = state.searchCurrentIndex - 1
-            if forward {
-                idx = (idx + 1) % searchMatches.count
-            } else {
-                idx = (idx - 1 + searchMatches.count) % searchMatches.count
-            }
-            state.searchCurrentIndex = idx + 1
-            selectMatch(at: idx)
-        }
-
-        private func selectMatch(at index: Int) {
-            guard let textView, index >= 0, index < searchMatches.count else { return }
-            let range = searchMatches[index]
-            textView.setSelectedRange(range)
-            textView.scrollRangeToVisible(range)
-        }
-
-        func replaceCurrent(with replacement: String, needle: String, caseSensitive: Bool, useRegex: Bool) {
-            guard let textView, !needle.isEmpty, !searchMatches.isEmpty else { return }
-            let currentIndex = max(0, state.searchCurrentIndex - 1)
-            guard currentIndex < searchMatches.count else { return }
-            let range = searchMatches[currentIndex]
-            guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
-
-            let expanded = expandReplacement(
-                template: replacement,
-                matchedRange: range,
-                needle: needle,
-                caseSensitive: caseSensitive,
-                useRegex: useRegex
-            )
-            textView.insertText(expanded, replacementRange: range)
-            rebuildLineStartOffsets(using: textView.string as NSString)
-            state.markModified()
-            performSearch(needle, caseSensitive: caseSensitive, useRegex: useRegex)
-
-            guard !searchMatches.isEmpty else { return }
-            let nextLocation = range.location + (expanded as NSString).length
-            let nextIndex = searchMatches.firstIndex(where: { $0.location >= nextLocation }) ?? 0
-            state.searchCurrentIndex = nextIndex + 1
-            selectMatch(at: nextIndex)
-        }
-
-        func replaceAll(with replacement: String, needle: String, caseSensitive: Bool, useRegex: Bool) {
-            guard let textView, !needle.isEmpty, !searchMatches.isEmpty else { return }
-            let matches = searchMatches
-            textView.breakUndoCoalescing()
-            for range in matches.reversed() {
-                guard textView.shouldChangeText(in: range, replacementString: replacement) else { continue }
-                let expanded = expandReplacement(
-                    template: replacement,
-                    matchedRange: range,
-                    needle: needle,
-                    caseSensitive: caseSensitive,
-                    useRegex: useRegex
-                )
-                textView.insertText(expanded, replacementRange: range)
-            }
-            rebuildLineStartOffsets(using: textView.string as NSString)
-            state.markModified()
-            performSearch(needle, caseSensitive: caseSensitive, useRegex: useRegex)
-        }
-
         // MARK: - Line Start Offsets
-
-        func rebuildLineStartOffsets(using content: NSString) {
-            var offsets = [0]
-            offsets.reserveCapacity(max(1, content.length / 40))
-            let newline = "\n"
-            var searchRange = NSRange(location: 0, length: content.length)
-
-            while searchRange.location < content.length {
-                let found = content.range(of: newline, options: [], range: searchRange)
-                guard found.location != NSNotFound else { break }
-                let nextLineStart = found.location + found.length
-                if nextLineStart <= content.length {
-                    offsets.append(nextLineStart)
-                }
-                searchRange.location = nextLineStart
-                searchRange.length = content.length - searchRange.location
-            }
-
-            lineStartOffsets = offsets
-            reportTotalLineCount()
-        }
-
-        func reportTotalLineCount() {
-            onTotalLineCountChange(max(1, lineStartOffsets.count))
-        }
-
-        private func applyPendingLineStartOffsetEdit() -> Bool {
-            guard let editRange = pendingEditRange, !lineStartOffsets.isEmpty,
-                  let textView
-            else { return false }
-            let textLength = (textView.string as NSString).length
-            guard isValidEditRange(editRange, textLength: textLength) else { return false }
-
-            let replacement = pendingEditReplacement as NSString
-            let replacementLength = replacement.length
-            let oldEnd = NSMaxRange(editRange)
-            let delta = replacementLength - editRange.length
-
-            let removeStart = firstLineStartIndex(after: editRange.location)
-            let removeEnd = firstLineStartIndex(after: oldEnd)
-
-            var insertedStarts: [Int] = []
-            var searchRange = NSRange(location: 0, length: replacementLength)
-            while searchRange.location < replacementLength {
-                let found = replacement.range(of: "\n", options: [], range: searchRange)
-                guard found.location != NSNotFound else { break }
-                insertedStarts.append(editRange.location + found.location + found.length)
-                searchRange.location = found.location + found.length
-                searchRange.length = replacementLength - searchRange.location
-            }
-
-            var updated: [Int] = []
-            updated.reserveCapacity(lineStartOffsets.count + insertedStarts.count)
-            updated.append(contentsOf: lineStartOffsets[0 ..< removeStart])
-            updated.append(contentsOf: insertedStarts)
-            if removeEnd < lineStartOffsets.count {
-                for index in removeEnd ..< lineStartOffsets.count {
-                    let shifted = lineStartOffsets[index] + delta
-                    guard shifted >= 0 else { return false }
-                    updated.append(shifted)
-                }
-            }
-            if updated.isEmpty || updated[0] != 0 {
-                updated.insert(0, at: 0)
-            }
-
-            lineStartOffsets = updated
-            reportTotalLineCount()
-            return true
-        }
 
         private func isValidEditRange(_ range: NSRange, textLength: Int) -> Bool {
             guard range.location != NSNotFound else { return false }
@@ -1830,20 +1803,6 @@ struct CodeEditorView: NSViewRepresentable {
             guard range.location <= textLength else { return false }
             guard range.length <= textLength - range.location else { return false }
             return true
-        }
-
-        private func firstLineStartIndex(after location: Int) -> Int {
-            var low = 0
-            var high = lineStartOffsets.count
-            while low < high {
-                let mid = (low + high) / 2
-                if lineStartOffsets[mid] <= location {
-                    low = mid + 1
-                } else {
-                    high = mid
-                }
-            }
-            return low
         }
 
         func lineNumber(atCharacterLocation location: Int) -> Int {
@@ -1866,64 +1825,26 @@ struct CodeEditorView: NSViewRepresentable {
             return result + 1
         }
 
-        // MARK: - Chunk Append (direct mode)
-
-        func appendChunkToTextView(_ chunk: String, textView: NSTextView) {
-            guard !chunk.isEmpty, let textStorage = textView.textStorage else { return }
-            let baseOffset = textStorage.length
-
-            textStorage.beginEditing()
-            textStorage.append(NSAttributedString(string: chunk, attributes: [
-                .font: editorSettings.resolvedFont,
-            ]))
-            textStorage.endEditing()
-
-            appendLineStartOffsets(for: chunk, baseOffset: baseOffset)
-        }
-
-        private func appendLineStartOffsets(for chunk: String, baseOffset: Int) {
-            let nsChunk = chunk as NSString
-            var searchRange = NSRange(location: 0, length: nsChunk.length)
-
-            while searchRange.location < nsChunk.length {
-                let found = nsChunk.range(of: "\n", options: [], range: searchRange)
-                guard found.location != NSNotFound else { break }
-                let nextLineStart = baseOffset + found.location + found.length
-                lineStartOffsets.append(nextLineStart)
-                searchRange.location = found.location + found.length
-                searchRange.length = nsChunk.length - searchRange.location
-            }
-            reportTotalLineCount()
-        }
-
-        // MARK: - Replace Expansion
-
-        private func expandReplacement(
-            template: String,
-            matchedRange: NSRange,
-            needle: String,
-            caseSensitive: Bool,
-            useRegex: Bool
-        ) -> String {
-            guard useRegex, let textView else { return template }
-            var options: NSRegularExpression.Options = []
-            if !caseSensitive { options.insert(.caseInsensitive) }
-            guard let regex = try? NSRegularExpression(pattern: needle, options: options) else { return template }
-            let source = textView.string as NSString
-            let matchedText = source.substring(with: matchedRange)
-            let scoped = NSRange(location: 0, length: (matchedText as NSString).length)
-            guard let match = regex.firstMatch(in: matchedText, options: [], range: scoped) else { return template }
-            return regex.replacementString(for: match, in: matchedText, offset: 0, template: template)
-        }
-
         func textView(_: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             guard let textView else { return false }
+            if commandSelector == Self.undoCommandSelector {
+                return performUndoRequest()
+            }
+            if commandSelector == Self.redoCommandSelector {
+                return performRedoRequest()
+            }
             if commandSelector == #selector(NSResponder.cancelOperation(_:)), state.searchVisible {
                 state.searchVisible = false
                 return true
             }
             if commandSelector == #selector(NSResponder.deleteWordBackward(_:)) {
                 return handleDeleteWordBackward(textView)
+            }
+            if commandSelector == #selector(NSResponder.moveUp(_:)) {
+                return handleMoveAtViewportBoundary(direction: -1)
+            }
+            if commandSelector == #selector(NSResponder.moveDown(_:)) {
+                return handleMoveAtViewportBoundary(direction: 1)
             }
             return false
         }
