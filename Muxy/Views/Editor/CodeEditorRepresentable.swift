@@ -70,6 +70,7 @@ struct CodeEditorView: NSViewRepresentable {
     let replaceVersion: Int
     let replaceAllVersion: Int
     let onLineLayoutChange: ([LineLayoutInfo]) -> Void
+    let onTotalLineCountChange: (Int) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(state: state, editorSettings: editorSettings)
@@ -326,6 +327,8 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         coordinator.onLineLayoutChange = onLineLayoutChange
+        coordinator.onTotalLineCountChange = onTotalLineCountChange
+        coordinator.reportTotalLineCount()
 
         let shouldInvalidateLayouts = themeChanged || fontChanged || wrapChanged || replacedFullContent
         if shouldInvalidateLayouts || incrementalFinished {
@@ -364,6 +367,7 @@ struct CodeEditorView: NSViewRepresentable {
         var tabSize = 4
         private var cachedIndentUnit: String?
         var onLineLayoutChange: ([LineLayoutInfo]) -> Void = { _ in }
+        var onTotalLineCountChange: (Int) -> Void = { _ in }
         private weak var observedContentView: NSClipView?
         private weak var observedTextView: NSTextView?
         private var lineStartOffsets: [Int] = [0]
@@ -1040,6 +1044,11 @@ struct CodeEditorView: NSViewRepresentable {
             }
 
             lineStartOffsets = offsets
+            reportTotalLineCount()
+        }
+
+        func reportTotalLineCount() {
+            onTotalLineCountChange(max(1, lineStartOffsets.count))
         }
 
         private func applyPendingLineStartOffsetEdit() -> Bool {
@@ -1083,6 +1092,7 @@ struct CodeEditorView: NSViewRepresentable {
             }
 
             lineStartOffsets = updated
+            reportTotalLineCount()
             return true
         }
 
@@ -1154,6 +1164,7 @@ struct CodeEditorView: NSViewRepresentable {
                 searchRange.location = found.location + found.length
                 searchRange.length = nsChunk.length - searchRange.location
             }
+            reportTotalLineCount()
         }
 
         private func expandReplacement(

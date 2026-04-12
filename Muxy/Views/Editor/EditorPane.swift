@@ -7,6 +7,7 @@ struct EditorPane: View {
     @Environment(GhosttyService.self) private var ghostty
     @State private var editorSettings = EditorSettings.shared
     @State private var lineLayouts: [LineLayoutInfo] = []
+    @State private var totalLineCount: Int = 1
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,6 +25,7 @@ struct EditorPane: View {
                         if editorSettings.showLineNumbers {
                             LineNumberGutter(
                                 layouts: lineLayouts,
+                                totalLineCount: totalLineCount,
                                 fontSize: editorSettings.fontSize,
                                 fontFamily: editorSettings.fontFamily,
                                 activeLine: state.cursorLine
@@ -45,6 +47,9 @@ struct EditorPane: View {
                             replaceAllVersion: state.replaceAllVersion,
                             onLineLayoutChange: { layouts in
                                 lineLayouts = layouts
+                            },
+                            onTotalLineCountChange: { count in
+                                totalLineCount = count
                             }
                         )
                     }
@@ -161,6 +166,7 @@ struct EditorPane: View {
 
 private struct LineNumberGutter: View {
     let layouts: [LineLayoutInfo]
+    let totalLineCount: Int
     let fontSize: CGFloat
     let fontFamily: String
     let activeLine: Int
@@ -170,9 +176,9 @@ private struct LineNumberGutter: View {
     }
 
     private var gutterWidth: CGFloat {
-        let maxLine = layouts.last?.lineNumber ?? 1
+        let digits = max(2, String(max(1, totalLineCount)).count)
         let charWidth = gutterFontSize * 0.65
-        return CGFloat(max(2, String(maxLine).count)) * charWidth + 16
+        return CGFloat(digits) * charWidth + 16
     }
 
     var body: some View {
