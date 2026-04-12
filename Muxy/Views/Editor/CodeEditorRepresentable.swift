@@ -491,6 +491,8 @@ struct CodeEditorView: NSViewRepresentable {
         private var viewportRedoStack: [ViewportEditGroup] = []
         private var lastViewportEditTimestamp: CFTimeInterval?
         private var isApplyingViewportHistory = false
+        private var recentlyEdited = false
+        private var recentlyEditedResetWork: DispatchWorkItem?
         private let lineHighlightView: NSView = {
             let view = NSView()
             view.wantsLayer = true
@@ -587,7 +589,7 @@ struct CodeEditorView: NSViewRepresentable {
             container.frame = NSRect(x: 0, y: 0, width: scrollView.contentSize.width, height: height)
         }
 
-        func refreshViewport(force: Bool) {
+        func refreshViewport(force: Bool, highlightMode: ViewportHighlightMode = .sync) {
             guard let viewport = viewportState, let textView, let scrollView else { return }
             let scrollY = scrollView.contentView.bounds.origin.y
             let visibleHeight = scrollView.contentView.bounds.height
@@ -604,7 +606,7 @@ struct CodeEditorView: NSViewRepresentable {
             let yOffset = viewport.viewportYOffset()
 
             let highlightResult: SyntaxHighlightResult?
-            if editorSettings.syntaxHighlighting {
+            if editorSettings.syntaxHighlighting, highlightMode == .sync {
                 let fullRange = NSRange(location: 0, length: (text as NSString).length)
                 let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
                 highlightResult = highlighter.computeHighlightsSync(text: text, range: fullRange)
@@ -654,7 +656,25 @@ struct CodeEditorView: NSViewRepresentable {
 
             isUpdating = false
 
-            applySearchHighlights()
+            if highlightMode == .async, editorSettings.syntaxHighlighting {
+                let fullRange = NSRange(location: 0, length: (text as NSString).length)
+                let generation = nextHighlightGeneration()
+                let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
+                activeHighlightTask = Task { [weak self] in
+                    let result = await highlighter.computeHighlightsAsync(text: text, range: fullRange)
+                    guard let self, self.highlightGeneration == generation else { return }
+                    self.applyHighlightResult(result, range: fullRange)
+                    self.applySearchHighlights()
+                }
+            } else {
+                applySearchHighlights()
+            }
+        }
+
+        enum ViewportHighlightMode {
+            case sync
+            case async
+            case none
         }
 
         func rebuildLineStartOffsetsForViewport() {
@@ -1069,7 +1089,8 @@ struct CodeEditorView: NSViewRepresentable {
         @objc
         private func handleScrollBoundsChange() {
             if !isEditingViewport {
-                refreshViewport(force: false)
+                let mode: ViewportHighlightMode = recentlyEdited ? .none : .sync
+                refreshViewport(force: false, highlightMode: mode)
             }
             reportLineLayoutsViewport()
         }
@@ -1090,6 +1111,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         private func handleTextDidChangeViewport(_ textView: NSTextView) {
             guard let viewport = viewportState, let scrollView else { return }
+            markRecentlyEdited()
             let pendingEdit = pendingViewportEdit
             pendingViewportEdit = nil
             let cursorLocation = textView.selectedRange().location
@@ -1162,7 +1184,7 @@ struct CodeEditorView: NSViewRepresentable {
                 let globalLine = viewport.backingStoreLine(forViewportLine: localLine - 1)
                 let columnOffset = cursorLocation - lineStartOffsets[max(0, min(localLine - 1, lineStartOffsets.count - 1))]
 
-                refreshViewport(force: true)
+                refreshViewport(force: true, highlightMode: .none)
 
                 if let newLocalLine = viewport.viewportLine(forBackingStoreLine: globalLine) {
                     let newCharOffset = charOffsetForLocalLine(newLocalLine)
@@ -1179,6 +1201,16 @@ struct CodeEditorView: NSViewRepresentable {
             if editorSettings.syntaxHighlighting {
                 scheduleHighlight()
             }
+        }
+
+        private func markRecentlyEdited() {
+            recentlyEdited = true
+            recentlyEditedResetWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                self?.recentlyEdited = false
+            }
+            recentlyEditedResetWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
         }
 
         func clearViewportHistory() {
