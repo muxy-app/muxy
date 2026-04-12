@@ -13,15 +13,24 @@ final class SyntaxHighlightExtension {
     }
 
     func computeHighlightsAsync(text: String, range: NSRange) async -> SyntaxHighlightResult {
-        let resolvedRules = SyntaxRules.forExtension(fileExtension).compactMap { rule -> ResolvedRule? in
-            guard let regex = rule.regex else { return nil }
-            return ResolvedRule(regex: regex, color: rule.color(), captureGroup: rule.captureGroup)
-        }
-
+        let resolvedRules = resolveRules()
         return await Task.detached(priority: .userInitiated) {
             let highlights = Self.computeHighlightsSync(text: text, range: range, rules: resolvedRules)
             return SyntaxHighlightResult(ranges: highlights)
         }.value
+    }
+
+    func computeHighlightsSync(text: String, range: NSRange) -> SyntaxHighlightResult {
+        let resolvedRules = resolveRules()
+        let highlights = Self.computeHighlightsSync(text: text, range: range, rules: resolvedRules)
+        return SyntaxHighlightResult(ranges: highlights)
+    }
+
+    private func resolveRules() -> [ResolvedRule] {
+        SyntaxRules.forExtension(fileExtension).compactMap { rule -> ResolvedRule? in
+            guard let regex = rule.regex else { return nil }
+            return ResolvedRule(regex: regex, color: rule.color(), captureGroup: rule.captureGroup)
+        }
     }
 
     nonisolated private static func computeHighlightsSync(

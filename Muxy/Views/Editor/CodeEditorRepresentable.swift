@@ -603,6 +603,15 @@ struct CodeEditorView: NSViewRepresentable {
             let text = viewport.viewportText()
             let yOffset = viewport.viewportYOffset()
 
+            let highlightResult: SyntaxHighlightResult?
+            if editorSettings.syntaxHighlighting {
+                let fullRange = NSRange(location: 0, length: (text as NSString).length)
+                let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
+                highlightResult = highlighter.computeHighlightsSync(text: text, range: fullRange)
+            } else {
+                highlightResult = nil
+            }
+
             isUpdating = true
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -614,6 +623,10 @@ struct CodeEditorView: NSViewRepresentable {
                 storage.beginEditing()
                 storage.addAttribute(.font, value: font, range: fullRange)
                 storage.endEditing()
+            }
+
+            if let highlightResult {
+                applyHighlightResult(highlightResult, range: NSRange(location: 0, length: (text as NSString).length))
             }
 
             let estimatedHeight = viewport.estimatedLineHeight * CGFloat(newRange.count) + textView.textContainerInset.height * 2
@@ -641,25 +654,7 @@ struct CodeEditorView: NSViewRepresentable {
 
             isUpdating = false
 
-            if editorSettings.syntaxHighlighting {
-                highlightViewportAsync(text: text)
-            } else {
-                applySearchHighlights()
-            }
-        }
-
-        private func highlightViewportAsync(text: String) {
-            let fullRange = NSRange(location: 0, length: (text as NSString).length)
-            guard fullRange.length > 0 else { return }
-            let generation = nextHighlightGeneration()
-            let highlighter = SyntaxHighlightExtension(fileExtension: state.fileExtension)
-
-            activeHighlightTask = Task { [weak self] in
-                let result = await highlighter.computeHighlightsAsync(text: text, range: fullRange)
-                guard let self, self.highlightGeneration == generation else { return }
-                self.applyHighlightResult(result, range: fullRange)
-                self.applySearchHighlights()
-            }
+            applySearchHighlights()
         }
 
         func rebuildLineStartOffsetsForViewport() {
