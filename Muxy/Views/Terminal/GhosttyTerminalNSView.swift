@@ -14,6 +14,7 @@ final class GhosttyTerminalNSView: NSView {
     var onSearchSelected: ((Int?) -> Void)?
     var isFocused: Bool = false
 
+    private var _markedText: String = ""
     private var _markedRange: NSRange = .init(location: NSNotFound, length: 0)
     private var _selectedRange: NSRange = .init(location: NSNotFound, length: 0)
 
@@ -252,7 +253,7 @@ final class GhosttyTerminalNSView: NSView {
         let action: ghostty_input_action_e = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
-        if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
+        if flags.contains(.control), !flags.contains(.command), !flags.contains(.option), !hasMarkedText() {
             if isAppShortcut(event) { return }
             var keyEvent = buildKeyEvent(from: event, action: action)
             let text = event.charactersIgnoringModifiers ?? event.characters ?? ""
@@ -283,20 +284,24 @@ final class GhosttyTerminalNSView: NSView {
         interpretKeyEvents([event])
         currentKeyEvent = nil
 
+        syncPreedit(clearIfNeeded: hadMarkedText)
+
         let commandWasCalled = commandSelectorCalled
 
-        var keyEvent = buildKeyEvent(from: event, action: action)
-        keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(flags)
-        keyEvent.composing = hasMarkedText() || hadMarkedText
-
-        if !keyTextAccumulator.isEmpty, !keyEvent.composing {
+        if !keyTextAccumulator.isEmpty {
             for text in keyTextAccumulator {
+                var keyEvent = buildKeyEvent(from: event, action: action)
+                keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(flags)
                 text.withCString { ptr in
                     keyEvent.text = ptr
                     _ = ghostty_surface_key(surface, keyEvent)
                 }
             }
-        } else if !hasMarkedText() {
+        } else {
+            var keyEvent = buildKeyEvent(from: event, action: action)
+            keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(flags)
+            keyEvent.composing = hasMarkedText() || hadMarkedText
+
             let text = filterSpecialCharacters(event.characters ?? "")
             if !text.isEmpty, !keyEvent.composing {
                 text.withCString { ptr in
@@ -328,6 +333,7 @@ final class GhosttyTerminalNSView: NSView {
 
     override func flagsChanged(with event: NSEvent) {
         guard let surface else { return }
+        if hasMarkedText() { return }
         var keyEvent = buildKeyEvent(from: event, action: isFlagPress(event) ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE)
         keyEvent.text = nil
         _ = ghostty_surface_key(surface, keyEvent)
@@ -515,6 +521,19 @@ final class GhosttyTerminalNSView: NSView {
         }
     }
 
+    private func syncPreedit(clearIfNeeded: Bool = true) {
+        guard let surface else { return }
+
+        if hasMarkedText(), !_markedText.isEmpty {
+            let byteCount = _markedText.utf8.count
+            _markedText.withCString { ptr in
+                ghostty_surface_preedit(surface, ptr, UInt(byteCount))
+            }
+        } else if clearIfNeeded {
+            ghostty_surface_preedit(surface, nil, 0)
+        }
+    }
+
     private func filterSpecialCharacters(_ text: String) -> String {
         guard let scalar = text.unicodeScalars.first else { return "" }
         let value = scalar.value
@@ -617,12 +636,10 @@ extension GhosttyTerminalNSView {
 extension GhosttyTerminalNSView: @preconcurrency NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = (string as? String) ?? (string as? NSAttributedString)?.string ?? ""
-        guard !text.isEmpty else { return }
 
-        _markedRange = NSRange(location: NSNotFound, length: 0)
-        if let surface {
-            ghostty_surface_preedit(surface, nil, 0)
-        }
+        unmarkText()
+
+        guard !text.isEmpty else { return }
 
         if currentKeyEvent != nil {
             keyTextAccumulator.append(text)
@@ -641,20 +658,21 @@ extension GhosttyTerminalNSView: @preconcurrency NSTextInputClient {
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        guard let surface else { return }
         let text = (string as? String) ?? (string as? NSAttributedString)?.string ?? ""
+        _markedText = text
         _markedRange = text.isEmpty ? NSRange(location: NSNotFound, length: 0) : NSRange(location: 0, length: text.count)
         _selectedRange = selectedRange
 
-        text.withCString { ptr in
-            ghostty_surface_preedit(surface, ptr, UInt(text.count))
+        if currentKeyEvent == nil {
+            syncPreedit()
         }
     }
 
     func unmarkText() {
-        guard let surface else { return }
+        guard hasMarkedText() else { return }
+        _markedText = ""
         _markedRange = NSRange(location: NSNotFound, length: 0)
-        ghostty_surface_preedit(surface, nil, 0)
+        syncPreedit()
     }
 
     func selectedRange() -> NSRange {
