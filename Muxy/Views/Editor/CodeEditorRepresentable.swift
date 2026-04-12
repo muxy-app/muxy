@@ -1142,7 +1142,13 @@ struct CodeEditorView: NSViewRepresentable {
                 || trimmed.hasSuffix("[")
             let indentUnit = String(repeating: " ", count: tabSize)
             let indent = extra ? leading + indentUnit : leading
-            textView.insertText("\n" + indent, replacementRange: range)
+            let insertion = "\n" + indent
+            guard textView.shouldChangeText(in: range, replacementString: insertion) else { return true }
+            textView.textStorage?.replaceCharacters(in: range, with: insertion)
+            let newLocation = range.location + (insertion as NSString).length
+            textView.setSelectedRange(NSRange(location: newLocation, length: 0))
+            textView.didChangeText()
+            textView.scrollRangeToVisible(NSRange(location: newLocation, length: 0))
             return true
         }
 
