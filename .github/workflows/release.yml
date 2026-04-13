@@ -172,3 +172,67 @@ jobs:
             appcast-arm64.xml \
             appcast-x86_64.xml \
             appcast.xml
+
+  update-homebrew-tap:
+    needs: [validate, release]
+    runs-on: macos-26
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Compute SHA256 checksums
+        id: sha256
+        run: |
+          ARM64_SHA=$(shasum -a 256 artifacts/dmg-arm64/Muxy-${{ needs.validate.outputs.version }}-arm64.dmg | awk '{print $1}')
+          X86_64_SHA=$(shasum -a 256 artifacts/dmg-x86_64/Muxy-${{ needs.validate.outputs.version }}-x86_64.dmg | awk '{print $1}')
+          echo "arm64=$ARM64_SHA" >> "$GITHUB_OUTPUT"
+          echo "x86_64=$X86_64_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          SHA256_ARM64: ${{ steps.sha256.outputs.arm64 }}
+          SHA256_X86_64: ${{ steps.sha256.outputs.x86_64 }}
+        run: |
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/muxy-app/homebrew-tap.git tap
+          mkdir -p tap/Casks
+          cat > tap/Casks/muxy.rb <<EOF
+          cask "muxy" do
+            version "${VERSION}"
+
+            on_arm do
+              sha256 "${SHA256_ARM64}"
+              url "https://github.com/muxy-app/muxy/releases/download/v#{version}/Muxy-#{version}-arm64.dmg"
+            end
+
+            on_intel do
+              sha256 "${SHA256_X86_64}"
+              url "https://github.com/muxy-app/muxy/releases/download/v#{version}/Muxy-#{version}-x86_64.dmg"
+            end
+
+            name "Muxy"
+            desc "Terminal multiplexer for macOS"
+            homepage "https://github.com/muxy-app/muxy"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            app "Muxy.app"
+
+            zap trash: [
+              "~/Library/Application Support/Muxy",
+              "~/Library/Preferences/app.muxy.Muxy.plist",
+              "~/Library/Saved Application State/app.muxy.Muxy.savedState",
+            ]
+          end
+          EOF
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/muxy.rb
+          git commit -m "Update Muxy to v${VERSION}"
+          git push
