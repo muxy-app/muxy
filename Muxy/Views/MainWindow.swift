@@ -185,7 +185,7 @@ struct MainWindow: View {
             showWorktreeSwitcher.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
-            isFullScreen = (notification.object as? Bool) ?? false
+            isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
         }
         .onReceive(NotificationCenter.default.publisher(for: .openVCSWindow)) { _ in
             openWindow(id: "vcs")

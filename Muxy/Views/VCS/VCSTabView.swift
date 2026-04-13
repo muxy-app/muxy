@@ -882,13 +882,10 @@ struct PRPopover: View {
             .buttonStyle(.plain)
 
             if info.state == .open {
-                Picker("Method", selection: $mergeMethod) {
-                    ForEach(GitRepositoryService.PRMergeMethod.allCases) { method in
-                        Text(method.shortLabel).tag(method)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                SegmentedPicker(
+                    selection: $mergeMethod,
+                    options: GitRepositoryService.PRMergeMethod.allCases.map { ($0, $0.shortLabel) }
+                )
 
                 Button { onMerge(mergeMethod) } label: {
                     HStack(spacing: 6) {
