@@ -107,6 +107,40 @@ private final class CodeEditorLayoutManager: NSLayoutManager {
 
 final class ViewportContainerView: NSView {
     override var isFlipped: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let textView = subviews.first as? NSTextView else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        let pointInContainer = convert(event.locationInWindow, from: nil)
+        if textView.frame.contains(pointInContainer) {
+            super.mouseDown(with: event)
+            return
+        }
+
+        let clampedX = min(pointInContainer.x, textView.frame.maxX - 1)
+        let clampedY = min(max(pointInContainer.y, textView.frame.minY), textView.frame.maxY - 1)
+        let pointInTextView = NSPoint(x: clampedX, y: clampedY - textView.frame.origin.y)
+        let charIndex = textView.characterIndexForInsertion(at: pointInTextView)
+
+        textView.window?.makeFirstResponder(textView)
+
+        guard event.modifierFlags.contains(.shift) else {
+            textView.setSelectedRange(NSRange(location: charIndex, length: 0))
+            return
+        }
+
+        let current = textView.selectedRange()
+        let anchor = current.location
+        let newRange = if charIndex >= anchor {
+            NSRange(location: anchor, length: charIndex - anchor)
+        } else {
+            NSRange(location: charIndex, length: anchor - charIndex)
+        }
+        textView.setSelectedRange(newRange)
+    }
 }
 
 struct CodeEditorView: NSViewRepresentable {

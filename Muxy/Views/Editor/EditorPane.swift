@@ -101,7 +101,7 @@ struct EditorPane: View {
         }
         .background(MuxyTheme.bg)
         .contentShape(Rectangle())
-        .onTapGesture(perform: onFocus)
+        .simultaneousGesture(TapGesture().onEnded { onFocus() })
         .onReceive(NotificationCenter.default.publisher(for: .findInTerminal)) { _ in
             guard focused else { return }
             if !state.currentSelection.isEmpty {
