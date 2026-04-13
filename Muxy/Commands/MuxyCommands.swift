@@ -255,14 +255,6 @@ struct MuxyCommands: Commands {
 
             Divider()
 
-            Button(appState.sidebarVisible ? "Hide Sidebar" : "Show Sidebar") {
-                guard isMainWindowFocused else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    appState.sidebarVisible.toggle()
-                }
-            }
-            .shortcut(for: .toggleSidebar, store: keyBindings)
-
             Button("Theme Picker") {
                 guard isMainWindowFocused else { return }
                 NotificationCenter.default.post(name: .toggleThemePicker, object: nil)

@@ -56,7 +56,6 @@ final class AppState {
         let tabID: UUID
     }
 
-    var sidebarVisible = true
     var workspaceRoots: [WorktreeKey: SplitNode] = [:]
     var focusedAreaID: [WorktreeKey: UUID] = [:]
     var pendingLastTabClose: PendingTabClose?

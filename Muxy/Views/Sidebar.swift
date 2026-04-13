@@ -1,38 +1,5 @@
 import SwiftUI
 
-struct SidebarToolbar: View {
-    @Environment(AppState.self) private var appState
-    @Environment(ProjectStore.self) private var projectStore
-    @Environment(WorktreeStore.self) private var worktreeStore
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Spacer()
-            IconButton(symbol: "folder") {
-                ProjectOpenService.openProject(
-                    appState: appState,
-                    projectStore: projectStore,
-                    worktreeStore: worktreeStore
-                )
-            }
-            .help(shortcutTooltip("Open Project", for: .openProject))
-            IconButton(symbol: "sidebar.left") {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    appState.sidebarVisible.toggle()
-                }
-            }
-            .help(shortcutTooltip("Toggle Sidebar", for: .toggleSidebar))
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 32)
-        .background(WindowDragRepresentable())
-    }
-
-    private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
-        "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
-    }
-}
-
 struct Sidebar: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -41,19 +8,27 @@ struct Sidebar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if projectStore.projects.isEmpty {
-                emptyState
-            } else {
-                projectList
-            }
+            projectList
             Spacer(minLength: 0)
             SidebarFooter()
         }
+        .frame(width: 44)
+    }
+
+    private var addButton: some View {
+        AddProjectButton {
+            ProjectOpenService.openProject(
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
+        }
+        .help(shortcutTooltip("Add Project", for: .openProject))
     }
 
     private var projectList: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: 2) {
+            LazyVStack(spacing: 4) {
                 ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) { index, project in
                     ProjectRow(
                         project: project,
@@ -61,7 +36,8 @@ struct Sidebar: View {
                         isAnyDragging: dragState.draggedID != nil,
                         onSelect: { select(project) },
                         onRemove: { remove(project) },
-                        onRename: { projectStore.rename(id: project.id, to: $0) }
+                        onRename: { projectStore.rename(id: project.id, to: $0) },
+                        onSetLogo: { projectStore.setLogo(id: project.id, to: $0) }
                     )
                     .background {
                         if dragState.draggedID != nil {
@@ -75,9 +51,10 @@ struct Sidebar: View {
                     }
                     .gesture(projectDragGesture(for: project))
                 }
+                addButton
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 10)
+            .padding(.vertical, 4)
             .onPreferenceChange(UUIDFramePreferenceKey<SidebarFrameTag>.self) { frames in
                 guard dragState.draggedID != nil else { return }
                 dragState.frames = frames
@@ -86,22 +63,8 @@ struct Sidebar: View {
         .coordinateSpace(name: "sidebar")
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "folder.badge.plus")
-                .font(.system(size: 26, weight: .regular))
-                .foregroundStyle(MuxyTheme.fgDim)
-            Text("No projects yet")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(MuxyTheme.fgMuted)
-            Text("Click \(Image(systemName: "folder")) above to open one")
-                .font(.system(size: 10))
-                .foregroundStyle(MuxyTheme.fgDim)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 32)
+    private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
+        "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
     }
 
     private func projectDragGesture(for project: Project) -> some Gesture {
@@ -179,27 +142,32 @@ private struct ProjectDragState {
     var lastReorderTargetID: UUID?
 }
 
+private struct AddProjectButton: View {
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "plus")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
+                .frame(width: 32, height: 32)
+                .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+    }
+}
+
 struct SidebarFooter: View {
     @State private var showThemePicker = false
 
-    private var versionString: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            HStack(spacing: 4) {
-                Text("Muxy \(versionString)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                Spacer()
-                IconButton(symbol: "paintpalette") { showThemePicker.toggle() }
-                    .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
-                    .popover(isPresented: $showThemePicker) { ThemePicker() }
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 32)
+            IconButton(symbol: "paintpalette") { showThemePicker.toggle() }
+                .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
+                .popover(isPresented: $showThemePicker) { ThemePicker() }
+                .padding(.bottom, 8)
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleThemePicker)) { _ in
             showThemePicker.toggle()

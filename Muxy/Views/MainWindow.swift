@@ -47,31 +47,27 @@ struct MainWindow: View {
     @State private var vcsStates: [WorktreeKey: VCSTabState] = [:]
     @State private var showQuickOpen = false
     @State private var showWorktreeSwitcher = false
-    private let sidebarWidth: CGFloat = 180
+    private let sidebarWidth: CGFloat = 44
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                SidebarToolbar()
-                    .frame(width: sidebarWidth)
-                Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                Color.clear.frame(width: 70)
                 topBarContent
             }
             .frame(height: 32)
+            .background(WindowDragRepresentable())
             .background(MuxyTheme.bg)
 
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
                 .background(MuxyTheme.bg)
 
             HStack(spacing: 0) {
-                if appState.sidebarVisible {
-                    HStack(spacing: 0) {
-                        Sidebar()
-                            .frame(width: sidebarWidth)
-                        Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                    }
-                    .background(MuxyTheme.bg)
+                HStack(spacing: 0) {
+                    Sidebar()
+                    Rectangle().fill(MuxyTheme.border).frame(width: 1)
                 }
+                .background(MuxyTheme.bg)
 
                 ZStack {
                     MuxyTheme.bg

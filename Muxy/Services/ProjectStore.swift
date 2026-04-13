@@ -30,6 +30,15 @@ final class ProjectStore {
         save()
     }
 
+    func setLogo(id: UUID, to logo: String?) {
+        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        if logo == nil {
+            ProjectLogoStorage.remove(forProjectID: id)
+        }
+        projects[index].logo = logo
+        save()
+    }
+
     func reorder(fromOffsets source: IndexSet, toOffset destination: Int) {
         projects.move(fromOffsets: source, toOffset: destination)
         for index in projects.indices {

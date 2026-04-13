@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ProjectRow: View {
@@ -7,6 +8,7 @@ struct ProjectRow: View {
     let onSelect: () -> Void
     let onRemove: () -> Void
     let onRename: (String) -> Void
+    let onSetLogo: (String?) -> Void
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -14,10 +16,10 @@ struct ProjectRow: View {
     @State private var hovered = false
     @State private var isRenaming = false
     @State private var renameText = ""
-    @FocusState private var renameFieldFocused: Bool
     @State private var showWorktreePopover = false
     @State private var isGitRepo = false
     @State private var showCreateWorktreeSheet = false
+    @State private var logoCropImage: IdentifiableImage?
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -27,113 +29,126 @@ struct ProjectRow: View {
         worktreeStore.list(for: project.id)
     }
 
+    private var displayLetter: String {
+        String(project.name.prefix(1)).uppercased()
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
-            label
-            Spacer(minLength: 0)
-            trailingAccessory
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 28)
-        .background(background, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(alignment: .leading) {
-            if isActive {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 6,
-                    bottomLeadingRadius: 6,
-                    bottomTrailingRadius: 0,
-                    topTrailingRadius: 0
-                )
-                .fill(MuxyTheme.accent)
-                .frame(width: 3)
+        projectIcon
+            .help(project.name)
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .onHover { hovering in
+                guard !isAnyDragging else { return }
+                hovered = hovering
             }
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 6))
-        .onHover { hovering in
-            guard !isAnyDragging else { return }
-            hovered = hovering
-        }
-        .onChange(of: isAnyDragging) { _, dragging in
-            if dragging { hovered = false }
-        }
-        .onTapGesture {
-            guard !isAnyDragging, !isRenaming else { return }
-            onSelect()
-        }
-        .task(id: project.path) {
-            isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
-        }
-        .contextMenu {
-            Button("Rename Project") { startRename() }
-            if isGitRepo {
+            .onChange(of: isAnyDragging) { _, dragging in
+                if dragging { hovered = false }
+            }
+            .onTapGesture {
+                guard !isAnyDragging else { return }
+                onSelect()
+            }
+            .task(id: project.path) {
+                isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
+            }
+            .contextMenu {
+                Button("Set Logo...") { pickLogoImage() }
+                if project.logo != nil {
+                    Button("Remove Logo") { onSetLogo(nil) }
+                }
                 Divider()
-                Button("New Worktree…") { showCreateWorktreeSheet = true }
-                if worktrees.count > 1 {
-                    Button("Switch Worktree…") { showWorktreePopover = true }
+                Button("Rename Project") { startRename() }
+                if isGitRepo {
+                    Divider()
+                    Button("New Worktree…") { showCreateWorktreeSheet = true }
+                    if worktrees.count > 1 {
+                        Button("Switch Worktree…") { showWorktreePopover = true }
+                    }
+                }
+                Divider()
+                Button("Remove Project", role: .destructive, action: onRemove)
+            }
+            .popover(isPresented: $showWorktreePopover, arrowEdge: .trailing) {
+                WorktreePopover(
+                    project: project,
+                    isGitRepo: isGitRepo,
+                    onDismiss: { showWorktreePopover = false },
+                    onRequestCreate: {
+                        showWorktreePopover = false
+                        showCreateWorktreeSheet = true
+                    }
+                )
+                .environment(appState)
+                .environment(worktreeStore)
+            }
+            .sheet(isPresented: $showCreateWorktreeSheet) {
+                CreateWorktreeSheet(project: project) { result in
+                    showCreateWorktreeSheet = false
+                    handleCreateWorktreeResult(result)
                 }
             }
-            Divider()
-            Button("Remove Project", role: .destructive, action: onRemove)
-        }
-        .popover(isPresented: $showWorktreePopover, arrowEdge: .trailing) {
-            WorktreePopover(
-                project: project,
-                isGitRepo: isGitRepo,
-                onDismiss: { showWorktreePopover = false },
-                onRequestCreate: {
-                    showWorktreePopover = false
-                    showCreateWorktreeSheet = true
+            .sheet(item: $logoCropImage) { item in
+                LogoCropperSheet(
+                    sourceImage: item.image,
+                    onConfirm: { cropped in
+                        logoCropImage = nil
+                        let logoPath = ProjectLogoStorage.save(
+                            croppedImage: cropped,
+                            forProjectID: project.id
+                        )
+                        onSetLogo(logoPath)
+                    },
+                    onCancel: { logoCropImage = nil }
+                )
+            }
+            .overlay {
+                if showShortcutBadge, let shortcutIndex,
+                   let action = ShortcutAction.projectAction(for: shortcutIndex)
+                {
+                    ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
                 }
-            )
-            .environment(appState)
-            .environment(worktreeStore)
-        }
-        .sheet(isPresented: $showCreateWorktreeSheet) {
-            CreateWorktreeSheet(project: project) { result in
-                showCreateWorktreeSheet = false
-                handleCreateWorktreeResult(result)
+            }
+            .popover(isPresented: $isRenaming, arrowEdge: .trailing) {
+                RenamePopover(
+                    text: $renameText,
+                    onCommit: { commitRename() },
+                    onCancel: { cancelRename() }
+                )
+            }
+    }
+
+    private var projectIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(iconBackground)
+
+            if let logoPath = project.logo,
+               let nsImage = NSImage(contentsOfFile: logoPath)
+            {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 32, height: 32)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                Text(displayLetter)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(isActive ? MuxyTheme.fg : MuxyTheme.fgMuted)
             }
         }
-    }
-
-    @ViewBuilder
-    private var label: some View {
-        if isRenaming {
-            TextField("", text: $renameText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fg)
-                .focused($renameFieldFocused)
-                .onSubmit { commitRename() }
-                .onExitCommand { cancelRename() }
-        } else {
-            Text(project.name)
-                .font(.system(size: 12, weight: isActive ? .semibold : .medium))
-                .foregroundStyle(nameColor)
-                .lineLimit(1)
-                .truncationMode(.middle)
+        .frame(width: 32, height: 32)
+        .padding(3)
+        .overlay {
+            RoundedRectangle(cornerRadius: 11)
+                .strokeBorder(isActive ? MuxyTheme.accent : .clear, lineWidth: 1.5)
+                .animation(.easeInOut(duration: 0.15), value: isActive)
         }
     }
 
-    @ViewBuilder
-    private var trailingAccessory: some View {
-        if showShortcutBadge, let shortcutIndex,
-           let action = ShortcutAction.projectAction(for: shortcutIndex)
-        {
-            ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
-        }
-    }
-
-    private var background: AnyShapeStyle {
-        if isActive { return AnyShapeStyle(MuxyTheme.accentSoft) }
+    private var iconBackground: AnyShapeStyle {
+        if project.logo != nil { return AnyShapeStyle(Color.clear) }
         if hovered { return AnyShapeStyle(MuxyTheme.hover) }
-        return AnyShapeStyle(Color.clear)
-    }
-
-    private var nameColor: Color {
-        if isActive { return MuxyTheme.fg }
-        if hovered { return MuxyTheme.fg }
-        return MuxyTheme.fgMuted
+        return AnyShapeStyle(MuxyTheme.surface)
     }
 
     private var showShortcutBadge: Bool {
@@ -143,6 +158,21 @@ struct ProjectRow: View {
         return ModifierKeyMonitor.shared.isHolding(
             modifiers: KeyBindingStore.shared.combo(for: action).modifiers
         )
+    }
+
+    private func pickLogoImage() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a Logo Image"
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        guard panel.runModal() == .OK,
+              let url = panel.url,
+              let image = NSImage(contentsOf: url)
+        else { return }
+
+        logoCropImage = IdentifiableImage(image: image)
     }
 
     private func handleCreateWorktreeResult(_ result: CreateWorktreeResult) {
@@ -167,7 +197,6 @@ struct ProjectRow: View {
     private func startRename() {
         renameText = project.name
         isRenaming = true
-        renameFieldFocused = true
     }
 
     private func commitRename() {
@@ -181,4 +210,33 @@ struct ProjectRow: View {
     private func cancelRename() {
         isRenaming = false
     }
+}
+
+private struct RenamePopover: View {
+    @Binding var text: String
+    let onCommit: () -> Void
+    let onCancel: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text("Rename Project")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+            TextField("Project name", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+                .focused($isFocused)
+                .onSubmit { onCommit() }
+                .onExitCommand { onCancel() }
+        }
+        .padding(12)
+        .frame(width: 200)
+        .onAppear { isFocused = true }
+    }
+}
+
+struct IdentifiableImage: Identifiable {
+    let id = UUID()
+    let image: NSImage
 }
