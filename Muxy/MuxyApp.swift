@@ -226,7 +226,8 @@ struct WindowConfigurator: NSViewRepresentable {
         if #available(macOS 26.0, *) {
             guard let contentView = window.contentView else { return }
             contentView.additionalSafeAreaInsets.top = 0
-            contentView.additionalSafeAreaInsets.top = -contentView.safeAreaInsets.top
+            let baseSafeAreaTop = contentView.safeAreaInsets.top
+            contentView.additionalSafeAreaInsets.top = -baseSafeAreaTop
         }
     }
 
@@ -309,7 +310,8 @@ struct WindowConfigurator: NSViewRepresentable {
                             let isFullScreen = w.styleMask.contains(.fullScreen)
                             NotificationCenter.default.post(
                                 name: .windowFullScreenDidChange,
-                                object: isFullScreen
+                                object: nil,
+                                userInfo: ["isFullScreen": isFullScreen]
                             )
                         }
                     }
