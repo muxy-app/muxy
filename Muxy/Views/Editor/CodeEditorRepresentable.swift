@@ -372,11 +372,13 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.clearSearchHighlights()
             return
         }
+
+        let becameVisible = state.searchVisible && !coordinator.lastSearchVisible
         coordinator.lastSearchVisible = state.searchVisible
 
         let searchOptionsChanged = coordinator.lastSearchCaseSensitive != searchCaseSensitive
             || coordinator.lastSearchUseRegex != searchUseRegex
-        if coordinator.lastSearchNeedle != searchNeedle || searchOptionsChanged {
+        if coordinator.lastSearchNeedle != searchNeedle || searchOptionsChanged || becameVisible {
             coordinator.lastSearchNeedle = searchNeedle
             coordinator.lastSearchCaseSensitive = searchCaseSensitive
             coordinator.lastSearchUseRegex = searchUseRegex
@@ -486,6 +488,7 @@ struct CodeEditorView: NSViewRepresentable {
         private static let redoCommandSelector = #selector(CodeEditorTextView.redo(_:))
         private var highlightGeneration = 0
         private var activeHighlightTask: Task<Void, Never>?
+        private var lastSyntaxHighlightResult: SyntaxHighlightResult?
         private var pendingViewportEdit: PendingViewportEdit?
         private var viewportUndoStack: [ViewportEditGroup] = []
         private var viewportRedoStack: [ViewportEditGroup] = []
@@ -822,6 +825,20 @@ struct CodeEditorView: NSViewRepresentable {
                 .backgroundColor,
                 forCharacterRange: NSRange(location: 0, length: storageLength)
             )
+            if let prevRange = lastCurrentMatchFgRange, NSMaxRange(prevRange) <= storageLength {
+                layoutManager.removeTemporaryAttribute(
+                    .foregroundColor,
+                    forCharacterRange: prevRange
+                )
+                if let syntaxResult = lastSyntaxHighlightResult {
+                    for (matchRange, color) in syntaxResult.ranges {
+                        let intersection = NSIntersectionRange(matchRange, prevRange)
+                        guard intersection.length > 0, NSMaxRange(intersection) <= storageLength else { continue }
+                        layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: intersection)
+                    }
+                }
+            }
+            lastCurrentMatchFgRange = nil
 
             guard let viewport = viewportState, !viewportSearchMatches.isEmpty else {
                 textView.needsDisplay = true
@@ -845,6 +862,7 @@ struct CodeEditorView: NSViewRepresentable {
                 if i == currentIndex {
                     layoutManager.addTemporaryAttribute(.backgroundColor, value: currentMatchBg, forCharacterRange: highlightRange)
                     layoutManager.addTemporaryAttribute(.foregroundColor, value: currentMatchFg, forCharacterRange: highlightRange)
+                    lastCurrentMatchFgRange = highlightRange
                 } else {
                     layoutManager.addTemporaryAttribute(.backgroundColor, value: matchBg, forCharacterRange: highlightRange)
                 }
@@ -856,6 +874,7 @@ struct CodeEditorView: NSViewRepresentable {
         // MARK: - Viewport Search
 
         private var viewportSearchMatches: [TextBackingStore.SearchMatch] = []
+        private var lastCurrentMatchFgRange: NSRange?
 
         func performSearchViewport(_ needle: String, caseSensitive: Bool, useRegex: Bool) {
             guard let store = state.backingStore else { return }
@@ -1814,6 +1833,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard let textView, let layoutManager = textView.layoutManager else { return }
             let storageLength = textView.textStorage?.length ?? 0
             guard storageLength >= NSMaxRange(range) else { return }
+            lastSyntaxHighlightResult = result
             layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
             for (matchRange, color) in result.ranges {
                 guard NSMaxRange(matchRange) <= storageLength else { continue }
