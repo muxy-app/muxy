@@ -2,60 +2,117 @@ import AppKit
 import SwiftUI
 
 enum MuxyTheme {
-    @MainActor static var bg: Color { Color(nsColor: GhosttyService.shared.backgroundColor) }
-    @MainActor static var nsBg: NSColor { GhosttyService.shared.backgroundColor }
-    @MainActor static var fg: Color { Color(nsColor: GhosttyService.shared.foregroundColor) }
-    @MainActor static var fgMuted: Color { fgAlpha(0.65) }
-    @MainActor static var fgDim: Color { fgAlpha(0.4) }
-    @MainActor static var surface: Color { fgAlpha(0.08) }
-    @MainActor static var border: Color { fgAlpha(0.12) }
-    @MainActor static var hover: Color { fgAlpha(0.06) }
+    @MainActor static var bg: Color { snapshot.bg }
+    @MainActor static var nsBg: NSColor { snapshot.nsBg }
+    @MainActor static var fg: Color { snapshot.fg }
+    @MainActor static var fgMuted: Color { snapshot.fgMuted }
+    @MainActor static var fgDim: Color { snapshot.fgDim }
+    @MainActor static var surface: Color { snapshot.surface }
+    @MainActor static var border: Color { snapshot.border }
+    @MainActor static var hover: Color { snapshot.hover }
 
-    @MainActor static var accent: Color { Color(nsColor: GhosttyService.shared.accentColor) }
-    @MainActor static var accentSoft: Color {
-        Color(nsColor: GhosttyService.shared.accentColor.withAlphaComponent(0.1))
+    @MainActor static var accent: Color { snapshot.accent }
+    @MainActor static var accentSoft: Color { snapshot.accentSoft }
+
+    @MainActor static var diffAddFg: Color { snapshot.diffAddFg }
+    @MainActor static var diffRemoveFg: Color { snapshot.diffRemoveFg }
+    @MainActor static var diffHunkFg: Color { snapshot.diffHunkFg }
+    @MainActor static var diffAddBg: Color { snapshot.diffAddBg }
+    @MainActor static var diffRemoveBg: Color { snapshot.diffRemoveBg }
+    @MainActor static var diffHunkBg: Color { snapshot.diffHunkBg }
+
+    @MainActor static var nsDiffAdd: NSColor { snapshot.nsDiffAdd }
+    @MainActor static var nsDiffRemove: NSColor { snapshot.nsDiffRemove }
+    @MainActor static var nsDiffHunk: NSColor { snapshot.nsDiffHunk }
+    @MainActor static var nsDiffString: NSColor { snapshot.nsDiffString }
+    @MainActor static var nsDiffNumber: NSColor { snapshot.nsDiffNumber }
+    @MainActor static var nsDiffComment: NSColor { snapshot.nsDiffComment }
+
+    @MainActor static var colorScheme: ColorScheme { snapshot.colorScheme }
+
+    @MainActor private static var cachedVersion: Int = -1
+    @MainActor private static var cachedSnapshot: Snapshot?
+
+    @MainActor private static var snapshot: Snapshot {
+        let version = GhosttyService.shared.configVersion
+        if let cached = cachedSnapshot, cachedVersion == version {
+            return cached
+        }
+        let newSnapshot = Snapshot(from: GhosttyService.shared)
+        cachedSnapshot = newSnapshot
+        cachedVersion = version
+        return newSnapshot
     }
+}
 
-    @MainActor static var diffAddFg: Color { Color(nsColor: nsDiffAdd) }
-    @MainActor static var diffRemoveFg: Color { Color(nsColor: nsDiffRemove) }
-    @MainActor static var diffHunkFg: Color { Color(nsColor: nsDiffHunk) }
-    @MainActor static var diffAddBg: Color { Color(nsColor: nsDiffAdd.withAlphaComponent(0.16)) }
-    @MainActor static var diffRemoveBg: Color { Color(nsColor: nsDiffRemove.withAlphaComponent(0.16)) }
-    @MainActor static var diffHunkBg: Color { Color(nsColor: nsDiffHunk.withAlphaComponent(0.1)) }
+extension MuxyTheme {
+    struct Snapshot {
+        let nsBg: NSColor
+        let bg: Color
+        let fg: Color
+        let fgMuted: Color
+        let fgDim: Color
+        let surface: Color
+        let border: Color
+        let hover: Color
+        let accent: Color
+        let accentSoft: Color
+        let diffAddFg: Color
+        let diffRemoveFg: Color
+        let diffHunkFg: Color
+        let diffAddBg: Color
+        let diffRemoveBg: Color
+        let diffHunkBg: Color
+        let nsDiffAdd: NSColor
+        let nsDiffRemove: NSColor
+        let nsDiffHunk: NSColor
+        let nsDiffString: NSColor
+        let nsDiffNumber: NSColor
+        let nsDiffComment: NSColor
+        let colorScheme: ColorScheme
 
-    @MainActor static var nsDiffAdd: NSColor {
-        GhosttyService.shared.paletteColor(at: 2) ?? NSColor.systemGreen
-    }
+        @MainActor
+        init(from service: GhosttyService) {
+            let bgColor = service.backgroundColor
+            let fgColor = service.foregroundColor
+            let accentColor = service.accentColor
 
-    @MainActor static var nsDiffRemove: NSColor {
-        GhosttyService.shared.paletteColor(at: 1) ?? NSColor.systemRed
-    }
+            nsBg = bgColor
+            bg = Color(nsColor: bgColor)
+            fg = Color(nsColor: fgColor)
+            fgMuted = Color(nsColor: fgColor.withAlphaComponent(0.65))
+            fgDim = Color(nsColor: fgColor.withAlphaComponent(0.4))
+            surface = Color(nsColor: fgColor.withAlphaComponent(0.08))
+            border = Color(nsColor: fgColor.withAlphaComponent(0.12))
+            hover = Color(nsColor: fgColor.withAlphaComponent(0.06))
+            accent = Color(nsColor: accentColor)
+            accentSoft = Color(nsColor: accentColor.withAlphaComponent(0.1))
 
-    @MainActor static var nsDiffHunk: NSColor {
-        GhosttyService.shared.paletteColor(at: 6) ?? GhosttyService.shared.accentColor
-    }
+            let addColor = service.paletteColor(at: 2) ?? NSColor.systemGreen
+            let removeColor = service.paletteColor(at: 1) ?? NSColor.systemRed
+            let hunkColor = service.paletteColor(at: 6) ?? accentColor
 
-    @MainActor static var nsDiffString: NSColor {
-        GhosttyService.shared.paletteColor(at: 2) ?? NSColor.systemGreen
-    }
+            nsDiffAdd = addColor
+            nsDiffRemove = removeColor
+            nsDiffHunk = hunkColor
+            nsDiffString = service.paletteColor(at: 2) ?? NSColor.systemGreen
+            nsDiffNumber = service.paletteColor(at: 3) ?? NSColor.systemYellow
+            nsDiffComment = service.paletteColor(at: 8) ?? fgColor.withAlphaComponent(0.5)
 
-    @MainActor static var nsDiffNumber: NSColor {
-        GhosttyService.shared.paletteColor(at: 3) ?? NSColor.systemYellow
-    }
+            diffAddFg = Color(nsColor: addColor)
+            diffRemoveFg = Color(nsColor: removeColor)
+            diffHunkFg = Color(nsColor: hunkColor)
+            diffAddBg = Color(nsColor: addColor.withAlphaComponent(0.16))
+            diffRemoveBg = Color(nsColor: removeColor.withAlphaComponent(0.16))
+            diffHunkBg = Color(nsColor: hunkColor.withAlphaComponent(0.1))
 
-    @MainActor static var nsDiffComment: NSColor {
-        GhosttyService.shared.paletteColor(at: 8) ?? GhosttyService.shared.foregroundColor.withAlphaComponent(0.5)
-    }
-
-    @MainActor static var colorScheme: ColorScheme {
-        let bg = GhosttyService.shared.backgroundColor
-        guard let srgb = bg.usingColorSpace(.sRGB) else { return .dark }
-        let luminance = 0.2126 * srgb.redComponent + 0.7152 * srgb.greenComponent + 0.0722 * srgb.blueComponent
-        return luminance > 0.5 ? .light : .dark
-    }
-
-    @MainActor
-    private static func fgAlpha(_ alpha: CGFloat) -> Color {
-        Color(nsColor: GhosttyService.shared.foregroundColor.withAlphaComponent(alpha))
+            let srgb = bgColor.usingColorSpace(.sRGB)
+            let luminance: CGFloat = if let srgb {
+                0.2126 * srgb.redComponent + 0.7152 * srgb.greenComponent + 0.0722 * srgb.blueComponent
+            } else {
+                0
+            }
+            colorScheme = luminance > 0.5 ? .light : .dark
+        }
     }
 }
