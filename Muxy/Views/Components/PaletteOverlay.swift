@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A generic command-palette overlay with a search field, a scrollable
@@ -17,7 +18,6 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     @State private var results: [Item] = []
     @State private var highlightedIndex: Int? = 0
     @State private var isSearching = false
-    @FocusState private var searchFieldFocused: Bool
     @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
@@ -40,15 +40,10 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             .frame(maxHeight: .infinity, alignment: .top)
         }
         .onAppear {
-            searchFieldFocused = true
             performSearch(debounce: false)
         }
         .onDisappear {
             searchTask?.cancel()
-        }
-        .onKeyPress(.escape) {
-            onDismiss()
-            return .handled
         }
     }
 
@@ -57,32 +52,19 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .font(.system(size: 13))
-            ZStack(alignment: .leading) {
-                if query.isEmpty {
-                    Text(placeholder)
-                        .font(.system(size: 13))
-                        .foregroundStyle(MuxyTheme.fgDim)
-                }
-                TextField("", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .foregroundStyle(MuxyTheme.fg)
-                    .focused($searchFieldFocused)
-                    .onSubmit { confirmSelection() }
-            }
+            PaletteSearchField(
+                text: $query,
+                placeholder: placeholder,
+                onSubmit: { confirmSelection() },
+                onEscape: { onDismiss() },
+                onArrowUp: { moveHighlight(-1) },
+                onArrowDown: { moveHighlight(1) }
+            )
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .onChange(of: query) {
             performSearch()
-        }
-        .onKeyPress(.upArrow) {
-            moveHighlight(-1)
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            moveHighlight(1)
-            return .handled
         }
     }
 
@@ -153,5 +135,98 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     private func confirmSelection() {
         guard let index = highlightedIndex, index < results.count else { return }
         onSelect(results[index])
+    }
+}
+
+struct PaletteSearchField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let onSubmit: () -> Void
+    let onEscape: () -> Void
+    let onArrowUp: () -> Void
+    let onArrowDown: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = PaletteNSTextField()
+        field.delegate = context.coordinator
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: 13)
+        field.textColor = NSColor(MuxyTheme.fg)
+        field.placeholderString = placeholder
+        field.cell?.sendsActionOnEndEditing = false
+        field.onEscape = onEscape
+        field.onArrowUp = onArrowUp
+        field.onArrowDown = onArrowDown
+        DispatchQueue.main.async {
+            field.window?.makeFirstResponder(field)
+        }
+        return field
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+        if let field = nsView as? PaletteNSTextField {
+            field.onEscape = onEscape
+            field.onArrowUp = onArrowUp
+            field.onArrowDown = onArrowDown
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: PaletteSearchField
+
+        init(parent: PaletteSearchField) {
+            self.parent = parent
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func control(
+            _ control: NSControl,
+            textView _: NSTextView,
+            doCommandBy commandSelector: Selector
+        ) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onSubmit()
+                return true
+            }
+            return false
+        }
+    }
+}
+
+private final class PaletteNSTextField: NSTextField {
+    var onEscape: (() -> Void)?
+    var onArrowUp: (() -> Void)?
+    var onArrowDown: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.keyCode == 53 {
+            onEscape?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 125:
+            onArrowDown?()
+        case 126:
+            onArrowUp?()
+        default:
+            super.keyDown(with: event)
+        }
     }
 }

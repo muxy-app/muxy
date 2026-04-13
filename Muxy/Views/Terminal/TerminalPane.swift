@@ -49,9 +49,11 @@ struct TerminalBridge: NSViewRepresentable {
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
+    @Environment(\.overlayActive) private var overlayActive
 
     final class Coordinator {
         var wasFocused = false
+        var wasOverlayActive = false
         var paneID: UUID?
     }
 
@@ -63,6 +65,7 @@ struct TerminalBridge: NSViewRepresentable {
         let registry = TerminalViewRegistry.shared
         let view = registry.view(for: state.id, workingDirectory: state.projectPath)
         view.isFocused = focused
+        view.overlayActive = overlayActive
         view.isHidden = !visible
         view.onFocus = onFocus
         view.onProcessExit = onProcessExit
@@ -73,7 +76,7 @@ struct TerminalBridge: NSViewRepresentable {
         configureSearchCallbacks(view)
         context.coordinator.wasFocused = focused
         context.coordinator.paneID = state.id
-        if focused {
+        if focused, !overlayActive {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 view.window?.makeFirstResponder(view)
             }
@@ -83,6 +86,7 @@ struct TerminalBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
         nsView.isHidden = !visible
+        nsView.overlayActive = overlayActive
         nsView.onFocus = onFocus
         nsView.onProcessExit = onProcessExit
         nsView.onSplitRequest = onSplitRequest
@@ -91,9 +95,17 @@ struct TerminalBridge: NSViewRepresentable {
         }
         configureSearchCallbacks(nsView)
         let wasFocused = context.coordinator.wasFocused
+        let wasOverlayActive = context.coordinator.wasOverlayActive
         context.coordinator.wasFocused = focused
+        context.coordinator.wasOverlayActive = overlayActive
         nsView.isFocused = focused
-        if focused, !wasFocused {
+
+        if overlayActive {
+            if nsView.window?.firstResponder === nsView || nsView.window?.firstResponder === nsView.inputContext {
+                nsView.window?.makeFirstResponder(nil)
+            }
+            nsView.notifySurfaceUnfocused()
+        } else if focused, !wasFocused || wasOverlayActive {
             nsView.notifySurfaceFocused()
             DispatchQueue.main.async {
                 nsView.window?.makeFirstResponder(nsView)

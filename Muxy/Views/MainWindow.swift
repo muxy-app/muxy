@@ -119,6 +119,7 @@ struct MainWindow: View {
                 }
             }
         }
+        .environment(\.overlayActive, showQuickOpen || showWorktreeSwitcher)
         .overlay(alignment: .bottom) {
             if let toast = ToastState.shared.message {
                 HStack(spacing: 6) {

@@ -13,6 +13,7 @@ final class GhosttyTerminalNSView: NSView {
     var onSearchTotal: ((Int?) -> Void)?
     var onSearchSelected: ((Int?) -> Void)?
     var isFocused: Bool = false
+    var overlayActive: Bool = false
 
     private var _markedText: String = ""
     private var _markedRange: NSRange = .init(location: NSNotFound, length: 0)
@@ -208,7 +209,7 @@ final class GhosttyTerminalNSView: NSView {
         ghostty_surface_set_focus(surface, false)
     }
 
-    override var acceptsFirstResponder: Bool { true }
+    override var acceptsFirstResponder: Bool { !overlayActive }
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
