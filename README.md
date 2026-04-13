@@ -36,9 +36,18 @@
 - Ghostty installed (optional for themes)
 - `gh` installed (optional for PR management)
 
-## Download
+## Install
 
-You can download the latest release from the [releases page](https://github.com/muxy-app/muxy/releases)
+### Homebrew
+
+```bash
+brew tap muxy-app/tap
+brew install --cask muxy
+```
+
+### Manual
+
+Download the latest release from the [releases page](https://github.com/muxy-app/muxy/releases)
 
 ## Local Development
 
