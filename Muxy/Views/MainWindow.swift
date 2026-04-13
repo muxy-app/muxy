@@ -47,12 +47,15 @@ struct MainWindow: View {
     @State private var vcsStates: [WorktreeKey: VCSTabState] = [:]
     @State private var showQuickOpen = false
     @State private var showWorktreeSwitcher = false
-    private let trafficLightWidth: CGFloat = 70
+    @State private var isFullScreen = false
+    private let trafficLightWidth: CGFloat = 80
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                Color.clear.frame(width: trafficLightWidth)
+                if !isFullScreen {
+                    Color.clear.frame(width: trafficLightWidth)
+                }
                 topBarContent
             }
             .frame(height: 32)
@@ -179,6 +182,9 @@ struct MainWindow: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .switchWorktree)) { _ in
             showWorktreeSwitcher.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
+            isFullScreen = (notification.object as? Bool) ?? false
         }
         .onReceive(NotificationCenter.default.publisher(for: .openVCSWindow)) { _ in
             openWindow(id: "vcs")

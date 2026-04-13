@@ -206,9 +206,7 @@ struct WindowConfigurator: NSViewRepresentable {
             Self.applyWindowBackground(w)
             Self.repositionTrafficLights(in: w)
             Self.hideTitlebarDecorationView(in: w)
-            if #available(macOS 26.0, *) {
-                w.contentView?.additionalSafeAreaInsets.top = -(w.contentView?.safeAreaInsets.top ?? 0)
-            }
+            Self.neutralizeSafeAreaInsets(in: w)
             context.coordinator.observe(window: w)
         }
         return v
@@ -222,6 +220,14 @@ struct WindowConfigurator: NSViewRepresentable {
     private static func applyWindowBackground(_ window: NSWindow) {
         window.isOpaque = true
         window.backgroundColor = MuxyTheme.nsBg
+    }
+
+    static func neutralizeSafeAreaInsets(in window: NSWindow) {
+        if #available(macOS 26.0, *) {
+            guard let contentView = window.contentView else { return }
+            contentView.additionalSafeAreaInsets.top = 0
+            contentView.additionalSafeAreaInsets.top = -contentView.safeAreaInsets.top
+        }
     }
 
     static func hideTitlebarDecorationView(in window: NSWindow) {
@@ -296,6 +302,16 @@ struct WindowConfigurator: NSViewRepresentable {
                     MainActor.assumeIsolated {
                         WindowConfigurator.repositionTrafficLights(in: w)
                         WindowConfigurator.hideTitlebarDecorationView(in: w)
+                        if name == NSWindow.didEnterFullScreenNotification
+                            || name == NSWindow.didExitFullScreenNotification
+                        {
+                            WindowConfigurator.neutralizeSafeAreaInsets(in: w)
+                            let isFullScreen = w.styleMask.contains(.fullScreen)
+                            NotificationCenter.default.post(
+                                name: .windowFullScreenDidChange,
+                                object: isFullScreen
+                            )
+                        }
                     }
                 }
                 observations.append(token)
