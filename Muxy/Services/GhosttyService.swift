@@ -67,7 +67,7 @@ final class GhosttyService {
     }
 
     var backgroundColor: NSColor {
-        configColor("background") ?? NSColor(srgbRed: 0.11, green: 0.11, blue: 0.14, alpha: 1)
+        configColor("background") ?? NSColor(srgbRed: 0.098, green: 0.090, blue: 0.122, alpha: 1)
     }
 
     var foregroundColor: NSColor {
