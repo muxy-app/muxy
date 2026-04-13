@@ -35,13 +35,10 @@ struct CreateWorktreeSheet: View {
                     .textFieldStyle(.roundedBorder)
             }
 
-            Picker("", selection: $createNewBranch) {
-                Text("Create new branch").tag(true)
-                Text("Use existing branch").tag(false)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: .infinity)
+            SegmentedPicker(
+                selection: $createNewBranch,
+                options: [(true, "Create new branch"), (false, "Use existing branch")]
+            )
 
             if createNewBranch {
                 VStack(alignment: .leading, spacing: 6) {
