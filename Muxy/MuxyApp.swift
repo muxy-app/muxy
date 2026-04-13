@@ -205,6 +205,10 @@ struct WindowConfigurator: NSViewRepresentable {
             w.isMovableByWindowBackground = false
             Self.applyWindowBackground(w)
             Self.repositionTrafficLights(in: w)
+            Self.hideTitlebarDecorationView(in: w)
+            if #available(macOS 26.0, *) {
+                w.contentView?.additionalSafeAreaInsets.top = -(w.contentView?.safeAreaInsets.top ?? 0)
+            }
             context.coordinator.observe(window: w)
         }
         return v
@@ -220,13 +224,52 @@ struct WindowConfigurator: NSViewRepresentable {
         window.backgroundColor = MuxyTheme.nsBg
     }
 
+    static func hideTitlebarDecorationView(in window: NSWindow) {
+        guard let themeFrame = window.contentView?.superview else { return }
+        for view in themeFrame.subviews {
+            let name = NSStringFromClass(type(of: view))
+            guard name.contains("NSTitlebarContainerView") else { continue }
+
+            // Make the container itself transparent
+            view.wantsLayer = true
+            view.layer?.backgroundColor = CGColor.clear
+            view.layer?.isOpaque = false
+
+            for child in view.subviews {
+                let childName = NSStringFromClass(type(of: child))
+                if childName.contains("NSTitlebarDecorationView") {
+                    child.isHidden = true
+                }
+                if childName.contains("NSTitlebarView") {
+                    child.wantsLayer = true
+                    child.layer?.backgroundColor = CGColor.clear
+                    child.layer?.isOpaque = false
+                    for sub in child.subviews {
+                        let subName = NSStringFromClass(type(of: sub))
+                        if subName == "NSView" || subName.contains("Background") {
+                            sub.isHidden = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     static let trafficLightY: CGFloat = 3.5
 
     static func repositionTrafficLights(in window: NSWindow) {
+        let y: CGFloat
+        if #available(macOS 26.0, *) {
+            // On macOS 26, center traffic lights vertically in the 32px title bar
+            let buttonHeight: CGFloat = 14
+            y = (32 - buttonHeight) / 2
+        } else {
+            y = trafficLightY
+        }
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             guard let btn = window.standardWindowButton(button) else { continue }
             var frame = btn.frame
-            frame.origin.y = trafficLightY
+            frame.origin.y = y
             btn.frame = frame
         }
     }
@@ -252,6 +295,7 @@ struct WindowConfigurator: NSViewRepresentable {
                     guard let w = notification.object as? NSWindow else { return }
                     MainActor.assumeIsolated {
                         WindowConfigurator.repositionTrafficLights(in: w)
+                        WindowConfigurator.hideTitlebarDecorationView(in: w)
                     }
                 }
                 observations.append(token)
