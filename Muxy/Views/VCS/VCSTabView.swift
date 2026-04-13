@@ -14,7 +14,6 @@ struct VCSTabView: View {
     @State private var showCreateBranchSheet = false
     @State private var showCreatePRSheet = false
     @State private var showWorktreePopover = false
-    @State private var isGitRepo = false
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     private var commitEnabled: Bool {
         state.hasStagedChanges && !state.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -129,11 +128,6 @@ struct VCSTabView: View {
         .padding(.horizontal, 8)
         .frame(height: 32)
         .background(MuxyTheme.bg)
-        .task(id: owningProject?.path) {
-            if let path = owningProject?.path {
-                isGitRepo = await GitWorktreeService.shared.isGitRepository(path)
-            }
-        }
         .sheet(isPresented: $showCreateWorktreeSheet) {
             if let project = owningProject {
                 CreateWorktreeSheet(project: project) { result in
@@ -224,7 +218,7 @@ struct VCSTabView: View {
             .popover(isPresented: $showWorktreePopover, arrowEdge: .top) {
                 WorktreePopover(
                     project: project,
-                    isGitRepo: isGitRepo,
+                    isGitRepo: state.isGitRepo,
                     onDismiss: { showWorktreePopover = false },
                     onRequestCreate: {
                         showWorktreePopover = false

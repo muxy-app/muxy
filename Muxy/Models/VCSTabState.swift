@@ -74,6 +74,7 @@ final class VCSTabState {
     var isMergingPullRequest = false
     var isClosingPullRequest = false
     var hasFetchedPullRequestInfo = false
+    private(set) var isGitRepo = false
 
     var commitMessage = ""
     var branches: [String] = []
@@ -203,6 +204,7 @@ final class VCSTabState {
                 let head = await headValue
                 guard !Task.isCancelled else { return }
 
+                isGitRepo = true
                 let branchChanged = branchName != branch
                 if branchChanged {
                     hasFetchedPullRequestInfo = false
