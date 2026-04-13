@@ -117,15 +117,19 @@ struct ProjectRow: View {
             }
     }
 
-    private var projectIcon: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(iconBackground)
+    private var resolvedLogo: NSImage? {
+        guard let filename = project.logo else { return nil }
+        return NSImage(contentsOfFile: ProjectLogoStorage.logoPath(for: filename))
+    }
 
-            if let logoPath = project.logo,
-               let nsImage = NSImage(contentsOfFile: logoPath)
-            {
-                Image(nsImage: nsImage)
+    private var projectIcon: some View {
+        let logo = resolvedLogo
+        return ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(iconBackground(hasLogo: logo != nil))
+
+            if let logo {
+                Image(nsImage: logo)
                     .resizable()
                     .scaledToFill()
                     .frame(width: 32, height: 32)
@@ -145,8 +149,8 @@ struct ProjectRow: View {
         }
     }
 
-    private var iconBackground: AnyShapeStyle {
-        if project.logo != nil { return AnyShapeStyle(Color.clear) }
+    private func iconBackground(hasLogo: Bool) -> AnyShapeStyle {
+        if hasLogo { return AnyShapeStyle(Color.clear) }
         if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(MuxyTheme.surface)
     }
@@ -236,7 +240,7 @@ private struct RenamePopover: View {
     }
 }
 
-struct IdentifiableImage: Identifiable {
+private struct IdentifiableImage: Identifiable {
     let id = UUID()
     let image: NSImage
 }

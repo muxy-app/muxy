@@ -47,12 +47,12 @@ struct MainWindow: View {
     @State private var vcsStates: [WorktreeKey: VCSTabState] = [:]
     @State private var showQuickOpen = false
     @State private var showWorktreeSwitcher = false
-    private let sidebarWidth: CGFloat = 44
+    private let trafficLightWidth: CGFloat = 70
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                Color.clear.frame(width: 70)
+                Color.clear.frame(width: trafficLightWidth)
                 topBarContent
             }
             .frame(height: 32)

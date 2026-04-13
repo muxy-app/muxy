@@ -1,5 +1,9 @@
 import SwiftUI
 
+enum SidebarLayout {
+    static let width: CGFloat = 44
+}
+
 struct Sidebar: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -12,7 +16,7 @@ struct Sidebar: View {
             Spacer(minLength: 0)
             SidebarFooter()
         }
-        .frame(width: 44)
+        .frame(width: SidebarLayout.width)
     }
 
     private var addButton: some View {

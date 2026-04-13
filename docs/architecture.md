@@ -68,7 +68,7 @@ Muxy/
     MuxyTheme.swift           Color system derived from Ghostty palette
   Views/
     MainWindow.swift          Main window layout (sidebar + workspace)
-    Sidebar.swift             Narrow icon-strip sidebar (52px), add-project button, project icons
+    Sidebar.swift             Narrow icon-strip sidebar (44px), add-project button, project icons
     Sidebar/
       ProjectRow.swift          Project icon (first letter or emoji logo), tooltip, context menu with logo picker
       WorktreePopover.swift     Worktree picker popover triggered from the active project row

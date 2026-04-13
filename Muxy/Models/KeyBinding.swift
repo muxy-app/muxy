@@ -21,7 +21,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case focusPaneDown
     case nextTab
     case previousTab
-    case toggleSidebar
     case toggleThemePicker
     case newProject
     case openProject
@@ -66,7 +65,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .focusPaneDown,
         .nextTab,
         .previousTab,
-        .toggleSidebar,
         .toggleThemePicker,
         .openProject,
         .reloadConfig,
@@ -139,7 +137,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .quickOpen: ShortcutMetadata(displayName: "Quick Open", category: "App", scope: .mainWindow)
         case .switchWorktree: ShortcutMetadata(displayName: "Switch Worktree", category: "Project Navigation", scope: .mainWindow)
         case .saveFile: ShortcutMetadata(displayName: "Save File", category: "Editor", scope: .mainWindow)
-        case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
         case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
@@ -192,7 +189,6 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .focusPaneRight, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, option: true)),
         Self(action: .focusPaneUp, combo: KeyCombo(key: KeyCombo.upArrowKey, command: true, option: true)),
         Self(action: .focusPaneDown, combo: KeyCombo(key: KeyCombo.downArrowKey, command: true, option: true)),
-        Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
         Self(action: .openVCSTab, combo: KeyCombo(key: "k", command: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),

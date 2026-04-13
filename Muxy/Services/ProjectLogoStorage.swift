@@ -25,19 +25,26 @@ enum ProjectLogoStorage {
             return nil
         }
 
+        let filename = "\(projectID.uuidString).png"
         let destURL = logosDirectory()
-            .appendingPathComponent("\(projectID.uuidString).png")
+            .appendingPathComponent(filename)
 
         do {
             if FileManager.default.fileExists(atPath: destURL.path) {
                 try FileManager.default.removeItem(at: destURL)
             }
             try pngData.write(to: destURL, options: .atomic)
-            return destURL.path
+            return filename
         } catch {
             logger.error("Failed to save project logo: \(error)")
             return nil
         }
+    }
+
+    static func logoPath(for filename: String) -> String {
+        logosDirectory()
+            .appendingPathComponent(filename)
+            .path
     }
 
     static func remove(forProjectID projectID: UUID) {

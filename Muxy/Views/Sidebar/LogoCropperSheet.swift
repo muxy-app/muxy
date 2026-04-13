@@ -222,16 +222,16 @@ struct LogoCropperSheet: View {
         }
 
         let finalSize = NSSize(width: outputSize, height: outputSize)
-        let result = NSImage(size: finalSize)
-        result.lockFocus()
-        NSGraphicsContext.current?.imageInterpolation = .high
-        NSImage(cgImage: cropped, size: .zero).draw(
-            in: NSRect(origin: .zero, size: finalSize),
-            from: .zero,
-            operation: .copy,
-            fraction: 1.0
-        )
-        result.unlockFocus()
+        let result = NSImage(size: finalSize, flipped: false) { drawRect in
+            NSGraphicsContext.current?.imageInterpolation = .high
+            NSImage(cgImage: cropped, size: .zero).draw(
+                in: drawRect,
+                from: .zero,
+                operation: .copy,
+                fraction: 1.0
+            )
+            return true
+        }
 
         onConfirm(result)
     }
