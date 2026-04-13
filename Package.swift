@@ -44,5 +44,28 @@ let package = Package(
                 .linkedLibrary("c++"),
             ]
         ),
+        .testTarget(
+            name: "MuxyTests",
+            dependencies: [
+                "Muxy",
+            ],
+            path: "Tests/MuxyTests",
+            linkerSettings: [
+                .unsafeFlags([
+                    "-L", "GhosttyKit.xcframework/macos-arm64_x86_64",
+                    "-lghostty",
+                ]),
+                .linkedFramework("AppKit"),
+                .linkedFramework("Carbon"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("CoreText"),
+                .linkedFramework("Foundation"),
+                .linkedFramework("IOKit"),
+                .linkedFramework("Metal"),
+                .linkedFramework("MetalKit"),
+                .linkedFramework("QuartzCore"),
+                .linkedLibrary("c++"),
+            ]
+        ),
     ]
 )

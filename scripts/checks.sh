@@ -146,6 +146,10 @@ if [ "$failed" -eq 0 ]; then
   run_step "Build" swift build || failed=1
 fi
 
+if [ "$failed" -eq 0 ]; then
+  run_step "Test" swift test || failed=1
+fi
+
 printf "\n"
 
 total_dur=$(format_duration $(( SECONDS - total_start )))

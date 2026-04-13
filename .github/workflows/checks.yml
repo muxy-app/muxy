@@ -48,3 +48,6 @@ jobs:
 
       - name: Build
         run: swift build
+
+      - name: Test
+        run: swift test
