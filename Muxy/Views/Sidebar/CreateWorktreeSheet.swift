@@ -41,6 +41,7 @@ struct CreateWorktreeSheet: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .frame(maxWidth: .infinity)
 
             if createNewBranch {
                 VStack(alignment: .leading, spacing: 6) {

@@ -889,6 +889,7 @@ struct PRPopover: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .frame(maxWidth: .infinity)
 
                 Button { onMerge(mergeMethod) } label: {
                     HStack(spacing: 6) {
