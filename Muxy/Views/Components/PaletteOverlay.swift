@@ -162,8 +162,6 @@ struct PaletteSearchField: NSViewRepresentable {
         field.placeholderString = placeholder
         field.cell?.sendsActionOnEndEditing = false
         field.onEscape = onEscape
-        field.onArrowUp = onArrowUp
-        field.onArrowDown = onArrowDown
         DispatchQueue.main.async {
             field.window?.makeFirstResponder(field)
         }
@@ -177,8 +175,6 @@ struct PaletteSearchField: NSViewRepresentable {
         }
         if let field = nsView as? PaletteNSTextField {
             field.onEscape = onEscape
-            field.onArrowUp = onArrowUp
-            field.onArrowDown = onArrowDown
         }
     }
 
@@ -218,8 +214,6 @@ struct PaletteSearchField: NSViewRepresentable {
 
 private final class PaletteNSTextField: NSTextField {
     var onEscape: (() -> Void)?
-    var onArrowUp: (() -> Void)?
-    var onArrowDown: (() -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.keyCode == 53 {
@@ -227,16 +221,5 @@ private final class PaletteNSTextField: NSTextField {
             return true
         }
         return super.performKeyEquivalent(with: event)
-    }
-
-    override func keyDown(with event: NSEvent) {
-        switch event.keyCode {
-        case 125:
-            onArrowDown?()
-        case 126:
-            onArrowUp?()
-        default:
-            super.keyDown(with: event)
-        }
     }
 }
