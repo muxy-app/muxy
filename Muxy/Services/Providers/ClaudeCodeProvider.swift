@@ -21,20 +21,34 @@ struct ClaudeCodeProvider: AIProviderIntegration {
     }
 
     func install(hookScriptPath: String) throws {
-        var settings = try Self.readSettings()
-        var hooks = settings["hooks"] as? [String: Any] ?? [:]
+        let settings = try Self.readSettings()
+        let hooks = settings["hooks"] as? [String: Any] ?? [:]
 
-        let stopHook = Self.buildHookEntry(hookScript: hookScriptPath, event: "stop")
-        let notificationHook = Self.buildHookEntry(hookScript: hookScriptPath, event: "notification")
+        let stopCommand = Self.hookCommand(hookScript: hookScriptPath, event: "stop")
+        let notificationCommand = Self.hookCommand(hookScript: hookScriptPath, event: "notification")
 
-        hooks["Stop"] = Self.mergeHookArray(existing: hooks["Stop"] as? [[String: Any]], muxyHook: stopHook)
-        hooks["Notification"] = Self.mergeHookArray(
+        let stopMatches = Self.muxyHookMatches(entries: hooks["Stop"] as? [[String: Any]], expectedCommand: stopCommand)
+        let notificationMatches = Self.muxyHookMatches(
+            entries: hooks["Notification"] as? [[String: Any]],
+            expectedCommand: notificationCommand
+        )
+
+        guard !stopMatches || !notificationMatches else { return }
+
+        var updatedSettings = settings
+        var updatedHooks = hooks
+
+        let stopHook = Self.buildHookEntry(command: stopCommand)
+        let notificationHook = Self.buildHookEntry(command: notificationCommand)
+
+        updatedHooks["Stop"] = Self.mergeHookArray(existing: hooks["Stop"] as? [[String: Any]], muxyHook: stopHook)
+        updatedHooks["Notification"] = Self.mergeHookArray(
             existing: hooks["Notification"] as? [[String: Any]],
             muxyHook: notificationHook
         )
 
-        settings["hooks"] = hooks
-        try Self.writeSettings(settings)
+        updatedSettings["hooks"] = updatedHooks
+        try Self.writeSettings(updatedSettings)
     }
 
     func uninstall() throws {
@@ -56,17 +70,32 @@ struct ClaudeCodeProvider: AIProviderIntegration {
         try Self.writeSettings(settings)
     }
 
-    private static func buildHookEntry(hookScript: String, event: String) -> [String: Any] {
+    private static func hookCommand(hookScript: String, event: String) -> String {
+        "'\(hookScript)' \(event) # \(muxyMarker)"
+    }
+
+    private static func buildHookEntry(command: String) -> [String: Any] {
         [
             "matcher": "",
             "hooks": [
                 [
                     "type": "command",
-                    "command": "'\(hookScript)' \(event) # \(muxyMarker)",
+                    "command": command,
                     "timeout": 10,
                 ] as [String: Any],
             ],
         ]
+    }
+
+    private static func muxyHookMatches(entries: [[String: Any]]?, expectedCommand: String) -> Bool {
+        guard let entries else { return false }
+        return entries.contains { entry in
+            guard let hooks = entry["hooks"] as? [[String: Any]] else { return false }
+            return hooks.contains { hook in
+                guard let command = hook["command"] as? String else { return false }
+                return command == expectedCommand
+            }
+        }
     }
 
     private static func mergeHookArray(

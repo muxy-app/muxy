@@ -25,6 +25,15 @@ struct OpenCodeProvider: AIProviderIntegration {
 
     func install(hookScriptPath: String) throws {
         guard let sourcePlugin = findPluginSource(near: hookScriptPath) else { return }
+        let sourceData = try Data(contentsOf: URL(fileURLWithPath: sourcePlugin))
+
+        if FileManager.default.fileExists(atPath: Self.pluginPath),
+           let existingData = try? Data(contentsOf: URL(fileURLWithPath: Self.pluginPath)),
+           existingData == sourceData
+        {
+            return
+        }
+
         try FileManager.default.createDirectory(atPath: Self.pluginsDir, withIntermediateDirectories: true)
         let dest = URL(fileURLWithPath: Self.pluginPath)
         if FileManager.default.fileExists(atPath: Self.pluginPath) {
