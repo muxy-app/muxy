@@ -44,7 +44,7 @@ jobs:
       - name: Setup GhosttyKit
         run: scripts/setup.sh
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ github.token }}
 
       - name: Build
         run: swift build
