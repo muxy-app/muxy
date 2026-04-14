@@ -33,10 +33,11 @@ struct WorktreePopover: View {
                 appState.selectWorktree(projectID: project.id, worktree: worktree)
                 onDismiss()
             },
-            row: { worktree, _ in
+            row: { worktree, isHighlighted in
                 WorktreePopoverRow(
                     worktree: worktree,
                     selected: worktree.id == activeWorktreeID,
+                    isHighlighted: isHighlighted,
                     onSelect: {
                         appState.selectWorktree(projectID: project.id, worktree: worktree)
                         onDismiss()
@@ -112,6 +113,7 @@ struct WorktreePopover: View {
 private struct WorktreePopoverRow: View {
     let worktree: Worktree
     let selected: Bool
+    let isHighlighted: Bool
     let onSelect: () -> Void
     let onRename: (String) -> Void
     let onRemove: (() -> Void)?
@@ -208,6 +210,7 @@ private struct WorktreePopoverRow: View {
 
     private var rowBackground: AnyShapeStyle {
         if selected { return AnyShapeStyle(MuxyTheme.accentSoft) }
+        if isHighlighted { return AnyShapeStyle(MuxyTheme.surface) }
         if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(Color.clear)
     }

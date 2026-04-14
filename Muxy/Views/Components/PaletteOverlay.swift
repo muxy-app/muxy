@@ -141,6 +141,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 struct PaletteSearchField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
+    var fontSize: CGFloat = 13
     let onSubmit: () -> Void
     let onEscape: () -> Void
     let onArrowUp: () -> Void
@@ -156,7 +157,7 @@ struct PaletteSearchField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: 13)
+        field.font = .systemFont(ofSize: fontSize)
         field.textColor = NSColor(MuxyTheme.fg)
         field.placeholderString = placeholder
         field.cell?.sendsActionOnEndEditing = false
@@ -170,6 +171,7 @@ struct PaletteSearchField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
+        context.coordinator.parent = self
         if nsView.stringValue != text {
             nsView.stringValue = text
         }
@@ -199,6 +201,14 @@ struct PaletteSearchField: NSViewRepresentable {
         ) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 parent.onSubmit()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.moveUp(_:)) {
+                parent.onArrowUp()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.moveDown(_:)) {
+                parent.onArrowDown()
                 return true
             }
             return false
