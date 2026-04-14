@@ -8,8 +8,6 @@ struct NotificationPanelItem: Identifiable {
     let timestamp: Date
     let isRead: Bool
 
-    var searchText: String { "\(title) \(body)" }
-
     var relativeTimestamp: String {
         let interval = Date().timeIntervalSince(timestamp)
         guard interval >= 60 else { return "now" }
@@ -45,7 +43,7 @@ struct NotificationPanel: View {
         VStack(spacing: 0) {
             let currentItems = items
             if currentItems.isEmpty {
-                emptySearchableList
+                emptyState
             } else {
                 header
                 Divider().overlay(MuxyTheme.border)
@@ -90,7 +88,7 @@ struct NotificationPanel: View {
         .background(MuxyTheme.bg)
     }
 
-    private var emptySearchableList: some View {
+    private var emptyState: some View {
         VStack(spacing: 0) {
             HStack {
                 Text("Notifications")

@@ -192,12 +192,10 @@ messages, OSC escape sequences). Each notification carries full navigation conte
 
 - **OSC 9/777** — Desktop notification escape sequences handled via
   `GHOSTTY_ACTION_DESKTOP_NOTIFICATION` in `GhosttyRuntimeEventAdapter`.
-- **Command finished** — Shell command completion via `GHOSTTY_ACTION_COMMAND_FINISHED`.
-  Only triggers for commands running longer than 5 seconds.
 - **Claude Code hooks** — Rich notifications from Claude Code sessions via a wrapper
   script that injects `--hooks` to route lifecycle events through the Unix socket.
-- **Unix socket** — External tool integration via `/tmp/muxy-{uid}.sock`. Accepts
-  JSON messages with paneID for routing.
+- **Unix socket** — External tool integration via `~/Library/Application Support/Muxy/muxy.sock`. Accepts
+  pipe-delimited messages with paneID for routing.
 
 ### Data Flow
 

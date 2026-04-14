@@ -63,7 +63,10 @@ final class NotificationStore {
         body: String,
         appState: AppState
     ) {
-        guard let worktreeStore else { return }
+        guard let worktreeStore else {
+            logger.debug("Notification dropped: worktreeStore not set")
+            return
+        }
         guard let context = NotificationNavigator.resolveContext(
             for: paneID,
             appState: appState,

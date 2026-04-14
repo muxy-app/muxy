@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-final class MuxyNotification: Identifiable, Codable {
+final class MuxyNotification: Identifiable, @preconcurrency Codable {
     enum Source: Equatable, Codable {
         case osc
         case aiProvider(String)
@@ -19,7 +19,7 @@ final class MuxyNotification: Identifiable, Codable {
     let title: String
     let body: String
     let timestamp: Date
-    nonisolated(unsafe) var isRead: Bool
+    var isRead: Bool
 
     init(
         paneID: UUID,
@@ -62,7 +62,7 @@ final class MuxyNotification: Identifiable, Codable {
         case isRead
     }
 
-    nonisolated required init(from decoder: Decoder) throws {
+    required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         paneID = try container.decode(UUID.self, forKey: .paneID)
@@ -78,7 +78,7 @@ final class MuxyNotification: Identifiable, Codable {
         isRead = try container.decode(Bool.self, forKey: .isRead)
     }
 
-    nonisolated func encode(to encoder: Encoder) throws {
+    func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(paneID, forKey: .paneID)

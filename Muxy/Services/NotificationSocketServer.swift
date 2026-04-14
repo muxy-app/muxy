@@ -11,7 +11,9 @@ final class NotificationSocketServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.muxy.notificationSocket")
 
     static var socketPath: String {
-        "/tmp/muxy-\(getuid()).sock"
+        MuxyFileStorage.appSupportDirectory()
+            .appendingPathComponent("muxy.sock")
+            .path
     }
 
     private init() {}
@@ -91,6 +93,8 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
     }
 
+    private static let maxMessageSize = 65536
+
     private func handleClient(_ fd: Int32) {
         defer { close(fd) }
 
@@ -100,6 +104,10 @@ final class NotificationSocketServer: @unchecked Sendable {
             let bytesRead = read(fd, &buffer, buffer.count)
             if bytesRead <= 0 { break }
             data.append(contentsOf: buffer[0 ..< bytesRead])
+            if data.count > Self.maxMessageSize {
+                logger.warning("Client exceeded max message size (\(Self.maxMessageSize) bytes), dropping")
+                return
+            }
         }
 
         guard !data.isEmpty else { return }
@@ -123,8 +131,8 @@ final class NotificationSocketServer: @unchecked Sendable {
         let title = rawTitle.isEmpty ? "Task completed!" : rawTitle
         let body = parts.count > 3 ? parts[3] : ""
 
-        DispatchQueue.main.async {
-            self.dispatchNotification(type: type, title: title, body: body, paneIDString: paneIDString)
+        DispatchQueue.main.async { [weak self] in
+            self?.dispatchNotification(type: type, title: title, body: body, paneIDString: paneIDString)
         }
     }
 

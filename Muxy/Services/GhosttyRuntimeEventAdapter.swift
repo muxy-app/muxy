@@ -30,8 +30,6 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
             logger.debug("DESKTOP_NOTIFICATION action received")
             handleDesktopNotification(target: target, notification: action.action.desktop_notification)
             return true
-        case GHOSTTY_ACTION_COMMAND_FINISHED:
-            return true
         case GHOSTTY_ACTION_START_SEARCH:
             handleStartSearch(target: target, search: action.action.start_search)
             return true
@@ -140,13 +138,13 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         notification: ghostty_action_desktop_notification_s
     ) {
         guard let view = surfaceView(from: target) else {
-            logger.debug("[Muxy] OSC notification: no surface view from target")
+            logger.debug("OSC notification: no surface view from target")
             return
         }
         let rawTitle = notification.title.flatMap { String(cString: $0) } ?? ""
         let title = rawTitle.isEmpty ? "Command executed!" : rawTitle
         let body = notification.body.flatMap { String(cString: $0) } ?? ""
-        logger.debug("[Muxy] OSC notification: title=\(title) body=\(body)")
+        logger.debug("OSC notification: title=\(title) body=\(body)")
         Task { @MainActor in
             Self.dispatchOSCNotification(view: view, title: title, body: body)
         }
@@ -155,14 +153,14 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
     @MainActor
     private static func dispatchOSCNotification(view: GhosttyTerminalNSView, title: String, body: String) {
         guard let paneID = TerminalViewRegistry.shared.paneID(for: view) else {
-            logger.debug("[Muxy] OSC notification: no paneID for view")
+            logger.debug("OSC notification: no paneID for view")
             return
         }
         guard let appState = NotificationStore.shared.appState else {
-            logger.debug("[Muxy] OSC notification: appState not available")
+            logger.debug("OSC notification: appState not available")
             return
         }
-        logger.debug("[Muxy] OSC notification: dispatching to store, paneID=\(paneID)")
+        logger.debug("OSC notification: dispatching to store, paneID=\(paneID)")
         NotificationStore.shared.add(
             paneID: paneID,
             source: .osc,

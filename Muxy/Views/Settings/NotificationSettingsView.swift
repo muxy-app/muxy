@@ -114,6 +114,7 @@ private struct ProviderToggleRow: View {
                 .controlSize(.small)
                 .onChange(of: enabled) { _, newValue in
                     provider.isEnabled = newValue
+                    AIProviderRegistry.shared.installAll()
                 }
         }
         .padding(.horizontal, 12)
