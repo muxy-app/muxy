@@ -43,6 +43,7 @@ struct MuxyApp: App {
                 .onAppear {
                     NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore
+                    NotificationStore.shared.markAllAsRead()
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
                     }
