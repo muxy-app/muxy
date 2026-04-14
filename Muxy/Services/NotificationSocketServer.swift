@@ -111,15 +111,17 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     private func processMessage(_ data: Data) {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            logger.warning("Invalid JSON received on notification socket")
+        guard let message = String(data: data, encoding: .utf8) else { return }
+        let parts = message.split(separator: "|", maxSplits: 3).map(String.init)
+        guard parts.count >= 3 else {
+            logger.warning("Invalid message on notification socket: expected type|paneID|title|body")
             return
         }
 
-        guard let type = json["type"] as? String else { return }
-        let title = json["title"] as? String ?? ""
-        let body = json["body"] as? String ?? ""
-        let paneIDString = json["paneID"] as? String
+        let type = parts[0]
+        let paneIDString = parts[1]
+        let title = parts[2]
+        let body = parts.count > 3 ? parts[3] : ""
 
         DispatchQueue.main.async {
             self.dispatchNotification(type: type, title: title, body: body, paneIDString: paneIDString)

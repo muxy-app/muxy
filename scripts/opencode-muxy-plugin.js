@@ -23,25 +23,21 @@ export const MuxyNotificationPlugin = async ({ client }) => ({
         )
         const text = textParts.map((p) => p.text || "").join("")
         if (text) {
-          body = text
-            .replace(/[\n\r]+/g, " ")
-            .replace(/"/g, "")
-            .replace(/\\/g, "")
-            .slice(0, 200)
+          body = text.replace(/[\n\r|]+/g, " ").slice(0, 200)
         }
       }
     } catch {}
 
-    const { execSync } = await import("child_process")
-    const payload = JSON.stringify({
-      type: "opencode",
-      paneID,
-      title: "OpenCode",
-      body,
-    })
+    const payload = `opencode|${paneID}|OpenCode|${body}`
+
     try {
-      execSync(`echo '${payload}' | nc -U '${socketPath}'`, {
-        timeout: 3000,
+      const { createConnection } = await import("net")
+      const conn = createConnection({ path: socketPath })
+      conn.on("error", () => {})
+      conn.write(payload, () => conn.end())
+      await new Promise((resolve) => {
+        conn.on("close", resolve)
+        setTimeout(resolve, 3000)
       })
     } catch {}
   },

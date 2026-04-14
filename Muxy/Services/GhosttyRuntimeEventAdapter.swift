@@ -27,7 +27,7 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
             handleSetTitle(target: target, title: action.action.set_title)
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            print("[Muxy] DESKTOP_NOTIFICATION action received")
+            logger.debug("DESKTOP_NOTIFICATION action received")
             handleDesktopNotification(target: target, notification: action.action.desktop_notification)
             return true
         case GHOSTTY_ACTION_COMMAND_FINISHED:
@@ -140,22 +140,22 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         notification: ghostty_action_desktop_notification_s
     ) {
         guard let view = surfaceView(from: target) else {
-            print("[Muxy] OSC notification: no surface view from target")
+            logger.debug("[Muxy] OSC notification: no surface view from target")
             return
         }
         let title = notification.title.flatMap { String(cString: $0) } ?? "Terminal"
         let body = notification.body.flatMap { String(cString: $0) } ?? ""
-        print("[Muxy] OSC notification: title=\(title) body=\(body)")
+        logger.debug("[Muxy] OSC notification: title=\(title) body=\(body)")
         DispatchQueue.main.async {
             guard let paneID = TerminalViewRegistry.shared.paneID(for: view) else {
-                print("[Muxy] OSC notification: no paneID for view")
+                logger.debug("[Muxy] OSC notification: no paneID for view")
                 return
             }
             guard let appState = SystemNotificationService.shared.appState else {
-                print("[Muxy] OSC notification: appState not available")
+                logger.debug("[Muxy] OSC notification: appState not available")
                 return
             }
-            print("[Muxy] OSC notification: dispatching to store, paneID=\(paneID)")
+            logger.debug("[Muxy] OSC notification: dispatching to store, paneID=\(paneID)")
             NotificationStore.shared.add(
                 paneID: paneID,
                 source: .osc,

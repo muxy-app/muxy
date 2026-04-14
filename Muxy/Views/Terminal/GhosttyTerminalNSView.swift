@@ -58,9 +58,15 @@ final class GhosttyTerminalNSView: NSView {
         config.scale_factor = Double(window?.backingScaleFactor ?? 2.0)
         config.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
 
-        let cKeys = envVars.compactMap { strdup($0.key) }
-        let cValues = envVars.compactMap { strdup($0.value) }
-        var cEnvVars = zip(cKeys, cValues).map { ghostty_env_var_s(key: $0.0, value: $0.1) }
+        var cStrings: [UnsafeMutablePointer<CChar>] = []
+        defer { cStrings.forEach { free($0) } }
+
+        var cEnvVars: [ghostty_env_var_s] = []
+        for pair in envVars {
+            guard let ck = strdup(pair.key), let cv = strdup(pair.value) else { continue }
+            cStrings.append(contentsOf: [ck, cv])
+            cEnvVars.append(ghostty_env_var_s(key: ck, value: cv))
+        }
 
         workingDirectory.withCString { cwd in
             config.working_directory = cwd
@@ -73,13 +79,6 @@ final class GhosttyTerminalNSView: NSView {
             } else {
                 surface = ghostty_surface_new(app, &config)
             }
-        }
-
-        for key in cKeys {
-            free(key)
-        }
-        for value in cValues {
-            free(value)
         }
 
         guard let surface else { return }

@@ -4,7 +4,7 @@ struct OpenCodeProvider: AIProviderIntegration {
     let id = "opencode"
     let displayName = "OpenCode"
     let socketTypeKey = "opencode"
-    let iconName = "chevron.left.forwardslash.chevron.right"
+    let iconName = "sparkles"
     let executableNames = ["opencode"]
 
     private static let pluginsDir = NSHomeDirectory() + "/.opencode/plugins"

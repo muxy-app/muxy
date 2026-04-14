@@ -99,5 +99,6 @@ struct ClaudeCodeProvider: AIProviderIntegration {
         try FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: URL(fileURLWithPath: settingsPath), options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: settingsPath)
     }
 }
