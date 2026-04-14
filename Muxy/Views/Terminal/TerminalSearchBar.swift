@@ -67,7 +67,12 @@ struct TerminalSearchBar: View {
 
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
         }
-        .onAppear { isFieldFocused = true }
+        .onAppear {
+            DispatchQueue.main.async { isFieldFocused = true }
+        }
+        .onChange(of: searchState.focusVersion) { _, _ in
+            DispatchQueue.main.async { isFieldFocused = true }
+        }
         .onKeyPress(.escape) {
             onClose()
             return .handled

@@ -8,6 +8,7 @@ final class TerminalSearchState {
     var total: Int?
     var selected: Int?
     var isVisible: Bool = false
+    var focusVersion: Int = 0
 
     var displayText: String {
         guard let total else { return "" }

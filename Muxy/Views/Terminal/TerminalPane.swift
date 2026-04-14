@@ -123,6 +123,7 @@ struct TerminalBridge: NSViewRepresentable {
                 searchState.needle = needle
             }
             searchState.isVisible = true
+            searchState.focusVersion += 1
             searchState.startPublishing { [weak view] query in
                 view?.sendSearchQuery(query)
             }
