@@ -119,7 +119,8 @@ final class NotificationSocketServer: @unchecked Sendable {
 
         let type = parts[0]
         let paneIDString = parts[1]
-        let title = parts[2]
+        let rawTitle = parts[2]
+        let title = rawTitle.isEmpty ? "Task completed!" : rawTitle
         let body = parts.count > 3 ? parts[3] : ""
 
         DispatchQueue.main.async {

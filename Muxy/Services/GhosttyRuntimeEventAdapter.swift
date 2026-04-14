@@ -143,7 +143,8 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
             logger.debug("[Muxy] OSC notification: no surface view from target")
             return
         }
-        let title = notification.title.flatMap { String(cString: $0) } ?? "Terminal"
+        let rawTitle = notification.title.flatMap { String(cString: $0) } ?? ""
+        let title = rawTitle.isEmpty ? "Command executed!" : rawTitle
         let body = notification.body.flatMap { String(cString: $0) } ?? ""
         logger.debug("[Muxy] OSC notification: title=\(title) body=\(body)")
         Task { @MainActor in
