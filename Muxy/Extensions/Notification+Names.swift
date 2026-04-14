@@ -11,4 +11,5 @@ extension Notification.Name {
     static let switchWorktree = Notification.Name("MuxySwitchWorktree")
     static let saveActiveEditor = Notification.Name("MuxySaveActiveEditor")
     static let windowFullScreenDidChange = Notification.Name("MuxyWindowFullScreenDidChange")
+    static let toggleSidebar = Notification.Name("MuxyToggleSidebar")
 }

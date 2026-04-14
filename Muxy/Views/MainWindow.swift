@@ -48,13 +48,19 @@ struct MainWindow: View {
     @State private var showQuickOpen = false
     @State private var showWorktreeSwitcher = false
     @State private var isFullScreen = false
-    private let trafficLightWidth: CGFloat = 80
+    @State private var sidebarExpanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
+    private let trafficLightWidth: CGFloat = 75
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 if !isFullScreen {
-                    Color.clear.frame(width: trafficLightWidth)
+                    Color.clear.frame(width: topBarLeadingWidth)
+                        .overlay(alignment: .trailing) {
+                            if sidebarExpanded {
+                                Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                            }
+                        }
                 }
                 topBarContent
             }
@@ -184,6 +190,11 @@ struct MainWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .switchWorktree)) { _ in
             showWorktreeSwitcher.toggle()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                sidebarExpanded.toggle()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
         }
@@ -305,6 +316,11 @@ struct MainWindow: View {
                 )
             }
         }
+    }
+
+    private var topBarLeadingWidth: CGFloat {
+        let sidebarWidth = SidebarLayout.resolvedWidth(expanded: sidebarExpanded) + 1
+        return max(trafficLightWidth, sidebarWidth)
     }
 
     private var activeWorktreeKey: WorktreeKey? {

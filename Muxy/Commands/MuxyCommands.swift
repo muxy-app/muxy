@@ -211,6 +211,14 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(after: .sidebar) {
+            Button("Toggle Sidebar") {
+                guard isMainWindowFocused else { return }
+                NotificationCenter.default.post(name: .toggleSidebar, object: nil)
+            }
+            .shortcut(for: .toggleSidebar, store: keyBindings)
+
+            Divider()
+
             Button("Switch Worktree...") {
                 guard isMainWindowFocused else { return }
                 NotificationCenter.default.post(name: .switchWorktree, object: nil)
