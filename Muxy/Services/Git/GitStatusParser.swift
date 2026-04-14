@@ -21,7 +21,7 @@ enum GitStatusParser {
             let yStatus = marker[1]
             let path = String(token.dropFirst(3))
 
-            if xStatus == "R" || xStatus == "C" {
+            if xStatus == "R" || xStatus == "C" || yStatus == "R" || yStatus == "C" {
                 let newPath = index + 1 < tokens.count ? tokens[index + 1] : path
                 let stat = stats[newPath]
                 files.append(GitStatusFile(

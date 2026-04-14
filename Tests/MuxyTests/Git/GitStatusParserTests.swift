@@ -48,6 +48,19 @@ struct GitStatusParserTests {
         #expect(result[0].xStatus == "R")
     }
 
+    @Test("parseStatusPorcelain parses unstaged renamed file")
+    func parseUnstagedRenamed() {
+        let raw = " R old.swift\0new.swift\0"
+        let data = Data(raw.utf8)
+        let result = GitStatusParser.parseStatusPorcelain(data, stats: [:])
+
+        #expect(result.count == 1)
+        #expect(result[0].path == "new.swift")
+        #expect(result[0].oldPath == "old.swift")
+        #expect(result[0].xStatus == " ")
+        #expect(result[0].yStatus == "R")
+    }
+
     @Test("parseStatusPorcelain merges numstat stats")
     func parseWithNumstat() {
         let raw = "M  file.swift\0"
