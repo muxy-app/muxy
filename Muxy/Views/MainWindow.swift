@@ -240,12 +240,13 @@ struct MainWindow: View {
            case let .tabArea(area) = root
         {
             PaneTabStrip(
-                area: area,
+                areaID: area.id,
+                tabs: PaneTabStrip.snapshots(from: area.tabs),
+                activeTabID: area.activeTabID,
                 isFocused: true,
                 isWindowTitleBar: true,
                 showVCSButton: true,
                 projectID: project.id,
-                onFocus: {},
                 onSelectTab: { tabID in
                     appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
                 },
@@ -266,11 +267,21 @@ struct MainWindow: View {
                         position: .second
                     )))
                 },
-                onClose: {
-                    appState.dispatch(.closeArea(projectID: project.id, areaID: area.id))
-                },
                 onDropAction: { result in
                     appState.dispatch(result.action(projectID: project.id))
+                },
+                onCreateTabAdjacent: { tabID, side in
+                    area.createTabAdjacent(to: tabID, side: side)
+                },
+                onTogglePin: { tabID in
+                    area.togglePin(tabID)
+                },
+                onSetCustomTitle: { tabID, title in
+                    guard let tab = area.tabs.first(where: { $0.id == tabID }) else { return }
+                    tab.customTitle = title
+                },
+                onReorderTab: { fromOffsets, toOffset in
+                    area.reorderTab(fromOffsets: fromOffsets, toOffset: toOffset)
                 }
             )
         } else {

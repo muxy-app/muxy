@@ -14,7 +14,6 @@ struct TerminalPane: View {
             TerminalBridge(
                 state: state,
                 focused: focused,
-                visible: visible,
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
@@ -48,7 +47,6 @@ struct TerminalPane: View {
 struct TerminalBridge: NSViewRepresentable {
     let state: TerminalPaneState
     let focused: Bool
-    let visible: Bool
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
@@ -57,7 +55,6 @@ struct TerminalBridge: NSViewRepresentable {
     final class Coordinator {
         var wasFocused = false
         var wasOverlayActive = false
-        var paneID: UUID?
     }
 
     func makeCoordinator() -> Coordinator {
@@ -69,16 +66,17 @@ struct TerminalBridge: NSViewRepresentable {
         let view = registry.view(for: state.id, workingDirectory: state.projectPath)
         view.isFocused = focused
         view.overlayActive = overlayActive
-        view.isHidden = !visible
         view.onFocus = onFocus
         view.onProcessExit = onProcessExit
         view.onSplitRequest = onSplitRequest
         view.onTitleChange = { [weak state] title in
-            state?.title = title
+            DispatchQueue.main.async {
+                guard let state, state.title != title else { return }
+                state.title = title
+            }
         }
         configureSearchCallbacks(view)
         context.coordinator.wasFocused = focused
-        context.coordinator.paneID = state.id
         if focused, !overlayActive {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 view.window?.makeFirstResponder(view)
@@ -88,13 +86,15 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
-        nsView.isHidden = !visible
         nsView.overlayActive = overlayActive
         nsView.onFocus = onFocus
         nsView.onProcessExit = onProcessExit
         nsView.onSplitRequest = onSplitRequest
         nsView.onTitleChange = { [weak state] title in
-            state?.title = title
+            DispatchQueue.main.async {
+                guard let state, state.title != title else { return }
+                state.title = title
+            }
         }
         configureSearchCallbacks(nsView)
         let wasFocused = context.coordinator.wasFocused
@@ -107,13 +107,15 @@ struct TerminalBridge: NSViewRepresentable {
             if nsView.window?.firstResponder === nsView || nsView.window?.firstResponder === nsView.inputContext {
                 nsView.window?.makeFirstResponder(nil)
             }
-            nsView.notifySurfaceUnfocused()
+            if !wasOverlayActive {
+                nsView.notifySurfaceUnfocused()
+            }
         } else if focused, !wasFocused || wasOverlayActive {
             nsView.notifySurfaceFocused()
             DispatchQueue.main.async {
                 nsView.window?.makeFirstResponder(nsView)
             }
-        } else if !focused {
+        } else if !focused, wasFocused {
             nsView.notifySurfaceUnfocused()
         }
     }

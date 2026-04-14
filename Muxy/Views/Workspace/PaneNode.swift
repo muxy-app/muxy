@@ -34,7 +34,6 @@ struct PaneNode: View {
                 onCloseTab: { tabID in onCloseTab(area.id, tabID) },
                 onForceCloseTab: { tabID in onForceCloseTab(area.id, tabID) },
                 onSplit: { dir in onSplit(area.id, dir) },
-                onClose: { onCloseArea(area.id) },
                 onDropAction: onDropAction
             )
         case let .split(branch):

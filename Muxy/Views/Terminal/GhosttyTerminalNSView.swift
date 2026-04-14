@@ -215,7 +215,9 @@ final class GhosttyTerminalNSView: NSView {
         let result = super.becomeFirstResponder()
         if result {
             ghostty_surface_set_focus(surface, true)
-            onFocus?()
+            DispatchQueue.main.async { [weak self] in
+                self?.onFocus?()
+            }
         }
         return result
     }
@@ -369,7 +371,9 @@ final class GhosttyTerminalNSView: NSView {
         window?.makeFirstResponder(self)
         if alreadyFirstResponder {
             ghostty_surface_set_focus(surface, true)
-            onFocus?()
+            DispatchQueue.main.async { [weak self] in
+                self?.onFocus?()
+            }
         }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))

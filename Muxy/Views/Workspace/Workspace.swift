@@ -69,7 +69,7 @@ struct TerminalArea: View {
                 }
             )
             .onPreferenceChange(AreaFramePreferenceKey.self) { frames in
-                guard isActiveProject else { return }
+                guard isActiveProject, dragCoordinator.activeDrag != nil else { return }
                 dragCoordinator.setAreaFrames(frames, forProject: project.id)
             }
         }

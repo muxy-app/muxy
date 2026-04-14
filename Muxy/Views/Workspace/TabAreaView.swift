@@ -14,7 +14,6 @@ struct TabAreaView: View {
     let onCloseTab: (UUID) -> Void
     let onForceCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
-    let onClose: () -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @Environment(AppState.self) private var appState
@@ -23,44 +22,55 @@ struct TabAreaView: View {
         VStack(spacing: 0) {
             if showTabStrip {
                 PaneTabStrip(
-                    area: area,
+                    areaID: area.id,
+                    tabs: PaneTabStrip.snapshots(from: area.tabs),
+                    activeTabID: area.activeTabID,
                     isFocused: isFocused,
                     showVCSButton: showVCSButton,
                     projectID: projectID,
-                    onFocus: onFocus,
                     onSelectTab: onSelectTab,
                     onCreateTab: onCreateTab,
                     onCreateVCSTab: onCreateVCSTab,
                     onCloseTab: onCloseTab,
                     onSplit: onSplit,
-                    onClose: onClose,
-                    onDropAction: onDropAction
+                    onDropAction: onDropAction,
+                    onCreateTabAdjacent: { tabID, side in
+                        area.createTabAdjacent(to: tabID, side: side)
+                    },
+                    onTogglePin: { tabID in
+                        area.togglePin(tabID)
+                    },
+                    onSetCustomTitle: { tabID, title in
+                        guard let tab = area.tabs.first(where: { $0.id == tabID }) else { return }
+                        tab.customTitle = title
+                    },
+                    onReorderTab: { fromOffsets, toOffset in
+                        area.reorderTab(fromOffsets: fromOffsets, toOffset: toOffset)
+                    }
                 )
                 Rectangle().fill(MuxyTheme.border).frame(height: 1)
             }
             ZStack {
                 ForEach(area.tabs) { tab in
                     let isActive = tab.id == area.activeTabID
-                    if shouldMount(tab: tab, isActive: isActive) {
-                        TabContentView(
-                            tab: tab,
-                            focused: isActive && isFocused && isActiveProject,
-                            visible: isActive,
-                            onFocus: onFocus,
-                            onProcessExit: { onForceCloseTab(tab.id) },
-                            onSplitRequest: { direction, position in
-                                appState.dispatch(.splitArea(.init(
-                                    projectID: projectID,
-                                    areaID: area.id,
-                                    direction: direction,
-                                    position: position
-                                )))
-                            }
-                        )
-                        .zIndex(isActive ? 1 : 0)
-                        .opacity(isActive ? 1 : 0)
-                        .allowsHitTesting(isActive)
-                    }
+                    TabContentView(
+                        tab: tab,
+                        focused: isActive && isFocused && isActiveProject,
+                        visible: isActive,
+                        onFocus: onFocus,
+                        onProcessExit: { onForceCloseTab(tab.id) },
+                        onSplitRequest: { direction, position in
+                            appState.dispatch(.splitArea(.init(
+                                projectID: projectID,
+                                areaID: area.id,
+                                direction: direction,
+                                position: position
+                            )))
+                        }
+                    )
+                    .zIndex(isActive ? 1 : 0)
+                    .opacity(isActive ? 1 : 0)
+                    .allowsHitTesting(isActive)
                 }
             }
             .overlay {
@@ -71,12 +81,16 @@ struct TabAreaView: View {
                 }
             }
         }
-        .background(GeometryReader { geo in
-            Color.clear.preference(
-                key: AreaFramePreferenceKey.self,
-                value: [area.id: geo.frame(in: .named(DragCoordinateSpace.mainWindow))]
-            )
-        })
+        .background {
+            if dragCoordinator.activeDrag != nil {
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: AreaFramePreferenceKey.self,
+                        value: [area.id: geo.frame(in: .named(DragCoordinateSpace.mainWindow))]
+                    )
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .findInTerminal)) { _ in
             guard isFocused, isActiveProject else { return }
             guard let tabID = area.activeTabID,
@@ -98,16 +112,6 @@ struct TabAreaView: View {
                     appState.pendingSaveErrorMessage = error.localizedDescription
                 }
             }
-        }
-    }
-
-    private func shouldMount(tab: TerminalTab, isActive: Bool) -> Bool {
-        switch tab.content {
-        case .terminal:
-            true
-        case .vcs,
-             .editor:
-            isActive
         }
     }
 }

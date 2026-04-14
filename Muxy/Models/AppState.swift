@@ -356,6 +356,24 @@ final class AppState {
     }
 
     func dispatch(_ action: Action) {
+        if case let .focusArea(projectID, areaID) = action,
+           let key = activeWorktreeKey(for: projectID),
+           focusedAreaID[key] == areaID
+        {
+            return
+        }
+
+        if case let .selectTab(projectID, areaID, tabID) = action,
+           let key = activeWorktreeKey(for: projectID),
+           let root = workspaceRoots[key],
+           let area = root.findArea(id: areaID),
+           area.activeTabID == tabID,
+           focusedAreaID[key] == areaID
+        {
+            return
+        }
+
+        let currentWorkspaceRootSignature = workspaceRootSignature(workspaceRoots)
         var workspace = WorkspaceState(
             activeProjectID: activeProjectID,
             activeWorktreeID: activeWorktreeID,
@@ -364,11 +382,21 @@ final class AppState {
             focusHistory: focusHistory
         )
         let effects = WorkspaceReducer.reduce(action: action, state: &workspace)
-        activeProjectID = workspace.activeProjectID
-        activeWorktreeID = workspace.activeWorktreeID
-        workspaceRoots = workspace.workspaceRoots
-        focusedAreaID = workspace.focusedAreaID
-        focusHistory = workspace.focusHistory
+        if activeProjectID != workspace.activeProjectID {
+            activeProjectID = workspace.activeProjectID
+        }
+        if activeWorktreeID != workspace.activeWorktreeID {
+            activeWorktreeID = workspace.activeWorktreeID
+        }
+        if currentWorkspaceRootSignature != workspaceRootSignature(workspace.workspaceRoots) {
+            workspaceRoots = workspace.workspaceRoots
+        }
+        if focusedAreaID != workspace.focusedAreaID {
+            focusedAreaID = workspace.focusedAreaID
+        }
+        if focusHistory != workspace.focusHistory {
+            focusHistory = workspace.focusHistory
+        }
         reconcilePendingClosures()
 
         for paneID in effects.paneIDsToRemove {
@@ -381,6 +409,10 @@ final class AppState {
 
         saveWorkspaces()
         saveSelection()
+    }
+
+    private func workspaceRootSignature(_ roots: [WorktreeKey: SplitNode]) -> [WorktreeKey: UUID] {
+        roots.mapValues(\.id)
     }
 
     private func clearPendingProcessCloseIfMatching(tabID: UUID, areaID: UUID, projectID: UUID) {
