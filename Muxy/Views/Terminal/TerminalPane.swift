@@ -71,8 +71,7 @@ struct TerminalBridge: NSViewRepresentable {
         view.onSplitRequest = onSplitRequest
         view.onTitleChange = { [weak state] title in
             DispatchQueue.main.async {
-                guard let state, state.title != title else { return }
-                state.title = title
+                state?.setTitle(title)
             }
         }
         configureSearchCallbacks(view)
@@ -92,8 +91,7 @@ struct TerminalBridge: NSViewRepresentable {
         nsView.onSplitRequest = onSplitRequest
         nsView.onTitleChange = { [weak state] title in
             DispatchQueue.main.async {
-                guard let state, state.title != title else { return }
-                state.title = title
+                state?.setTitle(title)
             }
         }
         configureSearchCallbacks(nsView)

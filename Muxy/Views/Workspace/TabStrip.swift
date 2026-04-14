@@ -31,22 +31,9 @@ struct PaneTabStrip: View {
 
     static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
         tabs.map { tab in
-            let title: String = if let customTitle = tab.customTitle {
-                customTitle
-            } else {
-                switch tab.kind {
-                case .terminal:
-                    "Terminal"
-                case .vcs:
-                    "Git Diff"
-                case .editor:
-                    tab.content.editorState?.displayTitle ?? "Editor"
-                }
-            }
-
-            return TabSnapshot(
+            TabSnapshot(
                 id: tab.id,
-                title: title,
+                title: tab.title,
                 kind: tab.kind,
                 isPinned: tab.isPinned,
                 hasCustomTitle: tab.customTitle != nil
