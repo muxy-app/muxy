@@ -166,12 +166,31 @@ struct GitRepositoryService {
 
     func pullRequestInfo(repoPath: String, branch: String) async -> PRInfo? {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
+        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,statusCheckRollup"
+
+        if let info = await ghPRView(ghPath: ghPath, repoPath: repoPath, jsonFields: jsonFields) {
+            return info
+        }
+        return await ghPRView(
+            ghPath: ghPath, repoPath: repoPath, branch: branch, jsonFields: jsonFields
+        )
+    }
+
+    private func ghPRView(
+        ghPath: String,
+        repoPath: String,
+        branch: String? = nil,
+        jsonFields: String
+    ) async -> PRInfo? {
+        var arguments = ["pr", "view"]
+        if let branch {
+            arguments.append(branch)
+        }
+        arguments += ["--json", jsonFields]
+
         let result = try? await GitProcessRunner.runCommand(
             executable: ghPath,
-            arguments: [
-                "pr", "view", branch,
-                "--json", "url,number,state,isDraft,baseRefName,mergeable,statusCheckRollup",
-            ],
+            arguments: arguments,
             workingDirectory: repoPath
         )
         guard let result, result.status == 0,
