@@ -13,6 +13,7 @@ final class NotificationStore {
     var worktreeStore: WorktreeStore?
 
     private(set) var notifications: [MuxyNotification] = []
+    private(set) var readStateVersion: Int = 0
 
     private static let maxNotifications = 200
     private static let defaults = UserDefaults.standard
@@ -24,33 +25,30 @@ final class NotificationStore {
     }
 
     var unreadCount: Int {
-        notifications.count { !$0.isRead }
+        _ = readStateVersion
+        return notifications.count { !$0.isRead }
     }
 
     func unreadCount(for projectID: UUID) -> Int {
-        notifications.count { !$0.isRead && $0.projectID == projectID }
+        _ = readStateVersion
+        return notifications.count { !$0.isRead && $0.projectID == projectID }
     }
 
     func unreadCount(for projectID: UUID, worktreeID: UUID) -> Int {
-        notifications.count { !$0.isRead && $0.projectID == projectID && $0.worktreeID == worktreeID }
+        _ = readStateVersion
+        return notifications.count { !$0.isRead && $0.projectID == projectID && $0.worktreeID == worktreeID }
     }
 
-    func markAsRead(paneID: UUID) {
+    func markAsRead(tabID: UUID) {
         var changed = false
-        for notification in notifications where !notification.isRead && notification.paneID == paneID {
+        for notification in notifications where !notification.isRead && notification.tabID == tabID {
             notification.isRead = true
             changed = true
         }
-        if changed { scheduleSave() }
-    }
-
-    func markAsRead(areaID: UUID) {
-        var changed = false
-        for notification in notifications where !notification.isRead && notification.areaID == areaID {
-            notification.isRead = true
-            changed = true
+        if changed {
+            readStateVersion += 1
+            scheduleSave()
         }
-        if changed { scheduleSave() }
     }
 
     func add(
@@ -104,7 +102,7 @@ final class NotificationStore {
     }
 
     private func insertIfNotFocused(_ notification: MuxyNotification, appState: AppState) {
-        guard !NSApp.isActive || !NotificationNavigator.isFocused(notification, appState: appState) else {
+        if NSApp.isActive, NotificationNavigator.isActiveTab(notification.tabID, appState: appState) {
             return
         }
 
@@ -127,14 +125,10 @@ final class NotificationStore {
         NSSound(named: .init(soundName))?.play()
     }
 
-    var autoClearDuration: Double? {
-        let raw = Self.defaults.string(forKey: "muxy.notifications.autoClear") ?? AutoClearDuration.off.rawValue
-        return AutoClearDuration(rawValue: raw)?.seconds
-    }
-
     func markAsRead(_ id: UUID) {
         guard let index = notifications.firstIndex(where: { $0.id == id }) else { return }
         notifications[index].isRead = true
+        readStateVersion += 1
         scheduleSave()
     }
 
@@ -144,7 +138,10 @@ final class NotificationStore {
             notification.isRead = true
             changed = true
         }
-        if changed { scheduleSave() }
+        if changed {
+            readStateVersion += 1
+            scheduleSave()
+        }
     }
 
     func markAllAsRead(projectID: UUID) {
@@ -153,7 +150,10 @@ final class NotificationStore {
             notification.isRead = true
             changed = true
         }
-        if changed { scheduleSave() }
+        if changed {
+            readStateVersion += 1
+            scheduleSave()
+        }
     }
 
     func remove(_ id: UUID) {

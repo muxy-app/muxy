@@ -65,15 +65,16 @@ enum NotificationNavigator {
         notificationStore.markAsRead(notification.id)
     }
 
-    static func isFocused(
-        _ notification: MuxyNotification,
-        appState: AppState
-    ) -> Bool {
-        guard appState.activeProjectID == notification.projectID else { return false }
-        guard appState.activeWorktreeID[notification.projectID] == notification.worktreeID else { return false }
-        guard let key = appState.activeWorktreeKey(for: notification.projectID) else { return false }
-        guard appState.focusedAreaID[key] == notification.areaID else { return false }
-        guard let area = appState.workspaceRoots[key]?.findArea(id: notification.areaID) else { return false }
-        return area.activeTabID == notification.tabID
+    static func activeTabID(appState: AppState) -> UUID? {
+        guard let projectID = appState.activeProjectID,
+              let key = appState.activeWorktreeKey(for: projectID),
+              let areaID = appState.focusedAreaID[key],
+              let area = appState.workspaceRoots[key]?.findArea(id: areaID)
+        else { return nil }
+        return area.activeTabID
+    }
+
+    static func isActiveTab(_ tabID: UUID, appState: AppState) -> Bool {
+        activeTabID(appState: appState) == tabID
     }
 }

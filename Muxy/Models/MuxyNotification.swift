@@ -1,7 +1,6 @@
 import Foundation
 
 @MainActor
-@Observable
 final class MuxyNotification: Identifiable, Codable {
     enum Source: Equatable, Codable {
         case osc

@@ -26,8 +26,10 @@ struct NotificationPanel: View {
     let onDismiss: () -> Void
 
     private var items: [NotificationPanelItem] {
+        let store = NotificationStore.shared
+        _ = store.readStateVersion
         let registry = AIProviderRegistry.shared
-        return NotificationStore.shared.notifications.map { n in
+        return store.notifications.map { n in
             NotificationPanelItem(
                 id: n.id,
                 sourceIcon: registry.iconName(for: n.source),
@@ -45,30 +47,55 @@ struct NotificationPanel: View {
             if currentItems.isEmpty {
                 emptySearchableList
             } else {
-                SearchableListPicker(
-                    items: currentItems,
-                    filterKey: \.searchText,
-                    placeholder: "Search notifications",
-                    emptyLabel: "No matching notifications",
-                    onSelect: { selectItem($0) },
-                    row: { item, isHighlighted in
-                        NotificationRow(item: item, isHighlighted: isHighlighted)
-                    }
-                )
+                header
+                Divider().overlay(MuxyTheme.border)
+                notificationList(currentItems)
             }
         }
         .frame(width: 320, height: 400)
     }
 
+    private var header: some View {
+        HStack {
+            Text("Notifications")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+            Spacer()
+            Button {
+                NotificationStore.shared.clear()
+            } label: {
+                Text("Clear All")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
+    private func notificationList(_ currentItems: [NotificationPanelItem]) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: 0) {
+                ForEach(currentItems) { item in
+                    NotificationRow(item: item, isHighlighted: false, onRemove: {
+                        NotificationStore.shared.remove(item.id)
+                    })
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectItem(item) }
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .background(MuxyTheme.bg)
+    }
+
     private var emptySearchableList: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                    .font(.system(size: 12))
-                Text("Search notifications")
-                    .font(.system(size: 12))
-                    .foregroundStyle(MuxyTheme.fgDim)
+            HStack {
+                Text("Notifications")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fg)
                 Spacer()
             }
             .padding(.horizontal, 10)
@@ -106,6 +133,7 @@ struct NotificationPanel: View {
 private struct NotificationRow: View {
     let item: NotificationPanelItem
     let isHighlighted: Bool
+    let onRemove: () -> Void
     @State private var hovered = false
 
     var body: some View {
@@ -128,6 +156,9 @@ private struct NotificationRow: View {
                     Text(item.relativeTimestamp)
                         .font(.system(size: 10))
                         .foregroundStyle(MuxyTheme.fgMuted)
+                    if hovered {
+                        dismissButton
+                    }
                 }
 
                 if !item.body.isEmpty {
@@ -142,5 +173,18 @@ private struct NotificationRow: View {
         .padding(.vertical, 6)
         .background(isHighlighted ? MuxyTheme.surface : (hovered ? MuxyTheme.hover : .clear))
         .onHover { hovered = $0 }
+    }
+
+    private var dismissButton: some View {
+        Button {
+            onRemove()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: 14, height: 14)
+                .background(MuxyTheme.surface, in: Circle())
+        }
+        .buttonStyle(.plain)
     }
 }

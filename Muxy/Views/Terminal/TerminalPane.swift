@@ -117,12 +117,6 @@ struct TerminalBridge: NSViewRepresentable {
             nsView.notifySurfaceUnfocused()
         } else if focused, !wasFocused || wasOverlayActive {
             nsView.notifySurfaceFocused()
-            let paneID = state.id
-            if let delay = NotificationStore.shared.autoClearDuration {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    NotificationStore.shared.markAsRead(paneID: paneID)
-                }
-            }
             DispatchQueue.main.async {
                 nsView.window?.makeFirstResponder(nsView)
             }

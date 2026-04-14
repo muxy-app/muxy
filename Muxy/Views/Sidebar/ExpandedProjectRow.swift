@@ -197,6 +197,7 @@ struct ExpandedProjectRow: View {
         .overlay(alignment: .topTrailing) {
             if unread > 0 {
                 NotificationBadge(count: unread)
+                    .offset(x: 4, y: -4)
             }
         }
     }

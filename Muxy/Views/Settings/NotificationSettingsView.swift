@@ -5,7 +5,6 @@ struct NotificationSettingsView: View {
     @AppStorage("muxy.notifications.sound") private var sound = NotificationSound.funk.rawValue
     @AppStorage("muxy.notifications.toastEnabled") private var toastEnabled = true
     @AppStorage("muxy.notifications.toastPosition") private var toastPosition = ToastPosition.topCenter.rawValue
-    @AppStorage("muxy.notifications.autoClear") private var autoClear = AutoClearDuration.off.rawValue
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,16 +25,6 @@ struct NotificationSettingsView: View {
 
             section("Toast") {
                 pickerRow("Position", selection: $toastPosition, options: ToastPosition.allCases) { $0.rawValue }
-            }
-
-            Divider().padding(.horizontal, 12)
-
-            section("Auto Clear") {
-                pickerRow(
-                    "Mark read after focusing",
-                    selection: $autoClear,
-                    options: AutoClearDuration.allCases
-                ) { $0.rawValue }
             }
 
             Divider().padding(.horizontal, 12)

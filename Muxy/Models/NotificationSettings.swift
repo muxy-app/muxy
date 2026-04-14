@@ -28,23 +28,3 @@ enum ToastPosition: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 }
-
-enum AutoClearDuration: String, CaseIterable, Identifiable {
-    case off = "Off"
-    case fiveSeconds = "5 seconds"
-    case tenSeconds = "10 seconds"
-    case thirtySeconds = "30 seconds"
-    case oneMinute = "1 minute"
-
-    var id: String { rawValue }
-
-    var seconds: Double? {
-        switch self {
-        case .off: nil
-        case .fiveSeconds: 5
-        case .tenSeconds: 10
-        case .thirtySeconds: 30
-        case .oneMinute: 60
-        }
-    }
-}

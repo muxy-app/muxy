@@ -379,6 +379,10 @@ final class AppState {
             onProjectsEmptied?(effects.projectIDsToRemove)
         }
 
+        if let activeTabID = NotificationNavigator.activeTabID(appState: self) {
+            NotificationStore.shared.markAsRead(tabID: activeTabID)
+        }
+
         saveWorkspaces()
         saveSelection()
     }
