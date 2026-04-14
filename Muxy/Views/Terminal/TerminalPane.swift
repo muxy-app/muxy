@@ -34,6 +34,9 @@ struct TerminalPane: View {
                     onClose: {
                         let view = TerminalViewRegistry.shared.existingView(for: state.id)
                         view?.endSearch()
+                        DispatchQueue.main.async {
+                            view?.window?.makeFirstResponder(view)
+                        }
                     }
                 )
                 .transition(.move(edge: .top).combined(with: .opacity))

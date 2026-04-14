@@ -43,12 +43,7 @@ struct EditorSearchBar: View {
 
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
         }
-        .onAppear {
-            DispatchQueue.main.async { isFieldFocused = true }
-        }
-        .onChange(of: state.searchFocusVersion) { _, _ in
-            DispatchQueue.main.async { isFieldFocused = true }
-        }
+        .deferFocus($isFieldFocused, on: state.searchFocusVersion)
         .onKeyPress(.escape) {
             onClose()
             return .handled
