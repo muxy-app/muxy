@@ -141,6 +141,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 struct PaletteSearchField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
+    var fontSize: CGFloat = 13
     let onSubmit: () -> Void
     let onEscape: () -> Void
     let onArrowUp: () -> Void
@@ -156,13 +157,11 @@ struct PaletteSearchField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: 13)
+        field.font = .systemFont(ofSize: fontSize)
         field.textColor = NSColor(MuxyTheme.fg)
         field.placeholderString = placeholder
         field.cell?.sendsActionOnEndEditing = false
         field.onEscape = onEscape
-        field.onArrowUp = onArrowUp
-        field.onArrowDown = onArrowDown
         DispatchQueue.main.async {
             field.window?.makeFirstResponder(field)
         }
@@ -170,13 +169,12 @@ struct PaletteSearchField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
+        context.coordinator.parent = self
         if nsView.stringValue != text {
             nsView.stringValue = text
         }
         if let field = nsView as? PaletteNSTextField {
             field.onEscape = onEscape
-            field.onArrowUp = onArrowUp
-            field.onArrowDown = onArrowDown
         }
     }
 
@@ -201,6 +199,14 @@ struct PaletteSearchField: NSViewRepresentable {
                 parent.onSubmit()
                 return true
             }
+            if commandSelector == #selector(NSResponder.moveUp(_:)) {
+                parent.onArrowUp()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.moveDown(_:)) {
+                parent.onArrowDown()
+                return true
+            }
             return false
         }
     }
@@ -208,8 +214,6 @@ struct PaletteSearchField: NSViewRepresentable {
 
 private final class PaletteNSTextField: NSTextField {
     var onEscape: (() -> Void)?
-    var onArrowUp: (() -> Void)?
-    var onArrowDown: (() -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.keyCode == 53 {
@@ -217,16 +221,5 @@ private final class PaletteNSTextField: NSTextField {
             return true
         }
         return super.performKeyEquivalent(with: event)
-    }
-
-    override func keyDown(with event: NSEvent) {
-        switch event.keyCode {
-        case 125:
-            onArrowDown?()
-        case 126:
-            onArrowUp?()
-        default:
-            super.keyDown(with: event)
-        }
     }
 }

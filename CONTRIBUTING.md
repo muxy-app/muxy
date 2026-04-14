@@ -47,15 +47,21 @@ scripts/checks.sh --fix   # auto-fix formatting and linting, then build
 
 ## Checks
 
-All PRs must pass these checks:
+All PRs must pass the full check suite. Run it with a single command:
 
 ```bash
-swiftformat --lint .       # formatting
-swiftlint lint --strict    # linting
-swift build                # compilation
+scripts/checks.sh          # formatting → linting → build → test
+scripts/checks.sh --fix    # auto-fix formatting and linting, then build and test
 ```
 
-Run `scripts/checks.sh` to execute all three at once, or `scripts/checks.sh --fix` to auto-fix what can be fixed.
+The script runs the following steps in order, stopping on the first failure:
+
+1. **Formatting** — `swiftformat --lint .` (or `swiftformat .` with `--fix`)
+2. **Linting** — `swiftlint lint --strict --quiet` (or `--fix` first with `--fix`)
+3. **Build** — `swift build`
+4. **Test** — `swift test`
+
+Tool versions are pinned in `.tool-versions` and the script validates them on startup. If your local versions don't match, it will tell you exactly what's expected.
 
 ## Pull Request Guidelines
 

@@ -10,7 +10,6 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
 
     @State private var searchText = ""
     @State private var highlightedIndex: Int?
-    @FocusState private var searchFieldFocused: Bool
 
     private var filteredItems: [Item] {
         guard !searchText.isEmpty else { return items }
@@ -23,19 +22,15 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .font(.system(size: 12))
-                ZStack(alignment: .leading) {
-                    if searchText.isEmpty {
-                        Text(placeholder)
-                            .font(.system(size: 12))
-                            .foregroundStyle(MuxyTheme.fgDim)
-                    }
-                    TextField("", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-                        .foregroundStyle(MuxyTheme.fg)
-                        .focused($searchFieldFocused)
-                        .onSubmit { confirmSelection() }
-                }
+                PaletteSearchField(
+                    text: $searchText,
+                    placeholder: placeholder,
+                    fontSize: 12,
+                    onSubmit: { confirmSelection() },
+                    onEscape: {},
+                    onArrowUp: { moveHighlight(-1) },
+                    onArrowDown: { moveHighlight(1) }
+                )
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -68,19 +63,6 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
             }
         }
         .background(MuxyTheme.bg)
-        .onKeyPress(.upArrow) {
-            moveHighlight(-1)
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            moveHighlight(1)
-            return .handled
-        }
-        .onKeyPress(.return) {
-            confirmSelection()
-            return .handled
-        }
-        .onAppear { searchFieldFocused = true }
         .onChange(of: searchText) { highlightedIndex = filteredItems.isEmpty ? nil : 0 }
     }
 

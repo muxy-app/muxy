@@ -12,9 +12,9 @@
 
 ## Screenshots
 
-<img width="3212" height="1738" alt="image" src="https://github.com/user-attachments/assets/205db35b-840e-45f5-adc4-4b82c244300c" />
-<img width="3212" height="1738" alt="image" src="https://github.com/user-attachments/assets/04e10f8d-fc17-42da-a257-6b0f28f48a9e" />
-<img width="3212" height="1738" alt="image" src="https://github.com/user-attachments/assets/1f46f5db-95c9-4224-9727-b608ce5580b3" />
+<img width="3212" height="1738" alt="1" src="https://github.com/user-attachments/assets/5a15a0cb-9285-4492-9b94-2a77ec044a26" />
+<img width="3212" height="1738" alt="2 (1)" src="https://github.com/user-attachments/assets/767de746-ca9d-4f3d-82fc-c8765d135149" />
+<img width="3212" height="1738" alt="3" src="https://github.com/user-attachments/assets/dd93f651-8c29-43fb-894c-9fbeed6db266" />
 
 ## Features
 

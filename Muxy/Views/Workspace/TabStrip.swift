@@ -1,47 +1,71 @@
 import SwiftUI
 
 struct PaneTabStrip: View {
-    let area: TabArea
+    struct TabSnapshot: Identifiable {
+        let id: UUID
+        let title: String
+        let kind: TerminalTab.Kind
+        let isPinned: Bool
+        let hasCustomTitle: Bool
+    }
+
+    let areaID: UUID
+    let tabs: [TabSnapshot]
+    let activeTabID: UUID?
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
     var showVCSButton = true
     let projectID: UUID
-    let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
     let onCreateVCSTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
-    let onClose: () -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
+    let onCreateTabAdjacent: (UUID, TabArea.InsertSide) -> Void
+    let onTogglePin: (UUID) -> Void
+    let onSetCustomTitle: (UUID, String?) -> Void
+    let onReorderTab: (IndexSet, Int) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @State private var dragState = TabDragState()
 
+    static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
+        tabs.map { tab in
+            TabSnapshot(
+                id: tab.id,
+                title: tab.title,
+                kind: tab.kind,
+                isPinned: tab.isPinned,
+                hasCustomTitle: tab.customTitle != nil
+            )
+        }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(Array(area.tabs.enumerated()), id: \.element.id) { index, tab in
+            ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
                 TabCell(
                     tab: tab,
-                    active: tab.id == area.activeTabID,
+                    active: tab.id == activeTabID,
                     paneFocused: isFocused,
                     hasUnread: NotificationStore.shared.hasUnread(tabID: tab.id),
                     isAnyDragging: dragState.draggedID != nil,
                     shortcutIndex: index < 9 ? index + 1 : nil,
                     onSelect: {
-                        onFocus()
                         onSelectTab(tab.id)
                     },
                     onClose: { onCloseTab(tab.id) },
-                    onCreateLeft: { area.createTabAdjacent(to: tab.id, side: .left) },
-                    onCreateRight: { area.createTabAdjacent(to: tab.id, side: .right) },
-                    onTogglePin: { area.togglePin(tab.id) }
+                    onCreateLeft: { onCreateTabAdjacent(tab.id, .left) },
+                    onCreateRight: { onCreateTabAdjacent(tab.id, .right) },
+                    onTogglePin: { onTogglePin(tab.id) },
+                    onSetCustomTitle: { onSetCustomTitle(tab.id, $0) }
                 )
                 .background {
                     if dragState.draggedID != nil {
                         GeometryReader { geo in
                             Color.clear.preference(
                                 key: TabFramePreferenceKey.self,
-                                value: [tab.id: geo.frame(in: .named("tabstrip-\(area.id)"))]
+                                value: [tab.id: geo.frame(in: .named(DragCoordinateSpace.mainWindow))]
                             )
                         }
                     }
@@ -49,7 +73,11 @@ struct PaneTabStrip: View {
                 .gesture(
                     DragGesture(minimumDistance: 4, coordinateSpace: .named(DragCoordinateSpace.mainWindow))
                         .onChanged { value in
-                            handleDragChanged(tab: tab, globalLocation: value.location)
+                            handleDragChanged(
+                                tab: tab,
+                                globalLocation: value.location,
+                                dragStartGlobalLocation: value.startLocation
+                            )
                         }
                         .onEnded { _ in
                             handleDragEnded()
@@ -57,7 +85,6 @@ struct PaneTabStrip: View {
                 )
                 .onTapGesture {
                     guard dragState.draggedID == nil else { return }
-                    onFocus()
                     onSelectTab(tab.id)
                 }
             }
@@ -89,25 +116,21 @@ struct PaneTabStrip: View {
             .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
         }
         .frame(height: 32)
-        .background(GeometryReader { geo in
-            Color.clear
-                .onAppear { dragState.stripFrameGlobal = geo.frame(in: .named(DragCoordinateSpace.mainWindow)) }
-                .onChange(of: geo.frame(in: .named(DragCoordinateSpace.mainWindow))) { _, newFrame in
-                    dragState.stripFrameGlobal = newFrame
-                }
-        })
         .onPreferenceChange(TabFramePreferenceKey.self) { frames in
             guard dragState.draggedID != nil else { return }
             dragState.frames = frames
         }
-        .coordinateSpace(name: "tabstrip-\(area.id)")
     }
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
         "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
     }
 
-    private func handleDragChanged(tab: TerminalTab, globalLocation: CGPoint) {
+    private func handleDragChanged(
+        tab: TabSnapshot,
+        globalLocation: CGPoint,
+        dragStartGlobalLocation: CGPoint
+    ) {
         if dragState.draggedID == nil {
             dragState.draggedID = tab.id
             dragState.lastReorderTargetID = nil
@@ -118,20 +141,16 @@ struct PaneTabStrip: View {
             return
         }
 
-        let stripFrame = dragState.stripFrameGlobal
-        let verticalEscape = globalLocation.y < stripFrame.minY - 20
-            || globalLocation.y > stripFrame.maxY + 20
+        let verticalEscape = abs(globalLocation.y - dragStartGlobalLocation.y) > 24
 
         if verticalEscape, !tab.isPinned {
             dragState.isInSplitMode = true
-            dragCoordinator.beginDrag(tabID: tab.id, sourceAreaID: area.id, projectID: projectID)
+            dragCoordinator.beginDrag(tabID: tab.id, sourceAreaID: areaID, projectID: projectID)
             dragCoordinator.updatePosition(globalLocation)
             return
         }
 
-        let localX = globalLocation.x - stripFrame.minX
-        let localY = globalLocation.y - stripFrame.minY
-        reorderIfNeeded(at: CGPoint(x: localX, y: localY))
+        reorderIfNeeded(at: globalLocation)
     }
 
     private func handleDragEnded() {
@@ -157,14 +176,14 @@ struct PaneTabStrip: View {
             hoveredTargetID = id
             guard dragState.lastReorderTargetID != id else { return }
 
-            guard let sourceIndex = area.tabs.firstIndex(where: { $0.id == draggedID }),
-                  let destIndex = area.tabs.firstIndex(where: { $0.id == id })
+            guard let sourceIndex = tabs.firstIndex(where: { $0.id == draggedID }),
+                  let destIndex = tabs.firstIndex(where: { $0.id == id })
             else { return }
 
             dragState.lastReorderTargetID = id
             let offset = destIndex > sourceIndex ? destIndex + 1 : destIndex
             withAnimation(.easeInOut(duration: 0.15)) {
-                area.reorderTab(fromOffsets: IndexSet(integer: sourceIndex), toOffset: offset)
+                onReorderTab(IndexSet(integer: sourceIndex), offset)
             }
             return
         }
@@ -179,14 +198,13 @@ private struct TabDragState {
     var draggedID: UUID?
     var frames: [UUID: CGRect] = [:]
     var isInSplitMode = false
-    var stripFrameGlobal: CGRect = .zero
     var lastReorderTargetID: UUID?
 }
 
 private typealias TabFramePreferenceKey = UUIDFramePreferenceKey<TabFrameTag>
 
 private struct TabCell: View {
-    @Bindable var tab: TerminalTab
+    let tab: PaneTabStrip.TabSnapshot
     let active: Bool
     let paneFocused: Bool
     var hasUnread: Bool = false
@@ -197,6 +215,7 @@ private struct TabCell: View {
     let onCreateLeft: () -> Void
     let onCreateRight: () -> Void
     let onTogglePin: () -> Void
+    let onSetCustomTitle: (String?) -> Void
     @State private var hovered = false
     @State private var isRenaming = false
     @State private var renameText = ""
@@ -288,8 +307,8 @@ private struct TabCell: View {
                 Button("New Tab to the Right") { onCreateRight() }
                 Divider()
                 Button("Rename Tab") { startRename() }
-                if tab.customTitle != nil {
-                    Button("Reset Title") { tab.customTitle = nil }
+                if tab.hasCustomTitle {
+                    Button("Reset Title") { onSetCustomTitle(nil) }
                 }
                 Divider()
                 Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") {
@@ -317,7 +336,7 @@ private struct TabCell: View {
 
     private func commitRename() {
         let trimmed = renameText.trimmingCharacters(in: .whitespaces)
-        tab.customTitle = trimmed.isEmpty ? nil : trimmed
+        onSetCustomTitle(trimmed.isEmpty ? nil : trimmed)
         isRenaming = false
     }
 

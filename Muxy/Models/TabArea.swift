@@ -98,6 +98,7 @@ final class TabArea: Identifiable {
     }
 
     func selectTab(_ tabID: UUID) {
+        guard activeTabID != tabID else { return }
         if let current = activeTabID, current != tabID {
             tabHistory.append(current)
         }
