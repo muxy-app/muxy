@@ -39,6 +39,11 @@ final class NotificationStore {
         return notifications.count { !$0.isRead && $0.projectID == projectID && $0.worktreeID == worktreeID }
     }
 
+    func hasUnread(tabID: UUID) -> Bool {
+        _ = readStateVersion
+        return notifications.contains { !$0.isRead && $0.tabID == tabID }
+    }
+
     func markAsRead(tabID: UUID) {
         var changed = false
         for notification in notifications where !notification.isRead && notification.tabID == tabID {
