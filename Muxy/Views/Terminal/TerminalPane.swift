@@ -53,6 +53,7 @@ struct TerminalBridge: NSViewRepresentable {
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
     @Environment(\.overlayActive) private var overlayActive
+    @Environment(\.activeWorktreeKey) private var worktreeKey
 
     final class Coordinator {
         var wasFocused = false
@@ -67,6 +68,18 @@ struct TerminalBridge: NSViewRepresentable {
     func makeNSView(context: Context) -> GhosttyTerminalNSView {
         let registry = TerminalViewRegistry.shared
         let view = registry.view(for: state.id, workingDirectory: state.projectPath)
+        if view.envVars.isEmpty, let key = worktreeKey {
+            var vars: [(key: String, value: String)] = [
+                (key: "MUXY_PANE_ID", value: state.id.uuidString),
+                (key: "MUXY_PROJECT_ID", value: key.projectID.uuidString),
+                (key: "MUXY_WORKTREE_ID", value: key.worktreeID.uuidString),
+                (key: "MUXY_SOCKET_PATH", value: NotificationSocketServer.socketPath),
+            ]
+            if let hookPath = MuxyNotificationHooks.hookScriptPath {
+                vars.append((key: "MUXY_HOOK_SCRIPT", value: hookPath))
+            }
+            view.envVars = vars
+        }
         view.isFocused = focused
         view.overlayActive = overlayActive
         view.isHidden = !visible
@@ -110,6 +123,10 @@ struct TerminalBridge: NSViewRepresentable {
             nsView.notifySurfaceUnfocused()
         } else if focused, !wasFocused || wasOverlayActive {
             nsView.notifySurfaceFocused()
+            let paneID = state.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                NotificationStore.shared.markAsRead(paneID: paneID)
+            }
             DispatchQueue.main.async {
                 nsView.window?.makeFirstResponder(nsView)
             }

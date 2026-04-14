@@ -124,6 +124,7 @@ struct ProjectRow: View {
 
     private var projectIcon: some View {
         let logo = resolvedLogo
+        let unread = NotificationStore.shared.unreadCount(for: project.id)
         return ZStack {
             RoundedRectangle(cornerRadius: 8)
                 .fill(iconBackground(hasLogo: logo != nil))
@@ -142,6 +143,11 @@ struct ProjectRow: View {
         }
         .frame(width: 32, height: 32)
         .padding(3)
+        .overlay(alignment: .topTrailing) {
+            if unread > 0 {
+                NotificationBadge(count: unread)
+            }
+        }
         .overlay {
             RoundedRectangle(cornerRadius: 11)
                 .strokeBorder(isActive ? MuxyTheme.accent : .clear, lineWidth: 1.5)

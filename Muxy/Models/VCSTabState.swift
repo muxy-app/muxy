@@ -860,7 +860,11 @@ final class VCSTabState {
 
         pullRequestInfo = info
         commits = []
-        ToastState.shared.show("Pull request #\(info.number) opened")
+        NotificationStore.shared.addForProject(
+            projectPath: projectPath,
+            title: "Pull Request Opened",
+            body: "PR #\(info.number) opened"
+        )
         loadBranches()
         performRefresh(incremental: false)
     }
@@ -943,7 +947,11 @@ final class VCSTabState {
                 try await git.closePullRequest(repoPath: projectPath, number: info.number)
                 guard !Task.isCancelled else { return }
                 pullRequestInfo = nil
-                ToastState.shared.show("Closed PR #\(info.number)")
+                NotificationStore.shared.addForProject(
+                    projectPath: projectPath,
+                    title: "Pull Request Closed",
+                    body: "PR #\(info.number) closed"
+                )
                 onSuccess()
             } catch {
                 guard !Task.isCancelled else { return }

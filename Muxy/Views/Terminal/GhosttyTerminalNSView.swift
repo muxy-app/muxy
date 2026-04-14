@@ -4,6 +4,7 @@ import GhosttyKit
 final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     private let workingDirectory: String
+    var envVars: [(key: String, value: String)] = []
     var onTitleChange: ((String) -> Void)?
     var onFocus: (() -> Void)?
     var onProcessExit: (() -> Void)?
@@ -57,9 +58,28 @@ final class GhosttyTerminalNSView: NSView {
         config.scale_factor = Double(window?.backingScaleFactor ?? 2.0)
         config.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
 
+        let cKeys = envVars.compactMap { strdup($0.key) }
+        let cValues = envVars.compactMap { strdup($0.value) }
+        var cEnvVars = zip(cKeys, cValues).map { ghostty_env_var_s(key: $0.0, value: $0.1) }
+
         workingDirectory.withCString { cwd in
             config.working_directory = cwd
-            surface = ghostty_surface_new(app, &config)
+            if !cEnvVars.isEmpty {
+                cEnvVars.withUnsafeMutableBufferPointer { buffer in
+                    config.env_vars = buffer.baseAddress
+                    config.env_var_count = buffer.count
+                    surface = ghostty_surface_new(app, &config)
+                }
+            } else {
+                surface = ghostty_surface_new(app, &config)
+            }
+        }
+
+        for key in cKeys {
+            free(key)
+        }
+        for value in cValues {
+            free(value)
         }
 
         guard let surface else { return }

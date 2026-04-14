@@ -12,4 +12,5 @@ extension Notification.Name {
     static let saveActiveEditor = Notification.Name("MuxySaveActiveEditor")
     static let windowFullScreenDidChange = Notification.Name("MuxyWindowFullScreenDidChange")
     static let toggleSidebar = Notification.Name("MuxyToggleSidebar")
+    static let toggleNotificationPanel = Notification.Name("MuxyToggleNotificationPanel")
 }

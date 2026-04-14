@@ -176,6 +176,7 @@ struct ExpandedProjectRow: View {
 
     private var projectIcon: some View {
         let logo = resolvedLogo
+        let unread = NotificationStore.shared.unreadCount(for: project.id)
         return ZStack {
             RoundedRectangle(cornerRadius: 6)
                 .fill(iconBackground(hasLogo: logo != nil))
@@ -193,12 +194,18 @@ struct ExpandedProjectRow: View {
             }
         }
         .frame(width: 24, height: 24)
+        .overlay(alignment: .topTrailing) {
+            if unread > 0 {
+                NotificationBadge(count: unread)
+            }
+        }
     }
 
     private var worktreeList: some View {
         VStack(spacing: 1) {
             ForEach(worktrees) { worktree in
                 ExpandedWorktreeRow(
+                    projectID: project.id,
                     worktree: worktree,
                     selected: worktree.id == activeWorktreeID,
                     onSelect: {
@@ -355,6 +362,7 @@ struct ExpandedProjectRow: View {
 }
 
 private struct ExpandedWorktreeRow: View {
+    let projectID: UUID
     let worktree: Worktree
     let selected: Bool
     let onSelect: () -> Void
@@ -417,6 +425,8 @@ private struct ExpandedWorktreeRow: View {
 
             Spacer(minLength: 2)
 
+            worktreeUnreadBadge
+
             if selected {
                 Image(systemName: "checkmark")
                     .font(.system(size: 8, weight: .bold))
@@ -440,6 +450,14 @@ private struct ExpandedWorktreeRow: View {
             } else {
                 Text("Primary worktree").font(.system(size: 11))
             }
+        }
+    }
+
+    @ViewBuilder
+    private var worktreeUnreadBadge: some View {
+        let unread = NotificationStore.shared.unreadCount(for: projectID, worktreeID: worktree.id)
+        if unread > 0 {
+            NotificationBadge(count: unread)
         }
     }
 

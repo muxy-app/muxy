@@ -126,7 +126,7 @@ struct MainWindow: View {
             }
         }
         .environment(\.overlayActive, showQuickOpen || showWorktreeSwitcher)
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .top) {
             if let toast = ToastState.shared.message {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
@@ -140,8 +140,8 @@ struct MainWindow: View {
                 .padding(.vertical, 8)
                 .background(MuxyTheme.surface, in: Capsule())
                 .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))
-                .padding(.bottom, 16)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .padding(.top, 40)
+                .transition(.move(edge: .top).combined(with: .opacity))
                 .allowsHitTesting(false)
             }
         }

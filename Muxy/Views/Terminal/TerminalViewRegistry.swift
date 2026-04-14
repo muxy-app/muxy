@@ -5,6 +5,7 @@ final class TerminalViewRegistry {
     static let shared = TerminalViewRegistry()
 
     private var views: [UUID: GhosttyTerminalNSView] = [:]
+    private var paneIDs: [ObjectIdentifier: UUID] = [:]
 
     private init() {}
 
@@ -14,6 +15,7 @@ final class TerminalViewRegistry {
         }
         let view = GhosttyTerminalNSView(workingDirectory: workingDirectory)
         views[paneID] = view
+        paneIDs[ObjectIdentifier(view)] = paneID
         return view
     }
 
@@ -23,6 +25,7 @@ final class TerminalViewRegistry {
 
     func removeView(for paneID: UUID) {
         guard let view = views.removeValue(forKey: paneID) else { return }
+        paneIDs.removeValue(forKey: ObjectIdentifier(view))
         view.tearDown()
     }
 
@@ -32,6 +35,10 @@ final class TerminalViewRegistry {
 
     func view(for paneID: UUID) -> GhosttyTerminalNSView? {
         views[paneID]
+    }
+
+    func paneID(for view: GhosttyTerminalNSView) -> UUID? {
+        paneIDs[ObjectIdentifier(view)]
     }
 }
 

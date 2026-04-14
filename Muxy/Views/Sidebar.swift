@@ -232,6 +232,9 @@ private struct AddProjectButton: View {
 struct SidebarFooter: View {
     var expanded: Bool = false
     @State private var showThemePicker = false
+    @State private var showNotifications = false
+
+    private var notificationStore: NotificationStore { NotificationStore.shared }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -244,14 +247,26 @@ struct SidebarFooter: View {
         .onReceive(NotificationCenter.default.publisher(for: .toggleThemePicker)) { _ in
             showThemePicker.toggle()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleNotificationPanel)) { _ in
+            showNotifications.toggle()
+        }
     }
 
     private func postToggleSidebar() {
         NotificationCenter.default.post(name: .toggleSidebar, object: nil)
     }
 
+    private var notificationBellIcon: String {
+        notificationStore.unreadCount > 0 ? "bell.badge" : "bell"
+    }
+
     private var collapsedFooter: some View {
         VStack(spacing: 4) {
+            IconButton(symbol: notificationBellIcon) { showNotifications.toggle() }
+                .help("Notifications")
+                .popover(isPresented: $showNotifications) {
+                    NotificationPanel(onDismiss: { showNotifications = false })
+                }
             IconButton(symbol: "paintpalette") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker() }
@@ -266,6 +281,11 @@ struct SidebarFooter: View {
             IconButton(symbol: "sidebar.left") { postToggleSidebar() }
                 .help("Collapse Sidebar (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
             Spacer()
+            IconButton(symbol: notificationBellIcon) { showNotifications.toggle() }
+                .help("Notifications")
+                .popover(isPresented: $showNotifications) {
+                    NotificationPanel(onDismiss: { showNotifications = false })
+                }
             IconButton(symbol: "paintpalette") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker() }

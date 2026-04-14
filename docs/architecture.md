@@ -14,6 +14,7 @@ Muxy/
     Notification+Names.swift  Custom notification names
     View+KeyboardShortcut.swift  .shortcut(for:store:) View extension
   Models/
+    MuxyNotification.swift    Notification data model (pane, project, worktree IDs, source, content)
     AppState.swift            @Observable root state, dispatches workspace actions
     WorkspaceReducer.swift    Pure reducer: all workspace state transitions
     WorkspaceSnapshot.swift   Save/restore workspace layout to disk
@@ -36,7 +37,11 @@ Muxy/
     TerminalSearchState.swift Terminal find-in-page state
   Services/
     GhosttyService.swift      Singleton managing ghostty_app_t lifecycle
-    GhosttyRuntimeEventAdapter.swift  C callback bridge from libghostty
+    GhosttyRuntimeEventAdapter.swift  C callback bridge from libghostty (OSC + command finished → notifications)
+    NotificationStore.swift      @Observable notification store singleton
+    NotificationNavigator.swift  Pane context resolution + click-to-navigate dispatch
+    NotificationSocketServer.swift  Unix domain socket IPC for external tool notifications
+    SystemNotificationService.swift  UNUserNotificationCenter integration + delegate
     Git/
       GitRepositoryService.swift  Git command execution (Sendable struct; dispatches via GitProcessRunner)
       GitProcessRunner.swift      Concurrent Process dispatcher for git/gh, unblocks main thread
@@ -67,6 +72,7 @@ Muxy/
   Theme/
     MuxyTheme.swift           Color system derived from Ghostty palette
   Views/
+    NotificationPanel.swift   Notification list popover (bell icon in sidebar footer)
     MainWindow.swift          Main window layout (sidebar + workspace)
     Sidebar.swift             Narrow icon-strip sidebar (44px), add-project button, project icons
     Sidebar/
@@ -81,6 +87,7 @@ Muxy/
       WindowDragView.swift    NSView for window title bar dragging
       MiddleClickView.swift   NSView for middle-click tab close
       UUIDFramePreferenceKey.swift  Generic PreferenceKey for frame tracking
+      NotificationBadge.swift Unread count badge for sidebar project icons
       QuickOpenOverlay.swift  Cmd+P file search overlay (name substring match via find)
     Terminal/
       GhosttyTerminalNSView.swift       AppKit view wrapping ghostty_surface_t + NSTextInputClient
@@ -175,3 +182,44 @@ Pull request management lives entirely in the header via `PRPill`, not in the co
 5. **Draft** — checkbox that adds `--draft` to `gh pr create`.
 
 On submit, `performPRFlow` runs: optional branch create+switch → optional stage (all if include=all, staged-only otherwise) → commit with title if anything is staged → `git push -u origin <branch>` → `gh pr create`. No rollback on partial failure — errors surface to the sheet with a clear message so the user can retry manually from wherever the flow stopped. Ahead/behind counts are populated by `GitRepositoryService.aheadBehind` during refresh and drive the push/pull badges in the commit area.
+
+## Notification System
+
+Notifications alert users when terminal events occur (command completion, AI agent
+messages, OSC escape sequences). Each notification carries full navigation context
+(projectID, worktreeID, areaID, tabID) to enable click-to-focus on the originating pane.
+
+### Sources
+
+- **OSC 9/777** — Desktop notification escape sequences handled via
+  `GHOSTTY_ACTION_DESKTOP_NOTIFICATION` in `GhosttyRuntimeEventAdapter`.
+- **Command finished** — Shell command completion via `GHOSTTY_ACTION_COMMAND_FINISHED`.
+  Only triggers for commands running longer than 5 seconds.
+- **Claude Code hooks** — Rich notifications from Claude Code sessions via a wrapper
+  script that injects `--hooks` to route lifecycle events through the Unix socket.
+- **Unix socket** — External tool integration via `/tmp/muxy-{uid}.sock`. Accepts
+  JSON messages with paneID for routing.
+
+### Data Flow
+
+```
+Terminal event → GhosttyRuntimeEventAdapter / NotificationSocketServer
+     → TerminalViewRegistry.paneID(for:) (reverse lookup)
+     → NotificationNavigator.resolveContext() (pane → project/worktree/area/tab)
+     → NotificationStore.add()
+     → SystemNotificationService.send() (if app not focused or pane not visible)
+     → UI update (badge on sidebar, notification panel)
+```
+
+### Environment Variables
+
+Each terminal surface receives `MUXY_PANE_ID`, `MUXY_PROJECT_ID`,
+`MUXY_WORKTREE_ID`, and `MUXY_SOCKET_PATH` via `ghostty_surface_config_s.env_vars`.
+These are used by the Claude wrapper script and socket API to identify the
+originating pane.
+
+### Click-to-Navigate
+
+`NotificationNavigator.navigate(to:)` dispatches three `AppState` actions in
+sequence: `selectProject` → `focusArea` → `selectTab`. System notifications encode
+the navigation context in `userInfo` and bring the app to front on click.

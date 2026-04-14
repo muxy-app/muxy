@@ -68,6 +68,7 @@ struct TerminalArea: View {
                     appState.dispatch(result.action(projectID: project.id))
                 }
             )
+            .environment(\.activeWorktreeKey, worktreeKey)
             .onPreferenceChange(AreaFramePreferenceKey.self) { frames in
                 guard isActiveProject else { return }
                 dragCoordinator.setAreaFrames(frames, forProject: project.id)
