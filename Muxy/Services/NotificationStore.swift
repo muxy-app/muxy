@@ -14,6 +14,7 @@ final class NotificationStore {
     private(set) var notifications: [MuxyNotification] = []
 
     private static let maxNotifications = 200
+    private static let defaults = UserDefaults.standard
 
     private init() {}
 
@@ -48,20 +49,13 @@ final class NotificationStore {
         body: String,
         appState: AppState
     ) {
-        guard let worktreeStore else {
-            print("[Muxy] Dropped notification — worktreeStore not set: \(title)")
-            return
-        }
+        guard let worktreeStore else { return }
         guard let context = NotificationNavigator.resolveContext(
             for: paneID,
             appState: appState,
             worktreeStore: worktreeStore
         )
-        else {
-            print("[Muxy] Dropped notification — could not resolve context for pane \(paneID): \(title)")
-            return
-        }
-        print("[Muxy] Notification added: \(title) for project=\(context.projectID)")
+        else { return }
 
         let notification = MuxyNotification(
             paneID: paneID,
@@ -75,10 +69,13 @@ final class NotificationStore {
             body: body
         )
 
+        if NSApp.isActive, NotificationNavigator.isFocused(notification, appState: appState) {
+            return
+        }
+
         notifications.insert(notification, at: 0)
         trimIfNeeded()
-
-        deliverNotification(notification, appState: appState)
+        deliverNotification(notification)
     }
 
     func addWithContext(
@@ -100,43 +97,31 @@ final class NotificationStore {
             body: body
         )
 
+        if NSApp.isActive, NotificationNavigator.isFocused(notification, appState: appState) {
+            return
+        }
+
         notifications.insert(notification, at: 0)
         trimIfNeeded()
-
-        deliverNotification(notification, appState: appState)
+        deliverNotification(notification)
     }
 
-    func addForProject(
-        projectPath: String,
-        title: String,
-        body: String
-    ) {
-        guard let appState = SystemNotificationService.shared.appState else { return }
-        guard let context = NotificationNavigator.resolveContext(
-            for: projectPath,
-            appState: appState
-        )
-        else { return }
-        addWithContext(
-            context: context,
-            source: .vcs,
-            title: title,
-            body: body,
-            appState: appState
-        )
-    }
-
-    private func deliverNotification(_ notification: MuxyNotification, appState: AppState) {
-        let suppressBanner = NSApp.isActive && NotificationNavigator.isFocused(notification, appState: appState)
-        ToastState.shared.show(notification.title)
-        playSound()
-        if !suppressBanner {
-            SystemNotificationService.shared.send(notification)
+    private func deliverNotification(_ notification: MuxyNotification) {
+        if Self.defaults.bool(forKey: "muxy.notifications.toastEnabled", fallback: true) {
+            ToastState.shared.show(notification.title)
         }
+        playSound()
     }
 
     private func playSound() {
-        NSSound(named: .init("Funk"))?.play()
+        let soundName = Self.defaults.string(forKey: "muxy.notifications.sound") ?? NotificationSound.funk.rawValue
+        guard soundName != NotificationSound.none.rawValue else { return }
+        NSSound(named: .init(soundName))?.play()
+    }
+
+    var autoClearDuration: Double? {
+        let raw = Self.defaults.string(forKey: "muxy.notifications.autoClear") ?? AutoClearDuration.off.rawValue
+        return AutoClearDuration(rawValue: raw)?.seconds
     }
 
     func markAsRead(_ id: UUID) {
@@ -167,5 +152,11 @@ final class NotificationStore {
     private func trimIfNeeded() {
         guard notifications.count > Self.maxNotifications else { return }
         notifications = Array(notifications.prefix(Self.maxNotifications))
+    }
+}
+
+extension UserDefaults {
+    func bool(forKey key: String, fallback: Bool) -> Bool {
+        object(forKey: key) != nil ? bool(forKey: key) : fallback
     }
 }

@@ -130,10 +130,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private func dispatchNotification(type: String, title: String, body: String, paneIDString: String?) {
         guard let appState = SystemNotificationService.shared.appState else { return }
 
-        let source: MuxyNotification.Source = switch type {
-        case "claude_hook": .claudeHook
-        default: .socket
-        }
+        let source = AIProviderRegistry.shared.notificationSource(for: type)
 
         if let paneIDString, let paneID = UUID(uuidString: paneIDString) {
             NotificationStore.shared.add(

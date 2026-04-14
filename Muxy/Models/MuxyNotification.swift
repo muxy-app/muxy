@@ -3,11 +3,10 @@ import Foundation
 @MainActor
 @Observable
 final class MuxyNotification: Identifiable {
-    enum Source {
+    enum Source: Equatable {
         case osc
-        case claudeHook
+        case aiProvider(String)
         case socket
-        case vcs
     }
 
     let id = UUID()

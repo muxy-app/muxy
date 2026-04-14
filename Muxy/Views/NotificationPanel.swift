@@ -3,7 +3,7 @@ import SwiftUI
 struct NotificationPanelItem: Identifiable {
     let id: UUID
     let notificationID: UUID
-    let source: MuxyNotification.Source
+    let sourceIcon: String
     let title: String
     let body: String
     let timestamp: Date
@@ -19,15 +19,6 @@ struct NotificationPanelItem: Identifiable {
         let hours = minutes / 60
         guard hours >= 24 else { return "\(hours)h" }
         return "\(hours / 24)d"
-    }
-
-    var sourceIcon: String {
-        switch source {
-        case .osc: "terminal"
-        case .claudeHook: "sparkles"
-        case .socket: "network"
-        case .vcs: "arrow.triangle.branch"
-        }
     }
 }
 
@@ -90,11 +81,12 @@ struct NotificationPanel: View {
     }
 
     private func loadItems() {
+        let registry = AIProviderRegistry.shared
         items = NotificationStore.shared.notifications.map { n in
             NotificationPanelItem(
                 id: n.id,
                 notificationID: n.id,
-                source: n.source,
+                sourceIcon: registry.iconName(for: n.source),
                 title: n.title,
                 body: n.body,
                 timestamp: n.timestamp,

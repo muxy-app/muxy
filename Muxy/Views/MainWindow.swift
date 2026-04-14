@@ -49,6 +49,7 @@ struct MainWindow: View {
     @State private var showWorktreeSwitcher = false
     @State private var isFullScreen = false
     @State private var sidebarExpanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
+    @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
     private let trafficLightWidth: CGFloat = 75
 
     var body: some View {
@@ -126,7 +127,7 @@ struct MainWindow: View {
             }
         }
         .environment(\.overlayActive, showQuickOpen || showWorktreeSwitcher)
-        .overlay(alignment: .top) {
+        .overlay(alignment: toastAlignment) {
             if let toast = ToastState.shared.message {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
@@ -140,8 +141,8 @@ struct MainWindow: View {
                 .padding(.vertical, 8)
                 .background(MuxyTheme.surface, in: Capsule())
                 .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))
-                .padding(.top, 40)
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .padding(toastEdgePadding)
+                .transition(.move(edge: toastTransitionEdge).combined(with: .opacity))
                 .allowsHitTesting(false)
             }
         }
@@ -315,6 +316,37 @@ struct MainWindow: View {
                     worktree: worktree
                 )
             }
+        }
+    }
+
+    private var toastPosition: ToastPosition {
+        ToastPosition(rawValue: toastPositionRaw) ?? .topCenter
+    }
+
+    private var toastAlignment: Alignment {
+        switch toastPosition {
+        case .topCenter: .top
+        case .topRight: .topTrailing
+        case .bottomCenter: .bottom
+        case .bottomRight: .bottomTrailing
+        }
+    }
+
+    private var toastEdgePadding: EdgeInsets {
+        switch toastPosition {
+        case .topCenter: EdgeInsets(top: 40, leading: 0, bottom: 0, trailing: 0)
+        case .topRight: EdgeInsets(top: 40, leading: 0, bottom: 0, trailing: 16)
+        case .bottomCenter: EdgeInsets(top: 0, leading: 0, bottom: 16, trailing: 0)
+        case .bottomRight: EdgeInsets(top: 0, leading: 0, bottom: 16, trailing: 16)
+        }
+    }
+
+    private var toastTransitionEdge: Edge {
+        switch toastPosition {
+        case .topCenter,
+             .topRight: .top
+        case .bottomCenter,
+             .bottomRight: .bottom
         }
     }
 

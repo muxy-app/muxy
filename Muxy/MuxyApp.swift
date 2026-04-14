@@ -109,9 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ThemeService.shared.applyDefaultThemeIfNeeded()
         UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
-        SystemNotificationService.shared.requestPermission()
         NotificationSocketServer.shared.start()
-        ClaudeHooksInstaller.installIfNeeded()
+        AIProviderRegistry.shared.installAll()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -175,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         onTerminate?()
         NotificationSocketServer.shared.stop()
-        ClaudeHooksInstaller.uninstall()
+        AIProviderRegistry.shared.uninstallAll()
     }
 
     @MainActor

@@ -290,11 +290,7 @@ struct VCSTabView: View {
         let defaultBranch = state.defaultBranch
         let isWorktreeMerge = worktree.map { !$0.isPrimary } ?? false
         state.mergePullRequest(method: method, deleteBranch: !isWorktreeMerge) { _, mergedBranch in
-            NotificationStore.shared.addForProject(
-                projectPath: state.projectPath,
-                title: "Pull Request Merged",
-                body: "PR #\(prInfo.number) merged"
-            )
+            ToastState.shared.show("Merged PR #\(prInfo.number)")
             Task { @MainActor in
                 await cleanupAfterMerge(
                     mergedBranch: mergedBranch,

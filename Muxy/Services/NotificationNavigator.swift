@@ -36,27 +36,6 @@ enum NotificationNavigator {
         return nil
     }
 
-    static func resolveContext(
-        for projectPath: String,
-        appState: AppState
-    ) -> NavigationContext? {
-        for (key, root) in appState.workspaceRoots {
-            for area in root.allAreas() where area.projectPath == projectPath {
-                let vcsTab = area.tabs.first { $0.kind == .vcs }
-                let tab = vcsTab ?? area.tabs.first
-                guard let tab else { continue }
-                return NavigationContext(
-                    projectID: key.projectID,
-                    worktreeID: key.worktreeID,
-                    worktreePath: projectPath,
-                    areaID: area.id,
-                    tabID: tab.id
-                )
-            }
-        }
-        return nil
-    }
-
     static func navigate(
         to notification: MuxyNotification,
         appState: AppState,

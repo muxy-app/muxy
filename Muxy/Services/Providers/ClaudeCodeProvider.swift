@@ -1,79 +1,50 @@
 import Foundation
-import os
 
-private let logger = Logger(subsystem: "app.muxy", category: "ClaudeHooksInstaller")
+struct ClaudeCodeProvider: AIProviderIntegration {
+    let id = "claude_code"
+    let displayName = "Claude Code"
+    let socketTypeKey = "claude_hook"
+    let iconName = "sparkles"
+    let executableNames = ["claude"]
 
-enum ClaudeHooksInstaller {
     private static let settingsPath = NSHomeDirectory() + "/.claude/settings.json"
     private static let muxyMarker = "muxy-notification-hook"
 
-    static func installIfNeeded() {
-        #if DEBUG
-        guard ProcessInfo.processInfo.environment["FF_CLAUDE_HOOKS"] != nil else {
-            logger.info("Skipping Claude hooks install in dev mode (set FF_CLAUDE_HOOKS=true to enable)")
-            return
-        }
-        #endif
-        guard isClaudeInstalled() else { return }
-        guard let hookScript = MuxyNotificationHooks.hookScriptPath else {
-            logger.info("Hook script not found, skipping Claude hooks install")
-            return
-        }
-
-        do {
-            try installHooks(hookScript: hookScript)
-            logger.info("Claude Code hooks installed")
-        } catch {
-            logger.error("Failed to install Claude hooks: \(error.localizedDescription)")
-        }
-    }
-
-    static func uninstall() {
-        #if DEBUG
-        guard ProcessInfo.processInfo.environment["FF_CLAUDE_HOOKS"] != nil else { return }
-        #endif
-        guard FileManager.default.fileExists(atPath: settingsPath) else { return }
-        do {
-            try removeHooks()
-            logger.info("Claude Code hooks removed")
-        } catch {
-            logger.error("Failed to remove Claude hooks: \(error.localizedDescription)")
-        }
-    }
-
-    private static func isClaudeInstalled() -> Bool {
-        let knownPaths = [
-            NSHomeDirectory() + "/.local/bin/claude",
+    func isToolInstalled() -> Bool {
+        let home = NSHomeDirectory()
+        let paths = [
+            "\(home)/.local/bin/claude",
             "/usr/local/bin/claude",
             "/opt/homebrew/bin/claude",
         ]
-        return knownPaths.contains { FileManager.default.isExecutableFile(atPath: $0) }
+        return paths.contains { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
-    private static func installHooks(hookScript: String) throws {
-        var settings = try readSettings()
+    func install(hookScriptPath: String) throws {
+        var settings = try Self.readSettings()
         var hooks = settings["hooks"] as? [String: Any] ?? [:]
 
-        let stopHook = buildHookEntry(hookScript: hookScript, event: "stop")
-        let notificationHook = buildHookEntry(hookScript: hookScript, event: "notification")
+        let stopHook = Self.buildHookEntry(hookScript: hookScriptPath, event: "stop")
+        let notificationHook = Self.buildHookEntry(hookScript: hookScriptPath, event: "notification")
 
-        hooks["Stop"] = mergeHookArray(existing: hooks["Stop"] as? [[String: Any]], muxyHook: stopHook)
-        hooks["Notification"] = mergeHookArray(
+        hooks["Stop"] = Self.mergeHookArray(existing: hooks["Stop"] as? [[String: Any]], muxyHook: stopHook)
+        hooks["Notification"] = Self.mergeHookArray(
             existing: hooks["Notification"] as? [[String: Any]],
             muxyHook: notificationHook
         )
 
         settings["hooks"] = hooks
-        try writeSettings(settings)
+        try Self.writeSettings(settings)
     }
 
-    private static func removeHooks() throws {
-        var settings = try readSettings()
+    func uninstall() throws {
+        guard FileManager.default.fileExists(atPath: Self.settingsPath) else { return }
+        var settings = try Self.readSettings()
         guard var hooks = settings["hooks"] as? [String: Any] else { return }
 
         for key in ["Stop", "Notification"] {
             guard var entries = hooks[key] as? [[String: Any]] else { continue }
-            entries.removeAll { isMuxyHookEntry($0) }
+            entries.removeAll { Self.isMuxyHookEntry($0) }
             if entries.isEmpty {
                 hooks.removeValue(forKey: key)
             } else {
@@ -82,7 +53,7 @@ enum ClaudeHooksInstaller {
         }
 
         settings["hooks"] = hooks
-        try writeSettings(settings)
+        try Self.writeSettings(settings)
     }
 
     private static func buildHookEntry(hookScript: String, event: String) -> [String: Any] {
@@ -117,13 +88,9 @@ enum ClaudeHooksInstaller {
     }
 
     private static func readSettings() throws -> [String: Any] {
-        guard FileManager.default.fileExists(atPath: settingsPath) else {
-            return [:]
-        }
+        guard FileManager.default.fileExists(atPath: settingsPath) else { return [:] }
         let data = try Data(contentsOf: URL(fileURLWithPath: settingsPath))
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return [:]
-        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
         return json
     }
 
