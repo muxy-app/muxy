@@ -146,24 +146,29 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         let title = notification.title.flatMap { String(cString: $0) } ?? "Terminal"
         let body = notification.body.flatMap { String(cString: $0) } ?? ""
         logger.debug("[Muxy] OSC notification: title=\(title) body=\(body)")
-        DispatchQueue.main.async {
-            guard let paneID = TerminalViewRegistry.shared.paneID(for: view) else {
-                logger.debug("[Muxy] OSC notification: no paneID for view")
-                return
-            }
-            guard let appState = SystemNotificationService.shared.appState else {
-                logger.debug("[Muxy] OSC notification: appState not available")
-                return
-            }
-            logger.debug("[Muxy] OSC notification: dispatching to store, paneID=\(paneID)")
-            NotificationStore.shared.add(
-                paneID: paneID,
-                source: .osc,
-                title: title,
-                body: body,
-                appState: appState
-            )
+        Task { @MainActor in
+            Self.dispatchOSCNotification(view: view, title: title, body: body)
         }
+    }
+
+    @MainActor
+    private static func dispatchOSCNotification(view: GhosttyTerminalNSView, title: String, body: String) {
+        guard let paneID = TerminalViewRegistry.shared.paneID(for: view) else {
+            logger.debug("[Muxy] OSC notification: no paneID for view")
+            return
+        }
+        guard let appState = NotificationStore.shared.appState else {
+            logger.debug("[Muxy] OSC notification: appState not available")
+            return
+        }
+        logger.debug("[Muxy] OSC notification: dispatching to store, paneID=\(paneID)")
+        NotificationStore.shared.add(
+            paneID: paneID,
+            source: .osc,
+            title: title,
+            body: body,
+            appState: appState
+        )
     }
 
     private func surfaceView(from target: ghostty_target_s) -> GhosttyTerminalNSView? {

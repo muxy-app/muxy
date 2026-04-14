@@ -98,9 +98,8 @@ final class NotificationSocketServer: @unchecked Sendable {
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
             let bytesRead = read(fd, &buffer, buffer.count)
-            guard bytesRead > 0 else { break }
+            if bytesRead <= 0 { break }
             data.append(contentsOf: buffer[0 ..< bytesRead])
-            if bytesRead < buffer.count { break }
         }
 
         guard !data.isEmpty else { return }
@@ -130,7 +129,7 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     @MainActor
     private func dispatchNotification(type: String, title: String, body: String, paneIDString: String?) {
-        guard let appState = SystemNotificationService.shared.appState else { return }
+        guard let appState = NotificationStore.shared.appState else { return }
 
         let source = AIProviderRegistry.shared.notificationSource(for: type)
 

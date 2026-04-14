@@ -38,10 +38,9 @@ Muxy/
   Services/
     GhosttyService.swift      Singleton managing ghostty_app_t lifecycle
     GhosttyRuntimeEventAdapter.swift  C callback bridge from libghostty (OSC + command finished → notifications)
-    NotificationStore.swift      @Observable notification store singleton
+    NotificationStore.swift      @Observable notification store singleton (persisted to notifications.json)
     NotificationNavigator.swift  Pane context resolution + click-to-navigate dispatch
     NotificationSocketServer.swift  Unix domain socket IPC for external tool notifications
-    SystemNotificationService.swift  UNUserNotificationCenter integration + delegate
     Git/
       GitRepositoryService.swift  Git command execution (Sendable struct; dispatches via GitProcessRunner)
       GitProcessRunner.swift      Concurrent Process dispatcher for git/gh, unblocks main thread
@@ -206,8 +205,9 @@ messages, OSC escape sequences). Each notification carries full navigation conte
 Terminal event → GhosttyRuntimeEventAdapter / NotificationSocketServer
      → TerminalViewRegistry.paneID(for:) (reverse lookup)
      → NotificationNavigator.resolveContext() (pane → project/worktree/area/tab)
-     → NotificationStore.add()
-     → SystemNotificationService.send() (if app not focused or pane not visible)
+     → NotificationStore.add() (suppressed if pane is focused and app active)
+     → Toast + sound delivery
+     → Persist to notifications.json (debounced)
      → UI update (badge on sidebar, notification panel)
 ```
 

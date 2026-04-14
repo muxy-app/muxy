@@ -9,14 +9,19 @@ private let logger = Logger(subsystem: "app.muxy", category: "NotificationStore"
 final class NotificationStore {
     static let shared = NotificationStore()
 
+    var appState: AppState?
     var worktreeStore: WorktreeStore?
 
     private(set) var notifications: [MuxyNotification] = []
 
     private static let maxNotifications = 200
     private static let defaults = UserDefaults.standard
+    private static let fileURL = MuxyFileStorage.fileURL(filename: "notifications.json")
+    private var saveTask: Task<Void, Never>?
 
-    private init() {}
+    private init() {
+        notifications = Self.loadFromDisk()
+    }
 
     var unreadCount: Int {
         notifications.count { !$0.isRead }
@@ -31,15 +36,21 @@ final class NotificationStore {
     }
 
     func markAsRead(paneID: UUID) {
+        var changed = false
         for notification in notifications where !notification.isRead && notification.paneID == paneID {
             notification.isRead = true
+            changed = true
         }
+        if changed { scheduleSave() }
     }
 
     func markAsRead(areaID: UUID) {
+        var changed = false
         for notification in notifications where !notification.isRead && notification.areaID == areaID {
             notification.isRead = true
+            changed = true
         }
+        if changed { scheduleSave() }
     }
 
     func add(
@@ -68,14 +79,7 @@ final class NotificationStore {
             title: title,
             body: body
         )
-
-        if NSApp.isActive, NotificationNavigator.isFocused(notification, appState: appState) {
-            return
-        }
-
-        notifications.insert(notification, at: 0)
-        trimIfNeeded()
-        deliverNotification(notification)
+        insertIfNotFocused(notification, appState: appState)
     }
 
     func addWithContext(
@@ -96,13 +100,17 @@ final class NotificationStore {
             title: title,
             body: body
         )
+        insertIfNotFocused(notification, appState: appState)
+    }
 
-        if NSApp.isActive, NotificationNavigator.isFocused(notification, appState: appState) {
+    private func insertIfNotFocused(_ notification: MuxyNotification, appState: AppState) {
+        guard !NSApp.isActive || !NotificationNavigator.isFocused(notification, appState: appState) else {
             return
         }
 
         notifications.insert(notification, at: 0)
         trimIfNeeded()
+        scheduleSave()
         deliverNotification(notification)
     }
 
@@ -127,31 +135,70 @@ final class NotificationStore {
     func markAsRead(_ id: UUID) {
         guard let index = notifications.firstIndex(where: { $0.id == id }) else { return }
         notifications[index].isRead = true
+        scheduleSave()
     }
 
     func markAllAsRead() {
+        var changed = false
         for notification in notifications where !notification.isRead {
             notification.isRead = true
+            changed = true
         }
+        if changed { scheduleSave() }
     }
 
     func markAllAsRead(projectID: UUID) {
+        var changed = false
         for notification in notifications where !notification.isRead && notification.projectID == projectID {
             notification.isRead = true
+            changed = true
         }
+        if changed { scheduleSave() }
     }
 
     func remove(_ id: UUID) {
         notifications.removeAll { $0.id == id }
+        scheduleSave()
     }
 
     func clear() {
         notifications.removeAll()
+        scheduleSave()
     }
 
     private func trimIfNeeded() {
         guard notifications.count > Self.maxNotifications else { return }
         notifications = Array(notifications.prefix(Self.maxNotifications))
+    }
+
+    private func scheduleSave() {
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.saveToDisk()
+        }
+    }
+
+    func saveToDisk() {
+        do {
+            let data = try JSONEncoder().encode(notifications)
+            try data.write(to: Self.fileURL, options: .atomic)
+        } catch {
+            logger.error("Failed to save notifications: \(error.localizedDescription)")
+        }
+    }
+
+    private static func loadFromDisk() -> [MuxyNotification] {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let loaded = try JSONDecoder().decode([MuxyNotification].self, from: data)
+            return Array(loaded.prefix(maxNotifications))
+        } catch {
+            logger.error("Failed to load notifications: \(error.localizedDescription)")
+            return []
+        }
     }
 }
 

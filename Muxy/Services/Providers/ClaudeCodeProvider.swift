@@ -97,8 +97,17 @@ struct ClaudeCodeProvider: AIProviderIntegration {
     private static func writeSettings(_ settings: [String: Any]) throws {
         let dirPath = (settingsPath as NSString).deletingLastPathComponent
         try FileManager.default.createDirectory(atPath: dirPath, withIntermediateDirectories: true)
+
+        let fileURL = URL(fileURLWithPath: settingsPath)
+        if FileManager.default.fileExists(atPath: settingsPath) {
+            let backupPath = settingsPath + ".muxy-backup"
+            let backupURL = URL(fileURLWithPath: backupPath)
+            try? FileManager.default.removeItem(at: backupURL)
+            try FileManager.default.copyItem(at: fileURL, to: backupURL)
+        }
+
         let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: URL(fileURLWithPath: settingsPath), options: .atomic)
+        try data.write(to: fileURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: settingsPath)
     }
 }

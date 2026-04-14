@@ -41,7 +41,7 @@ struct MuxyApp: App {
                 .environment(ThemeService.shared)
                 .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
-                    SystemNotificationService.shared.appState = appState
+                    NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
@@ -173,6 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         onTerminate?()
+        NotificationStore.shared.saveToDisk()
         NotificationSocketServer.shared.stop()
         AIProviderRegistry.shared.uninstallAll()
     }

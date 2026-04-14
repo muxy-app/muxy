@@ -2,7 +2,6 @@ import SwiftUI
 
 struct NotificationPanelItem: Identifiable {
     let id: UUID
-    let notificationID: UUID
     let sourceIcon: String
     let title: String
     let body: String
@@ -26,15 +25,28 @@ struct NotificationPanel: View {
     @Environment(AppState.self) private var appState
     let onDismiss: () -> Void
 
-    @State private var items: [NotificationPanelItem] = []
+    private var items: [NotificationPanelItem] {
+        let registry = AIProviderRegistry.shared
+        return NotificationStore.shared.notifications.map { n in
+            NotificationPanelItem(
+                id: n.id,
+                sourceIcon: registry.iconName(for: n.source),
+                title: n.title,
+                body: n.body,
+                timestamp: n.timestamp,
+                isRead: n.isRead
+            )
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            if items.isEmpty {
+            let currentItems = items
+            if currentItems.isEmpty {
                 emptySearchableList
             } else {
                 SearchableListPicker(
-                    items: items,
+                    items: currentItems,
                     filterKey: \.searchText,
                     placeholder: "Search notifications",
                     emptyLabel: "No matching notifications",
@@ -46,7 +58,6 @@ struct NotificationPanel: View {
             }
         }
         .frame(width: 320, height: 400)
-        .onAppear { loadItems() }
     }
 
     private var emptySearchableList: some View {
@@ -80,24 +91,9 @@ struct NotificationPanel: View {
         .background(MuxyTheme.bg)
     }
 
-    private func loadItems() {
-        let registry = AIProviderRegistry.shared
-        items = NotificationStore.shared.notifications.map { n in
-            NotificationPanelItem(
-                id: n.id,
-                notificationID: n.id,
-                sourceIcon: registry.iconName(for: n.source),
-                title: n.title,
-                body: n.body,
-                timestamp: n.timestamp,
-                isRead: n.isRead
-            )
-        }
-    }
-
     private func selectItem(_ item: NotificationPanelItem) {
         let store = NotificationStore.shared
-        guard let notification = store.notifications.first(where: { $0.id == item.notificationID }) else { return }
+        guard let notification = store.notifications.first(where: { $0.id == item.id }) else { return }
         NotificationNavigator.navigate(
             to: notification,
             appState: appState,

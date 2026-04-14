@@ -24,6 +24,8 @@ esac
 
 HOOK_SCRIPT="$(cd "$(dirname "$0")" && pwd)/muxy-claude-hook.sh"
 
-HOOKS_JSON="{\"hooks\":{\"Stop\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$HOOK_SCRIPT stop\",\"timeout\":10}]}],\"Notification\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"$HOOK_SCRIPT notification\",\"timeout\":10}]}]}}"
+escaped_hook=$(printf '%s' "$HOOK_SCRIPT" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+HOOKS_JSON="{\"hooks\":{\"Stop\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"'${escaped_hook}' stop\",\"timeout\":10}]}],\"Notification\":[{\"matcher\":\"\",\"hooks\":[{\"type\":\"command\",\"command\":\"'${escaped_hook}' notification\",\"timeout\":10}]}]}}"
 
 exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
