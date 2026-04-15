@@ -1,8 +1,35 @@
 # Architecture
 
 Muxy is a macOS terminal multiplexer built with SwiftUI that uses libghostty for terminal emulation.
+It is structured as a monorepo with a companion iOS app (MuxyMobile) that connects to the
+desktop app over the local network.
 
-## Directory Map
+## Monorepo Structure
+
+```
+MuxyShared/                    Shared types (macOS + iOS): protocol DTOs, messages, codec
+  ProjectDTO.swift             Project data transfer object
+  WorktreeDTO.swift            Worktree data transfer object
+  WorkspaceDTO.swift           Workspace layout DTOs (SplitNodeDTO, TabAreaDTO, TabDTO)
+  NotificationDTO.swift        Notification data transfer object
+  VCSStatusDTO.swift           Git status/file DTOs
+  MuxyProtocol.swift           Protocol enums: methods, results, events
+  ProtocolParams.swift         Request parameter types for each method
+  MuxyMessage.swift            Message envelope (request/response/event) + JSON codec
+
+MuxyServer/                    WebSocket server library (macOS only, embedded in Muxy.app)
+  MuxyRemoteServer.swift       NWListener-based WebSocket server + delegate protocol + request routing
+  ClientConnection.swift       Per-client NWConnection wrapper, WebSocket framing
+
+MuxyMobile/                    iOS companion app
+  MuxyMobileApp.swift          App entry point
+  ContentView.swift            Root view (connection state router)
+  ConnectView.swift            Host/port connection form
+  RemoteWorkspaceView.swift    Project list + workspace detail
+  ConnectionManager.swift      WebSocket client, state sync, request/response handling
+```
+
+## Desktop App Directory Map
 
 ```
 Muxy/
@@ -223,3 +250,44 @@ originating pane.
 `NotificationNavigator.navigate(to:)` dispatches three `AppState` actions in
 sequence: `selectProject` → `focusArea` → `selectTab`. System notifications encode
 the navigation context in `userInfo` and bring the app to front on click.
+
+## Remote Server (MuxyServer)
+
+The desktop app embeds a WebSocket server (`MuxyRemoteServer`) that exposes
+workspace state and terminal operations to the iOS companion app over the local
+network (LAN, Tailscale, etc.).
+
+### Architecture
+
+```
+MuxyMobile (iOS)  ◄── WebSocket (JSON) ──►  MuxyRemoteServer (inside Muxy.app)
+                                                    │
+                                                    ▼
+                                             MuxyRemoteServerDelegate
+                                             (AppState, ProjectStore, etc.)
+```
+
+The server starts on port 4865 when the app launches. It uses Apple's Network
+framework (`NWListener` + `NWConnection`) with the WebSocket protocol. All
+messages use the `MuxyMessage` JSON envelope from `MuxyShared`.
+
+### Protocol
+
+Request-response with server-pushed events:
+
+- **Request/Response** — Client sends `MuxyRequest` (method + params), server
+  replies with `MuxyResponse` (result or error). Each request has a unique ID
+  for correlation.
+- **Events** — Server pushes `MuxyEvent` to all connected clients when state
+  changes (workspace updates, new notifications, project list changes).
+
+### Shared Types (MuxyShared)
+
+Platform-agnostic DTOs used by both apps. All types are `Codable` and `Sendable`.
+The `MuxyCodec` handles JSON encoding/decoding with ISO 8601 dates.
+
+### iOS App (MuxyMobile)
+
+`ConnectionManager` manages the WebSocket lifecycle and maintains a local mirror
+of the remote state (projects, workspace layout, notifications). Views observe
+this state and dispatch actions back through the connection.
