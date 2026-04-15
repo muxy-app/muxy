@@ -24,7 +24,7 @@ struct OpenCodeProvider: AIProviderIntegration {
     }
 
     func install(hookScriptPath: String) throws {
-        guard let sourcePlugin = findPluginSource(near: hookScriptPath) else { return }
+        guard let sourcePlugin = Self.findPluginSource(near: hookScriptPath) else { return }
         let sourceData = try Data(contentsOf: URL(fileURLWithPath: sourcePlugin))
 
         if FileManager.default.fileExists(atPath: Self.pluginPath),
@@ -47,9 +47,13 @@ struct OpenCodeProvider: AIProviderIntegration {
         try FileManager.default.removeItem(atPath: Self.pluginPath)
     }
 
-    private func findPluginSource(near hookScriptPath: String) -> String? {
+    private static func findPluginSource(near hookScriptPath: String) -> String? {
+        if let bundled = MuxyNotificationHooks.scriptPath(named: "opencode-muxy-plugin", extension: "js") {
+            return bundled
+        }
+
         let hookDir = (hookScriptPath as NSString).deletingLastPathComponent
-        let candidate = (hookDir as NSString).appendingPathComponent(Self.pluginScriptName)
+        let candidate = (hookDir as NSString).appendingPathComponent(pluginScriptName)
         guard FileManager.default.fileExists(atPath: candidate) else { return nil }
         return candidate
     }
