@@ -139,7 +139,7 @@ struct MainWindow: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(MuxyTheme.surface, in: Capsule())
+                .background(MuxyTheme.bg, in: Capsule())
                 .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))
                 .padding(toastEdgePadding)
                 .transition(.move(edge: toastTransitionEdge).combined(with: .opacity))
