@@ -42,6 +42,10 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         case GHOSTTY_ACTION_SEARCH_SELECTED:
             handleSearchSelected(target: target, selected: action.action.search_selected)
             return true
+        case GHOSTTY_ACTION_COMMAND_FINISHED,
+             GHOSTTY_ACTION_SHOW_CHILD_EXITED:
+            handleCommandExit(target: target)
+            return true
         default:
             return false
         }
@@ -97,6 +101,13 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
     func closeSurface(userdata: UnsafeMutableRawPointer?, needsConfirm: Bool) {
         guard let userdata else { return }
         let view = Unmanaged<GhosttyTerminalNSView>.fromOpaque(userdata).takeUnretainedValue()
+        DispatchQueue.main.async {
+            view.onProcessExit?()
+        }
+    }
+
+    private func handleCommandExit(target: ghostty_target_s) {
+        guard let view = surfaceView(from: target), view.closesOnCommandExit else { return }
         DispatchQueue.main.async {
             view.onProcessExit?()
         }

@@ -4,6 +4,7 @@ import GhosttyKit
 final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     private let workingDirectory: String
+    private let command: String?
     var envVars: [(key: String, value: String)] = []
     var onTitleChange: ((String) -> Void)?
     var onFocus: (() -> Void)?
@@ -16,6 +17,10 @@ final class GhosttyTerminalNSView: NSView {
     var isFocused: Bool = false
     var overlayActive: Bool = false
 
+    var closesOnCommandExit: Bool {
+        command != nil
+    }
+
     private var _markedText: String = ""
     private var _markedRange: NSRange = .init(location: NSNotFound, length: 0)
     private var _selectedRange: NSRange = .init(location: NSNotFound, length: 0)
@@ -24,8 +29,9 @@ final class GhosttyTerminalNSView: NSView {
     private var currentKeyEvent: NSEvent?
     private var commandSelectorCalled = false
 
-    init(workingDirectory: String) {
+    init(workingDirectory: String, command: String? = nil) {
         self.workingDirectory = workingDirectory
+        self.command = command
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -60,6 +66,12 @@ final class GhosttyTerminalNSView: NSView {
 
         var cStrings: [UnsafeMutablePointer<CChar>] = []
         defer { cStrings.forEach { free($0) } }
+
+        if let command, let cCommand = strdup(command) {
+            cStrings.append(cCommand)
+            config.command = UnsafePointer(cCommand)
+            config.wait_after_command = false
+        }
 
         var cEnvVars: [ghostty_env_var_s] = []
         for pair in envVars {

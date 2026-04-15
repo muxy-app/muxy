@@ -24,6 +24,7 @@ final class AppState {
         case createTab(projectID: UUID, areaID: UUID?)
         case createVCSTab(projectID: UUID, areaID: UUID?)
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String)
+        case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, areaID: UUID?, index: Int)
@@ -185,6 +186,14 @@ final class AppState {
     }
 
     func openFile(_ filePath: String, projectID: UUID) {
+        let settings = EditorSettings.shared
+        if settings.quickOpenEditor == .terminalCommand {
+            let command = settings.externalEditorCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !command.isEmpty {
+                openFileInExternalEditor(filePath, projectID: projectID, command: command)
+                return
+            }
+        }
         for area in allAreas(for: projectID) {
             if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
                 dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
@@ -192,6 +201,16 @@ final class AppState {
             }
         }
         dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath))
+    }
+
+    private func openFileInExternalEditor(_ filePath: String, projectID: UUID, command: String) {
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { $0.content.pane?.externalEditorFilePath == filePath }) {
+                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                return
+            }
+        }
+        dispatch(.createExternalEditorTab(projectID: projectID, areaID: nil, filePath: filePath, command: command))
     }
 
     func closeTab(_ tabID: UUID, projectID: UUID) {

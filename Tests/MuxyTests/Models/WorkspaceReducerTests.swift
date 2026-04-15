@@ -189,6 +189,25 @@ struct WorkspaceReducerTests {
         #expect(area?.activeTab?.kind == .editor)
     }
 
+    @Test("createExternalEditorTab adds terminal editor tab")
+    func createExternalEditorTab() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+
+        let action = AppState.Action.createExternalEditorTab(
+            projectID: projectID,
+            areaID: nil,
+            filePath: "/tmp/test/file.swift",
+            command: "vim"
+        )
+        _ = WorkspaceReducer.reduce(action: action, state: &state)
+
+        let area = focusedArea(in: state, projectID: projectID)
+        #expect(area?.activeTab?.kind == .terminal)
+        #expect(area?.activeTab?.content.pane?.externalEditorFilePath == "/tmp/test/file.swift")
+    }
+
     @Test("closeTab removes tab and populates paneIDsToRemove")
     func closeTab() {
         let projectID = UUID()

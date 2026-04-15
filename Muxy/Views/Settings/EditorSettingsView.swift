@@ -6,60 +6,81 @@ struct EditorSettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            settingRow("Font Family") {
-                Picker("", selection: $settings.fontFamily) {
-                    ForEach(monoFonts, id: \.self) { family in
-                        Text(family)
-                            .font(.custom(family, size: 12))
-                            .tag(family)
+            settingRow("Quick Open Editor") {
+                Picker("", selection: $settings.quickOpenEditor) {
+                    ForEach(EditorSettings.QuickOpenEditor.allCases) { editor in
+                        Text(editor.displayName).tag(editor)
                     }
                 }
                 .frame(width: 210)
             }
 
-            settingRow("Font Size") {
-                HStack(spacing: 8) {
-                    Button {
-                        guard settings.fontSize > 8 else { return }
-                        settings.fontSize -= 1
-                    } label: {
-                        Image(systemName: "minus")
-                            .font(.system(size: 10, weight: .medium))
-                            .frame(width: 20, height: 20)
-                    }
-                    .buttonStyle(.borderless)
-
-                    Text("\(Int(settings.fontSize)) pt")
+            if settings.quickOpenEditor == .terminalCommand {
+                settingRow("Editor Command") {
+                    TextField("vim", text: $settings.externalEditorCommand)
+                        .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12, design: .monospaced))
-                        .frame(width: 44)
+                        .frame(width: 210)
+                }
+            } else {
+                Divider()
+                    .padding(.vertical, 4)
 
-                    Button {
-                        guard settings.fontSize < 36 else { return }
-                        settings.fontSize += 1
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 10, weight: .medium))
-                            .frame(width: 20, height: 20)
+                settingRow("Font Family") {
+                    Picker("", selection: $settings.fontFamily) {
+                        ForEach(monoFonts, id: \.self) { family in
+                            Text(family)
+                                .font(.custom(family, size: 12))
+                                .tag(family)
+                        }
                     }
-                    .buttonStyle(.borderless)
+                    .frame(width: 210)
                 }
-            }
 
-            settingRow("Tab Size") {
-                Picker("", selection: $settings.tabSize) {
-                    Text("2").tag(2)
-                    Text("4").tag(4)
-                    Text("8").tag(8)
+                settingRow("Font Size") {
+                    HStack(spacing: 8) {
+                        Button {
+                            guard settings.fontSize > 8 else { return }
+                            settings.fontSize -= 1
+                        } label: {
+                            Image(systemName: "minus")
+                                .font(.system(size: 10, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+
+                        Text("\(Int(settings.fontSize)) pt")
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(width: 44)
+
+                        Button {
+                            guard settings.fontSize < 36 else { return }
+                            settings.fontSize += 1
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                    }
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 140)
-            }
 
-            toggleRow("Word Wrap", isOn: $settings.wordWrap)
-            toggleRow("Show Line Numbers", isOn: $settings.showLineNumbers)
-            toggleRow("Syntax Highlighting", isOn: $settings.syntaxHighlighting)
-            toggleRow("Bracket Matching", isOn: $settings.bracketMatching)
-            toggleRow("Current Line Highlight", isOn: $settings.currentLineHighlight)
+                settingRow("Tab Size") {
+                    Picker("", selection: $settings.tabSize) {
+                        Text("2").tag(2)
+                        Text("4").tag(4)
+                        Text("8").tag(8)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 140)
+                }
+
+                toggleRow("Word Wrap", isOn: $settings.wordWrap)
+                toggleRow("Show Line Numbers", isOn: $settings.showLineNumbers)
+                toggleRow("Syntax Highlighting", isOn: $settings.syntaxHighlighting)
+                toggleRow("Bracket Matching", isOn: $settings.bracketMatching)
+                toggleRow("Current Line Highlight", isOn: $settings.currentLineHighlight)
+            }
 
             Spacer()
 

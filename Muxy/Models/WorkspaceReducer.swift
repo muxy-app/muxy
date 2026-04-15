@@ -86,6 +86,13 @@ enum WorkspaceReducer {
             focusArea(area.id, key: key, state: &state)
             area.createEditorTab(filePath: filePath)
 
+        case let .createExternalEditorTab(projectID, areaID, filePath, command):
+            guard let key = activeKey(projectID: projectID, state: state),
+                  let area = resolveArea(key: key, areaID: areaID, state: state)
+            else { break }
+            focusArea(area.id, key: key, state: &state)
+            area.createExternalEditorTab(filePath: filePath, command: command)
+
         case let .closeTab(projectID, areaID, tabID):
             guard let key = activeKey(projectID: projectID, state: state) else { break }
             closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)

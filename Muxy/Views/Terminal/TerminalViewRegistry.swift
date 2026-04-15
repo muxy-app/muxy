@@ -9,11 +9,11 @@ final class TerminalViewRegistry {
 
     private init() {}
 
-    func view(for paneID: UUID, workingDirectory: String) -> GhosttyTerminalNSView {
+    func view(for paneID: UUID, workingDirectory: String, command: String? = nil) -> GhosttyTerminalNSView {
         if let existing = views[paneID] {
             return existing
         }
-        let view = GhosttyTerminalNSView(workingDirectory: workingDirectory)
+        let view = GhosttyTerminalNSView(workingDirectory: workingDirectory, command: command)
         views[paneID] = view
         paneIDs[ObjectIdentifier(view)] = paneID
         return view

@@ -70,6 +70,43 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(editorState: EditorTabState(projectPath: projectPath, filePath: filePath)))
     }
 
+    func createExternalEditorTab(filePath: String, command: String) {
+        if let existing = tabs.first(where: { $0.content.pane?.externalEditorFilePath == filePath }) {
+            selectTab(existing.id)
+            return
+        }
+        let title = "\(commandTitle(command)) \(URL(fileURLWithPath: filePath).lastPathComponent)"
+        let pane = TerminalPaneState(
+            projectPath: projectPath,
+            title: title,
+            startupCommand: Self.editorLaunchCommand(command: command, filePath: filePath),
+            externalEditorFilePath: filePath
+        )
+        insertTab(TerminalTab(pane: pane))
+    }
+
+    private static func editorLaunchCommand(command: String, filePath: String) -> String {
+        let escapedPath = shellEscapedPath(filePath)
+        if command.contains("{file}") {
+            return command.replacingOccurrences(of: "{file}", with: escapedPath)
+        }
+        return command + " " + escapedPath
+    }
+
+    private func commandTitle(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.split(separator: " ").first else { return "Editor" }
+        return String(first)
+    }
+
+    private static func shellEscapedPath(_ path: String) -> String {
+        let needsQuoting = path.contains { character in
+            character.isWhitespace || "'\"\\&|;$`!()[]{}<>*?".contains(character)
+        }
+        guard needsQuoting else { return path }
+        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     private func insertTab(_ tab: TerminalTab) {
         tabs.append(tab)
         if let current = activeTabID {

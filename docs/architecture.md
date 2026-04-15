@@ -26,14 +26,14 @@ Muxy/
     KeyCombo.swift            Key combo encoding, display, matching
     VCSTabState.swift         Git diff viewer state + loading orchestration
     EditorTabState.swift      Code editor tab state (backing store, cursor, search, save)
-    EditorSettings.swift      @Observable editor preferences (font, wrap, tab size, feature toggles)
+    EditorSettings.swift      @Observable editor preferences (quick-open editor, font, wrap, tab size, feature toggles)
     TextBackingStore.swift    Line-array backing store for editor documents
     ViewportState.swift       Viewport window computation and line mapping for editor documents
     Project.swift             Project folder metadata
     Worktree.swift            Per-project worktree slot (primary or git worktree)
     WorktreeKey.swift         Hashable (projectID, worktreeID) key for workspace maps
     WorktreeConfig.swift      Decoder for .muxy/worktree.json setup commands
-    TerminalPaneState.swift   Per-pane terminal state
+    TerminalPaneState.swift   Per-pane terminal state, including startup commands for terminal editors
     TerminalSearchState.swift Terminal find-in-page state
   Services/
     GhosttyService.swift      Singleton managing ghostty_app_t lifecycle
@@ -149,7 +149,11 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
 
 ## Key Integration Points
 
-- **Editor Pipeline**: All opened files are loaded into `TextBackingStore` and rendered through the viewport pipeline in `CodeEditorRepresentable`. The size thresholds in `EditorTabState` control only large-file warning/refusal UX, not editor mode selection.
+- **Editor Pipeline**: Quick-open routes through `AppState.openFile`. `EditorSettings.quickOpenEditor`
+  chooses either the built-in editor or a configured terminal command. Built-in editor tabs load files into
+  `TextBackingStore` and render through `CodeEditorRepresentable`; terminal editor tabs create a normal
+  terminal pane with the configured Ghostty startup command. The size thresholds in
+  `EditorTabState` apply only to the built-in editor path.
 - **GhosttyKit**: C module wrapping `ghostty.h`. Precompiled xcframework from `muxy-app/ghostty` fork. Surfaces created/destroyed via `TerminalViewRegistry`.
 - **Persistence**: All files in `~/Library/Application Support/Muxy/`. Shared directory helper: `MuxyFileStorage`. Worktrees are persisted per-project at `worktrees/{projectID}.json`. Worktree setup commands live in-repo at `{Project.path}/.muxy/worktree.json`.
 - **Ghostty Config**: Managed by `MuxyConfig`, stored at `~/Library/Application Support/Muxy/ghostty.conf`. Seeded from `~/.config/ghostty/config` on first run.

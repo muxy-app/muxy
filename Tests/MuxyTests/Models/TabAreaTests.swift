@@ -67,6 +67,41 @@ struct TabAreaTests {
         #expect(area.activeTabID == editorTabID)
     }
 
+    @Test("createExternalEditorTab adds terminal tab with launch command")
+    func createExternalEditorTab() {
+        let area = TabArea(projectPath: testPath)
+        let filePath = "/tmp/test/file name.swift"
+        area.createExternalEditorTab(filePath: filePath, command: "vim")
+
+        let pane = area.activeTab?.content.pane
+        #expect(area.activeTab?.kind == .terminal)
+        #expect(pane?.externalEditorFilePath == filePath)
+        #expect(pane?.startupCommand == "vim '/tmp/test/file name.swift'")
+    }
+
+    @Test("createExternalEditorTab supports file placeholder")
+    func createExternalEditorTabPlaceholder() {
+        let area = TabArea(projectPath: testPath)
+        area.createExternalEditorTab(filePath: "/tmp/test/file.swift", command: "vim +10 {file}")
+
+        #expect(area.activeTab?.content.pane?.startupCommand == "vim +10 /tmp/test/file.swift")
+    }
+
+    @Test("createExternalEditorTab reuses matching external editor tab")
+    func createExternalEditorTabReuse() {
+        let area = TabArea(projectPath: testPath)
+        let filePath = "/tmp/test/file.swift"
+        area.createExternalEditorTab(filePath: filePath, command: "vim -n")
+        let editorTabID = area.activeTabID
+
+        area.createTab()
+        #expect(area.activeTabID != editorTabID)
+
+        area.createExternalEditorTab(filePath: filePath, command: "vim")
+        #expect(area.tabs.count == 3)
+        #expect(area.activeTabID == editorTabID)
+    }
+
     @Test("closeTab removes tab and returns paneID for terminal")
     func closeTabTerminal() {
         let area = TabArea(projectPath: testPath)
