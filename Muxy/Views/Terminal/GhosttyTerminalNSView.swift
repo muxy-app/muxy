@@ -48,6 +48,49 @@ final class GhosttyTerminalNSView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    override func accessibilityValue() -> Any? {
+        readViewportText() ?? "Terminal"
+    }
+
+    override func accessibilitySelectedText() -> String? {
+        readSelectionText()
+    }
+
+    private func readViewportText() -> String? {
+        guard let surface else { return nil }
+        let topLeft = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            x: 0,
+            y: 0
+        )
+        let bottomRight = ghostty_point_s(
+            tag: GHOSTTY_POINT_VIEWPORT,
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: UInt32.max,
+            y: UInt32.max
+        )
+        let selection = ghostty_selection_s(
+            top_left: topLeft,
+            bottom_right: bottomRight,
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard text.text != nil, text.text_len > 0 else { return nil }
+        return String(cString: text.text)
+    }
+
+    private func readSelectionText() -> String? {
+        guard let surface, ghostty_surface_has_selection(surface) else { return nil }
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard text.text != nil, text.text_len > 0 else { return nil }
+        return String(cString: text.text)
+    }
+
     private var pendingSurfaceCreation = false
 
     func createSurface() {

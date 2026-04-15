@@ -180,6 +180,19 @@ private struct CommitRow: View {
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .contextMenu { contextMenuItems }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(commitAccessibilityLabel)
+    }
+
+    private var commitAccessibilityLabel: String {
+        var parts = [commit.subject]
+        parts.append("by \(commit.authorName)")
+        parts.append(relativeDate(commit.authorDate))
+        if commit.isMerge { parts.append("merge commit") }
+        let refNames = commit.refs.map(\.name)
+        if !refNames.isEmpty { parts.append("refs: \(refNames.joined(separator: ", "))") }
+        parts.append(commit.shortHash)
+        return parts.joined(separator: ", ")
     }
 
     private var commitDot: some View {
