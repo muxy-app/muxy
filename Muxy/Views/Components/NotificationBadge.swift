@@ -11,5 +11,6 @@ struct NotificationBadge: View {
             .padding(.vertical, 1)
             .background(MuxyTheme.accent, in: Capsule())
             .fixedSize()
+            .accessibilityLabel("\(count) unread notification\(count == 1 ? "" : "s")")
     }
 }

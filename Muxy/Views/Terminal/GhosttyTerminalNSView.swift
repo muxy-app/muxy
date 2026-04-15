@@ -38,6 +38,9 @@ final class GhosttyTerminalNSView: NSView {
         wantsLayer = true
         setupTrackingArea()
         registerForDraggedTypes([.fileURL])
+        setAccessibilityRole(.textArea)
+        setAccessibilityRoleDescription("Terminal")
+        setAccessibilityLabel("Terminal — \(workingDirectory)")
     }
 
     @available(*, unavailable)

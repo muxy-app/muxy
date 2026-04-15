@@ -37,6 +37,11 @@ struct ProjectRow: View {
         projectIcon
             .help(project.name)
             .contentShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(project.name)
+            .accessibilityValue(isActive ? "Active" : "")
+            .accessibilityAddTraits(isActive ? .isSelected : [])
+            .accessibilityAddTraits(.isButton)
             .onHover { hovering in
                 guard !isAnyDragging else { return }
                 hovered = hovering

@@ -13,5 +13,6 @@ struct ShortcutBadge: View {
             .background(.ultraThinMaterial, in: Capsule())
             .overlay(Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 0.5))
             .shadow(color: .black.opacity(0.25), radius: compact ? 2 : 4, y: compact ? 1 : 2)
+            .accessibilityLabel("Keyboard shortcut: \(label)")
     }
 }

@@ -121,7 +121,7 @@ struct VCSTabView: View {
 
             Spacer(minLength: 0)
 
-            IconButton(symbol: "arrow.clockwise") {
+            IconButton(symbol: "arrow.clockwise", accessibilityLabel: "Refresh") {
                 state.refresh()
             }
         }
@@ -1303,7 +1303,7 @@ private struct SectionSplitLayout: View {
         case .staged:
             diffModeToggle
             expandCollapseButton(for: state.stagedFiles)
-            IconButton(symbol: "minus", size: 11) {
+            IconButton(symbol: "minus", size: 11, accessibilityLabel: "Unstage All") {
                 state.unstageAll()
             }
             .help("Unstage all")
@@ -1311,18 +1311,18 @@ private struct SectionSplitLayout: View {
         case .changes:
             diffModeToggle
             expandCollapseButton(for: state.unstagedFiles)
-            IconButton(symbol: "plus", size: 11) {
+            IconButton(symbol: "plus", size: 11, accessibilityLabel: "Stage All") {
                 state.stageAll()
             }
             .help("Stage all")
 
-            IconButton(symbol: "arrow.uturn.backward", size: 11) {
+            IconButton(symbol: "arrow.uturn.backward", size: 11, accessibilityLabel: "Discard All Changes") {
                 showDiscardAllConfirmation = true
             }
             .help("Discard all changes")
 
         case .history:
-            IconButton(symbol: "arrow.clockwise", size: 11) {
+            IconButton(symbol: "arrow.clockwise", size: 11, accessibilityLabel: "Refresh History") {
                 state.loadCommits()
             }
             .help("Refresh history")
@@ -1549,15 +1549,15 @@ private struct FileRow: View {
 
     private var actionButtons: some View {
         HStack(spacing: 0) {
-            IconButton(symbol: "doc.text", size: 11, action: onOpenInEditor)
+            IconButton(symbol: "doc.text", size: 11, accessibilityLabel: "Open in Editor", action: onOpenInEditor)
                 .help("Open in Editor")
             if isStaged {
-                IconButton(symbol: "minus", size: 11, action: onUnstage)
+                IconButton(symbol: "minus", size: 11, accessibilityLabel: "Unstage", action: onUnstage)
                     .help("Unstage")
             } else {
-                IconButton(symbol: "plus", size: 11, action: onStage)
+                IconButton(symbol: "plus", size: 11, accessibilityLabel: "Stage", action: onStage)
                     .help("Stage")
-                IconButton(symbol: "arrow.uturn.backward", size: 11, action: onDiscard)
+                IconButton(symbol: "arrow.uturn.backward", size: 11, accessibilityLabel: "Discard Changes", action: onDiscard)
                     .help("Discard changes")
             }
         }

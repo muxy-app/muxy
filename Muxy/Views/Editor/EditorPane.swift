@@ -189,5 +189,15 @@ private struct EditorBreadcrumb: View {
         .padding(.horizontal, 10)
         .frame(height: 32)
         .background(MuxyTheme.bg)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(breadcrumbAccessibilityLabel)
+    }
+
+    private var breadcrumbAccessibilityLabel: String {
+        var label = relativePath
+        if state.isModified { label += ", modified" }
+        if state.isReadOnly { label += ", read-only" }
+        label += ", Line \(state.cursorLine), Column \(state.cursorColumn)"
+        return label
     }
 }

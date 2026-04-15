@@ -15,8 +15,18 @@ struct MiddleClickView: NSViewRepresentable {
     }
 }
 
+extension MiddleClickView {
+    func accessibilityHiddenView() -> some View {
+        self.accessibilityHidden(true)
+    }
+}
+
 final class MiddleClickNSView: NSView {
     var action: (() -> Void)?
+
+    override func isAccessibilityElement() -> Bool {
+        false
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let currentEvent = NSApp.currentEvent,

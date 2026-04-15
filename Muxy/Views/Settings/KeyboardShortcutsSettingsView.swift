@@ -146,6 +146,7 @@ private struct ShortcutRow: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Reset Shortcut")
             }
 
             Button(action: onStartRecording) {

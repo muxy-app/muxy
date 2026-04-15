@@ -97,15 +97,15 @@ struct PaneTabStrip: View {
                     }
                     .padding(.trailing, 4)
                 }
-                IconButton(symbol: "magnifyingglass", size: 12) {
+                IconButton(symbol: "magnifyingglass", size: 12, accessibilityLabel: "Quick Open") {
                     NotificationCenter.default.post(name: .quickOpen, object: nil)
                 }
                 .help(shortcutTooltip("Quick Open", for: .quickOpen))
-                IconButton(symbol: "square.split.2x1") { onSplit(.horizontal) }
+                IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))
-                IconButton(symbol: "square.split.1x2") { onSplit(.vertical) }
+                IconButton(symbol: "square.split.1x2", accessibilityLabel: "Split Down") { onSplit(.vertical) }
                     .help(shortcutTooltip("Split Down", for: .splitDown))
-                IconButton(symbol: "plus") { onCreateTab() }
+                IconButton(symbol: "plus", accessibilityLabel: "New Tab") { onCreateTab() }
                     .help(shortcutTooltip("New Tab", for: .newTab))
                 if showVCSButton {
                     FileDiffIconButton(action: onCreateVCSTab)
@@ -272,6 +272,8 @@ private struct TabCell: View {
                         .padding(.trailing, 10)
                         .opacity(active || hovered ? 1 : 0)
                         .onTapGesture(perform: onClose)
+                        .accessibilityLabel("Close Tab")
+                        .accessibilityAddTraits(.isButton)
                 }
             }
             .overlay {
@@ -286,6 +288,7 @@ private struct TabCell: View {
                     Rectangle()
                         .fill(MuxyTheme.accent)
                         .frame(height: 2)
+                        .accessibilityHidden(true)
                 }
             }
             .background(active ? MuxyTheme.surface : .clear)
@@ -300,8 +303,13 @@ private struct TabCell: View {
             .overlay {
                 if !tab.isPinned {
                     MiddleClickView(action: onClose)
+                        .accessibilityHidden(true)
                 }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(tabAccessibilityLabel)
+            .accessibilityAddTraits(active ? .isSelected : [])
+            .accessibilityAddTraits(.isButton)
             .contextMenu {
                 Button("New Tab to the Left") { onCreateLeft() }
                 Button("New Tab to the Right") { onCreateRight() }
@@ -342,6 +350,18 @@ private struct TabCell: View {
 
     private func cancelRename() {
         isRenaming = false
+    }
+
+    private var tabAccessibilityLabel: String {
+        var label = tab.title
+        switch tab.kind {
+        case .terminal: label += ", Terminal"
+        case .vcs: label += ", Source Control"
+        case .editor: label += ", Editor"
+        }
+        if tab.isPinned { label += ", Pinned" }
+        if hasUnread { label += ", Unread" }
+        return label
     }
 
     @ViewBuilder

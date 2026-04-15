@@ -81,6 +81,9 @@ struct NotificationPanel: View {
                     })
                     .contentShape(Rectangle())
                     .onTapGesture { selectItem(item) }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(notificationAccessibilityLabel(for: item))
+                    .accessibilityAddTraits(.isButton)
                 }
             }
             .padding(.vertical, 4)
@@ -114,6 +117,14 @@ struct NotificationPanel: View {
             .frame(maxWidth: .infinity)
         }
         .background(MuxyTheme.bg)
+    }
+
+    private func notificationAccessibilityLabel(for item: NotificationPanelItem) -> String {
+        var label = item.title
+        if !item.body.isEmpty { label += ": \(item.body)" }
+        label += ", \(item.relativeTimestamp)"
+        if !item.isRead { label += ", unread" }
+        return label
     }
 
     private func selectItem(_ item: NotificationPanelItem) {
@@ -184,5 +195,6 @@ private struct NotificationRow: View {
                 .background(MuxyTheme.surface, in: Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Dismiss Notification")
     }
 }

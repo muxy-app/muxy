@@ -76,6 +76,7 @@ struct MainWindow: View {
                 HStack(spacing: 0) {
                     Sidebar()
                     Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                        .accessibilityHidden(true)
                 }
                 .background(MuxyTheme.bg)
 
@@ -102,6 +103,7 @@ struct MainWindow: View {
                 if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
                     HStack(spacing: 0) {
                         Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                            .accessibilityHidden(true)
                             .overlay {
                                 Color.clear
                                     .frame(width: 5)
@@ -144,6 +146,8 @@ struct MainWindow: View {
                 .padding(toastEdgePadding)
                 .transition(.move(edge: toastTransitionEdge).combined(with: .opacity))
                 .allowsHitTesting(false)
+                .accessibilityLabel(toast)
+                .accessibilityAddTraits(.updatesFrequently)
             }
         }
         .overlay {

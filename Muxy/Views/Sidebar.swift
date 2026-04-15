@@ -24,6 +24,8 @@ struct Sidebar: View {
             SidebarFooter(expanded: expanded)
         }
         .frame(width: SidebarLayout.resolvedWidth(expanded: expanded))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Sidebar")
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
             toggleExpanded()
         }
@@ -192,6 +194,7 @@ private struct AddProjectButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
+        .accessibilityLabel("Add Project")
     }
 
     private var collapsedLayout: some View {
@@ -262,15 +265,15 @@ struct SidebarFooter: View {
 
     private var collapsedFooter: some View {
         VStack(spacing: 4) {
-            IconButton(symbol: notificationBellIcon) { showNotifications.toggle() }
+            IconButton(symbol: notificationBellIcon, accessibilityLabel: "Notifications") { showNotifications.toggle() }
                 .help("Notifications")
                 .popover(isPresented: $showNotifications) {
                     NotificationPanel(onDismiss: { showNotifications = false })
                 }
-            IconButton(symbol: "paintpalette") { showThemePicker.toggle() }
+            IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker() }
-            IconButton(symbol: "sidebar.left") { postToggleSidebar() }
+            IconButton(symbol: "sidebar.left", accessibilityLabel: "Expand Sidebar") { postToggleSidebar() }
                 .help("Expand Sidebar (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
         }
         .padding(.bottom, 8)
@@ -278,15 +281,15 @@ struct SidebarFooter: View {
 
     private var expandedFooter: some View {
         HStack(spacing: 4) {
-            IconButton(symbol: "sidebar.left") { postToggleSidebar() }
+            IconButton(symbol: "sidebar.left", accessibilityLabel: "Collapse Sidebar") { postToggleSidebar() }
                 .help("Collapse Sidebar (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
             Spacer()
-            IconButton(symbol: notificationBellIcon) { showNotifications.toggle() }
+            IconButton(symbol: notificationBellIcon, accessibilityLabel: "Notifications") { showNotifications.toggle() }
                 .help("Notifications")
                 .popover(isPresented: $showNotifications) {
                     NotificationPanel(onDismiss: { showNotifications = false })
                 }
-            IconButton(symbol: "paintpalette") { showThemePicker.toggle() }
+            IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker() }
         }

@@ -39,6 +39,8 @@ struct BranchPicker: View {
         }
         .buttonStyle(.plain)
         .help(currentBranch ?? "detached")
+        .accessibilityLabel("Branch: \(currentBranch ?? "detached")")
+        .accessibilityHint("Opens branch picker")
         .popover(isPresented: $showPopover, arrowEdge: .top) {
             PopoverPicker(
                 items: branchItems,

@@ -131,6 +131,10 @@ struct ExpandedProjectRow: View {
         .padding(.vertical, 6)
         .background(headerBackground, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(projectHeaderAccessibilityLabel)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+        .accessibilityAddTraits(.isButton)
         .onHover { hovering in
             guard !isAnyDragging else { return }
             hovered = hovering
@@ -172,6 +176,7 @@ struct ExpandedProjectRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(worktreesExpanded ? "Collapse Worktrees" : "Expand Worktrees")
     }
 
     private var projectIcon: some View {
@@ -231,6 +236,14 @@ struct ExpandedProjectRow: View {
         }
         .padding(.top, 2)
         .padding(.bottom, 4)
+    }
+
+    private var projectHeaderAccessibilityLabel: String {
+        var label = project.name
+        if isGitRepo, let worktree = activeWorktree {
+            label += ", worktree: \(worktree.isPrimary ? "primary" : worktree.name)"
+        }
+        return label
     }
 
     private var resolvedLogo: NSImage? {
@@ -452,6 +465,17 @@ private struct ExpandedWorktreeRow: View {
                 Text("Primary worktree").font(.system(size: 11))
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(worktreeAccessibilityLabel)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var worktreeAccessibilityLabel: String {
+        var label = displayName
+        if worktree.isPrimary { label += ", primary" }
+        if let branch = branchLabel { label += ", branch: \(branch)" }
+        return label
     }
 
     @ViewBuilder
@@ -505,6 +529,7 @@ private struct ExpandedNewWorktreeButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
+        .accessibilityLabel("New Worktree")
     }
 }
 

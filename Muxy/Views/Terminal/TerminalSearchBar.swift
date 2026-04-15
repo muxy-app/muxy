@@ -15,6 +15,7 @@ struct TerminalSearchBar: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 11))
                         .foregroundStyle(MuxyTheme.fgMuted)
+                        .accessibilityHidden(true)
 
                     TextField("Search", text: $searchState.needle)
                         .textFieldStyle(.plain)
@@ -32,6 +33,7 @@ struct TerminalSearchBar: View {
                             .foregroundStyle(MuxyTheme.fgMuted)
                             .lineLimit(1)
                             .fixedSize()
+                            .accessibilityLabel("Search results: \(searchState.displayText)")
                     }
                 }
                 .padding(.horizontal, 8)
@@ -48,18 +50,21 @@ struct TerminalSearchBar: View {
                         .font(.system(size: 10, weight: .semibold))
                 }
                 .buttonStyle(SearchBarButtonStyle())
+                .accessibilityLabel("Previous Match")
 
                 Button(action: onNavigateNext) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .semibold))
                 }
                 .buttonStyle(SearchBarButtonStyle())
+                .accessibilityLabel("Next Match")
 
                 Button(action: onClose) {
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .semibold))
                 }
                 .buttonStyle(SearchBarButtonStyle())
+                .accessibilityLabel("Close Search")
             }
             .padding(.horizontal, 8)
             .frame(height: 32)

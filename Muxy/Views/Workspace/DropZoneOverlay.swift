@@ -17,6 +17,7 @@ struct DropZoneHighlight: View {
         }
         .allowsHitTesting(false)
         .animation(.easeInOut(duration: 0.15), value: zone)
+        .accessibilityHidden(true)
     }
 
     private func highlightRect(in size: CGSize) -> CGRect {

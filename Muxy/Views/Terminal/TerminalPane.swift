@@ -18,6 +18,9 @@ struct TerminalPane: View {
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
             )
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Terminal")
+            .accessibilityAddTraits(.allowsDirectInteraction)
 
             if state.searchState.isVisible {
                 TerminalSearchBar(
