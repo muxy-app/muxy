@@ -94,6 +94,7 @@ struct NotificationSettingsView: View {
 private struct ProviderToggleRow: View {
     let provider: AIProviderIntegration
     @State private var enabled: Bool
+    @State private var refreshed = false
 
     init(provider: AIProviderIntegration) {
         self.provider = provider
@@ -109,6 +110,26 @@ private struct ProviderToggleRow: View {
             Text(provider.displayName)
                 .font(.system(size: 12))
             Spacer()
+            if enabled {
+                Button {
+                    AIProviderRegistry.shared.forceInstall(provider)
+                    withAnimation { refreshed = true }
+                    Task {
+                        try? await Task.sleep(for: .seconds(2))
+                        withAnimation { refreshed = false }
+                    }
+                } label: {
+                    if refreshed {
+                        Label("Done", systemImage: "checkmark")
+                    } else {
+                        Text("Refresh")
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11))
+                .foregroundStyle(refreshed ? .green : Color.accentColor)
+                .disabled(refreshed)
+            }
             Toggle("", isOn: $enabled)
                 .toggleStyle(.switch)
                 .controlSize(.small)

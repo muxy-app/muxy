@@ -176,7 +176,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onTerminate?()
         NotificationStore.shared.saveToDisk()
         NotificationSocketServer.shared.stop()
-        AIProviderRegistry.shared.uninstallAll()
     }
 
     @MainActor

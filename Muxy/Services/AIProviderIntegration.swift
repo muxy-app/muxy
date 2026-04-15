@@ -75,6 +75,21 @@ final class AIProviderRegistry {
         }
     }
 
+    func forceInstall(_ provider: AIProviderIntegration) {
+        guard let hookScript = MuxyNotificationHooks.hookScriptPath else {
+            logger.info("Hook script not found, skipping force install")
+            return
+        }
+
+        do {
+            try provider.uninstall()
+            try provider.install(hookScriptPath: hookScript)
+            logger.info("Force-installed \(provider.displayName) integration")
+        } catch {
+            logger.error("Failed to force-install \(provider.displayName): \(error.localizedDescription)")
+        }
+    }
+
     func uninstallAll() {
         #if DEBUG
         guard ProcessInfo.processInfo.environment["FF_AI_HOOKS"] != nil else { return }
