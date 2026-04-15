@@ -5,7 +5,7 @@ struct IconButton: View {
     var size: CGFloat = 13
     var color: Color = MuxyTheme.fgMuted
     var hoverColor: Color = MuxyTheme.fg
-    var accessibilityLabel: String?
+    let accessibilityLabel: String
     let action: () -> Void
     @State private var hovered = false
 
@@ -19,6 +19,6 @@ struct IconButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
-        .accessibilityLabel(accessibilityLabel ?? symbol)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
