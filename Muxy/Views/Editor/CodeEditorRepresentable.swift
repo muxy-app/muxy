@@ -292,6 +292,7 @@ struct CodeEditorView: NSViewRepresentable {
         let backingStoreChanged = coordinator.lastSyncedBackingStoreVersion != state.backingStoreVersion
         if backingStoreChanged {
             coordinator.lastSyncedBackingStoreVersion = state.backingStoreVersion
+            coordinator.invalidateRenderedViewportText()
             coordinator.clearViewportHistory()
         }
 
@@ -488,6 +489,10 @@ struct CodeEditorView: NSViewRepresentable {
         private var viewportRedoStack: [ViewportEditGroup] = []
         private var lastViewportEditTimestamp: CFTimeInterval?
         private var isApplyingViewportHistory = false
+        private var needsViewportTextReload = true
+        private var lastRenderedViewportRange: Range<Int>?
+        private var lastRenderedBackingStoreVersion = -1
+        private var lastObservedClipSize: CGSize = .zero
         private var refreshTimingCount = 0
         private var highlightTimingCount = 0
         private var lastRefreshDurationMs: Double = 0
@@ -506,6 +511,10 @@ struct CodeEditorView: NSViewRepresentable {
         private func beginPerfTiming() -> CFTimeInterval? {
             guard Self.perfEnabled else { return nil }
             return CACurrentMediaTime()
+        }
+
+        func invalidateRenderedViewportText() {
+            needsViewportTextReload = true
         }
 
         private func recordRefreshTiming(start: CFTimeInterval?, durationLineCount: Int, force: Bool) {
@@ -546,6 +555,10 @@ struct CodeEditorView: NSViewRepresentable {
             let viewport = ViewportState(backingStore: store)
             viewport.updateEstimatedLineHeight(font: editorSettings.resolvedFont)
             viewportState = viewport
+            invalidateRenderedViewportText()
+            lastRenderedViewportRange = nil
+            lastRenderedBackingStoreVersion = -1
+            lastObservedClipSize = scrollView.contentView.bounds.size
 
             textView.isVerticallyResizable = false
             textView.autoresizingMask = []
@@ -601,16 +614,26 @@ struct CodeEditorView: NSViewRepresentable {
 
             viewport.applyViewport(newRange)
 
-            let text = viewport.viewportText()
             let yOffset = viewport.viewportYOffset()
+            let shouldReloadText = needsViewportTextReload
+                || lastRenderedViewportRange != newRange
+                || lastRenderedBackingStoreVersion != state.backingStoreVersion
+
+            let text: String? = if shouldReloadText {
+                viewport.viewportText()
+            } else {
+                nil
+            }
 
             isUpdating = true
             CATransaction.begin()
             CATransaction.setDisableActions(true)
 
-            let textChanged = textView.string != text
-            if textChanged {
+            if let text {
                 textView.string = text
+                lastRenderedViewportRange = newRange
+                lastRenderedBackingStoreVersion = state.backingStoreVersion
+                needsViewportTextReload = false
             }
             let font = editorSettings.resolvedFont
             if let storage = textView.textStorage, storage.length > 0 {
@@ -630,7 +653,7 @@ struct CodeEditorView: NSViewRepresentable {
 
             CATransaction.commit()
 
-            if textChanged {
+            if shouldReloadText {
                 rebuildLineStartOffsetsForViewport()
             }
 
@@ -715,7 +738,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard let textView, let layoutManager = textView.layoutManager else { return }
             let storageLength = textView.textStorage?.length ?? 0
             guard storageLength > 0 else {
-                appliedSearchHighlightRanges.removeAll(keepingCapacity: false)
+                appliedSearchHighlightRanges.removeAll(keepingCapacity: true)
                 appliedCurrentSearchMatchRange = nil
                 return
             }
@@ -803,7 +826,7 @@ struct CodeEditorView: NSViewRepresentable {
             if let range = appliedCurrentSearchMatchRange, NSMaxRange(range) <= storageLength {
                 layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
             }
-            appliedSearchHighlightRanges.removeAll(keepingCapacity: false)
+            appliedSearchHighlightRanges.removeAll(keepingCapacity: true)
             appliedCurrentSearchMatchRange = nil
         }
 
@@ -861,6 +884,7 @@ struct CodeEditorView: NSViewRepresentable {
             _ = store.replaceLines(in: match.lineIndex ..< match.lineIndex + 1, with: [newLine])
             state.backingStoreVersion += 1
             state.markModified()
+            invalidateRenderedViewportText()
             performSearchViewport(needle, caseSensitive: caseSensitive, useRegex: useRegex)
             refreshViewport(force: true)
         }
@@ -883,6 +907,7 @@ struct CodeEditorView: NSViewRepresentable {
             }
             state.backingStoreVersion += 1
             state.markModified()
+            invalidateRenderedViewportText()
             performSearchViewport(needle, caseSensitive: caseSensitive, useRegex: useRegex)
             refreshViewport(force: true)
         }
@@ -981,6 +1006,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard observedContentView !== scrollView.contentView else { return }
             removeScrollObserver()
             observedContentView = scrollView.contentView
+            lastObservedClipSize = scrollView.contentView.bounds.size
             NotificationCenter.default.addObserver(
                 self,
                 selector: #selector(handleScrollBoundsChange),
@@ -996,11 +1022,18 @@ struct CodeEditorView: NSViewRepresentable {
                 object: observedContentView
             )
             observedContentView = nil
+            lastObservedClipSize = .zero
         }
 
         @objc
         private func handleScrollBoundsChange() {
-            ensureViewportMinimumWidth()
+            if let observedContentView {
+                let boundsSize = observedContentView.bounds.size
+                if boundsSize.width != lastObservedClipSize.width {
+                    ensureViewportMinimumWidth()
+                }
+                lastObservedClipSize = boundsSize
+            }
             if !isEditingViewport {
                 refreshViewport(force: false)
             }
@@ -1045,6 +1078,9 @@ struct CodeEditorView: NSViewRepresentable {
             isEditingViewport = true
             defer { isEditingViewport = false }
 
+            lastRenderedViewportRange = viewport.viewportStartLine ..< viewport.viewportEndLine
+            lastRenderedBackingStoreVersion = state.backingStoreVersion
+            needsViewportTextReload = false
             rebuildLineStartOffsetsForViewport()
 
             if let pendingEdit,
@@ -1140,6 +1176,7 @@ struct CodeEditorView: NSViewRepresentable {
                 )
             }
             state.markModified()
+            invalidateRenderedViewportText()
             appendViewportRedo(group)
             if let selection = group.edits.first?.selectionBefore {
                 applyViewportHistorySelection(selection, textView: textView)
@@ -1165,6 +1202,7 @@ struct CodeEditorView: NSViewRepresentable {
                 )
             }
             state.markModified()
+            invalidateRenderedViewportText()
             appendViewportUndo(group)
             if let selection = group.edits.last?.selectionAfter {
                 applyViewportHistorySelection(selection, textView: textView)
