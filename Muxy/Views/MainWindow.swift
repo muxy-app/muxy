@@ -147,7 +147,7 @@ struct MainWindow: View {
                 .transition(.move(edge: toastTransitionEdge).combined(with: .opacity))
                 .allowsHitTesting(false)
                 .accessibilityLabel(toast)
-                .accessibilityAddTraits(.updatesFrequently)
+                .accessibilityAddTraits(.isStaticText)
             }
         }
         .overlay {

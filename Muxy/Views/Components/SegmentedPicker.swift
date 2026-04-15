@@ -35,7 +35,6 @@ struct SegmentedPicker<T: Hashable>: View {
         }
         .padding(2)
         .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: 6))
-        .accessibilityElement(children: .contain)
         .accessibilityRepresentation {
             Picker(selection: $selection, label: EmptyView()) {
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in

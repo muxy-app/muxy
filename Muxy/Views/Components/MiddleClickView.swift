@@ -15,12 +15,6 @@ struct MiddleClickView: NSViewRepresentable {
     }
 }
 
-extension MiddleClickView {
-    func accessibilityHiddenView() -> some View {
-        self.accessibilityHidden(true)
-    }
-}
-
 final class MiddleClickNSView: NSView {
     var action: (() -> Void)?
 

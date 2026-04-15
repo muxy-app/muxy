@@ -78,8 +78,7 @@ final class GhosttyTerminalNSView: NSView {
         var text = ghostty_text_s()
         guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
-        guard text.text != nil, text.text_len > 0 else { return nil }
-        return String(cString: text.text)
+        return extractString(from: text)
     }
 
     private func readSelectionText() -> String? {
@@ -87,8 +86,15 @@ final class GhosttyTerminalNSView: NSView {
         var text = ghostty_text_s()
         guard ghostty_surface_read_selection(surface, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
-        guard text.text != nil, text.text_len > 0 else { return nil }
-        return String(cString: text.text)
+        return extractString(from: text)
+    }
+
+    private func extractString(from text: ghostty_text_s) -> String? {
+        guard let ptr = text.text, text.text_len > 0 else { return nil }
+        let len = Int(text.text_len)
+        return ptr.withMemoryRebound(to: UInt8.self, capacity: len) { rawPtr in
+            String(bytes: UnsafeBufferPointer(start: rawPtr, count: len), encoding: .utf8)
+        }
     }
 
     private var pendingSurfaceCreation = false

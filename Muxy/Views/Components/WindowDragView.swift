@@ -15,12 +15,6 @@ struct WindowDragRepresentable: NSViewRepresentable {
     }
 }
 
-extension WindowDragRepresentable {
-    func accessibilityHiddenView() -> some View {
-        self.accessibilityHidden(true)
-    }
-}
-
 final class WindowDragView: NSView {
     var alwaysEnabled = false
 
