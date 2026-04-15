@@ -20,6 +20,10 @@ final class ConnectionManager {
     var worktrees: [WorktreeDTO] = []
     var workspace: WorkspaceDTO?
     var notifications: [NotificationDTO] = []
+    var projectLogos: [UUID: Data] = [:]
+    var projectWorktrees: [UUID: [WorktreeDTO]] = [:]
+    private(set) var lastSavedHost: String?
+    private(set) var lastSavedPort: UInt16?
 
     private var connection: URLSessionWebSocketTask?
     private var session: URLSession?
@@ -30,6 +34,8 @@ final class ConnectionManager {
     func connect(host: String, port: UInt16 = 4865) {
         lastHost = host
         lastPort = port
+        lastSavedHost = host
+        lastSavedPort = port
         state = .connecting
 
         let url = URL(string: "ws://\(host):\(port)")!
@@ -62,7 +68,23 @@ final class ConnectionManager {
         guard let response = await send(.listProjects) else { return }
         if case let .projects(list) = response.result {
             projects = list
+            for project in list {
+                if project.logo != nil {
+                    await fetchLogo(for: project.id)
+                }
+                await refreshWorktrees(projectID: project.id)
+            }
         }
+    }
+
+    func fetchLogo(for projectID: UUID) async {
+        guard projectLogos[projectID] == nil else { return }
+        let params = GetProjectLogoParams(projectID: projectID)
+        guard let response = await send(.getProjectLogo, params: .getProjectLogo(params)),
+              case let .projectLogo(logo) = response.result,
+              let data = Data(base64Encoded: logo.pngData)
+        else { return }
+        projectLogos[projectID] = data
     }
 
     func selectProject(_ projectID: UUID) async {
@@ -77,6 +99,7 @@ final class ConnectionManager {
         guard let response = await send(.listWorktrees, params: .listWorktrees(params)) else { return }
         if case let .worktrees(list) = response.result {
             worktrees = list
+            projectWorktrees[projectID] = list
         }
     }
 

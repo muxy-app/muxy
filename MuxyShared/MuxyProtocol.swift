@@ -73,6 +73,7 @@ public enum MuxyMethod: String, Codable, Sendable {
     case vcsCommit
     case vcsPush
     case vcsPull
+    case getProjectLogo
     case listNotifications
     case markNotificationRead
     case subscribe
@@ -97,6 +98,7 @@ public enum MuxyParams: Codable, Sendable {
     case vcsCommit(VCSCommitParams)
     case vcsPush(VCSPushParams)
     case vcsPull(VCSPullParams)
+    case getProjectLogo(GetProjectLogoParams)
     case markNotificationRead(MarkNotificationReadParams)
     case subscribe(SubscribeParams)
     case unsubscribe(UnsubscribeParams)
@@ -127,6 +129,7 @@ public enum MuxyParams: Codable, Sendable {
         case "vcsCommit": self = try .vcsCommit(container.decode(VCSCommitParams.self, forKey: .value))
         case "vcsPush": self = try .vcsPush(container.decode(VCSPushParams.self, forKey: .value))
         case "vcsPull": self = try .vcsPull(container.decode(VCSPullParams.self, forKey: .value))
+        case "getProjectLogo": self = try .getProjectLogo(container.decode(GetProjectLogoParams.self, forKey: .value))
         case "markNotificationRead": self = try .markNotificationRead(container.decode(MarkNotificationReadParams.self, forKey: .value))
         case "subscribe": self = try .subscribe(container.decode(SubscribeParams.self, forKey: .value))
         case "unsubscribe": self = try .unsubscribe(container.decode(UnsubscribeParams.self, forKey: .value))
@@ -171,6 +174,8 @@ public enum MuxyParams: Codable, Sendable {
             try container.encode(v, forKey: .value)
         case let .vcsPull(v): try container.encode("vcsPull", forKey: .type)
             try container.encode(v, forKey: .value)
+        case let .getProjectLogo(v): try container.encode("getProjectLogo", forKey: .type)
+            try container.encode(v, forKey: .value)
         case let .markNotificationRead(v): try container.encode("markNotificationRead", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .subscribe(v): try container.encode("subscribe", forKey: .type)
@@ -188,6 +193,7 @@ public enum MuxyResult: Codable, Sendable {
     case tab(TabDTO)
     case terminalContent(TerminalContentDTO)
     case vcsStatus(VCSStatusDTO)
+    case projectLogo(ProjectLogoDTO)
     case notifications([NotificationDTO])
     case ok
 
@@ -206,6 +212,7 @@ public enum MuxyResult: Codable, Sendable {
         case "tab": self = try .tab(container.decode(TabDTO.self, forKey: .value))
         case "terminalContent": self = try .terminalContent(container.decode(TerminalContentDTO.self, forKey: .value))
         case "vcsStatus": self = try .vcsStatus(container.decode(VCSStatusDTO.self, forKey: .value))
+        case "projectLogo": self = try .projectLogo(container.decode(ProjectLogoDTO.self, forKey: .value))
         case "notifications": self = try .notifications(container.decode([NotificationDTO].self, forKey: .value))
         case "ok": self = .ok
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown result type: \(type)")
@@ -226,6 +233,8 @@ public enum MuxyResult: Codable, Sendable {
         case let .terminalContent(v): try container.encode("terminalContent", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .vcsStatus(v): try container.encode("vcsStatus", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .projectLogo(v): try container.encode("projectLogo", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .notifications(v): try container.encode("notifications", forKey: .type)
             try container.encode(v, forKey: .value)

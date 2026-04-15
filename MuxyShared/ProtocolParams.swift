@@ -201,6 +201,23 @@ public struct VCSPullParams: Codable, Sendable {
     }
 }
 
+public struct GetProjectLogoParams: Codable, Sendable {
+    public let projectID: UUID
+    public init(projectID: UUID) {
+        self.projectID = projectID
+    }
+}
+
+public struct ProjectLogoDTO: Codable, Sendable {
+    public let projectID: UUID
+    public let pngData: String
+
+    public init(projectID: UUID, pngData: String) {
+        self.projectID = projectID
+        self.pngData = pngData
+    }
+}
+
 public struct MarkNotificationReadParams: Codable, Sendable {
     public let notificationID: UUID
     public init(notificationID: UUID) {

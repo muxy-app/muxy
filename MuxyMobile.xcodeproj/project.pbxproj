@@ -12,6 +12,8 @@
 		A1000003 /* ConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000003; };
 		A1000004 /* RemoteWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000004; };
 		A1000005 /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005; };
+		A1000006 /* ProjectPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000007; };
+		A1000007 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008; };
 		A1000010 /* MuxyShared in Frameworks */ = {isa = PBXBuildFile; productRef = A4000001; };
 /* End PBXBuildFile section */
 
@@ -22,6 +24,8 @@
 		A2000004 /* RemoteWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkspaceView.swift; sourceTree = "<group>"; };
 		A2000005 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
 		A2000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A2000007 /* ProjectPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPickerView.swift; sourceTree = "<group>"; };
+		A2000008 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		A2000020 /* MuxyMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MuxyMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -52,6 +56,8 @@
 				A2000002 /* ContentView.swift */,
 				A2000003 /* ConnectView.swift */,
 				A2000004 /* RemoteWorkspaceView.swift */,
+				A2000007 /* ProjectPickerView.swift */,
+				A2000008 /* SettingsSheet.swift */,
 				A2000005 /* ConnectionManager.swift */,
 				A2000006 /* Info.plist */,
 			);
@@ -129,6 +135,8 @@
 				A1000003 /* ConnectView.swift in Sources */,
 				A1000004 /* RemoteWorkspaceView.swift in Sources */,
 				A1000005 /* ConnectionManager.swift in Sources */,
+				A1000006 /* ProjectPickerView.swift in Sources */,
+				A1000007 /* SettingsSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

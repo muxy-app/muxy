@@ -1,108 +1,141 @@
 import MuxyShared
 import SwiftUI
 
-struct RemoteWorkspaceView: View {
+struct WorkspaceView: View {
     @Environment(ConnectionManager.self) private var connection
 
-    var body: some View {
-        NavigationSplitView {
-            ProjectListView()
-        } detail: {
-            if connection.workspace != nil {
-                WorkspaceDetailView()
-            } else {
-                ContentUnavailableView(
-                    "Select a Project",
-                    systemImage: "folder",
-                    description: Text("Choose a project from the sidebar")
-                )
-            }
+    private var activeProject: ProjectDTO? {
+        guard let id = connection.activeProjectID else { return nil }
+        return connection.projects.first { $0.id == id }
+    }
+
+    private var allTabs: [(area: TabAreaDTO, tab: TabDTO)] {
+        guard let workspace = connection.workspace else { return [] }
+        return collectAreas(from: workspace.root).flatMap { area in
+            area.tabs.map { (area: area, tab: $0) }
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+    }
+
+    private var activeTab: (area: TabAreaDTO, tab: TabDTO)? {
+        guard let workspace = connection.workspace else { return nil }
+        let areas = collectAreas(from: workspace.root)
+        let focusedArea = areas.first { $0.id == workspace.focusedAreaID } ?? areas.first
+        guard let area = focusedArea,
+              let tabID = area.activeTabID,
+              let tab = area.tabs.first(where: { $0.id == tabID })
+        else { return nil }
+        return (area: area, tab: tab)
+    }
+
+    var body: some View {
+        NavigationStack {
+            tabContentView
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        tabPicker
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        trailingMenu
+                    }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var tabContentView: some View {
+        if let active = activeTab {
+            TabDetailView(area: active.area, tab: active.tab)
+        } else {
+            ContentUnavailableView(
+                "No Tabs",
+                systemImage: "rectangle.on.rectangle.slash",
+                description: Text("Create a new tab to get started")
+            )
+        }
+    }
+
+    private var tabPicker: some View {
+        Menu {
+            ForEach(allTabs, id: \.tab.id) { entry in
                 Button {
-                    connection.disconnect()
+                    Task {
+                        await connection.selectTab(
+                            projectID: connection.activeProjectID!,
+                            areaID: entry.area.id,
+                            tabID: entry.tab.id
+                        )
+                    }
                 } label: {
-                    Image(systemName: "xmark.circle")
+                    Label {
+                        Text(entry.tab.title)
+                    } icon: {
+                        Image(systemName: iconForKind(entry.tab.kind))
+                    }
                 }
             }
-        }
-    }
-}
 
-struct ProjectListView: View {
-    @Environment(ConnectionManager.self) private var connection
+            Divider()
 
-    var body: some View {
-        List(connection.projects, selection: Binding(
-            get: { connection.activeProjectID },
-            set: { id in
-                guard let id else { return }
-                Task { await connection.selectProject(id) }
+            Button {
+                guard let projectID = connection.activeProjectID else { return }
+                Task { await connection.createTab(projectID: projectID) }
+            } label: {
+                Label("New Terminal", systemImage: "plus")
             }
-        )) { project in
-            Label(project.name, systemImage: "folder")
-                .tag(project.id)
-        }
-        .navigationTitle("Projects")
-        .refreshable {
-            await connection.refreshProjects()
-        }
-    }
-}
-
-struct WorkspaceDetailView: View {
-    @Environment(ConnectionManager.self) private var connection
-
-    var body: some View {
-        if let workspace = connection.workspace {
-            TabAreaListView(root: workspace.root, projectID: workspace.projectID)
-                .navigationTitle("Workspace")
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: iconForKind(activeTab?.tab.kind ?? .terminal))
+                Text(activeTab?.tab.title ?? "Tabs")
+                    .fontWeight(.medium)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
         }
     }
-}
 
-struct TabAreaListView: View {
-    let root: SplitNodeDTO
-    let projectID: UUID
-    @Environment(ConnectionManager.self) private var connection
-
-    var body: some View {
-        List {
-            ForEach(collectAreas(from: root)) { area in
-                Section(area.projectPath.components(separatedBy: "/").last ?? "Area") {
-                    ForEach(area.tabs) { tab in
+    private var trailingMenu: some View {
+        Menu {
+            Section("Projects") {
+                ForEach(connection.projects) { project in
+                    Button {
+                        Task { await connection.selectProject(project.id) }
+                    } label: {
                         HStack {
-                            Image(systemName: iconForKind(tab.kind))
-                            Text(tab.title)
-                            Spacer()
-                            if tab.id == area.activeTabID {
+                            Text(project.name)
+                            if project.id == connection.activeProjectID {
                                 Image(systemName: "checkmark")
-                                    .foregroundStyle(.tint)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            Task {
-                                await connection.selectTab(
-                                    projectID: projectID,
-                                    areaID: area.id,
-                                    tabID: tab.id
-                                )
                             }
                         }
                     }
                 }
             }
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    Task { await connection.createTab(projectID: projectID) }
-                } label: {
-                    Image(systemName: "plus")
-                }
+
+            Divider()
+
+            Button(role: .destructive) {
+                connection.activeProjectID = nil
+                connection.workspace = nil
+            } label: {
+                Label("Switch Project", systemImage: "arrow.left")
             }
+
+            Button(role: .destructive) {
+                connection.disconnect()
+            } label: {
+                Label("Disconnect", systemImage: "xmark.circle")
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(activeProject?.name ?? "Project")
+                    .fontWeight(.medium)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
         }
     }
 
@@ -121,5 +154,74 @@ struct TabAreaListView: View {
         case .vcs: "arrow.triangle.branch"
         case .editor: "doc.text"
         }
+    }
+}
+
+struct TabDetailView: View {
+    let area: TabAreaDTO
+    let tab: TabDTO
+    @Environment(ConnectionManager.self) private var connection
+
+    var body: some View {
+        VStack(spacing: 0) {
+            switch tab.kind {
+            case .terminal:
+                terminalPlaceholder
+            case .vcs:
+                vcsPlaceholder
+            case .editor:
+                editorPlaceholder
+            }
+        }
+    }
+
+    private var terminalPlaceholder: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "terminal")
+                .font(.system(size: 40))
+                .foregroundStyle(.tertiary)
+            Text(tab.title)
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            if let paneID = tab.paneID {
+                Text("Pane \(paneID.uuidString.prefix(8))")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color(.systemBackground))
+    }
+
+    private var vcsPlaceholder: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 40))
+                .foregroundStyle(.tertiary)
+            Text("Source Control")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color(.systemBackground))
+    }
+
+    private var editorPlaceholder: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "doc.text")
+                .font(.system(size: 40))
+                .foregroundStyle(.tertiary)
+            Text(tab.title)
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color(.systemBackground))
     }
 }

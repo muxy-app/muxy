@@ -16,6 +16,10 @@
 	<string>1</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.1.0</string>
+	<key>UILaunchStoryboardName</key>
+	<string></string>
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

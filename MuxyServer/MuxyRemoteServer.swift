@@ -24,6 +24,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws
     func vcsPush(projectID: UUID) async throws
     func vcsPull(projectID: UUID) async throws
+    func getProjectLogo(projectID: UUID) -> ProjectLogoDTO?
     func listNotifications() -> [NotificationDTO]
     func markNotificationRead(_ notificationID: UUID)
 }
@@ -276,6 +277,15 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             } catch {
                 return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
             }
+
+        case .getProjectLogo:
+            guard case let .getProjectLogo(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            guard let logo = delegate.getProjectLogo(projectID: params.projectID) else {
+                return MuxyResponse(id: request.id, error: .notFound)
+            }
+            return MuxyResponse(id: request.id, result: .projectLogo(logo))
 
         case .listNotifications:
             let notifications = delegate.listNotifications()

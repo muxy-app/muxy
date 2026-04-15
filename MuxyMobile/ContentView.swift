@@ -5,17 +5,17 @@ struct ContentView: View {
     @Environment(ConnectionManager.self) private var connection
 
     var body: some View {
-        Group {
-            switch connection.state {
-            case .disconnected:
-                ConnectView()
-            case .connecting:
-                ProgressView("Connecting...")
-            case .connected:
-                RemoteWorkspaceView()
-            case let .error(message):
-                ErrorView(message: message)
-            }
+        switch connection.state {
+        case .disconnected:
+            ConnectView()
+        case .connecting:
+            ProgressView("Connecting...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.systemGroupedBackground))
+        case .connected:
+            ProjectPickerView()
+        case let .error(message):
+            ErrorView(message: message)
         }
     }
 }
@@ -25,14 +25,17 @@ struct ErrorView: View {
     @Environment(ConnectionManager.self) private var connection
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
+        ContentUnavailableView {
+            Label("Connection Failed", systemImage: "wifi.exclamationmark")
+        } description: {
             Text(message)
-                .foregroundStyle(.secondary)
+        } actions: {
             Button("Retry") {
                 connection.reconnect()
+            }
+            .buttonStyle(.borderedProminent)
+            Button("Disconnect", role: .destructive) {
+                connection.disconnect()
             }
         }
     }
