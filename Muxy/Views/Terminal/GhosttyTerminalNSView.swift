@@ -69,9 +69,9 @@ final class GhosttyTerminalNSView: NSView {
         var cStrings: [UnsafeMutablePointer<CChar>] = []
         defer { cStrings.forEach { free($0) } }
 
-        if let command, let cCommand = strdup(command) {
-            cStrings.append(cCommand)
-            config.command = UnsafePointer(cCommand)
+        if let command, let loginWrapped = strdup(Self.loginShellCommand(command)) {
+            cStrings.append(loginWrapped)
+            config.command = UnsafePointer(loginWrapped)
             config.wait_after_command = false
         }
 
@@ -636,6 +636,22 @@ final class GhosttyTerminalNSView: NSView {
 
     var hasLiveSurface: Bool {
         surface != nil
+    }
+
+    private static func loginShellCommand(_ command: String) -> String {
+        let shell = userShell()
+        let escaped = command.replacingOccurrences(of: "'", with: "'\\''")
+        return "\(shell) -l -c '\(escaped)'"
+    }
+
+    private static func userShell() -> String {
+        if let shell = ProcessInfo.processInfo.environment["SHELL"], !shell.isEmpty {
+            return shell
+        }
+        guard let pw = getpwuid(getuid()), let shellPtr = pw.pointee.pw_shell else {
+            return "/bin/zsh"
+        }
+        return String(cString: shellPtr)
     }
 
     enum SearchDirection: String {
