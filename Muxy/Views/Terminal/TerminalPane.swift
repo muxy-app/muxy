@@ -73,6 +73,9 @@ struct TerminalBridge: NSViewRepresentable {
             view.envVars = Self.buildEnvVars(paneID: state.id, worktreeKey: key)
         }
         view.isFocused = focused
+        if focused {
+            TerminalViewRegistry.shared.setFocusedPane(state.id)
+        }
         view.overlayActive = overlayActive
         view.onFocus = onFocus
         view.onProcessExit = onProcessExit
@@ -97,6 +100,9 @@ struct TerminalBridge: NSViewRepresentable {
             nsView.envVars = Self.buildEnvVars(paneID: state.id, worktreeKey: key)
         }
         nsView.overlayActive = overlayActive
+        if focused {
+            TerminalViewRegistry.shared.setFocusedPane(state.id)
+        }
         nsView.onFocus = onFocus
         nsView.onProcessExit = onProcessExit
         nsView.onSplitRequest = onSplitRequest

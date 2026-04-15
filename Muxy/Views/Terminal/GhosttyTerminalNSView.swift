@@ -400,14 +400,7 @@ final class GhosttyTerminalNSView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let surface else { return }
-        let alreadyFirstResponder = window?.firstResponder === self
-        window?.makeFirstResponder(self)
-        if alreadyFirstResponder {
-            ghostty_surface_set_focus(surface, true)
-            DispatchQueue.main.async { [weak self] in
-                self?.onFocus?()
-            }
-        }
+        activateFromPointerEvent()
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
@@ -507,10 +500,42 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        if !isFocused,
+           let focusedView = TerminalViewRegistry.shared.focusedView(excluding: self)
+        {
+            focusedView.scrollWithDeltas(
+                deltaX: event.scrollingDeltaX,
+                deltaY: event.scrollingDeltaY,
+                precise: event.hasPreciseScrollingDeltas
+            )
+            return
+        }
+        scrollWithDeltas(
+            deltaX: event.scrollingDeltaX,
+            deltaY: event.scrollingDeltaY,
+            precise: event.hasPreciseScrollingDeltas
+        )
+    }
+
+    private func scrollWithDeltas(deltaX: CGFloat, deltaY: CGFloat, precise: Bool) {
         guard let surface else { return }
+        activateFromPointerEvent()
         var mods: ghostty_input_scroll_mods_t = 0
-        if event.hasPreciseScrollingDeltas { mods |= 1 }
-        ghostty_surface_mouse_scroll(surface, event.scrollingDeltaX, event.scrollingDeltaY, mods)
+        if precise { mods |= 1 }
+        ghostty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
+    }
+
+    private func activateFromPointerEvent() {
+        guard !overlayActive else { return }
+        let alreadyFirstResponder = window?.firstResponder === self
+        window?.makeFirstResponder(self)
+        guard window?.firstResponder === self else { return }
+        ghostty_surface_set_focus(surface, true)
+        if alreadyFirstResponder {
+            DispatchQueue.main.async { [weak self] in
+                self?.onFocus?()
+            }
+        }
     }
 
     private func buildKeyEvent(from event: NSEvent, action: ghostty_input_action_e) -> ghostty_input_key_s {

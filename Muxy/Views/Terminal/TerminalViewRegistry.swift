@@ -6,6 +6,7 @@ final class TerminalViewRegistry {
 
     private var views: [UUID: GhosttyTerminalNSView] = [:]
     private var paneIDs: [ObjectIdentifier: UUID] = [:]
+    private var focusedPaneID: UUID?
 
     private init() {}
 
@@ -26,6 +27,9 @@ final class TerminalViewRegistry {
     func removeView(for paneID: UUID) {
         guard let view = views.removeValue(forKey: paneID) else { return }
         paneIDs.removeValue(forKey: ObjectIdentifier(view))
+        if focusedPaneID == paneID {
+            focusedPaneID = nil
+        }
         view.tearDown()
     }
 
@@ -39,6 +43,18 @@ final class TerminalViewRegistry {
 
     func paneID(for view: GhosttyTerminalNSView) -> UUID? {
         paneIDs[ObjectIdentifier(view)]
+    }
+
+    func setFocusedPane(_ paneID: UUID) {
+        focusedPaneID = paneID
+    }
+
+    func focusedView(excluding view: GhosttyTerminalNSView) -> GhosttyTerminalNSView? {
+        guard let focusedPaneID,
+              let focusedView = views[focusedPaneID],
+              focusedView !== view
+        else { return nil }
+        return focusedView
     }
 }
 
