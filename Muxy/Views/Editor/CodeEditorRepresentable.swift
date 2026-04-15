@@ -1,4 +1,5 @@
 import AppKit
+import os
 import SwiftUI
 
 private final class CodeEditorTextView: NSTextView {
@@ -473,11 +474,24 @@ struct CodeEditorView: NSViewRepresentable {
         private static let viewportUndoCoalesceInterval: CFTimeInterval = 1.0
         private static let undoCommandSelector = #selector(CodeEditorTextView.undo(_:))
         private static let redoCommandSelector = #selector(CodeEditorTextView.redo(_:))
+        private static let perfLogger = Logger(subsystem: "app.muxy", category: "EditorPerf")
+        private static let perfEnabled: Bool = {
+            if let env = ProcessInfo.processInfo.environment["MUXY_EDITOR_PERF"] {
+                let value = env.lowercased()
+                return value == "1" || value == "true" || value == "yes"
+            }
+            return UserDefaults.standard.bool(forKey: "MuxyEditorPerf")
+        }()
+
         private var pendingViewportEdit: PendingViewportEdit?
         private var viewportUndoStack: [ViewportEditGroup] = []
         private var viewportRedoStack: [ViewportEditGroup] = []
         private var lastViewportEditTimestamp: CFTimeInterval?
         private var isApplyingViewportHistory = false
+        private var refreshTimingCount = 0
+        private var highlightTimingCount = 0
+        private var lastRefreshDurationMs: Double = 0
+        private var lastHighlightDurationMs: Double = 0
 
         init(state: EditorTabState, editorSettings: EditorSettings) {
             self.state = state
@@ -487,6 +501,37 @@ struct CodeEditorView: NSViewRepresentable {
 
         deinit {
             NotificationCenter.default.removeObserver(self)
+        }
+
+        private func beginPerfTiming() -> CFTimeInterval? {
+            guard Self.perfEnabled else { return nil }
+            return CACurrentMediaTime()
+        }
+
+        private func recordRefreshTiming(start: CFTimeInterval?, durationLineCount: Int, force: Bool) {
+            guard let start else { return }
+            let durationMs = (CACurrentMediaTime() - start) * 1000
+            let deltaMs = durationMs - lastRefreshDurationMs
+            lastRefreshDurationMs = durationMs
+            refreshTimingCount += 1
+            if refreshTimingCount.isMultiple(of: 24) || durationMs >= 3 {
+                Self.perfLogger.debug(
+                    "refresh ms \(durationMs) delta \(deltaMs) force \(force) lines \(durationLineCount)"
+                )
+            }
+        }
+
+        private func recordHighlightTiming(start: CFTimeInterval?, highlightedRangeCount: Int, force: Bool) {
+            guard let start else { return }
+            let durationMs = (CACurrentMediaTime() - start) * 1000
+            let deltaMs = durationMs - lastHighlightDurationMs
+            lastHighlightDurationMs = durationMs
+            highlightTimingCount += 1
+            if highlightTimingCount.isMultiple(of: 30) || durationMs >= 2 {
+                Self.perfLogger.debug(
+                    "highlight ms \(durationMs) delta \(deltaMs) force \(force) ranges \(highlightedRangeCount)"
+                )
+            }
         }
 
         // MARK: - Viewport Mode Setup
@@ -547,6 +592,13 @@ struct CodeEditorView: NSViewRepresentable {
             if !force, newRange == previousRange {
                 return
             }
+
+            let perfStart = beginPerfTiming()
+            let renderedLineCount = newRange.count
+            defer {
+                recordRefreshTiming(start: perfStart, durationLineCount: renderedLineCount, force: force)
+            }
+
             viewport.applyViewport(newRange)
 
             let text = viewport.viewportText()
@@ -654,6 +706,12 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func applySearchHighlights(force: Bool = false) {
+            let perfStart = beginPerfTiming()
+            var highlightedRangeCount = 0
+            defer {
+                recordHighlightTiming(start: perfStart, highlightedRangeCount: highlightedRangeCount, force: force)
+            }
+
             guard let textView, let layoutManager = textView.layoutManager else { return }
             let storageLength = textView.textStorage?.length ?? 0
             guard storageLength > 0 else {
@@ -724,6 +782,7 @@ struct CodeEditorView: NSViewRepresentable {
                 }
             }
 
+            highlightedRangeCount = nextRanges.count
             appliedSearchHighlightRanges = nextRanges
             appliedCurrentSearchMatchRange = nextCurrentRange
             textView.needsDisplay = true
@@ -1321,7 +1380,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         private func handleMoveAtViewportBoundary(direction: Int) -> Bool {
-            guard let viewport = viewportState, let textView, let scrollView else { return false }
+            guard let viewport = viewportState, let textView else { return false }
             let range = textView.selectedRange()
             let content = textView.string as NSString
             let loc = min(range.location, content.length)
