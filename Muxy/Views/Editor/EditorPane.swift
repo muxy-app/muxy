@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct EditorPane: View {
@@ -7,8 +6,6 @@ struct EditorPane: View {
     let onFocus: () -> Void
     @Environment(GhosttyService.self) private var ghostty
     @State private var editorSettings = EditorSettings.shared
-    @State private var lineLayouts: [LineLayoutInfo] = []
-    @State private var totalLineCount: Int = 1
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,16 +20,6 @@ struct EditorPane: View {
             } else {
                 ZStack(alignment: .topTrailing) {
                     HStack(spacing: 0) {
-                        if editorSettings.showLineNumbers {
-                            LineNumberGutter(
-                                layouts: lineLayouts,
-                                totalLineCount: totalLineCount,
-                                fontSize: editorSettings.fontSize,
-                                fontFamily: editorSettings.fontFamily,
-                                activeLine: state.cursorLine
-                            )
-                            Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                        }
                         CodeEditorView(
                             state: state,
                             editorSettings: editorSettings,
@@ -46,13 +33,7 @@ struct EditorPane: View {
                             replaceText: state.replaceText,
                             replaceVersion: state.replaceVersion,
                             replaceAllVersion: state.replaceAllVersion,
-                            editorFocusVersion: state.editorFocusVersion,
-                            onLineLayoutChange: { layouts in
-                                lineLayouts = layouts
-                            },
-                            onTotalLineCountChange: { count in
-                                totalLineCount = count
-                            }
+                            editorFocusVersion: state.editorFocusVersion
                         )
                     }
 
@@ -164,51 +145,6 @@ struct EditorPane: View {
                 .foregroundStyle(MuxyTheme.diffRemoveFg)
             Spacer()
         }
-    }
-}
-
-private struct LineNumberGutter: View {
-    let layouts: [LineLayoutInfo]
-    let totalLineCount: Int
-    let fontSize: CGFloat
-    let fontFamily: String
-    let activeLine: Int
-
-    private var gutterFontSize: CGFloat {
-        max(9, fontSize - 2)
-    }
-
-    private var gutterWidth: CGFloat {
-        let digits = max(4, String(max(1, totalLineCount)).count)
-        let sample = String(repeating: "8", count: digits)
-        let font = NSFont(name: fontFamily, size: gutterFontSize) ?? .monospacedDigitSystemFont(ofSize: gutterFontSize, weight: .regular)
-        let textWidth = (sample as NSString).size(withAttributes: [.font: font]).width
-        return ceil(textWidth) + 16
-    }
-
-    var body: some View {
-        Canvas { context, size in
-            let font = Font.custom(fontFamily, size: gutterFontSize)
-            let dimColor = Color(MuxyTheme.fgDim)
-            let activeColor = Color(MuxyTheme.fgMuted)
-            let sampleResolved = context.resolve(Text(verbatim: "0").font(font).foregroundStyle(dimColor))
-            let charHeight = sampleResolved.measure(in: size).height
-
-            for layout in layouts {
-                let isActive = layout.lineNumber == activeLine
-                let resolved = context.resolve(
-                    Text(verbatim: "\(layout.lineNumber)")
-                        .font(font)
-                        .foregroundStyle(isActive ? activeColor : dimColor)
-                )
-                let textWidth = resolved.measure(in: size).width
-                let x = size.width - textWidth - 8
-                let y = layout.yOffset + (layout.height - charHeight) / 2
-                context.draw(resolved, at: CGPoint(x: x, y: y), anchor: .topLeading)
-            }
-        }
-        .frame(width: gutterWidth)
-        .background(MuxyTheme.bg)
     }
 }
 

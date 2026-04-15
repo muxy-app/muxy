@@ -26,7 +26,7 @@ Muxy/
     KeyCombo.swift            Key combo encoding, display, matching
     VCSTabState.swift         Git diff viewer state + loading orchestration
     EditorTabState.swift      Code editor tab state (backing store, cursor, search, save)
-    EditorSettings.swift      @Observable editor preferences (default editor, font, wrap, tab size, feature toggles)
+    EditorSettings.swift      @Observable editor preferences (default editor, font)
     TextBackingStore.swift    Line-array backing store for editor documents
     ViewportState.swift       Viewport window computation and line mapping for editor documents
     Project.swift             Project folder metadata
@@ -96,8 +96,6 @@ Muxy/
     Editor/
       CodeEditorRepresentable.swift  NSViewRepresentable bridge for code editor (viewport rendering path)
       EditorPane.swift        SwiftUI wrapper for editor tab (breadcrumb + editor)
-      Extensions/
-        SyntaxHighlightExtension.swift  Regex-based syntax highlighting rules for code editor
     VCS/
       VCSTabView.swift        Source control tab (commit, stage, diff, branch) + PRPill + PRPopover
       BranchPicker.swift      Branch selection dropdown with filter and right-click delete
@@ -116,7 +114,7 @@ Muxy/
     Settings/
       SettingsView.swift      Settings window layout
       AppearanceSettingsView.swift  Theme settings tab
-      EditorSettingsView.swift  Editor preferences tab (font, wrap, tab size, feature toggles)
+      EditorSettingsView.swift  Editor preferences tab (default editor, font)
       KeyboardShortcutsSettingsView.swift  Shortcut config tab
       ShortcutRecorderView.swift  Shortcut capture field
       ShortcutBadge.swift     Shortcut label display

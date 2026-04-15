@@ -66,23 +66,6 @@ struct EditorSettingsView: View {
                         .buttonStyle(.borderless)
                     }
                 }
-
-                settingRow("Tab Size") {
-                    Picker("", selection: $settings.tabSize) {
-                        Text("2").tag(2)
-                        Text("4").tag(4)
-                        Text("8").tag(8)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 140, alignment: .trailing)
-                }
-
-                toggleRow("Word Wrap", isOn: $settings.wordWrap)
-                toggleRow("Show Line Numbers", isOn: $settings.showLineNumbers)
-                toggleRow("Syntax Highlighting", isOn: $settings.syntaxHighlighting)
-                toggleRow("Bracket Matching", isOn: $settings.bracketMatching)
-                toggleRow("Current Line Highlight", isOn: $settings.currentLineHighlight)
             }
 
             Spacer()
@@ -113,13 +96,5 @@ struct EditorSettingsView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-    }
-
-    private func toggleRow(_ label: String, isOn: Binding<Bool>) -> some View {
-        settingRow(label) {
-            Toggle("", isOn: isOn)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-        }
     }
 }

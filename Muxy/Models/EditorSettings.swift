@@ -26,12 +26,6 @@ final class EditorSettings {
 
     var fontSize: CGFloat = 13 { didSet { save() } }
     var fontFamily: String = "SF Mono" { didSet { save() } }
-    var wordWrap: Bool = true { didSet { save() } }
-    var showLineNumbers: Bool = true { didSet { save() } }
-    var tabSize: Int = 4 { didSet { save() } }
-    var syntaxHighlighting: Bool = true { didSet { save() } }
-    var bracketMatching: Bool = true { didSet { save() } }
-    var currentLineHighlight: Bool = true { didSet { save() } }
     var defaultEditor: DefaultEditor = .builtIn { didSet { save() } }
     var externalEditorCommand: String = "vim" { didSet { save() } }
 
@@ -67,12 +61,6 @@ final class EditorSettings {
         isBatchLoading = true
         fontSize = 13
         fontFamily = "SF Mono"
-        wordWrap = true
-        showLineNumbers = true
-        tabSize = 4
-        syntaxHighlighting = true
-        bracketMatching = true
-        currentLineHighlight = true
         defaultEditor = .builtIn
         externalEditorCommand = "vim"
         isBatchLoading = false
@@ -87,12 +75,6 @@ final class EditorSettings {
             isBatchLoading = true
             fontSize = snapshot.fontSize ?? 13
             fontFamily = snapshot.fontFamily ?? "SF Mono"
-            wordWrap = snapshot.wordWrap ?? true
-            showLineNumbers = snapshot.showLineNumbers ?? true
-            tabSize = snapshot.tabSize ?? 4
-            syntaxHighlighting = snapshot.syntaxHighlighting ?? true
-            bracketMatching = snapshot.bracketMatching ?? true
-            currentLineHighlight = snapshot.currentLineHighlight ?? true
             defaultEditor = snapshot.defaultEditor ?? snapshot.quickOpenEditor ?? .builtIn
             externalEditorCommand = snapshot.externalEditorCommand ?? "vim"
             isBatchLoading = false
@@ -107,12 +89,6 @@ final class EditorSettings {
             let snapshot = Snapshot(
                 fontSize: fontSize,
                 fontFamily: fontFamily,
-                wordWrap: wordWrap,
-                showLineNumbers: showLineNumbers,
-                tabSize: tabSize,
-                syntaxHighlighting: syntaxHighlighting,
-                bracketMatching: bracketMatching,
-                currentLineHighlight: currentLineHighlight,
                 defaultEditor: defaultEditor,
                 quickOpenEditor: nil,
                 externalEditorCommand: externalEditorCommand
@@ -134,12 +110,6 @@ final class EditorSettings {
 private struct Snapshot: Codable {
     let fontSize: CGFloat?
     let fontFamily: String?
-    let wordWrap: Bool?
-    let showLineNumbers: Bool?
-    let tabSize: Int?
-    let syntaxHighlighting: Bool?
-    let bracketMatching: Bool?
-    let currentLineHighlight: Bool?
     let defaultEditor: EditorSettings.DefaultEditor?
     let quickOpenEditor: EditorSettings.DefaultEditor?
     let externalEditorCommand: String?
