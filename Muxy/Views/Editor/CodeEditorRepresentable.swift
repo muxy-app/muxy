@@ -1160,7 +1160,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         private func performViewportUndo() -> Bool {
-            guard let viewport = viewportState, let textView else { return false }
+            guard let viewport = viewportState else { return false }
             guard let group = viewportUndoStack.popLast(), !group.edits.isEmpty else { return false }
 
             isApplyingViewportHistory = true
@@ -1179,14 +1179,14 @@ struct CodeEditorView: NSViewRepresentable {
             invalidateRenderedViewportText()
             appendViewportRedo(group)
             if let selection = group.edits.first?.selectionBefore {
-                applyViewportHistorySelection(selection, textView: textView)
+                applyViewportHistorySelection(selection)
             }
             lastViewportEditTimestamp = nil
             return true
         }
 
         private func performViewportRedo() -> Bool {
-            guard let viewport = viewportState, let textView else { return false }
+            guard let viewport = viewportState else { return false }
             guard let group = viewportRedoStack.popLast(), !group.edits.isEmpty else { return false }
 
             isApplyingViewportHistory = true
@@ -1205,7 +1205,7 @@ struct CodeEditorView: NSViewRepresentable {
             invalidateRenderedViewportText()
             appendViewportUndo(group)
             if let selection = group.edits.last?.selectionAfter {
-                applyViewportHistorySelection(selection, textView: textView)
+                applyViewportHistorySelection(selection)
             }
             lastViewportEditTimestamp = nil
             return true
@@ -1271,30 +1271,9 @@ struct CodeEditorView: NSViewRepresentable {
             viewport.applyViewport(newStart ..< newEnd)
         }
 
-        private func applyViewportHistorySelection(_ selection: ViewportCursor, textView: NSTextView) {
-            guard let viewport = viewportState, let scrollView else { return }
-
+        private func applyViewportHistorySelection(_ selection: ViewportCursor) {
             updateContainerHeight()
-            let visibleHeight = scrollView.contentView.bounds.height
-            let targetY = viewport.scrollY(forLine: selection.line)
-            let maxScrollY = max(0, viewport.totalDocumentHeight - visibleHeight)
-            let centeredY = min(maxScrollY, max(0, targetY - visibleHeight / 2))
-            scrollView.contentView.setBoundsOrigin(NSPoint(x: scrollView.contentView.bounds.origin.x, y: centeredY))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-
-            refreshViewport(force: true)
-            rebuildLineStartOffsetsForViewport()
-
-            guard let localLine = viewport.viewportLine(forBackingStoreLine: selection.line) else { return }
-            let lineStart = charOffsetForLocalLine(localLine)
-            let content = textView.string as NSString
-            let safeLineStart = min(lineStart, content.length)
-            let lineRange = content.lineRange(for: NSRange(location: safeLineStart, length: 0))
-            let lineLength = lineRange.length - (NSMaxRange(lineRange) < content.length ? 1 : 0)
-            let location = min(content.length, safeLineStart + min(selection.column, max(0, lineLength)))
-
-            textView.setSelectedRange(NSRange(location: location, length: 0))
-            scrollCursorVisibleInViewport(textView: textView, cursorLocation: location)
+            scrollToGlobalLine(selection.line, column: selection.column)
         }
 
         private func captureViewportPendingEdit(
