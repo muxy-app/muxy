@@ -16,23 +16,29 @@ struct MuxyCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .appSettings) {
-            Button("Open Configuration...") {
+            Button {
                 NSWorkspace.shared.open(
                     [config.ghosttyConfigURL],
                     withApplicationAt: URL(fileURLWithPath: "/System/Applications/TextEdit.app"),
                     configuration: NSWorkspace.OpenConfiguration()
                 )
+            } label: {
+                Label("Open Configuration...", systemImage: "doc.text")
             }
 
-            Button("Reload Configuration") {
+            Button {
                 ghostty.reloadConfig()
+            } label: {
+                Label("Reload Configuration", systemImage: "arrow.clockwise")
             }
             .shortcut(for: .reloadConfig, store: keyBindings)
 
             Divider()
 
-            Button("Check for Updates...") {
+            Button {
                 updateService.checkForUpdates()
+            } label: {
+                Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")
             }
             .disabled(!updateService.canCheckForUpdates)
         }
