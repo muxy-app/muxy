@@ -42,6 +42,9 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         case GHOSTTY_ACTION_SEARCH_SELECTED:
             handleSearchSelected(target: target, selected: action.action.search_selected)
             return true
+        case GHOSTTY_ACTION_CELL_SIZE:
+            handleCellSize(target: target, size: action.action.cell_size)
+            return true
         case GHOSTTY_ACTION_COMMAND_FINISHED,
              GHOSTTY_ACTION_SHOW_CHILD_EXITED:
             handleCommandExit(target: target)
@@ -145,6 +148,13 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         let value = selected.selected >= 0 ? Int(selected.selected) : nil
         DispatchQueue.main.async {
             view.onSearchSelected?(value)
+        }
+    }
+
+    private func handleCellSize(target: ghostty_target_s, size: ghostty_action_cell_size_s) {
+        guard let view = surfaceView(from: target) else { return }
+        DispatchQueue.main.async {
+            view.cellSize = CGSize(width: Int(size.width), height: Int(size.height))
         }
     }
 

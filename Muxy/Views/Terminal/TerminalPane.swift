@@ -40,6 +40,16 @@ struct TerminalPane: View {
                 )
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
+
+            if state.quickSelectState.isVisible {
+                TerminalQuickSelectOverlay(state: state.quickSelectState)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quickSelect)) { _ in
+            guard focused else { return }
+            let view = TerminalViewRegistry.shared.existingView(for: state.id)
+            state.quickSelectState.activate(snapshot: view?.quickSelectSnapshot())
+            view?.window?.makeFirstResponder(view)
         }
     }
 }
@@ -74,9 +84,13 @@ struct TerminalBridge: NSViewRepresentable {
         }
         view.isFocused = focused
         view.overlayActive = overlayActive
+        view.quickSelectActive = state.quickSelectState.isVisible
         view.onFocus = onFocus
         view.onProcessExit = onProcessExit
         view.onSplitRequest = onSplitRequest
+        view.onQuickSelectInput = { [weak state, weak view] input in
+            Self.handleQuickSelectInput(input, state: state, view: view)
+        }
         view.onTitleChange = { [weak state] title in
             DispatchQueue.main.async {
                 state?.setTitle(title)
@@ -100,6 +114,10 @@ struct TerminalBridge: NSViewRepresentable {
         nsView.onFocus = onFocus
         nsView.onProcessExit = onProcessExit
         nsView.onSplitRequest = onSplitRequest
+        nsView.quickSelectActive = state.quickSelectState.isVisible
+        nsView.onQuickSelectInput = { [weak state, weak nsView] input in
+            Self.handleQuickSelectInput(input, state: state, view: nsView)
+        }
         nsView.onTitleChange = { [weak state] title in
             DispatchQueue.main.async {
                 state?.setTitle(title)
@@ -172,5 +190,65 @@ struct TerminalBridge: NSViewRepresentable {
         view.onSearchSelected = { [weak state] selected in
             state?.searchState.selected = selected
         }
+    }
+
+    private static func handleQuickSelectInput(
+        _ input: TerminalQuickSelectInput,
+        state: TerminalPaneState?,
+        view: GhosttyTerminalNSView?
+    ) {
+        guard let state else { return }
+        switch state.quickSelectState.handle(input) {
+        case .none,
+             .dismiss:
+            break
+        case let .copy(text, paste):
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            if paste {
+                view?.sendText(text)
+            }
+            DispatchQueue.main.async {
+                view?.window?.makeFirstResponder(view)
+            }
+        }
+    }
+}
+
+private struct TerminalQuickSelectOverlay: View {
+    let state: TerminalQuickSelectState
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.black.opacity(0.08)
+                .ignoresSafeArea()
+
+            ForEach(state.matches) { match in
+                Text(match.label.uppercased())
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(MuxyTheme.accent, in: RoundedRectangle(cornerRadius: 4))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(.black.opacity(0.35), lineWidth: 1))
+                    .position(x: match.frame.minX + 12, y: match.frame.minY + 8)
+            }
+
+            HStack(spacing: 8) {
+                Text(state.prefix.isEmpty ? state.status : "\(state.status): \(state.prefix.uppercased())")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuxyTheme.fg)
+                Text("Esc")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(MuxyTheme.bg.opacity(0.92), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(MuxyTheme.border, lineWidth: 1))
+            .padding(8)
+        }
+        .allowsHitTesting(false)
+        .transition(.opacity)
     }
 }

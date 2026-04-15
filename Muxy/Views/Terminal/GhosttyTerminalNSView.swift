@@ -14,8 +14,11 @@ final class GhosttyTerminalNSView: NSView {
     var onSearchEnd: (() -> Void)?
     var onSearchTotal: ((Int?) -> Void)?
     var onSearchSelected: ((Int?) -> Void)?
+    var onQuickSelectInput: ((TerminalQuickSelectInput) -> Void)?
     var isFocused: Bool = false
     var overlayActive: Bool = false
+    var quickSelectActive: Bool = false
+    var cellSize: CGSize?
 
     var processExitHandled = false
 
@@ -132,6 +135,7 @@ final class GhosttyTerminalNSView: NSView {
         onSearchEnd = nil
         onSearchTotal = nil
         onSearchSelected = nil
+        onQuickSelectInput = nil
         if let observer = screenChangeObserver {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil
@@ -242,7 +246,7 @@ final class GhosttyTerminalNSView: NSView {
         ghostty_surface_set_focus(surface, false)
     }
 
-    override var acceptsFirstResponder: Bool { !overlayActive }
+    override var acceptsFirstResponder: Bool { !overlayActive || quickSelectActive }
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
@@ -282,6 +286,8 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if handleQuickSelectKey(event) { return }
+
         guard let surface else { super.keyDown(with: event)
             return
         }
@@ -361,6 +367,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func keyUp(with event: NSEvent) {
+        if quickSelectActive { return }
         guard let surface else { return }
         var keyEvent = buildKeyEvent(from: event, action: GHOSTTY_ACTION_RELEASE)
         keyEvent.text = nil
@@ -368,6 +375,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func flagsChanged(with event: NSEvent) {
+        if quickSelectActive { return }
         guard let surface else { return }
         if hasMarkedText() { return }
         var keyEvent = buildKeyEvent(from: event, action: isFlagPress(event) ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE)
@@ -376,6 +384,8 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if handleQuickSelectKey(event) { return true }
+
         if isAppShortcut(event) { return false }
         guard window?.firstResponder === self || window?.firstResponder === inputContext else { return false }
         guard event.type == .keyDown, let surface else { return false }
@@ -525,6 +535,26 @@ final class GhosttyTerminalNSView: NSView {
         return keyEvent
     }
 
+    private func handleQuickSelectKey(_ event: NSEvent) -> Bool {
+        guard quickSelectActive, event.type == .keyDown else { return false }
+        if event.keyCode == 53 {
+            onQuickSelectInput?(.escape)
+            return true
+        }
+        if event.keyCode == 51 {
+            onQuickSelectInput?(.delete)
+            return true
+        }
+        let flags = event.modifierFlags.intersection(KeyCombo.supportedModifierMask)
+        guard flags.subtracting([.shift]).isEmpty else { return true }
+        guard let character = event.charactersIgnoringModifiers?.lowercased(), character.count == 1 else {
+            return true
+        }
+        guard character.rangeOfCharacter(from: .letters) != nil else { return true }
+        onQuickSelectInput?(.character(character, shifted: flags.contains(.shift)))
+        return true
+    }
+
     private func consumedModsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
         if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
@@ -615,6 +645,65 @@ final class GhosttyTerminalNSView: NSView {
         text.withCString { ptr in
             ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
         }
+    }
+
+    func quickSelectSnapshot() -> TerminalTextSnapshot? {
+        guard let surface, bounds.width > 0, bounds.height > 0 else { return nil }
+        let backingSize = convertToBacking(bounds).size
+        let scale = window?.backingScaleFactor ?? 1
+        let logicalCellSize = cellSize.map { CGSize(width: $0.width / scale, height: $0.height / scale) }
+        let selections = quickSelectSelections(backingSize: backingSize, cellSize: logicalCellSize)
+        for selection in selections {
+            if let text = readText(selection: selection, surface: surface) {
+                return TerminalTextSnapshot(text: text, viewSize: bounds.size, cellSize: logicalCellSize)
+            }
+        }
+        return nil
+    }
+
+    private func quickSelectSelections(backingSize: CGSize, cellSize: CGSize?) -> [ghostty_selection_s] {
+        var selections = [
+            quickSelectSelection(
+                tag: GHOSTTY_POINT_SURFACE,
+                width: UInt32(max(bounds.width - 1, 0)),
+                height: UInt32(max(bounds.height - 1, 0))
+            ),
+            quickSelectSelection(
+                tag: GHOSTTY_POINT_SURFACE,
+                width: UInt32(max(backingSize.width - 1, 0)),
+                height: UInt32(max(backingSize.height - 1, 0))
+            ),
+        ]
+        if let cellSize, cellSize.width > 0, cellSize.height > 0 {
+            selections.append(quickSelectSelection(
+                tag: GHOSTTY_POINT_VIEWPORT,
+                width: UInt32(max(floor(bounds.width / cellSize.width) - 1, 0)),
+                height: UInt32(max(floor(bounds.height / cellSize.height) - 1, 0))
+            ))
+        }
+        return selections
+    }
+
+    private func quickSelectSelection(
+        tag: ghostty_point_tag_e,
+        width: UInt32,
+        height: UInt32
+    ) -> ghostty_selection_s {
+        ghostty_selection_s(
+            top_left: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: width, y: height),
+            rectangle: true
+        )
+    }
+
+    private func readText(selection: ghostty_selection_s, surface: ghostty_surface_t) -> String? {
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text), let ptr = text.text else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        let bytes = UnsafeRawPointer(ptr).assumingMemoryBound(to: UInt8.self)
+        let buffer = UnsafeBufferPointer(start: bytes, count: Int(text.text_len))
+        guard let value = String(bytes: buffer, encoding: .utf8), !value.isEmpty else { return nil }
+        return value
     }
 
     func sendReturnKey() {

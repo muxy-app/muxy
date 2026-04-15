@@ -29,12 +29,14 @@ Muxy/
     EditorSettings.swift      @Observable editor preferences (default editor, font, wrap, tab size, feature toggles)
     TextBackingStore.swift    Line-array backing store for editor documents
     ViewportState.swift       Viewport window computation and line mapping for editor documents
+    TerminalSettings.swift    Terminal preference keys and quick-select label layout helpers
     Project.swift             Project folder metadata
     Worktree.swift            Per-project worktree slot (primary or git worktree)
     WorktreeKey.swift         Hashable (projectID, worktreeID) key for workspace maps
     WorktreeConfig.swift      Decoder for .muxy/worktree.json setup commands
     TerminalPaneState.swift   Per-pane terminal state, including startup commands for terminal editors
     TerminalSearchState.swift Terminal find-in-page state
+    TerminalQuickSelectState.swift Keyboard quick-select match state and label generation
   Services/
     GhosttyService.swift      Singleton managing ghostty_app_t lifecycle
     GhosttyRuntimeEventAdapter.swift  C callback bridge from libghostty (OSC + command finished → notifications)
@@ -90,7 +92,7 @@ Muxy/
       QuickOpenOverlay.swift  Cmd+P file search overlay (name substring match via find)
     Terminal/
       GhosttyTerminalNSView.swift       AppKit view wrapping ghostty_surface_t + NSTextInputClient
-      TerminalPane.swift      SwiftUI wrapper for terminal + search
+      TerminalPane.swift      SwiftUI wrapper for terminal, search, and quick-select overlays
       TerminalSearchBar.swift Find-in-terminal UI
       TerminalViewRegistry.swift  Terminal view lifecycle management
     Editor/
@@ -116,6 +118,7 @@ Muxy/
     Settings/
       SettingsView.swift      Settings window layout
       AppearanceSettingsView.swift  Theme settings tab
+      TerminalSettingsView.swift  Terminal preferences tab, including quick-select label layout
       EditorSettingsView.swift  Editor preferences tab (font, wrap, tab size, feature toggles)
       KeyboardShortcutsSettingsView.swift  Shortcut config tab
       ShortcutRecorderView.swift  Shortcut capture field

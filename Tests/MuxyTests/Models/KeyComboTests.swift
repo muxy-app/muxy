@@ -46,6 +46,11 @@ struct KeyComboTests {
         #expect(KeyCombo(key: "downarrow", command: true).displayString == "⌘↓")
     }
 
+    @Test("displayString for space key")
+    func displayStringSpaceKey() {
+        #expect(KeyCombo(key: "space", shift: true, control: true).displayString == "⌃⇧Space")
+    }
+
     @Test("displayString for letter key is uppercased")
     func displayStringLetter() {
         let combo = KeyCombo(key: "t", command: true)
@@ -64,6 +69,11 @@ struct KeyComboTests {
         #expect(KeyCombo.normalized(key: "", keyCode: 124) == "rightarrow")
         #expect(KeyCombo.normalized(key: "", keyCode: 125) == "downarrow")
         #expect(KeyCombo.normalized(key: "", keyCode: 126) == "uparrow")
+    }
+
+    @Test("normalized key with space keyCode")
+    func normalizedSpaceKeyCode() {
+        #expect(KeyCombo.normalized(key: "", keyCode: 49) == "space")
     }
 
     @Test("normalized key with function key scalars")

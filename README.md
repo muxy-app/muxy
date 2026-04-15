@@ -26,9 +26,16 @@
 - **Customizable shortcuts** — 40+ configurable keyboard shortcuts with conflict detection
 - **Workspace persistence** — Tabs, splits, and focus state are saved and restored per project
 - **In-terminal search** — Find text in terminal output with match navigation
+- **Keyboard quick select** — Label URLs, paths, commits, and addresses in the visible terminal for keyboard copy or paste
 - **Drag and drop** — Reorder tabs and projects, drag tabs between panes to create splits
 - **Auto-updates** — Built-in update checking via Sparkle
 - **Text Editor** - Native, Lightweight Text (not code) Editor with code highlight support for most of the programming languages
+
+## Keyboard Quick Select
+
+Press `Ctrl+Shift+Space` in a terminal pane to label detected URLs, file paths, git SHAs, IP addresses, and email addresses. Type a label to copy the match, or hold Shift on the final label key to copy and paste it.
+
+Label layouts are configurable in Settings → Terminal. Muxy includes QWERTY, Colemak, Colemak-DH, Dvorak, Workman, and custom home-row labels.
 
 ## Requirements
 

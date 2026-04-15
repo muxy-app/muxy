@@ -54,6 +54,12 @@ struct MuxyCommands: Commands {
                 NotificationCenter.default.post(name: .findInTerminal, object: nil)
             }
             .shortcut(for: .findInTerminal, store: keyBindings)
+
+            Button("Quick Select") {
+                guard isMainWindowFocused else { return }
+                NotificationCenter.default.post(name: .quickSelect, object: nil)
+            }
+            .shortcut(for: .quickSelect, store: keyBindings)
         }
 
         CommandGroup(replacing: .newItem) {

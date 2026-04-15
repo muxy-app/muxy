@@ -46,6 +46,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case selectProject8
     case selectProject9
     case findInTerminal
+    case quickSelect
     case openVCSTab
     case quickOpen
     case switchWorktree
@@ -90,6 +91,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .selectProject8,
         .selectProject9,
         .findInTerminal,
+        .quickSelect,
         .openVCSTab,
         .quickOpen,
         .switchWorktree,
@@ -135,6 +137,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .selectProject8: ShortcutMetadata(displayName: "Project 8", category: "Project Navigation", scope: .mainWindow)
         case .selectProject9: ShortcutMetadata(displayName: "Project 9", category: "Project Navigation", scope: .mainWindow)
         case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .mainWindow)
+        case .quickSelect: ShortcutMetadata(displayName: "Quick Select", category: "Terminal", scope: .mainWindow)
         case .openVCSTab: ShortcutMetadata(displayName: "Source Control", category: "App", scope: .mainWindow)
         case .quickOpen: ShortcutMetadata(displayName: "Quick Open", category: "App", scope: .mainWindow)
         case .switchWorktree: ShortcutMetadata(displayName: "Switch Worktree", category: "Project Navigation", scope: .mainWindow)
@@ -219,6 +222,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .selectProject8, combo: KeyCombo(key: "8", control: true)),
         Self(action: .selectProject9, combo: KeyCombo(key: "9", control: true)),
         Self(action: .findInTerminal, combo: KeyCombo(key: "f", command: true)),
+        Self(action: .quickSelect, combo: KeyCombo(key: KeyCombo.spaceKey, shift: true, control: true)),
         Self(action: .quickOpen, combo: KeyCombo(key: "p", command: true)),
         Self(action: .switchWorktree, combo: KeyCombo(key: "o", command: true, shift: true)),
         Self(action: .saveFile, combo: KeyCombo(key: "s", command: true)),

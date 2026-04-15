@@ -9,6 +9,7 @@ final class TerminalPaneState: Identifiable {
     let startupCommand: String?
     let externalEditorFilePath: String?
     let searchState = TerminalSearchState()
+    let quickSelectState = TerminalQuickSelectState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
 
     init(
