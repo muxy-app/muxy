@@ -6,16 +6,17 @@ struct EditorSettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            settingRow("Quick Open Editor") {
-                Picker("", selection: $settings.quickOpenEditor) {
-                    ForEach(EditorSettings.QuickOpenEditor.allCases) { editor in
+            settingRow("Default Editor") {
+                Picker("", selection: $settings.defaultEditor) {
+                    ForEach(EditorSettings.DefaultEditor.allCases) { editor in
                         Text(editor.displayName).tag(editor)
                     }
                 }
-                .frame(width: 210)
+                .labelsHidden()
+                .frame(width: 210, alignment: .trailing)
             }
 
-            if settings.quickOpenEditor == .terminalCommand {
+            if settings.defaultEditor == .terminalCommand {
                 settingRow("Editor Command") {
                     TextField("vim", text: $settings.externalEditorCommand)
                         .textFieldStyle(.roundedBorder)
@@ -34,7 +35,8 @@ struct EditorSettingsView: View {
                                 .tag(family)
                         }
                     }
-                    .frame(width: 210)
+                    .labelsHidden()
+                    .frame(width: 210, alignment: .trailing)
                 }
 
                 settingRow("Font Size") {
@@ -71,8 +73,9 @@ struct EditorSettingsView: View {
                         Text("4").tag(4)
                         Text("8").tag(8)
                     }
+                    .labelsHidden()
                     .pickerStyle(.segmented)
-                    .frame(width: 140)
+                    .frame(width: 140, alignment: .trailing)
                 }
 
                 toggleRow("Word Wrap", isOn: $settings.wordWrap)

@@ -75,7 +75,7 @@ final class TabArea: Identifiable {
             selectTab(existing.id)
             return
         }
-        let title = "\(commandTitle(command)) \(URL(fileURLWithPath: filePath).lastPathComponent)"
+        let title = "\(Self.commandTitle(command)) \(URL(fileURLWithPath: filePath).lastPathComponent)"
         let pane = TerminalPaneState(
             projectPath: projectPath,
             title: title,
@@ -85,15 +85,14 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(pane: pane))
     }
 
-    private static func editorLaunchCommand(command: String, filePath: String) -> String {
-        let escapedPath = shellEscapedPath(filePath)
+    static func editorLaunchCommand(command: String, filePath: String) -> String {
         if command.contains("{file}") {
-            return command.replacingOccurrences(of: "{file}", with: escapedPath)
+            return command.replacingOccurrences(of: "{file}", with: filePath)
         }
-        return command + " " + escapedPath
+        return command + " " + shellEscapedPath(filePath)
     }
 
-    private func commandTitle(_ command: String) -> String {
+    private static func commandTitle(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = trimmed.split(separator: " ").first else { return "Editor" }
         return String(first)

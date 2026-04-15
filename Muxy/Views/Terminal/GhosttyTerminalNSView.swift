@@ -17,6 +17,8 @@ final class GhosttyTerminalNSView: NSView {
     var isFocused: Bool = false
     var overlayActive: Bool = false
 
+    var processExitHandled = false
+
     var closesOnCommandExit: Bool {
         command != nil
     }

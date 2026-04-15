@@ -11,21 +11,12 @@ final class TerminalPaneState: Identifiable {
     let searchState = TerminalSearchState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
 
-    init(projectPath: String) {
-        self.projectPath = projectPath
-        self.title = "Terminal"
-        self.startupCommand = nil
-        self.externalEditorFilePath = nil
-    }
-
-    init(projectPath: String, title: String) {
-        self.projectPath = projectPath
-        self.title = title
-        self.startupCommand = nil
-        self.externalEditorFilePath = nil
-    }
-
-    init(projectPath: String, title: String, startupCommand: String, externalEditorFilePath: String) {
+    init(
+        projectPath: String,
+        title: String = "Terminal",
+        startupCommand: String? = nil,
+        externalEditorFilePath: String? = nil
+    ) {
         self.projectPath = projectPath
         self.title = title
         self.startupCommand = startupCommand

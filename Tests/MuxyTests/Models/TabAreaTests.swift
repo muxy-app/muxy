@@ -87,6 +87,30 @@ struct TabAreaTests {
         #expect(area.activeTab?.content.pane?.startupCommand == "vim +10 /tmp/test/file.swift")
     }
 
+    @Test("shellEscapedPath does not escape simple paths")
+    func shellEscapedPathSimple() {
+        let command = TabArea.editorLaunchCommand(command: "vim", filePath: "/tmp/test/file.swift")
+        #expect(command == "vim /tmp/test/file.swift")
+    }
+
+    @Test("shellEscapedPath escapes paths with spaces")
+    func shellEscapedPathSpaces() {
+        let command = TabArea.editorLaunchCommand(command: "vim", filePath: "/tmp/test/my file.swift")
+        #expect(command == "vim '/tmp/test/my file.swift'")
+    }
+
+    @Test("shellEscapedPath escapes paths with single quotes")
+    func shellEscapedPathSingleQuotes() {
+        let command = TabArea.editorLaunchCommand(command: "vim", filePath: "/tmp/test/it's a file.swift")
+        #expect(command == "vim '/tmp/test/it'\\''s a file.swift'")
+    }
+
+    @Test("file placeholder uses raw path for user-controlled quoting")
+    func filePlaceholderRawPath() {
+        let command = TabArea.editorLaunchCommand(command: "vim \"{file}\"", filePath: "/tmp/test/my file.swift")
+        #expect(command == "vim \"/tmp/test/my file.swift\"")
+    }
+
     @Test("createExternalEditorTab reuses matching external editor tab")
     func createExternalEditorTabReuse() {
         let area = TabArea(projectPath: testPath)

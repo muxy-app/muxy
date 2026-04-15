@@ -8,7 +8,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "EditorSettings")
 final class EditorSettings {
     static let shared = EditorSettings()
 
-    enum QuickOpenEditor: String, Codable, CaseIterable, Identifiable {
+    enum DefaultEditor: String, Codable, CaseIterable, Identifiable {
         case builtIn
         case terminalCommand
 
@@ -32,7 +32,7 @@ final class EditorSettings {
     var syntaxHighlighting: Bool = true { didSet { save() } }
     var bracketMatching: Bool = true { didSet { save() } }
     var currentLineHighlight: Bool = true { didSet { save() } }
-    var quickOpenEditor: QuickOpenEditor = .builtIn { didSet { save() } }
+    var defaultEditor: DefaultEditor = .builtIn { didSet { save() } }
     var externalEditorCommand: String = "vim" { didSet { save() } }
 
     @ObservationIgnored private let fileURL: URL
@@ -73,7 +73,7 @@ final class EditorSettings {
         syntaxHighlighting = true
         bracketMatching = true
         currentLineHighlight = true
-        quickOpenEditor = .builtIn
+        defaultEditor = .builtIn
         externalEditorCommand = "vim"
         isBatchLoading = false
         save()
@@ -93,7 +93,7 @@ final class EditorSettings {
             syntaxHighlighting = snapshot.syntaxHighlighting ?? true
             bracketMatching = snapshot.bracketMatching ?? true
             currentLineHighlight = snapshot.currentLineHighlight ?? true
-            quickOpenEditor = snapshot.quickOpenEditor ?? .builtIn
+            defaultEditor = snapshot.defaultEditor ?? snapshot.quickOpenEditor ?? .builtIn
             externalEditorCommand = snapshot.externalEditorCommand ?? "vim"
             isBatchLoading = false
         } catch {
@@ -113,7 +113,8 @@ final class EditorSettings {
                 syntaxHighlighting: syntaxHighlighting,
                 bracketMatching: bracketMatching,
                 currentLineHighlight: currentLineHighlight,
-                quickOpenEditor: quickOpenEditor,
+                defaultEditor: defaultEditor,
+                quickOpenEditor: nil,
                 externalEditorCommand: externalEditorCommand
             )
             let encoder = JSONEncoder()
@@ -139,6 +140,7 @@ private struct Snapshot: Codable {
     let syntaxHighlighting: Bool?
     let bracketMatching: Bool?
     let currentLineHighlight: Bool?
-    let quickOpenEditor: EditorSettings.QuickOpenEditor?
+    let defaultEditor: EditorSettings.DefaultEditor?
+    let quickOpenEditor: EditorSettings.DefaultEditor?
     let externalEditorCommand: String?
 }

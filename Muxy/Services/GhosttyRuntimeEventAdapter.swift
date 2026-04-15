@@ -102,6 +102,8 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         guard let userdata else { return }
         let view = Unmanaged<GhosttyTerminalNSView>.fromOpaque(userdata).takeUnretainedValue()
         DispatchQueue.main.async {
+            guard !view.processExitHandled else { return }
+            view.processExitHandled = true
             view.onProcessExit?()
         }
     }
@@ -109,6 +111,8 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
     private func handleCommandExit(target: ghostty_target_s) {
         guard let view = surfaceView(from: target), view.closesOnCommandExit else { return }
         DispatchQueue.main.async {
+            guard !view.processExitHandled else { return }
+            view.processExitHandled = true
             view.onProcessExit?()
         }
     }

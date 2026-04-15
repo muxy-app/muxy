@@ -26,7 +26,7 @@ Muxy/
     KeyCombo.swift            Key combo encoding, display, matching
     VCSTabState.swift         Git diff viewer state + loading orchestration
     EditorTabState.swift      Code editor tab state (backing store, cursor, search, save)
-    EditorSettings.swift      @Observable editor preferences (quick-open editor, font, wrap, tab size, feature toggles)
+    EditorSettings.swift      @Observable editor preferences (default editor, font, wrap, tab size, feature toggles)
     TextBackingStore.swift    Line-array backing store for editor documents
     ViewportState.swift       Viewport window computation and line mapping for editor documents
     Project.swift             Project folder metadata
@@ -149,7 +149,7 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
 
 ## Key Integration Points
 
-- **Editor Pipeline**: Quick-open routes through `AppState.openFile`. `EditorSettings.quickOpenEditor`
+- **Editor Pipeline**: File opening routes through `AppState.openFile`. `EditorSettings.defaultEditor`
   chooses either the built-in editor or a configured terminal command. Built-in editor tabs load files into
   `TextBackingStore` and render through `CodeEditorRepresentable`; terminal editor tabs create a normal
   terminal pane with the configured Ghostty startup command. The size thresholds in

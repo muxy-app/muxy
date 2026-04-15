@@ -187,7 +187,7 @@ final class AppState {
 
     func openFile(_ filePath: String, projectID: UUID) {
         let settings = EditorSettings.shared
-        if settings.quickOpenEditor == .terminalCommand {
+        if settings.defaultEditor == .terminalCommand {
             let command = settings.externalEditorCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             if !command.isEmpty {
                 openFileInExternalEditor(filePath, projectID: projectID, command: command)
