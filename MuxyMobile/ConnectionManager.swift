@@ -179,6 +179,11 @@ final class ConnectionManager {
         _ = await send(.terminalResize, params: .terminalResize(params))
     }
 
+    func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool) async {
+        let params = TerminalScrollParams(paneID: paneID, deltaX: deltaX, deltaY: deltaY, precise: precise)
+        _ = await send(.terminalScroll, params: .terminalScroll(params))
+    }
+
     func getTerminalCells(paneID: UUID) async -> TerminalCellsDTO? {
         let params = GetTerminalContentParams(paneID: paneID)
         guard let response = await send(.getTerminalContent, params: .getTerminalContent(params)) else { return nil }

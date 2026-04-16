@@ -168,6 +168,15 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         }
     }
 
+    func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool) {
+        guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
+              let surface = view.surface
+        else { return }
+
+        let mods: ghostty_input_scroll_mods_t = precise ? 1 : 0
+        ghostty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
+    }
+
     func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32) {
         guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
               let surface = view.surface

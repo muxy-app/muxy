@@ -20,6 +20,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func focusArea(projectID: UUID, areaID: UUID)
     func sendTerminalInput(paneID: UUID, text: String)
     func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32)
+    func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool)
     func getTerminalContent(paneID: UUID) -> TerminalCellsDTO?
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO?
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws
@@ -230,6 +231,18 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                 return MuxyResponse(id: request.id, error: .invalidParams)
             }
             delegate.resizeTerminal(paneID: params.paneID, cols: params.cols, rows: params.rows)
+            return MuxyResponse(id: request.id, result: .ok)
+
+        case .terminalScroll:
+            guard case let .terminalScroll(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            delegate.scrollTerminal(
+                paneID: params.paneID,
+                deltaX: params.deltaX,
+                deltaY: params.deltaY,
+                precise: params.precise
+            )
             return MuxyResponse(id: request.id, result: .ok)
 
         case .getTerminalContent:

@@ -68,6 +68,7 @@ public enum MuxyMethod: String, Codable, Sendable {
     case focusArea
     case terminalInput
     case terminalResize
+    case terminalScroll
     case getTerminalContent
     case getVCSStatus
     case vcsCommit
@@ -93,6 +94,7 @@ public enum MuxyParams: Codable, Sendable {
     case focusArea(FocusAreaParams)
     case terminalInput(TerminalInputParams)
     case terminalResize(TerminalResizeParams)
+    case terminalScroll(TerminalScrollParams)
     case getTerminalContent(GetTerminalContentParams)
     case getVCSStatus(GetVCSStatusParams)
     case vcsCommit(VCSCommitParams)
@@ -124,6 +126,7 @@ public enum MuxyParams: Codable, Sendable {
         case "focusArea": self = try .focusArea(container.decode(FocusAreaParams.self, forKey: .value))
         case "terminalInput": self = try .terminalInput(container.decode(TerminalInputParams.self, forKey: .value))
         case "terminalResize": self = try .terminalResize(container.decode(TerminalResizeParams.self, forKey: .value))
+        case "terminalScroll": self = try .terminalScroll(container.decode(TerminalScrollParams.self, forKey: .value))
         case "getTerminalContent": self = try .getTerminalContent(container.decode(GetTerminalContentParams.self, forKey: .value))
         case "getVCSStatus": self = try .getVCSStatus(container.decode(GetVCSStatusParams.self, forKey: .value))
         case "vcsCommit": self = try .vcsCommit(container.decode(VCSCommitParams.self, forKey: .value))
@@ -163,6 +166,8 @@ public enum MuxyParams: Codable, Sendable {
         case let .terminalInput(v): try container.encode("terminalInput", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .terminalResize(v): try container.encode("terminalResize", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .terminalScroll(v): try container.encode("terminalScroll", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .getTerminalContent(v): try container.encode("getTerminalContent", forKey: .type)
             try container.encode(v, forKey: .value)

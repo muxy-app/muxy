@@ -73,9 +73,16 @@ struct TerminalView: View {
 
     private var terminalGrid: some View {
         ZStack(alignment: .bottom) {
-            TerminalGridRepresentable(cells: cells, paneID: paneID) { cols, rows in
-                Task { await connection.resizeTerminal(paneID: paneID, cols: cols, rows: rows) }
-            }
+            TerminalGridRepresentable(
+                cells: cells,
+                paneID: paneID,
+                onResize: { cols, rows in
+                    Task { await connection.resizeTerminal(paneID: paneID, cols: cols, rows: rows) }
+                },
+                onScroll: { dx, dy in
+                    Task { await connection.scrollTerminal(paneID: paneID, deltaX: dx, deltaY: dy, precise: true) }
+                }
+            )
 
             TerminalInputField(coordinator: inputCoordinator, theme: connection.terminalTheme)
                 .frame(height: 1)
@@ -108,21 +115,25 @@ struct TerminalGridRepresentable: UIViewRepresentable {
     let cells: TerminalCellsDTO?
     let paneID: UUID
     let onResize: (UInt32, UInt32) -> Void
+    let onScroll: (Double, Double) -> Void
 
     func makeUIView(context _: Context) -> TerminalGridView {
         let view = TerminalGridView(frame: .zero)
         view.onResize = onResize
+        view.onScroll = onScroll
         return view
     }
 
     func updateUIView(_ uiView: TerminalGridView, context _: Context) {
         uiView.onResize = onResize
+        uiView.onScroll = onScroll
         uiView.update(cells: cells)
     }
 }
 
 final class TerminalGridView: UIView {
     var onResize: ((UInt32, UInt32) -> Void)?
+    var onScroll: ((Double, Double) -> Void)?
 
     private var cells: TerminalCellsDTO?
     private let fontSize: CGFloat = 12
@@ -130,6 +141,7 @@ final class TerminalGridView: UIView {
     private var rowHeight: CGFloat = 0
     private var lastReportedCols: UInt32 = 0
     private var lastReportedRows: UInt32 = 0
+    private var lastPanTranslation: CGPoint = .zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -137,6 +149,31 @@ final class TerminalGridView: UIView {
         contentMode = .redraw
         isOpaque = true
         recomputeMetrics()
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.minimumNumberOfTouches = 1
+        pan.maximumNumberOfTouches = 2
+        addGestureRecognizer(pan)
+    }
+
+    @objc
+    private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            lastPanTranslation = .zero
+        case .changed:
+            let translation = gesture.translation(in: self)
+            let dx = translation.x - lastPanTranslation.x
+            let dy = translation.y - lastPanTranslation.y
+            lastPanTranslation = translation
+            guard abs(dx) > 0.5 || abs(dy) > 0.5 else { return }
+            onScroll?(Double(dx), Double(dy))
+        case .ended,
+             .cancelled,
+             .failed:
+            lastPanTranslation = .zero
+        default:
+            break
+        }
     }
 
     @available(*, unavailable)

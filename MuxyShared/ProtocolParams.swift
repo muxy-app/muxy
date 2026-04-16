@@ -119,6 +119,19 @@ public struct TerminalResizeParams: Codable, Sendable {
     }
 }
 
+public struct TerminalScrollParams: Codable, Sendable {
+    public let paneID: UUID
+    public let deltaX: Double
+    public let deltaY: Double
+    public let precise: Bool
+    public init(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool) {
+        self.paneID = paneID
+        self.deltaX = deltaX
+        self.deltaY = deltaY
+        self.precise = precise
+    }
+}
+
 public struct GetTerminalContentParams: Codable, Sendable {
     public let paneID: UUID
     public init(paneID: UUID) {
