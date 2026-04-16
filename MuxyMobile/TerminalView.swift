@@ -52,26 +52,23 @@ struct TerminalView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            terminalGrid
-            KeyboardAccessoryBar(paneID: paneID, coordinator: inputCoordinator, theme: connection.terminalTheme)
-        }
-        .background(themeBg)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-        .onAppear {
-            inputCoordinator.onSend = { text in
-                Task { await connection.sendTerminalInput(paneID: paneID, text: text) }
+        terminalGrid
+            .background(themeBg)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .onAppear {
+                inputCoordinator.onSend = { text in
+                    Task { await connection.sendTerminalInput(paneID: paneID, text: text) }
+                }
+                startPolling()
             }
-            startPolling()
-        }
-        .onDisappear {
-            stopPolling()
-        }
-        .onChange(of: paneID) { _, _ in
-            cells = nil
-            stopPolling()
-            startPolling()
-        }
+            .onDisappear {
+                stopPolling()
+            }
+            .onChange(of: paneID) { _, _ in
+                cells = nil
+                stopPolling()
+                startPolling()
+            }
     }
 
     private var terminalGrid: some View {
@@ -80,7 +77,7 @@ struct TerminalView: View {
                 Task { await connection.resizeTerminal(paneID: paneID, cols: cols, rows: rows) }
             }
 
-            TerminalInputField(coordinator: inputCoordinator)
+            TerminalInputField(coordinator: inputCoordinator, theme: connection.terminalTheme)
                 .frame(height: 1)
                 .opacity(0.01)
         }
@@ -295,6 +292,7 @@ final class TerminalInputCoordinator {
 
 struct TerminalInputField: UIViewRepresentable {
     let coordinator: TerminalInputCoordinator
+    let theme: ConnectionManager.TerminalTheme?
 
     func makeUIView(context _: Context) -> TerminalUITextField {
         let field = TerminalUITextField(frame: .zero)
@@ -304,6 +302,10 @@ struct TerminalInputField: UIViewRepresentable {
         field.onDelete = { [weak coordinator] in
             coordinator?.send("\u{7F}")
         }
+        field.onAccessoryKey = { [weak coordinator] text in
+            coordinator?.send(text)
+        }
+        field.applyTheme(theme)
         coordinator.textField = field
         DispatchQueue.main.async {
             field.becomeFirstResponder()
@@ -311,12 +313,15 @@ struct TerminalInputField: UIViewRepresentable {
         return field
     }
 
-    func updateUIView(_: TerminalUITextField, context _: Context) {}
+    func updateUIView(_ uiView: TerminalUITextField, context _: Context) {
+        uiView.applyTheme(theme)
+    }
 }
 
 final class TerminalUITextField: UIView, UIKeyInput, UITextInputTraits {
     var onInsert: ((String) -> Void)?
     var onDelete: (() -> Void)?
+    var onAccessoryKey: ((String) -> Void)?
 
     var autocapitalizationType: UITextAutocapitalizationType = .none
     var autocorrectionType: UITextAutocorrectionType = .no
@@ -332,6 +337,18 @@ final class TerminalUITextField: UIView, UIKeyInput, UITextInputTraits {
 
     override var canBecomeFirstResponder: Bool { true }
 
+    private lazy var accessoryBar: TerminalAccessoryBar = {
+        let bar = TerminalAccessoryBar()
+        bar.onKey = { [weak self] text in self?.onAccessoryKey?(text) }
+        return bar
+    }()
+
+    override var inputAccessoryView: UIView? { accessoryBar }
+
+    func applyTheme(_ theme: ConnectionManager.TerminalTheme?) {
+        accessoryBar.applyTheme(theme)
+    }
+
     func insertText(_ text: String) {
         onInsert?(text)
     }
@@ -341,68 +358,130 @@ final class TerminalUITextField: UIView, UIKeyInput, UITextInputTraits {
     }
 }
 
-struct KeyboardAccessoryBar: View {
-    let paneID: UUID
-    let coordinator: TerminalInputCoordinator
-    let theme: ConnectionManager.TerminalTheme?
+final class TerminalAccessoryBar: UIInputView {
+    var onKey: ((String) -> Void)?
 
-    private var barBg: Color {
-        guard let theme else { return Color(white: 0.12) }
-        return theme.isDark ? theme.bgColor.opacity(0.65) : theme.bgColor
+    private let scrollView = UIScrollView()
+    private let stack = UIStackView()
+    private var themeButtons: [UIButton] = []
+    private var currentTheme: ConnectionManager.TerminalTheme?
+
+    init() {
+        super.init(
+            frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 44),
+            inputViewStyle: .keyboard
+        )
+        autoresizingMask = [.flexibleWidth]
+        allowsSelfSizing = true
+        setupSubviews()
+        populateKeys()
     }
 
-    private var keyBg: Color {
-        guard let theme else { return Color(white: 0.22) }
-        return theme.isDark
-            ? theme.fgColor.opacity(0.12)
-            : theme.fgColor.opacity(0.08)
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    private var keyFg: Color {
-        theme?.fgColor ?? .white
+    private func setupSubviews() {
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.alwaysBounceHorizontal = true
+        addSubview(scrollView)
+
+        stack.axis = .horizontal
+        stack.spacing = 6
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.layoutMargins = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+        stack.isLayoutMarginsRelativeArrangement = true
+        scrollView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            heightAnchor.constraint(equalToConstant: 44),
+
+            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+        ])
     }
 
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                keyButton("esc") { coordinator.send("\u{1B}") }
-                keyButton("tab") { coordinator.send("\t") }
-                keyButton("ctrl+c") { coordinator.send("\u{03}") }
-                keyButton("ctrl+d") { coordinator.send("\u{04}") }
-                keyButton("ctrl+l") { coordinator.send("\u{0C}") }
-                keyButton("-") { coordinator.send("-") }
-                keyButton("/") { coordinator.send("/") }
-                keyButton("|") { coordinator.send("|") }
-                Spacer(minLength: 8)
-                arrowKey("chevron.left") { coordinator.send("\u{1B}[D") }
-                arrowKey("chevron.up") { coordinator.send("\u{1B}[A") }
-                arrowKey("chevron.down") { coordinator.send("\u{1B}[B") }
-                arrowKey("chevron.right") { coordinator.send("\u{1B}[C") }
-            }
-            .padding(.horizontal, 8)
+    private func populateKeys() {
+        addKey(title: "esc", payload: "\u{1B}")
+        addKey(title: "tab", payload: "\t")
+        addKey(title: "ctrl+c", payload: "\u{03}")
+        addKey(title: "ctrl+d", payload: "\u{04}")
+        addKey(title: "ctrl+l", payload: "\u{0C}")
+        addKey(title: "-", payload: "-")
+        addKey(title: "/", payload: "/")
+        addKey(title: "|", payload: "|")
+        addKey(systemImage: "chevron.left", payload: "\u{1B}[D")
+        addKey(systemImage: "chevron.up", payload: "\u{1B}[A")
+        addKey(systemImage: "chevron.down", payload: "\u{1B}[B")
+        addKey(systemImage: "chevron.right", payload: "\u{1B}[C")
+    }
+
+    private func addKey(title: String? = nil, systemImage: String? = nil, payload: String) {
+        let button = UIButton(type: .system)
+        var config = UIButton.Configuration.gray()
+        config.cornerStyle = .medium
+        config.baseBackgroundColor = keyBackgroundColor
+        config.baseForegroundColor = keyForegroundColor
+        config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
+        if let title {
+            var attr = AttributedString(title)
+            attr.font = UIFont.monospacedSystemFont(ofSize: 13, weight: .medium)
+            config.attributedTitle = attr
+        } else if let systemImage {
+            config.image = UIImage(systemName: systemImage)?
+                .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold))
         }
-        .frame(height: 44)
-        .background(barBg)
+        button.configuration = config
+        button.accessibilityLabel = title ?? systemImage
+        button.addAction(
+            UIAction { [weak self] _ in self?.onKey?(payload) },
+            for: .touchUpInside
+        )
+        themeButtons.append(button)
+        stack.addArrangedSubview(button)
     }
 
-    private func keyButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundStyle(keyFg)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(keyBg, in: RoundedRectangle(cornerRadius: 6))
+    func applyTheme(_ theme: ConnectionManager.TerminalTheme?) {
+        currentTheme = theme
+        let isDark = theme?.isDark ?? true
+        overrideUserInterfaceStyle = isDark ? .dark : .light
+        for button in themeButtons {
+            var config = button.configuration
+            config?.baseBackgroundColor = keyBackgroundColor
+            config?.baseForegroundColor = keyForegroundColor
+            button.configuration = config
         }
     }
 
-    private func arrowKey(_ systemName: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(keyFg)
-                .frame(width: 36, height: 30)
-                .background(keyBg, in: RoundedRectangle(cornerRadius: 6))
+    private var keyBackgroundColor: UIColor {
+        guard let theme = currentTheme else {
+            return UIColor(white: 0.3, alpha: 1.0)
         }
+        let base = uiColor(rgb: theme.fg)
+        return base.withAlphaComponent(theme.isDark ? 0.14 : 0.1)
+    }
+
+    private var keyForegroundColor: UIColor {
+        guard let theme = currentTheme else { return .white }
+        return uiColor(rgb: theme.fg)
+    }
+
+    private func uiColor(rgb: UInt32) -> UIColor {
+        UIColor(
+            red: CGFloat((rgb >> 16) & 0xFF) / 255.0,
+            green: CGFloat((rgb >> 8) & 0xFF) / 255.0,
+            blue: CGFloat(rgb & 0xFF) / 255.0,
+            alpha: 1.0
+        )
     }
 }
