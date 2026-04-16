@@ -148,6 +148,11 @@ final class ConnectionManager {
         _ = await send(.terminalInput, params: .terminalInput(params))
     }
 
+    func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32) async {
+        let params = TerminalResizeParams(paneID: paneID, cols: cols, rows: rows)
+        _ = await send(.terminalResize, params: .terminalResize(params))
+    }
+
     func getTerminalCells(paneID: UUID) async -> TerminalCellsDTO? {
         let params = GetTerminalContentParams(paneID: paneID)
         guard let response = await send(.getTerminalContent, params: .getTerminalContent(params)) else { return nil }

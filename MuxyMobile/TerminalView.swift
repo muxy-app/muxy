@@ -72,7 +72,9 @@ struct TerminalView: View {
 
     private var terminalGrid: some View {
         ZStack(alignment: .bottom) {
-            TerminalGridRepresentable(cells: cells)
+            TerminalGridRepresentable(cells: cells, paneID: paneID) { cols, rows in
+                Task { await connection.resizeTerminal(paneID: paneID, cols: cols, rows: rows) }
+            }
 
             TerminalInputField(coordinator: inputCoordinator)
                 .frame(height: 1)
@@ -103,22 +105,30 @@ struct TerminalView: View {
 
 struct TerminalGridRepresentable: UIViewRepresentable {
     let cells: TerminalCellsDTO?
+    let paneID: UUID
+    let onResize: (UInt32, UInt32) -> Void
 
     func makeUIView(context _: Context) -> TerminalGridView {
-        TerminalGridView(frame: .zero)
+        let view = TerminalGridView(frame: .zero)
+        view.onResize = onResize
+        return view
     }
 
     func updateUIView(_ uiView: TerminalGridView, context _: Context) {
+        uiView.onResize = onResize
         uiView.update(cells: cells)
     }
 }
 
 final class TerminalGridView: UIView {
+    var onResize: ((UInt32, UInt32) -> Void)?
+
     private var cells: TerminalCellsDTO?
-    private var fontSize: CGFloat = TerminalFont.fontSize
-    private var cellWidth: CGFloat = 0
-    private var cellHeight: CGFloat = 0
-    private var ascent: CGFloat = 0
+    private let fontSize: CGFloat = 12
+    private var advanceWidth: CGFloat = 0
+    private var rowHeight: CGFloat = 0
+    private var lastReportedCols: UInt32 = 0
+    private var lastReportedRows: UInt32 = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -138,44 +148,48 @@ final class TerminalGridView: UIView {
         setNeedsDisplay()
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        reportGridSize()
+        setNeedsDisplay()
+    }
+
     private func recomputeMetrics() {
         let font = TerminalFont.regular(size: fontSize)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let advance = ("M" as NSString).size(withAttributes: attributes)
-        cellWidth = ceil(advance.width)
-        cellHeight = ceil(font.ascender - font.descender + font.leading)
-        ascent = font.ascender
+        advanceWidth = ceil(("M" as NSString).size(withAttributes: [.font: font]).width)
+        rowHeight = ceil(font.ascender - font.descender + font.leading)
+    }
+
+    private func reportGridSize() {
+        guard advanceWidth > 0, rowHeight > 0 else { return }
+        let cols = max(UInt32(floor(bounds.width / advanceWidth)), 20)
+        let rows = max(UInt32(floor(bounds.height / rowHeight)), 5)
+        guard cols != lastReportedCols || rows != lastReportedRows else { return }
+        lastReportedCols = cols
+        lastReportedRows = rows
+        onResize?(cols, rows)
     }
 
     override func draw(_ rect: CGRect) {
-        guard let ctx = UIGraphicsGetCurrentContext(), let cells else {
-            UIColor.black.setFill()
-            UIRectFill(rect)
-            return
-        }
+        guard let ctx = UIGraphicsGetCurrentContext() else { return }
 
-        UIColor.black.setFill()
+        let defaultBg: UIColor = {
+            if let cell = cells?.cells.first {
+                return color(rgb: cell.bg)
+            }
+            return .black
+        }()
+        defaultBg.setFill()
         UIRectFill(rect)
+
+        guard let cells else { return }
 
         let cols = Int(cells.cols)
         let rows = Int(cells.rows)
         guard cols > 0, rows > 0 else { return }
 
-        let availableWidth = bounds.width - 8
-        let availableHeight = bounds.height - 8
-        let fitByWidth = availableWidth / CGFloat(cols)
-        let fitByHeight = availableHeight / CGFloat(rows)
-        let targetCellWidth = max(floor(min(fitByWidth, fitByHeight * 0.55)), 6)
-
-        let regularFont = TerminalFont.regular(size: fontSize)
-        let scale = targetCellWidth / cellWidth
-        let scaledSize = max(6, floor(regularFont.pointSize * scale))
-        let finalRegular = TerminalFont.regular(size: scaledSize)
-        let finalBold = TerminalFont.bold(size: scaledSize)
-        let advanceWidth = ceil(("M" as NSString).size(withAttributes: [.font: finalRegular]).width)
-        let rowHeight = ceil(finalRegular.ascender - finalRegular.descender + finalRegular.leading)
-        let originX: CGFloat = 4
-        let originY: CGFloat = 4
+        let regular = TerminalFont.regular(size: fontSize)
+        let bold = TerminalFont.bold(size: fontSize)
 
         ctx.textMatrix = .identity
         ctx.translateBy(x: 0, y: bounds.height)
@@ -191,10 +205,11 @@ final class TerminalGridView: UIView {
                 let flags = cell.flags
                 if flags & TerminalCellFlag.spacer != 0 { continue }
 
+                let width = advanceWidth * ((flags & TerminalCellFlag.wide) != 0 ? 2 : 1)
                 let cellRect = CGRect(
-                    x: originX + CGFloat(col) * advanceWidth,
-                    y: bounds.height - originY - CGFloat(row + 1) * rowHeight,
-                    width: advanceWidth * ((flags & TerminalCellFlag.wide) != 0 ? 2 : 1),
+                    x: CGFloat(col) * advanceWidth,
+                    y: bounds.height - CGFloat(row + 1) * rowHeight,
+                    width: width,
                     height: rowHeight
                 )
 
@@ -215,10 +230,9 @@ final class TerminalGridView: UIView {
                 if cell.codepoint == 0 || cell.codepoint == 0x20 { continue }
 
                 guard let scalar = Unicode.Scalar(cell.codepoint) else { continue }
-                let glyphString = String(Character(scalar)) as NSString
+                let glyphString = String(Character(scalar))
 
-                let useBold = flags & TerminalCellFlag.bold != 0
-                let baseFont = useBold ? finalBold : finalRegular
+                let baseFont: UIFont = (flags & TerminalCellFlag.bold != 0) ? bold : regular
                 var drawColor = fgColor
                 if flags & TerminalCellFlag.faint != 0 {
                     drawColor = drawColor.withAlphaComponent(0.65)
@@ -228,10 +242,10 @@ final class TerminalGridView: UIView {
                     .font: baseFont,
                     .foregroundColor: drawColor,
                 ]
-                if flags & TerminalCellFlag.italic != 0 {
-                    if let descriptor = baseFont.fontDescriptor.withSymbolicTraits(.traitItalic) {
-                        attrs[.font] = UIFont(descriptor: descriptor, size: baseFont.pointSize)
-                    }
+                if flags & TerminalCellFlag.italic != 0,
+                   let descriptor = baseFont.fontDescriptor.withSymbolicTraits(.traitItalic)
+                {
+                    attrs[.font] = UIFont(descriptor: descriptor, size: baseFont.pointSize)
                 }
                 if flags & TerminalCellFlag.underline != 0 {
                     attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
@@ -242,11 +256,11 @@ final class TerminalGridView: UIView {
                     attrs[.strikethroughColor] = drawColor
                 }
 
-                let attributed = NSAttributedString(string: glyphString as String, attributes: attrs)
+                let attributed = NSAttributedString(string: glyphString, attributes: attrs)
                 let line = CTLineCreateWithAttributedString(attributed)
                 ctx.textPosition = CGPoint(
                     x: cellRect.minX,
-                    y: cellRect.minY - (baseFont.descender + baseFont.leading / 2)
+                    y: cellRect.minY - baseFont.descender - baseFont.leading / 2
                 )
                 CTLineDraw(line, ctx)
             }

@@ -19,6 +19,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func closeArea(projectID: UUID, areaID: UUID)
     func focusArea(projectID: UUID, areaID: UUID)
     func sendTerminalInput(paneID: UUID, text: String)
+    func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32)
     func getTerminalContent(paneID: UUID) -> TerminalCellsDTO?
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO?
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws
@@ -225,6 +226,10 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             return MuxyResponse(id: request.id, result: .ok)
 
         case .terminalResize:
+            guard case let .terminalResize(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            delegate.resizeTerminal(paneID: params.paneID, cols: params.cols, rows: params.rows)
             return MuxyResponse(id: request.id, result: .ok)
 
         case .getTerminalContent:

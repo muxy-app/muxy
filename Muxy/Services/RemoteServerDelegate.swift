@@ -168,6 +168,19 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         }
     }
 
+    func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32) {
+        guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
+              let surface = view.surface
+        else { return }
+
+        let size = ghostty_surface_size(surface)
+        guard size.cell_width_px > 0, size.cell_height_px > 0 else { return }
+
+        let w = cols * size.cell_width_px
+        let h = rows * size.cell_height_px
+        ghostty_surface_set_size(surface, w, h)
+    }
+
     func getTerminalContent(paneID: UUID) -> TerminalCellsDTO? {
         guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
               let surface = view.surface
