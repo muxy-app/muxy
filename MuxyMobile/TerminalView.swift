@@ -47,12 +47,16 @@ struct TerminalView: View {
     @State private var pollTask: Task<Void, Never>?
     @State private var inputCoordinator = TerminalInputCoordinator()
 
+    private var themeBg: Color {
+        connection.terminalTheme?.bgColor ?? .black
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             terminalGrid
-            KeyboardAccessoryBar(paneID: paneID, coordinator: inputCoordinator)
+            KeyboardAccessoryBar(paneID: paneID, coordinator: inputCoordinator, theme: connection.terminalTheme)
         }
-        .background(Color.black)
+        .background(themeBg)
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .onAppear {
             inputCoordinator.onSend = { text in
@@ -340,6 +344,23 @@ final class TerminalUITextField: UIView, UIKeyInput, UITextInputTraits {
 struct KeyboardAccessoryBar: View {
     let paneID: UUID
     let coordinator: TerminalInputCoordinator
+    let theme: ConnectionManager.TerminalTheme?
+
+    private var barBg: Color {
+        guard let theme else { return Color(white: 0.12) }
+        return theme.isDark ? theme.bgColor.opacity(0.65) : theme.bgColor
+    }
+
+    private var keyBg: Color {
+        guard let theme else { return Color(white: 0.22) }
+        return theme.isDark
+            ? theme.fgColor.opacity(0.12)
+            : theme.fgColor.opacity(0.08)
+    }
+
+    private var keyFg: Color {
+        theme?.fgColor ?? .white
+    }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -361,17 +382,17 @@ struct KeyboardAccessoryBar: View {
             .padding(.horizontal, 8)
         }
         .frame(height: 44)
-        .background(Color(white: 0.12))
+        .background(barBg)
     }
 
     private func keyButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white)
+                .foregroundStyle(keyFg)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Color(white: 0.22), in: RoundedRectangle(cornerRadius: 6))
+                .background(keyBg, in: RoundedRectangle(cornerRadius: 6))
         }
     }
 
@@ -379,9 +400,9 @@ struct KeyboardAccessoryBar: View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(keyFg)
                 .frame(width: 36, height: 30)
-                .background(Color(white: 0.22), in: RoundedRectangle(cornerRadius: 6))
+                .background(keyBg, in: RoundedRectangle(cornerRadius: 6))
         }
     }
 }

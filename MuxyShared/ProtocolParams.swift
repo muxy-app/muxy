@@ -161,6 +161,8 @@ public struct TerminalCellsDTO: Codable, Sendable {
     public let cursorX: UInt32
     public let cursorY: UInt32
     public let cursorVisible: Bool
+    public let defaultFg: UInt32
+    public let defaultBg: UInt32
     public let cells: [TerminalCellDTO]
 
     public init(
@@ -170,6 +172,8 @@ public struct TerminalCellsDTO: Codable, Sendable {
         cursorX: UInt32,
         cursorY: UInt32,
         cursorVisible: Bool,
+        defaultFg: UInt32,
+        defaultBg: UInt32,
         cells: [TerminalCellDTO]
     ) {
         self.paneID = paneID
@@ -178,6 +182,8 @@ public struct TerminalCellsDTO: Codable, Sendable {
         self.cursorX = cursorX
         self.cursorY = cursorY
         self.cursorVisible = cursorVisible
+        self.defaultFg = defaultFg
+        self.defaultBg = defaultBg
         self.cells = cells
     }
 }

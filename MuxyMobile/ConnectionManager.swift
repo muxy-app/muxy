@@ -1,6 +1,7 @@
 import Foundation
 import MuxyShared
 import os
+import SwiftUI
 
 private let logger = Logger(subsystem: "app.muxy.mobile", category: "Connection")
 
@@ -22,7 +23,32 @@ final class ConnectionManager {
     var notifications: [NotificationDTO] = []
     var projectLogos: [UUID: Data] = [:]
     var projectWorktrees: [UUID: [WorktreeDTO]] = [:]
+    var terminalTheme: TerminalTheme?
     private(set) var savedDevices: [SavedDevice] = []
+
+    struct TerminalTheme: Equatable {
+        let fg: UInt32
+        let bg: UInt32
+
+        var fgColor: Color { Self.color(rgb: fg) }
+        var bgColor: Color { Self.color(rgb: bg) }
+
+        var isDark: Bool {
+            let r = Double((bg >> 16) & 0xFF) / 255.0
+            let g = Double((bg >> 8) & 0xFF) / 255.0
+            let b = Double(bg & 0xFF) / 255.0
+            let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            return luminance < 0.5
+        }
+
+        private static func color(rgb: UInt32) -> Color {
+            Color(
+                red: Double((rgb >> 16) & 0xFF) / 255.0,
+                green: Double((rgb >> 8) & 0xFF) / 255.0,
+                blue: Double(rgb & 0xFF) / 255.0
+            )
+        }
+    }
 
     private var connection: URLSessionWebSocketTask?
     private var session: URLSession?
@@ -157,6 +183,10 @@ final class ConnectionManager {
         let params = GetTerminalContentParams(paneID: paneID)
         guard let response = await send(.getTerminalContent, params: .getTerminalContent(params)) else { return nil }
         if case let .terminalCells(cells) = response.result {
+            let theme = TerminalTheme(fg: cells.defaultFg, bg: cells.defaultBg)
+            if terminalTheme != theme {
+                terminalTheme = theme
+            }
             return cells
         }
         return nil

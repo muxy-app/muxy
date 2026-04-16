@@ -37,11 +37,30 @@ struct WorkspaceContentWrapper: View {
                 ToolbarItem(placement: .principal) {
                     Text(activeProject?.name ?? "")
                         .font(.headline)
+                        .foregroundStyle(themeFg)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     projectMenu
                 }
             }
+            .toolbarBackground(themeBg, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(preferredScheme, for: .navigationBar)
+            .tint(themeFg)
+            .preferredColorScheme(preferredScheme)
+            .background(themeBg.ignoresSafeArea())
+    }
+
+    private var themeFg: Color {
+        connection.terminalTheme?.fgColor ?? .primary
+    }
+
+    private var themeBg: Color {
+        connection.terminalTheme?.bgColor ?? Color(.systemBackground)
+    }
+
+    private var preferredScheme: ColorScheme {
+        (connection.terminalTheme?.isDark ?? true) ? .dark : .light
     }
 
     @ViewBuilder
