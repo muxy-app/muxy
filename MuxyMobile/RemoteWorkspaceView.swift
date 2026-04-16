@@ -1,7 +1,7 @@
 import MuxyShared
 import SwiftUI
 
-struct WorkspaceView: View {
+struct WorkspaceContentWrapper: View {
     @Environment(ConnectionManager.self) private var connection
 
     private var activeProject: ProjectDTO? {
@@ -28,18 +28,20 @@ struct WorkspaceView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            tabContentView
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        tabPicker
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        trailingMenu
-                    }
+        tabContentView
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    tabPicker
                 }
-        }
+                ToolbarItem(placement: .principal) {
+                    Text(activeProject?.name ?? "")
+                        .font(.headline)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    projectMenu
+                }
+            }
     }
 
     @ViewBuilder
@@ -67,10 +69,10 @@ struct WorkspaceView: View {
                         )
                     }
                 } label: {
-                    Label {
-                        Text(entry.tab.title)
-                    } icon: {
-                        Image(systemName: iconForKind(entry.tab.kind))
+                    if entry.tab.id == activeTab?.tab.id {
+                        Label(shortTitle(entry.tab.title), systemImage: "checkmark")
+                    } else {
+                        Text(shortTitle(entry.tab.title))
                     }
                 }
             }
@@ -84,19 +86,18 @@ struct WorkspaceView: View {
                 Label("New Terminal", systemImage: "plus")
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: iconForKind(activeTab?.tab.kind ?? .terminal))
-                Text(activeTab?.tab.title ?? "Tabs")
-                    .fontWeight(.medium)
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .lineLimit(1)
+            Image(systemName: "rectangle.stack")
         }
     }
 
-    private var trailingMenu: some View {
+    private func shortTitle(_ title: String) -> String {
+        if let lastComponent = title.components(separatedBy: "/").last(where: { !$0.isEmpty }) {
+            return lastComponent
+        }
+        return title
+    }
+
+    private var projectMenu: some View {
         Menu {
             Section("Projects") {
                 ForEach(connection.projects) { project in
@@ -128,14 +129,7 @@ struct WorkspaceView: View {
                 Label("Disconnect", systemImage: "xmark.circle")
             }
         } label: {
-            HStack(spacing: 4) {
-                Text(activeProject?.name ?? "Project")
-                    .fontWeight(.medium)
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .lineLimit(1)
+            Image(systemName: "ellipsis.circle")
         }
     }
 
@@ -175,24 +169,24 @@ struct TabDetailView: View {
         }
     }
 
+    @ViewBuilder
     private var terminalPlaceholder: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Image(systemName: "terminal")
-                .font(.system(size: 40))
-                .foregroundStyle(.tertiary)
-            Text(tab.title)
-                .font(.headline)
-                .foregroundStyle(.secondary)
-            if let paneID = tab.paneID {
-                Text("Pane \(paneID.uuidString.prefix(8))")
-                    .font(.caption)
+        if let paneID = tab.paneID {
+            TerminalView(paneID: paneID)
+        } else {
+            VStack(spacing: 12) {
+                Spacer()
+                Image(systemName: "terminal")
+                    .font(.system(size: 40))
                     .foregroundStyle(.tertiary)
+                Text("No pane available")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                Spacer()
             }
-            Spacer()
+            .frame(maxWidth: .infinity)
+            .background(Color.black)
         }
-        .frame(maxWidth: .infinity)
-        .background(Color(.systemBackground))
     }
 
     private var vcsPlaceholder: some View {

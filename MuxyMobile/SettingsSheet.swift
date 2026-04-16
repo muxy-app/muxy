@@ -2,28 +2,35 @@ import SwiftUI
 
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var useNerdFont = TerminalFont.useNerdFont
+    @State private var fontSize = TerminalFont.fontSize
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    NavigationLink {
-                        Text("Coming soon")
-                            .foregroundStyle(.secondary)
-                            .navigationTitle("Interface")
-                    } label: {
-                        Label("Interface", systemImage: "rectangle.on.rectangle")
-                    }
-                }
+                Section("Terminal") {
+                    Toggle("Use NerdFont", isOn: $useNerdFont)
+                        .onChange(of: useNerdFont) { _, newValue in
+                            TerminalFont.useNerdFont = newValue
+                        }
 
-                Section("Connection") {
-                    NavigationLink {
-                        Text("Coming soon")
+                    HStack {
+                        Text("Font Size")
+                        Spacer()
+                        Text("\(Int(fontSize))")
                             .foregroundStyle(.secondary)
-                            .navigationTitle("Default Port")
-                    } label: {
-                        Label("Default Port", systemImage: "number")
+                        Stepper("", value: $fontSize, in: 8 ... 24, step: 1)
+                            .labelsHidden()
+                            .onChange(of: fontSize) { _, newValue in
+                                TerminalFont.fontSize = newValue
+                            }
                     }
+
+                    Text("The quick brown fox")
+                        .font(TerminalFont.current)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 4)
                 }
 
                 Section {
@@ -41,9 +48,7 @@ struct SettingsSheet: View {
                     Button {
                         dismiss()
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .symbolRenderingMode(.hierarchical)
-                            .font(.title3)
+                        Image(systemName: "xmark")
                     }
                 }
             }

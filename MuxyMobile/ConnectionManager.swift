@@ -22,8 +22,7 @@ final class ConnectionManager {
     var notifications: [NotificationDTO] = []
     var projectLogos: [UUID: Data] = [:]
     var projectWorktrees: [UUID: [WorktreeDTO]] = [:]
-    private(set) var lastSavedHost: String?
-    private(set) var lastSavedPort: UInt16?
+    private(set) var savedDevices: [SavedDevice] = []
 
     private var connection: URLSessionWebSocketTask?
     private var session: URLSession?
@@ -31,11 +30,24 @@ final class ConnectionManager {
     private var lastHost: String?
     private var lastPort: UInt16?
 
-    func connect(host: String, port: UInt16 = 4865) {
+    var lastSavedHost: String? { savedDevices.first?.host }
+    var lastSavedPort: UInt16? { savedDevices.first?.port }
+
+    struct SavedDevice: Codable, Identifiable {
+        var id: String { "\(host):\(port)" }
+        let name: String
+        let host: String
+        let port: UInt16
+    }
+
+    init() {
+        loadDevices()
+    }
+
+    func connect(host: String, port: UInt16 = 4865, name: String = "Mac") {
         lastHost = host
         lastPort = port
-        lastSavedHost = host
-        lastSavedPort = port
+        addDevice(name: name, host: host, port: port)
         state = .connecting
 
         let url = URL(string: "ws://\(host):\(port)")!
@@ -53,10 +65,12 @@ final class ConnectionManager {
     }
 
     func disconnect() {
+        state = .disconnected
         connection?.cancel(with: .goingAway, reason: nil)
         connection = nil
         session = nil
-        state = .disconnected
+        activeProjectID = nil
+        workspace = nil
     }
 
     func reconnect() {
@@ -120,6 +134,7 @@ final class ConnectionManager {
     func selectTab(projectID: UUID, areaID: UUID, tabID: UUID) async {
         let params = SelectTabParams(projectID: projectID, areaID: areaID, tabID: tabID)
         _ = await send(.selectTab, params: .selectTab(params))
+        await refreshWorkspace(projectID: projectID)
     }
 
     func closeTab(projectID: UUID, areaID: UUID, tabID: UUID) async {
@@ -179,6 +194,7 @@ final class ConnectionManager {
                     self.handleMessage(message)
                     self.receiveLoop()
                 case let .failure(error):
+                    guard case .connected = self.state else { return }
                     logger.error("Receive failed: \(error)")
                     self.state = .error("Connection lost")
                 }
@@ -220,5 +236,31 @@ final class ConnectionManager {
              .terminalOutput:
             break
         }
+    }
+
+    private static let devicesKey = "savedDevices"
+
+    func addDevice(name: String, host: String, port: UInt16) {
+        let device = SavedDevice(name: name, host: host, port: port)
+        savedDevices.removeAll { $0.host == host && $0.port == port }
+        savedDevices.insert(device, at: 0)
+        saveDevices()
+    }
+
+    func removeDevice(_ device: SavedDevice) {
+        savedDevices.removeAll { $0.id == device.id }
+        saveDevices()
+    }
+
+    private func saveDevices() {
+        guard let data = try? JSONEncoder().encode(savedDevices) else { return }
+        UserDefaults.standard.set(data, forKey: Self.devicesKey)
+    }
+
+    private func loadDevices() {
+        guard let data = UserDefaults.standard.data(forKey: Self.devicesKey),
+              let devices = try? JSONDecoder().decode([SavedDevice].self, from: data)
+        else { return }
+        savedDevices = devices
     }
 }

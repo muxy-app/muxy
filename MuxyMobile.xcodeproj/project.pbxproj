@@ -14,7 +14,10 @@
 		A1000005 /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005; };
 		A1000006 /* ProjectPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000007; };
 		A1000007 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008; };
+		A1000008 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009; };
 		A1000010 /* MuxyShared in Frameworks */ = {isa = PBXBuildFile; productRef = A4000001; };
+		A1000020 /* JetBrainsMonoNerdFontMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A200000A; };
+		A1000021 /* JetBrainsMonoNerdFontMono-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A200000B; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +29,9 @@
 		A2000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A2000007 /* ProjectPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPickerView.swift; sourceTree = "<group>"; };
 		A2000008 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
+		A2000009 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
+		A200000A /* JetBrainsMonoNerdFontMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMonoNerdFontMono-Regular.ttf"; sourceTree = "<group>"; };
+		A200000B /* JetBrainsMonoNerdFontMono-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMonoNerdFontMono-Bold.ttf"; sourceTree = "<group>"; };
 		A2000020 /* MuxyMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MuxyMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -58,8 +64,10 @@
 				A2000004 /* RemoteWorkspaceView.swift */,
 				A2000007 /* ProjectPickerView.swift */,
 				A2000008 /* SettingsSheet.swift */,
+				A2000009 /* TerminalView.swift */,
 				A2000005 /* ConnectionManager.swift */,
 				A2000006 /* Info.plist */,
+				A3000004 /* Resources */,
 			);
 			path = MuxyMobile;
 			sourceTree = "<group>";
@@ -72,6 +80,23 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		A3000004 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A3000005 /* Fonts */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		A3000005 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				A200000A /* JetBrainsMonoNerdFontMono-Regular.ttf */,
+				A200000B /* JetBrainsMonoNerdFontMono-Bold.ttf */,
+			);
+			path = Fonts;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -81,6 +106,7 @@
 			buildPhases = (
 				A3000011 /* Sources */,
 				A300000F /* Frameworks */,
+				A3000012 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -125,6 +151,18 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		A3000012 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000020 /* JetBrainsMonoNerdFontMono-Regular.ttf in Resources */,
+				A1000021 /* JetBrainsMonoNerdFontMono-Bold.ttf in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		A3000011 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -137,6 +175,7 @@
 				A1000005 /* ConnectionManager.swift in Sources */,
 				A1000006 /* ProjectPickerView.swift in Sources */,
 				A1000007 /* SettingsSheet.swift in Sources */,
+				A1000008 /* TerminalView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -643,15 +643,19 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func sendReturnKey() {
+        sendKeyPress(codepoint: 13, keycode: 36)
+    }
+
+    func sendKeyPress(codepoint: UInt32, keycode: UInt32 = 0, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
         guard let surface else { return }
         var press = ghostty_input_key_s()
         press.action = GHOSTTY_ACTION_PRESS
-        press.keycode = 36
-        press.mods = GHOSTTY_MODS_NONE
-        press.consumed_mods = GHOSTTY_MODS_NONE
+        press.keycode = keycode
+        press.mods = mods
+        press.consumed_mods = mods
         press.composing = false
         press.text = nil
-        press.unshifted_codepoint = 13
+        press.unshifted_codepoint = codepoint
         _ = ghostty_surface_key(surface, press)
 
         var release = press

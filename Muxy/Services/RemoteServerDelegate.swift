@@ -101,7 +101,71 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             logger.warning("No terminal view for pane \(paneID)")
             return
         }
-        view.sendText(text)
+
+        if let arrowKey = Self.ansiArrowKey(text) {
+            view.sendKeyPress(codepoint: arrowKey.codepoint, keycode: arrowKey.keycode, mods: arrowKey.mods)
+            return
+        }
+
+        var buffer = ""
+        for character in text {
+            let scalar = character.unicodeScalars.first?.value ?? 0
+            if let keyEvent = Self.specialKeyEvent(scalar) {
+                if !buffer.isEmpty {
+                    view.sendText(buffer)
+                    buffer = ""
+                }
+                view.sendKeyPress(
+                    codepoint: keyEvent.codepoint,
+                    keycode: keyEvent.keycode,
+                    mods: keyEvent.mods
+                )
+            } else if character == "\r" || character == "\n" {
+                if !buffer.isEmpty {
+                    view.sendText(buffer)
+                    buffer = ""
+                }
+                view.sendReturnKey()
+            } else {
+                buffer.append(character)
+            }
+        }
+        if !buffer.isEmpty {
+            view.sendText(buffer)
+        }
+    }
+
+    private struct KeyEvent {
+        let codepoint: UInt32
+        let keycode: UInt32
+        let mods: ghostty_input_mods_e
+    }
+
+    private static func ansiArrowKey(_ text: String) -> KeyEvent? {
+        switch text {
+        case "\u{1B}[A": return KeyEvent(codepoint: 0, keycode: 126, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[B": return KeyEvent(codepoint: 0, keycode: 125, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[C": return KeyEvent(codepoint: 0, keycode: 124, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[D": return KeyEvent(codepoint: 0, keycode: 123, mods: GHOSTTY_MODS_NONE)
+        default: return nil
+        }
+    }
+
+    private static func specialKeyEvent(_ scalar: UInt32) -> KeyEvent? {
+        switch scalar {
+        case 0x01: return KeyEvent(codepoint: 97, keycode: 0, mods: GHOSTTY_MODS_CTRL)
+        case 0x02: return KeyEvent(codepoint: 98, keycode: 11, mods: GHOSTTY_MODS_CTRL)
+        case 0x03: return KeyEvent(codepoint: 99, keycode: 8, mods: GHOSTTY_MODS_CTRL)
+        case 0x04: return KeyEvent(codepoint: 100, keycode: 2, mods: GHOSTTY_MODS_CTRL)
+        case 0x05: return KeyEvent(codepoint: 101, keycode: 14, mods: GHOSTTY_MODS_CTRL)
+        case 0x06: return KeyEvent(codepoint: 102, keycode: 3, mods: GHOSTTY_MODS_CTRL)
+        case 0x0C: return KeyEvent(codepoint: 108, keycode: 37, mods: GHOSTTY_MODS_CTRL)
+        case 0x1A: return KeyEvent(codepoint: 122, keycode: 6, mods: GHOSTTY_MODS_CTRL)
+        case 0x09: return KeyEvent(codepoint: 9, keycode: 48, mods: GHOSTTY_MODS_NONE)
+        case 0x1B: return KeyEvent(codepoint: 27, keycode: 53, mods: GHOSTTY_MODS_NONE)
+        case 0x7F: return KeyEvent(codepoint: 8, keycode: 51, mods: GHOSTTY_MODS_NONE)
+        default: return nil
+        }
     }
 
     func getTerminalContent(paneID: UUID) -> TerminalContentDTO? {
@@ -110,15 +174,31 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         else { return nil }
 
         let size = ghostty_surface_size(surface)
+
+        var topLeft = ghostty_point_s()
+        topLeft.tag = GHOSTTY_POINT_VIEWPORT
+        topLeft.coord = GHOSTTY_POINT_COORD_TOP_LEFT
+        topLeft.x = 0
+        topLeft.y = 0
+
+        var bottomRight = ghostty_point_s()
+        bottomRight.tag = GHOSTTY_POINT_VIEWPORT
+        bottomRight.coord = GHOSTTY_POINT_COORD_BOTTOM_RIGHT
+        bottomRight.x = UInt32(size.columns)
+        bottomRight.y = UInt32(size.rows)
+
+        var selection = ghostty_selection_s()
+        selection.top_left = topLeft
+        selection.bottom_right = bottomRight
+        selection.rectangle = false
+
+        var text = ghostty_text_s()
         var content = ""
-        if ghostty_surface_has_selection(surface) {
-            var text = ghostty_text_s()
-            if ghostty_surface_read_selection(surface, &text) {
-                if let ptr = text.text, text.text_len > 0 {
-                    content = String(cString: ptr)
-                }
-                ghostty_surface_free_text(surface, &text)
+        if ghostty_surface_read_text(surface, selection, &text) {
+            if let ptr = text.text, text.text_len > 0 {
+                content = String(cString: ptr)
             }
+            ghostty_surface_free_text(surface, &text)
         }
 
         return TerminalContentDTO(

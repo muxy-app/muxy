@@ -5,47 +5,46 @@ struct ProjectPickerView: View {
     @Environment(ConnectionManager.self) private var connection
 
     var body: some View {
-        if connection.activeProjectID != nil, connection.workspace != nil {
-            WorkspaceView()
-        } else {
-            projectList
+        NavigationStack {
+            if connection.activeProjectID != nil {
+                WorkspaceContentWrapper()
+            } else {
+                projectList
+            }
         }
     }
 
     private var projectList: some View {
-        NavigationStack {
-            List(connection.projects) { project in
+        List(connection.projects) { project in
+            Button {
+                Task { await connection.selectProject(project.id) }
+            } label: {
+                HStack(spacing: 14) {
+                    ProjectIcon(project: project)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(project.name)
+                            .font(.body.weight(.medium))
+                        Text(worktreeSubtitle(for: project.id))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .foregroundStyle(.primary)
+        }
+        .navigationTitle("Projects")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    Task { await connection.selectProject(project.id) }
+                    connection.disconnect()
                 } label: {
-                    HStack(spacing: 14) {
-                        ProjectIcon(project: project)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(project.name)
-                                .font(.body.weight(.medium))
-                            Text(worktreeSubtitle(for: project.id))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-                .foregroundStyle(.primary)
-            }
-            .navigationTitle("Projects")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        connection.disconnect()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .symbolRenderingMode(.hierarchical)
-                    }
+                    Image(systemName: "xmark")
                 }
             }
-            .refreshable {
-                await connection.refreshProjects()
-            }
+        }
+        .refreshable {
+            await connection.refreshProjects()
         }
     }
 
