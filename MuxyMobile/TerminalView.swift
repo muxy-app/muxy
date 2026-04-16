@@ -79,8 +79,13 @@ struct TerminalView: View {
                 onResize: { cols, rows in
                     Task { await connection.resizeTerminal(paneID: paneID, cols: cols, rows: rows) }
                 },
-                onScroll: { dx, dy in
-                    Task { await connection.scrollTerminal(paneID: paneID, deltaX: dx, deltaY: dy, precise: true) }
+                onScroll: { lines in
+                    Task {
+                        await connection.scrollTerminal(paneID: paneID, deltaX: 0, deltaY: lines, precise: false)
+                        if let dto = await connection.getTerminalCells(paneID: paneID) {
+                            cells = dto
+                        }
+                    }
                 }
             )
 
@@ -115,7 +120,7 @@ struct TerminalGridRepresentable: UIViewRepresentable {
     let cells: TerminalCellsDTO?
     let paneID: UUID
     let onResize: (UInt32, UInt32) -> Void
-    let onScroll: (Double, Double) -> Void
+    let onScroll: (Double) -> Void
 
     func makeUIView(context _: Context) -> TerminalGridView {
         let view = TerminalGridView(frame: .zero)
@@ -133,7 +138,7 @@ struct TerminalGridRepresentable: UIViewRepresentable {
 
 final class TerminalGridView: UIView {
     var onResize: ((UInt32, UInt32) -> Void)?
-    var onScroll: ((Double, Double) -> Void)?
+    var onScroll: ((Double) -> Void)?
 
     private var cells: TerminalCellsDTO?
     private let fontSize: CGFloat = 12
@@ -142,6 +147,7 @@ final class TerminalGridView: UIView {
     private var lastReportedCols: UInt32 = 0
     private var lastReportedRows: UInt32 = 0
     private var lastPanTranslation: CGPoint = .zero
+    private var scrollAccumulator: CGFloat = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -160,17 +166,22 @@ final class TerminalGridView: UIView {
         switch gesture.state {
         case .began:
             lastPanTranslation = .zero
+            scrollAccumulator = 0
         case .changed:
             let translation = gesture.translation(in: self)
-            let dx = translation.x - lastPanTranslation.x
             let dy = translation.y - lastPanTranslation.y
             lastPanTranslation = translation
-            guard abs(dx) > 0.5 || abs(dy) > 0.5 else { return }
-            onScroll?(Double(dx), Double(dy))
+            guard rowHeight > 0 else { return }
+            scrollAccumulator += dy
+            let lines = (scrollAccumulator / rowHeight).rounded(.towardZero)
+            guard lines != 0 else { return }
+            scrollAccumulator -= lines * rowHeight
+            onScroll?(Double(lines))
         case .ended,
              .cancelled,
              .failed:
             lastPanTranslation = .zero
+            scrollAccumulator = 0
         default:
             break
         }
