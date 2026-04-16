@@ -8,7 +8,11 @@ struct GitWorktreeRecord: Hashable {
     let isDetached: Bool
 }
 
-actor GitWorktreeService {
+protocol GitWorktreeListing {
+    func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord]
+}
+
+actor GitWorktreeService: GitWorktreeListing {
     static let shared = GitWorktreeService()
 
     enum GitWorktreeError: LocalizedError {

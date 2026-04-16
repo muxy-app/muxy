@@ -258,6 +258,40 @@ struct WorkspaceSnapshotTests {
         #expect(results[0].key.worktreeID == primaryWorktree.id)
     }
 
+    @Test("WorkspaceRestorer.restoreAll falls back to worktree path before primary")
+    func restoreAllFallbackToPath() {
+        let project = Project(name: "Test", path: testPath)
+        let primaryWorktree = Worktree(name: "main", path: testPath, isPrimary: true)
+        let importedWorktree = Worktree(
+            name: "feature-a",
+            path: "/tmp/feature-a",
+            branch: "feature-a",
+            source: .external,
+            isPrimary: false
+        )
+
+        let snapshot = WorkspaceSnapshot(
+            projectID: project.id,
+            worktreeID: UUID(),
+            worktreePath: importedWorktree.path,
+            focusedAreaID: nil,
+            root: .tabArea(TabAreaSnapshot(
+                id: UUID(), projectPath: importedWorktree.path,
+                tabs: [TerminalTabSnapshot(kind: .terminal, customTitle: nil, isPinned: false, projectPath: importedWorktree.path, paneTitle: "Shell")],
+                activeTabIndex: 0
+            ))
+        )
+
+        let results = WorkspaceRestorer.restoreAll(
+            from: [snapshot],
+            projects: [project],
+            worktrees: [project.id: [primaryWorktree, importedWorktree]]
+        )
+
+        #expect(results.count == 1)
+        #expect(results[0].key.worktreeID == importedWorktree.id)
+    }
+
     @Test("TabArea snapshot and restore round-trip")
     func tabAreaRoundTrip() {
         let area = TabArea(projectPath: testPath)

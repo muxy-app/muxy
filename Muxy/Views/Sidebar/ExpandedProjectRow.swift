@@ -20,6 +20,7 @@ struct ExpandedProjectRow: View {
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableExpandedImage?
     @State private var worktreesExpanded = false
+    @State private var isRefreshingWorktrees = false
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -67,6 +68,7 @@ struct ExpandedProjectRow: View {
             Button("Rename Project") { startRename() }
             if isGitRepo {
                 Divider()
+                Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
                 Button("New Worktree…") { showCreateWorktreeSheet = true }
             }
             Divider()
@@ -124,6 +126,7 @@ struct ExpandedProjectRow: View {
             Spacer(minLength: 4)
 
             if isGitRepo {
+                refreshButton
                 worktreeChevron
             }
         }
@@ -179,6 +182,17 @@ struct ExpandedProjectRow: View {
         .accessibilityLabel(worktreesExpanded ? "Collapse Worktrees" : "Expand Worktrees")
     }
 
+    private var refreshButton: some View {
+        IconButton(
+            symbol: isRefreshingWorktrees ? "arrow.clockwise.circle.fill" : "arrow.clockwise",
+            size: 10,
+            accessibilityLabel: "Refresh Worktrees",
+            action: { Task { await refreshWorktrees() } }
+        )
+        .disabled(isRefreshingWorktrees)
+        .help("Refresh Worktrees")
+    }
+
     private var projectIcon: some View {
         let logo = resolvedLogo
         let unread = NotificationStore.shared.unreadCount(for: project.id)
@@ -224,7 +238,7 @@ struct ExpandedProjectRow: View {
                             to: newName
                         )
                     },
-                    onRemove: worktree.isPrimary ? nil : {
+                    onRemove: worktree.isPrimary || worktree.isExternallyManaged ? nil : {
                         Task { await requestRemove(worktree: worktree) }
                     }
                 )
@@ -373,6 +387,34 @@ struct ExpandedProjectRow: View {
     private func cancelRename() {
         isRenaming = false
     }
+
+    private func refreshWorktrees() async {
+        guard !isRefreshingWorktrees else { return }
+        isRefreshingWorktrees = true
+
+        do {
+            _ = try await worktreeStore.refreshFromGit(project: project)
+            isRefreshingWorktrees = false
+        } catch {
+            isRefreshingWorktrees = false
+            presentRefreshError(error.localizedDescription)
+        }
+    }
+
+    private func presentRefreshError(_ message: String) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Could Not Refresh Worktrees"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "OK")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.beginSheetModal(for: window)
+    }
 }
 
 private struct ExpandedWorktreeRow: View {
@@ -457,12 +499,16 @@ private struct ExpandedWorktreeRow: View {
             onSelect()
         }
         .contextMenu {
-            if let onRemove {
+            if worktree.isPrimary {
+                Text("Primary worktree").font(.system(size: 11))
+            } else if let onRemove {
                 Button("Rename") { startRename() }
                 Divider()
                 Button("Remove", role: .destructive, action: onRemove)
             } else {
-                Text("Primary worktree").font(.system(size: 11))
+                Button("Rename") { startRename() }
+                Divider()
+                Text("External worktree").font(.system(size: 11))
             }
         }
         .accessibilityElement(children: .combine)

@@ -1,13 +1,18 @@
 import SwiftUI
 
+struct PopoverFooterAction: Identifiable {
+    let id = UUID()
+    let title: String
+    let icon: String?
+    let action: () -> Void
+}
+
 struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
     let items: [Item]
     let filterKey: (Item) -> String
     let searchPlaceholder: String
     let emptyLabel: String
-    let footerTitle: String?
-    let footerIcon: String?
-    let onFooterAction: (() -> Void)?
+    let footerActions: [PopoverFooterAction]
     let onSelect: (Item) -> Void
     @ViewBuilder let row: (Item, Bool) -> RowContent
 
@@ -16,9 +21,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
         filterKey: @escaping (Item) -> String,
         searchPlaceholder: String,
         emptyLabel: String,
-        footerTitle: String? = nil,
-        footerIcon: String? = nil,
-        onFooterAction: (() -> Void)? = nil,
+        footerActions: [PopoverFooterAction] = [],
         onSelect: @escaping (Item) -> Void,
         @ViewBuilder row: @escaping (Item, Bool) -> RowContent
     ) {
@@ -26,9 +29,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
         self.filterKey = filterKey
         self.searchPlaceholder = searchPlaceholder
         self.emptyLabel = emptyLabel
-        self.footerTitle = footerTitle
-        self.footerIcon = footerIcon
-        self.onFooterAction = onFooterAction
+        self.footerActions = footerActions
         self.onSelect = onSelect
         self.row = row
     }
@@ -43,9 +44,17 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
                 onSelect: onSelect,
                 row: row
             )
-            if let footerTitle, let onFooterAction {
+            if !footerActions.isEmpty {
                 Divider().overlay(MuxyTheme.border.opacity(0.55))
-                footerButton(title: footerTitle, icon: footerIcon, action: onFooterAction)
+                VStack(spacing: 0) {
+                    ForEach(footerActions) { footerAction in
+                        footerButton(
+                            title: footerAction.title,
+                            icon: footerAction.icon,
+                            action: footerAction.action
+                        )
+                    }
+                }
             }
         }
         .frame(width: 300, height: 420)

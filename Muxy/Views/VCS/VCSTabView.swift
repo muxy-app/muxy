@@ -223,6 +223,11 @@ struct VCSTabView: View {
                     onRequestCreate: {
                         showWorktreePopover = false
                         showCreateWorktreeSheet = true
+                    },
+                    onRequestRefresh: {
+                        Task {
+                            _ = try? await worktreeStore.refreshFromGit(project: project)
+                        }
                     }
                 )
                 .environment(appState)

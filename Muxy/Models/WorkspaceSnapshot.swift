@@ -180,6 +180,11 @@ enum WorkspaceRestorer {
         {
             return match
         }
+        if let worktreePath = snapshot.worktreePath,
+           let match = worktrees.first(where: { $0.path == worktreePath })
+        {
+            return match
+        }
         return worktrees.first(where: { $0.isPrimary }) ?? worktrees.first
     }
 

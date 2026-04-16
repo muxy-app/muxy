@@ -29,12 +29,14 @@ Muxy/
     EditorSettings.swift      @Observable editor preferences (default editor, font)
     TextBackingStore.swift    Line-array backing store for editor documents
     ViewportState.swift       Viewport window computation and line mapping for editor documents
+    TerminalSettings.swift    Terminal preference keys and quick-select label layout helpers
     Project.swift             Project folder metadata
     Worktree.swift            Per-project worktree slot (primary or git worktree)
     WorktreeKey.swift         Hashable (projectID, worktreeID) key for workspace maps
     WorktreeConfig.swift      Decoder for .muxy/worktree.json setup commands
     TerminalPaneState.swift   Per-pane terminal state, including startup commands for terminal editors
     TerminalSearchState.swift Terminal find-in-page state
+    TerminalQuickSelectState.swift Keyboard quick-select match state and label generation
   Services/
     GhosttyService.swift      Singleton managing ghostty_app_t lifecycle
     GhosttyRuntimeEventAdapter.swift  C callback bridge from libghostty (OSC + command finished → notifications)
@@ -90,7 +92,7 @@ Muxy/
       QuickOpenOverlay.swift  Cmd+P file search overlay (name substring match via find)
     Terminal/
       GhosttyTerminalNSView.swift       AppKit view wrapping ghostty_surface_t + NSTextInputClient
-      TerminalPane.swift      SwiftUI wrapper for terminal + search
+      TerminalPane.swift      SwiftUI wrapper for terminal, search, and quick-select overlays
       TerminalSearchBar.swift Find-in-terminal UI
       TerminalViewRegistry.swift  Terminal view lifecycle management
     Editor/
@@ -115,6 +117,7 @@ Muxy/
       SettingsView.swift      Settings window layout
       AppearanceSettingsView.swift  Theme settings tab
       EditorSettingsView.swift  Editor preferences tab (default editor, font)
+      TerminalSettingsView.swift  Terminal preferences tab, including quick-select label layout
       KeyboardShortcutsSettingsView.swift  Shortcut config tab
       ShortcutRecorderView.swift  Shortcut capture field
       ShortcutBadge.swift     Shortcut label display
@@ -128,7 +131,9 @@ Project → Worktree → SplitNode (splits/tab areas) → TerminalTab → Pane
 
 Each project has at least one **primary** worktree pointing at `Project.path`. Git
 projects may add more worktrees via `git worktree add`, each with their own split
-tree, tabs, focus state, and working directory. Workspace state is keyed by
+tree, tabs, focus state, and working directory. Secondary worktrees can be either
+Muxy-managed checkouts created from the sidebar or externally created Git worktrees
+that are imported into the sidebar with a manual refresh. Workspace state is keyed by
 `WorktreeKey(projectID, worktreeID)` in `AppState` so every per-project map is
 actually per-worktree. `AppState.activeWorktreeID[projectID]` tracks which
 worktree is currently visible for each project.
@@ -153,7 +158,7 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
   terminal pane with the configured Ghostty startup command. The size thresholds in
   `EditorTabState` apply only to the built-in editor path.
 - **GhosttyKit**: C module wrapping `ghostty.h`. Precompiled xcframework from `muxy-app/ghostty` fork. Surfaces created/destroyed via `TerminalViewRegistry`.
-- **Persistence**: All files in `~/Library/Application Support/Muxy/`. Shared directory helper: `MuxyFileStorage`. Worktrees are persisted per-project at `worktrees/{projectID}.json`. Worktree setup commands live in-repo at `{Project.path}/.muxy/worktree.json`.
+- **Persistence**: All files in `~/Library/Application Support/Muxy/`. Shared directory helper: `MuxyFileStorage`. Worktrees are persisted per-project at `worktrees/{projectID}.json`, including whether a secondary worktree is Muxy-managed or externally discovered. Git projects can manually refresh this list from `git worktree list --porcelain` to import existing worktrees without deleting absent entries. Worktree setup commands live in-repo at `{Project.path}/.muxy/worktree.json`.
 - **Ghostty Config**: Managed by `MuxyConfig`, stored at `~/Library/Application Support/Muxy/ghostty.conf`. Seeded from `~/.config/ghostty/config` on first run.
 - **Updates**: Sparkle framework via `UpdateService`.
 

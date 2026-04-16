@@ -6,6 +6,7 @@ struct WorktreePopover: View {
     let isGitRepo: Bool
     let onDismiss: () -> Void
     let onRequestCreate: () -> Void
+    let onRequestRefresh: () -> Void
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -26,9 +27,7 @@ struct WorktreePopover: View {
             },
             searchPlaceholder: "Search worktrees…",
             emptyLabel: "No matches",
-            footerTitle: isGitRepo ? "New Worktree…" : nil,
-            footerIcon: isGitRepo ? "plus.square.dashed" : nil,
-            onFooterAction: isGitRepo ? onRequestCreate : nil,
+            footerActions: footerActions,
             onSelect: { worktree in
                 appState.selectWorktree(projectID: project.id, worktree: worktree)
                 onDismiss()
@@ -49,7 +48,7 @@ struct WorktreePopover: View {
                             to: newName
                         )
                     },
-                    onRemove: worktree.isPrimary ? nil : {
+                    onRemove: worktree.isPrimary || worktree.isExternallyManaged ? nil : {
                         Task { await requestRemove(worktree: worktree) }
                     }
                 )
@@ -57,6 +56,25 @@ struct WorktreePopover: View {
                 .padding(.vertical, 2)
             }
         )
+    }
+
+    private var footerActions: [PopoverFooterAction] {
+        guard isGitRepo else { return [] }
+        return [
+            PopoverFooterAction(
+                title: "Refresh Worktrees",
+                icon: "arrow.clockwise",
+                action: {
+                    onDismiss()
+                    onRequestRefresh()
+                }
+            ),
+            PopoverFooterAction(
+                title: "New Worktree…",
+                icon: "plus.square.dashed",
+                action: onRequestCreate
+            ),
+        ]
     }
 
     private func requestRemove(worktree: Worktree) async {
@@ -189,12 +207,16 @@ private struct WorktreePopoverRow: View {
             onSelect()
         }
         .contextMenu {
-            if let onRemove {
+            if worktree.isPrimary {
+                Text("Primary worktree").font(.system(size: 11))
+            } else if let onRemove {
                 Button("Rename") { startRename() }
                 Divider()
                 Button("Remove", role: .destructive, action: onRemove)
             } else {
-                Text("Primary worktree").font(.system(size: 11))
+                Button("Rename") { startRename() }
+                Divider()
+                Text("External worktree").font(.system(size: 11))
             }
         }
     }

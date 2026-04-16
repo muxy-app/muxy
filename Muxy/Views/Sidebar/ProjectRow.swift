@@ -20,6 +20,7 @@ struct ProjectRow: View {
     @State private var isGitRepo = false
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableImage?
+    @State private var isRefreshingWorktrees = false
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -65,6 +66,7 @@ struct ProjectRow: View {
                 Button("Rename Project") { startRename() }
                 if isGitRepo {
                     Divider()
+                    Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
                     Button("New Worktree…") { showCreateWorktreeSheet = true }
                     if worktrees.count > 1 {
                         Button("Switch Worktree…") { showWorktreePopover = true }
@@ -81,6 +83,9 @@ struct ProjectRow: View {
                     onRequestCreate: {
                         showWorktreePopover = false
                         showCreateWorktreeSheet = true
+                    },
+                    onRequestRefresh: {
+                        Task { await refreshWorktrees() }
                     }
                 )
                 .environment(appState)
@@ -159,6 +164,13 @@ struct ProjectRow: View {
                 .strokeBorder(isActive ? MuxyTheme.accent : .clear, lineWidth: 1.5)
                 .animation(.easeInOut(duration: 0.15), value: isActive)
         }
+        .overlay(alignment: .bottomTrailing) {
+            if isRefreshingWorktrees {
+                ProgressView()
+                    .controlSize(.mini)
+                    .padding(4)
+            }
+        }
     }
 
     private func iconBackground(hasLogo: Bool) -> AnyShapeStyle {
@@ -225,6 +237,34 @@ struct ProjectRow: View {
 
     private func cancelRename() {
         isRenaming = false
+    }
+
+    private func refreshWorktrees() async {
+        guard !isRefreshingWorktrees else { return }
+        isRefreshingWorktrees = true
+
+        do {
+            _ = try await worktreeStore.refreshFromGit(project: project)
+            isRefreshingWorktrees = false
+        } catch {
+            isRefreshingWorktrees = false
+            presentRefreshError(error.localizedDescription)
+        }
+    }
+
+    private func presentRefreshError(_ message: String) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Could Not Refresh Worktrees"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "OK")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.beginSheetModal(for: window)
     }
 }
 

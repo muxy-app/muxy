@@ -47,14 +47,18 @@ struct BranchPicker: View {
                 filterKey: \.name,
                 searchPlaceholder: "Search branches…",
                 emptyLabel: isLoading ? "Loading…" : "No branches found",
-                footerTitle: onCreateBranch != nil ? "New Branch…" : nil,
-                footerIcon: onCreateBranch != nil ? "plus.square.dashed" : nil,
-                onFooterAction: onCreateBranch.map { action in
-                    {
-                        showPopover = false
-                        action()
-                    }
-                },
+                footerActions: onCreateBranch.map { action in
+                    [
+                        PopoverFooterAction(
+                            title: "New Branch…",
+                            icon: "plus.square.dashed",
+                            action: {
+                                showPopover = false
+                                action()
+                            }
+                        ),
+                    ]
+                } ?? [],
                 onSelect: { item in
                     showPopover = false
                     onSelect(item.name)
