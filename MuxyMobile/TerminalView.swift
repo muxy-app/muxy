@@ -54,7 +54,6 @@ struct TerminalView: View {
     var body: some View {
         terminalGrid
             .background(themeBg)
-            .ignoresSafeArea(.keyboard, edges: .bottom)
             .onAppear {
                 inputCoordinator.onSend = { text in
                     Task { await connection.sendTerminalInput(paneID: paneID, text: text) }
