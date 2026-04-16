@@ -19,7 +19,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func closeArea(projectID: UUID, areaID: UUID)
     func focusArea(projectID: UUID, areaID: UUID)
     func sendTerminalInput(paneID: UUID, text: String)
-    func getTerminalContent(paneID: UUID) -> TerminalContentDTO?
+    func getTerminalContent(paneID: UUID) -> TerminalCellsDTO?
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO?
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws
     func vcsPush(projectID: UUID) async throws
@@ -234,7 +234,7 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             guard let content = delegate.getTerminalContent(paneID: params.paneID) else {
                 return MuxyResponse(id: request.id, error: .notFound)
             }
-            return MuxyResponse(id: request.id, result: .terminalContent(content))
+            return MuxyResponse(id: request.id, result: .terminalCells(content))
 
         case .getVCSStatus:
             guard case let .getVCSStatus(params) = request.params else {

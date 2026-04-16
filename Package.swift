@@ -46,8 +46,8 @@ let package = Package(
             ],
             linkerSettings: [
                 .unsafeFlags([
-                    "-L", "GhosttyKit.xcframework/macos-arm64_x86_64",
-                    "-lghostty",
+                    "-L", "GhosttyKit.xcframework/macos-arm64",
+                    "-lghostty-fat",
                 ]),
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),
@@ -69,8 +69,8 @@ let package = Package(
             path: "Tests/MuxyTests",
             linkerSettings: [
                 .unsafeFlags([
-                    "-L", "GhosttyKit.xcframework/macos-arm64_x86_64",
-                    "-lghostty",
+                    "-L", "GhosttyKit.xcframework/macos-arm64",
+                    "-lghostty-fat",
                 ]),
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),

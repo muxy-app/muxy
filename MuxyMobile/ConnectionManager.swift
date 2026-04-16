@@ -148,11 +148,11 @@ final class ConnectionManager {
         _ = await send(.terminalInput, params: .terminalInput(params))
     }
 
-    func getTerminalContent(paneID: UUID) async -> TerminalContentDTO? {
+    func getTerminalCells(paneID: UUID) async -> TerminalCellsDTO? {
         let params = GetTerminalContentParams(paneID: paneID)
         guard let response = await send(.getTerminalContent, params: .getTerminalContent(params)) else { return nil }
-        if case let .terminalContent(content) = response.result {
-            return content
+        if case let .terminalCells(cells) = response.result {
+            return cells
         }
         return nil
     }

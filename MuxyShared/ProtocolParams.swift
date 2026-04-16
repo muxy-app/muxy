@@ -140,6 +140,62 @@ public struct TerminalContentDTO: Codable, Sendable {
     }
 }
 
+public struct TerminalCellDTO: Codable, Sendable {
+    public let codepoint: UInt32
+    public let fg: UInt32
+    public let bg: UInt32
+    public let flags: UInt16
+
+    public init(codepoint: UInt32, fg: UInt32, bg: UInt32, flags: UInt16) {
+        self.codepoint = codepoint
+        self.fg = fg
+        self.bg = bg
+        self.flags = flags
+    }
+}
+
+public struct TerminalCellsDTO: Codable, Sendable {
+    public let paneID: UUID
+    public let cols: UInt32
+    public let rows: UInt32
+    public let cursorX: UInt32
+    public let cursorY: UInt32
+    public let cursorVisible: Bool
+    public let cells: [TerminalCellDTO]
+
+    public init(
+        paneID: UUID,
+        cols: UInt32,
+        rows: UInt32,
+        cursorX: UInt32,
+        cursorY: UInt32,
+        cursorVisible: Bool,
+        cells: [TerminalCellDTO]
+    ) {
+        self.paneID = paneID
+        self.cols = cols
+        self.rows = rows
+        self.cursorX = cursorX
+        self.cursorY = cursorY
+        self.cursorVisible = cursorVisible
+        self.cells = cells
+    }
+}
+
+public enum TerminalCellFlag {
+    public static let bold: UInt16 = 1 << 0
+    public static let italic: UInt16 = 1 << 1
+    public static let faint: UInt16 = 1 << 2
+    public static let blink: UInt16 = 1 << 3
+    public static let inverse: UInt16 = 1 << 4
+    public static let invisible: UInt16 = 1 << 5
+    public static let strike: UInt16 = 1 << 6
+    public static let underline: UInt16 = 1 << 7
+    public static let overline: UInt16 = 1 << 8
+    public static let wide: UInt16 = 1 << 9
+    public static let spacer: UInt16 = 1 << 10
+}
+
 public struct TerminalOutputEventDTO: Codable, Sendable {
     public let paneID: UUID
     public let data: String

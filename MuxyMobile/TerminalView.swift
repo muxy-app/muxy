@@ -1,20 +1,12 @@
+import CoreText
 import MuxyShared
 import SwiftUI
 import UIKit
 
 enum TerminalFont {
-    private static let nerdFontName = "JetBrainsMonoNFM-Regular"
-    private static let defaultSize: CGFloat = 12
-
-    static var current: Font {
-        let size = UserDefaults.standard.object(forKey: "terminalFontSize") as? CGFloat ?? defaultSize
-        if UserDefaults.standard.bool(forKey: "useNerdFont"),
-           UIFont(name: nerdFontName, size: size) != nil
-        {
-            return .custom(nerdFontName, size: size)
-        }
-        return .system(size: size, design: .monospaced)
-    }
+    static let nerdFontName = "JetBrainsMonoNFM-Regular"
+    static let nerdFontBoldName = "JetBrainsMonoNFM-Bold"
+    static let defaultSize: CGFloat = 12
 
     static var fontSize: CGFloat {
         get { UserDefaults.standard.object(forKey: "terminalFontSize") as? CGFloat ?? defaultSize }
@@ -28,20 +20,36 @@ enum TerminalFont {
         }
         set { UserDefaults.standard.set(newValue, forKey: "useNerdFont") }
     }
+
+    static func regular(size: CGFloat) -> UIFont {
+        if useNerdFont, let font = UIFont(name: nerdFontName, size: size) { return font }
+        return UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
+    static func bold(size: CGFloat) -> UIFont {
+        if useNerdFont, let font = UIFont(name: nerdFontBoldName, size: size) { return font }
+        return UIFont.monospacedSystemFont(ofSize: size, weight: .bold)
+    }
+
+    static var current: Font {
+        let size = fontSize
+        if useNerdFont, UIFont(name: nerdFontName, size: size) != nil {
+            return .custom(nerdFontName, size: size)
+        }
+        return .system(size: size, design: .monospaced)
+    }
 }
 
 struct TerminalView: View {
     let paneID: UUID
     @Environment(ConnectionManager.self) private var connection
-    @State private var content: String = ""
-    @State private var cols: UInt32 = 80
-    @State private var rows: UInt32 = 24
+    @State private var cells: TerminalCellsDTO?
     @State private var pollTask: Task<Void, Never>?
     @State private var inputCoordinator = TerminalInputCoordinator()
 
     var body: some View {
         VStack(spacing: 0) {
-            terminalOutput
+            terminalGrid
             KeyboardAccessoryBar(paneID: paneID, coordinator: inputCoordinator)
         }
         .background(Color.black)
@@ -56,32 +64,15 @@ struct TerminalView: View {
             stopPolling()
         }
         .onChange(of: paneID) { _, _ in
-            content = ""
+            cells = nil
             stopPolling()
             startPolling()
         }
     }
 
-    private var terminalOutput: some View {
+    private var terminalGrid: some View {
         ZStack(alignment: .bottom) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    Text(content.isEmpty ? "Connecting..." : content)
-                        .font(TerminalFont.current)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding(8)
-                        .id("terminal-bottom")
-                }
-                .scrollIndicators(.hidden)
-                .defaultScrollAnchor(.bottom)
-                .onChange(of: content) { _, _ in
-                    withAnimation(.easeOut(duration: 0.1)) {
-                        proxy.scrollTo("terminal-bottom", anchor: .bottom)
-                    }
-                }
-            }
+            TerminalGridRepresentable(cells: cells)
 
             TerminalInputField(coordinator: inputCoordinator)
                 .frame(height: 1)
@@ -96,12 +87,10 @@ struct TerminalView: View {
     private func startPolling() {
         pollTask = Task {
             while !Task.isCancelled {
-                if let dto = await connection.getTerminalContent(paneID: paneID) {
-                    content = dto.content
-                    cols = dto.cols
-                    rows = dto.rows
+                if let dto = await connection.getTerminalCells(paneID: paneID) {
+                    cells = dto
                 }
-                try? await Task.sleep(for: .milliseconds(150))
+                try? await Task.sleep(for: .milliseconds(100))
             }
         }
     }
@@ -109,6 +98,166 @@ struct TerminalView: View {
     private func stopPolling() {
         pollTask?.cancel()
         pollTask = nil
+    }
+}
+
+struct TerminalGridRepresentable: UIViewRepresentable {
+    let cells: TerminalCellsDTO?
+
+    func makeUIView(context _: Context) -> TerminalGridView {
+        TerminalGridView(frame: .zero)
+    }
+
+    func updateUIView(_ uiView: TerminalGridView, context _: Context) {
+        uiView.update(cells: cells)
+    }
+}
+
+final class TerminalGridView: UIView {
+    private var cells: TerminalCellsDTO?
+    private var fontSize: CGFloat = TerminalFont.fontSize
+    private var cellWidth: CGFloat = 0
+    private var cellHeight: CGFloat = 0
+    private var ascent: CGFloat = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .black
+        contentMode = .redraw
+        isOpaque = true
+        recomputeMetrics()
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(cells: TerminalCellsDTO?) {
+        self.cells = cells
+        setNeedsDisplay()
+    }
+
+    private func recomputeMetrics() {
+        let font = TerminalFont.regular(size: fontSize)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let advance = ("M" as NSString).size(withAttributes: attributes)
+        cellWidth = ceil(advance.width)
+        cellHeight = ceil(font.ascender - font.descender + font.leading)
+        ascent = font.ascender
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard let ctx = UIGraphicsGetCurrentContext(), let cells else {
+            UIColor.black.setFill()
+            UIRectFill(rect)
+            return
+        }
+
+        UIColor.black.setFill()
+        UIRectFill(rect)
+
+        let cols = Int(cells.cols)
+        let rows = Int(cells.rows)
+        guard cols > 0, rows > 0 else { return }
+
+        let availableWidth = bounds.width - 8
+        let availableHeight = bounds.height - 8
+        let fitByWidth = availableWidth / CGFloat(cols)
+        let fitByHeight = availableHeight / CGFloat(rows)
+        let targetCellWidth = max(floor(min(fitByWidth, fitByHeight * 0.55)), 6)
+
+        let regularFont = TerminalFont.regular(size: fontSize)
+        let scale = targetCellWidth / cellWidth
+        let scaledSize = max(6, floor(regularFont.pointSize * scale))
+        let finalRegular = TerminalFont.regular(size: scaledSize)
+        let finalBold = TerminalFont.bold(size: scaledSize)
+        let advanceWidth = ceil(("M" as NSString).size(withAttributes: [.font: finalRegular]).width)
+        let rowHeight = ceil(finalRegular.ascender - finalRegular.descender + finalRegular.leading)
+        let originX: CGFloat = 4
+        let originY: CGFloat = 4
+
+        ctx.textMatrix = .identity
+        ctx.translateBy(x: 0, y: bounds.height)
+        ctx.scaleBy(x: 1, y: -1)
+
+        let cursorVisible = cells.cursorVisible
+        let cursorX = Int(cells.cursorX)
+        let cursorY = Int(cells.cursorY)
+
+        for row in 0 ..< rows {
+            for col in 0 ..< cols {
+                let cell = cells.cells[row * cols + col]
+                let flags = cell.flags
+                if flags & TerminalCellFlag.spacer != 0 { continue }
+
+                let cellRect = CGRect(
+                    x: originX + CGFloat(col) * advanceWidth,
+                    y: bounds.height - originY - CGFloat(row + 1) * rowHeight,
+                    width: advanceWidth * ((flags & TerminalCellFlag.wide) != 0 ? 2 : 1),
+                    height: rowHeight
+                )
+
+                var bgColor = color(rgb: cell.bg)
+                var fgColor = color(rgb: cell.fg)
+
+                let onCursor = cursorVisible && row == cursorY && col == cursorX
+                if onCursor {
+                    let tmp = bgColor
+                    bgColor = fgColor
+                    fgColor = tmp
+                }
+
+                ctx.setFillColor(bgColor.cgColor)
+                ctx.fill(cellRect)
+
+                if flags & TerminalCellFlag.invisible != 0 { continue }
+                if cell.codepoint == 0 || cell.codepoint == 0x20 { continue }
+
+                guard let scalar = Unicode.Scalar(cell.codepoint) else { continue }
+                let glyphString = String(Character(scalar)) as NSString
+
+                let useBold = flags & TerminalCellFlag.bold != 0
+                let baseFont = useBold ? finalBold : finalRegular
+                var drawColor = fgColor
+                if flags & TerminalCellFlag.faint != 0 {
+                    drawColor = drawColor.withAlphaComponent(0.65)
+                }
+
+                var attrs: [NSAttributedString.Key: Any] = [
+                    .font: baseFont,
+                    .foregroundColor: drawColor,
+                ]
+                if flags & TerminalCellFlag.italic != 0 {
+                    if let descriptor = baseFont.fontDescriptor.withSymbolicTraits(.traitItalic) {
+                        attrs[.font] = UIFont(descriptor: descriptor, size: baseFont.pointSize)
+                    }
+                }
+                if flags & TerminalCellFlag.underline != 0 {
+                    attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+                    attrs[.underlineColor] = drawColor
+                }
+                if flags & TerminalCellFlag.strike != 0 {
+                    attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+                    attrs[.strikethroughColor] = drawColor
+                }
+
+                let attributed = NSAttributedString(string: glyphString as String, attributes: attrs)
+                let line = CTLineCreateWithAttributedString(attributed)
+                ctx.textPosition = CGPoint(
+                    x: cellRect.minX,
+                    y: cellRect.minY - (baseFont.descender + baseFont.leading / 2)
+                )
+                CTLineDraw(line, ctx)
+            }
+        }
+    }
+
+    private func color(rgb: UInt32) -> UIColor {
+        let r = CGFloat((rgb >> 16) & 0xFF) / 255.0
+        let g = CGFloat((rgb >> 8) & 0xFF) / 255.0
+        let b = CGFloat(rgb & 0xFF) / 255.0
+        return UIColor(red: r, green: g, blue: b, alpha: 1.0)
     }
 }
 
@@ -129,7 +278,7 @@ final class TerminalInputCoordinator {
 struct TerminalInputField: UIViewRepresentable {
     let coordinator: TerminalInputCoordinator
 
-    func makeUIView(context: Context) -> TerminalUITextField {
+    func makeUIView(context _: Context) -> TerminalUITextField {
         let field = TerminalUITextField(frame: .zero)
         field.onInsert = { [weak coordinator] text in
             coordinator?.send(text)
@@ -144,7 +293,7 @@ struct TerminalInputField: UIViewRepresentable {
         return field
     }
 
-    func updateUIView(_ uiView: TerminalUITextField, context: Context) {}
+    func updateUIView(_: TerminalUITextField, context _: Context) {}
 }
 
 final class TerminalUITextField: UIView, UIKeyInput, UITextInputTraits {

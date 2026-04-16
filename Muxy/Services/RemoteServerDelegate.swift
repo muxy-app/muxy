@@ -143,69 +143,63 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     private static func ansiArrowKey(_ text: String) -> KeyEvent? {
         switch text {
-        case "\u{1B}[A": return KeyEvent(codepoint: 0, keycode: 126, mods: GHOSTTY_MODS_NONE)
-        case "\u{1B}[B": return KeyEvent(codepoint: 0, keycode: 125, mods: GHOSTTY_MODS_NONE)
-        case "\u{1B}[C": return KeyEvent(codepoint: 0, keycode: 124, mods: GHOSTTY_MODS_NONE)
-        case "\u{1B}[D": return KeyEvent(codepoint: 0, keycode: 123, mods: GHOSTTY_MODS_NONE)
-        default: return nil
+        case "\u{1B}[A": KeyEvent(codepoint: 0, keycode: 126, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[B": KeyEvent(codepoint: 0, keycode: 125, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[C": KeyEvent(codepoint: 0, keycode: 124, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[D": KeyEvent(codepoint: 0, keycode: 123, mods: GHOSTTY_MODS_NONE)
+        default: nil
         }
     }
 
     private static func specialKeyEvent(_ scalar: UInt32) -> KeyEvent? {
         switch scalar {
-        case 0x01: return KeyEvent(codepoint: 97, keycode: 0, mods: GHOSTTY_MODS_CTRL)
-        case 0x02: return KeyEvent(codepoint: 98, keycode: 11, mods: GHOSTTY_MODS_CTRL)
-        case 0x03: return KeyEvent(codepoint: 99, keycode: 8, mods: GHOSTTY_MODS_CTRL)
-        case 0x04: return KeyEvent(codepoint: 100, keycode: 2, mods: GHOSTTY_MODS_CTRL)
-        case 0x05: return KeyEvent(codepoint: 101, keycode: 14, mods: GHOSTTY_MODS_CTRL)
-        case 0x06: return KeyEvent(codepoint: 102, keycode: 3, mods: GHOSTTY_MODS_CTRL)
-        case 0x0C: return KeyEvent(codepoint: 108, keycode: 37, mods: GHOSTTY_MODS_CTRL)
-        case 0x1A: return KeyEvent(codepoint: 122, keycode: 6, mods: GHOSTTY_MODS_CTRL)
-        case 0x09: return KeyEvent(codepoint: 9, keycode: 48, mods: GHOSTTY_MODS_NONE)
-        case 0x1B: return KeyEvent(codepoint: 27, keycode: 53, mods: GHOSTTY_MODS_NONE)
-        case 0x7F: return KeyEvent(codepoint: 8, keycode: 51, mods: GHOSTTY_MODS_NONE)
-        default: return nil
+        case 0x01: KeyEvent(codepoint: 97, keycode: 0, mods: GHOSTTY_MODS_CTRL)
+        case 0x02: KeyEvent(codepoint: 98, keycode: 11, mods: GHOSTTY_MODS_CTRL)
+        case 0x03: KeyEvent(codepoint: 99, keycode: 8, mods: GHOSTTY_MODS_CTRL)
+        case 0x04: KeyEvent(codepoint: 100, keycode: 2, mods: GHOSTTY_MODS_CTRL)
+        case 0x05: KeyEvent(codepoint: 101, keycode: 14, mods: GHOSTTY_MODS_CTRL)
+        case 0x06: KeyEvent(codepoint: 102, keycode: 3, mods: GHOSTTY_MODS_CTRL)
+        case 0x0C: KeyEvent(codepoint: 108, keycode: 37, mods: GHOSTTY_MODS_CTRL)
+        case 0x1A: KeyEvent(codepoint: 122, keycode: 6, mods: GHOSTTY_MODS_CTRL)
+        case 0x09: KeyEvent(codepoint: 9, keycode: 48, mods: GHOSTTY_MODS_NONE)
+        case 0x1B: KeyEvent(codepoint: 27, keycode: 53, mods: GHOSTTY_MODS_NONE)
+        case 0x7F: KeyEvent(codepoint: 8, keycode: 51, mods: GHOSTTY_MODS_NONE)
+        default: nil
         }
     }
 
-    func getTerminalContent(paneID: UUID) -> TerminalContentDTO? {
+    func getTerminalContent(paneID: UUID) -> TerminalCellsDTO? {
         guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
               let surface = view.surface
         else { return nil }
 
-        let size = ghostty_surface_size(surface)
+        var out = ghostty_cells_s()
+        guard ghostty_surface_read_cells(surface, &out) else { return nil }
+        defer { ghostty_surface_free_cells(surface, &out) }
 
-        var topLeft = ghostty_point_s()
-        topLeft.tag = GHOSTTY_POINT_VIEWPORT
-        topLeft.coord = GHOSTTY_POINT_COORD_TOP_LEFT
-        topLeft.x = 0
-        topLeft.y = 0
-
-        var bottomRight = ghostty_point_s()
-        bottomRight.tag = GHOSTTY_POINT_VIEWPORT
-        bottomRight.coord = GHOSTTY_POINT_COORD_BOTTOM_RIGHT
-        bottomRight.x = UInt32(size.columns)
-        bottomRight.y = UInt32(size.rows)
-
-        var selection = ghostty_selection_s()
-        selection.top_left = topLeft
-        selection.bottom_right = bottomRight
-        selection.rectangle = false
-
-        var text = ghostty_text_s()
-        var content = ""
-        if ghostty_surface_read_text(surface, selection, &text) {
-            if let ptr = text.text, text.text_len > 0 {
-                content = String(cString: ptr)
+        let total = Int(out.cells_len)
+        var cells: [TerminalCellDTO] = []
+        cells.reserveCapacity(total)
+        if let ptr = out.cells {
+            for i in 0 ..< total {
+                let cell = ptr[i]
+                cells.append(TerminalCellDTO(
+                    codepoint: cell.codepoint,
+                    fg: cell.fg_rgb,
+                    bg: cell.bg_rgb,
+                    flags: cell.flags
+                ))
             }
-            ghostty_surface_free_text(surface, &text)
         }
 
-        return TerminalContentDTO(
+        return TerminalCellsDTO(
             paneID: paneID,
-            content: content,
-            cols: UInt32(size.columns),
-            rows: UInt32(size.rows)
+            cols: out.cols,
+            rows: out.rows,
+            cursorX: out.cursor_x,
+            cursorY: out.cursor_y,
+            cursorVisible: out.cursor_visible,
+            cells: cells
         )
     }
 
