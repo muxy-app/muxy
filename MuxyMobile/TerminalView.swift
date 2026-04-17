@@ -75,6 +75,9 @@ struct TerminalView: View {
             TerminalGridRepresentable(
                 cells: cells,
                 paneID: paneID,
+                onResize: { cols, rows in
+                    Task { await connection.resizeTerminal(paneID: paneID, cols: cols, rows: rows) }
+                },
                 onScroll: { lines in
                     Task {
                         await connection.scrollTerminal(paneID: paneID, deltaX: 0, deltaY: lines, precise: false)
@@ -115,25 +118,33 @@ struct TerminalView: View {
 struct TerminalGridRepresentable: UIViewRepresentable {
     let cells: TerminalCellsDTO?
     let paneID: UUID
+    let onResize: (UInt32, UInt32) -> Void
     let onScroll: (Double) -> Void
 
     func makeUIView(context _: Context) -> TerminalGridView {
         let view = TerminalGridView(frame: .zero)
+        view.onResize = onResize
         view.onScroll = onScroll
         return view
     }
 
     func updateUIView(_ uiView: TerminalGridView, context _: Context) {
+        uiView.onResize = onResize
         uiView.onScroll = onScroll
         uiView.update(cells: cells)
     }
 }
 
 final class TerminalGridView: UIView {
+    var onResize: ((UInt32, UInt32) -> Void)?
     var onScroll: ((Double) -> Void)?
 
     private var cells: TerminalCellsDTO?
+    private let fontSize: CGFloat = 12
+    private var advanceWidth: CGFloat = 0
     private var rowHeight: CGFloat = 0
+    private var lastReportedCols: UInt32 = 0
+    private var lastReportedRows: UInt32 = 0
     private var lastPanTranslation: CGPoint = .zero
     private var scrollAccumulator: CGFloat = 0
 
@@ -142,6 +153,7 @@ final class TerminalGridView: UIView {
         backgroundColor = .black
         contentMode = .redraw
         isOpaque = true
+        recomputeMetrics()
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.minimumNumberOfTouches = 1
         pan.maximumNumberOfTouches = 2
@@ -186,33 +198,24 @@ final class TerminalGridView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        reportGridSize()
         setNeedsDisplay()
     }
 
-    private func fontForFit(cols: Int, rows: Int) -> (regular: UIFont, bold: UIFont, advance: CGFloat, rowHeight: CGFloat) {
-        let minSize: CGFloat = 4
-        let maxSize: CGFloat = 28
-        var lo = minSize
-        var hi = maxSize
-        for _ in 0 ..< 18 {
-            let mid = (lo + hi) / 2
-            let f = TerminalFont.regular(size: mid)
-            let adv = ("M" as NSString).size(withAttributes: [.font: f]).width
-            let line = f.ascender - f.descender + f.leading
-            let fitsWidth = adv * CGFloat(cols) <= bounds.width
-            let fitsHeight = line * CGFloat(rows) <= bounds.height
-            if fitsWidth, fitsHeight {
-                lo = mid
-            } else {
-                hi = mid
-            }
-        }
-        let size = max(minSize, floor(lo))
-        let regular = TerminalFont.regular(size: size)
-        let bold = TerminalFont.bold(size: size)
-        let advance = ("M" as NSString).size(withAttributes: [.font: regular]).width
-        let rowHeight = regular.ascender - regular.descender + regular.leading
-        return (regular, bold, advance, rowHeight)
+    private func recomputeMetrics() {
+        let font = TerminalFont.regular(size: fontSize)
+        advanceWidth = ceil(("M" as NSString).size(withAttributes: [.font: font]).width)
+        rowHeight = ceil(font.ascender - font.descender + font.leading)
+    }
+
+    private func reportGridSize() {
+        guard advanceWidth > 0, rowHeight > 0 else { return }
+        let cols = max(UInt32(floor(bounds.width / advanceWidth)), 20)
+        let rows = max(UInt32(floor(bounds.height / rowHeight)), 5)
+        guard cols != lastReportedCols || rows != lastReportedRows else { return }
+        lastReportedCols = cols
+        lastReportedRows = rows
+        onResize?(cols, rows)
     }
 
     override func draw(_ rect: CGRect) {
@@ -233,17 +236,8 @@ final class TerminalGridView: UIView {
         let rows = Int(cells.rows)
         guard cols > 0, rows > 0 else { return }
 
-        let metrics = fontForFit(cols: cols, rows: rows)
-        let regular = metrics.regular
-        let bold = metrics.bold
-        let advanceWidth = metrics.advance
-        let rowHeight = metrics.rowHeight
-        self.rowHeight = rowHeight
-
-        let gridWidth = advanceWidth * CGFloat(cols)
-        let gridHeight = rowHeight * CGFloat(rows)
-        let originX = floor((bounds.width - gridWidth) / 2)
-        let originY = floor((bounds.height - gridHeight) / 2)
+        let regular = TerminalFont.regular(size: fontSize)
+        let bold = TerminalFont.bold(size: fontSize)
 
         ctx.textMatrix = .identity
         ctx.translateBy(x: 0, y: bounds.height)
@@ -261,8 +255,8 @@ final class TerminalGridView: UIView {
 
                 let width = advanceWidth * ((flags & TerminalCellFlag.wide) != 0 ? 2 : 1)
                 let cellRect = CGRect(
-                    x: originX + CGFloat(col) * advanceWidth,
-                    y: bounds.height - originY - CGFloat(row + 1) * rowHeight,
+                    x: CGFloat(col) * advanceWidth,
+                    y: bounds.height - CGFloat(row + 1) * rowHeight,
                     width: width,
                     height: rowHeight
                 )
