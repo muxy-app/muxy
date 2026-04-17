@@ -6,7 +6,11 @@ import MuxyShared
 final class PaneOwnershipStore {
     static let shared = PaneOwnershipStore()
 
-    var macDeviceName: String = Host.current().localizedName ?? "Mac"
+    var macDeviceName: String = {
+        let raw = ProcessInfo.processInfo.hostName
+        let trimmed = raw.split(separator: ".").first.map(String.init) ?? raw
+        return trimmed.isEmpty ? "Mac" : trimmed
+    }()
 
     private var owners: [UUID: PaneOwnerDTO] = [:]
     private var deviceNames: [UUID: String] = [:]

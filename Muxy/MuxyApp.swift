@@ -1,5 +1,4 @@
 import AppKit
-import MuxyServer
 import SwiftUI
 
 @main
@@ -9,7 +8,6 @@ struct MuxyApp: App {
     @State private var projectStore: ProjectStore
     @State private var worktreeStore: WorktreeStore
     private let updateService = UpdateService.shared
-    private let remoteServer = MuxyRemoteServer()
 
     init() {
         let environment = AppEnvironment.live
@@ -52,16 +50,15 @@ struct MuxyApp: App {
                     appDelegate.hasUnsavedEditorTabs = { [appState] in
                         appState.unsavedEditorTabs()
                     }
-                    let serverDelegate = RemoteServerDelegate(
-                        appState: appState,
-                        projectStore: projectStore,
-                        worktreeStore: worktreeStore
-                    )
-                    serverDelegate.server = remoteServer
-                    appDelegate.remoteServerDelegate = serverDelegate
-                    remoteServer.delegate = serverDelegate
-                    remoteServer.start()
-                    appDelegate.remoteServer = remoteServer
+                    MobileServerService.shared.configure { server in
+                        let delegate = RemoteServerDelegate(
+                            appState: appState,
+                            projectStore: projectStore,
+                            worktreeStore: worktreeStore
+                        )
+                        delegate.server = server
+                        return delegate
+                    }
                     appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
                         for id in projectIDs {
                             if let project = projectStore.projects.first(where: { $0.id == id }) {
@@ -113,8 +110,6 @@ struct MuxyApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var onTerminate: (() -> Void)?
     var hasUnsavedEditorTabs: (() -> [EditorTabState])?
-    var remoteServer: MuxyRemoteServer?
-    var remoteServerDelegate: RemoteServerDelegate?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -190,7 +185,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onTerminate?()
         NotificationStore.shared.saveToDisk()
         NotificationSocketServer.shared.stop()
-        remoteServer?.stop()
+        MainActor.assumeIsolated {
+            MobileServerService.shared.stop()
+        }
     }
 
     @MainActor

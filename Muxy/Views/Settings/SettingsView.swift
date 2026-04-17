@@ -11,6 +11,8 @@ struct SettingsView: View {
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
             NotificationSettingsView()
                 .tabItem { Label("Notifications", systemImage: "bell") }
+            MobileSettingsView()
+                .tabItem { Label("Mobile", systemImage: "iphone") }
         }
         .frame(width: 500, height: 500)
     }
