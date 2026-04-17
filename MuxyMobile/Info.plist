@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleName</key>
+	<string>Muxy</string>
+	<key>CFBundleDisplayName</key>
+	<string>Muxy</string>
+	<key>CFBundleIdentifier</key>
+	<string>app.muxy.mobile</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>UILaunchStoryboardName</key>
+	<string></string>
+	<key>UIRequiresFullScreen</key>
+	<true/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>JetBrainsMonoNerdFontMono-Regular.ttf</string>
+		<string>JetBrainsMonoNerdFontMono-Bold.ttf</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

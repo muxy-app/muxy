@@ -235,9 +235,19 @@ final class GhosttyTerminalNSView: NSView {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
+        if let paneID = TerminalViewRegistry.shared.paneID(for: self),
+           TerminalViewRegistry.shared.isOwnedByRemote(paneID)
+        {
+            return
+        }
+
         let w = UInt32(scaledSize.width)
         let h = UInt32(scaledSize.height)
         ghostty_surface_set_size(surface, w, h)
+    }
+
+    func remoteOwnershipDidChange() {
+        updateMetalLayerSize()
     }
 
     private func isAppShortcut(_ event: NSEvent) -> Bool {
@@ -643,15 +653,86 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func sendReturnKey() {
+        sendKeyPress(codepoint: 13, keycode: 36)
+    }
+
+    func sendRemoteText(_ text: String) {
+        if let arrowKey = Self.ansiArrowKey(text) {
+            sendKeyPress(codepoint: arrowKey.codepoint, keycode: arrowKey.keycode, mods: arrowKey.mods)
+            return
+        }
+
+        var buffer = ""
+        for character in text {
+            let scalar = character.unicodeScalars.first?.value ?? 0
+            if let keyEvent = Self.specialKeyEvent(scalar) {
+                if !buffer.isEmpty {
+                    sendText(buffer)
+                    buffer = ""
+                }
+                sendKeyPress(
+                    codepoint: keyEvent.codepoint,
+                    keycode: keyEvent.keycode,
+                    mods: keyEvent.mods
+                )
+            } else if character == "\r" || character == "\n" {
+                if !buffer.isEmpty {
+                    sendText(buffer)
+                    buffer = ""
+                }
+                sendReturnKey()
+            } else {
+                buffer.append(character)
+            }
+        }
+        if !buffer.isEmpty {
+            sendText(buffer)
+        }
+    }
+
+    private struct RemoteKeyEvent {
+        let codepoint: UInt32
+        let keycode: UInt32
+        let mods: ghostty_input_mods_e
+    }
+
+    private static func ansiArrowKey(_ text: String) -> RemoteKeyEvent? {
+        switch text {
+        case "\u{1B}[A": RemoteKeyEvent(codepoint: 0, keycode: 126, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[B": RemoteKeyEvent(codepoint: 0, keycode: 125, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[C": RemoteKeyEvent(codepoint: 0, keycode: 124, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[D": RemoteKeyEvent(codepoint: 0, keycode: 123, mods: GHOSTTY_MODS_NONE)
+        default: nil
+        }
+    }
+
+    private static func specialKeyEvent(_ scalar: UInt32) -> RemoteKeyEvent? {
+        switch scalar {
+        case 0x01: RemoteKeyEvent(codepoint: 97, keycode: 0, mods: GHOSTTY_MODS_CTRL)
+        case 0x02: RemoteKeyEvent(codepoint: 98, keycode: 11, mods: GHOSTTY_MODS_CTRL)
+        case 0x03: RemoteKeyEvent(codepoint: 99, keycode: 8, mods: GHOSTTY_MODS_CTRL)
+        case 0x04: RemoteKeyEvent(codepoint: 100, keycode: 2, mods: GHOSTTY_MODS_CTRL)
+        case 0x05: RemoteKeyEvent(codepoint: 101, keycode: 14, mods: GHOSTTY_MODS_CTRL)
+        case 0x06: RemoteKeyEvent(codepoint: 102, keycode: 3, mods: GHOSTTY_MODS_CTRL)
+        case 0x0C: RemoteKeyEvent(codepoint: 108, keycode: 37, mods: GHOSTTY_MODS_CTRL)
+        case 0x1A: RemoteKeyEvent(codepoint: 122, keycode: 6, mods: GHOSTTY_MODS_CTRL)
+        case 0x09: RemoteKeyEvent(codepoint: 9, keycode: 48, mods: GHOSTTY_MODS_NONE)
+        case 0x1B: RemoteKeyEvent(codepoint: 27, keycode: 53, mods: GHOSTTY_MODS_NONE)
+        case 0x7F: RemoteKeyEvent(codepoint: 8, keycode: 51, mods: GHOSTTY_MODS_NONE)
+        default: nil
+        }
+    }
+
+    func sendKeyPress(codepoint: UInt32, keycode: UInt32 = 0, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
         guard let surface else { return }
         var press = ghostty_input_key_s()
         press.action = GHOSTTY_ACTION_PRESS
-        press.keycode = 36
-        press.mods = GHOSTTY_MODS_NONE
-        press.consumed_mods = GHOSTTY_MODS_NONE
+        press.keycode = keycode
+        press.mods = mods
+        press.consumed_mods = mods
         press.composing = false
         press.text = nil
-        press.unshifted_codepoint = 13
+        press.unshifted_codepoint = codepoint
         _ = ghostty_surface_key(surface, press)
 
         var release = press

@@ -5,14 +5,13 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thank you for reporting a bug. Please fill out the information below to help us investigate.
+        **Humans only:** write this issue in your own words. AI-generated text is not allowed and will be closed without review.
 
   - type: textarea
     id: description
     attributes:
       label: Description
-      description: A clear description of the bug.
-      placeholder: What happened?
+      description: What happened, and what did you expect to happen?
     validations:
       required: true
 
@@ -20,27 +19,9 @@ body:
     id: steps
     attributes:
       label: Steps to Reproduce
-      description: Steps to reproduce the behavior.
       placeholder: |
         1. Open Muxy
         2. ...
-        3. See error
-    validations:
-      required: true
-
-  - type: textarea
-    id: expected
-    attributes:
-      label: Expected Behavior
-      description: What you expected to happen.
-    validations:
-      required: true
-
-  - type: textarea
-    id: actual
-    attributes:
-      label: Actual Behavior
-      description: What actually happened.
     validations:
       required: true
 
@@ -48,7 +29,6 @@ body:
     id: version
     attributes:
       label: Muxy Version
-      description: The version of Muxy you're using (shown in the sidebar footer).
       placeholder: e.g. 1.0
     validations:
       required: true
@@ -57,22 +37,6 @@ body:
     id: macos
     attributes:
       label: macOS Version
-      placeholder: e.g. macOS 15.2
+      placeholder: e.g. 15/26
     validations:
       required: true
-
-  - type: textarea
-    id: screenshots
-    attributes:
-      label: Screenshots
-      description: If applicable, add screenshots to help explain the issue.
-    validations:
-      required: false
-
-  - type: textarea
-    id: additional
-    attributes:
-      label: Additional Context
-      description: Any other context about the problem.
-    validations:
-      required: false
