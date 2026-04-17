@@ -60,6 +60,14 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
         registerDeviceCalls.append((clientID, name))
     }
 
+    func authenticateDevice(deviceID _: UUID, token _: String, name: String) -> DeviceAuthDecision {
+        .approved(deviceName: name)
+    }
+
+    func requestPairing(deviceID _: UUID, token _: String, name: String) async -> DeviceAuthDecision {
+        .approved(deviceName: name)
+    }
+
     func getDeviceTheme() -> (fg: UInt32, bg: UInt32)? { nil }
 
     func clientDisconnected(clientID: UUID) {
@@ -93,6 +101,12 @@ struct MuxyRemoteServerRoutingTests {
         return (server, delegate)
     }
 
+    private func authedClient(on server: MuxyRemoteServer) -> UUID {
+        let id = UUID()
+        server._testingMarkAuthenticated(id)
+        return id
+    }
+
     @Test("listProjects routes to delegate and returns projects")
     func listProjectsRoutes() async {
         let (server, delegate) = makeServer()
@@ -109,7 +123,7 @@ struct MuxyRemoteServerRoutingTests {
 
         let response = await server.processRequest(
             MuxyRequest(id: "1", method: .listProjects),
-            clientID: UUID()
+            clientID: authedClient(on: server)
         )
 
         #expect(delegate.listProjectsCalled == 1)
@@ -133,7 +147,7 @@ struct MuxyRemoteServerRoutingTests {
                 method: .selectProject,
                 params: .selectProject(SelectProjectParams(projectID: projectID))
             ),
-            clientID: UUID()
+            clientID: authedClient(on: server)
         )
 
         #expect(delegate.selectProjectCalls == [projectID])
@@ -149,7 +163,7 @@ struct MuxyRemoteServerRoutingTests {
 
         let response = await server.processRequest(
             MuxyRequest(id: "3", method: .selectProject, params: nil),
-            clientID: UUID()
+            clientID: authedClient(on: server)
         )
 
         #expect(delegate.selectProjectCalls.isEmpty)
@@ -160,7 +174,7 @@ struct MuxyRemoteServerRoutingTests {
     @Test("terminalInput threads clientID from connection into delegate")
     func terminalInputCarriesClientID() async {
         let (server, delegate) = makeServer()
-        let clientID = UUID()
+        let clientID = authedClient(on: server)
         let paneID = UUID()
 
         _ = await server.processRequest(
@@ -181,7 +195,7 @@ struct MuxyRemoteServerRoutingTests {
     @Test("takeOverPane threads clientID and sizes through")
     func takeOverPaneRoutes() async {
         let (server, delegate) = makeServer()
-        let clientID = UUID()
+        let clientID = authedClient(on: server)
         let paneID = UUID()
 
         _ = await server.processRequest(
@@ -204,7 +218,7 @@ struct MuxyRemoteServerRoutingTests {
     @Test("registerDevice returns device info with clientID")
     func registerDeviceResponse() async {
         let (server, delegate) = makeServer()
-        let clientID = UUID()
+        let clientID = authedClient(on: server)
 
         let response = await server.processRequest(
             MuxyRequest(
@@ -235,7 +249,7 @@ struct MuxyRemoteServerRoutingTests {
                 method: .getWorkspace,
                 params: .getWorkspace(GetWorkspaceParams(projectID: UUID()))
             ),
-            clientID: UUID()
+            clientID: authedClient(on: server)
         )
 
         #expect(delegate.stubWorkspace == nil)
@@ -257,7 +271,7 @@ struct MuxyRemoteServerRoutingTests {
                 method: .vcsCommit,
                 params: .vcsCommit(VCSCommitParams(projectID: UUID(), message: "msg", stageAll: true))
             ),
-            clientID: UUID()
+            clientID: authedClient(on: server)
         )
 
         #expect(response.error?.code == 500)
@@ -275,7 +289,7 @@ struct MuxyRemoteServerRoutingTests {
                 method: .subscribe,
                 params: .subscribe(SubscribeParams(events: [.workspaceChanged]))
             ),
-            clientID: UUID()
+            clientID: authedClient(on: server)
         )
         let unsubResponse = await server.processRequest(
             MuxyRequest(
@@ -283,7 +297,7 @@ struct MuxyRemoteServerRoutingTests {
                 method: .unsubscribe,
                 params: .unsubscribe(UnsubscribeParams(events: [.workspaceChanged]))
             ),
-            clientID: UUID()
+            clientID: authedClient(on: server)
         )
 
         guard case .ok = subResponse.result, case .ok = unsubResponse.result else {
@@ -298,7 +312,7 @@ struct MuxyRemoteServerRoutingTests {
 
         let response = await server.processRequest(
             MuxyRequest(id: "11", method: .listProjects),
-            clientID: UUID()
+            clientID: authedClient(on: server)
         )
 
         #expect(response.error?.code == 500)

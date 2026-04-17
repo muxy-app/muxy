@@ -52,6 +52,9 @@ public struct MuxyError: Codable, Sendable {
     public static let notFound = MuxyError(code: 404, message: "Not found")
     public static let invalidParams = MuxyError(code: 400, message: "Invalid parameters")
     public static let internalError = MuxyError(code: 500, message: "Internal error")
+    public static let unauthorized = MuxyError(code: 401, message: "Authentication required")
+    public static let pairingDenied = MuxyError(code: 403, message: "Pairing denied")
+    public static let pairingTimeout = MuxyError(code: 408, message: "Pairing request timed out")
 }
 
 public enum MuxyMethod: String, Codable, Sendable {
@@ -71,6 +74,8 @@ public enum MuxyMethod: String, Codable, Sendable {
     case terminalScroll
     case getTerminalContent
     case registerDevice
+    case pairDevice
+    case authenticateDevice
     case takeOverPane
     case releasePane
     case getVCSStatus
@@ -100,6 +105,8 @@ public enum MuxyParams: Codable, Sendable {
     case terminalScroll(TerminalScrollParams)
     case getTerminalContent(GetTerminalContentParams)
     case registerDevice(RegisterDeviceParams)
+    case pairDevice(PairDeviceParams)
+    case authenticateDevice(AuthenticateDeviceParams)
     case takeOverPane(TakeOverPaneParams)
     case releasePane(ReleasePaneParams)
     case getVCSStatus(GetVCSStatusParams)
@@ -134,6 +141,8 @@ public enum MuxyParams: Codable, Sendable {
         case "terminalResize": self = try .terminalResize(container.decode(TerminalResizeParams.self, forKey: .value))
         case "terminalScroll": self = try .terminalScroll(container.decode(TerminalScrollParams.self, forKey: .value))
         case "registerDevice": self = try .registerDevice(container.decode(RegisterDeviceParams.self, forKey: .value))
+        case "pairDevice": self = try .pairDevice(container.decode(PairDeviceParams.self, forKey: .value))
+        case "authenticateDevice": self = try .authenticateDevice(container.decode(AuthenticateDeviceParams.self, forKey: .value))
         case "takeOverPane": self = try .takeOverPane(container.decode(TakeOverPaneParams.self, forKey: .value))
         case "releasePane": self = try .releasePane(container.decode(ReleasePaneParams.self, forKey: .value))
         case "getTerminalContent": self = try .getTerminalContent(container.decode(GetTerminalContentParams.self, forKey: .value))
@@ -180,6 +189,10 @@ public enum MuxyParams: Codable, Sendable {
             try container.encode(v, forKey: .value)
         case let .registerDevice(v): try container.encode("registerDevice", forKey: .type)
             try container.encode(v, forKey: .value)
+        case let .pairDevice(v): try container.encode("pairDevice", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .authenticateDevice(v): try container.encode("authenticateDevice", forKey: .type)
+            try container.encode(v, forKey: .value)
         case let .takeOverPane(v): try container.encode("takeOverPane", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .releasePane(v): try container.encode("releasePane", forKey: .type)
@@ -214,6 +227,7 @@ public enum MuxyResult: Codable, Sendable {
     case terminalContent(TerminalContentDTO)
     case terminalCells(TerminalCellsDTO)
     case deviceInfo(DeviceInfoDTO)
+    case pairing(PairingResultDTO)
     case paneOwner(PaneOwnerDTO)
     case vcsStatus(VCSStatusDTO)
     case projectLogo(ProjectLogoDTO)
@@ -236,6 +250,7 @@ public enum MuxyResult: Codable, Sendable {
         case "terminalContent": self = try .terminalContent(container.decode(TerminalContentDTO.self, forKey: .value))
         case "terminalCells": self = try .terminalCells(container.decode(TerminalCellsDTO.self, forKey: .value))
         case "deviceInfo": self = try .deviceInfo(container.decode(DeviceInfoDTO.self, forKey: .value))
+        case "pairing": self = try .pairing(container.decode(PairingResultDTO.self, forKey: .value))
         case "paneOwner": self = try .paneOwner(container.decode(PaneOwnerDTO.self, forKey: .value))
         case "vcsStatus": self = try .vcsStatus(container.decode(VCSStatusDTO.self, forKey: .value))
         case "projectLogo": self = try .projectLogo(container.decode(ProjectLogoDTO.self, forKey: .value))
@@ -261,6 +276,8 @@ public enum MuxyResult: Codable, Sendable {
         case let .terminalCells(v): try container.encode("terminalCells", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .deviceInfo(v): try container.encode("deviceInfo", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .pairing(v): try container.encode("pairing", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .paneOwner(v): try container.encode("paneOwner", forKey: .type)
             try container.encode(v, forKey: .value)

@@ -27,6 +27,7 @@ MuxyMobile/                    iOS companion app
   ConnectView.swift            Host/port connection form
   RemoteWorkspaceView.swift    Project list + workspace detail
   ConnectionManager.swift      WebSocket client, state sync, request/response handling
+  DeviceCredentialsStore.swift Persistent deviceID + token stored in iOS Keychain
 ```
 
 ## Desktop App Directory Map
@@ -84,6 +85,9 @@ Muxy/
     KeyBindingPersistence.swift  JSON persistence for shortcuts
     ProjectStore.swift        @Observable store for projects list
     ProjectPersistence.swift  JSON persistence for projects
+    ApprovedDevicesStore.swift Approved mobile devices (deviceID, SHA-256 token hash), revocation
+    PairingRequestCoordinator.swift Queues pending pairing requests for UI approval prompts
+    MobileServerService.swift  Lifecycle wrapper around MuxyRemoteServer
     WorktreeStore.swift       @Observable store for per-project worktrees
     WorktreePersistence.swift JSON persistence for worktrees (one file per project)
     ProjectOpenService.swift  Shared open-project flow used by commands and sidebar
@@ -298,3 +302,29 @@ The `MuxyCodec` handles JSON encoding/decoding with ISO 8601 dates.
 `ConnectionManager` manages the WebSocket lifecycle and maintains a local mirror
 of the remote state (projects, workspace layout, notifications). Views observe
 this state and dispatch actions back through the connection.
+
+### Device Pairing
+
+Connections are gated by a trust-on-first-use pairing handshake. Each mobile
+device generates a persistent `deviceID` (UUID) and a random `token` on first
+launch; both are stored in the iOS Keychain (`DeviceCredentialsStore`).
+
+On every connect, the mobile app sends `authenticateDevice` first. The Mac
+(`ApprovedDevicesStore`) compares the device's SHA-256 token hash against the
+stored hash for that `deviceID`:
+
+- **Known device with matching token** → immediately authorized.
+- **Unknown device** → server returns `401 Unauthorized`. Mobile falls back to
+  `pairDevice`, and `PairingRequestCoordinator` on the Mac queues the request
+  and surfaces an approval sheet on `MainWindow`. Approval stores the token
+  hash in `~/Library/Application Support/Muxy/approved-devices.json`; denial
+  returns `403`.
+- **Token mismatch** → treated the same as unknown; server returns `401` so a
+  stolen but outdated credential can't resume authentication.
+
+Until the handshake succeeds the server rejects every other RPC with
+`401 Unauthorized`. After success, the client is added to an
+`authenticatedClients` set on `MuxyRemoteServer`; broadcasts only go to clients
+in that set. The `Mobile` tab in Settings lists approved devices with a Revoke
+action, which removes the device from storage and terminates any active
+connection for that `deviceID` via `MuxyRemoteServer.disconnect(deviceID:)`.

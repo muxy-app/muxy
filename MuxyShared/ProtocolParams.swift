@@ -126,6 +126,41 @@ public struct RegisterDeviceParams: Codable, Sendable {
     }
 }
 
+public struct PairDeviceParams: Codable, Sendable {
+    public let deviceID: UUID
+    public let deviceName: String
+    public let token: String
+    public init(deviceID: UUID, deviceName: String, token: String) {
+        self.deviceID = deviceID
+        self.deviceName = deviceName
+        self.token = token
+    }
+}
+
+public struct AuthenticateDeviceParams: Codable, Sendable {
+    public let deviceID: UUID
+    public let deviceName: String
+    public let token: String
+    public init(deviceID: UUID, deviceName: String, token: String) {
+        self.deviceID = deviceID
+        self.deviceName = deviceName
+        self.token = token
+    }
+}
+
+public struct PairingResultDTO: Codable, Sendable {
+    public let clientID: UUID
+    public let deviceName: String
+    public let themeFg: UInt32?
+    public let themeBg: UInt32?
+    public init(clientID: UUID, deviceName: String, themeFg: UInt32? = nil, themeBg: UInt32? = nil) {
+        self.clientID = clientID
+        self.deviceName = deviceName
+        self.themeFg = themeFg
+        self.themeBg = themeBg
+    }
+}
+
 public struct DeviceInfoDTO: Codable, Sendable {
     public let clientID: UUID
     public let deviceName: String

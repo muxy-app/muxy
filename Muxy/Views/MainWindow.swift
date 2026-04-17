@@ -237,6 +237,12 @@ struct MainWindow: View {
             guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
             presentSaveErrorAlert(message: message)
         }
+        .onChange(of: PairingRequestCoordinator.shared.pendingRequest?.id) { _, _ in
+            presentPairingRequestIfNeeded()
+        }
+        .onAppear {
+            presentPairingRequestIfNeeded()
+        }
     }
 
     @ViewBuilder
@@ -536,6 +542,31 @@ struct MainWindow: View {
                 } else {
                     appState.cancelCloseRunningTab()
                 }
+            }
+        }
+    }
+
+    private func presentPairingRequestIfNeeded() {
+        guard let request = PairingRequestCoordinator.shared.pendingRequest else { return }
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Allow \(request.deviceName) to connect?"
+        alert.informativeText = "This device is requesting access to Muxy. Only approve devices you recognize."
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Approve")
+        alert.addButton(withTitle: "Deny")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn {
+                PairingRequestCoordinator.shared.approve(request)
+            } else {
+                PairingRequestCoordinator.shared.deny(request)
             }
         }
     }

@@ -23,6 +23,9 @@ final class MobileServerService {
 
     private init() {
         isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+        ApprovedDevicesStore.shared.onRevoke = { [weak self] deviceID in
+            self?.server?.disconnect(deviceID: deviceID)
+        }
     }
 
     func configure(_ delegateBuilder: @escaping (MuxyRemoteServer) -> MuxyRemoteServerDelegate) {

@@ -12,6 +12,7 @@ final class ConnectionManager {
     enum State {
         case disconnected
         case connecting
+        case awaitingApproval
         case connected
         case error(String)
     }
@@ -106,26 +107,68 @@ final class ConnectionManager {
 
         Task {
             try? await Task.sleep(for: .milliseconds(500))
-            guard await registerSelf() else { return }
+            guard await authenticateOrPair() else { return }
             await refreshProjects()
-            if case .connecting = state {
+            switch state {
+            case .connecting,
+                 .awaitingApproval:
                 state = .connected
+            default:
+                break
             }
         }
     }
 
-    private func registerSelf() async -> Bool {
-        let params = RegisterDeviceParams(deviceName: deviceName)
-        guard let response = await send(.registerDevice, params: .registerDevice(params)) else { return false }
-        if let error = response.error {
-            state = .error(error.message)
+    private func authenticateOrPair() async -> Bool {
+        let credentials = DeviceCredentialsStore.load()
+        let authParams = AuthenticateDeviceParams(
+            deviceID: credentials.deviceID,
+            deviceName: deviceName,
+            token: credentials.token
+        )
+        guard let authResponse = await send(
+            .authenticateDevice,
+            params: .authenticateDevice(authParams),
+            timeout: .seconds(10)
+        )
+        else { return false }
+
+        if authResponse.error == nil {
+            return handlePairingResult(authResponse.result)
+        }
+        if authResponse.error?.code != 401 {
+            state = .error(authResponse.error?.message ?? "Authentication failed")
             return false
         }
-        if case let .deviceInfo(info) = response.result {
-            myClientID = info.clientID
-            if let fg = info.themeFg, let bg = info.themeBg {
-                deviceTheme = DeviceTheme(fg: fg, bg: bg)
-            }
+
+        state = .awaitingApproval
+        let pairParams = PairDeviceParams(
+            deviceID: credentials.deviceID,
+            deviceName: deviceName,
+            token: credentials.token
+        )
+        guard let pairResponse = await send(
+            .pairDevice,
+            params: .pairDevice(pairParams),
+            timeout: .seconds(120)
+        )
+        else { return false }
+
+        if let error = pairResponse.error {
+            state = .error(error.code == 403 ? "Approval denied on Mac" : error.message)
+            return false
+        }
+        return handlePairingResult(pairResponse.result)
+    }
+
+    private func handlePairingResult(_ result: MuxyResult?) -> Bool {
+        guard case let .pairing(info) = result else {
+            state = .error("Unexpected response from Mac")
+            return false
+        }
+        myClientID = info.clientID
+        if let fg = info.themeFg, let bg = info.themeBg {
+            deviceTheme = DeviceTheme(fg: fg, bg: bg)
         }
         return true
     }
@@ -163,6 +206,7 @@ final class ConnectionManager {
         case .connected:
             verifyConnectionOrReconnect()
         case .connecting,
+             .awaitingApproval,
              .disconnected:
             break
         }
@@ -272,7 +316,11 @@ final class ConnectionManager {
         return nil
     }
 
-    private func send(_ method: MuxyMethod, params: MuxyParams? = nil) async -> MuxyResponse? {
+    private func send(
+        _ method: MuxyMethod,
+        params: MuxyParams? = nil,
+        timeout: Duration = .seconds(10)
+    ) async -> MuxyResponse? {
         let id = UUID().uuidString
         let request = MuxyRequest(id: id, method: method, params: params)
         let message = MuxyMessage.request(request)
@@ -292,7 +340,7 @@ final class ConnectionManager {
         return await withCheckedContinuation { continuation in
             pendingRequests[id] = continuation
             Task {
-                try? await Task.sleep(for: .seconds(10))
+                try? await Task.sleep(for: timeout)
                 if let pending = pendingRequests.removeValue(forKey: id) {
                     pending.resume(returning: MuxyResponse(id: id, error: MuxyError(code: 408, message: "Timeout")))
                 }
@@ -313,7 +361,8 @@ final class ConnectionManager {
                     case .disconnected,
                          .error:
                         return
-                    case .connecting:
+                    case .connecting,
+                         .awaitingApproval:
                         logger.error("Connect failed: \(error)")
                         self.state = .error("Could not reach device")
                     case .connected:

@@ -171,6 +171,33 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         PaneOwnershipStore.shared.registerDevice(clientID: clientID, name: name)
     }
 
+    func authenticateDevice(deviceID: UUID, token: String, name: String) -> DeviceAuthDecision {
+        guard ApprovedDevicesStore.shared.devices.contains(where: { $0.id == deviceID }) else {
+            return .unknown
+        }
+        guard let device = ApprovedDevicesStore.shared.validate(deviceID: deviceID, token: token) else {
+            return .denied
+        }
+        if device.name != name {
+            ApprovedDevicesStore.shared.rename(deviceID: deviceID, to: name)
+        }
+        ApprovedDevicesStore.shared.touch(deviceID: deviceID)
+        return .approved(deviceName: name)
+    }
+
+    func requestPairing(deviceID: UUID, token: String, name: String) async -> DeviceAuthDecision {
+        if ApprovedDevicesStore.shared.devices.contains(where: { $0.id == deviceID }) {
+            return .denied
+        }
+        let approved = await PairingRequestCoordinator.shared.requestApproval(
+            deviceID: deviceID,
+            deviceName: name,
+            token: token
+        )
+        guard approved else { return .denied }
+        return .approved(deviceName: name)
+    }
+
     func getDeviceTheme() -> (fg: UInt32, bg: UInt32)? {
         ThemeService.shared.currentThemeColors()
     }

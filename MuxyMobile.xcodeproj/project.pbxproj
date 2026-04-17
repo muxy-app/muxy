@@ -15,6 +15,7 @@
 		A1000006 /* ProjectPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000007 /* ProjectPickerView.swift */; };
 		A1000007 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008 /* SettingsSheet.swift */; };
 		A1000008 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009 /* TerminalView.swift */; };
+		A1000009 /* DeviceCredentialsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000E /* DeviceCredentialsStore.swift */; };
 		A1000010 /* MuxyShared in Frameworks */ = {isa = PBXBuildFile; productRef = A4000001 /* MuxyShared */; };
 		A1000020 /* JetBrainsMonoNerdFontMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A200000A /* JetBrainsMonoNerdFontMono-Regular.ttf */; };
 		A1000021 /* JetBrainsMonoNerdFontMono-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A200000B /* JetBrainsMonoNerdFontMono-Bold.ttf */; };
@@ -32,6 +33,7 @@
 		A2000007 /* ProjectPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectPickerView.swift; sourceTree = "<group>"; };
 		A2000008 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		A2000009 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
+		A200000E /* DeviceCredentialsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCredentialsStore.swift; sourceTree = "<group>"; };
 		A200000A /* JetBrainsMonoNerdFontMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMonoNerdFontMono-Regular.ttf"; sourceTree = "<group>"; };
 		A200000B /* JetBrainsMonoNerdFontMono-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMonoNerdFontMono-Bold.ttf"; sourceTree = "<group>"; };
 		A200000C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 				A2000008 /* SettingsSheet.swift */,
 				A2000009 /* TerminalView.swift */,
 				A2000005 /* ConnectionManager.swift */,
+				A200000E /* DeviceCredentialsStore.swift */,
 				A2000006 /* Info.plist */,
 				A200000D /* PrivacyInfo.xcprivacy */,
 				A3000004 /* Resources */,
@@ -184,6 +187,7 @@
 				A1000006 /* ProjectPickerView.swift in Sources */,
 				A1000007 /* SettingsSheet.swift in Sources */,
 				A1000008 /* TerminalView.swift in Sources */,
+				A1000009 /* DeviceCredentialsStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

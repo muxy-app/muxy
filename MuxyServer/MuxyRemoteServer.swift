@@ -5,6 +5,12 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "RemoteServer")
 
+public enum DeviceAuthDecision: Sendable {
+    case approved(deviceName: String)
+    case unknown
+    case denied
+}
+
 @MainActor
 public protocol MuxyRemoteServerDelegate: AnyObject {
     func listProjects() -> [ProjectDTO]
@@ -25,6 +31,8 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32)
     func releasePane(paneID: UUID, clientID: UUID)
     func registerDevice(clientID: UUID, name: String)
+    func authenticateDevice(deviceID: UUID, token: String, name: String) -> DeviceAuthDecision
+    func requestPairing(deviceID: UUID, token: String, name: String) async -> DeviceAuthDecision
     func getDeviceTheme() -> (fg: UInt32, bg: UInt32)?
     func clientDisconnected(clientID: UUID)
     func getPaneOwner(paneID: UUID) -> PaneOwnerDTO?
@@ -41,6 +49,8 @@ public final class MuxyRemoteServer: @unchecked Sendable {
     private let port: UInt16
     private var listener: NWListener?
     private var connections: [UUID: ClientConnection] = [:]
+    private var authenticatedClients: Set<UUID> = []
+    private var deviceIDByClient: [UUID: UUID] = [:]
     private let queue = DispatchQueue(label: "app.muxy.remoteServer")
     public weak var delegate: (any MuxyRemoteServerDelegate)?
 
@@ -63,6 +73,8 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                 connection.cancel()
             }
             self.connections.removeAll()
+            self.authenticatedClients.removeAll()
+            self.deviceIDByClient.removeAll()
             logger.info("Remote server stopped")
         }
     }
@@ -71,8 +83,24 @@ public final class MuxyRemoteServer: @unchecked Sendable {
         guard let data = try? MuxyCodec.encode(.event(event)) else { return }
         queue.async { [weak self] in
             guard let self else { return }
-            for connection in self.connections.values {
-                connection.send(data)
+            for clientID in self.authenticatedClients {
+                self.connections[clientID]?.send(data)
+            }
+        }
+    }
+
+    public func disconnect(clientID: UUID) {
+        queue.async { [weak self] in
+            self?.connections[clientID]?.cancel()
+        }
+    }
+
+    public func disconnect(deviceID: UUID) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            let clientIDs = self.deviceIDByClient.filter { $0.value == deviceID }.map(\.key)
+            for clientID in clientIDs {
+                self.connections[clientID]?.cancel()
             }
         }
     }
@@ -118,11 +146,30 @@ public final class MuxyRemoteServer: @unchecked Sendable {
     func removeConnection(_ id: UUID) {
         queue.async { [weak self] in
             self?.connections.removeValue(forKey: id)
+            self?.authenticatedClients.remove(id)
+            self?.deviceIDByClient.removeValue(forKey: id)
             logger.info("Client disconnected: \(id)")
         }
         Task { @MainActor in
             self.delegate?.clientDisconnected(clientID: id)
         }
+    }
+
+    private func markAuthenticated(_ id: UUID, deviceID: UUID) {
+        queue.async { [weak self] in
+            self?.authenticatedClients.insert(id)
+            self?.deviceIDByClient[id] = deviceID
+        }
+    }
+
+    func _testingMarkAuthenticated(_ id: UUID) {
+        queue.sync {
+            authenticatedClients.insert(id)
+        }
+    }
+
+    private func isAuthenticated(_ id: UUID) -> Bool {
+        queue.sync { authenticatedClients.contains(id) }
     }
 
     func handleRequest(_ request: MuxyRequest, from clientID: UUID) {
@@ -142,6 +189,51 @@ public final class MuxyRemoteServer: @unchecked Sendable {
         }
 
         switch request.method {
+        case .pairDevice:
+            guard case let .pairDevice(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            let decision = await delegate.requestPairing(
+                deviceID: params.deviceID,
+                token: params.token,
+                name: params.deviceName
+            )
+            return finalizeAuth(
+                requestID: request.id,
+                clientID: clientID,
+                deviceID: params.deviceID,
+                decision: decision
+            )
+
+        case .authenticateDevice:
+            guard case let .authenticateDevice(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            let decision = delegate.authenticateDevice(
+                deviceID: params.deviceID,
+                token: params.token,
+                name: params.deviceName
+            )
+            return finalizeAuth(
+                requestID: request.id,
+                clientID: clientID,
+                deviceID: params.deviceID,
+                decision: decision
+            )
+
+        default:
+            break
+        }
+
+        guard isAuthenticated(clientID) else {
+            return MuxyResponse(id: request.id, error: .unauthorized)
+        }
+
+        switch request.method {
+        case .pairDevice,
+             .authenticateDevice:
+            return MuxyResponse(id: request.id, error: .internalError)
+
         case .listProjects:
             let projects = delegate.listProjects()
             return MuxyResponse(id: request.id, result: .projects(projects))
@@ -364,6 +456,32 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             }
             delegate.releasePane(paneID: params.paneID, clientID: clientID)
             return MuxyResponse(id: request.id, result: .ok)
+        }
+    }
+
+    @MainActor
+    private func finalizeAuth(
+        requestID: String,
+        clientID: UUID,
+        deviceID: UUID,
+        decision: DeviceAuthDecision
+    ) -> MuxyResponse {
+        switch decision {
+        case let .approved(deviceName):
+            markAuthenticated(clientID, deviceID: deviceID)
+            delegate?.registerDevice(clientID: clientID, name: deviceName)
+            let theme = delegate?.getDeviceTheme()
+            let result = PairingResultDTO(
+                clientID: clientID,
+                deviceName: deviceName,
+                themeFg: theme?.fg,
+                themeBg: theme?.bg
+            )
+            return MuxyResponse(id: requestID, result: .pairing(result))
+        case .unknown:
+            return MuxyResponse(id: requestID, error: .unauthorized)
+        case .denied:
+            return MuxyResponse(id: requestID, error: .pairingDenied)
         }
     }
 }
