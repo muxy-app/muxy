@@ -22,7 +22,12 @@ struct ProjectPickerView: View {
         .onChange(of: path) { _, newValue in
             if newValue.isEmpty, connection.activeProjectID != nil {
                 connection.activeProjectID = nil
-                connection.workspace = nil
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(400))
+                    if connection.activeProjectID == nil {
+                        connection.workspace = nil
+                    }
+                }
             }
         }
         .onAppear {

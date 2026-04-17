@@ -40,11 +40,8 @@ struct WorkspaceContentWrapper: View {
                     tabPicker
                 }
             }
-            .toolbarBackground(themeBg, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
             .toolbarColorScheme(preferredScheme, for: .navigationBar)
             .tint(themeFg)
-            .preferredColorScheme(preferredScheme)
             .background(themeBg.ignoresSafeArea())
     }
 
