@@ -155,6 +155,21 @@ final class ConnectionManager {
         connect(host: host, port: port)
     }
 
+    func handleForeground() {
+        guard lastHost != nil, lastPort != nil else { return }
+        switch state {
+        case .error:
+            reconnect()
+        case .connected:
+            if connection == nil {
+                reconnect()
+            }
+        case .connecting,
+             .disconnected:
+            break
+        }
+    }
+
     func refreshProjects() async {
         guard let response = await send(.listProjects) else { return }
         if case let .projects(list) = response.result {
