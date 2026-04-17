@@ -1,4 +1,5 @@
 import AppKit
+import MuxyShared
 import SwiftUI
 
 struct ProjectRow: View {
@@ -127,8 +128,8 @@ struct ProjectRow: View {
                 )
             }
             .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
-                ProjectIconColorPicker(selectedHex: project.iconColor) { hex in
-                    onSetIconColor(hex)
+                ProjectIconColorPicker(selectedID: project.iconColor) { id in
+                    onSetIconColor(id)
                     showColorPicker = false
                 }
             }
@@ -183,7 +184,9 @@ struct ProjectRow: View {
     }
 
     private var letterForeground: Color {
-        if project.iconColor != nil { return .white }
+        if let foreground = ProjectIconColor.foreground(for: project.iconColor) {
+            return foreground
+        }
         return isActive ? MuxyTheme.fg : MuxyTheme.fgMuted
     }
 
