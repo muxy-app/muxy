@@ -673,6 +673,15 @@ enum TerminalModifier: String, CaseIterable, Identifiable {
 
     var title: String { rawValue }
 
+    var displayName: String {
+        switch self {
+        case .ctrl: "Control"
+        case .shift: "Shift"
+        case .alt: "Option"
+        case .cmd: "Command"
+        }
+    }
+
     var glyph: String {
         switch self {
         case .ctrl: "⌃"
@@ -938,18 +947,10 @@ struct TerminalAccessoryView: View {
 
     private var modifierKey: some View {
         Menu {
-            ForEach(TerminalModifier.allCases) { modifier in
-                Button {
-                    model.selectModifier(modifier)
-                } label: {
-                    HStack {
-                        Text(modifier.glyph)
-                        Text(modifier.title)
-                        if modifier == model.activeModifier {
-                            Spacer()
-                            Image(systemName: "checkmark")
-                        }
-                    }
+            Picker("Modifier", selection: modifierSelection) {
+                ForEach(TerminalModifier.allCases) { modifier in
+                    Text("\(modifier.glyph)  \(modifier.displayName)")
+                        .tag(modifier)
                 }
             }
         } label: {
@@ -959,6 +960,13 @@ struct TerminalAccessoryView: View {
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
+    }
+
+    private var modifierSelection: Binding<TerminalModifier> {
+        Binding(
+            get: { model.activeModifier },
+            set: { model.selectModifier($0) }
+        )
     }
 
     private var modifierLabel: some View {
