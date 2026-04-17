@@ -379,6 +379,97 @@ public struct VCSPullParams: Codable, Sendable {
     }
 }
 
+public struct VCSStageFilesParams: Codable, Sendable {
+    public let projectID: UUID
+    public let paths: [String]
+    public init(projectID: UUID, paths: [String]) {
+        self.projectID = projectID
+        self.paths = paths
+    }
+}
+
+public struct VCSUnstageFilesParams: Codable, Sendable {
+    public let projectID: UUID
+    public let paths: [String]
+    public init(projectID: UUID, paths: [String]) {
+        self.projectID = projectID
+        self.paths = paths
+    }
+}
+
+public struct VCSDiscardFilesParams: Codable, Sendable {
+    public let projectID: UUID
+    public let paths: [String]
+    public let untrackedPaths: [String]
+    public init(projectID: UUID, paths: [String], untrackedPaths: [String]) {
+        self.projectID = projectID
+        self.paths = paths
+        self.untrackedPaths = untrackedPaths
+    }
+}
+
+public struct VCSListBranchesParams: Codable, Sendable {
+    public let projectID: UUID
+    public init(projectID: UUID) {
+        self.projectID = projectID
+    }
+}
+
+public struct VCSSwitchBranchParams: Codable, Sendable {
+    public let projectID: UUID
+    public let branch: String
+    public init(projectID: UUID, branch: String) {
+        self.projectID = projectID
+        self.branch = branch
+    }
+}
+
+public struct VCSCreateBranchParams: Codable, Sendable {
+    public let projectID: UUID
+    public let name: String
+    public init(projectID: UUID, name: String) {
+        self.projectID = projectID
+        self.name = name
+    }
+}
+
+public struct VCSCreatePRParams: Codable, Sendable {
+    public let projectID: UUID
+    public let title: String
+    public let body: String
+    public let baseBranch: String?
+    public let draft: Bool
+    public init(projectID: UUID, title: String, body: String, baseBranch: String?, draft: Bool) {
+        self.projectID = projectID
+        self.title = title
+        self.body = body
+        self.baseBranch = baseBranch
+        self.draft = draft
+    }
+}
+
+public struct VCSAddWorktreeParams: Codable, Sendable {
+    public let projectID: UUID
+    public let name: String
+    public let branch: String
+    public let createBranch: Bool
+    public init(projectID: UUID, name: String, branch: String, createBranch: Bool) {
+        self.projectID = projectID
+        self.name = name
+        self.branch = branch
+        self.createBranch = createBranch
+    }
+}
+
+public struct VCSRemoveWorktreeParams: Codable, Sendable {
+    public let projectID: UUID
+    public let worktreeID: UUID
+    public init(projectID: UUID, worktreeID: UUID) {
+        self.projectID = projectID
+        self.worktreeID = worktreeID
+    }
+}
+
 public struct GetProjectLogoParams: Codable, Sendable {
     public let projectID: UUID
     public init(projectID: UUID) {

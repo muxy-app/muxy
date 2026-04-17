@@ -266,13 +266,36 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         do {
             let branch = try await gitService.currentBranch(repoPath: repoPath)
             let aheadBehind = await gitService.aheadBehind(repoPath: repoPath, branch: branch)
+            let files = await (try? gitService.changedFiles(repoPath: repoPath)) ?? []
+            let defaultBranch = await gitService.defaultBranch(repoPath: repoPath)
+
+            var pullRequest: VCSPullRequestDTO?
+            if let headSha = await gitService.headSha(repoPath: repoPath),
+               let info = await gitService.cachedPullRequestInfo(
+                   repoPath: repoPath,
+                   branch: branch,
+                   headSha: headSha,
+                   forceFresh: false
+               )
+            {
+                pullRequest = VCSPullRequestDTO(
+                    url: info.url,
+                    number: info.number,
+                    state: info.state.rawValue,
+                    isDraft: info.isDraft,
+                    baseBranch: info.baseBranch
+                )
+            }
 
             return VCSStatusDTO(
                 branch: branch,
                 aheadCount: aheadBehind.ahead,
                 behindCount: aheadBehind.behind,
-                stagedFiles: [],
-                changedFiles: []
+                hasUpstream: aheadBehind.hasUpstream,
+                stagedFiles: files.filter(\.isStaged).map { Self.toFileDTO($0, staged: true) },
+                changedFiles: files.filter(\.isUnstaged).map { Self.toFileDTO($0, staged: false) },
+                defaultBranch: defaultBranch,
+                pullRequest: pullRequest
             )
         } catch {
             logger.error("Failed to get VCS status: \(error)")
@@ -281,9 +304,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws {
-        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else { return }
-        let repoPath = resolveWorktreePath(projectID: projectID) ?? project.path
-
+        let repoPath = try repoPath(projectID: projectID)
         if stageAll {
             try await gitService.stageAll(repoPath: repoPath)
         }
@@ -291,15 +312,192 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func vcsPush(projectID: UUID) async throws {
-        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else { return }
-        let repoPath = resolveWorktreePath(projectID: projectID) ?? project.path
-        try await gitService.push(repoPath: repoPath)
+        let repoPath = try repoPath(projectID: projectID)
+        do {
+            try await gitService.push(repoPath: repoPath)
+        } catch GitRepositoryService.GitError.noUpstreamBranch {
+            let branch = try await gitService.currentBranch(repoPath: repoPath)
+            try await gitService.pushSetUpstream(repoPath: repoPath, branch: branch)
+        }
     }
 
     func vcsPull(projectID: UUID) async throws {
-        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else { return }
-        let repoPath = resolveWorktreePath(projectID: projectID) ?? project.path
+        let repoPath = try repoPath(projectID: projectID)
         try await gitService.pull(repoPath: repoPath)
+    }
+
+    func vcsStageFiles(projectID: UUID, paths: [String]) async throws {
+        let repoPath = try repoPath(projectID: projectID)
+        try await gitService.stageFiles(repoPath: repoPath, paths: paths)
+    }
+
+    func vcsUnstageFiles(projectID: UUID, paths: [String]) async throws {
+        let repoPath = try repoPath(projectID: projectID)
+        try await gitService.unstageFiles(repoPath: repoPath, paths: paths)
+    }
+
+    func vcsDiscardFiles(projectID: UUID, paths: [String], untrackedPaths: [String]) async throws {
+        let repoPath = try repoPath(projectID: projectID)
+        try await gitService.discardFiles(
+            repoPath: repoPath,
+            paths: paths,
+            untrackedPaths: untrackedPaths
+        )
+    }
+
+    func vcsListBranches(projectID: UUID) async throws -> VCSBranchesDTO {
+        let repoPath = try repoPath(projectID: projectID)
+        let current = try await gitService.currentBranch(repoPath: repoPath)
+        let locals = try await gitService.listBranches(repoPath: repoPath)
+        let defaultBranch = await gitService.defaultBranch(repoPath: repoPath)
+        return VCSBranchesDTO(current: current, locals: locals, defaultBranch: defaultBranch)
+    }
+
+    func vcsSwitchBranch(projectID: UUID, branch: String) async throws {
+        let repoPath = try repoPath(projectID: projectID)
+        try await gitService.switchBranch(repoPath: repoPath, branch: branch)
+    }
+
+    func vcsCreateBranch(projectID: UUID, name: String) async throws {
+        let repoPath = try repoPath(projectID: projectID)
+        try await gitService.createAndSwitchBranch(repoPath: repoPath, name: name)
+    }
+
+    func vcsCreatePR(
+        projectID: UUID,
+        title: String,
+        body: String,
+        baseBranch: String?,
+        draft: Bool
+    ) async throws -> VCSCreatePRResultDTO {
+        let repoPath = try repoPath(projectID: projectID)
+        let branch = try await gitService.currentBranch(repoPath: repoPath)
+
+        let hasRemote = await gitService.hasRemoteBranch(repoPath: repoPath, branch: branch)
+        if !hasRemote {
+            try await gitService.pushSetUpstream(repoPath: repoPath, branch: branch)
+        }
+
+        let resolvedBase: String = if let baseBranch, !baseBranch.isEmpty {
+            baseBranch
+        } else {
+            await gitService.defaultBranch(repoPath: repoPath) ?? "main"
+        }
+
+        let info = try await gitService.createPullRequest(
+            repoPath: repoPath,
+            branch: branch,
+            baseBranch: resolvedBase,
+            title: title,
+            body: body,
+            draft: draft
+        )
+        return VCSCreatePRResultDTO(url: info.url, number: info.number)
+    }
+
+    func vcsAddWorktree(
+        projectID: UUID,
+        name: String,
+        branch: String,
+        createBranch: Bool
+    ) async throws -> WorktreeDTO {
+        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else {
+            throw RemoteVCSError.projectNotFound
+        }
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else {
+            throw RemoteVCSError.invalidInput("Worktree name is required.")
+        }
+        let slug = Self.worktreeSlug(from: trimmedName)
+        let worktreeDirectory = MuxyFileStorage
+            .worktreeDirectory(forProjectID: project.id, name: slug)
+            .path(percentEncoded: false)
+
+        if FileManager.default.fileExists(atPath: worktreeDirectory) {
+            throw RemoteVCSError.invalidInput("A worktree with this name already exists on disk.")
+        }
+
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: project.path,
+            path: worktreeDirectory,
+            branch: branch,
+            createBranch: createBranch
+        )
+
+        let worktree = Worktree(
+            name: trimmedName,
+            path: worktreeDirectory,
+            branch: branch,
+            ownsBranch: createBranch,
+            isPrimary: false
+        )
+        worktreeStore.add(worktree, to: project.id)
+        return worktree.toDTO()
+    }
+
+    func vcsRemoveWorktree(projectID: UUID, worktreeID: UUID) async throws {
+        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else {
+            throw RemoteVCSError.projectNotFound
+        }
+        guard let worktree = worktreeStore.worktree(projectID: projectID, worktreeID: worktreeID) else {
+            throw RemoteVCSError.worktreeNotFound
+        }
+        guard !worktree.isPrimary else {
+            throw RemoteVCSError.invalidInput("The primary worktree cannot be removed.")
+        }
+
+        await WorktreeStore.cleanupOnDisk(worktree: worktree, repoPath: project.path)
+        worktreeStore.remove(worktreeID: worktreeID, from: projectID)
+    }
+
+    private func repoPath(projectID: UUID) throws -> String {
+        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else {
+            throw RemoteVCSError.projectNotFound
+        }
+        return resolveWorktreePath(projectID: projectID) ?? project.path
+    }
+
+    private static func toFileDTO(_ file: GitStatusFile, staged: Bool) -> GitFileDTO {
+        let statusChar = staged ? file.xStatus : file.yStatus
+        let isUntracked = file.xStatus == "?" && file.yStatus == "?"
+        let status: GitFileStatusDTO = if isUntracked {
+            .untracked
+        } else {
+            switch statusChar {
+            case "A": .added
+            case "M": .modified
+            case "D": .deleted
+            case "R": .renamed
+            case "C": .copied
+            case "U": .unmerged
+            case "?": .untracked
+            default: .modified
+            }
+        }
+        return GitFileDTO(path: file.path, status: status, isUntracked: isUntracked)
+    }
+
+    private static func worktreeSlug(from name: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let scalars = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        let collapsed = String(scalars)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+        return collapsed.isEmpty ? UUID().uuidString : collapsed
+    }
+
+    enum RemoteVCSError: LocalizedError {
+        case projectNotFound
+        case worktreeNotFound
+        case invalidInput(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .projectNotFound: "Project not found."
+            case .worktreeNotFound: "Worktree not found."
+            case let .invalidInput(message): message
+            }
+        }
     }
 
     func getProjectLogo(projectID: UUID) -> ProjectLogoDTO? {

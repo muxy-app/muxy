@@ -83,6 +83,35 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
 
     func vcsPush(projectID _: UUID) async throws {}
     func vcsPull(projectID _: UUID) async throws {}
+    func vcsStageFiles(projectID _: UUID, paths _: [String]) async throws {}
+    func vcsUnstageFiles(projectID _: UUID, paths _: [String]) async throws {}
+    func vcsDiscardFiles(projectID _: UUID, paths _: [String], untrackedPaths _: [String]) async throws {}
+    func vcsListBranches(projectID _: UUID) async throws -> VCSBranchesDTO {
+        VCSBranchesDTO(current: "main", locals: ["main"], defaultBranch: "main")
+    }
+
+    func vcsSwitchBranch(projectID _: UUID, branch _: String) async throws {}
+    func vcsCreateBranch(projectID _: UUID, name _: String) async throws {}
+    func vcsCreatePR(
+        projectID _: UUID,
+        title _: String,
+        body _: String,
+        baseBranch _: String?,
+        draft _: Bool
+    ) async throws -> VCSCreatePRResultDTO {
+        VCSCreatePRResultDTO(url: "", number: 0)
+    }
+
+    func vcsAddWorktree(
+        projectID _: UUID,
+        name _: String,
+        branch _: String,
+        createBranch _: Bool
+    ) async throws -> WorktreeDTO {
+        WorktreeDTO(id: UUID(), name: "", path: "", isPrimary: false, createdAt: Date())
+    }
+
+    func vcsRemoveWorktree(projectID _: UUID, worktreeID _: UUID) async throws {}
     func getProjectLogo(projectID _: UUID) -> ProjectLogoDTO? { nil }
     func listNotifications() -> [NotificationDTO] { [] }
 
