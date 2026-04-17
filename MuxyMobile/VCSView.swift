@@ -116,9 +116,13 @@ struct VCSView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                 }
-                Button("Retry") { Task { await refresh() } }
-                    .buttonStyle(.borderedProminent)
-                    .tint(themeFg)
+                Button {
+                    Task { await refresh() }
+                } label: {
+                    Text("Retry").foregroundStyle(themeBg)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(themeFg)
             }
         }
     }
@@ -146,11 +150,11 @@ struct VCSView: View {
                 }
             }
 
-            if let pr = status.pullRequest {
+            if let pr = status.pullRequest, let prURL = URL(string: pr.url) {
                 HStack {
                     Image(systemName: "arrow.up.square")
                         .foregroundStyle(themeFg.opacity(0.7))
-                    Link("PR #\(pr.number) (\(pr.state.lowercased()))", destination: URL(string: pr.url)!)
+                    Link("PR #\(pr.number) (\(pr.state.lowercased()))", destination: prURL)
                         .foregroundStyle(themeFg)
                         .font(.footnote)
                     Spacer()
@@ -176,7 +180,7 @@ struct VCSView: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(themeFg)
-                .disabled(inFlight.contains("push") || status.aheadCount == 0 && status.hasUpstream)
+                .disabled(inFlight.contains("push") || (status.aheadCount == 0 && status.hasUpstream))
             }
         }
         .listRowBackground(themeFg.opacity(0.06))
@@ -266,10 +270,11 @@ struct VCSView: View {
                 }
             } label: {
                 if inFlight.contains("commit") {
-                    ProgressView().tint(themeFg)
+                    ProgressView().tint(themeBg)
                 } else {
                     Label("Commit", systemImage: "checkmark")
                         .frame(maxWidth: .infinity)
+                        .foregroundStyle(themeBg)
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -362,7 +367,7 @@ struct VCSView: View {
         status = result
         isLoading = false
         if result == nil {
-            errorMessage = "This project may not be a Git repository."
+            errorMessage = "Could not read repository status. This project may not be a Git repository, or the Mac is unreachable."
         }
     }
 
@@ -790,7 +795,6 @@ struct AddWorktreeSheet: View {
 
 struct CreatePRSheet: View {
     let projectID: UUID
-    let defaultBase: String?
     let currentBranch: String
     let onCreated: () async -> Void
 
@@ -800,12 +804,19 @@ struct CreatePRSheet: View {
 
     @State private var title = ""
     @State private var prBody = ""
-    @State private var baseBranch = ""
+    @State private var baseBranch: String
     @State private var draft = false
     @State private var inProgress = false
     @State private var errorMessage: String?
 
-    var sheetBody: some View {
+    init(projectID: UUID, defaultBase: String?, currentBranch: String, onCreated: @escaping () async -> Void) {
+        self.projectID = projectID
+        self.currentBranch = currentBranch
+        self.onCreated = onCreated
+        _baseBranch = State(initialValue: defaultBase ?? "")
+    }
+
+    var body: some View {
         NavigationStack {
             ZStack {
                 themeBg.ignoresSafeArea()
@@ -857,15 +868,6 @@ struct CreatePRSheet: View {
                 }
             }
         }
-    }
-
-    var body: some View {
-        sheetBody
-            .onAppear {
-                if baseBranch.isEmpty, let defaultBase {
-                    baseBranch = defaultBase
-                }
-            }
     }
 
     private func submit() async {

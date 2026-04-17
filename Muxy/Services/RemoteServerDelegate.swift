@@ -266,7 +266,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         do {
             let branch = try await gitService.currentBranch(repoPath: repoPath)
             let aheadBehind = await gitService.aheadBehind(repoPath: repoPath, branch: branch)
-            let files = await (try? gitService.changedFiles(repoPath: repoPath)) ?? []
+            let files = try await gitService.changedFiles(repoPath: repoPath)
             let defaultBranch = await gitService.defaultBranch(repoPath: repoPath)
 
             var pullRequest: VCSPullRequestDTO?
