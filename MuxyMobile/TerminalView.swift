@@ -100,9 +100,7 @@ struct TerminalView: View {
         }
         .background(themeBg)
         .onAppear {
-            inputCoordinator.onSend = { text in
-                Task { await connection.sendTerminalInput(paneID: paneID, text: text) }
-            }
+            bindInput()
             startPolling()
             if isOwnedBySelf {
                 Task { @MainActor in
@@ -117,6 +115,7 @@ struct TerminalView: View {
         .onChange(of: paneID) { _, _ in
             cells = nil
             stopPolling()
+            bindInput()
             startPolling()
         }
         .onChange(of: isOwnedBySelf) { _, newValue in
@@ -176,6 +175,12 @@ struct TerminalView: View {
         .onTapGesture {
             guard isOwnedBySelf else { return }
             inputCoordinator.becomeFirstResponder()
+        }
+    }
+
+    private func bindInput() {
+        inputCoordinator.onSend = { text in
+            Task { await connection.sendTerminalInput(paneID: paneID, text: text) }
         }
     }
 

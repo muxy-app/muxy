@@ -71,5 +71,31 @@ final class PairingRequestCoordinator {
     private func present(_ request: PairingRequest) {
         pendingRequest = request
         NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async { [weak self] in
+            self?.runAlert(for: request)
+        }
+    }
+
+    private func runAlert(for request: PairingRequest) {
+        guard pendingRequest?.id == request.id else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Allow \(request.deviceName) to connect?"
+        alert.informativeText = "This device is requesting access to Muxy. Only approve devices you recognize."
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Approve")
+        alert.addButton(withTitle: "Deny")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+
+        let response = alert.runModal()
+        guard pendingRequest?.id == request.id else { return }
+
+        if response == .alertFirstButtonReturn {
+            approve(request)
+        } else {
+            deny(request)
+        }
     }
 }
