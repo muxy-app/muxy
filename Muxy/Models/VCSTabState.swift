@@ -662,6 +662,22 @@ final class VCSTabState {
         }
     }
 
+    func revert(_ hash: String, subject: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await git.revert(repoPath: projectPath, hash: hash)
+                guard !Task.isCancelled else { return }
+                commitMessage = "Revert: \(subject)"
+                showStatus("Reverted \(String(hash.prefix(7)))", isError: false)
+                performRefresh(incremental: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
     func createBranch(name: String, from hash: String) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         Task { [weak self] in

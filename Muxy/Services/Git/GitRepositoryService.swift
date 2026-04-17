@@ -987,6 +987,14 @@ struct GitRepositoryService {
         }
     }
 
+    func revert(repoPath: String, hash: String) async throws {
+        try validateHash(hash)
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["revert", "--no-commit", hash])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to revert commit." : result.stderr)
+        }
+    }
+
     func createBranch(repoPath: String, name: String, startPoint: String) async throws {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty,
