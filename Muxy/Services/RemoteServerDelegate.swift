@@ -50,6 +50,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func selectProject(_ projectID: UUID) {
         guard let project = projectStore.projects.first(where: { $0.id == projectID }) else { return }
+        if appState.activeProjectID == projectID { return }
         let worktreeList = worktreeStore.list(for: projectID)
         guard let worktree = worktreeList.first(where: \.isPrimary) ?? worktreeList.first else { return }
         appState.selectProject(project, worktree: worktree)
@@ -309,6 +310,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             try await gitService.stageAll(repoPath: repoPath)
         }
         _ = try await gitService.commit(repoPath: repoPath, message: message)
+        notifyRepoDidChange(repoPath: repoPath)
     }
 
     func vcsPush(projectID: UUID) async throws {
@@ -319,21 +321,25 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             let branch = try await gitService.currentBranch(repoPath: repoPath)
             try await gitService.pushSetUpstream(repoPath: repoPath, branch: branch)
         }
+        notifyRepoDidChange(repoPath: repoPath)
     }
 
     func vcsPull(projectID: UUID) async throws {
         let repoPath = try repoPath(projectID: projectID)
         try await gitService.pull(repoPath: repoPath)
+        notifyRepoDidChange(repoPath: repoPath)
     }
 
     func vcsStageFiles(projectID: UUID, paths: [String]) async throws {
         let repoPath = try repoPath(projectID: projectID)
         try await gitService.stageFiles(repoPath: repoPath, paths: paths)
+        notifyRepoDidChange(repoPath: repoPath)
     }
 
     func vcsUnstageFiles(projectID: UUID, paths: [String]) async throws {
         let repoPath = try repoPath(projectID: projectID)
         try await gitService.unstageFiles(repoPath: repoPath, paths: paths)
+        notifyRepoDidChange(repoPath: repoPath)
     }
 
     func vcsDiscardFiles(projectID: UUID, paths: [String], untrackedPaths: [String]) async throws {
@@ -343,6 +349,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             paths: paths,
             untrackedPaths: untrackedPaths
         )
+        notifyRepoDidChange(repoPath: repoPath)
     }
 
     func vcsListBranches(projectID: UUID) async throws -> VCSBranchesDTO {
@@ -356,11 +363,13 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     func vcsSwitchBranch(projectID: UUID, branch: String) async throws {
         let repoPath = try repoPath(projectID: projectID)
         try await gitService.switchBranch(repoPath: repoPath, branch: branch)
+        notifyRepoDidChange(repoPath: repoPath)
     }
 
     func vcsCreateBranch(projectID: UUID, name: String) async throws {
         let repoPath = try repoPath(projectID: projectID)
         try await gitService.createAndSwitchBranch(repoPath: repoPath, name: name)
+        notifyRepoDidChange(repoPath: repoPath)
     }
 
     func vcsCreatePR(
@@ -392,6 +401,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             body: body,
             draft: draft
         )
+        notifyRepoDidChange(repoPath: repoPath)
         return VCSCreatePRResultDTO(url: info.url, number: info.number)
     }
 
@@ -455,6 +465,14 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             throw RemoteVCSError.projectNotFound
         }
         return resolveWorktreePath(projectID: projectID) ?? project.path
+    }
+
+    private func notifyRepoDidChange(repoPath: String) {
+        NotificationCenter.default.post(
+            name: .vcsRepoDidChange,
+            object: nil,
+            userInfo: ["repoPath": repoPath]
+        )
     }
 
     private static func toFileDTO(_ file: GitStatusFile, staged: Bool) -> GitFileDTO {
