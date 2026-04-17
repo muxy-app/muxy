@@ -46,9 +46,11 @@
 		<string>JetBrainsMonoNerdFontMono-Bold.ttf</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Muxy connects to your Mac on the local network to share terminals.</string>
+	<string>Muxy connects to your Mac on the local network or over a private VPN (such as Tailscale) to share terminals.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>

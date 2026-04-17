@@ -104,6 +104,8 @@ struct AddDeviceSheet: View {
                         .keyboardType(.numberPad)
                 } header: {
                     Text("Connection")
+                } footer: {
+                    Text("Use the Mac's LAN IP (e.g. 192.168.1.10) or a VPN IP such as a Tailscale address (100.x.x.x).")
                 }
             }
             .navigationTitle("Add Device")

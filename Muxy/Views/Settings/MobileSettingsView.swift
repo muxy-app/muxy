@@ -17,7 +17,7 @@ struct MobileSettingsView: View {
             } header: {
                 Text("Mobile")
             } footer: {
-                Text("When enabled, Muxy listens on port 4865 for the Muxy iOS app on the same network.")
+                Text("Muxy listens on port 4865 for the iOS app over your local network or a private VPN such as Tailscale.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
