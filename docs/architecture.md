@@ -183,6 +183,12 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
 - **Persistence**: All files in `~/Library/Application Support/Muxy/`. Shared directory helper: `MuxyFileStorage`. Worktrees are persisted per-project at `worktrees/{projectID}.json`. Worktree setup commands live in-repo at `{Project.path}/.muxy/worktree.json`.
 - **Ghostty Config**: Managed by `MuxyConfig`, stored at `~/Library/Application Support/Muxy/ghostty.conf`. Seeded from `~/.config/ghostty/config` on first run.
 - **Updates**: Sparkle framework via `UpdateService`.
+- **Window Title**: `NSWindow.title` is hidden visually (`titleVisibility = .hidden`) but set
+  reactively by `WindowTitleUpdater` in `MainWindow` to `{project name} — {active tab title}`
+  (or just the project name if no tab title is known). This makes Muxy sessions identifiable
+  to accessibility readers and activity trackers (e.g., ActivityWatch) that read `AXTitle`.
+  Tab titles come from the active tab's `TerminalTab.title`, which follows OSC 0/2 updates
+  via `GhosttyRuntimeEventAdapter` → `TerminalPaneState.setTitle`.
 
 ## VCS Tab Layout
 
