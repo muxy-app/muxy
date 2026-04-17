@@ -129,16 +129,13 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             let response = await processRequest(request, clientID: clientID)
             guard let data = try? MuxyCodec.encode(.response(response)) else { return }
             self.queue.async { [weak self] in
-                guard let self else { return }
-                for connection in self.connections.values {
-                    connection.send(data)
-                }
+                self?.connections[clientID]?.send(data)
             }
         }
     }
 
     @MainActor
-    private func processRequest(_ request: MuxyRequest, clientID: UUID) async -> MuxyResponse {
+    func processRequest(_ request: MuxyRequest, clientID: UUID) async -> MuxyResponse {
         guard let delegate else {
             return MuxyResponse(id: request.id, error: MuxyError.internalError)
         }

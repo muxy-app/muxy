@@ -116,70 +116,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             return
         }
 
-        if let arrowKey = Self.ansiArrowKey(text) {
-            view.sendKeyPress(codepoint: arrowKey.codepoint, keycode: arrowKey.keycode, mods: arrowKey.mods)
-            return
-        }
-
-        var buffer = ""
-        for character in text {
-            let scalar = character.unicodeScalars.first?.value ?? 0
-            if let keyEvent = Self.specialKeyEvent(scalar) {
-                if !buffer.isEmpty {
-                    view.sendText(buffer)
-                    buffer = ""
-                }
-                view.sendKeyPress(
-                    codepoint: keyEvent.codepoint,
-                    keycode: keyEvent.keycode,
-                    mods: keyEvent.mods
-                )
-            } else if character == "\r" || character == "\n" {
-                if !buffer.isEmpty {
-                    view.sendText(buffer)
-                    buffer = ""
-                }
-                view.sendReturnKey()
-            } else {
-                buffer.append(character)
-            }
-        }
-        if !buffer.isEmpty {
-            view.sendText(buffer)
-        }
-    }
-
-    private struct KeyEvent {
-        let codepoint: UInt32
-        let keycode: UInt32
-        let mods: ghostty_input_mods_e
-    }
-
-    private static func ansiArrowKey(_ text: String) -> KeyEvent? {
-        switch text {
-        case "\u{1B}[A": KeyEvent(codepoint: 0, keycode: 126, mods: GHOSTTY_MODS_NONE)
-        case "\u{1B}[B": KeyEvent(codepoint: 0, keycode: 125, mods: GHOSTTY_MODS_NONE)
-        case "\u{1B}[C": KeyEvent(codepoint: 0, keycode: 124, mods: GHOSTTY_MODS_NONE)
-        case "\u{1B}[D": KeyEvent(codepoint: 0, keycode: 123, mods: GHOSTTY_MODS_NONE)
-        default: nil
-        }
-    }
-
-    private static func specialKeyEvent(_ scalar: UInt32) -> KeyEvent? {
-        switch scalar {
-        case 0x01: KeyEvent(codepoint: 97, keycode: 0, mods: GHOSTTY_MODS_CTRL)
-        case 0x02: KeyEvent(codepoint: 98, keycode: 11, mods: GHOSTTY_MODS_CTRL)
-        case 0x03: KeyEvent(codepoint: 99, keycode: 8, mods: GHOSTTY_MODS_CTRL)
-        case 0x04: KeyEvent(codepoint: 100, keycode: 2, mods: GHOSTTY_MODS_CTRL)
-        case 0x05: KeyEvent(codepoint: 101, keycode: 14, mods: GHOSTTY_MODS_CTRL)
-        case 0x06: KeyEvent(codepoint: 102, keycode: 3, mods: GHOSTTY_MODS_CTRL)
-        case 0x0C: KeyEvent(codepoint: 108, keycode: 37, mods: GHOSTTY_MODS_CTRL)
-        case 0x1A: KeyEvent(codepoint: 122, keycode: 6, mods: GHOSTTY_MODS_CTRL)
-        case 0x09: KeyEvent(codepoint: 9, keycode: 48, mods: GHOSTTY_MODS_NONE)
-        case 0x1B: KeyEvent(codepoint: 27, keycode: 53, mods: GHOSTTY_MODS_NONE)
-        case 0x7F: KeyEvent(codepoint: 8, keycode: 51, mods: GHOSTTY_MODS_NONE)
-        default: nil
-        }
+        view.sendRemoteText(text)
     }
 
     func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool, clientID: UUID) {

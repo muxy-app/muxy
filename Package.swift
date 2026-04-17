@@ -64,6 +64,8 @@ let package = Package(
             name: "MuxyTests",
             dependencies: [
                 "Muxy",
+                "MuxyShared",
+                "MuxyServer",
             ],
             path: "Tests/MuxyTests",
             linkerSettings: [
