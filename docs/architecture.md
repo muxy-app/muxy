@@ -102,7 +102,8 @@ Muxy/
     MainWindow.swift          Main window layout (sidebar + workspace)
     Sidebar.swift             Narrow icon-strip sidebar (44px), add-project button, project icons
     Sidebar/
-      ProjectRow.swift          Project icon (first letter or emoji logo), tooltip, context menu with logo picker
+      ProjectRow.swift          Project icon (first letter or emoji logo), tooltip, context menu with logo + color pickers
+      ProjectIconColorPicker.swift  Preset color palette popover for tinting the default letter icon
       WorktreePopover.swift     Worktree picker popover triggered from the active project row
       CreateWorktreeSheet.swift Sheet for creating a new git worktree
     ThemePicker.swift         Theme selection popover (hosted in topbar right)
