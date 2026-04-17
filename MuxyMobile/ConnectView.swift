@@ -41,14 +41,16 @@ struct ConnectView: View {
                     Button {
                         showSettings = true
                     } label: {
-                        Image(systemName: "gearshape")
+                        Label("Settings", systemImage: "gearshape")
+                            .labelStyle(.iconOnly)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showAddSheet = true
                     } label: {
-                        Image(systemName: "plus")
+                        Label("Add Device", systemImage: "plus")
+                            .labelStyle(.iconOnly)
                     }
                 }
             }

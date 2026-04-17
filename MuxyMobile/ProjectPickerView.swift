@@ -66,7 +66,8 @@ struct ProjectPickerView: View {
                 Button {
                     connection.disconnect()
                 } label: {
-                    Image(systemName: "xmark")
+                    Label("Disconnect", systemImage: "xmark")
+                        .labelStyle(.iconOnly)
                         .foregroundStyle(themeFg)
                 }
             }
@@ -132,7 +133,9 @@ struct NavigationBarTitleColorApplier: UIViewRepresentable {
         }
 
         @available(*, unavailable)
-        required init?(coder _: NSCoder) { fatalError() }
+        required init?(coder _: NSCoder) {
+            fatalError()
+        }
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -164,7 +167,6 @@ struct NavigationBarTitleColorApplier: UIViewRepresentable {
         }
     }
 }
-
 
 struct ProjectIcon: View {
     let project: ProjectDTO

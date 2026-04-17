@@ -99,7 +99,8 @@ struct WorkspaceContentWrapper: View {
                 Label("New Terminal", systemImage: "plus")
             }
         } label: {
-            Image(systemName: "rectangle.stack")
+            Label("Tabs", systemImage: "rectangle.stack")
+                .labelStyle(.iconOnly)
         }
     }
 
