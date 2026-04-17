@@ -161,12 +161,23 @@ final class ConnectionManager {
         case .error:
             reconnect()
         case .connected:
-            if connection == nil {
-                reconnect()
-            }
+            verifyConnectionOrReconnect()
         case .connecting,
              .disconnected:
             break
+        }
+    }
+
+    private func verifyConnectionOrReconnect() {
+        guard let connection else {
+            reconnect()
+            return
+        }
+        connection.sendPing { [weak self] error in
+            guard error != nil else { return }
+            Task { @MainActor in
+                self?.reconnect()
+            }
         }
     }
 

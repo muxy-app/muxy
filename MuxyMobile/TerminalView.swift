@@ -104,6 +104,11 @@ struct TerminalView: View {
                 Task { await connection.sendTerminalInput(paneID: paneID, text: text) }
             }
             startPolling()
+            if isOwnedBySelf {
+                Task { @MainActor in
+                    inputCoordinator.becomeFirstResponder()
+                }
+            }
         }
         .onDisappear {
             stopPolling()

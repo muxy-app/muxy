@@ -1,6 +1,5 @@
 import MuxyShared
 import SwiftUI
-import UIKit
 
 struct ProjectPickerView: View {
     @Environment(ConnectionManager.self) private var connection
@@ -23,12 +22,6 @@ struct ProjectPickerView: View {
         .onChange(of: path) { _, newValue in
             if newValue.isEmpty, connection.activeProjectID != nil {
                 connection.activeProjectID = nil
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(400))
-                    if connection.activeProjectID == nil {
-                        connection.workspace = nil
-                    }
-                }
             }
         }
         .onAppear {
@@ -57,11 +50,18 @@ struct ProjectPickerView: View {
                 }
             }
             .listRowBackground(themeFg.opacity(0.06))
+            .listRowSeparatorTint(themeFg.opacity(0.15))
         }
         .scrollContentBackground(.hidden)
         .background(themeBg)
         .navigationTitle("Projects")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Projects")
+                    .font(.headline)
+                    .foregroundStyle(themeFg)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     connection.disconnect()
@@ -76,7 +76,6 @@ struct ProjectPickerView: View {
         .refreshable {
             await connection.refreshProjects()
         }
-        .background(NavigationBarTitleColorApplier(color: connection.deviceTheme.map { UIColor.fromRGB($0.fg) }))
     }
 
     private var themeFg: Color {
@@ -87,84 +86,11 @@ struct ProjectPickerView: View {
         connection.deviceTheme?.bgColor ?? Color(.systemBackground)
     }
 
-    private var preferredScheme: ColorScheme {
-        (connection.deviceTheme?.isDark ?? true) ? .dark : .light
-    }
-
     private func worktreeSubtitle(for projectID: UUID) -> String {
         guard let worktrees = connection.projectWorktrees[projectID],
               let primary = worktrees.first(where: \.isPrimary)
         else { return "default" }
         return primary.branch ?? primary.name
-    }
-}
-
-extension UIColor {
-    static func fromRGB(_ rgb: UInt32) -> UIColor {
-        UIColor(
-            red: CGFloat((rgb >> 16) & 0xFF) / 255,
-            green: CGFloat((rgb >> 8) & 0xFF) / 255,
-            blue: CGFloat(rgb & 0xFF) / 255,
-            alpha: 1
-        )
-    }
-}
-
-struct NavigationBarTitleColorApplier: UIViewRepresentable {
-    let color: UIColor?
-
-    func makeUIView(context _: Context) -> ProbeView {
-        ProbeView(color: color)
-    }
-
-    func updateUIView(_ view: ProbeView, context _: Context) {
-        view.color = color
-        view.applyIfPossible()
-    }
-
-    final class ProbeView: UIView {
-        var color: UIColor?
-
-        init(color: UIColor?) {
-            self.color = color
-            super.init(frame: .zero)
-            isHidden = true
-            isUserInteractionEnabled = false
-        }
-
-        @available(*, unavailable)
-        required init?(coder _: NSCoder) {
-            fatalError()
-        }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            applyIfPossible()
-        }
-
-        func applyIfPossible() {
-            guard let navBar = findNavigationBar() else { return }
-            let appearance = UINavigationBarAppearance()
-            appearance.configureWithTransparentBackground()
-            if let color {
-                appearance.largeTitleTextAttributes = [.foregroundColor: color]
-                appearance.titleTextAttributes = [.foregroundColor: color]
-            }
-            navBar.standardAppearance = appearance
-            navBar.scrollEdgeAppearance = appearance
-            navBar.compactAppearance = appearance
-        }
-
-        private func findNavigationBar() -> UINavigationBar? {
-            var responder: UIResponder? = self
-            while let current = responder {
-                if let vc = current as? UIViewController {
-                    return vc.navigationController?.navigationBar
-                }
-                responder = current.next
-            }
-            return nil
-        }
     }
 }
 
