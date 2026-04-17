@@ -119,6 +119,61 @@ public struct TerminalResizeParams: Codable, Sendable {
     }
 }
 
+public struct RegisterDeviceParams: Codable, Sendable {
+    public let deviceName: String
+    public init(deviceName: String) {
+        self.deviceName = deviceName
+    }
+}
+
+public struct DeviceInfoDTO: Codable, Sendable {
+    public let clientID: UUID
+    public let deviceName: String
+    public init(clientID: UUID, deviceName: String) {
+        self.clientID = clientID
+        self.deviceName = deviceName
+    }
+}
+
+public enum PaneOwnerDTO: Codable, Sendable, Equatable {
+    case mac(deviceName: String)
+    case remote(deviceID: UUID, deviceName: String)
+
+    public var displayName: String {
+        switch self {
+        case let .mac(name): name
+        case let .remote(_, name): name
+        }
+    }
+}
+
+public struct TakeOverPaneParams: Codable, Sendable {
+    public let paneID: UUID
+    public let cols: UInt32
+    public let rows: UInt32
+    public init(paneID: UUID, cols: UInt32, rows: UInt32) {
+        self.paneID = paneID
+        self.cols = cols
+        self.rows = rows
+    }
+}
+
+public struct ReleasePaneParams: Codable, Sendable {
+    public let paneID: UUID
+    public init(paneID: UUID) {
+        self.paneID = paneID
+    }
+}
+
+public struct PaneOwnershipEventDTO: Codable, Sendable {
+    public let paneID: UUID
+    public let owner: PaneOwnerDTO
+    public init(paneID: UUID, owner: PaneOwnerDTO) {
+        self.paneID = paneID
+        self.owner = owner
+    }
+}
+
 public struct TerminalScrollParams: Codable, Sendable {
     public let paneID: UUID
     public let deltaX: Double

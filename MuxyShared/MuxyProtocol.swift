@@ -70,6 +70,9 @@ public enum MuxyMethod: String, Codable, Sendable {
     case terminalResize
     case terminalScroll
     case getTerminalContent
+    case registerDevice
+    case takeOverPane
+    case releasePane
     case getVCSStatus
     case vcsCommit
     case vcsPush
@@ -96,6 +99,9 @@ public enum MuxyParams: Codable, Sendable {
     case terminalResize(TerminalResizeParams)
     case terminalScroll(TerminalScrollParams)
     case getTerminalContent(GetTerminalContentParams)
+    case registerDevice(RegisterDeviceParams)
+    case takeOverPane(TakeOverPaneParams)
+    case releasePane(ReleasePaneParams)
     case getVCSStatus(GetVCSStatusParams)
     case vcsCommit(VCSCommitParams)
     case vcsPush(VCSPushParams)
@@ -127,6 +133,9 @@ public enum MuxyParams: Codable, Sendable {
         case "terminalInput": self = try .terminalInput(container.decode(TerminalInputParams.self, forKey: .value))
         case "terminalResize": self = try .terminalResize(container.decode(TerminalResizeParams.self, forKey: .value))
         case "terminalScroll": self = try .terminalScroll(container.decode(TerminalScrollParams.self, forKey: .value))
+        case "registerDevice": self = try .registerDevice(container.decode(RegisterDeviceParams.self, forKey: .value))
+        case "takeOverPane": self = try .takeOverPane(container.decode(TakeOverPaneParams.self, forKey: .value))
+        case "releasePane": self = try .releasePane(container.decode(ReleasePaneParams.self, forKey: .value))
         case "getTerminalContent": self = try .getTerminalContent(container.decode(GetTerminalContentParams.self, forKey: .value))
         case "getVCSStatus": self = try .getVCSStatus(container.decode(GetVCSStatusParams.self, forKey: .value))
         case "vcsCommit": self = try .vcsCommit(container.decode(VCSCommitParams.self, forKey: .value))
@@ -169,6 +178,12 @@ public enum MuxyParams: Codable, Sendable {
             try container.encode(v, forKey: .value)
         case let .terminalScroll(v): try container.encode("terminalScroll", forKey: .type)
             try container.encode(v, forKey: .value)
+        case let .registerDevice(v): try container.encode("registerDevice", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .takeOverPane(v): try container.encode("takeOverPane", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .releasePane(v): try container.encode("releasePane", forKey: .type)
+            try container.encode(v, forKey: .value)
         case let .getTerminalContent(v): try container.encode("getTerminalContent", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .getVCSStatus(v): try container.encode("getVCSStatus", forKey: .type)
@@ -198,6 +213,8 @@ public enum MuxyResult: Codable, Sendable {
     case tab(TabDTO)
     case terminalContent(TerminalContentDTO)
     case terminalCells(TerminalCellsDTO)
+    case deviceInfo(DeviceInfoDTO)
+    case paneOwner(PaneOwnerDTO)
     case vcsStatus(VCSStatusDTO)
     case projectLogo(ProjectLogoDTO)
     case notifications([NotificationDTO])
@@ -218,6 +235,8 @@ public enum MuxyResult: Codable, Sendable {
         case "tab": self = try .tab(container.decode(TabDTO.self, forKey: .value))
         case "terminalContent": self = try .terminalContent(container.decode(TerminalContentDTO.self, forKey: .value))
         case "terminalCells": self = try .terminalCells(container.decode(TerminalCellsDTO.self, forKey: .value))
+        case "deviceInfo": self = try .deviceInfo(container.decode(DeviceInfoDTO.self, forKey: .value))
+        case "paneOwner": self = try .paneOwner(container.decode(PaneOwnerDTO.self, forKey: .value))
         case "vcsStatus": self = try .vcsStatus(container.decode(VCSStatusDTO.self, forKey: .value))
         case "projectLogo": self = try .projectLogo(container.decode(ProjectLogoDTO.self, forKey: .value))
         case "notifications": self = try .notifications(container.decode([NotificationDTO].self, forKey: .value))
@@ -241,6 +260,10 @@ public enum MuxyResult: Codable, Sendable {
             try container.encode(v, forKey: .value)
         case let .terminalCells(v): try container.encode("terminalCells", forKey: .type)
             try container.encode(v, forKey: .value)
+        case let .deviceInfo(v): try container.encode("deviceInfo", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .paneOwner(v): try container.encode("paneOwner", forKey: .type)
+            try container.encode(v, forKey: .value)
         case let .vcsStatus(v): try container.encode("vcsStatus", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .projectLogo(v): try container.encode("projectLogo", forKey: .type)
@@ -258,6 +281,7 @@ public enum MuxyEventKind: String, Codable, Sendable {
     case terminalOutput
     case notificationReceived
     case projectsChanged
+    case paneOwnershipChanged
 }
 
 public enum MuxyEventData: Codable, Sendable {
@@ -266,6 +290,7 @@ public enum MuxyEventData: Codable, Sendable {
     case terminalOutput(TerminalOutputEventDTO)
     case notification(NotificationDTO)
     case projects([ProjectDTO])
+    case paneOwnership(PaneOwnershipEventDTO)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -281,6 +306,7 @@ public enum MuxyEventData: Codable, Sendable {
         case "terminalOutput": self = try .terminalOutput(container.decode(TerminalOutputEventDTO.self, forKey: .value))
         case "notification": self = try .notification(container.decode(NotificationDTO.self, forKey: .value))
         case "projects": self = try .projects(container.decode([ProjectDTO].self, forKey: .value))
+        case "paneOwnership": self = try .paneOwnership(container.decode(PaneOwnershipEventDTO.self, forKey: .value))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown event data type: \(type)")
         }
     }
@@ -297,6 +323,8 @@ public enum MuxyEventData: Codable, Sendable {
         case let .notification(v): try container.encode("notification", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .projects(v): try container.encode("projects", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .paneOwnership(v): try container.encode("paneOwnership", forKey: .type)
             try container.encode(v, forKey: .value)
         }
     }

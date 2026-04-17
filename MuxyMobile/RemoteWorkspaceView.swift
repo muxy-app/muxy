@@ -31,16 +31,13 @@ struct WorkspaceContentWrapper: View {
         tabContentView
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    tabPicker
-                }
                 ToolbarItem(placement: .principal) {
                     Text(activeProject?.name ?? "")
                         .font(.headline)
                         .foregroundStyle(themeFg)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    projectMenu
+                    tabPicker
                 }
             }
             .toolbarBackground(themeBg, for: .navigationBar)
@@ -114,42 +111,6 @@ struct WorkspaceContentWrapper: View {
             return lastComponent
         }
         return title
-    }
-
-    private var projectMenu: some View {
-        Menu {
-            Section("Projects") {
-                ForEach(connection.projects) { project in
-                    Button {
-                        Task { await connection.selectProject(project.id) }
-                    } label: {
-                        HStack {
-                            Text(project.name)
-                            if project.id == connection.activeProjectID {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-                }
-            }
-
-            Divider()
-
-            Button(role: .destructive) {
-                connection.activeProjectID = nil
-                connection.workspace = nil
-            } label: {
-                Label("Switch Project", systemImage: "arrow.left")
-            }
-
-            Button(role: .destructive) {
-                connection.disconnect()
-            } label: {
-                Label("Disconnect", systemImage: "xmark.circle")
-            }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-        }
     }
 
     private func collectAreas(from node: SplitNodeDTO) -> [TabAreaDTO] {

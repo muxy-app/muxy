@@ -2,6 +2,7 @@ import Foundation
 import MuxyShared
 import os
 import SwiftUI
+import UIKit
 
 private let logger = Logger(subsystem: "app.muxy.mobile", category: "Connection")
 
@@ -24,7 +25,23 @@ final class ConnectionManager {
     var projectLogos: [UUID: Data] = [:]
     var projectWorktrees: [UUID: [WorktreeDTO]] = [:]
     var terminalTheme: TerminalTheme?
+    var paneOwners: [UUID: PaneOwnerDTO] = [:]
     private(set) var savedDevices: [SavedDevice] = []
+    private(set) var myClientID: UUID?
+
+    var deviceName: String {
+        UIDevice.current.name
+    }
+
+    func paneOwner(for paneID: UUID) -> PaneOwnerDTO? {
+        paneOwners[paneID]
+    }
+
+    func paneIsOwnedBySelf(_ paneID: UUID) -> Bool {
+        guard let myClientID, let owner = paneOwners[paneID] else { return false }
+        if case let .remote(id, _) = owner, id == myClientID { return true }
+        return false
+    }
 
     struct TerminalTheme: Equatable {
         let fg: UInt32
@@ -75,6 +92,9 @@ final class ConnectionManager {
         lastPort = port
         addDevice(name: name, host: host, port: port)
         state = .connecting
+        activeProjectID = nil
+        workspace = nil
+        paneOwners = [:]
 
         let url = URL(string: "ws://\(host):\(port)")!
         session = URLSession(configuration: .default)
@@ -85,9 +105,28 @@ final class ConnectionManager {
 
         Task {
             try? await Task.sleep(for: .milliseconds(500))
+            await registerSelf()
             await refreshProjects()
             state = .connected
         }
+    }
+
+    private func registerSelf() async {
+        let params = RegisterDeviceParams(deviceName: deviceName)
+        guard let response = await send(.registerDevice, params: .registerDevice(params)) else { return }
+        if case let .deviceInfo(info) = response.result {
+            myClientID = info.clientID
+        }
+    }
+
+    func takeOverPane(paneID: UUID, cols: UInt32, rows: UInt32) async {
+        let params = TakeOverPaneParams(paneID: paneID, cols: cols, rows: rows)
+        _ = await send(.takeOverPane, params: .takeOverPane(params))
+    }
+
+    func releasePane(paneID: UUID) async {
+        let params = ReleasePaneParams(paneID: paneID)
+        _ = await send(.releasePane, params: .releasePane(params))
     }
 
     func disconnect() {
@@ -129,6 +168,8 @@ final class ConnectionManager {
 
     func selectProject(_ projectID: UUID) async {
         activeProjectID = projectID
+        workspace = nil
+        paneOwners = [:]
         let params = SelectProjectParams(projectID: projectID)
         _ = await send(.selectProject, params: .selectProject(params))
         await refreshWorkspace(projectID: projectID)
@@ -272,6 +313,8 @@ final class ConnectionManager {
             workspace = ws
         case let .notification(notification):
             notifications.insert(notification, at: 0)
+        case let .paneOwnership(dto):
+            paneOwners[dto.paneID] = dto.owner
         case .tab,
              .terminalOutput:
             break

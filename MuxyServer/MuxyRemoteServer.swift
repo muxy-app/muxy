@@ -18,10 +18,15 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func splitArea(projectID: UUID, areaID: UUID, direction: SplitDirectionDTO, position: SplitPositionDTO)
     func closeArea(projectID: UUID, areaID: UUID)
     func focusArea(projectID: UUID, areaID: UUID)
-    func sendTerminalInput(paneID: UUID, text: String)
-    func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32)
-    func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool)
+    func sendTerminalInput(paneID: UUID, text: String, clientID: UUID)
+    func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32, clientID: UUID)
+    func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool, clientID: UUID)
     func getTerminalContent(paneID: UUID) -> TerminalCellsDTO?
+    func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32)
+    func releasePane(paneID: UUID, clientID: UUID)
+    func registerDevice(clientID: UUID, name: String)
+    func clientDisconnected(clientID: UUID)
+    func getPaneOwner(paneID: UUID) -> PaneOwnerDTO?
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO?
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws
     func vcsPush(projectID: UUID) async throws
@@ -114,11 +119,14 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             self?.connections.removeValue(forKey: id)
             logger.info("Client disconnected: \(id)")
         }
+        Task { @MainActor in
+            self.delegate?.clientDisconnected(clientID: id)
+        }
     }
 
-    func handleRequest(_ request: MuxyRequest) {
+    func handleRequest(_ request: MuxyRequest, from clientID: UUID) {
         Task { @MainActor in
-            let response = await processRequest(request)
+            let response = await processRequest(request, clientID: clientID)
             guard let data = try? MuxyCodec.encode(.response(response)) else { return }
             self.queue.async { [weak self] in
                 guard let self else { return }
@@ -130,7 +138,7 @@ public final class MuxyRemoteServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func processRequest(_ request: MuxyRequest) async -> MuxyResponse {
+    private func processRequest(_ request: MuxyRequest, clientID: UUID) async -> MuxyResponse {
         guard let delegate else {
             return MuxyResponse(id: request.id, error: MuxyError.internalError)
         }
@@ -223,14 +231,19 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             guard case let .terminalInput(params) = request.params else {
                 return MuxyResponse(id: request.id, error: .invalidParams)
             }
-            delegate.sendTerminalInput(paneID: params.paneID, text: params.text)
+            delegate.sendTerminalInput(paneID: params.paneID, text: params.text, clientID: clientID)
             return MuxyResponse(id: request.id, result: .ok)
 
         case .terminalResize:
             guard case let .terminalResize(params) = request.params else {
                 return MuxyResponse(id: request.id, error: .invalidParams)
             }
-            delegate.resizeTerminal(paneID: params.paneID, cols: params.cols, rows: params.rows)
+            delegate.resizeTerminal(
+                paneID: params.paneID,
+                cols: params.cols,
+                rows: params.rows,
+                clientID: clientID
+            )
             return MuxyResponse(id: request.id, result: .ok)
 
         case .terminalScroll:
@@ -241,7 +254,8 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                 paneID: params.paneID,
                 deltaX: params.deltaX,
                 deltaY: params.deltaY,
-                precise: params.precise
+                precise: params.precise,
+                clientID: clientID
             )
             return MuxyResponse(id: request.id, result: .ok)
 
@@ -318,6 +332,33 @@ public final class MuxyRemoteServer: @unchecked Sendable {
 
         case .subscribe,
              .unsubscribe:
+            return MuxyResponse(id: request.id, result: .ok)
+
+        case .registerDevice:
+            guard case let .registerDevice(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            delegate.registerDevice(clientID: clientID, name: params.deviceName)
+            let info = DeviceInfoDTO(clientID: clientID, deviceName: params.deviceName)
+            return MuxyResponse(id: request.id, result: .deviceInfo(info))
+
+        case .takeOverPane:
+            guard case let .takeOverPane(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            delegate.takeOverPane(
+                paneID: params.paneID,
+                clientID: clientID,
+                cols: params.cols,
+                rows: params.rows
+            )
+            return MuxyResponse(id: request.id, result: .ok)
+
+        case .releasePane:
+            guard case let .releasePane(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            delegate.releasePane(paneID: params.paneID, clientID: clientID)
             return MuxyResponse(id: request.id, result: .ok)
         }
     }

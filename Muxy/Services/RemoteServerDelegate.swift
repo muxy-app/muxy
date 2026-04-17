@@ -12,11 +12,21 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     private let projectStore: ProjectStore
     private let worktreeStore: WorktreeStore
     private let gitService = GitRepositoryService()
+    weak var server: MuxyRemoteServer?
 
     init(appState: AppState, projectStore: ProjectStore, worktreeStore: WorktreeStore) {
         self.appState = appState
         self.projectStore = projectStore
         self.worktreeStore = worktreeStore
+        PaneOwnershipStore.shared.onOwnershipChanged = { [weak self] paneID, owner in
+            TerminalViewRegistry.shared.existingView(for: paneID)?.remoteOwnershipDidChange()
+            self?.broadcastOwnership(paneID: paneID, owner: owner)
+        }
+    }
+
+    private func broadcastOwnership(paneID: UUID, owner: PaneOwnerDTO) {
+        let dto = PaneOwnershipEventDTO(paneID: paneID, owner: owner)
+        server?.broadcast(MuxyEvent(event: .paneOwnershipChanged, data: .paneOwnership(dto)))
     }
 
     func listProjects() -> [ProjectDTO] {
@@ -96,9 +106,13 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         appState.dispatch(.focusArea(projectID: projectID, areaID: areaID))
     }
 
-    func sendTerminalInput(paneID: UUID, text: String) {
+    func sendTerminalInput(paneID: UUID, text: String, clientID: UUID) {
         guard let view = TerminalViewRegistry.shared.existingView(for: paneID) else {
             logger.warning("No terminal view for pane \(paneID)")
+            return
+        }
+
+        guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
             return
         }
 
@@ -168,16 +182,27 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         }
     }
 
-    func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool) {
+    func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool, clientID: UUID) {
         guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
               let surface = view.surface
         else { return }
+
+        guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
+            return
+        }
 
         let mods: ghostty_input_scroll_mods_t = precise ? 1 : 0
         ghostty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
     }
 
-    func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32) {
+    func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32, clientID: UUID) {
+        guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
+            return
+        }
+        applyPTYSize(paneID: paneID, cols: cols, rows: rows)
+    }
+
+    private func applyPTYSize(paneID: UUID, cols: UInt32, rows: UInt32) {
         guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
               let surface = view.surface
         else { return }
@@ -188,6 +213,30 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         let w = cols * size.cell_width_px
         let h = rows * size.cell_height_px
         ghostty_surface_set_size(surface, w, h)
+    }
+
+    func registerDevice(clientID: UUID, name: String) {
+        PaneOwnershipStore.shared.registerDevice(clientID: clientID, name: name)
+    }
+
+    func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32) {
+        PaneOwnershipStore.shared.assign(paneID: paneID, to: clientID)
+        applyPTYSize(paneID: paneID, cols: cols, rows: rows)
+    }
+
+    func releasePane(paneID: UUID, clientID: UUID) {
+        guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
+            return
+        }
+        PaneOwnershipStore.shared.releaseToMac(paneID: paneID)
+    }
+
+    func clientDisconnected(clientID: UUID) {
+        PaneOwnershipStore.shared.releaseAll(clientID: clientID)
+    }
+
+    func getPaneOwner(paneID: UUID) -> PaneOwnerDTO? {
+        PaneOwnershipStore.shared.owner(for: paneID)
     }
 
     func getTerminalContent(paneID: UUID) -> TerminalCellsDTO? {

@@ -85,7 +85,7 @@ final class ClientConnection: @unchecked Sendable {
             let message = try MuxyCodec.decode(data)
             switch message {
             case let .request(request):
-                server?.handleRequest(request)
+                server?.handleRequest(request, from: id)
             case .response,
                  .event:
                 break

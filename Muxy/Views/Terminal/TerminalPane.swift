@@ -9,6 +9,12 @@ struct TerminalPane: View {
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
 
+    @Bindable private var ownership = PaneOwnershipStore.shared
+
+    private var remoteOwnerName: String? {
+        if case let .remote(_, name) = ownership.owner(for: state.id) { name } else { nil }
+    }
+
     var body: some View {
         ZStack(alignment: .topTrailing) {
             TerminalBridge(
@@ -21,6 +27,15 @@ struct TerminalPane: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Terminal")
             .accessibilityAddTraits(.allowsDirectInteraction)
+            .opacity(remoteOwnerName == nil ? 1 : 0)
+            .allowsHitTesting(remoteOwnerName == nil)
+
+            if let name = remoteOwnerName {
+                RemoteControlledPlaceholder(deviceName: name) {
+                    PaneOwnershipStore.shared.releaseToMac(paneID: state.id)
+                }
+                .transition(.opacity)
+            }
 
             if state.searchState.isVisible {
                 TerminalSearchBar(
@@ -44,6 +59,35 @@ struct TerminalPane: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+    }
+}
+
+struct RemoteControlledPlaceholder: View {
+    let deviceName: String
+    let onTakeOver: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "iphone.gen3")
+                .font(.system(size: 28))
+                .foregroundStyle(MuxyTheme.fgMuted)
+            Text("Controlled by \(deviceName)")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+            Text("This terminal session is currently being used on \(deviceName). Take over to resume on Mac.")
+                .font(.system(size: 12))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+            Button("Take Over") {
+                onTakeOver()
+            }
+            .keyboardShortcut(.defaultAction)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MuxyTheme.bg)
     }
 }
 

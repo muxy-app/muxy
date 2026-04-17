@@ -9,6 +9,10 @@ final class TerminalViewRegistry {
 
     private init() {}
 
+    func isOwnedByRemote(_ paneID: UUID) -> Bool {
+        !PaneOwnershipStore.shared.isOwnedByMac(paneID)
+    }
+
     func view(for paneID: UUID, workingDirectory: String, command: String? = nil) -> GhosttyTerminalNSView {
         if let existing = views[paneID] {
             return existing

@@ -235,9 +235,19 @@ final class GhosttyTerminalNSView: NSView {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
+        if let paneID = TerminalViewRegistry.shared.paneID(for: self),
+           TerminalViewRegistry.shared.isOwnedByRemote(paneID)
+        {
+            return
+        }
+
         let w = UInt32(scaledSize.width)
         let h = UInt32(scaledSize.height)
         ghostty_surface_set_size(surface, w, h)
+    }
+
+    func remoteOwnershipDidChange() {
+        updateMetalLayerSize()
     }
 
     private func isAppShortcut(_ event: NSEvent) -> Bool {

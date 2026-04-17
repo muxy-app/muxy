@@ -57,6 +57,7 @@ struct MuxyApp: App {
                         projectStore: projectStore,
                         worktreeStore: worktreeStore
                     )
+                    serverDelegate.server = remoteServer
                     appDelegate.remoteServerDelegate = serverDelegate
                     remoteServer.delegate = serverDelegate
                     remoteServer.start()

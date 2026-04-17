@@ -3,13 +3,31 @@ import SwiftUI
 
 struct ProjectPickerView: View {
     @Environment(ConnectionManager.self) private var connection
+    @State private var path: [UUID] = []
 
     var body: some View {
-        NavigationStack {
-            if connection.activeProjectID != nil {
-                WorkspaceContentWrapper()
-            } else {
-                projectList
+        NavigationStack(path: $path) {
+            projectList
+                .navigationDestination(for: UUID.self) { _ in
+                    WorkspaceContentWrapper()
+                }
+        }
+        .onChange(of: connection.activeProjectID) { _, newValue in
+            if let id = newValue, path.last != id {
+                path = [id]
+            } else if newValue == nil {
+                path.removeAll()
+            }
+        }
+        .onChange(of: path) { _, newValue in
+            if newValue.isEmpty, connection.activeProjectID != nil {
+                connection.activeProjectID = nil
+                connection.workspace = nil
+            }
+        }
+        .onAppear {
+            if let id = connection.activeProjectID, path.last != id {
+                path = [id]
             }
         }
     }
