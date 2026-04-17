@@ -22,11 +22,26 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             TerminalViewRegistry.shared.existingView(for: paneID)?.remoteOwnershipDidChange()
             self?.broadcastOwnership(paneID: paneID, owner: owner)
         }
+        NotificationCenter.default.addObserver(
+            forName: .themeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.broadcastTheme()
+            }
+        }
     }
 
     private func broadcastOwnership(paneID: UUID, owner: PaneOwnerDTO) {
         let dto = PaneOwnershipEventDTO(paneID: paneID, owner: owner)
         server?.broadcast(MuxyEvent(event: .paneOwnershipChanged, data: .paneOwnership(dto)))
+    }
+
+    private func broadcastTheme() {
+        guard let theme = ThemeService.shared.currentThemeColors() else { return }
+        let dto = DeviceThemeEventDTO(fg: theme.fg, bg: theme.bg)
+        server?.broadcast(MuxyEvent(event: .themeChanged, data: .deviceTheme(dto)))
     }
 
     func listProjects() -> [ProjectDTO] {
@@ -154,6 +169,10 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func registerDevice(clientID: UUID, name: String) {
         PaneOwnershipStore.shared.registerDevice(clientID: clientID, name: name)
+    }
+
+    func getDeviceTheme() -> (fg: UInt32, bg: UInt32)? {
+        ThemeService.shared.currentThemeColors()
     }
 
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32) {

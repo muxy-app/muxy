@@ -75,7 +75,7 @@ struct TerminalView: View {
     @State private var pendingGridSize: (cols: UInt32, rows: UInt32)?
 
     private var themeBg: Color {
-        connection.terminalTheme?.bgColor ?? .black
+        connection.deviceTheme?.bgColor ?? .black
     }
 
     private var isOwnedBySelf: Bool {
@@ -91,7 +91,7 @@ struct TerminalView: View {
             if !isOwnedBySelf {
                 MobileTakeOverOverlay(
                     ownerName: ownerDisplayName,
-                    theme: connection.terminalTheme,
+                    theme: connection.deviceTheme,
                     takeOver: takeOverCurrentPane
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -163,7 +163,7 @@ struct TerminalView: View {
                 }
             )
 
-            TerminalInputField(coordinator: inputCoordinator, theme: connection.terminalTheme)
+            TerminalInputField(coordinator: inputCoordinator, theme: connection.deviceTheme)
                 .frame(height: 1)
                 .opacity(0.01)
         }
@@ -193,7 +193,7 @@ struct TerminalView: View {
 
 struct MobileTakeOverOverlay: View {
     let ownerName: String
-    let theme: ConnectionManager.TerminalTheme?
+    let theme: ConnectionManager.DeviceTheme?
     let takeOver: () -> Void
 
     var body: some View {
@@ -635,7 +635,7 @@ final class TerminalInputCoordinator {
 
 struct TerminalInputField: UIViewRepresentable {
     let coordinator: TerminalInputCoordinator
-    let theme: ConnectionManager.TerminalTheme?
+    let theme: ConnectionManager.DeviceTheme?
 
     func makeUIView(context _: Context) -> TerminalUITextField {
         let field = TerminalUITextField(frame: .zero)
@@ -730,7 +730,7 @@ final class TerminalUITextField: UIView, UIKeyInput, UITextInputTraits {
 
     override var inputAccessoryView: UIView? { accessoryBar }
 
-    func applyTheme(_ theme: ConnectionManager.TerminalTheme?) {
+    func applyTheme(_ theme: ConnectionManager.DeviceTheme?) {
         accessoryBar.applyTheme(theme)
     }
 
@@ -783,7 +783,7 @@ final class TerminalUITextField: UIView, UIKeyInput, UITextInputTraits {
 
 @MainActor
 final class TerminalAccessoryModel: ObservableObject {
-    @Published var theme: ConnectionManager.TerminalTheme?
+    @Published var theme: ConnectionManager.DeviceTheme?
     @Published var modifierArmed: Bool = false
     @Published var activeModifier: TerminalModifier = .ctrl
     @Published var keyboardVisible: Bool = true
@@ -871,7 +871,7 @@ final class TerminalAccessoryBar: UIInputView {
         ])
     }
 
-    func applyTheme(_ theme: ConnectionManager.TerminalTheme?) {
+    func applyTheme(_ theme: ConnectionManager.DeviceTheme?) {
         model.theme = theme
         overrideUserInterfaceStyle = (theme?.isDark ?? true) ? .dark : .light
     }

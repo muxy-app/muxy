@@ -24,7 +24,7 @@ final class ConnectionManager {
     var notifications: [NotificationDTO] = []
     var projectLogos: [UUID: Data] = [:]
     var projectWorktrees: [UUID: [WorktreeDTO]] = [:]
-    var terminalTheme: TerminalTheme?
+    var deviceTheme: DeviceTheme?
     var paneOwners: [UUID: PaneOwnerDTO] = [:]
     private(set) var savedDevices: [SavedDevice] = []
     private(set) var myClientID: UUID?
@@ -43,7 +43,7 @@ final class ConnectionManager {
         return false
     }
 
-    struct TerminalTheme: Equatable {
+    struct DeviceTheme: Equatable {
         let fg: UInt32
         let bg: UInt32
 
@@ -95,6 +95,7 @@ final class ConnectionManager {
         activeProjectID = nil
         workspace = nil
         paneOwners = [:]
+        deviceTheme = nil
 
         let url = URL(string: "ws://\(host):\(port)")!
         session = URLSession(configuration: .default)
@@ -122,6 +123,9 @@ final class ConnectionManager {
         }
         if case let .deviceInfo(info) = response.result {
             myClientID = info.clientID
+            if let fg = info.themeFg, let bg = info.themeBg {
+                deviceTheme = DeviceTheme(fg: fg, bg: bg)
+            }
         }
         return true
     }
@@ -143,6 +147,7 @@ final class ConnectionManager {
         session = nil
         activeProjectID = nil
         workspace = nil
+        deviceTheme = nil
     }
 
     func reconnect() {
@@ -236,10 +241,6 @@ final class ConnectionManager {
         let params = GetTerminalContentParams(paneID: paneID)
         guard let response = await send(.getTerminalContent, params: .getTerminalContent(params)) else { return nil }
         if case let .terminalCells(cells) = response.result {
-            let theme = TerminalTheme(fg: cells.defaultFg, bg: cells.defaultBg)
-            if terminalTheme != theme {
-                terminalTheme = theme
-            }
             return cells
         }
         return nil
@@ -330,6 +331,8 @@ final class ConnectionManager {
             notifications.insert(notification, at: 0)
         case let .paneOwnership(dto):
             paneOwners[dto.paneID] = dto.owner
+        case let .deviceTheme(dto):
+            deviceTheme = DeviceTheme(fg: dto.fg, bg: dto.bg)
         case .tab,
              .terminalOutput:
             break

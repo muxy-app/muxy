@@ -46,15 +46,15 @@ struct WorkspaceContentWrapper: View {
     }
 
     private var themeFg: Color {
-        connection.terminalTheme?.fgColor ?? .primary
+        connection.deviceTheme?.fgColor ?? .primary
     }
 
     private var themeBg: Color {
-        connection.terminalTheme?.bgColor ?? Color(.systemBackground)
+        connection.deviceTheme?.bgColor ?? Color(.systemBackground)
     }
 
     private var preferredScheme: ColorScheme {
-        (connection.terminalTheme?.isDark ?? true) ? .dark : .light
+        (connection.deviceTheme?.isDark ?? true) ? .dark : .light
     }
 
     @ViewBuilder
@@ -151,48 +151,38 @@ struct TabDetailView: View {
         if let paneID = tab.paneID {
             TerminalView(paneID: paneID)
         } else {
-            VStack(spacing: 12) {
-                Spacer()
-                Image(systemName: "terminal")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.tertiary)
-                Text("No pane available")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
-            .background(Color.black)
+            placeholder(icon: "terminal", title: "No pane available")
         }
     }
 
     private var vcsPlaceholder: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 40))
-                .foregroundStyle(.tertiary)
-            Text("Source Control")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
-        .background(Color(.systemBackground))
+        placeholder(icon: "arrow.triangle.branch", title: "Source Control")
     }
 
     private var editorPlaceholder: some View {
+        placeholder(icon: "doc.text", title: tab.title)
+    }
+
+    private func placeholder(icon: String, title: String) -> some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "doc.text")
+            Image(systemName: icon)
                 .font(.system(size: 40))
-                .foregroundStyle(.tertiary)
-            Text(tab.title)
+                .foregroundStyle(themeFg.opacity(0.4))
+            Text(title)
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(themeFg.opacity(0.7))
             Spacer()
         }
         .frame(maxWidth: .infinity)
-        .background(Color(.systemBackground))
+        .background(themeBg)
+    }
+
+    private var themeFg: Color {
+        connection.deviceTheme?.fgColor ?? .primary
+    }
+
+    private var themeBg: Color {
+        connection.deviceTheme?.bgColor ?? Color(.systemBackground)
     }
 }

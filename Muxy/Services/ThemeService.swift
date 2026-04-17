@@ -31,6 +31,26 @@ final class ThemeService {
         config.configValue(for: "theme")?.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
     }
 
+    func currentThemeColors() -> (fg: UInt32, bg: UInt32)? {
+        guard let name = currentThemeName() else { return nil }
+        for dir in Self.themeDirectories() {
+            let path = dir + "/" + name
+            guard FileManager.default.fileExists(atPath: path),
+                  let theme = Self.parseThemeFile(atPath: path, name: name)
+            else { continue }
+            return (fg: Self.rgb(from: theme.foreground), bg: Self.rgb(from: theme.background))
+        }
+        return nil
+    }
+
+    nonisolated private static func rgb(from color: NSColor) -> UInt32 {
+        let srgb = color.usingColorSpace(.sRGB) ?? color
+        let r = UInt32((srgb.redComponent * 255).rounded()) & 0xFF
+        let g = UInt32((srgb.greenComponent * 255).rounded()) & 0xFF
+        let b = UInt32((srgb.blueComponent * 255).rounded()) & 0xFF
+        return (r << 16) | (g << 8) | b
+    }
+
     func applyDefaultThemeIfNeeded() {
         guard currentThemeName() == nil else { return }
         applyTheme(Self.defaultThemeName)

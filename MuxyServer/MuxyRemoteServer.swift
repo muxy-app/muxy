@@ -25,6 +25,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32)
     func releasePane(paneID: UUID, clientID: UUID)
     func registerDevice(clientID: UUID, name: String)
+    func getDeviceTheme() -> (fg: UInt32, bg: UInt32)?
     func clientDisconnected(clientID: UUID)
     func getPaneOwner(paneID: UUID) -> PaneOwnerDTO?
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO?
@@ -336,7 +337,13 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                 return MuxyResponse(id: request.id, error: .invalidParams)
             }
             delegate.registerDevice(clientID: clientID, name: params.deviceName)
-            let info = DeviceInfoDTO(clientID: clientID, deviceName: params.deviceName)
+            let theme = delegate.getDeviceTheme()
+            let info = DeviceInfoDTO(
+                clientID: clientID,
+                deviceName: params.deviceName,
+                themeFg: theme?.fg,
+                themeBg: theme?.bg
+            )
             return MuxyResponse(id: request.id, result: .deviceInfo(info))
 
         case .takeOverPane:

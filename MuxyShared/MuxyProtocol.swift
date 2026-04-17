@@ -282,6 +282,7 @@ public enum MuxyEventKind: String, Codable, Sendable {
     case notificationReceived
     case projectsChanged
     case paneOwnershipChanged
+    case themeChanged
 }
 
 public enum MuxyEventData: Codable, Sendable {
@@ -291,6 +292,7 @@ public enum MuxyEventData: Codable, Sendable {
     case notification(NotificationDTO)
     case projects([ProjectDTO])
     case paneOwnership(PaneOwnershipEventDTO)
+    case deviceTheme(DeviceThemeEventDTO)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -307,6 +309,7 @@ public enum MuxyEventData: Codable, Sendable {
         case "notification": self = try .notification(container.decode(NotificationDTO.self, forKey: .value))
         case "projects": self = try .projects(container.decode([ProjectDTO].self, forKey: .value))
         case "paneOwnership": self = try .paneOwnership(container.decode(PaneOwnershipEventDTO.self, forKey: .value))
+        case "deviceTheme": self = try .deviceTheme(container.decode(DeviceThemeEventDTO.self, forKey: .value))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown event data type: \(type)")
         }
     }
@@ -325,6 +328,8 @@ public enum MuxyEventData: Codable, Sendable {
         case let .projects(v): try container.encode("projects", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .paneOwnership(v): try container.encode("paneOwnership", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .deviceTheme(v): try container.encode("deviceTheme", forKey: .type)
             try container.encode(v, forKey: .value)
         }
     }
