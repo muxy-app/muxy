@@ -20,10 +20,10 @@ struct KeyboardShortcutsSettingsView: View {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                    .font(.system(size: 12))
+                    .font(.system(size: SettingsMetrics.labelFontSize))
                 TextField("Search shortcuts", text: $searchText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(.system(size: SettingsMetrics.labelFontSize))
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -34,34 +34,29 @@ struct KeyboardShortcutsSettingsView: View {
                 recordingAction = nil
             }
             .buttonStyle(.plain)
-            .font(.system(size: 11))
+            .font(.system(size: SettingsMetrics.footnoteFontSize))
             .foregroundStyle(.secondary)
         }
-        .padding(12)
+        .padding(SettingsMetrics.horizontalPadding)
     }
 
     private var shortcutsList: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(spacing: 16) {
-                ForEach(ShortcutAction.categories, id: \.self) { category in
-                    let actions = filteredActions(for: category)
-                    if !actions.isEmpty {
-                        categorySection(title: category, actions: actions)
-                    }
+        let visibleCategories = ShortcutAction.categories.filter { !filteredActions(for: $0).isEmpty }
+        return ScrollView(.vertical, showsIndicators: true) {
+            VStack(spacing: 0) {
+                ForEach(visibleCategories, id: \.self) { category in
+                    categorySection(
+                        title: category,
+                        actions: filteredActions(for: category),
+                        isLast: category == visibleCategories.last
+                    )
                 }
             }
-            .padding(12)
         }
     }
 
-    private func categorySection(title: String, actions: [ShortcutAction]) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 4)
-                .padding(.bottom, 4)
-
+    private func categorySection(title: String, actions: [ShortcutAction], isLast: Bool) -> some View {
+        SettingsSection(title, showsDivider: !isLast) {
             ForEach(actions) { action in
                 ShortcutRow(
                     action: action,
@@ -115,7 +110,7 @@ private struct ShortcutRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(action.displayName)
-                    .font(.system(size: 12))
+                    .font(.system(size: SettingsMetrics.labelFontSize))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 if isRecording {
@@ -131,9 +126,9 @@ private struct ShortcutRow: View {
                     .foregroundStyle(.orange)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(hovered ? Color.primary.opacity(0.04) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+        .background(hovered ? Color.primary.opacity(0.04) : .clear)
         .onHover { hovered = $0 }
     }
 
@@ -151,7 +146,7 @@ private struct ShortcutRow: View {
 
             Button(action: onStartRecording) {
                 Text(combo.displayString)
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium, design: .rounded))
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -168,7 +163,7 @@ private struct ShortcutRow: View {
                 .opacity(0)
 
             Text("Press shortcut…")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
                 .foregroundStyle(.orange)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
