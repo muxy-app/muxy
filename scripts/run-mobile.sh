@@ -2,8 +2,13 @@
 set -euo pipefail
 
 if [ "${1:-}" = "stop" ]; then
-  xcrun simctl terminate booted app.muxy.mobile 2>/dev/null && echo "MuxyMobile stopped" || echo "MuxyMobile not running"
+  xcrun simctl terminate booted com.muxy.app 2>/dev/null && echo "MuxyMobile stopped" || echo "MuxyMobile not running"
   exit 0
+fi
+
+if [ "${1:-}" = "restart" ]; then
+  xcrun simctl terminate booted com.muxy.app 2>/dev/null && echo "MuxyMobile stopped" || echo "MuxyMobile not running"
+  shift
 fi
 
 SIM_NAME="${1:-iPhone 16e}"
@@ -29,7 +34,7 @@ xcodebuild -project MuxyMobile.xcodeproj \
   build -quiet
 
 xcrun simctl install "$SIM_ID" .build/xcode/Build/Products/Debug-iphonesimulator/MuxyMobile.app
-xcrun simctl launch "$SIM_ID" app.muxy.mobile
+xcrun simctl launch "$SIM_ID" com.muxy.app
 
 LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "unknown")
 echo ""

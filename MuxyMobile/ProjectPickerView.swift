@@ -22,7 +22,6 @@ struct ProjectPickerView: View {
         .onChange(of: path) { _, newValue in
             if newValue.isEmpty, connection.activeProjectID != nil {
                 connection.activeProjectID = nil
-                connection.workspace = nil
             }
         }
         .onAppear {
@@ -42,28 +41,49 @@ struct ProjectPickerView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(project.name)
                             .font(.body.weight(.medium))
+                            .foregroundStyle(themeFg)
                         Text(worktreeSubtitle(for: project.id))
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(themeFg.opacity(0.6))
                             .lineLimit(1)
                     }
                 }
             }
-            .foregroundStyle(.primary)
+            .listRowBackground(themeFg.opacity(0.06))
+            .listRowSeparatorTint(themeFg.opacity(0.15))
         }
+        .scrollContentBackground(.hidden)
+        .background(themeBg)
         .navigationTitle("Projects")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Projects")
+                    .font(.headline)
+                    .foregroundStyle(themeFg)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     connection.disconnect()
                 } label: {
-                    Image(systemName: "xmark")
+                    Label("Disconnect", systemImage: "xmark")
+                        .labelStyle(.iconOnly)
+                        .foregroundStyle(themeFg)
                 }
             }
         }
+        .tint(themeFg)
         .refreshable {
             await connection.refreshProjects()
         }
+    }
+
+    private var themeFg: Color {
+        connection.deviceTheme?.fgColor ?? .primary
+    }
+
+    private var themeBg: Color {
+        connection.deviceTheme?.bgColor ?? Color(.systemBackground)
     }
 
     private func worktreeSubtitle(for projectID: UUID) -> String {
@@ -88,6 +108,17 @@ struct ProjectIcon: View {
                 .aspectRatio(contentMode: .fill)
                 .frame(width: size, height: size)
                 .clipShape(RoundedRectangle(cornerRadius: size * 0.22))
+        } else if let swatch = ProjectIconColor.swatch(for: project.iconColor),
+                  let fill = Color(hex: swatch.hex)
+        {
+            ZStack {
+                RoundedRectangle(cornerRadius: size * 0.22)
+                    .fill(fill)
+                    .frame(width: size, height: size)
+                Text(project.name.prefix(1).uppercased())
+                    .font(.system(size: size * 0.4, weight: .bold, design: .rounded))
+                    .foregroundStyle(swatch.prefersDarkForeground ? Color.black : Color.white)
+            }
         } else {
             ZStack {
                 RoundedRectangle(cornerRadius: size * 0.22)
@@ -98,5 +129,12 @@ struct ProjectIcon: View {
                     .foregroundStyle(.tint)
             }
         }
+    }
+}
+
+private extension Color {
+    init?(hex: String) {
+        guard let rgb = ProjectIconColor.rgb(fromHex: hex) else { return nil }
+        self = Color(.sRGB, red: rgb.0, green: rgb.1, blue: rgb.2, opacity: 1)
     }
 }

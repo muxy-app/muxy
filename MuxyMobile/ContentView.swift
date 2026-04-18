@@ -12,11 +12,31 @@ struct ContentView: View {
             ProgressView("Connecting...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(.systemGroupedBackground))
+        case .awaitingApproval:
+            AwaitingApprovalView()
         case .connected:
             ProjectPickerView()
         case let .error(message):
             ErrorView(message: message)
         }
+    }
+}
+
+struct AwaitingApprovalView: View {
+    @Environment(ConnectionManager.self) private var connection
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Waiting for Approval", systemImage: "lock.shield")
+        } description: {
+            Text("Approve this device on your Mac to continue.")
+        } actions: {
+            Button("Cancel", role: .destructive) {
+                connection.disconnect()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
     }
 }
 

@@ -10,7 +10,8 @@ extension Project {
             sortOrder: sortOrder,
             createdAt: createdAt,
             icon: icon,
-            logo: logo
+            logo: logo,
+            iconColor: iconColor
         )
     }
 }

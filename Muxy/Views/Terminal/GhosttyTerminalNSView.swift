@@ -75,8 +75,7 @@ final class GhosttyTerminalNSView: NSView {
     func createSurface() {
         guard surface == nil, let app = GhosttyService.shared.app else { return }
 
-        let backingSize = convertToBacking(bounds).size
-        guard backingSize.width > 0, backingSize.height > 0 else {
+        guard let backingSize = backingPixelSize() else {
             pendingSurfaceCreation = true
             return
         }
@@ -125,9 +124,7 @@ final class GhosttyTerminalNSView: NSView {
         let scale = Double(window?.backingScaleFactor ?? 2.0)
         ghostty_surface_set_content_scale(surface, scale, scale)
 
-        let w = UInt32(backingSize.width)
-        let h = UInt32(backingSize.height)
-        ghostty_surface_set_size(surface, w, h)
+        ghostty_surface_set_size(surface, backingSize.width, backingSize.height)
 
         let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         ghostty_surface_set_color_scheme(surface, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
@@ -161,24 +158,30 @@ final class GhosttyTerminalNSView: NSView {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil
         }
+        delayedResizeWorkItem?.cancel()
+        delayedResizeWorkItem = nil
         destroySurface()
         removeFromSuperview()
     }
 
     deinit {
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
+        delayedResizeWorkItem?.cancel()
         if let surface {
             ghostty_surface_free(surface)
         }
     }
 
     nonisolated(unsafe) private var screenChangeObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var delayedResizeWorkItem: DispatchWorkItem?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
 
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         screenChangeObserver = nil
+        delayedResizeWorkItem?.cancel()
+        delayedResizeWorkItem = nil
 
         guard let window else { return }
 
@@ -192,11 +195,11 @@ final class GhosttyTerminalNSView: NSView {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.updateMetalLayerSize()
+                self?.updateMetalLayerSize(deferred: true)
             }
         }
 
-        updateMetalLayerSize()
+        updateMetalLayerSize(deferred: true)
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -204,12 +207,12 @@ final class GhosttyTerminalNSView: NSView {
         if pendingSurfaceCreation {
             createSurface()
         }
-        updateMetalLayerSize()
+        updateMetalLayerSize(deferred: false)
     }
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        updateMetalLayerSize()
+        updateMetalLayerSize(deferred: true)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -219,11 +222,25 @@ final class GhosttyTerminalNSView: NSView {
         ghostty_surface_set_color_scheme(surface, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
     }
 
-    private func updateMetalLayerSize() {
-        guard let surface, let window else { return }
+    private func updateMetalLayerSize(deferred: Bool) {
+        if deferred {
+            delayedResizeWorkItem?.cancel()
+            DispatchQueue.main.async { [weak self] in
+                self?.updateMetalLayerSize(deferred: false)
+            }
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.updateMetalLayerSize(deferred: false)
+            }
+            delayedResizeWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
+            return
+        }
 
-        let scaledSize = convertToBacking(bounds).size
-        guard scaledSize.width > 0, scaledSize.height > 0 else { return }
+        guard let surface, let window else { return }
+        layer?.contentsScale = window.backingScaleFactor
+        layoutSubtreeIfNeeded()
+
+        guard let backingSize = backingPixelSize() else { return }
 
         let scale = Double(window.backingScaleFactor)
 
@@ -241,13 +258,19 @@ final class GhosttyTerminalNSView: NSView {
             return
         }
 
-        let w = UInt32(scaledSize.width)
-        let h = UInt32(scaledSize.height)
-        ghostty_surface_set_size(surface, w, h)
+        ghostty_surface_set_size(surface, backingSize.width, backingSize.height)
     }
 
     func remoteOwnershipDidChange() {
-        updateMetalLayerSize()
+        updateMetalLayerSize(deferred: false)
+    }
+
+    private func backingPixelSize() -> (width: UInt32, height: UInt32)? {
+        let size = convertToBacking(bounds).size
+        let width = Int(floor(size.width))
+        let height = Int(floor(size.height))
+        guard width > 0, height > 0 else { return nil }
+        return (UInt32(width), UInt32(height))
     }
 
     private func isAppShortcut(_ event: NSEvent) -> Bool {

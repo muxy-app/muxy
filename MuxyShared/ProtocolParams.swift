@@ -126,12 +126,51 @@ public struct RegisterDeviceParams: Codable, Sendable {
     }
 }
 
+public struct PairDeviceParams: Codable, Sendable {
+    public let deviceID: UUID
+    public let deviceName: String
+    public let token: String
+    public init(deviceID: UUID, deviceName: String, token: String) {
+        self.deviceID = deviceID
+        self.deviceName = deviceName
+        self.token = token
+    }
+}
+
+public struct AuthenticateDeviceParams: Codable, Sendable {
+    public let deviceID: UUID
+    public let deviceName: String
+    public let token: String
+    public init(deviceID: UUID, deviceName: String, token: String) {
+        self.deviceID = deviceID
+        self.deviceName = deviceName
+        self.token = token
+    }
+}
+
+public struct PairingResultDTO: Codable, Sendable {
+    public let clientID: UUID
+    public let deviceName: String
+    public let themeFg: UInt32?
+    public let themeBg: UInt32?
+    public init(clientID: UUID, deviceName: String, themeFg: UInt32? = nil, themeBg: UInt32? = nil) {
+        self.clientID = clientID
+        self.deviceName = deviceName
+        self.themeFg = themeFg
+        self.themeBg = themeBg
+    }
+}
+
 public struct DeviceInfoDTO: Codable, Sendable {
     public let clientID: UUID
     public let deviceName: String
-    public init(clientID: UUID, deviceName: String) {
+    public let themeFg: UInt32?
+    public let themeBg: UInt32?
+    public init(clientID: UUID, deviceName: String, themeFg: UInt32? = nil, themeBg: UInt32? = nil) {
         self.clientID = clientID
         self.deviceName = deviceName
+        self.themeFg = themeFg
+        self.themeBg = themeBg
     }
 }
 
@@ -171,6 +210,15 @@ public struct PaneOwnershipEventDTO: Codable, Sendable {
     public init(paneID: UUID, owner: PaneOwnerDTO) {
         self.paneID = paneID
         self.owner = owner
+    }
+}
+
+public struct DeviceThemeEventDTO: Codable, Sendable {
+    public let fg: UInt32
+    public let bg: UInt32
+    public init(fg: UInt32, bg: UInt32) {
+        self.fg = fg
+        self.bg = bg
     }
 }
 
@@ -328,6 +376,97 @@ public struct VCSPullParams: Codable, Sendable {
     public let projectID: UUID
     public init(projectID: UUID) {
         self.projectID = projectID
+    }
+}
+
+public struct VCSStageFilesParams: Codable, Sendable {
+    public let projectID: UUID
+    public let paths: [String]
+    public init(projectID: UUID, paths: [String]) {
+        self.projectID = projectID
+        self.paths = paths
+    }
+}
+
+public struct VCSUnstageFilesParams: Codable, Sendable {
+    public let projectID: UUID
+    public let paths: [String]
+    public init(projectID: UUID, paths: [String]) {
+        self.projectID = projectID
+        self.paths = paths
+    }
+}
+
+public struct VCSDiscardFilesParams: Codable, Sendable {
+    public let projectID: UUID
+    public let paths: [String]
+    public let untrackedPaths: [String]
+    public init(projectID: UUID, paths: [String], untrackedPaths: [String]) {
+        self.projectID = projectID
+        self.paths = paths
+        self.untrackedPaths = untrackedPaths
+    }
+}
+
+public struct VCSListBranchesParams: Codable, Sendable {
+    public let projectID: UUID
+    public init(projectID: UUID) {
+        self.projectID = projectID
+    }
+}
+
+public struct VCSSwitchBranchParams: Codable, Sendable {
+    public let projectID: UUID
+    public let branch: String
+    public init(projectID: UUID, branch: String) {
+        self.projectID = projectID
+        self.branch = branch
+    }
+}
+
+public struct VCSCreateBranchParams: Codable, Sendable {
+    public let projectID: UUID
+    public let name: String
+    public init(projectID: UUID, name: String) {
+        self.projectID = projectID
+        self.name = name
+    }
+}
+
+public struct VCSCreatePRParams: Codable, Sendable {
+    public let projectID: UUID
+    public let title: String
+    public let body: String
+    public let baseBranch: String?
+    public let draft: Bool
+    public init(projectID: UUID, title: String, body: String, baseBranch: String?, draft: Bool) {
+        self.projectID = projectID
+        self.title = title
+        self.body = body
+        self.baseBranch = baseBranch
+        self.draft = draft
+    }
+}
+
+public struct VCSAddWorktreeParams: Codable, Sendable {
+    public let projectID: UUID
+    public let name: String
+    public let branch: String
+    public let createBranch: Bool
+    public init(projectID: UUID, name: String, branch: String, createBranch: Bool) {
+        self.projectID = projectID
+        self.name = name
+        self.branch = branch
+        self.createBranch = createBranch
+    }
+}
+
+public struct VCSRemoveWorktreeParams: Codable, Sendable {
+    public let projectID: UUID
+    public let worktreeID: UUID
+    public init(projectID: UUID, worktreeID: UUID) {
+        self.projectID = projectID
+        self.worktreeID = worktreeID
     }
 }
 

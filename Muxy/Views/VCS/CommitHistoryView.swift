@@ -40,6 +40,7 @@ struct CommitHistoryView: View {
                     onCheckout: { state.switchBranch($0) },
                     onCheckoutDetached: { state.checkoutDetached($0) },
                     onCherryPick: { state.cherryPick($0) },
+                    onRevert: { state.revert($0, subject: $1) },
                     onCreateBranch: { pendingBranchHash = $0 },
                     onCreateTag: { pendingTagHash = $0 }
                 )
@@ -121,6 +122,7 @@ private struct CommitRow: View {
     let onCheckout: (String) -> Void
     let onCheckoutDetached: (String) -> Void
     let onCherryPick: (String) -> Void
+    let onRevert: (String, String) -> Void
     let onCreateBranch: (String) -> Void
     let onCreateTag: (String) -> Void
     @State private var hovered = false
@@ -282,6 +284,10 @@ private struct CommitRow: View {
 
         Button("Cherry Pick") {
             onCherryPick(commit.hash)
+        }
+
+        Button("Revert Commit") {
+            onRevert(commit.hash, commit.subject)
         }
     }
 }

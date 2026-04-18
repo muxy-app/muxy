@@ -48,6 +48,7 @@ final class TerminalTab: Identifiable {
 
     let id = UUID()
     var customTitle: String?
+    var colorID: String?
     var isPinned: Bool = false
     let content: Content
 
@@ -81,6 +82,7 @@ final class TerminalTab: Identifiable {
 
     init(restoring snapshot: TerminalTabSnapshot) {
         customTitle = snapshot.customTitle
+        colorID = snapshot.colorID
         isPinned = snapshot.isPinned
         switch snapshot.kind {
         case .terminal:
@@ -100,6 +102,7 @@ final class TerminalTab: Identifiable {
         TerminalTabSnapshot(
             kind: content.kind,
             customTitle: customTitle,
+            colorID: colorID,
             isPinned: isPinned,
             projectPath: content.projectPath,
             paneTitle: content.pane?.title,

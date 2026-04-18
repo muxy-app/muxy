@@ -193,6 +193,16 @@ final class TabArea: Identifiable {
         activeTabID = tab.id
     }
 
+    func setCustomTitle(_ tabID: UUID, title: String?) {
+        guard let tab = tabs.first(where: { $0.id == tabID }) else { return }
+        tab.customTitle = title
+    }
+
+    func setColorID(_ tabID: UUID, colorID: String?) {
+        guard let tab = tabs.first(where: { $0.id == tabID }) else { return }
+        tab.colorID = colorID
+    }
+
     func togglePin(_ tabID: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
         let tab = tabs[index]

@@ -27,6 +27,7 @@ MuxyMobile/                    iOS companion app
   ConnectView.swift            Host/port connection form
   RemoteWorkspaceView.swift    Project list + workspace detail
   ConnectionManager.swift      WebSocket client, state sync, request/response handling
+  DeviceCredentialsStore.swift Persistent deviceID + token stored in iOS Keychain
 ```
 
 ## Desktop App Directory Map
@@ -86,6 +87,9 @@ Muxy/
     KeyBindingPersistence.swift  JSON persistence for shortcuts
     ProjectStore.swift        @Observable store for projects list
     ProjectPersistence.swift  JSON persistence for projects
+    ApprovedDevicesStore.swift Approved mobile devices (deviceID, SHA-256 token hash), revocation
+    PairingRequestCoordinator.swift Queues pending pairing requests for UI approval prompts
+    MobileServerService.swift  Lifecycle wrapper around MuxyRemoteServer
     WorktreeStore.swift       @Observable store for per-project worktrees
     WorktreePersistence.swift JSON persistence for worktrees (one file per project)
     ProjectOpenService.swift  Shared open-project flow used by commands and sidebar
@@ -104,7 +108,8 @@ Muxy/
     MainWindow.swift          Main window layout (sidebar + workspace)
     Sidebar.swift             Narrow icon-strip sidebar (44px), add-project button, project icons
     Sidebar/
-      ProjectRow.swift          Project icon (first letter or emoji logo), tooltip, context menu with logo picker
+      ProjectRow.swift          Project icon (first letter or emoji logo), tooltip, context menu with logo + color pickers
+      ProjectIconColorPicker.swift  Preset color palette popover for tinting the default letter icon
       WorktreePopover.swift     Worktree picker popover triggered from the active project row
       CreateWorktreeSheet.swift Sheet for creating a new git worktree
     ThemePicker.swift         Theme selection popover (hosted in topbar right)
@@ -142,10 +147,13 @@ Muxy/
       DropZoneOverlay.swift   Tab split-mode drop targets
     Settings/
       SettingsView.swift      Settings window layout
+      SettingsComponents.swift  Shared section/row primitives used across all tabs
       AppearanceSettingsView.swift  Theme settings tab
       EditorSettingsView.swift  Editor preferences tab (default editor, font)
       TerminalSettingsView.swift  Terminal preferences tab, including quick-select label layout
       KeyboardShortcutsSettingsView.swift  Shortcut config tab
+      NotificationSettingsView.swift  Notification preferences tab
+      MobileSettingsView.swift  Mobile server and approved devices tab
       ShortcutRecorderView.swift  Shortcut capture field
       ShortcutBadge.swift     Shortcut label display
 ```
@@ -188,6 +196,16 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
 - **Persistence**: All files in `~/Library/Application Support/Muxy/`. Shared directory helper: `MuxyFileStorage`. Worktrees are persisted per-project at `worktrees/{projectID}.json`, including whether a secondary worktree is Muxy-managed or externally discovered. Git projects can manually refresh this list from `git worktree list --porcelain` to import existing worktrees without deleting absent entries; paths are matched after symlink resolution so a repo opened via a symlinked path still collapses onto a single primary entry. Externally discovered worktrees are never touched by Muxy's `cleanupOnDisk` paths (project removal, post-merge cleanup, manual removal) — they can only be unregistered by the user in the underlying repo. Worktree setup commands live in-repo at `{Project.path}/.muxy/worktree.json`.
 - **Ghostty Config**: Managed by `MuxyConfig`, stored at `~/Library/Application Support/Muxy/ghostty.conf`. Seeded from `~/.config/ghostty/config` on first run.
 - **Updates**: Sparkle framework via `UpdateService`.
+- **Window Title**: `NSWindow.title` is hidden visually (`titleVisibility = .hidden`) but set
+  reactively by `WindowTitleUpdater` in `MainWindow` to `{project name} — {active tab title}`
+  (or just the project name if no tab title is known). This makes Muxy sessions identifiable
+  to accessibility readers and activity trackers (e.g., ActivityWatch) that read `AXTitle`.
+  Tab titles come from the active tab's `TerminalTab.title`, which follows OSC 0/2 updates
+  via `GhosttyRuntimeEventAdapter` → `TerminalPaneState.setTitle`. Users can override the
+  auto-title via `TerminalTab.customTitle` ("Rename Tab" context menu / `⌃⌘R`) and assign a
+  color accent via `TerminalTab.colorID` ("Set Tab Color…" context menu). Both fields persist
+  to `workspaces.json` through `TerminalTabSnapshot`. Colors resolve through
+  `ProjectIconColor.palette` (shared with project icon colors).
 
 ## VCS Tab Layout
 
@@ -272,9 +290,13 @@ MuxyMobile (iOS)  ◄── WebSocket (JSON) ──►  MuxyRemoteServer (inside
                                              (AppState, ProjectStore, etc.)
 ```
 
-The server starts on port 4865 when the app launches. It uses Apple's Network
-framework (`NWListener` + `NWConnection`) with the WebSocket protocol. All
-messages use the `MuxyMessage` JSON envelope from `MuxyShared`.
+The server listens on a user-configurable port (default 4865) when enabled in
+Mobile settings. The port is stored in `UserDefaults` and applied on start.
+`MobileServerService` reports bind failures back to the UI: if the listener
+fails to start (e.g. port in use), the enable toggle is rolled off and the
+settings view displays the error. It uses Apple's Network framework
+(`NWListener` + `NWConnection`) with the WebSocket protocol. All messages use
+the `MuxyMessage` JSON envelope from `MuxyShared`.
 
 ### Protocol
 
@@ -296,3 +318,29 @@ The `MuxyCodec` handles JSON encoding/decoding with ISO 8601 dates.
 `ConnectionManager` manages the WebSocket lifecycle and maintains a local mirror
 of the remote state (projects, workspace layout, notifications). Views observe
 this state and dispatch actions back through the connection.
+
+### Device Pairing
+
+Connections are gated by a trust-on-first-use pairing handshake. Each mobile
+device generates a persistent `deviceID` (UUID) and a random `token` on first
+launch; both are stored in the iOS Keychain (`DeviceCredentialsStore`).
+
+On every connect, the mobile app sends `authenticateDevice` first. The Mac
+(`ApprovedDevicesStore`) compares the device's SHA-256 token hash against the
+stored hash for that `deviceID`:
+
+- **Known device with matching token** → immediately authorized.
+- **Unknown device** → server returns `401 Unauthorized`. Mobile falls back to
+  `pairDevice`, and `PairingRequestCoordinator` on the Mac queues the request
+  and surfaces an approval sheet on `MainWindow`. Approval stores the token
+  hash in `~/Library/Application Support/Muxy/approved-devices.json`; denial
+  returns `403`.
+- **Token mismatch** → treated the same as unknown; server returns `401` so a
+  stolen but outdated credential can't resume authentication.
+
+Until the handshake succeeds the server rejects every other RPC with
+`401 Unauthorized`. After success, the client is added to an
+`authenticatedClients` set on `MuxyRemoteServer`; broadcasts only go to clients
+in that set. The `Mobile` tab in Settings lists approved devices with a Revoke
+action, which removes the device from storage and terminates any active
+connection for that `deviceID` via `MuxyRemoteServer.disconnect(deviceID:)`.

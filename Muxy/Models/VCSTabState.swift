@@ -139,6 +139,7 @@ final class VCSTabState {
     @ObservationIgnored private var loadDiffTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var commitLogTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: GitDirectoryWatcher?
+    @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var pendingRefresh = false
     @ObservationIgnored private var diffAccessOrder: [String] = []
@@ -150,6 +151,7 @@ final class VCSTabState {
     init(projectPath: String) {
         self.projectPath = projectPath
         startWatching()
+        observeRemoteChanges()
     }
 
     deinit {
@@ -159,12 +161,31 @@ final class VCSTabState {
         loadBranchesTask?.cancel()
         commitLogTask?.cancel()
         loadDiffTasks.values.forEach { $0.cancel() }
+        if let remoteChangeObserver {
+            NotificationCenter.default.removeObserver(remoteChangeObserver)
+        }
     }
 
     private func startWatching() {
         watcher = GitDirectoryWatcher(directoryPath: projectPath) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.watcherDidFire()
+            }
+        }
+    }
+
+    private func observeRemoteChanges() {
+        let path = projectPath
+        remoteChangeObserver = NotificationCenter.default.addObserver(
+            forName: .vcsRepoDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let notifiedPath = notification.userInfo?["repoPath"] as? String,
+                  notifiedPath == path
+            else { return }
+            MainActor.assumeIsolated {
+                self?.performRefresh(incremental: true, forcePRFetch: true)
             }
         }
     }
@@ -654,6 +675,22 @@ final class VCSTabState {
                 guard !Task.isCancelled else { return }
                 commits = []
                 showStatus("Cherry-picked \(String(hash.prefix(7)))", isError: false)
+                performRefresh(incremental: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func revert(_ hash: String, subject: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await git.revert(repoPath: projectPath, hash: hash)
+                guard !Task.isCancelled else { return }
+                commitMessage = "Revert: \(subject)"
+                showStatus("Reverted \(String(hash.prefix(7)))", isError: false)
                 performRefresh(incremental: false)
             } catch {
                 guard !Task.isCancelled else { return }

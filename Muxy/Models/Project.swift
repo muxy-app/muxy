@@ -8,6 +8,7 @@ struct Project: Identifiable, Codable, Hashable {
     var createdAt: Date
     var icon: String?
     var logo: String?
+    var iconColor: String?
 
     init(name: String, path: String, sortOrder: Int = 0) {
         self.id = UUID()
@@ -17,6 +18,7 @@ struct Project: Identifiable, Codable, Hashable {
         self.createdAt = Date()
         self.icon = nil
         self.logo = nil
+        self.iconColor = nil
     }
 
     var pathExists: Bool {

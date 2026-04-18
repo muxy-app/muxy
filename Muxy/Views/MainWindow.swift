@@ -188,6 +188,7 @@ struct MainWindow: View {
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
+        .background(WindowTitleUpdater(title: windowTitle))
         .ignoresSafeArea(.container, edges: .top)
         .onReceive(NotificationCenter.default.publisher(for: .quickOpen)) { _ in
             showQuickOpen.toggle()
@@ -282,8 +283,12 @@ struct MainWindow: View {
                     area.togglePin(tabID)
                 },
                 onSetCustomTitle: { tabID, title in
-                    guard let tab = area.tabs.first(where: { $0.id == tabID }) else { return }
-                    tab.customTitle = title
+                    area.setCustomTitle(tabID, title: title)
+                    appState.saveWorkspaces()
+                },
+                onSetColorID: { tabID, colorID in
+                    area.setColorID(tabID, colorID: colorID)
+                    appState.saveWorkspaces()
                 },
                 onReorderTab: { fromOffsets, toOffset in
                     area.reorderTab(fromOffsets: fromOffsets, toOffset: toOffset)
@@ -380,6 +385,14 @@ struct MainWindow: View {
     private var activeProject: Project? {
         guard let pid = appState.activeProjectID else { return nil }
         return projectStore.projects.first { $0.id == pid }
+    }
+
+    private var windowTitle: String {
+        guard let project = activeProject else { return "Muxy" }
+        guard let tabTitle = appState.activeTab(for: project.id)?.title,
+              !tabTitle.isEmpty
+        else { return project.name }
+        return "\(project.name) — \(tabTitle)"
     }
 
     private var activeProjectWithWorkspace: Project? {
@@ -550,5 +563,22 @@ struct MainWindow: View {
         alert.beginSheetModal(for: window) { _ in
             appState.pendingSaveErrorMessage = nil
         }
+    }
+}
+
+private struct WindowTitleUpdater: NSViewRepresentable {
+    let title: String
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            view.window?.title = title
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let window = nsView.window, window.title != title else { return }
+        window.title = title
     }
 }

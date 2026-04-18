@@ -1,4 +1,5 @@
 import AppKit
+import MuxyShared
 import SwiftUI
 
 struct ExpandedProjectRow: View {
@@ -9,6 +10,7 @@ struct ExpandedProjectRow: View {
     let onRemove: () -> Void
     let onRename: (String) -> Void
     let onSetLogo: (String?) -> Void
+    let onSetIconColor: (String?) -> Void
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -21,6 +23,7 @@ struct ExpandedProjectRow: View {
     @State private var logoCropImage: IdentifiableExpandedImage?
     @State private var worktreesExpanded = false
     @State private var isRefreshingWorktrees = false
+    @State private var showColorPicker = false
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -64,6 +67,10 @@ struct ExpandedProjectRow: View {
             if project.logo != nil {
                 Button("Remove Logo") { onSetLogo(nil) }
             }
+            Button("Set Icon Color...") { showColorPicker = true }
+            if project.iconColor != nil {
+                Button("Reset Icon Color") { onSetIconColor(nil) }
+            }
             Divider()
             Button("Rename Project") { startRename() }
             if isGitRepo {
@@ -100,6 +107,12 @@ struct ExpandedProjectRow: View {
                 onCommit: { commitRename() },
                 onCancel: { cancelRename() }
             )
+        }
+        .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
+            ProjectIconColorPicker(selectedID: project.iconColor) { id in
+                onSetIconColor(id)
+                showColorPicker = false
+            }
         }
     }
 
@@ -209,7 +222,7 @@ struct ExpandedProjectRow: View {
             } else {
                 Text(displayLetter)
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(isActive ? MuxyTheme.fg : MuxyTheme.fgMuted)
+                    .foregroundStyle(letterForeground)
             }
         }
         .frame(width: 24, height: 24)
@@ -267,8 +280,18 @@ struct ExpandedProjectRow: View {
 
     private func iconBackground(hasLogo: Bool) -> AnyShapeStyle {
         if hasLogo { return AnyShapeStyle(Color.clear) }
+        if let tint = ProjectIconColor.color(for: project.iconColor) {
+            return AnyShapeStyle(hovered ? tint.opacity(0.85) : tint)
+        }
         if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(MuxyTheme.surface)
+    }
+
+    private var letterForeground: Color {
+        if let foreground = ProjectIconColor.foreground(for: project.iconColor) {
+            return foreground
+        }
+        return isActive ? MuxyTheme.fg : MuxyTheme.fgMuted
     }
 
     private var headerBackground: AnyShapeStyle {
