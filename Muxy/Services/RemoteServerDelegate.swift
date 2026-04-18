@@ -387,8 +387,9 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             try await gitService.pushSetUpstream(repoPath: repoPath, branch: branch)
         }
 
-        let resolvedBase: String = if let baseBranch, !baseBranch.isEmpty {
-            baseBranch
+        let trimmedBase = baseBranch?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedBase: String = if let trimmedBase, !trimmedBase.isEmpty {
+            trimmedBase
         } else {
             await gitService.defaultBranch(repoPath: repoPath) ?? "main"
         }
@@ -418,6 +419,10 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         guard !trimmedName.isEmpty else {
             throw RemoteVCSError.invalidInput("Worktree name is required.")
         }
+        let trimmedBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBranch.isEmpty else {
+            throw RemoteVCSError.invalidInput("Branch name is required.")
+        }
         let slug = Self.worktreeSlug(from: trimmedName)
         let worktreeDirectory = MuxyFileStorage
             .worktreeDirectory(forProjectID: project.id, name: slug)
@@ -430,14 +435,14 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         try await GitWorktreeService.shared.addWorktree(
             repoPath: project.path,
             path: worktreeDirectory,
-            branch: branch,
+            branch: trimmedBranch,
             createBranch: createBranch
         )
 
         let worktree = Worktree(
             name: trimmedName,
             path: worktreeDirectory,
-            branch: branch,
+            branch: trimmedBranch,
             ownsBranch: createBranch,
             isPrimary: false
         )
