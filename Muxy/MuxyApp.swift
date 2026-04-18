@@ -309,6 +309,8 @@ struct WindowConfigurator: NSViewRepresentable {
             let names: [Notification.Name] = [
                 NSWindow.didResizeNotification,
                 NSWindow.didEndLiveResizeNotification,
+                NSWindow.didChangeScreenNotification,
+                NSWindow.didChangeBackingPropertiesNotification,
                 NSWindow.didExitFullScreenNotification,
                 NSWindow.didEnterFullScreenNotification,
             ]
@@ -322,6 +324,11 @@ struct WindowConfigurator: NSViewRepresentable {
                     MainActor.assumeIsolated {
                         WindowConfigurator.repositionTrafficLights(in: w)
                         WindowConfigurator.hideTitlebarDecorationView(in: w)
+                        if name == NSWindow.didChangeScreenNotification
+                            || name == NSWindow.didChangeBackingPropertiesNotification
+                        {
+                            WindowConfigurator.neutralizeSafeAreaInsets(in: w)
+                        }
                         if name == NSWindow.didEnterFullScreenNotification
                             || name == NSWindow.didExitFullScreenNotification
                         {
