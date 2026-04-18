@@ -4,9 +4,11 @@ struct EditorSettingsView: View {
     @State private var settings = EditorSettings.shared
     @State private var monoFonts: [String] = []
 
+    private var showsAppearanceSection: Bool { settings.defaultEditor == .builtIn }
+
     var body: some View {
         VStack(spacing: 0) {
-            SettingsSection("Editor", showsDivider: settings.defaultEditor == .builtIn) {
+            SettingsSection("Editor", showsDivider: showsAppearanceSection) {
                 SettingsRow("Default Editor") {
                     Picker("", selection: $settings.defaultEditor) {
                         ForEach(EditorSettings.DefaultEditor.allCases) { editor in
@@ -27,7 +29,7 @@ struct EditorSettingsView: View {
                 }
             }
 
-            if settings.defaultEditor == .builtIn {
+            if showsAppearanceSection {
                 SettingsSection("Appearance", showsDivider: false) {
                     SettingsRow("Font Family") {
                         Picker("", selection: $settings.fontFamily) {
@@ -83,7 +85,7 @@ struct EditorSettingsView: View {
                 .foregroundStyle(.secondary)
             }
             .padding(.horizontal, SettingsMetrics.horizontalPadding)
-            .padding(.bottom, SettingsMetrics.horizontalPadding)
+            .padding(.bottom, SettingsMetrics.verticalPadding)
         }
         .task {
             monoFonts = EditorSettings.availableMonospacedFonts

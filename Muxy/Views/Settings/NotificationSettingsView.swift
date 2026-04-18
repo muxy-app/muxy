@@ -13,12 +13,9 @@ struct NotificationSettingsView: View {
             }
 
             SettingsSection("Sound") {
-                SettingsPickerRow(
+                SettingsPickerRow<NotificationSound>(
                     label: "Sound",
                     selection: $sound,
-                    options: NotificationSound.allCases,
-                    tag: { $0.rawValue },
-                    display: { $0.rawValue },
                     width: 160
                 )
                 .onChange(of: sound) { _, newValue in
@@ -27,12 +24,9 @@ struct NotificationSettingsView: View {
             }
 
             SettingsSection("Toast") {
-                SettingsPickerRow(
+                SettingsPickerRow<ToastPosition>(
                     label: "Position",
                     selection: $toastPosition,
-                    options: ToastPosition.allCases,
-                    tag: { $0.rawValue },
-                    display: { $0.rawValue },
                     width: 160
                 )
             }

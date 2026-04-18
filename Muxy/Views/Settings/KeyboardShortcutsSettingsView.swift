@@ -41,13 +41,15 @@ struct KeyboardShortcutsSettingsView: View {
     }
 
     private var shortcutsList: some View {
-        ScrollView(.vertical, showsIndicators: true) {
+        let visibleCategories = ShortcutAction.categories.filter { !filteredActions(for: $0).isEmpty }
+        return ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0) {
-                ForEach(ShortcutAction.categories, id: \.self) { category in
-                    let actions = filteredActions(for: category)
-                    if !actions.isEmpty {
-                        categorySection(title: category, actions: actions, isLast: category == ShortcutAction.categories.last)
-                    }
+                ForEach(visibleCategories, id: \.self) { category in
+                    categorySection(
+                        title: category,
+                        actions: filteredActions(for: category),
+                        isLast: category == visibleCategories.last
+                    )
                 }
             }
         }

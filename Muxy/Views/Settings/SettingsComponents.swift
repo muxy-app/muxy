@@ -2,12 +2,13 @@ import SwiftUI
 
 enum SettingsMetrics {
     static let horizontalPadding: CGFloat = 12
+    static let verticalPadding: CGFloat = 12
     static let rowVerticalPadding: CGFloat = 6
     static let sectionHeaderTopPadding: CGFloat = 10
     static let sectionHeaderBottomPadding: CGFloat = 4
     static let sectionFooterTopPadding: CGFloat = 6
+    static let sectionFooterBottomPadding: CGFloat = 10
     static let labelFontSize: CGFloat = 12
-    static let sectionTitleFontSize: CGFloat = 11
     static let footnoteFontSize: CGFloat = 11
     static let controlWidth: CGFloat = 210
 }
@@ -44,7 +45,7 @@ struct SettingsSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
-                .font(.system(size: SettingsMetrics.sectionTitleFontSize, weight: .semibold))
+                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, SettingsMetrics.horizontalPadding)
                 .padding(.top, SettingsMetrics.sectionHeaderTopPadding)
@@ -59,7 +60,7 @@ struct SettingsSection<Content: View>: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, SettingsMetrics.horizontalPadding)
                     .padding(.top, SettingsMetrics.sectionFooterTopPadding)
-                    .padding(.bottom, SettingsMetrics.sectionHeaderBottomPadding)
+                    .padding(.bottom, SettingsMetrics.sectionFooterBottomPadding)
             }
 
             if showsDivider {
@@ -104,19 +105,18 @@ struct SettingsToggleRow: View {
     }
 }
 
-struct SettingsPickerRow<Value: Hashable, Options: RandomAccessCollection>: View where Options.Element: Identifiable {
+struct SettingsPickerRow<Option: CaseIterable & Identifiable & RawRepresentable>: View
+    where Option.RawValue == String, Option.AllCases: RandomAccessCollection
+{
     let label: String
-    @Binding var selection: Value
-    let options: Options
-    let tag: (Options.Element) -> Value
-    let display: (Options.Element) -> String
+    @Binding var selection: String
     var width: CGFloat = SettingsMetrics.controlWidth
 
     var body: some View {
         SettingsRow(label) {
             Picker("", selection: $selection) {
-                ForEach(options) { option in
-                    Text(display(option)).tag(tag(option))
+                ForEach(Option.allCases) { option in
+                    Text(option.rawValue).tag(option.rawValue)
                 }
             }
             .labelsHidden()
