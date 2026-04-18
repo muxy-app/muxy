@@ -11,6 +11,20 @@ public enum DeviceAuthDecision: Sendable {
     case denied
 }
 
+public enum MuxyRemoteServerError: LocalizedError {
+    case invalidPort(UInt16)
+    case startSuperseded
+
+    public var errorDescription: String? {
+        switch self {
+        case let .invalidPort(port):
+            "Invalid port \(port)."
+        case .startSuperseded:
+            "Server start was superseded by a new start request."
+        }
+    }
+}
+
 @MainActor
 public protocol MuxyRemoteServerDelegate: AnyObject {
     func listProjects() -> [ProjectDTO]
@@ -55,36 +69,51 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
 }
 
 public final class MuxyRemoteServer: @unchecked Sendable {
+    public static let defaultPort: UInt16 = 4865
+
     private let port: UInt16
     private var listener: NWListener?
     private var connections: [UUID: ClientConnection] = [:]
     private var authenticatedClients: Set<UUID> = []
     private var deviceIDByClient: [UUID: UUID] = [:]
     private let queue = DispatchQueue(label: "app.muxy.remoteServer")
+    private var startCompletion: (@Sendable (Result<Void, Error>) -> Void)?
+    private var stopCompletions: [@Sendable () -> Void] = []
     public weak var delegate: (any MuxyRemoteServerDelegate)?
 
-    public init(port: UInt16 = 4865) {
+    public init(port: UInt16 = MuxyRemoteServer.defaultPort) {
         self.port = port
     }
 
-    public func start() {
+    public func start(completion: (@Sendable (Result<Void, Error>) -> Void)? = nil) {
         queue.async { [weak self] in
-            self?.startListener()
+            guard let self else { return }
+            self.finishStart(.failure(MuxyRemoteServerError.startSuperseded))
+            self.startCompletion = completion
+            self.startListener()
         }
     }
 
-    public func stop() {
+    public func stop(completion: (@Sendable () -> Void)? = nil) {
         queue.async { [weak self] in
-            guard let self else { return }
-            self.listener?.cancel()
-            self.listener = nil
+            guard let self else {
+                completion?()
+                return
+            }
             for connection in self.connections.values {
                 connection.cancel()
             }
             self.connections.removeAll()
             self.authenticatedClients.removeAll()
             self.deviceIDByClient.removeAll()
-            logger.info("Remote server stopped")
+
+            guard let listener = self.listener else {
+                logger.info("Remote server stopped")
+                completion?()
+                return
+            }
+            if let completion { self.stopCompletions.append(completion) }
+            listener.cancel()
         }
     }
 
@@ -115,23 +144,42 @@ public final class MuxyRemoteServer: @unchecked Sendable {
     }
 
     private func startListener() {
+        guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
+            logger.error("Invalid port: \(self.port)")
+            finishStart(.failure(MuxyRemoteServerError.invalidPort(port)))
+            return
+        }
+
         do {
             let params = NWParameters.tcp
             params.allowLocalEndpointReuse = true
             let ws = NWProtocolWebSocket.Options()
             params.defaultProtocolStack.applicationProtocols.insert(ws, at: 0)
-            listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+            listener = try NWListener(using: params, on: endpointPort)
         } catch {
             logger.error("Failed to create listener: \(error)")
+            finishStart(.failure(error))
             return
         }
 
-        listener?.stateUpdateHandler = { state in
+        listener?.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
             switch state {
             case .ready:
                 logger.info("Remote server listening on port \(self.port)")
+                self.finishStart(.success(()))
             case let .failed(error):
                 logger.error("Listener failed: \(error)")
+                self.finishStart(.failure(error))
+                self.listener?.cancel()
+            case .cancelled:
+                self.listener = nil
+                logger.info("Remote server stopped")
+                let completions = self.stopCompletions
+                self.stopCompletions.removeAll()
+                for completion in completions {
+                    completion()
+                }
             default:
                 break
             }
@@ -142,6 +190,12 @@ public final class MuxyRemoteServer: @unchecked Sendable {
         }
 
         listener?.start(queue: queue)
+    }
+
+    private func finishStart(_ result: Result<Void, Error>) {
+        guard let completion = startCompletion else { return }
+        startCompletion = nil
+        completion(result)
     }
 
     private func handleNewConnection(_ nwConnection: NWConnection) {

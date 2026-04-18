@@ -285,9 +285,13 @@ MuxyMobile (iOS)  ◄── WebSocket (JSON) ──►  MuxyRemoteServer (inside
                                              (AppState, ProjectStore, etc.)
 ```
 
-The server starts on port 4865 when the app launches. It uses Apple's Network
-framework (`NWListener` + `NWConnection`) with the WebSocket protocol. All
-messages use the `MuxyMessage` JSON envelope from `MuxyShared`.
+The server listens on a user-configurable port (default 4865) when enabled in
+Mobile settings. The port is stored in `UserDefaults` and applied on start.
+`MobileServerService` reports bind failures back to the UI: if the listener
+fails to start (e.g. port in use), the enable toggle is rolled off and the
+settings view displays the error. It uses Apple's Network framework
+(`NWListener` + `NWConnection`) with the WebSocket protocol. All messages use
+the `MuxyMessage` JSON envelope from `MuxyShared`.
 
 ### Protocol
 

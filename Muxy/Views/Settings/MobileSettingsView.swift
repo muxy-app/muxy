@@ -4,11 +4,16 @@ struct MobileSettingsView: View {
     @Bindable private var service = MobileServerService.shared
     @Bindable private var devices = ApprovedDevicesStore.shared
     @State private var deviceToRevoke: ApprovedDevice?
+    @State private var portText: String = ""
+    @State private var portValidationError: String?
 
     private var enabledBinding: Binding<Bool> {
         Binding(
             get: { service.isEnabled },
-            set: { service.setEnabled($0) }
+            set: { newValue in
+                if newValue, !commitPort() { return }
+                service.setEnabled(newValue)
+            }
         )
     }
 
@@ -16,9 +21,32 @@ struct MobileSettingsView: View {
         SettingsContainer {
             SettingsSection(
                 "Mobile",
-                footer: "Muxy listens on port 4865 for the iOS app over your local network or a private VPN such as Tailscale."
+                footer: "Muxy listens on the configured port for the iOS app over your local network or a private VPN such as Tailscale."
             ) {
                 SettingsToggleRow(label: "Allow mobile device connections", isOn: enabledBinding)
+
+                SettingsRow("Port") {
+                    TextField("\(MobileServerService.defaultPort)", text: $portText)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
+                        .frame(width: SettingsMetrics.controlWidth)
+                        .onChange(of: portText) { _, _ in
+                            portValidationError = nil
+                            if service.isEnabled {
+                                service.setEnabled(false)
+                            }
+                        }
+                        .onSubmit { _ = commitPort() }
+                }
+
+                if let error = portValidationError ?? service.lastError {
+                    Text(error)
+                        .font(.system(size: SettingsMetrics.footnoteFontSize))
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+                        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+                }
             }
 
             SettingsSection(
@@ -39,6 +67,11 @@ struct MobileSettingsView: View {
                 }
             }
         }
+        .onAppear { portText = String(service.port) }
+        .onChange(of: service.port) { _, newValue in
+            let text = String(newValue)
+            if portText != text { portText = text }
+        }
         .alert(
             "Revoke \(deviceToRevoke?.name ?? "device")?",
             isPresented: Binding(
@@ -54,6 +87,18 @@ struct MobileSettingsView: View {
         } message: { _ in
             Text("The device will be disconnected immediately and must request approval again to reconnect.")
         }
+    }
+
+    private func commitPort() -> Bool {
+        let trimmed = portText.trimmingCharacters(in: .whitespaces)
+        guard let value = UInt16(trimmed), MobileServerService.isValid(port: value) else {
+            portValidationError = "Enter a port between \(MobileServerService.minPort) and \(MobileServerService.maxPort)."
+            return false
+        }
+        portValidationError = nil
+        service.port = value
+        portText = String(value)
+        return true
     }
 
     private func deviceRow(_ device: ApprovedDevice) -> some View {
