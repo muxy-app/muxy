@@ -233,10 +233,21 @@ private struct TabCell: View {
     }
 
     private var tabBackground: Color {
-        if let tabColor {
-            return tabColor.opacity(active ? 0.18 : hovered ? 0.08 : 0.04)
+        guard let tabColor else {
+            return active ? MuxyTheme.surface : .clear
         }
-        return active ? MuxyTheme.surface : .clear
+        let opacity = if active { 0.18 } else if hovered { 0.08 } else { 0.04 }
+        return tabColor.opacity(opacity)
+    }
+
+    private var bottomAccentColor: Color? {
+        if active, paneFocused {
+            return tabColor ?? MuxyTheme.accent
+        }
+        if let tabColor, !active {
+            return tabColor
+        }
+        return nil
     }
 
     private var showBadge: Bool {
@@ -301,18 +312,10 @@ private struct TabCell: View {
                     ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
                 }
             }
-            .overlay(alignment: .top) {
-                if let tabColor, !active {
-                    Rectangle()
-                        .fill(tabColor)
-                        .frame(height: 2)
-                        .accessibilityHidden(true)
-                }
-            }
             .overlay(alignment: .bottom) {
-                if active, paneFocused {
+                if let accentColor = bottomAccentColor {
                     Rectangle()
-                        .fill(tabColor ?? MuxyTheme.accent)
+                        .fill(accentColor)
                         .frame(height: 2)
                         .accessibilityHidden(true)
                 }

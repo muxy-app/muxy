@@ -41,13 +41,11 @@ struct TabAreaView: View {
                         area.togglePin(tabID)
                     },
                     onSetCustomTitle: { tabID, title in
-                        guard let tab = area.tabs.first(where: { $0.id == tabID }) else { return }
-                        tab.customTitle = title
+                        area.setCustomTitle(tabID, title: title)
                         appState.saveWorkspaces()
                     },
                     onSetColorID: { tabID, colorID in
-                        guard let tab = area.tabs.first(where: { $0.id == tabID }) else { return }
-                        tab.colorID = colorID
+                        area.setColorID(tabID, colorID: colorID)
                         appState.saveWorkspaces()
                     },
                     onReorderTab: { fromOffsets, toOffset in
