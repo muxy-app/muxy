@@ -40,6 +40,15 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws
     func vcsPush(projectID: UUID) async throws
     func vcsPull(projectID: UUID) async throws
+    func vcsStageFiles(projectID: UUID, paths: [String]) async throws
+    func vcsUnstageFiles(projectID: UUID, paths: [String]) async throws
+    func vcsDiscardFiles(projectID: UUID, paths: [String], untrackedPaths: [String]) async throws
+    func vcsListBranches(projectID: UUID) async throws -> VCSBranchesDTO
+    func vcsSwitchBranch(projectID: UUID, branch: String) async throws
+    func vcsCreateBranch(projectID: UUID, name: String) async throws
+    func vcsCreatePR(projectID: UUID, title: String, body: String, baseBranch: String?, draft: Bool) async throws -> VCSCreatePRResultDTO
+    func vcsAddWorktree(projectID: UUID, name: String, branch: String, createBranch: Bool) async throws -> WorktreeDTO
+    func vcsRemoveWorktree(projectID: UUID, worktreeID: UUID) async throws
     func getProjectLogo(projectID: UUID) -> ProjectLogoDTO?
     func listNotifications() -> [NotificationDTO]
     func markNotificationRead(_ notificationID: UUID)
@@ -395,6 +404,120 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             }
             do {
                 try await delegate.vcsPull(projectID: params.projectID)
+                return MuxyResponse(id: request.id, result: .ok)
+            } catch {
+                return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
+            }
+
+        case .vcsStageFiles:
+            guard case let .vcsStageFiles(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                try await delegate.vcsStageFiles(projectID: params.projectID, paths: params.paths)
+                return MuxyResponse(id: request.id, result: .ok)
+            } catch {
+                return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
+            }
+
+        case .vcsUnstageFiles:
+            guard case let .vcsUnstageFiles(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                try await delegate.vcsUnstageFiles(projectID: params.projectID, paths: params.paths)
+                return MuxyResponse(id: request.id, result: .ok)
+            } catch {
+                return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
+            }
+
+        case .vcsDiscardFiles:
+            guard case let .vcsDiscardFiles(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                try await delegate.vcsDiscardFiles(
+                    projectID: params.projectID,
+                    paths: params.paths,
+                    untrackedPaths: params.untrackedPaths
+                )
+                return MuxyResponse(id: request.id, result: .ok)
+            } catch {
+                return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
+            }
+
+        case .vcsListBranches:
+            guard case let .vcsListBranches(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                let branches = try await delegate.vcsListBranches(projectID: params.projectID)
+                return MuxyResponse(id: request.id, result: .vcsBranches(branches))
+            } catch {
+                return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
+            }
+
+        case .vcsSwitchBranch:
+            guard case let .vcsSwitchBranch(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                try await delegate.vcsSwitchBranch(projectID: params.projectID, branch: params.branch)
+                return MuxyResponse(id: request.id, result: .ok)
+            } catch {
+                return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
+            }
+
+        case .vcsCreateBranch:
+            guard case let .vcsCreateBranch(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                try await delegate.vcsCreateBranch(projectID: params.projectID, name: params.name)
+                return MuxyResponse(id: request.id, result: .ok)
+            } catch {
+                return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
+            }
+
+        case .vcsCreatePR:
+            guard case let .vcsCreatePR(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                let info = try await delegate.vcsCreatePR(
+                    projectID: params.projectID,
+                    title: params.title,
+                    body: params.body,
+                    baseBranch: params.baseBranch,
+                    draft: params.draft
+                )
+                return MuxyResponse(id: request.id, result: .vcsPRCreated(info))
+            } catch {
+                return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
+            }
+
+        case .vcsAddWorktree:
+            guard case let .vcsAddWorktree(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                let worktree = try await delegate.vcsAddWorktree(
+                    projectID: params.projectID,
+                    name: params.name,
+                    branch: params.branch,
+                    createBranch: params.createBranch
+                )
+                return MuxyResponse(id: request.id, result: .worktrees([worktree]))
+            } catch {
+                return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
+            }
+
+        case .vcsRemoveWorktree:
+            guard case let .vcsRemoveWorktree(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                try await delegate.vcsRemoveWorktree(projectID: params.projectID, worktreeID: params.worktreeID)
                 return MuxyResponse(id: request.id, result: .ok)
             } catch {
                 return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))

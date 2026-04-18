@@ -82,6 +82,15 @@ public enum MuxyMethod: String, Codable, Sendable {
     case vcsCommit
     case vcsPush
     case vcsPull
+    case vcsStageFiles
+    case vcsUnstageFiles
+    case vcsDiscardFiles
+    case vcsListBranches
+    case vcsSwitchBranch
+    case vcsCreateBranch
+    case vcsCreatePR
+    case vcsAddWorktree
+    case vcsRemoveWorktree
     case getProjectLogo
     case listNotifications
     case markNotificationRead
@@ -113,6 +122,15 @@ public enum MuxyParams: Codable, Sendable {
     case vcsCommit(VCSCommitParams)
     case vcsPush(VCSPushParams)
     case vcsPull(VCSPullParams)
+    case vcsStageFiles(VCSStageFilesParams)
+    case vcsUnstageFiles(VCSUnstageFilesParams)
+    case vcsDiscardFiles(VCSDiscardFilesParams)
+    case vcsListBranches(VCSListBranchesParams)
+    case vcsSwitchBranch(VCSSwitchBranchParams)
+    case vcsCreateBranch(VCSCreateBranchParams)
+    case vcsCreatePR(VCSCreatePRParams)
+    case vcsAddWorktree(VCSAddWorktreeParams)
+    case vcsRemoveWorktree(VCSRemoveWorktreeParams)
     case getProjectLogo(GetProjectLogoParams)
     case markNotificationRead(MarkNotificationReadParams)
     case subscribe(SubscribeParams)
@@ -150,6 +168,15 @@ public enum MuxyParams: Codable, Sendable {
         case "vcsCommit": self = try .vcsCommit(container.decode(VCSCommitParams.self, forKey: .value))
         case "vcsPush": self = try .vcsPush(container.decode(VCSPushParams.self, forKey: .value))
         case "vcsPull": self = try .vcsPull(container.decode(VCSPullParams.self, forKey: .value))
+        case "vcsStageFiles": self = try .vcsStageFiles(container.decode(VCSStageFilesParams.self, forKey: .value))
+        case "vcsUnstageFiles": self = try .vcsUnstageFiles(container.decode(VCSUnstageFilesParams.self, forKey: .value))
+        case "vcsDiscardFiles": self = try .vcsDiscardFiles(container.decode(VCSDiscardFilesParams.self, forKey: .value))
+        case "vcsListBranches": self = try .vcsListBranches(container.decode(VCSListBranchesParams.self, forKey: .value))
+        case "vcsSwitchBranch": self = try .vcsSwitchBranch(container.decode(VCSSwitchBranchParams.self, forKey: .value))
+        case "vcsCreateBranch": self = try .vcsCreateBranch(container.decode(VCSCreateBranchParams.self, forKey: .value))
+        case "vcsCreatePR": self = try .vcsCreatePR(container.decode(VCSCreatePRParams.self, forKey: .value))
+        case "vcsAddWorktree": self = try .vcsAddWorktree(container.decode(VCSAddWorktreeParams.self, forKey: .value))
+        case "vcsRemoveWorktree": self = try .vcsRemoveWorktree(container.decode(VCSRemoveWorktreeParams.self, forKey: .value))
         case "getProjectLogo": self = try .getProjectLogo(container.decode(GetProjectLogoParams.self, forKey: .value))
         case "markNotificationRead": self = try .markNotificationRead(container.decode(MarkNotificationReadParams.self, forKey: .value))
         case "subscribe": self = try .subscribe(container.decode(SubscribeParams.self, forKey: .value))
@@ -207,6 +234,24 @@ public enum MuxyParams: Codable, Sendable {
             try container.encode(v, forKey: .value)
         case let .vcsPull(v): try container.encode("vcsPull", forKey: .type)
             try container.encode(v, forKey: .value)
+        case let .vcsStageFiles(v): try container.encode("vcsStageFiles", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsUnstageFiles(v): try container.encode("vcsUnstageFiles", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsDiscardFiles(v): try container.encode("vcsDiscardFiles", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsListBranches(v): try container.encode("vcsListBranches", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsSwitchBranch(v): try container.encode("vcsSwitchBranch", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsCreateBranch(v): try container.encode("vcsCreateBranch", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsCreatePR(v): try container.encode("vcsCreatePR", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsAddWorktree(v): try container.encode("vcsAddWorktree", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsRemoveWorktree(v): try container.encode("vcsRemoveWorktree", forKey: .type)
+            try container.encode(v, forKey: .value)
         case let .getProjectLogo(v): try container.encode("getProjectLogo", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .markNotificationRead(v): try container.encode("markNotificationRead", forKey: .type)
@@ -230,6 +275,8 @@ public enum MuxyResult: Codable, Sendable {
     case pairing(PairingResultDTO)
     case paneOwner(PaneOwnerDTO)
     case vcsStatus(VCSStatusDTO)
+    case vcsBranches(VCSBranchesDTO)
+    case vcsPRCreated(VCSCreatePRResultDTO)
     case projectLogo(ProjectLogoDTO)
     case notifications([NotificationDTO])
     case ok
@@ -253,6 +300,8 @@ public enum MuxyResult: Codable, Sendable {
         case "pairing": self = try .pairing(container.decode(PairingResultDTO.self, forKey: .value))
         case "paneOwner": self = try .paneOwner(container.decode(PaneOwnerDTO.self, forKey: .value))
         case "vcsStatus": self = try .vcsStatus(container.decode(VCSStatusDTO.self, forKey: .value))
+        case "vcsBranches": self = try .vcsBranches(container.decode(VCSBranchesDTO.self, forKey: .value))
+        case "vcsPRCreated": self = try .vcsPRCreated(container.decode(VCSCreatePRResultDTO.self, forKey: .value))
         case "projectLogo": self = try .projectLogo(container.decode(ProjectLogoDTO.self, forKey: .value))
         case "notifications": self = try .notifications(container.decode([NotificationDTO].self, forKey: .value))
         case "ok": self = .ok
@@ -282,6 +331,10 @@ public enum MuxyResult: Codable, Sendable {
         case let .paneOwner(v): try container.encode("paneOwner", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .vcsStatus(v): try container.encode("vcsStatus", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsBranches(v): try container.encode("vcsBranches", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsPRCreated(v): try container.encode("vcsPRCreated", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .projectLogo(v): try container.encode("projectLogo", forKey: .type)
             try container.encode(v, forKey: .value)

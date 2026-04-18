@@ -16,6 +16,11 @@
 		A1000007 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008 /* SettingsSheet.swift */; };
 		A1000008 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009 /* TerminalView.swift */; };
 		A1000009 /* DeviceCredentialsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000E /* DeviceCredentialsStore.swift */; };
+		A100000A /* VCSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000F /* VCSView.swift */; };
+		A100000B /* ConnectionManager+VCS.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000010 /* ConnectionManager+VCS.swift */; };
+		A100000C /* BranchesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000011 /* BranchesSheet.swift */; };
+		A100000D /* WorktreesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000012 /* WorktreesSheet.swift */; };
+		A100000E /* CreatePRSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013 /* CreatePRSheet.swift */; };
 		A1000010 /* MuxyShared in Frameworks */ = {isa = PBXBuildFile; productRef = A4000001 /* MuxyShared */; };
 		A1000020 /* JetBrainsMonoNerdFontMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A200000A /* JetBrainsMonoNerdFontMono-Regular.ttf */; };
 		A1000021 /* JetBrainsMonoNerdFontMono-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A200000B /* JetBrainsMonoNerdFontMono-Bold.ttf */; };
@@ -34,6 +39,11 @@
 		A2000008 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
 		A2000009 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
 		A200000E /* DeviceCredentialsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCredentialsStore.swift; sourceTree = "<group>"; };
+		A200000F /* VCSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VCSView.swift; sourceTree = "<group>"; };
+		A2000010 /* ConnectionManager+VCS.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ConnectionManager+VCS.swift"; sourceTree = "<group>"; };
+		A2000011 /* BranchesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchesSheet.swift; sourceTree = "<group>"; };
+		A2000012 /* WorktreesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreesSheet.swift; sourceTree = "<group>"; };
+		A2000013 /* CreatePRSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreatePRSheet.swift; sourceTree = "<group>"; };
 		A200000A /* JetBrainsMonoNerdFontMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMonoNerdFontMono-Regular.ttf"; sourceTree = "<group>"; };
 		A200000B /* JetBrainsMonoNerdFontMono-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMonoNerdFontMono-Bold.ttf"; sourceTree = "<group>"; };
 		A200000C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -72,6 +82,11 @@
 				A2000008 /* SettingsSheet.swift */,
 				A2000009 /* TerminalView.swift */,
 				A2000005 /* ConnectionManager.swift */,
+				A2000010 /* ConnectionManager+VCS.swift */,
+				A200000F /* VCSView.swift */,
+				A2000011 /* BranchesSheet.swift */,
+				A2000012 /* WorktreesSheet.swift */,
+				A2000013 /* CreatePRSheet.swift */,
 				A200000E /* DeviceCredentialsStore.swift */,
 				A2000006 /* Info.plist */,
 				A200000D /* PrivacyInfo.xcprivacy */,
@@ -188,6 +203,11 @@
 				A1000007 /* SettingsSheet.swift in Sources */,
 				A1000008 /* TerminalView.swift in Sources */,
 				A1000009 /* DeviceCredentialsStore.swift in Sources */,
+				A100000A /* VCSView.swift in Sources */,
+				A100000B /* ConnectionManager+VCS.swift in Sources */,
+				A100000C /* BranchesSheet.swift in Sources */,
+				A100000D /* WorktreesSheet.swift in Sources */,
+				A100000E /* CreatePRSheet.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

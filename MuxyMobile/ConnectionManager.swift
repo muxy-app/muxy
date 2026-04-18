@@ -316,7 +316,7 @@ final class ConnectionManager {
         return nil
     }
 
-    private func send(
+    func send(
         _ method: MuxyMethod,
         params: MuxyParams? = nil,
         timeout: Duration = .seconds(10)

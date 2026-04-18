@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WorkspaceContentWrapper: View {
     @Environment(ConnectionManager.self) private var connection
+    @State private var showingVCS = false
 
     private var activeProject: ProjectDTO? {
         guard let id = connection.activeProjectID else { return nil }
@@ -37,12 +38,31 @@ struct WorkspaceContentWrapper: View {
                         .foregroundStyle(themeFg)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    tabPicker
+                    HStack(spacing: 16) {
+                        vcsButton
+                        tabPicker
+                    }
                 }
             }
             .toolbarColorScheme(preferredScheme, for: .navigationBar)
             .tint(themeFg)
             .background(themeBg.ignoresSafeArea())
+            .sheet(isPresented: $showingVCS) {
+                if let id = connection.activeProjectID {
+                    VCSView(projectID: id)
+                        .environment(connection)
+                }
+            }
+    }
+
+    private var vcsButton: some View {
+        Button {
+            showingVCS = true
+        } label: {
+            Label("Source Control", systemImage: "arrow.triangle.branch")
+                .labelStyle(.iconOnly)
+        }
+        .disabled(connection.activeProjectID == nil)
     }
 
     private var themeFg: Color {

@@ -14,12 +14,26 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     var registerDeviceCalls: [(clientID: UUID, name: String)] = []
     var clientDisconnectedCalls: [UUID] = []
     var markNotificationReadCalls: [UUID] = []
+    var vcsPushCalls: [UUID] = []
+    var vcsPullCalls: [UUID] = []
+    var vcsStageFilesCalls: [(projectID: UUID, paths: [String])] = []
+    var vcsUnstageFilesCalls: [(projectID: UUID, paths: [String])] = []
+    var vcsDiscardFilesCalls: [(projectID: UUID, paths: [String], untrackedPaths: [String])] = []
+    var vcsListBranchesCalls: [UUID] = []
+    var vcsSwitchBranchCalls: [(projectID: UUID, branch: String)] = []
+    var vcsCreateBranchCalls: [(projectID: UUID, name: String)] = []
+    var vcsCreatePRCalls: [(projectID: UUID, title: String, body: String, baseBranch: String?, draft: Bool)] = []
+    var vcsAddWorktreeCalls: [(projectID: UUID, name: String, branch: String, createBranch: Bool)] = []
+    var vcsRemoveWorktreeCalls: [(projectID: UUID, worktreeID: UUID)] = []
 
     var stubProjects: [ProjectDTO] = []
     var stubWorkspace: WorkspaceDTO?
     var stubTab: TabDTO?
     var stubTerminalContent: TerminalCellsDTO?
     var vcsCommitError: Error?
+    var stubVCSBranches = VCSBranchesDTO(current: "main", locals: ["main"], defaultBranch: "main")
+    var stubCreatePRResult = VCSCreatePRResultDTO(url: "https://example.com", number: 42)
+    var stubAddedWorktree = WorktreeDTO(id: UUID(), name: "wt", path: "/tmp/wt", isPrimary: false, createdAt: Date())
 
     func listProjects() -> [ProjectDTO] {
         listProjectsCalled += 1
@@ -81,8 +95,63 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
         if let vcsCommitError { throw vcsCommitError }
     }
 
-    func vcsPush(projectID _: UUID) async throws {}
-    func vcsPull(projectID _: UUID) async throws {}
+    func vcsPush(projectID: UUID) async throws {
+        vcsPushCalls.append(projectID)
+    }
+
+    func vcsPull(projectID: UUID) async throws {
+        vcsPullCalls.append(projectID)
+    }
+
+    func vcsStageFiles(projectID: UUID, paths: [String]) async throws {
+        vcsStageFilesCalls.append((projectID, paths))
+    }
+
+    func vcsUnstageFiles(projectID: UUID, paths: [String]) async throws {
+        vcsUnstageFilesCalls.append((projectID, paths))
+    }
+
+    func vcsDiscardFiles(projectID: UUID, paths: [String], untrackedPaths: [String]) async throws {
+        vcsDiscardFilesCalls.append((projectID, paths, untrackedPaths))
+    }
+
+    func vcsListBranches(projectID: UUID) async throws -> VCSBranchesDTO {
+        vcsListBranchesCalls.append(projectID)
+        return stubVCSBranches
+    }
+
+    func vcsSwitchBranch(projectID: UUID, branch: String) async throws {
+        vcsSwitchBranchCalls.append((projectID, branch))
+    }
+
+    func vcsCreateBranch(projectID: UUID, name: String) async throws {
+        vcsCreateBranchCalls.append((projectID, name))
+    }
+
+    func vcsCreatePR(
+        projectID: UUID,
+        title: String,
+        body: String,
+        baseBranch: String?,
+        draft: Bool
+    ) async throws -> VCSCreatePRResultDTO {
+        vcsCreatePRCalls.append((projectID, title, body, baseBranch, draft))
+        return stubCreatePRResult
+    }
+
+    func vcsAddWorktree(
+        projectID: UUID,
+        name: String,
+        branch: String,
+        createBranch: Bool
+    ) async throws -> WorktreeDTO {
+        vcsAddWorktreeCalls.append((projectID, name, branch, createBranch))
+        return stubAddedWorktree
+    }
+
+    func vcsRemoveWorktree(projectID: UUID, worktreeID: UUID) async throws {
+        vcsRemoveWorktreeCalls.append((projectID, worktreeID))
+    }
     func getProjectLogo(projectID _: UUID) -> ProjectLogoDTO? { nil }
     func listNotifications() -> [NotificationDTO] { [] }
 
@@ -276,6 +345,176 @@ struct MuxyRemoteServerRoutingTests {
 
         #expect(response.error?.code == 500)
         #expect(response.error?.message == "boom")
+    }
+
+    @Test("vcs stage routes pass through payload")
+    func vcsStageRoutes() async {
+        let (server, delegate) = makeServer()
+        let projectID = UUID()
+
+        let stageResponse = await server.processRequest(
+            MuxyRequest(
+                id: "8a",
+                method: .vcsStageFiles,
+                params: .vcsStageFiles(VCSStageFilesParams(projectID: projectID, paths: ["a.swift", "b.swift"]))
+            ),
+            clientID: authedClient(on: server)
+        )
+        let unstageResponse = await server.processRequest(
+            MuxyRequest(
+                id: "8b",
+                method: .vcsUnstageFiles,
+                params: .vcsUnstageFiles(VCSUnstageFilesParams(projectID: projectID, paths: ["a.swift"]))
+            ),
+            clientID: authedClient(on: server)
+        )
+        let discardResponse = await server.processRequest(
+            MuxyRequest(
+                id: "8c",
+                method: .vcsDiscardFiles,
+                params: .vcsDiscardFiles(VCSDiscardFilesParams(projectID: projectID, paths: ["a.swift"], untrackedPaths: ["tmp.txt"]))
+            ),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(delegate.vcsStageFilesCalls.first?.projectID == projectID)
+        #expect(delegate.vcsStageFilesCalls.first?.paths == ["a.swift", "b.swift"])
+        #expect(delegate.vcsUnstageFilesCalls.first?.projectID == projectID)
+        #expect(delegate.vcsUnstageFilesCalls.first?.paths == ["a.swift"])
+        #expect(delegate.vcsDiscardFilesCalls.first?.projectID == projectID)
+        #expect(delegate.vcsDiscardFilesCalls.first?.paths == ["a.swift"])
+        #expect(delegate.vcsDiscardFilesCalls.first?.untrackedPaths == ["tmp.txt"])
+        #expect(stageResponse.error == nil)
+        #expect(unstageResponse.error == nil)
+        #expect(discardResponse.error == nil)
+    }
+
+    @Test("vcs push and pull routes call delegate")
+    func vcsPushPullRoutes() async {
+        let (server, delegate) = makeServer()
+        let projectID = UUID()
+        let clientID = authedClient(on: server)
+
+        let pushResponse = await server.processRequest(
+            MuxyRequest(id: "8d", method: .vcsPush, params: .vcsPush(VCSPushParams(projectID: projectID))),
+            clientID: clientID
+        )
+        let pullResponse = await server.processRequest(
+            MuxyRequest(id: "8e", method: .vcsPull, params: .vcsPull(VCSPullParams(projectID: projectID))),
+            clientID: clientID
+        )
+
+        #expect(delegate.vcsPushCalls == [projectID])
+        #expect(delegate.vcsPullCalls == [projectID])
+        #expect(pushResponse.error == nil)
+        #expect(pullResponse.error == nil)
+    }
+
+    @Test("vcs branch routes return and forward data")
+    func vcsBranchRoutes() async {
+        let (server, delegate) = makeServer()
+        let projectID = UUID()
+        let clientID = authedClient(on: server)
+
+        let listResponse = await server.processRequest(
+            MuxyRequest(id: "8f", method: .vcsListBranches, params: .vcsListBranches(VCSListBranchesParams(projectID: projectID))),
+            clientID: clientID
+        )
+        _ = await server.processRequest(
+            MuxyRequest(id: "8g", method: .vcsSwitchBranch, params: .vcsSwitchBranch(VCSSwitchBranchParams(projectID: projectID, branch: "feature/a"))),
+            clientID: clientID
+        )
+        _ = await server.processRequest(
+            MuxyRequest(id: "8h", method: .vcsCreateBranch, params: .vcsCreateBranch(VCSCreateBranchParams(projectID: projectID, name: "feature/b"))),
+            clientID: clientID
+        )
+
+        #expect(delegate.vcsListBranchesCalls == [projectID])
+        #expect(delegate.vcsSwitchBranchCalls.first?.projectID == projectID)
+        #expect(delegate.vcsSwitchBranchCalls.first?.branch == "feature/a")
+        #expect(delegate.vcsCreateBranchCalls.first?.projectID == projectID)
+        #expect(delegate.vcsCreateBranchCalls.first?.name == "feature/b")
+        guard case let .vcsBranches(branches) = listResponse.result else {
+            Issue.record("expected vcsBranches result")
+            return
+        }
+        #expect(branches.current == delegate.stubVCSBranches.current)
+    }
+
+    @Test("vcs create PR route returns delegate payload")
+    func vcsCreatePRRoute() async {
+        let (server, delegate) = makeServer()
+        let projectID = UUID()
+
+        let response = await server.processRequest(
+            MuxyRequest(
+                id: "8i",
+                method: .vcsCreatePR,
+                params: .vcsCreatePR(VCSCreatePRParams(
+                    projectID: projectID,
+                    title: "Add feature",
+                    body: "Body",
+                    baseBranch: "main",
+                    draft: true
+                ))
+            ),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(delegate.vcsCreatePRCalls.first?.projectID == projectID)
+        #expect(delegate.vcsCreatePRCalls.first?.title == "Add feature")
+        #expect(delegate.vcsCreatePRCalls.first?.body == "Body")
+        #expect(delegate.vcsCreatePRCalls.first?.baseBranch == "main")
+        #expect(delegate.vcsCreatePRCalls.first?.draft == true)
+        guard case let .vcsPRCreated(result) = response.result else {
+            Issue.record("expected vcsPRCreated result")
+            return
+        }
+        #expect(result.url == delegate.stubCreatePRResult.url)
+        #expect(result.number == delegate.stubCreatePRResult.number)
+    }
+
+    @Test("vcs worktree routes forward input and output")
+    func vcsWorktreeRoutes() async {
+        let (server, delegate) = makeServer()
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let clientID = authedClient(on: server)
+
+        let addResponse = await server.processRequest(
+            MuxyRequest(
+                id: "8j",
+                method: .vcsAddWorktree,
+                params: .vcsAddWorktree(VCSAddWorktreeParams(
+                    projectID: projectID,
+                    name: "wt",
+                    branch: "main",
+                    createBranch: false
+                ))
+            ),
+            clientID: clientID
+        )
+        let removeResponse = await server.processRequest(
+            MuxyRequest(
+                id: "8k",
+                method: .vcsRemoveWorktree,
+                params: .vcsRemoveWorktree(VCSRemoveWorktreeParams(projectID: projectID, worktreeID: worktreeID))
+            ),
+            clientID: clientID
+        )
+
+        #expect(delegate.vcsAddWorktreeCalls.first?.projectID == projectID)
+        #expect(delegate.vcsAddWorktreeCalls.first?.name == "wt")
+        #expect(delegate.vcsAddWorktreeCalls.first?.branch == "main")
+        #expect(delegate.vcsAddWorktreeCalls.first?.createBranch == false)
+        #expect(delegate.vcsRemoveWorktreeCalls.first?.projectID == projectID)
+        #expect(delegate.vcsRemoveWorktreeCalls.first?.worktreeID == worktreeID)
+        guard case let .worktrees(worktrees) = addResponse.result else {
+            Issue.record("expected worktrees result")
+            return
+        }
+        #expect(worktrees.first?.id == delegate.stubAddedWorktree.id)
+        #expect(removeResponse.error == nil)
     }
 
     @Test("subscribe and unsubscribe return ok")
