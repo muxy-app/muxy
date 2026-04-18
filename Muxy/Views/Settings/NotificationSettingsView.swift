@@ -7,82 +7,42 @@ struct NotificationSettingsView: View {
     @AppStorage("muxy.notifications.toastPosition") private var toastPosition = ToastPosition.topCenter.rawValue
 
     var body: some View {
-        VStack(spacing: 0) {
-            section("Delivery") {
-                toggleRow("Toast", isOn: $toastEnabled)
+        SettingsContainer {
+            SettingsSection("Delivery") {
+                SettingsToggleRow(label: "Toast", isOn: $toastEnabled)
             }
 
-            Divider().padding(.horizontal, 12)
-
-            section("Sound") {
-                pickerRow("Sound", selection: $sound, options: NotificationSound.allCases) { $0.rawValue }
-                    .onChange(of: sound) { _, newValue in
-                        previewSound(newValue)
-                    }
+            SettingsSection("Sound") {
+                SettingsPickerRow(
+                    label: "Sound",
+                    selection: $sound,
+                    options: NotificationSound.allCases,
+                    tag: { $0.rawValue },
+                    display: { $0.rawValue },
+                    width: 160
+                )
+                .onChange(of: sound) { _, newValue in
+                    previewSound(newValue)
+                }
             }
 
-            Divider().padding(.horizontal, 12)
-
-            section("Toast") {
-                pickerRow("Position", selection: $toastPosition, options: ToastPosition.allCases) { $0.rawValue }
+            SettingsSection("Toast") {
+                SettingsPickerRow(
+                    label: "Position",
+                    selection: $toastPosition,
+                    options: ToastPosition.allCases,
+                    tag: { $0.rawValue },
+                    display: { $0.rawValue },
+                    width: 160
+                )
             }
 
-            Divider().padding(.horizontal, 12)
-
-            section("AI Providers") {
+            SettingsSection("AI Providers", showsDivider: false) {
                 ForEach(AIProviderRegistry.shared.providers, id: \.id) { provider in
                     ProviderToggleRow(provider: provider)
                 }
             }
-
-            Spacer()
         }
-    }
-
-    private func section(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 4)
-            content()
-        }
-    }
-
-    private func toggleRow(_ label: String, isOn: Binding<Bool>) -> some View {
-        HStack {
-            Text(label)
-                .font(.system(size: 12))
-            Spacer()
-            Toggle("", isOn: isOn)
-                .toggleStyle(.switch)
-                .controlSize(.small)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-    }
-
-    private func pickerRow<T: Identifiable & RawRepresentable<String>>(
-        _ label: String,
-        selection: Binding<String>,
-        options: [T],
-        displayValue: @escaping (T) -> String
-    ) -> some View {
-        HStack {
-            Text(label)
-                .font(.system(size: 12))
-            Spacer()
-            Picker("", selection: selection) {
-                ForEach(options) { option in
-                    Text(displayValue(option)).tag(option.rawValue)
-                }
-            }
-            .frame(width: 160)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 
     private func previewSound(_ value: String) {
@@ -108,7 +68,7 @@ private struct ProviderToggleRow: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             Text(provider.displayName)
-                .font(.system(size: 12))
+                .font(.system(size: SettingsMetrics.labelFontSize))
             Spacer()
             if enabled {
                 Button {
@@ -126,11 +86,12 @@ private struct ProviderToggleRow: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 11))
+                .font(.system(size: SettingsMetrics.footnoteFontSize))
                 .foregroundStyle(refreshed ? .green : Color.accentColor)
                 .disabled(refreshed)
             }
             Toggle("", isOn: $enabled)
+                .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .onChange(of: enabled) { _, newValue in
@@ -138,7 +99,7 @@ private struct ProviderToggleRow: View {
                     AIProviderRegistry.shared.installAll()
                 }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
     }
 }

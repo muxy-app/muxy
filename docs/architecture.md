@@ -145,9 +145,12 @@ Muxy/
       DropZoneOverlay.swift   Tab split-mode drop targets
     Settings/
       SettingsView.swift      Settings window layout
+      SettingsComponents.swift  Shared section/row primitives used across all tabs
       AppearanceSettingsView.swift  Theme settings tab
       EditorSettingsView.swift  Editor preferences tab (default editor, font)
       KeyboardShortcutsSettingsView.swift  Shortcut config tab
+      NotificationSettingsView.swift  Notification preferences tab
+      MobileSettingsView.swift  Mobile server and approved devices tab
       ShortcutRecorderView.swift  Shortcut capture field
       ShortcutBadge.swift     Shortcut label display
 ```

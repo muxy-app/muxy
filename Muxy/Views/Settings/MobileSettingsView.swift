@@ -13,37 +13,32 @@ struct MobileSettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section {
-                Toggle("Allow mobile device connections", isOn: enabledBinding)
-            } header: {
-                Text("Mobile")
-            } footer: {
-                Text("Muxy listens on port 4865 for the iOS app over your local network or a private VPN such as Tailscale.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        SettingsContainer {
+            SettingsSection(
+                "Mobile",
+                footer: "Muxy listens on port 4865 for the iOS app over your local network or a private VPN such as Tailscale."
+            ) {
+                SettingsToggleRow(label: "Allow mobile device connections", isOn: enabledBinding)
             }
 
-            Section {
+            SettingsSection(
+                "Approved Devices",
+                footer: "Revoking removes the device's access. It will need to request approval again to reconnect.",
+                showsDivider: false
+            ) {
                 if devices.devices.isEmpty {
                     Text("No devices approved yet.")
-                        .font(.caption)
+                        .font(.system(size: SettingsMetrics.labelFontSize))
                         .foregroundStyle(.secondary)
+                        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+                        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
                 } else {
                     ForEach(devices.devices) { device in
                         deviceRow(device)
                     }
                 }
-            } header: {
-                Text("Approved Devices")
-            } footer: {
-                Text("Revoking removes the device's access. It will need to request approval again to reconnect.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
-        .padding()
         .alert(
             "Revoke \(deviceToRevoke?.name ?? "device")?",
             isPresented: Binding(
@@ -65,8 +60,9 @@ struct MobileSettingsView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(device.name)
+                    .font(.system(size: SettingsMetrics.labelFontSize))
                 Text(lastSeenText(device))
-                    .font(.caption)
+                    .font(.system(size: SettingsMetrics.footnoteFontSize))
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -74,8 +70,11 @@ struct MobileSettingsView: View {
                 deviceToRevoke = device
             }
             .buttonStyle(.borderless)
+            .font(.system(size: SettingsMetrics.footnoteFontSize))
             .foregroundStyle(.red)
         }
+        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
     }
 
     private func lastSeenText(_ device: ApprovedDevice) -> String {
