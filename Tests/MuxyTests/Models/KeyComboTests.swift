@@ -66,6 +66,18 @@ struct KeyComboTests {
         #expect(KeyCombo.normalized(key: "", keyCode: 126) == "uparrow")
     }
 
+    @Test("normalized key with ANSI letter keyCodes")
+    func normalizedLetterKeyCodes() {
+        #expect(KeyCombo.normalized(key: "\u{043C}", keyCode: 9) == "v")
+        #expect(KeyCombo.normalized(key: "\u{0439}", keyCode: 12) == "q")
+    }
+
+    @Test("scalar uses ANSI keyCode mapping")
+    func scalarFromKeyCode() {
+        #expect(KeyCombo.scalar(for: 9)?.value == Unicode.Scalar("v").value)
+        #expect(KeyCombo.scalar(for: 43)?.value == Unicode.Scalar(",").value)
+    }
+
     @Test("normalized key with function key scalars")
     func normalizedFunctionKeys() {
         let leftArrowScalar = Unicode.Scalar(NSLeftArrowFunctionKey)!

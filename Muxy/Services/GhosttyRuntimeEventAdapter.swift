@@ -109,8 +109,9 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
     }
 
     private func handleCommandExit(target: ghostty_target_s) {
-        guard let view = surfaceView(from: target), view.closesOnCommandExit else { return }
+        guard let view = surfaceView(from: target) else { return }
         DispatchQueue.main.async {
+            guard view.closesOnCommandExit else { return }
             guard !view.processExitHandled else { return }
             view.processExitHandled = true
             view.onProcessExit?()

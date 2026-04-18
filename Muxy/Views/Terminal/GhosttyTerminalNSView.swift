@@ -350,7 +350,7 @@ final class GhosttyTerminalNSView: NSView {
         if flags.contains(.control), !flags.contains(.command), !flags.contains(.option), !hasMarkedText() {
             if isAppShortcut(event) { return }
             var keyEvent = buildKeyEvent(from: event, action: action)
-            let text = event.charactersIgnoringModifiers ?? event.characters ?? ""
+            let text = shortcutText(from: event)
             if text.isEmpty {
                 keyEvent.text = nil
                 _ = ghostty_surface_key(surface, keyEvent)
@@ -549,6 +549,11 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     @objc
+    func paste(_ sender: Any?) {
+        handleContextPaste(sender)
+    }
+
+    @objc
     private func handleContextSplit(_ sender: NSMenuItem) {
         guard let split = sender.representedObject as? ContextSplit else { return }
         onSplitRequest?(split.direction, split.position)
@@ -637,7 +642,17 @@ final class GhosttyTerminalNSView: NSView {
         return text
     }
 
+    private func shortcutText(from event: NSEvent) -> String {
+        if let scalar = KeyCombo.scalar(for: event.keyCode) {
+            return String(scalar)
+        }
+        return event.charactersIgnoringModifiers ?? event.characters ?? ""
+    }
+
     private func unshiftedCodepoint(from event: NSEvent) -> UInt32 {
+        if let scalar = KeyCombo.scalar(for: event.keyCode) {
+            return scalar.value
+        }
         guard let chars = event.characters(byApplyingModifiers: []),
               let scalar = chars.unicodeScalars.first
         else { return 0 }

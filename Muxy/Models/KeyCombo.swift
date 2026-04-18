@@ -12,12 +12,75 @@ struct KeyCombo: Codable, Equatable, Hashable {
     static let rightArrowKey = "rightarrow"
     static let upArrowKey = "uparrow"
     static let downArrowKey = "downarrow"
-    private static let keyCodeLeftBracket = 33
-    private static let keyCodeRightBracket = 30
-    private static let keyCodeLeftArrow = 123
-    private static let keyCodeRightArrow = 124
-    private static let keyCodeDownArrow = 125
-    private static let keyCodeUpArrow = 126
+    private static let keyCodeMap: [Int: String] = [
+        0: "a",
+        1: "s",
+        2: "d",
+        3: "f",
+        4: "h",
+        5: "g",
+        6: "z",
+        7: "x",
+        8: "c",
+        9: "v",
+        11: "b",
+        12: "q",
+        13: "w",
+        14: "e",
+        15: "r",
+        16: "y",
+        17: "t",
+        18: "1",
+        19: "2",
+        20: "3",
+        21: "4",
+        22: "6",
+        23: "5",
+        24: "=",
+        25: "9",
+        26: "7",
+        27: "-",
+        28: "8",
+        29: "0",
+        30: "]",
+        31: "o",
+        32: "u",
+        33: "[",
+        34: "i",
+        35: "p",
+        37: "l",
+        38: "j",
+        39: "'",
+        40: "k",
+        41: ";",
+        42: "\\",
+        43: ",",
+        44: "/",
+        45: "n",
+        46: "m",
+        47: ".",
+        50: "`",
+        65: ".",
+        67: "*",
+        69: "+",
+        75: "/",
+        78: "-",
+        81: "=",
+        82: "0",
+        83: "1",
+        84: "2",
+        85: "3",
+        86: "4",
+        87: "5",
+        88: "6",
+        89: "7",
+        91: "8",
+        92: "9",
+        123: leftArrowKey,
+        124: rightArrowKey,
+        125: downArrowKey,
+        126: upArrowKey,
+    ]
 
     let key: String
     let modifiers: UInt
@@ -95,17 +158,16 @@ struct KeyCombo: Codable, Equatable, Hashable {
         NSEvent.ModifierFlags(rawValue: modifiers).intersection(supportedModifierMask).rawValue
     }
 
+    static func scalar(for keyCode: UInt16) -> UnicodeScalar? {
+        guard let mappedKey = keyCodeMap[Int(keyCode)],
+              mappedKey.unicodeScalars.count == 1
+        else { return nil }
+        return mappedKey.unicodeScalars.first
+    }
+
     static func normalized(key: String, keyCode: UInt16? = nil) -> String {
-        if let keyCode {
-            switch Int(keyCode) {
-            case keyCodeLeftBracket: return "["
-            case keyCodeRightBracket: return "]"
-            case keyCodeLeftArrow: return leftArrowKey
-            case keyCodeRightArrow: return rightArrowKey
-            case keyCodeUpArrow: return upArrowKey
-            case keyCodeDownArrow: return downArrowKey
-            default: break
-            }
+        if let keyCode, let mappedKey = keyCodeMap[Int(keyCode)] {
+            return mappedKey
         }
 
         let lowercased = key.lowercased()

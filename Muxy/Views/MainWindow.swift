@@ -187,6 +187,9 @@ struct MainWindow: View {
         .animation(.easeInOut(duration: 0.2), value: ToastState.shared.message != nil)
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
+        .background(MainWindowShortcutInterceptor { action in
+            handleShortcutAction(action)
+        })
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
         .background(WindowTitleUpdater(title: windowTitle))
         .ignoresSafeArea(.container, edges: .top)
@@ -402,10 +405,165 @@ struct MainWindow: View {
         return project
     }
 
+    private static let tabSelectionActions: [ShortcutAction] = [
+        .selectTab1,
+        .selectTab2,
+        .selectTab3,
+        .selectTab4,
+        .selectTab5,
+        .selectTab6,
+        .selectTab7,
+        .selectTab8,
+        .selectTab9,
+    ]
+
+    private static let projectSelectionActions: [ShortcutAction] = [
+        .selectProject1,
+        .selectProject2,
+        .selectProject3,
+        .selectProject4,
+        .selectProject5,
+        .selectProject6,
+        .selectProject7,
+        .selectProject8,
+        .selectProject9,
+    ]
+
     private func mountedWorktreeKeys(for project: Project) -> [WorktreeKey] {
         appState.workspaceRoots.keys
             .filter { $0.projectID == project.id }
             .sorted { $0.worktreeID.uuidString < $1.worktreeID.uuidString }
+    }
+
+    private func handleShortcutAction(_ action: ShortcutAction) -> Bool {
+        if let index = Self.tabSelectionActions.firstIndex(of: action) {
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.selectTabByIndex(index, projectID: projectID)
+            return true
+        }
+
+        if let index = Self.projectSelectionActions.firstIndex(of: action) {
+            appState.selectProjectByIndex(index, projects: projectStore.projects, worktrees: worktreeStore.worktrees)
+            return true
+        }
+
+        switch action {
+        case .newTab:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.createTab(projectID: projectID)
+            return true
+        case .closeTab:
+            guard let projectID = appState.activeProjectID,
+                  let area = appState.focusedArea(for: projectID),
+                  let tabID = area.activeTabID
+            else { return false }
+            appState.closeTab(tabID, projectID: projectID)
+            return true
+        case .renameTab:
+            NotificationCenter.default.post(name: .renameActiveTab, object: nil)
+            return true
+        case .pinUnpinTab:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.togglePinActiveTab(projectID: projectID)
+            return true
+        case .splitRight:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.splitFocusedArea(direction: .horizontal, projectID: projectID)
+            return true
+        case .splitDown:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.splitFocusedArea(direction: .vertical, projectID: projectID)
+            return true
+        case .closePane:
+            guard let projectID = appState.activeProjectID,
+                  let areaID = appState.focusedAreaID(for: projectID)
+            else { return false }
+            appState.closeArea(areaID, projectID: projectID)
+            return true
+        case .focusPaneLeft:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.focusPaneLeft(projectID: projectID)
+            return true
+        case .focusPaneRight:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.focusPaneRight(projectID: projectID)
+            return true
+        case .focusPaneUp:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.focusPaneUp(projectID: projectID)
+            return true
+        case .focusPaneDown:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.focusPaneDown(projectID: projectID)
+            return true
+        case .nextTab:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.selectNextTab(projectID: projectID)
+            return true
+        case .previousTab:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.selectPreviousTab(projectID: projectID)
+            return true
+        case .toggleThemePicker:
+            NotificationCenter.default.post(name: .toggleThemePicker, object: nil)
+            return true
+        case .newProject:
+            return false
+        case .openProject:
+            ProjectOpenService.openProject(
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
+            return true
+        case .reloadConfig:
+            ghostty.reloadConfig()
+            return true
+        case .nextProject:
+            appState.selectNextProject(projects: projectStore.projects, worktrees: worktreeStore.worktrees)
+            return true
+        case .previousProject:
+            appState.selectPreviousProject(projects: projectStore.projects, worktrees: worktreeStore.worktrees)
+            return true
+        case .findInTerminal:
+            NotificationCenter.default.post(name: .findInTerminal, object: nil)
+            return true
+        case .openVCSTab:
+            guard let project = activeProject else { return false }
+            openVCS(for: project)
+            return true
+        case .quickOpen:
+            NotificationCenter.default.post(name: .quickOpen, object: nil)
+            return true
+        case .switchWorktree:
+            NotificationCenter.default.post(name: .switchWorktree, object: nil)
+            return true
+        case .saveFile:
+            NotificationCenter.default.post(name: .saveActiveEditor, object: nil)
+            return true
+        case .toggleSidebar:
+            NotificationCenter.default.post(name: .toggleSidebar, object: nil)
+            return true
+        case .selectTab1,
+             .selectTab2,
+             .selectTab3,
+             .selectTab4,
+             .selectTab5,
+             .selectTab6,
+             .selectTab7,
+             .selectTab8,
+             .selectTab9,
+             .selectProject1,
+             .selectProject2,
+             .selectProject3,
+             .selectProject4,
+             .selectProject5,
+             .selectProject6,
+             .selectProject7,
+             .selectProject8,
+             .selectProject9:
+            return false
+        }
     }
 
     private var activeProjectHasSplitWorkspace: Bool {
@@ -580,5 +738,40 @@ private struct WindowTitleUpdater: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let window = nsView.window, window.title != title else { return }
         window.title = title
+    }
+}
+
+private struct MainWindowShortcutInterceptor: NSViewRepresentable {
+    let onShortcut: (ShortcutAction) -> Bool
+
+    func makeNSView(context: Context) -> ShortcutInterceptingView {
+        let view = ShortcutInterceptingView()
+        view.onShortcut = onShortcut
+        return view
+    }
+
+    func updateNSView(_ nsView: ShortcutInterceptingView, context: Context) {
+        nsView.onShortcut = onShortcut
+    }
+}
+
+private final class ShortcutInterceptingView: NSView {
+    var onShortcut: ((ShortcutAction) -> Bool)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              ShortcutContext.isMainWindow(window)
+        else { return super.performKeyEquivalent(with: event) }
+
+        let scopes = ShortcutContext.activeScopes(for: window)
+        guard let action = KeyBindingStore.shared.action(for: event, scopes: scopes) else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        if onShortcut?(action) == true {
+            return true
+        }
+
+        return super.performKeyEquivalent(with: event)
     }
 }
