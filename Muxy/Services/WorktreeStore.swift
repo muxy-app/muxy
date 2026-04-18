@@ -83,6 +83,7 @@ final class WorktreeStore {
         ensurePrimary(for: project)
         let records = try await listGitWorktrees(project.path)
         var list = worktrees[project.id] ?? []
+        let projectKey = Self.canonicalPath(project.path)
 
         if let primaryIndex = list.firstIndex(where: \.isPrimary) {
             list[primaryIndex].path = project.path
@@ -91,16 +92,28 @@ final class WorktreeStore {
             list.insert(makePrimary(for: project), at: 0)
         }
 
-        let existingByPath = Dictionary(uniqueKeysWithValues: list.map { ($0.path, $0) })
+        var existingByKey: [String: Worktree] = [:]
+        for worktree in list {
+            let key = Self.canonicalPath(worktree.path)
+            if let existing = existingByKey[key] {
+                if worktree.isPrimary, !existing.isPrimary {
+                    existingByKey[key] = worktree
+                }
+            } else {
+                existingByKey[key] = worktree
+            }
+        }
+
         for record in records {
-            if record.path == project.path {
+            let recordKey = Self.canonicalPath(record.path)
+            if recordKey == projectKey {
                 if let primaryIndex = list.firstIndex(where: \.isPrimary) {
                     list[primaryIndex].branch = record.branch
                 }
                 continue
             }
 
-            if let existing = existingByPath[record.path],
+            if let existing = existingByKey[recordKey],
                let index = list.firstIndex(where: { $0.id == existing.id })
             {
                 list[index].branch = record.branch
@@ -126,11 +139,15 @@ final class WorktreeStore {
         return sorted
     }
 
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
     static func cleanupOnDisk(
         worktree: Worktree,
         repoPath: String
     ) async {
-        guard !worktree.isPrimary else { return }
+        guard !worktree.isPrimary, !worktree.isExternallyManaged else { return }
         do {
             try await GitWorktreeService.shared.removeWorktree(
                 repoPath: repoPath,
@@ -157,7 +174,7 @@ final class WorktreeStore {
     }
 
     static func cleanupOnDisk(for project: Project, knownWorktrees: [Worktree]) async {
-        let secondaryWorktrees = knownWorktrees.filter { !$0.isPrimary }
+        let secondaryWorktrees = knownWorktrees.filter { !$0.isPrimary && !$0.isExternallyManaged }
         for worktree in secondaryWorktrees {
             await cleanupOnDisk(worktree: worktree, repoPath: project.path)
         }

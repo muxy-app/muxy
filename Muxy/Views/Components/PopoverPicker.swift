@@ -1,10 +1,17 @@
 import SwiftUI
 
 struct PopoverFooterAction: Identifiable {
-    let id = UUID()
+    let id: String
     let title: String
     let icon: String?
     let action: () -> Void
+
+    init(id: String? = nil, title: String, icon: String? = nil, action: @escaping () -> Void) {
+        self.id = id ?? "\(title)|\(icon ?? "")"
+        self.title = title
+        self.icon = icon
+        self.action = action
+    }
 }
 
 struct PopoverPicker<Item: Identifiable, RowContent: View>: View {

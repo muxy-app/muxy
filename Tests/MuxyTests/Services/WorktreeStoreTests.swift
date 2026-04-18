@@ -142,6 +142,106 @@ struct WorktreeStoreTests {
         #expect(worktrees.contains(where: { $0.path == "/tmp/repo-retained" }))
     }
 
+    @Test("refreshFromGit tolerates duplicate persisted paths without trapping")
+    func refreshFromGitToleratesDuplicatePaths() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let duplicatePath = "/tmp/repo-dupe"
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(name: project.name, path: project.path, isPrimary: true),
+                    Worktree(
+                        name: "first",
+                        path: duplicatePath,
+                        branch: "first",
+                        source: .muxy,
+                        isPrimary: false
+                    ),
+                    Worktree(
+                        name: "second",
+                        path: duplicatePath,
+                        branch: "second",
+                        source: .muxy,
+                        isPrimary: false
+                    ),
+                ]
+            ]
+        )
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: project.path,
+                    branch: "main",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+                GitWorktreeRecord(
+                    path: duplicatePath,
+                    branch: "updated",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+            ]
+        ])
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            projects: [project]
+        )
+
+        let worktrees = try await store.refreshFromGit(project: project)
+
+        let atDuplicatePath = worktrees.filter { $0.path == duplicatePath }
+        #expect(atDuplicatePath.count == 2)
+        #expect(atDuplicatePath.contains(where: { $0.branch == "updated" }))
+    }
+
+    @Test("refreshFromGit treats symlinked primary paths as the primary worktree")
+    func refreshFromGitResolvesSymlinkedPrimaryPath() async throws {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("muxy-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let realRepo = tempRoot.appendingPathComponent("real-repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: realRepo, withIntermediateDirectories: true)
+        let symlink = tempRoot.appendingPathComponent("linked-repo")
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: realRepo)
+
+        let project = Project(name: "Repo", path: symlink.path)
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(name: project.name, path: symlink.path, isPrimary: true),
+                ]
+            ]
+        )
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: realRepo.path,
+                    branch: "feat/worktree-refresh",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+            ]
+        ])
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            projects: [project]
+        )
+
+        let worktrees = try await store.refreshFromGit(project: project)
+
+        #expect(worktrees.count == 1)
+        #expect(worktrees[0].isPrimary)
+        #expect(worktrees[0].branch == "feat/worktree-refresh")
+    }
+
     @Test("remove does not delete externally managed worktrees")
     func removeDoesNotDeleteExternalWorktree() {
         let project = Project(name: "Repo", path: "/tmp/repo")

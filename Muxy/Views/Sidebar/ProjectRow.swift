@@ -240,31 +240,11 @@ struct ProjectRow: View {
     }
 
     private func refreshWorktrees() async {
-        guard !isRefreshingWorktrees else { return }
-        isRefreshingWorktrees = true
-
-        do {
-            _ = try await worktreeStore.refreshFromGit(project: project)
-            isRefreshingWorktrees = false
-        } catch {
-            isRefreshingWorktrees = false
-            presentRefreshError(error.localizedDescription)
-        }
-    }
-
-    private func presentRefreshError(_ message: String) {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              window.attachedSheet == nil
-        else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Could Not Refresh Worktrees"
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "OK")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.beginSheetModal(for: window)
+        await WorktreeRefreshHelper.refresh(
+            project: project,
+            worktreeStore: worktreeStore,
+            isRefreshing: $isRefreshingWorktrees
+        )
     }
 }
 
