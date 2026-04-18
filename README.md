@@ -40,18 +40,18 @@
 
 ## Install
 
-### [Mac] Homebrew
+### Homebrew
 
 ```bash
 brew tap muxy-app/tap
 brew install --cask muxy
 ```
 
-### [Mac] Manual
+### Manual
 
 Download the latest release from the [releases page](https://github.com/muxy-app/muxy/releases)
 
-### [iOS] TestFlight (⚠️ For testing)
+### iOS app (Testing)
 
 The iOS app is available for testers on TestFlight
 
