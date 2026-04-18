@@ -12,8 +12,15 @@ struct MuxyMobileApp: App {
                 .environment(connectionManager)
         }
         .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
+            switch newPhase {
+            case .active:
                 connectionManager.handleForeground()
+            case .background:
+                connectionManager.handleBackground()
+            case .inactive:
+                break
+            @unknown default:
+                break
             }
         }
     }

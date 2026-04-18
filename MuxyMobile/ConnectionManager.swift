@@ -73,6 +73,8 @@ final class ConnectionManager {
     private var pendingRequests: [String: CheckedContinuation<MuxyResponse, Never>] = [:]
     private var lastHost: String?
     private var lastPort: UInt16?
+    private var isBackgrounded = false
+    private var isReconnecting = false
 
     var lastSavedHost: String? { savedDevices.first?.host }
     var lastSavedPort: UInt16? { savedDevices.first?.port }
@@ -98,12 +100,7 @@ final class ConnectionManager {
         paneOwners = [:]
         deviceTheme = nil
 
-        let url = URL(string: "ws://\(host):\(port)")!
-        session = URLSession(configuration: .default)
-        connection = session?.webSocketTask(with: url)
-        connection?.resume()
-
-        receiveLoop()
+        openSocket(host: host, port: port)
 
         Task {
             try? await Task.sleep(for: .milliseconds(500))
@@ -117,6 +114,19 @@ final class ConnectionManager {
                 break
             }
         }
+    }
+
+    private func openSocket(host: String, port: UInt16) {
+        connection?.cancel(with: .goingAway, reason: nil)
+        connection = nil
+        session = nil
+
+        guard let url = URL(string: "ws://\(host):\(port)") else { return }
+        session = URLSession(configuration: .default)
+        connection = session?.webSocketTask(with: url)
+        connection?.resume()
+
+        receiveLoop()
     }
 
     private func authenticateOrPair() async -> Bool {
@@ -198,7 +208,12 @@ final class ConnectionManager {
         connect(host: host, port: port)
     }
 
+    func handleBackground() {
+        isBackgrounded = true
+    }
+
     func handleForeground() {
+        isBackgrounded = false
         guard lastHost != nil, lastPort != nil else { return }
         switch state {
         case .error:
@@ -214,13 +229,37 @@ final class ConnectionManager {
 
     private func verifyConnectionOrReconnect() {
         guard let connection else {
-            reconnect()
+            reconnectSilently()
             return
         }
         connection.sendPing { [weak self] error in
             guard error != nil else { return }
             Task { @MainActor in
-                self?.reconnect()
+                self?.reconnectSilently()
+            }
+        }
+    }
+
+    private func reconnectSilently() {
+        guard let host = lastHost, let port = lastPort else { return }
+        guard !isReconnecting else { return }
+        isReconnecting = true
+
+        paneOwners = [:]
+        openSocket(host: host, port: port)
+
+        Task {
+            defer { isReconnecting = false }
+            try? await Task.sleep(for: .milliseconds(500))
+            guard await authenticateOrPair() else {
+                state = .error("Connection lost")
+                return
+            }
+            await refreshProjects()
+            if let projectID = activeProjectID {
+                let params = SelectProjectParams(projectID: projectID)
+                _ = await send(.selectProject, params: .selectProject(params))
+                await refreshWorkspace(projectID: projectID)
             }
         }
     }
@@ -333,7 +372,9 @@ final class ConnectionManager {
             try await connection?.send(.string(text))
         } catch {
             logger.error("Send failed: \(error)")
-            state = .error("Connection lost")
+            if !isBackgrounded {
+                state = .error("Connection lost")
+            }
             return nil
         }
 
@@ -367,7 +408,9 @@ final class ConnectionManager {
                         self.state = .error("Could not reach device")
                     case .connected:
                         logger.error("Receive failed: \(error)")
-                        self.state = .error("Connection lost")
+                        if !self.isBackgrounded {
+                            self.state = .error("Connection lost")
+                        }
                     }
                 }
             }
