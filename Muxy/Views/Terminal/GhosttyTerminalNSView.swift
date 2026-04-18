@@ -158,10 +158,6 @@ final class GhosttyTerminalNSView: NSView {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil
         }
-        if let observer = backingPropertiesChangeObserver {
-            NotificationCenter.default.removeObserver(observer)
-            backingPropertiesChangeObserver = nil
-        }
         delayedResizeWorkItem?.cancel()
         delayedResizeWorkItem = nil
         destroySurface()
@@ -170,7 +166,6 @@ final class GhosttyTerminalNSView: NSView {
 
     deinit {
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
-        backingPropertiesChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         delayedResizeWorkItem?.cancel()
         if let surface {
             ghostty_surface_free(surface)
@@ -178,7 +173,6 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     nonisolated(unsafe) private var screenChangeObserver: NSObjectProtocol?
-    nonisolated(unsafe) private var backingPropertiesChangeObserver: NSObjectProtocol?
     nonisolated(unsafe) private var delayedResizeWorkItem: DispatchWorkItem?
 
     override func viewDidMoveToWindow() {
@@ -186,8 +180,6 @@ final class GhosttyTerminalNSView: NSView {
 
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         screenChangeObserver = nil
-        backingPropertiesChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
-        backingPropertiesChangeObserver = nil
         delayedResizeWorkItem?.cancel()
         delayedResizeWorkItem = nil
 
@@ -199,16 +191,6 @@ final class GhosttyTerminalNSView: NSView {
 
         screenChangeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeScreenNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.updateMetalLayerSize(deferred: true)
-            }
-        }
-
-        backingPropertiesChangeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didChangeBackingPropertiesNotification,
             object: window,
             queue: .main
         ) { [weak self] _ in
