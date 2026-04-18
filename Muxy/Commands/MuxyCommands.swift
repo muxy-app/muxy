@@ -14,6 +14,30 @@ struct MuxyCommands: Commands {
         ShortcutContext.isMainWindow(NSApp.keyWindow)
     }
 
+    private var activeProject: Project? {
+        guard let projectID = appState.activeProjectID else { return nil }
+        return projectStore.projects.first { $0.id == projectID }
+    }
+
+    private var shortcutDispatcher: ShortcutActionDispatcher {
+        ShortcutActionDispatcher(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            ghostty: ghostty
+        )
+    }
+
+    private func performShortcutAction(_ action: ShortcutAction) {
+        _ = shortcutDispatcher.perform(action, activeProject: activeProject) { project in
+            VCSDisplayMode.current.route(
+                tab: { appState.createVCSTab(projectID: project.id) },
+                window: { NotificationCenter.default.post(name: .openVCSWindow, object: nil) },
+                attached: { NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil) }
+            )
+        }
+    }
+
     var body: some Commands {
         CommandGroup(after: .appSettings) {
             Button {
@@ -27,7 +51,7 @@ struct MuxyCommands: Commands {
             }
 
             Button {
-                ghostty.reloadConfig()
+                performShortcutAction(.reloadConfig)
             } label: {
                 Label("Reload Configuration", systemImage: "arrow.clockwise")
             }
@@ -57,49 +81,38 @@ struct MuxyCommands: Commands {
 
             Button("Find") {
                 guard isMainWindowFocused else { return }
-                NotificationCenter.default.post(name: .findInTerminal, object: nil)
+                performShortcutAction(.findInTerminal)
             }
             .shortcut(for: .findInTerminal, store: keyBindings)
         }
 
         CommandGroup(replacing: .newItem) {
             Button("Open Project...") {
-                ProjectOpenService.openProject(
-                    appState: appState,
-                    projectStore: projectStore,
-                    worktreeStore: worktreeStore
-                )
+                performShortcutAction(.openProject)
             }
             .shortcut(for: .openProject, store: keyBindings)
 
             Button("New Tab") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.createTab(projectID: projectID)
+                performShortcutAction(.newTab)
             }
             .shortcut(for: .newTab, store: keyBindings)
 
             Button("Source Control") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                VCSDisplayMode.current.route(
-                    tab: { appState.createVCSTab(projectID: projectID) },
-                    window: { NotificationCenter.default.post(name: .openVCSWindow, object: nil) },
-                    attached: { NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil) }
-                )
+                performShortcutAction(.openVCSTab)
             }
             .shortcut(for: .openVCSTab, store: keyBindings)
 
             Button("Quick Open") {
                 guard isMainWindowFocused else { return }
-                guard appState.activeProjectID != nil else { return }
-                NotificationCenter.default.post(name: .quickOpen, object: nil)
+                performShortcutAction(.quickOpen)
             }
             .shortcut(for: .quickOpen, store: keyBindings)
 
             Button("Save") {
                 guard isMainWindowFocused else { return }
-                NotificationCenter.default.post(name: .saveActiveEditor, object: nil)
+                performShortcutAction(.saveFile)
             }
             .shortcut(for: .saveFile, store: keyBindings)
 
@@ -110,11 +123,7 @@ struct MuxyCommands: Commands {
                     NSApp.keyWindow?.performClose(nil)
                     return
                 }
-                guard let projectID = appState.activeProjectID,
-                      let area = appState.focusedArea(for: projectID),
-                      let tabID = area.activeTabID
-                else { return }
-                appState.closeTab(tabID, projectID: projectID)
+                performShortcutAction(.closeTab)
             }
             .shortcut(for: .closeTab, store: keyBindings)
 
@@ -122,14 +131,13 @@ struct MuxyCommands: Commands {
 
             Button("Rename Tab") {
                 guard isMainWindowFocused else { return }
-                NotificationCenter.default.post(name: .renameActiveTab, object: nil)
+                performShortcutAction(.renameTab)
             }
             .shortcut(for: .renameTab, store: keyBindings)
 
             Button("Pin/Unpin Tab") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.togglePinActiveTab(projectID: projectID)
+                performShortcutAction(.pinUnpinTab)
             }
             .shortcut(for: .pinUnpinTab, store: keyBindings)
 
@@ -137,52 +145,43 @@ struct MuxyCommands: Commands {
 
             Button("Split Right") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.splitFocusedArea(direction: .horizontal, projectID: projectID)
+                performShortcutAction(.splitRight)
             }
             .shortcut(for: .splitRight, store: keyBindings)
 
             Button("Split Down") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.splitFocusedArea(direction: .vertical, projectID: projectID)
+                performShortcutAction(.splitDown)
             }
             .shortcut(for: .splitDown, store: keyBindings)
 
             Button("Close Pane") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID,
-                      let areaID = appState.focusedAreaID(for: projectID)
-                else { return }
-                appState.closeArea(areaID, projectID: projectID)
+                performShortcutAction(.closePane)
             }
             .shortcut(for: .closePane, store: keyBindings)
 
             Button("Focus Pane Left") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.focusPaneLeft(projectID: projectID)
+                performShortcutAction(.focusPaneLeft)
             }
             .shortcut(for: .focusPaneLeft, store: keyBindings)
 
             Button("Focus Pane Right") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.focusPaneRight(projectID: projectID)
+                performShortcutAction(.focusPaneRight)
             }
             .shortcut(for: .focusPaneRight, store: keyBindings)
 
             Button("Focus Pane Up") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.focusPaneUp(projectID: projectID)
+                performShortcutAction(.focusPaneUp)
             }
             .shortcut(for: .focusPaneUp, store: keyBindings)
 
             Button("Focus Pane Down") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.focusPaneDown(projectID: projectID)
+                performShortcutAction(.focusPaneDown)
             }
             .shortcut(for: .focusPaneDown, store: keyBindings)
         }
@@ -190,15 +189,13 @@ struct MuxyCommands: Commands {
         CommandGroup(after: .windowList) {
             Button("Next Tab") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.selectNextTab(projectID: projectID)
+                performShortcutAction(.nextTab)
             }
             .shortcut(for: .nextTab, store: keyBindings)
 
             Button("Previous Tab") {
                 guard isMainWindowFocused else { return }
-                guard let projectID = appState.activeProjectID else { return }
-                appState.selectPreviousTab(projectID: projectID)
+                performShortcutAction(.previousTab)
             }
             .shortcut(for: .previousTab, store: keyBindings)
 
@@ -208,8 +205,7 @@ struct MuxyCommands: Commands {
                 if let action = ShortcutAction.tabAction(for: index) {
                     Button("Tab \(index)") {
                         guard isMainWindowFocused else { return }
-                        guard let projectID = appState.activeProjectID else { return }
-                        appState.selectTabByIndex(index - 1, projectID: projectID)
+                        performShortcutAction(action)
                     }
                     .shortcut(for: action, store: keyBindings)
                 }
@@ -219,7 +215,7 @@ struct MuxyCommands: Commands {
         CommandGroup(after: .sidebar) {
             Button("Toggle Sidebar") {
                 guard isMainWindowFocused else { return }
-                NotificationCenter.default.post(name: .toggleSidebar, object: nil)
+                performShortcutAction(.toggleSidebar)
             }
             .shortcut(for: .toggleSidebar, store: keyBindings)
 
@@ -227,7 +223,7 @@ struct MuxyCommands: Commands {
 
             Button("Switch Worktree...") {
                 guard isMainWindowFocused else { return }
-                NotificationCenter.default.post(name: .switchWorktree, object: nil)
+                performShortcutAction(.switchWorktree)
             }
             .shortcut(for: .switchWorktree, store: keyBindings)
 
@@ -235,19 +231,13 @@ struct MuxyCommands: Commands {
 
             Button("Next Project") {
                 guard isMainWindowFocused else { return }
-                appState.selectNextProject(
-                    projects: projectStore.projects,
-                    worktrees: worktreeStore.worktrees
-                )
+                performShortcutAction(.nextProject)
             }
             .shortcut(for: .nextProject, store: keyBindings)
 
             Button("Previous Project") {
                 guard isMainWindowFocused else { return }
-                appState.selectPreviousProject(
-                    projects: projectStore.projects,
-                    worktrees: worktreeStore.worktrees
-                )
+                performShortcutAction(.previousProject)
             }
             .shortcut(for: .previousProject, store: keyBindings)
 
@@ -257,11 +247,7 @@ struct MuxyCommands: Commands {
                 if let action = ShortcutAction.projectAction(for: index) {
                     Button("Project \(index)") {
                         guard isMainWindowFocused else { return }
-                        appState.selectProjectByIndex(
-                            index - 1,
-                            projects: projectStore.projects,
-                            worktrees: worktreeStore.worktrees
-                        )
+                        performShortcutAction(action)
                     }
                     .shortcut(for: action, store: keyBindings)
                 }
@@ -271,7 +257,7 @@ struct MuxyCommands: Commands {
 
             Button("Theme Picker") {
                 guard isMainWindowFocused else { return }
-                NotificationCenter.default.post(name: .toggleThemePicker, object: nil)
+                performShortcutAction(.toggleThemePicker)
             }
             .shortcut(for: .toggleThemePicker, store: keyBindings)
         }

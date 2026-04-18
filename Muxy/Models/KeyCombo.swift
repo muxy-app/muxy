@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 enum ShortcutScope: String, Codable, CaseIterable {
@@ -12,75 +13,78 @@ struct KeyCombo: Codable, Equatable, Hashable {
     static let rightArrowKey = "rightarrow"
     static let upArrowKey = "uparrow"
     static let downArrowKey = "downarrow"
-    private static let keyCodeMap: [Int: String] = [
-        0: "a",
-        1: "s",
-        2: "d",
-        3: "f",
-        4: "h",
-        5: "g",
-        6: "z",
-        7: "x",
-        8: "c",
-        9: "v",
-        11: "b",
-        12: "q",
-        13: "w",
-        14: "e",
-        15: "r",
-        16: "y",
-        17: "t",
-        18: "1",
-        19: "2",
-        20: "3",
-        21: "4",
-        22: "6",
-        23: "5",
-        24: "=",
-        25: "9",
-        26: "7",
-        27: "-",
-        28: "8",
-        29: "0",
-        30: "]",
-        31: "o",
-        32: "u",
-        33: "[",
-        34: "i",
-        35: "p",
-        37: "l",
-        38: "j",
-        39: "'",
-        40: "k",
-        41: ";",
-        42: "\\",
-        43: ",",
-        44: "/",
-        45: "n",
-        46: "m",
-        47: ".",
-        50: "`",
-        65: ".",
-        67: "*",
-        69: "+",
-        75: "/",
-        78: "-",
-        81: "=",
-        82: "0",
-        83: "1",
-        84: "2",
-        85: "3",
-        86: "4",
-        87: "5",
-        88: "6",
-        89: "7",
-        91: "8",
-        92: "9",
-        123: leftArrowKey,
-        124: rightArrowKey,
-        125: downArrowKey,
-        126: upArrowKey,
-    ]
+    private static func keyName(for keyCode: UInt16) -> String? {
+        switch Int(keyCode) {
+        case kVK_ANSI_A: "a"
+        case kVK_ANSI_S: "s"
+        case kVK_ANSI_D: "d"
+        case kVK_ANSI_F: "f"
+        case kVK_ANSI_H: "h"
+        case kVK_ANSI_G: "g"
+        case kVK_ANSI_Z: "z"
+        case kVK_ANSI_X: "x"
+        case kVK_ANSI_C: "c"
+        case kVK_ANSI_V: "v"
+        case kVK_ANSI_B: "b"
+        case kVK_ANSI_Q: "q"
+        case kVK_ANSI_W: "w"
+        case kVK_ANSI_E: "e"
+        case kVK_ANSI_R: "r"
+        case kVK_ANSI_Y: "y"
+        case kVK_ANSI_T: "t"
+        case kVK_ANSI_1: "1"
+        case kVK_ANSI_2: "2"
+        case kVK_ANSI_3: "3"
+        case kVK_ANSI_4: "4"
+        case kVK_ANSI_6: "6"
+        case kVK_ANSI_5: "5"
+        case kVK_ANSI_Equal: "="
+        case kVK_ANSI_9: "9"
+        case kVK_ANSI_7: "7"
+        case kVK_ANSI_Minus: "-"
+        case kVK_ANSI_8: "8"
+        case kVK_ANSI_0: "0"
+        case kVK_ANSI_RightBracket: "]"
+        case kVK_ANSI_O: "o"
+        case kVK_ANSI_U: "u"
+        case kVK_ANSI_LeftBracket: "["
+        case kVK_ANSI_I: "i"
+        case kVK_ANSI_P: "p"
+        case kVK_ANSI_L: "l"
+        case kVK_ANSI_J: "j"
+        case kVK_ANSI_Quote: "'"
+        case kVK_ANSI_K: "k"
+        case kVK_ANSI_Semicolon: ";"
+        case kVK_ANSI_Backslash: "\\"
+        case kVK_ANSI_Comma: ","
+        case kVK_ANSI_Slash: "/"
+        case kVK_ANSI_N: "n"
+        case kVK_ANSI_M: "m"
+        case kVK_ANSI_Period: "."
+        case kVK_ANSI_Grave: "`"
+        case kVK_ANSI_KeypadDecimal: "."
+        case kVK_ANSI_KeypadMultiply: "*"
+        case kVK_ANSI_KeypadPlus: "+"
+        case kVK_ANSI_KeypadDivide: "/"
+        case kVK_ANSI_KeypadMinus: "-"
+        case kVK_ANSI_KeypadEquals: "="
+        case kVK_ANSI_Keypad0: "0"
+        case kVK_ANSI_Keypad1: "1"
+        case kVK_ANSI_Keypad2: "2"
+        case kVK_ANSI_Keypad3: "3"
+        case kVK_ANSI_Keypad4: "4"
+        case kVK_ANSI_Keypad5: "5"
+        case kVK_ANSI_Keypad6: "6"
+        case kVK_ANSI_Keypad7: "7"
+        case kVK_ANSI_Keypad8: "8"
+        case kVK_ANSI_Keypad9: "9"
+        case kVK_LeftArrow: leftArrowKey
+        case kVK_RightArrow: rightArrowKey
+        case kVK_DownArrow: downArrowKey
+        case kVK_UpArrow: upArrowKey
+        default: nil
+        }
+    }
 
     let key: String
     let modifiers: UInt
@@ -120,8 +124,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
         }
     }
 
-    var swiftUIModifiers: EventModifiers {
-        var result: EventModifiers = []
+    var swiftUIModifiers: SwiftUI.EventModifiers {
+        var result: SwiftUI.EventModifiers = []
         let flags = nsModifierFlags
         if flags.contains(.command) { result.insert(.command) }
         if flags.contains(.shift) { result.insert(.shift) }
@@ -159,14 +163,14 @@ struct KeyCombo: Codable, Equatable, Hashable {
     }
 
     static func scalar(for keyCode: UInt16) -> UnicodeScalar? {
-        guard let mappedKey = keyCodeMap[Int(keyCode)],
+        guard let mappedKey = keyName(for: keyCode),
               mappedKey.unicodeScalars.count == 1
         else { return nil }
         return mappedKey.unicodeScalars.first
     }
 
     static func normalized(key: String, keyCode: UInt16? = nil) -> String {
-        if let keyCode, let mappedKey = keyCodeMap[Int(keyCode)] {
+        if let keyCode, let mappedKey = keyName(for: keyCode) {
             return mappedKey
         }
 
