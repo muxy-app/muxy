@@ -457,8 +457,12 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         guard let worktree = worktreeStore.worktree(projectID: projectID, worktreeID: worktreeID) else {
             throw RemoteVCSError.worktreeNotFound
         }
-        guard !worktree.isPrimary else {
-            throw RemoteVCSError.invalidInput("The primary worktree cannot be removed.")
+        guard worktree.canBeRemoved else {
+            throw RemoteVCSError.invalidInput(
+                worktree.isPrimary
+                    ? "The primary worktree cannot be removed."
+                    : "This worktree is managed outside Muxy and cannot be removed here."
+            )
         }
 
         await WorktreeStore.cleanupOnDisk(worktree: worktree, repoPath: project.path)

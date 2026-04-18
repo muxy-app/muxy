@@ -81,7 +81,7 @@ struct WorktreesSheet: View {
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if !worktree.isPrimary, !isActive {
+            if worktree.canBeRemoved, !isActive {
                 Button(role: .destructive) {
                     Task { await remove(worktree) }
                 } label: {

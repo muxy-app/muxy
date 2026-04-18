@@ -341,7 +341,7 @@ struct VCSTabView: View {
         worktree: Worktree?,
         defaultBranch: String?
     ) async {
-        if let project, let worktree, !worktree.isPrimary {
+        if let project, let worktree, worktree.canBeRemoved {
             removeWorktreeAfterMerge(project: project, worktree: worktree, mergedBranch: mergedBranch)
             return
         }

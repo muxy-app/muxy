@@ -74,14 +74,14 @@ final class WorktreeStore {
 
     func remove(worktreeID: UUID, from projectID: UUID) {
         guard var list = worktrees[projectID] else { return }
-        list.removeAll { $0.id == worktreeID && !$0.isPrimary && !$0.isExternallyManaged }
+        list.removeAll { $0.id == worktreeID && $0.canBeRemoved }
         setWorktrees(list, for: projectID)
         save(projectID: projectID)
     }
 
     func refreshFromGit(project: Project) async throws -> [Worktree] {
         ensurePrimary(for: project)
-        let records = try await listGitWorktrees(project.path)
+        let records = try await listGitWorktrees(project.path).filter { !$0.isBare && !$0.isPrunable }
         var list = worktrees[project.id] ?? []
         let projectKey = Self.canonicalPath(project.path)
         let recordKeys = Set(records.map { Self.canonicalPath($0.path) })
@@ -150,7 +150,7 @@ final class WorktreeStore {
         worktree: Worktree,
         repoPath: String
     ) async {
-        guard !worktree.isPrimary, !worktree.isExternallyManaged else { return }
+        guard worktree.canBeRemoved else { return }
         do {
             try await GitWorktreeService.shared.removeWorktree(
                 repoPath: repoPath,
@@ -177,7 +177,7 @@ final class WorktreeStore {
     }
 
     static func cleanupOnDisk(for project: Project, knownWorktrees: [Worktree]) async {
-        let secondaryWorktrees = knownWorktrees.filter { !$0.isPrimary && !$0.isExternallyManaged }
+        let secondaryWorktrees = knownWorktrees.filter(\.canBeRemoved)
         for worktree in secondaryWorktrees {
             await cleanupOnDisk(worktree: worktree, repoPath: project.path)
         }

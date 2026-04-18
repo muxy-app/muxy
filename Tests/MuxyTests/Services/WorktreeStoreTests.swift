@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 import Testing
 
 @testable import Muxy
@@ -25,6 +26,25 @@ struct WorktreeStoreTests {
 
         #expect(worktree.source == .muxy)
         #expect(worktree.isExternallyManaged == false)
+    }
+
+    @Test("WorktreeDTO decodes legacy payloads without removal metadata")
+    func worktreeDTOLegacyDecodeDefaultsRemovalCapability() throws {
+        let json = """
+        {
+          "id": "\(UUID().uuidString)",
+          "name": "feature-a",
+          "path": "/tmp/feature-a",
+          "branch": "feature-a",
+          "isPrimary": false,
+          "createdAt": "2024-01-01T00:00:00Z"
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let worktree = try decoder.decode(WorktreeDTO.self, from: Data(json.utf8))
+
+        #expect(worktree.canBeRemoved)
     }
 
     @Test("refreshFromGit imports missing external worktrees and preserves existing IDs by path")
@@ -183,6 +203,63 @@ struct WorktreeStoreTests {
         #expect(!worktrees.contains(where: { $0.path == "/tmp/repo-external" }))
     }
 
+    @Test("refreshFromGit ignores bare and prunable records")
+    func refreshFromGitIgnoresUnusableRecords() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(name: project.name, path: project.path, isPrimary: true),
+                ]
+            ]
+        )
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: project.path,
+                    branch: "main",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+                GitWorktreeRecord(
+                    path: "/tmp/repo-bare",
+                    branch: nil,
+                    head: nil,
+                    isBare: true,
+                    isDetached: false
+                ),
+                GitWorktreeRecord(
+                    path: "/tmp/repo-prunable",
+                    branch: "feature-prunable",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false,
+                    isPrunable: true
+                ),
+                GitWorktreeRecord(
+                    path: "/tmp/repo-live",
+                    branch: "feature-live",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+            ]
+        ])
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            projects: [project]
+        )
+
+        let worktrees = try await store.refreshFromGit(project: project)
+
+        #expect(worktrees.count == 2)
+        #expect(worktrees.contains(where: { $0.path == "/tmp/repo-live" }))
+        #expect(!worktrees.contains(where: { $0.path == "/tmp/repo-bare" }))
+        #expect(!worktrees.contains(where: { $0.path == "/tmp/repo-prunable" }))
+    }
+
     @Test("refreshFromGit tolerates duplicate persisted paths without trapping")
     func refreshFromGitToleratesDuplicatePaths() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
@@ -310,6 +387,30 @@ struct WorktreeStoreTests {
         store.remove(worktreeID: external.id, from: project.id)
 
         #expect(store.list(for: project.id).contains(external))
+        #expect(external.canBeRemoved == false)
+    }
+
+    @Test("WorktreeDTO preserves removal capability")
+    func worktreeDTOPreservesRemovalCapability() {
+        let primary = Worktree(name: "Repo", path: "/tmp/repo", isPrimary: true)
+        let external = Worktree(
+            name: "feature-b",
+            path: "/tmp/repo-feature-b",
+            branch: "feature-b",
+            source: .external,
+            isPrimary: false
+        )
+        let managed = Worktree(
+            name: "feature-c",
+            path: "/tmp/repo-feature-c",
+            branch: "feature-c",
+            source: .muxy,
+            isPrimary: false
+        )
+
+        #expect(primary.toDTO().canBeRemoved == false)
+        #expect(external.toDTO().canBeRemoved == false)
+        #expect(managed.toDTO().canBeRemoved)
     }
 }
 

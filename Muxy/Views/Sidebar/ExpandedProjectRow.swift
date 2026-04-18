@@ -239,9 +239,9 @@ struct ExpandedProjectRow: View {
                             to: newName
                         )
                     },
-                    onRemove: worktree.isPrimary || worktree.isExternallyManaged ? nil : {
+                    onRemove: worktree.canBeRemoved ? {
                         Task { await requestRemove(worktree: worktree) }
-                    }
+                    } : nil
                 )
             }
 

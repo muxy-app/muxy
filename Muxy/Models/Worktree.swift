@@ -39,6 +39,10 @@ struct Worktree: Identifiable, Codable, Hashable {
         !isPrimary && source == .external
     }
 
+    var canBeRemoved: Bool {
+        !isPrimary && !isExternallyManaged
+    }
+
     private enum CodingKeys: String, CodingKey {
         case id
         case name
