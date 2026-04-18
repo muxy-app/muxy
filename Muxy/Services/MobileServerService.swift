@@ -73,7 +73,7 @@ final class MobileServerService {
     }
 
     func stop() {
-        retireCurrentServer()
+        setEnabled(false)
     }
 
     static func isValid(port: UInt16) -> Bool {

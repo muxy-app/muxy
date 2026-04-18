@@ -36,6 +36,7 @@ struct MobileSettingsView: View {
                                 service.setEnabled(false)
                             }
                         }
+                        .onSubmit { _ = commitPort() }
                 }
 
                 if let error = portValidationError ?? service.lastError {
@@ -95,9 +96,7 @@ struct MobileSettingsView: View {
             return false
         }
         portValidationError = nil
-        if service.port != value {
-            service.port = value
-        }
+        service.port = value
         portText = String(value)
         return true
     }

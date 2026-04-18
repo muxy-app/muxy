@@ -13,11 +13,14 @@ public enum DeviceAuthDecision: Sendable {
 
 public enum MuxyRemoteServerError: LocalizedError {
     case invalidPort(UInt16)
+    case startSuperseded
 
     public var errorDescription: String? {
         switch self {
         case let .invalidPort(port):
             "Invalid port \(port)."
+        case .startSuperseded:
+            "Server start was superseded by a new start request."
         }
     }
 }
@@ -84,8 +87,10 @@ public final class MuxyRemoteServer: @unchecked Sendable {
 
     public func start(completion: (@Sendable (Result<Void, Error>) -> Void)? = nil) {
         queue.async { [weak self] in
-            self?.startCompletion = completion
-            self?.startListener()
+            guard let self else { return }
+            self.finishStart(.failure(MuxyRemoteServerError.startSuperseded))
+            self.startCompletion = completion
+            self.startListener()
         }
     }
 
