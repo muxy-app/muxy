@@ -74,6 +74,7 @@ final class ConnectionManager {
     private var lastHost: String?
     private var lastPort: UInt16?
     private var isBackgrounded = false
+    private var isReconnecting = false
 
     var lastSavedHost: String? { savedDevices.first?.host }
     var lastSavedPort: UInt16? { savedDevices.first?.port }
@@ -99,12 +100,7 @@ final class ConnectionManager {
         paneOwners = [:]
         deviceTheme = nil
 
-        let url = URL(string: "ws://\(host):\(port)")!
-        session = URLSession(configuration: .default)
-        connection = session?.webSocketTask(with: url)
-        connection?.resume()
-
-        receiveLoop()
+        openSocket(host: host, port: port)
 
         Task {
             try? await Task.sleep(for: .milliseconds(500))
@@ -118,6 +114,19 @@ final class ConnectionManager {
                 break
             }
         }
+    }
+
+    private func openSocket(host: String, port: UInt16) {
+        connection?.cancel(with: .goingAway, reason: nil)
+        connection = nil
+        session = nil
+
+        guard let url = URL(string: "ws://\(host):\(port)") else { return }
+        session = URLSession(configuration: .default)
+        connection = session?.webSocketTask(with: url)
+        connection?.resume()
+
+        receiveLoop()
     }
 
     private func authenticateOrPair() async -> Bool {
@@ -233,18 +242,14 @@ final class ConnectionManager {
 
     private func reconnectSilently() {
         guard let host = lastHost, let port = lastPort else { return }
-        connection?.cancel(with: .goingAway, reason: nil)
-        connection = nil
-        session = nil
+        guard !isReconnecting else { return }
+        isReconnecting = true
 
-        let url = URL(string: "ws://\(host):\(port)")!
-        session = URLSession(configuration: .default)
-        connection = session?.webSocketTask(with: url)
-        connection?.resume()
-
-        receiveLoop()
+        paneOwners = [:]
+        openSocket(host: host, port: port)
 
         Task {
+            defer { isReconnecting = false }
             try? await Task.sleep(for: .milliseconds(500))
             guard await authenticateOrPair() else {
                 state = .error("Connection lost")
@@ -252,6 +257,8 @@ final class ConnectionManager {
             }
             await refreshProjects()
             if let projectID = activeProjectID {
+                let params = SelectProjectParams(projectID: projectID)
+                _ = await send(.selectProject, params: .selectProject(params))
                 await refreshWorkspace(projectID: projectID)
             }
         }
