@@ -285,6 +285,12 @@ struct MainWindow: View {
                 onSetCustomTitle: { tabID, title in
                     guard let tab = area.tabs.first(where: { $0.id == tabID }) else { return }
                     tab.customTitle = title
+                    appState.saveWorkspaces()
+                },
+                onSetColorID: { tabID, colorID in
+                    guard let tab = area.tabs.first(where: { $0.id == tabID }) else { return }
+                    tab.colorID = colorID
+                    appState.saveWorkspaces()
                 },
                 onReorderTab: { fromOffsets, toOffset in
                     area.reorderTab(fromOffsets: fromOffsets, toOffset: toOffset)

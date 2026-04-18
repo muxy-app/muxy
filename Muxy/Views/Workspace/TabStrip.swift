@@ -1,3 +1,4 @@
+import MuxyShared
 import SwiftUI
 
 struct PaneTabStrip: View {
@@ -7,6 +8,7 @@ struct PaneTabStrip: View {
         let kind: TerminalTab.Kind
         let isPinned: Bool
         let hasCustomTitle: Bool
+        let colorID: String?
     }
 
     let areaID: UUID
@@ -25,6 +27,7 @@ struct PaneTabStrip: View {
     let onCreateTabAdjacent: (UUID, TabArea.InsertSide) -> Void
     let onTogglePin: (UUID) -> Void
     let onSetCustomTitle: (UUID, String?) -> Void
+    let onSetColorID: (UUID, String?) -> Void
     let onReorderTab: (IndexSet, Int) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @State private var dragState = TabDragState()
@@ -36,7 +39,8 @@ struct PaneTabStrip: View {
                 title: tab.title,
                 kind: tab.kind,
                 isPinned: tab.isPinned,
-                hasCustomTitle: tab.customTitle != nil
+                hasCustomTitle: tab.customTitle != nil,
+                colorID: tab.colorID
             )
         }
     }
@@ -58,7 +62,8 @@ struct PaneTabStrip: View {
                     onCreateLeft: { onCreateTabAdjacent(tab.id, .left) },
                     onCreateRight: { onCreateTabAdjacent(tab.id, .right) },
                     onTogglePin: { onTogglePin(tab.id) },
-                    onSetCustomTitle: { onSetCustomTitle(tab.id, $0) }
+                    onSetCustomTitle: { onSetCustomTitle(tab.id, $0) },
+                    onSetColorID: { onSetColorID(tab.id, $0) }
                 )
                 .background {
                     if dragState.draggedID != nil {
@@ -216,10 +221,23 @@ private struct TabCell: View {
     let onCreateRight: () -> Void
     let onTogglePin: () -> Void
     let onSetCustomTitle: (String?) -> Void
+    let onSetColorID: (String?) -> Void
     @State private var hovered = false
     @State private var isRenaming = false
     @State private var renameText = ""
+    @State private var showColorPicker = false
     @FocusState private var renameFieldFocused: Bool
+
+    private var tabColor: Color? {
+        ProjectIconColor.color(for: tab.colorID)
+    }
+
+    private var tabBackground: Color {
+        if let tabColor {
+            return tabColor.opacity(active ? 0.18 : hovered ? 0.08 : 0.04)
+        }
+        return active ? MuxyTheme.surface : .clear
+    }
 
     private var showBadge: Bool {
         guard let shortcutIndex,
@@ -283,15 +301,23 @@ private struct TabCell: View {
                     ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
                 }
             }
-            .overlay(alignment: .bottom) {
-                if active, paneFocused {
+            .overlay(alignment: .top) {
+                if let tabColor, !active {
                     Rectangle()
-                        .fill(MuxyTheme.accent)
+                        .fill(tabColor)
                         .frame(height: 2)
                         .accessibilityHidden(true)
                 }
             }
-            .background(active ? MuxyTheme.surface : .clear)
+            .overlay(alignment: .bottom) {
+                if active, paneFocused {
+                    Rectangle()
+                        .fill(tabColor ?? MuxyTheme.accent)
+                        .frame(height: 2)
+                        .accessibilityHidden(true)
+                }
+            }
+            .background(tabBackground)
             .contentShape(Rectangle())
             .onHover { hovering in
                 guard !isAnyDragging else { return }
@@ -318,6 +344,10 @@ private struct TabCell: View {
                 if tab.hasCustomTitle {
                     Button("Reset Title") { onSetCustomTitle(nil) }
                 }
+                Button("Set Tab Color…") { showColorPicker = true }
+                if tab.colorID != nil {
+                    Button("Reset Tab Color") { onSetColorID(nil) }
+                }
                 Divider()
                 Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") {
                     onTogglePin()
@@ -325,6 +355,12 @@ private struct TabCell: View {
                 if !tab.isPinned {
                     Divider()
                     Button("Close Tab") { onClose() }
+                }
+            }
+            .popover(isPresented: $showColorPicker, arrowEdge: .bottom) {
+                ProjectIconColorPicker(title: "Tab Color", selectedID: tab.colorID) { id in
+                    onSetColorID(id)
+                    showColorPicker = false
                 }
             }
 

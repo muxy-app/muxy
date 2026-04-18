@@ -193,7 +193,11 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
   (or just the project name if no tab title is known). This makes Muxy sessions identifiable
   to accessibility readers and activity trackers (e.g., ActivityWatch) that read `AXTitle`.
   Tab titles come from the active tab's `TerminalTab.title`, which follows OSC 0/2 updates
-  via `GhosttyRuntimeEventAdapter` → `TerminalPaneState.setTitle`.
+  via `GhosttyRuntimeEventAdapter` → `TerminalPaneState.setTitle`. Users can override the
+  auto-title via `TerminalTab.customTitle` ("Rename Tab" context menu / `⌃⌘R`) and assign a
+  color accent via `TerminalTab.colorID` ("Set Tab Color…" context menu). Both fields persist
+  to `workspaces.json` through `TerminalTabSnapshot`. Colors resolve through
+  `ProjectIconColor.palette` (shared with project icon colors).
 
 ## VCS Tab Layout
 

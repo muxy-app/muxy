@@ -17,6 +17,7 @@ extension ProjectIconColor {
 }
 
 struct ProjectIconColorPicker: View {
+    var title: String = "Icon Color"
     let selectedID: String?
     let onSelect: (String?) -> Void
 
@@ -24,7 +25,7 @@ struct ProjectIconColorPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Icon Color")
+            Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
 
