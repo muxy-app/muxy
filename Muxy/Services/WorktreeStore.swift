@@ -84,6 +84,7 @@ final class WorktreeStore {
         let records = try await listGitWorktrees(project.path)
         var list = worktrees[project.id] ?? []
         let projectKey = Self.canonicalPath(project.path)
+        let recordKeys = Set(records.map { Self.canonicalPath($0.path) })
 
         if let primaryIndex = list.firstIndex(where: \.isPrimary) {
             list[primaryIndex].path = project.path
@@ -133,7 +134,9 @@ final class WorktreeStore {
             ))
         }
 
-        let sorted = sortPrimaryFirst(list)
+        let sorted = sortPrimaryFirst(list.filter {
+            !$0.isExternallyManaged || recordKeys.contains(Self.canonicalPath($0.path))
+        })
         setWorktrees(sorted, for: project.id)
         save(projectID: project.id)
         return sorted

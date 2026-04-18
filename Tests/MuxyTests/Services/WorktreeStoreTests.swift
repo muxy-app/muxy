@@ -102,8 +102,8 @@ struct WorktreeStoreTests {
         #expect(imported.isExternallyManaged)
     }
 
-    @Test("refreshFromGit keeps stored worktrees that are absent from the latest Git listing")
-    func refreshFromGitKeepsMissingStoredEntries() async throws {
+    @Test("refreshFromGit keeps missing Muxy-managed worktrees")
+    func refreshFromGitKeepsMissingMuxyManagedEntries() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
         let persistence = WorktreePersistenceStub(
             initial: [
@@ -113,7 +113,7 @@ struct WorktreeStoreTests {
                         name: "Retained",
                         path: "/tmp/repo-retained",
                         branch: "retained",
-                        source: .external,
+                        source: .muxy,
                         isPrimary: false
                     ),
                 ]
@@ -140,6 +140,47 @@ struct WorktreeStoreTests {
 
         #expect(worktrees.count == 2)
         #expect(worktrees.contains(where: { $0.path == "/tmp/repo-retained" }))
+    }
+
+    @Test("refreshFromGit removes missing external worktrees")
+    func refreshFromGitRemovesMissingExternalEntries() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(name: project.name, path: project.path, isPrimary: true),
+                    Worktree(
+                        name: "External",
+                        path: "/tmp/repo-external",
+                        branch: "external",
+                        source: .external,
+                        isPrimary: false
+                    ),
+                ]
+            ]
+        )
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: project.path,
+                    branch: "main",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+            ]
+        ])
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            projects: [project]
+        )
+
+        let worktrees = try await store.refreshFromGit(project: project)
+
+        #expect(worktrees.count == 1)
+        #expect(worktrees.allSatisfy { !$0.isExternallyManaged })
+        #expect(!worktrees.contains(where: { $0.path == "/tmp/repo-external" }))
     }
 
     @Test("refreshFromGit tolerates duplicate persisted paths without trapping")

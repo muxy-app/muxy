@@ -15,7 +15,6 @@ struct VCSTabView: View {
     @State private var showCreatePRSheet = false
     @State private var showWorktreePopover = false
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
-    @State private var isRefreshingWorktrees = false
     private var commitEnabled: Bool {
         state.hasStagedChanges && !state.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -224,15 +223,6 @@ struct VCSTabView: View {
                     onRequestCreate: {
                         showWorktreePopover = false
                         showCreateWorktreeSheet = true
-                    },
-                    onRequestRefresh: {
-                        Task {
-                            await WorktreeRefreshHelper.refresh(
-                                project: project,
-                                worktreeStore: worktreeStore,
-                                isRefreshing: $isRefreshingWorktrees
-                            )
-                        }
                     }
                 )
                 .environment(appState)

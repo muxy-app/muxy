@@ -139,7 +139,6 @@ struct ExpandedProjectRow: View {
             Spacer(minLength: 4)
 
             if isGitRepo {
-                refreshButton
                 worktreeChevron
             }
         }
@@ -193,17 +192,6 @@ struct ExpandedProjectRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(worktreesExpanded ? "Collapse Worktrees" : "Expand Worktrees")
-    }
-
-    private var refreshButton: some View {
-        IconButton(
-            symbol: isRefreshingWorktrees ? "arrow.clockwise.circle.fill" : "arrow.clockwise",
-            size: 10,
-            accessibilityLabel: "Refresh Worktrees",
-            action: { Task { await refreshWorktrees() } }
-        )
-        .disabled(isRefreshingWorktrees)
-        .help("Refresh Worktrees")
     }
 
     private var projectIcon: some View {
@@ -414,6 +402,7 @@ struct ExpandedProjectRow: View {
     private func refreshWorktrees() async {
         await WorktreeRefreshHelper.refresh(
             project: project,
+            appState: appState,
             worktreeStore: worktreeStore,
             isRefreshing: $isRefreshingWorktrees
         )

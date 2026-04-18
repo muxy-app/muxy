@@ -90,9 +90,6 @@ struct ProjectRow: View {
                     onRequestCreate: {
                         showWorktreePopover = false
                         showCreateWorktreeSheet = true
-                    },
-                    onRequestRefresh: {
-                        Task { await refreshWorktrees() }
                     }
                 )
                 .environment(appState)
@@ -265,6 +262,7 @@ struct ProjectRow: View {
     private func refreshWorktrees() async {
         await WorktreeRefreshHelper.refresh(
             project: project,
+            appState: appState,
             worktreeStore: worktreeStore,
             isRefreshing: $isRefreshingWorktrees
         )

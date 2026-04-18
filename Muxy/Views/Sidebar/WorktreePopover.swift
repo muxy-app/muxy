@@ -6,10 +6,11 @@ struct WorktreePopover: View {
     let isGitRepo: Bool
     let onDismiss: () -> Void
     let onRequestCreate: () -> Void
-    let onRequestRefresh: () -> Void
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
+
+    @State private var isRefreshing = false
 
     private var worktrees: [Worktree] {
         worktreeStore.list(for: project.id)
@@ -64,9 +65,16 @@ struct WorktreePopover: View {
             PopoverFooterAction(
                 title: "Refresh Worktrees",
                 icon: "arrow.clockwise",
+                isBusy: isRefreshing,
                 action: {
-                    onDismiss()
-                    onRequestRefresh()
+                    Task {
+                        await WorktreeRefreshHelper.refresh(
+                            project: project,
+                            appState: appState,
+                            worktreeStore: worktreeStore,
+                            isRefreshing: $isRefreshing
+                        )
+                    }
                 }
             ),
             PopoverFooterAction(
