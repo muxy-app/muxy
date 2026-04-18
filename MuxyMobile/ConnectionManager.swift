@@ -73,6 +73,7 @@ final class ConnectionManager {
     private var pendingRequests: [String: CheckedContinuation<MuxyResponse, Never>] = [:]
     private var lastHost: String?
     private var lastPort: UInt16?
+    private var isBackgrounded = false
 
     var lastSavedHost: String? { savedDevices.first?.host }
     var lastSavedPort: UInt16? { savedDevices.first?.port }
@@ -198,7 +199,12 @@ final class ConnectionManager {
         connect(host: host, port: port)
     }
 
+    func handleBackground() {
+        isBackgrounded = true
+    }
+
     func handleForeground() {
+        isBackgrounded = false
         guard lastHost != nil, lastPort != nil else { return }
         switch state {
         case .error:
@@ -214,13 +220,39 @@ final class ConnectionManager {
 
     private func verifyConnectionOrReconnect() {
         guard let connection else {
-            reconnect()
+            reconnectSilently()
             return
         }
         connection.sendPing { [weak self] error in
             guard error != nil else { return }
             Task { @MainActor in
-                self?.reconnect()
+                self?.reconnectSilently()
+            }
+        }
+    }
+
+    private func reconnectSilently() {
+        guard let host = lastHost, let port = lastPort else { return }
+        connection?.cancel(with: .goingAway, reason: nil)
+        connection = nil
+        session = nil
+
+        let url = URL(string: "ws://\(host):\(port)")!
+        session = URLSession(configuration: .default)
+        connection = session?.webSocketTask(with: url)
+        connection?.resume()
+
+        receiveLoop()
+
+        Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard await authenticateOrPair() else {
+                state = .error("Connection lost")
+                return
+            }
+            await refreshProjects()
+            if let projectID = activeProjectID {
+                await refreshWorkspace(projectID: projectID)
             }
         }
     }
@@ -333,7 +365,9 @@ final class ConnectionManager {
             try await connection?.send(.string(text))
         } catch {
             logger.error("Send failed: \(error)")
-            state = .error("Connection lost")
+            if !isBackgrounded {
+                state = .error("Connection lost")
+            }
             return nil
         }
 
@@ -367,7 +401,9 @@ final class ConnectionManager {
                         self.state = .error("Could not reach device")
                     case .connected:
                         logger.error("Receive failed: \(error)")
-                        self.state = .error("Connection lost")
+                        if !self.isBackgrounded {
+                            self.state = .error("Connection lost")
+                        }
                     }
                 }
             }
