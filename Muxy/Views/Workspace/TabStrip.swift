@@ -17,6 +17,7 @@ struct PaneTabStrip: View {
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
     var showVCSButton = true
+    var showDevelopmentBadge = false
     let projectID: UUID
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
@@ -96,6 +97,10 @@ struct PaneTabStrip: View {
 
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
+                if showDevelopmentBadge {
+                    developmentBadge
+                        .padding(.trailing, 6)
+                }
                 if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {
                     UpdateBadge(version: version) {
                         UpdateService.shared.checkForUpdates()
@@ -129,6 +134,16 @@ struct PaneTabStrip: View {
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
         "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
+    }
+
+    private var developmentBadge: some View {
+        Text("DEV")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(Color.black.opacity(0.85))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.orange, in: Capsule())
+            .allowsHitTesting(false)
     }
 
     private func handleDragChanged(

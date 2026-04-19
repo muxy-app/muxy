@@ -31,6 +31,7 @@ struct MobileSettingsView: View {
                         .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
                         .frame(width: SettingsMetrics.controlWidth)
                         .onChange(of: portText) { _, _ in
+                            guard portText != String(service.port) else { return }
                             portValidationError = nil
                             if service.isEnabled {
                                 service.setEnabled(false)
@@ -40,12 +41,22 @@ struct MobileSettingsView: View {
                 }
 
                 if let error = portValidationError ?? service.lastError {
-                    Text(error)
-                        .font(.system(size: SettingsMetrics.footnoteFontSize))
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, SettingsMetrics.horizontalPadding)
-                        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+                    HStack(spacing: 6) {
+                        Text(error)
+                            .font(.system(size: SettingsMetrics.footnoteFontSize))
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if service.isPortInUse {
+                            Button("Free Port") {
+                                service.freePort()
+                            }
+                            .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(MuxyTheme.accent)
+                        }
+                    }
+                    .padding(.horizontal, SettingsMetrics.horizontalPadding)
+                    .padding(.vertical, SettingsMetrics.rowVerticalPadding)
                 }
             }
 

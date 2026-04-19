@@ -10,12 +10,23 @@ private let logger = Logger(subsystem: "app.muxy", category: "MobileServerServic
 final class MobileServerService {
     static let shared = MobileServerService()
 
-    static let defaultPort: UInt16 = MuxyRemoteServer.defaultPort
+    static let defaultPort: UInt16 = AppEnvironment.isDevelopment
+        ? MuxyRemoteServer.defaultPort + 1
+        : MuxyRemoteServer.defaultPort
     static let minPort: UInt16 = 1024
     static let maxPort: UInt16 = 65535
 
-    private static let enabledKey = "app.muxy.mobile.serverEnabled"
-    private static let portKey = "app.muxy.mobile.serverPort"
+    private static var enabledKey: String {
+        AppEnvironment.isDevelopment
+            ? "app.muxy.mobile.serverEnabled.dev"
+            : "app.muxy.mobile.serverEnabled"
+    }
+
+    private static var portKey: String {
+        AppEnvironment.isDevelopment
+            ? "app.muxy.mobile.serverPort.dev"
+            : "app.muxy.mobile.serverPort"
+    }
 
     private(set) var isEnabled: Bool {
         didSet {
@@ -35,6 +46,7 @@ final class MobileServerService {
     }
 
     private(set) var lastError: String?
+    private(set) var isPortInUse = false
 
     private var server: MuxyRemoteServer?
     private var delegate: MuxyRemoteServerDelegate?
@@ -42,12 +54,17 @@ final class MobileServerService {
     private var pendingServers: [MuxyRemoteServer] = []
 
     private init() {
-        isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
-        let storedPort = UserDefaults.standard.object(forKey: Self.portKey) as? Int
-        if let storedPort, let value = UInt16(exactly: storedPort), Self.isValid(port: value) {
-            port = value
-        } else {
+        if AppEnvironment.isDevelopment {
+            isEnabled = true
             port = Self.defaultPort
+        } else {
+            isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+            let storedPort = UserDefaults.standard.object(forKey: Self.portKey) as? Int
+            if let storedPort, let value = UInt16(exactly: storedPort), Self.isValid(port: value) {
+                port = value
+            } else {
+                port = Self.defaultPort
+            }
         }
         ApprovedDevicesStore.shared.onRevoke = { [weak self] deviceID in
             self?.server?.disconnect(deviceID: deviceID)
@@ -69,6 +86,7 @@ final class MobileServerService {
         } else {
             retireCurrentServer()
             lastError = nil
+            isPortInUse = false
         }
     }
 
@@ -127,22 +145,80 @@ final class MobileServerService {
         switch result {
         case .success:
             lastError = nil
+            isPortInUse = false
             logger.info("Mobile server started on port \(port)")
         case let .failure(error):
             logger.error("Mobile server failed to start on port \(port): \(error.localizedDescription)")
-            stop()
+            isPortInUse = Self.isAddressInUseError(error)
+            retireCurrentServer()
             isEnabled = false
+            UserDefaults.standard.set(false, forKey: Self.enabledKey)
             lastError = friendlyMessage(for: error, port: port)
         }
     }
 
     private func friendlyMessage(for error: Error, port: UInt16) -> String {
-        if case let .posix(code) = error as? NWError, code == .EADDRINUSE {
-            return "Port \(port) is already in use. Choose a different port."
+        if Self.isAddressInUseError(error) {
+            return "Port \(port) is already in use."
         }
         if let localized = (error as? LocalizedError)?.errorDescription {
             return localized
         }
         return "Could not start server on port \(port): \(error.localizedDescription)"
+    }
+
+    private static func isAddressInUseError(_ error: Error) -> Bool {
+        if case let .posix(code) = error as? NWError, code == .EADDRINUSE {
+            return true
+        }
+        return false
+    }
+
+    func freePort() {
+        let port = self.port
+        logger.info("Attempting to free port \(port)")
+        Task.detached {
+            let pids = Self.pidsListening(on: port)
+            guard !pids.isEmpty else {
+                await MainActor.run {
+                    logger.info("No process found on port \(port)")
+                    self.lastError = nil
+                    self.isPortInUse = false
+                    self.setEnabled(true)
+                }
+                return
+            }
+            for pid in pids {
+                logger.info("Killing PID \(pid) on port \(port)")
+                kill(pid, SIGTERM)
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+            await MainActor.run {
+                self.lastError = nil
+                self.isPortInUse = false
+                self.setEnabled(true)
+            }
+        }
+    }
+
+    nonisolated private static func pidsListening(on port: UInt16) -> [pid_t] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        process.arguments = ["-ti", "TCP:\(port)", "-sTCP:LISTEN"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return []
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        return output
+            .split(whereSeparator: \.isWhitespace)
+            .compactMap { Int32($0) }
+            .filter { $0 > 0 }
     }
 }
