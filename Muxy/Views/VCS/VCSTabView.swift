@@ -1392,19 +1392,19 @@ private struct SectionSplitLayout: View {
 
     @ViewBuilder
     private func expandedDiff(for file: GitStatusFile) -> some View {
-        if state.loadingDiffPaths.contains(file.path) {
+        if state.diffCache.isLoading(file.path) {
             ProgressView()
                 .frame(maxWidth: .infinity)
                 .padding(14)
                 .background(MuxyTheme.bg)
-        } else if let error = state.diffErrorsByPath[file.path] {
+        } else if let error = state.diffCache.error(for: file.path) {
             Text(error)
                 .font(.system(size: 12))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
                 .background(MuxyTheme.bg)
-        } else if let diff = state.diffsByPath[file.path] {
+        } else if let diff = state.diffCache.diff(for: file.path) {
             VStack(spacing: 0) {
                 if diff.truncated {
                     HStack {
