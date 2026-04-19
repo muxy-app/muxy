@@ -1,13 +1,33 @@
 import SwiftUI
 
+struct PopoverFooterAction: Identifiable {
+    let id: String
+    let title: String
+    let icon: String?
+    let isBusy: Bool
+    let action: () -> Void
+
+    init(
+        id: String? = nil,
+        title: String,
+        icon: String? = nil,
+        isBusy: Bool = false,
+        action: @escaping () -> Void
+    ) {
+        self.id = id ?? "\(title)|\(icon ?? "")"
+        self.title = title
+        self.icon = icon
+        self.isBusy = isBusy
+        self.action = action
+    }
+}
+
 struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
     let items: [Item]
     let filterKey: (Item) -> String
     let searchPlaceholder: String
     let emptyLabel: String
-    let footerTitle: String?
-    let footerIcon: String?
-    let onFooterAction: (() -> Void)?
+    let footerActions: [PopoverFooterAction]
     let onSelect: (Item) -> Void
     @ViewBuilder let row: (Item, Bool) -> RowContent
 
@@ -16,9 +36,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
         filterKey: @escaping (Item) -> String,
         searchPlaceholder: String,
         emptyLabel: String,
-        footerTitle: String? = nil,
-        footerIcon: String? = nil,
-        onFooterAction: (() -> Void)? = nil,
+        footerActions: [PopoverFooterAction] = [],
         onSelect: @escaping (Item) -> Void,
         @ViewBuilder row: @escaping (Item, Bool) -> RowContent
     ) {
@@ -26,9 +44,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
         self.filterKey = filterKey
         self.searchPlaceholder = searchPlaceholder
         self.emptyLabel = emptyLabel
-        self.footerTitle = footerTitle
-        self.footerIcon = footerIcon
-        self.onFooterAction = onFooterAction
+        self.footerActions = footerActions
         self.onSelect = onSelect
         self.row = row
     }
@@ -43,16 +59,30 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
                 onSelect: onSelect,
                 row: row
             )
-            if let footerTitle, let onFooterAction {
+            if !footerActions.isEmpty {
                 Divider().overlay(MuxyTheme.border.opacity(0.55))
-                footerButton(title: footerTitle, icon: footerIcon, action: onFooterAction)
+                VStack(spacing: 0) {
+                    ForEach(footerActions) { footerAction in
+                        footerButton(
+                            title: footerAction.title,
+                            icon: footerAction.icon,
+                            isBusy: footerAction.isBusy,
+                            action: footerAction.action
+                        )
+                    }
+                }
             }
         }
         .frame(width: 300, height: 420)
         .background(MuxyTheme.bg)
     }
 
-    private func footerButton(title: String, icon: String?, action: @escaping () -> Void) -> some View {
+    private func footerButton(
+        title: String,
+        icon: String?,
+        isBusy: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 if let icon {
@@ -62,6 +92,11 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
                 Spacer()
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.7)
+                    .frame(width: 12, height: 12)
+                    .opacity(isBusy ? 1 : 0)
             }
             .foregroundStyle(MuxyTheme.fg)
             .padding(.horizontal, 14)
@@ -69,5 +104,6 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(isBusy)
     }
 }

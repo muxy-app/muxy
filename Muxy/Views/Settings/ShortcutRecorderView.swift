@@ -25,6 +25,22 @@ final class ShortcutRecorderNSView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        .textField
+    }
+
+    override func accessibilityRoleDescription() -> String? {
+        "Shortcut Recorder"
+    }
+
+    override func accessibilityLabel() -> String? {
+        "Press a keyboard shortcut to assign, or Escape to cancel"
+    }
+
+    override func accessibilityValue() -> Any? {
+        "Recording"
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return super.performKeyEquivalent(with: event) }
         return handleKeyEvent(event)

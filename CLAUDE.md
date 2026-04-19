@@ -79,3 +79,8 @@ The xcframework is built via GitHub Actions on the [muxy-app/ghostty](https://gi
 - For every task, Consider how it will impact the architecture and code quality, not just the immediate problem
 - Follow the existing code's pattern but offer refactors if they improve code quality and maintainability.
 - Use logs for debugging.
+
+
+## Code Review
+
+Review the PRs/Code against the purpose of the PR/Issue/Asked. If you find unrelated issues to the PR during the review, Report them in a separate section.

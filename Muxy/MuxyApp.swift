@@ -50,6 +50,15 @@ struct MuxyApp: App {
                     appDelegate.hasUnsavedEditorTabs = { [appState] in
                         appState.unsavedEditorTabs()
                     }
+                    MobileServerService.shared.configure { server in
+                        let delegate = RemoteServerDelegate(
+                            appState: appState,
+                            projectStore: projectStore,
+                            worktreeStore: worktreeStore
+                        )
+                        delegate.server = server
+                        return delegate
+                    }
                     appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
                         for id in projectIDs {
                             if let project = projectStore.projects.first(where: { $0.id == id }) {
@@ -176,6 +185,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onTerminate?()
         NotificationStore.shared.saveToDisk()
         NotificationSocketServer.shared.stop()
+        MainActor.assumeIsolated {
+            MobileServerService.shared.stopForTermination()
+        }
     }
 
     @MainActor
@@ -297,6 +309,8 @@ struct WindowConfigurator: NSViewRepresentable {
             let names: [Notification.Name] = [
                 NSWindow.didResizeNotification,
                 NSWindow.didEndLiveResizeNotification,
+                NSWindow.didChangeScreenNotification,
+                NSWindow.didChangeBackingPropertiesNotification,
                 NSWindow.didExitFullScreenNotification,
                 NSWindow.didEnterFullScreenNotification,
             ]
@@ -310,6 +324,11 @@ struct WindowConfigurator: NSViewRepresentable {
                     MainActor.assumeIsolated {
                         WindowConfigurator.repositionTrafficLights(in: w)
                         WindowConfigurator.hideTitlebarDecorationView(in: w)
+                        if name == NSWindow.didChangeScreenNotification
+                            || name == NSWindow.didChangeBackingPropertiesNotification
+                        {
+                            WindowConfigurator.neutralizeSafeAreaInsets(in: w)
+                        }
                         if name == NSWindow.didEnterFullScreenNotification
                             || name == NSWindow.didExitFullScreenNotification
                         {

@@ -4,7 +4,8 @@
 
 <h1 align="center">Muxy</h1>
 
-<p align="center">A macOS terminal multiplexer built with SwiftUI and <a href="https://github.com/ghostty-org/ghostty">libghostty</a>.</p>
+<p align="center">Lightweight and Memory efficient terminal for Mac built with SwiftUI and <a href="https://github.com/ghostty-org/ghostty">libghostty</a>.</p>
+<p align="center"><a href="#ios-app-testing">NOW Available on iOS for Testing</a></p>
 
 <div align="center">
   <img src="https://img.shields.io/github/downloads/muxy-app/muxy/total" />
@@ -12,9 +13,9 @@
 
 ## Screenshots
 
-<img width="3212" height="1738" alt="1" src="https://github.com/user-attachments/assets/5a15a0cb-9285-4492-9b94-2a77ec044a26" />
-<img width="3212" height="1738" alt="2 (1)" src="https://github.com/user-attachments/assets/767de746-ca9d-4f3d-82fc-c8765d135149" />
-<img width="3212" height="1738" alt="3" src="https://github.com/user-attachments/assets/dd93f651-8c29-43fb-894c-9fbeed6db266" />
+<img width="3212" alt="Muxy Dark" src="https://github.com/user-attachments/assets/5a15a0cb-9285-4492-9b94-2a77ec044a26" />
+<img width="3212" alt="Muxy Light" src="https://github.com/user-attachments/assets/767de746-ca9d-4f3d-82fc-c8765d135149" />
+<img width="3212" alt="Muxy Dark 2" src="https://github.com/user-attachments/assets/dd93f651-8c29-43fb-894c-9fbeed6db266" />
 
 ## Features
 
@@ -49,6 +50,22 @@ brew install --cask muxy
 ### Manual
 
 Download the latest release from the [releases page](https://github.com/muxy-app/muxy/releases)
+
+### iOS app (Testing)
+
+The iOS app is available for testers on TestFlight
+
+- Install the iOS app via TestFlight (https://testflight.apple.com/join/7t1AaYHW)
+- Open Muxy on your Mac
+- Go to Settings (Cmd + `,`)
+- Go to Mobile tab
+- Toggle the `Allow mobile device connection`
+- Open the iOS app
+- Enter the IP and Port
+- Approve the connection on your Mac
+- Test and open issues for the bugs
+
+**The iOS app is also open-source and the source is in this repo**
 
 ## Local Development
 

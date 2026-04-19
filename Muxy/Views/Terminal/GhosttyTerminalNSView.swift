@@ -38,6 +38,11 @@ final class GhosttyTerminalNSView: NSView {
         wantsLayer = true
         setupTrackingArea()
         registerForDraggedTypes([.fileURL])
+        setAccessibilityRole(.textArea)
+        setAccessibilityRoleDescription("Terminal")
+        let directoryName = URL(fileURLWithPath: workingDirectory).lastPathComponent
+        let label = directoryName.isEmpty ? "Terminal" : "Terminal — \(directoryName)"
+        setAccessibilityLabel(label)
     }
 
     @available(*, unavailable)
@@ -45,13 +50,32 @@ final class GhosttyTerminalNSView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    override func accessibilitySelectedText() -> String? {
+        readSelectionText()
+    }
+
+    private func readSelectionText() -> String? {
+        guard let surface, ghostty_surface_has_selection(surface) else { return nil }
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        return extractString(from: text)
+    }
+
+    private func extractString(from text: ghostty_text_s) -> String? {
+        guard let ptr = text.text, text.text_len > 0 else { return nil }
+        let len = Int(text.text_len)
+        return ptr.withMemoryRebound(to: UInt8.self, capacity: len) { rawPtr in
+            String(bytes: UnsafeBufferPointer(start: rawPtr, count: len), encoding: .utf8)
+        }
+    }
+
     private var pendingSurfaceCreation = false
 
     func createSurface() {
         guard surface == nil, let app = GhosttyService.shared.app else { return }
 
-        let backingSize = convertToBacking(bounds).size
-        guard backingSize.width > 0, backingSize.height > 0 else {
+        guard let backingSize = backingPixelSize() else {
             pendingSurfaceCreation = true
             return
         }
@@ -69,9 +93,9 @@ final class GhosttyTerminalNSView: NSView {
         var cStrings: [UnsafeMutablePointer<CChar>] = []
         defer { cStrings.forEach { free($0) } }
 
-        if let command, let cCommand = strdup(command) {
-            cStrings.append(cCommand)
-            config.command = UnsafePointer(cCommand)
+        if let command, let loginWrapped = strdup(Self.loginShellCommand(command)) {
+            cStrings.append(loginWrapped)
+            config.command = UnsafePointer(loginWrapped)
             config.wait_after_command = false
         }
 
@@ -100,9 +124,7 @@ final class GhosttyTerminalNSView: NSView {
         let scale = Double(window?.backingScaleFactor ?? 2.0)
         ghostty_surface_set_content_scale(surface, scale, scale)
 
-        let w = UInt32(backingSize.width)
-        let h = UInt32(backingSize.height)
-        ghostty_surface_set_size(surface, w, h)
+        ghostty_surface_set_size(surface, backingSize.width, backingSize.height)
 
         let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         ghostty_surface_set_color_scheme(surface, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
@@ -136,24 +158,30 @@ final class GhosttyTerminalNSView: NSView {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil
         }
+        delayedResizeWorkItem?.cancel()
+        delayedResizeWorkItem = nil
         destroySurface()
         removeFromSuperview()
     }
 
     deinit {
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
+        delayedResizeWorkItem?.cancel()
         if let surface {
             ghostty_surface_free(surface)
         }
     }
 
     nonisolated(unsafe) private var screenChangeObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var delayedResizeWorkItem: DispatchWorkItem?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
 
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         screenChangeObserver = nil
+        delayedResizeWorkItem?.cancel()
+        delayedResizeWorkItem = nil
 
         guard let window else { return }
 
@@ -167,11 +195,11 @@ final class GhosttyTerminalNSView: NSView {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.updateMetalLayerSize()
+                self?.updateMetalLayerSize(deferred: true)
             }
         }
 
-        updateMetalLayerSize()
+        updateMetalLayerSize(deferred: true)
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -179,12 +207,12 @@ final class GhosttyTerminalNSView: NSView {
         if pendingSurfaceCreation {
             createSurface()
         }
-        updateMetalLayerSize()
+        updateMetalLayerSize(deferred: false)
     }
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        updateMetalLayerSize()
+        updateMetalLayerSize(deferred: true)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -194,11 +222,25 @@ final class GhosttyTerminalNSView: NSView {
         ghostty_surface_set_color_scheme(surface, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
     }
 
-    private func updateMetalLayerSize() {
-        guard let surface, let window else { return }
+    private func updateMetalLayerSize(deferred: Bool) {
+        if deferred {
+            delayedResizeWorkItem?.cancel()
+            DispatchQueue.main.async { [weak self] in
+                self?.updateMetalLayerSize(deferred: false)
+            }
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.updateMetalLayerSize(deferred: false)
+            }
+            delayedResizeWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
+            return
+        }
 
-        let scaledSize = convertToBacking(bounds).size
-        guard scaledSize.width > 0, scaledSize.height > 0 else { return }
+        guard let surface, let window else { return }
+        layer?.contentsScale = window.backingScaleFactor
+        layoutSubtreeIfNeeded()
+
+        guard let backingSize = backingPixelSize() else { return }
 
         let scale = Double(window.backingScaleFactor)
 
@@ -210,9 +252,25 @@ final class GhosttyTerminalNSView: NSView {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        let w = UInt32(scaledSize.width)
-        let h = UInt32(scaledSize.height)
-        ghostty_surface_set_size(surface, w, h)
+        if let paneID = TerminalViewRegistry.shared.paneID(for: self),
+           TerminalViewRegistry.shared.isOwnedByRemote(paneID)
+        {
+            return
+        }
+
+        ghostty_surface_set_size(surface, backingSize.width, backingSize.height)
+    }
+
+    func remoteOwnershipDidChange() {
+        updateMetalLayerSize(deferred: false)
+    }
+
+    private func backingPixelSize() -> (width: UInt32, height: UInt32)? {
+        let size = convertToBacking(bounds).size
+        let width = Int(floor(size.width))
+        let height = Int(floor(size.height))
+        guard width > 0, height > 0 else { return nil }
+        return (UInt32(width), UInt32(height))
     }
 
     private func isAppShortcut(_ event: NSEvent) -> Bool {
@@ -292,7 +350,7 @@ final class GhosttyTerminalNSView: NSView {
         if flags.contains(.control), !flags.contains(.command), !flags.contains(.option), !hasMarkedText() {
             if isAppShortcut(event) { return }
             var keyEvent = buildKeyEvent(from: event, action: action)
-            let text = event.charactersIgnoringModifiers ?? event.characters ?? ""
+            let text = shortcutText(from: event)
             if text.isEmpty {
                 keyEvent.text = nil
                 _ = ghostty_surface_key(surface, keyEvent)
@@ -484,6 +542,11 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     @objc
+    func paste(_ sender: Any?) {
+        handleContextPaste(sender)
+    }
+
+    @objc
     private func handleContextSplit(_ sender: NSMenuItem) {
         guard let split = sender.representedObject as? ContextSplit else { return }
         onSplitRequest?(split.direction, split.position)
@@ -604,7 +667,17 @@ final class GhosttyTerminalNSView: NSView {
         return text
     }
 
+    private func shortcutText(from event: NSEvent) -> String {
+        if let scalar = KeyCombo.scalar(for: event.keyCode) {
+            return String(scalar)
+        }
+        return event.charactersIgnoringModifiers ?? event.characters ?? ""
+    }
+
     private func unshiftedCodepoint(from event: NSEvent) -> UInt32 {
+        if let scalar = KeyCombo.scalar(for: event.keyCode) {
+            return scalar.value
+        }
         guard let chars = event.characters(byApplyingModifiers: []),
               let scalar = chars.unicodeScalars.first
         else { return 0 }
@@ -643,15 +716,86 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func sendReturnKey() {
+        sendKeyPress(codepoint: 13, keycode: 36)
+    }
+
+    func sendRemoteText(_ text: String) {
+        if let arrowKey = Self.ansiArrowKey(text) {
+            sendKeyPress(codepoint: arrowKey.codepoint, keycode: arrowKey.keycode, mods: arrowKey.mods)
+            return
+        }
+
+        var buffer = ""
+        for character in text {
+            let scalar = character.unicodeScalars.first?.value ?? 0
+            if let keyEvent = Self.specialKeyEvent(scalar) {
+                if !buffer.isEmpty {
+                    sendText(buffer)
+                    buffer = ""
+                }
+                sendKeyPress(
+                    codepoint: keyEvent.codepoint,
+                    keycode: keyEvent.keycode,
+                    mods: keyEvent.mods
+                )
+            } else if character == "\r" || character == "\n" {
+                if !buffer.isEmpty {
+                    sendText(buffer)
+                    buffer = ""
+                }
+                sendReturnKey()
+            } else {
+                buffer.append(character)
+            }
+        }
+        if !buffer.isEmpty {
+            sendText(buffer)
+        }
+    }
+
+    private struct RemoteKeyEvent {
+        let codepoint: UInt32
+        let keycode: UInt32
+        let mods: ghostty_input_mods_e
+    }
+
+    private static func ansiArrowKey(_ text: String) -> RemoteKeyEvent? {
+        switch text {
+        case "\u{1B}[A": RemoteKeyEvent(codepoint: 0, keycode: 126, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[B": RemoteKeyEvent(codepoint: 0, keycode: 125, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[C": RemoteKeyEvent(codepoint: 0, keycode: 124, mods: GHOSTTY_MODS_NONE)
+        case "\u{1B}[D": RemoteKeyEvent(codepoint: 0, keycode: 123, mods: GHOSTTY_MODS_NONE)
+        default: nil
+        }
+    }
+
+    private static func specialKeyEvent(_ scalar: UInt32) -> RemoteKeyEvent? {
+        switch scalar {
+        case 0x01: RemoteKeyEvent(codepoint: 97, keycode: 0, mods: GHOSTTY_MODS_CTRL)
+        case 0x02: RemoteKeyEvent(codepoint: 98, keycode: 11, mods: GHOSTTY_MODS_CTRL)
+        case 0x03: RemoteKeyEvent(codepoint: 99, keycode: 8, mods: GHOSTTY_MODS_CTRL)
+        case 0x04: RemoteKeyEvent(codepoint: 100, keycode: 2, mods: GHOSTTY_MODS_CTRL)
+        case 0x05: RemoteKeyEvent(codepoint: 101, keycode: 14, mods: GHOSTTY_MODS_CTRL)
+        case 0x06: RemoteKeyEvent(codepoint: 102, keycode: 3, mods: GHOSTTY_MODS_CTRL)
+        case 0x0C: RemoteKeyEvent(codepoint: 108, keycode: 37, mods: GHOSTTY_MODS_CTRL)
+        case 0x1A: RemoteKeyEvent(codepoint: 122, keycode: 6, mods: GHOSTTY_MODS_CTRL)
+        case 0x09: RemoteKeyEvent(codepoint: 9, keycode: 48, mods: GHOSTTY_MODS_NONE)
+        case 0x1B: RemoteKeyEvent(codepoint: 27, keycode: 53, mods: GHOSTTY_MODS_NONE)
+        case 0x7F: RemoteKeyEvent(codepoint: 8, keycode: 51, mods: GHOSTTY_MODS_NONE)
+        default: nil
+        }
+    }
+
+    func sendKeyPress(codepoint: UInt32, keycode: UInt32 = 0, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
         guard let surface else { return }
         var press = ghostty_input_key_s()
         press.action = GHOSTTY_ACTION_PRESS
-        press.keycode = 36
-        press.mods = GHOSTTY_MODS_NONE
-        press.consumed_mods = GHOSTTY_MODS_NONE
+        press.keycode = keycode
+        press.mods = mods
+        press.consumed_mods = mods
         press.composing = false
         press.text = nil
-        press.unshifted_codepoint = 13
+        press.unshifted_codepoint = codepoint
         _ = ghostty_surface_key(surface, press)
 
         var release = press
@@ -661,6 +805,22 @@ final class GhosttyTerminalNSView: NSView {
 
     var hasLiveSurface: Bool {
         surface != nil
+    }
+
+    private static func loginShellCommand(_ command: String) -> String {
+        let shell = userShell()
+        let escaped = command.replacingOccurrences(of: "'", with: "'\\''")
+        return "\(shell) -l -c '\(escaped)'"
+    }
+
+    private static func userShell() -> String {
+        if let shell = ProcessInfo.processInfo.environment["SHELL"], !shell.isEmpty {
+            return shell
+        }
+        guard let pw = getpwuid(getuid()), let shellPtr = pw.pointee.pw_shell else {
+            return "/bin/zsh"
+        }
+        return String(cString: shellPtr)
     }
 
     enum SearchDirection: String {

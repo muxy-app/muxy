@@ -2,6 +2,14 @@ import Foundation
 
 @MainActor
 struct AppEnvironment {
+    static let isDevelopment: Bool = {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }()
+
     let selectionStore: any ActiveProjectSelectionStoring
     let terminalViews: any TerminalViewRemoving
     let projectPersistence: any ProjectPersisting

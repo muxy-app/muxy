@@ -22,6 +22,7 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .font(.system(size: 12))
+                    .accessibilityHidden(true)
                 PaletteSearchField(
                     text: $searchText,
                     placeholder: placeholder,

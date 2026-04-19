@@ -28,6 +28,7 @@ struct EditorSearchBar: View {
                 }
                 .buttonStyle(EditorSearchButtonStyle())
                 .help(state.replaceVisible ? "Hide Replace" : "Show Replace")
+                .accessibilityLabel(state.replaceVisible ? "Hide Replace" : "Show Replace")
                 .padding(.top, 1)
 
                 VStack(spacing: 4) {
@@ -56,6 +57,7 @@ struct EditorSearchBar: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
                     .foregroundStyle(MuxyTheme.fgMuted)
+                    .accessibilityHidden(true)
 
                 TextField("Search", text: $state.searchNeedle)
                     .textFieldStyle(.plain)
@@ -98,18 +100,21 @@ struct EditorSearchBar: View {
                     .font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(EditorSearchButtonStyle())
+            .accessibilityLabel("Previous Match")
 
             Button(action: onNext) {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(EditorSearchButtonStyle())
+            .accessibilityLabel("Next Match")
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(EditorSearchButtonStyle())
+            .accessibilityLabel("Close Search")
         }
     }
 
@@ -119,6 +124,7 @@ struct EditorSearchBar: View {
                 Image(systemName: "arrow.2.squarepath")
                     .font(.system(size: 11))
                     .foregroundStyle(MuxyTheme.fgMuted)
+                    .accessibilityHidden(true)
 
                 TextField("Replace", text: $state.replaceText)
                     .textFieldStyle(.plain)
@@ -193,5 +199,8 @@ private struct EditorSearchOptionToggle: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
+        .accessibilityValue(isOn ? "Enabled" : "Disabled")
+        .accessibilityAddTraits(.isToggle)
     }
 }

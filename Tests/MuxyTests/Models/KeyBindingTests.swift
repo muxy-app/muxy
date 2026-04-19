@@ -53,6 +53,20 @@ struct KeyBindingTests {
         #expect(ShortcutAction.projectAction(for: 10) == nil)
     }
 
+    @Test("ShortcutAction tabSelectionIndex maps tab actions")
+    func tabSelectionIndex() {
+        #expect(ShortcutAction.selectTab1.tabSelectionIndex == 0)
+        #expect(ShortcutAction.selectTab9.tabSelectionIndex == 8)
+        #expect(ShortcutAction.newTab.tabSelectionIndex == nil)
+    }
+
+    @Test("ShortcutAction projectSelectionIndex maps project actions")
+    func projectSelectionIndex() {
+        #expect(ShortcutAction.selectProject1.projectSelectionIndex == 0)
+        #expect(ShortcutAction.selectProject9.projectSelectionIndex == 8)
+        #expect(ShortcutAction.nextProject.projectSelectionIndex == nil)
+    }
+
     @Test("KeyBinding.defaults has unique actions")
     func defaultsUniqueActions() {
         let actions = KeyBinding.defaults.map(\.action)

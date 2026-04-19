@@ -1,4 +1,5 @@
 import AppKit
+import MuxyShared
 import SwiftUI
 
 struct ExpandedProjectRow: View {
@@ -9,6 +10,7 @@ struct ExpandedProjectRow: View {
     let onRemove: () -> Void
     let onRename: (String) -> Void
     let onSetLogo: (String?) -> Void
+    let onSetIconColor: (String?) -> Void
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -20,6 +22,8 @@ struct ExpandedProjectRow: View {
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableExpandedImage?
     @State private var worktreesExpanded = false
+    @State private var isRefreshingWorktrees = false
+    @State private var showColorPicker = false
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -63,10 +67,15 @@ struct ExpandedProjectRow: View {
             if project.logo != nil {
                 Button("Remove Logo") { onSetLogo(nil) }
             }
+            Button("Set Icon Color...") { showColorPicker = true }
+            if project.iconColor != nil {
+                Button("Reset Icon Color") { onSetIconColor(nil) }
+            }
             Divider()
             Button("Rename Project") { startRename() }
             if isGitRepo {
                 Divider()
+                Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
                 Button("New Worktree…") { showCreateWorktreeSheet = true }
             }
             Divider()
@@ -98,6 +107,12 @@ struct ExpandedProjectRow: View {
                 onCommit: { commitRename() },
                 onCancel: { cancelRename() }
             )
+        }
+        .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
+            ProjectIconColorPicker(selectedID: project.iconColor) { id in
+                onSetIconColor(id)
+                showColorPicker = false
+            }
         }
     }
 
@@ -131,6 +146,10 @@ struct ExpandedProjectRow: View {
         .padding(.vertical, 6)
         .background(headerBackground, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(projectHeaderAccessibilityLabel)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+        .accessibilityAddTraits(.isButton)
         .onHover { hovering in
             guard !isAnyDragging else { return }
             hovered = hovering
@@ -172,6 +191,7 @@ struct ExpandedProjectRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(worktreesExpanded ? "Collapse Worktrees" : "Expand Worktrees")
     }
 
     private var projectIcon: some View {
@@ -190,7 +210,7 @@ struct ExpandedProjectRow: View {
             } else {
                 Text(displayLetter)
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(isActive ? MuxyTheme.fg : MuxyTheme.fgMuted)
+                    .foregroundStyle(letterForeground)
             }
         }
         .frame(width: 24, height: 24)
@@ -219,9 +239,9 @@ struct ExpandedProjectRow: View {
                             to: newName
                         )
                     },
-                    onRemove: worktree.isPrimary ? nil : {
+                    onRemove: worktree.canBeRemoved ? {
                         Task { await requestRemove(worktree: worktree) }
-                    }
+                    } : nil
                 )
             }
 
@@ -233,6 +253,14 @@ struct ExpandedProjectRow: View {
         .padding(.bottom, 4)
     }
 
+    private var projectHeaderAccessibilityLabel: String {
+        var label = project.name
+        if isGitRepo, let worktree = activeWorktree {
+            label += ", worktree: \(worktree.isPrimary ? "primary" : worktree.name)"
+        }
+        return label
+    }
+
     private var resolvedLogo: NSImage? {
         guard let filename = project.logo else { return nil }
         return NSImage(contentsOfFile: ProjectLogoStorage.logoPath(for: filename))
@@ -240,8 +268,18 @@ struct ExpandedProjectRow: View {
 
     private func iconBackground(hasLogo: Bool) -> AnyShapeStyle {
         if hasLogo { return AnyShapeStyle(Color.clear) }
+        if let tint = ProjectIconColor.color(for: project.iconColor) {
+            return AnyShapeStyle(hovered ? tint.opacity(0.85) : tint)
+        }
         if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(MuxyTheme.surface)
+    }
+
+    private var letterForeground: Color {
+        if let foreground = ProjectIconColor.foreground(for: project.iconColor) {
+            return foreground
+        }
+        return isActive ? MuxyTheme.fg : MuxyTheme.fgMuted
     }
 
     private var headerBackground: AnyShapeStyle {
@@ -360,6 +398,15 @@ struct ExpandedProjectRow: View {
     private func cancelRename() {
         isRenaming = false
     }
+
+    private func refreshWorktrees() async {
+        await WorktreeRefreshHelper.refresh(
+            project: project,
+            appState: appState,
+            worktreeStore: worktreeStore,
+            isRefreshing: $isRefreshingWorktrees
+        )
+    }
 }
 
 private struct ExpandedWorktreeRow: View {
@@ -444,14 +491,29 @@ private struct ExpandedWorktreeRow: View {
             onSelect()
         }
         .contextMenu {
-            if let onRemove {
+            if worktree.isPrimary {
+                Text("Primary worktree").font(.system(size: 11))
+            } else if let onRemove {
                 Button("Rename") { startRename() }
                 Divider()
                 Button("Remove", role: .destructive, action: onRemove)
             } else {
-                Text("Primary worktree").font(.system(size: 11))
+                Button("Rename") { startRename() }
+                Divider()
+                Text("External worktree").font(.system(size: 11))
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(worktreeAccessibilityLabel)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var worktreeAccessibilityLabel: String {
+        var label = displayName
+        if worktree.isPrimary { label += ", primary" }
+        if let branch = branchLabel { label += ", branch: \(branch)" }
+        return label
     }
 
     @ViewBuilder
@@ -505,6 +567,7 @@ private struct ExpandedNewWorktreeButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
+        .accessibilityLabel("New Worktree")
     }
 }
 

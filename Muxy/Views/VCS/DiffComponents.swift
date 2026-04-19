@@ -19,10 +19,14 @@ struct DiffSectionDivider: View {
         .background(MuxyTheme.bg)
         .overlay(alignment: .top) {
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
+                .accessibilityHidden(true)
         }
         .overlay(alignment: .bottom) {
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
+                .accessibilityHidden(true)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Diff section: \(text)")
     }
 }
 

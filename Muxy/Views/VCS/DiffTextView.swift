@@ -133,6 +133,8 @@ final class DiffContentNSView: NSView {
         super.init(frame: frameRect)
 
         addSubview(textView)
+        setAccessibilityRole(.textArea)
+        setAccessibilityRoleDescription("Diff Content")
     }
 
     @available(*, unavailable)
@@ -238,11 +240,17 @@ final class DiffGutterNSView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         updateTrackingArea()
+        setAccessibilityRole(.column)
+        setAccessibilityRoleDescription("Line Numbers")
     }
 
     @available(*, unavailable)
     required init?(coder _: NSCoder) {
         fatalError("Not supported")
+    }
+
+    override func accessibilityLabel() -> String? {
+        "Line numbers gutter"
     }
 
     override func updateTrackingAreas() {

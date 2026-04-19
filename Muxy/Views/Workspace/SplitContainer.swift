@@ -51,6 +51,19 @@ struct SplitContainer: View {
                                 if on { (h ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push() } else { NSCursor.pop() }
                             }
                     }
+                    .accessibilityLabel(h ? "Horizontal Split Divider" : "Vertical Split Divider")
+                    .accessibilityValue("Split ratio: \(Int(branch.ratio * 100))%")
+                    .accessibilityAdjustableAction { direction in
+                        let step: CGFloat = 0.05
+                        switch direction {
+                        case .increment:
+                            branch.ratio = min(branch.ratio + step, 0.85)
+                        case .decrement:
+                            branch.ratio = max(branch.ratio - step, 0.15)
+                        @unknown default:
+                            break
+                        }
+                    }
 
                 child(branch.second)
                     .frame(width: h ? second : nil, height: h ? nil : second)

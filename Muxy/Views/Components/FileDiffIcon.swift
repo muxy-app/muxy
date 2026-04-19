@@ -54,5 +54,6 @@ struct FileDiffIconButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
+        .accessibilityLabel("Source Control")
     }
 }

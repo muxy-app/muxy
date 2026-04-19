@@ -24,6 +24,8 @@ struct UnifiedDiffView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Unified diff, \(filePath)")
     }
 
     private var gutterWidth: CGFloat {

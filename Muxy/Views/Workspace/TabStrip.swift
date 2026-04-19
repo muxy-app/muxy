@@ -1,3 +1,4 @@
+import MuxyShared
 import SwiftUI
 
 struct PaneTabStrip: View {
@@ -7,6 +8,7 @@ struct PaneTabStrip: View {
         let kind: TerminalTab.Kind
         let isPinned: Bool
         let hasCustomTitle: Bool
+        let colorID: String?
     }
 
     let areaID: UUID
@@ -15,6 +17,7 @@ struct PaneTabStrip: View {
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
     var showVCSButton = true
+    var showDevelopmentBadge = false
     let projectID: UUID
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
@@ -25,6 +28,7 @@ struct PaneTabStrip: View {
     let onCreateTabAdjacent: (UUID, TabArea.InsertSide) -> Void
     let onTogglePin: (UUID) -> Void
     let onSetCustomTitle: (UUID, String?) -> Void
+    let onSetColorID: (UUID, String?) -> Void
     let onReorderTab: (IndexSet, Int) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @State private var dragState = TabDragState()
@@ -36,7 +40,8 @@ struct PaneTabStrip: View {
                 title: tab.title,
                 kind: tab.kind,
                 isPinned: tab.isPinned,
-                hasCustomTitle: tab.customTitle != nil
+                hasCustomTitle: tab.customTitle != nil,
+                colorID: tab.colorID
             )
         }
     }
@@ -58,7 +63,8 @@ struct PaneTabStrip: View {
                     onCreateLeft: { onCreateTabAdjacent(tab.id, .left) },
                     onCreateRight: { onCreateTabAdjacent(tab.id, .right) },
                     onTogglePin: { onTogglePin(tab.id) },
-                    onSetCustomTitle: { onSetCustomTitle(tab.id, $0) }
+                    onSetCustomTitle: { onSetCustomTitle(tab.id, $0) },
+                    onSetColorID: { onSetColorID(tab.id, $0) }
                 )
                 .background {
                     if dragState.draggedID != nil {
@@ -91,21 +97,25 @@ struct PaneTabStrip: View {
 
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
+                if showDevelopmentBadge {
+                    developmentBadge
+                        .padding(.trailing, 6)
+                }
                 if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {
                     UpdateBadge(version: version) {
                         UpdateService.shared.checkForUpdates()
                     }
                     .padding(.trailing, 4)
                 }
-                IconButton(symbol: "magnifyingglass", size: 12) {
+                IconButton(symbol: "magnifyingglass", size: 12, accessibilityLabel: "Quick Open") {
                     NotificationCenter.default.post(name: .quickOpen, object: nil)
                 }
                 .help(shortcutTooltip("Quick Open", for: .quickOpen))
-                IconButton(symbol: "square.split.2x1") { onSplit(.horizontal) }
+                IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))
-                IconButton(symbol: "square.split.1x2") { onSplit(.vertical) }
+                IconButton(symbol: "square.split.1x2", accessibilityLabel: "Split Down") { onSplit(.vertical) }
                     .help(shortcutTooltip("Split Down", for: .splitDown))
-                IconButton(symbol: "plus") { onCreateTab() }
+                IconButton(symbol: "plus", accessibilityLabel: "New Tab") { onCreateTab() }
                     .help(shortcutTooltip("New Tab", for: .newTab))
                 if showVCSButton {
                     FileDiffIconButton(action: onCreateVCSTab)
@@ -124,6 +134,10 @@ struct PaneTabStrip: View {
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
         "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
+    }
+
+    private var developmentBadge: some View {
+        DevelopmentBadge()
     }
 
     private func handleDragChanged(
@@ -216,10 +230,34 @@ private struct TabCell: View {
     let onCreateRight: () -> Void
     let onTogglePin: () -> Void
     let onSetCustomTitle: (String?) -> Void
+    let onSetColorID: (String?) -> Void
     @State private var hovered = false
     @State private var isRenaming = false
     @State private var renameText = ""
+    @State private var showColorPicker = false
     @FocusState private var renameFieldFocused: Bool
+
+    private var tabColor: Color? {
+        ProjectIconColor.color(for: tab.colorID)
+    }
+
+    private var tabBackground: Color {
+        guard let tabColor else {
+            return active ? MuxyTheme.surface : .clear
+        }
+        let opacity = if active { 0.18 } else if hovered { 0.08 } else { 0.04 }
+        return tabColor.opacity(opacity)
+    }
+
+    private var bottomAccentColor: Color? {
+        if active, paneFocused {
+            return tabColor ?? MuxyTheme.accent
+        }
+        if let tabColor, !active {
+            return tabColor
+        }
+        return nil
+    }
 
     private var showBadge: Bool {
         guard let shortcutIndex,
@@ -272,6 +310,8 @@ private struct TabCell: View {
                         .padding(.trailing, 10)
                         .opacity(active || hovered ? 1 : 0)
                         .onTapGesture(perform: onClose)
+                        .accessibilityLabel("Close Tab")
+                        .accessibilityAddTraits(.isButton)
                 }
             }
             .overlay {
@@ -282,13 +322,14 @@ private struct TabCell: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                if active, paneFocused {
+                if let accentColor = bottomAccentColor {
                     Rectangle()
-                        .fill(MuxyTheme.accent)
+                        .fill(accentColor)
                         .frame(height: 2)
+                        .accessibilityHidden(true)
                 }
             }
-            .background(active ? MuxyTheme.surface : .clear)
+            .background(tabBackground)
             .contentShape(Rectangle())
             .onHover { hovering in
                 guard !isAnyDragging else { return }
@@ -300,8 +341,13 @@ private struct TabCell: View {
             .overlay {
                 if !tab.isPinned {
                     MiddleClickView(action: onClose)
+                        .accessibilityHidden(true)
                 }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(tabAccessibilityLabel)
+            .accessibilityAddTraits(active ? .isSelected : [])
+            .accessibilityAddTraits(.isButton)
             .contextMenu {
                 Button("New Tab to the Left") { onCreateLeft() }
                 Button("New Tab to the Right") { onCreateRight() }
@@ -310,6 +356,10 @@ private struct TabCell: View {
                 if tab.hasCustomTitle {
                     Button("Reset Title") { onSetCustomTitle(nil) }
                 }
+                Button("Set Tab Color…") { showColorPicker = true }
+                if tab.colorID != nil {
+                    Button("Reset Tab Color") { onSetColorID(nil) }
+                }
                 Divider()
                 Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") {
                     onTogglePin()
@@ -317,6 +367,12 @@ private struct TabCell: View {
                 if !tab.isPinned {
                     Divider()
                     Button("Close Tab") { onClose() }
+                }
+            }
+            .popover(isPresented: $showColorPicker, arrowEdge: .bottom) {
+                ProjectIconColorPicker(title: "Tab Color", selectedID: tab.colorID) { id in
+                    onSetColorID(id)
+                    showColorPicker = false
                 }
             }
 
@@ -342,6 +398,18 @@ private struct TabCell: View {
 
     private func cancelRename() {
         isRenaming = false
+    }
+
+    private var tabAccessibilityLabel: String {
+        var label = tab.title
+        switch tab.kind {
+        case .terminal: label += ", Terminal"
+        case .vcs: label += ", Source Control"
+        case .editor: label += ", Editor"
+        }
+        if tab.isPinned { label += ", Pinned" }
+        if hasUnread { label += ", Unread" }
+        return label
     }
 
     @ViewBuilder

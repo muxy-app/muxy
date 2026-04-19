@@ -24,6 +24,8 @@ struct SplitDiffView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Split diff, \(filePath)")
     }
 
     private func splitCodeBlock(leftRows: [DiffDisplayRow], rightRows: [DiffDisplayRow]) -> some View {

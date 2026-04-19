@@ -18,6 +18,10 @@ struct MiddleClickView: NSViewRepresentable {
 final class MiddleClickNSView: NSView {
     var action: (() -> Void)?
 
+    override func isAccessibilityElement() -> Bool {
+        false
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let currentEvent = NSApp.currentEvent,
               currentEvent.type == .otherMouseDown,

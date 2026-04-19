@@ -76,6 +76,7 @@ struct MainWindow: View {
                 HStack(spacing: 0) {
                     Sidebar()
                     Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                        .accessibilityHidden(true)
                 }
                 .background(MuxyTheme.bg)
 
@@ -102,6 +103,7 @@ struct MainWindow: View {
                 if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
                     HStack(spacing: 0) {
                         Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                            .accessibilityHidden(true)
                             .overlay {
                                 Color.clear
                                     .frame(width: 5)
@@ -139,11 +141,13 @@ struct MainWindow: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(MuxyTheme.surface, in: Capsule())
+                .background(MuxyTheme.bg, in: Capsule())
                 .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))
                 .padding(toastEdgePadding)
                 .transition(.move(edge: toastTransitionEdge).combined(with: .opacity))
                 .allowsHitTesting(false)
+                .accessibilityLabel(toast)
+                .accessibilityAddTraits(.isStaticText)
             }
         }
         .overlay {
@@ -183,7 +187,11 @@ struct MainWindow: View {
         .animation(.easeInOut(duration: 0.2), value: ToastState.shared.message != nil)
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
+        .background(MainWindowShortcutInterceptor { action in
+            handleShortcutAction(action)
+        })
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
+        .background(WindowTitleUpdater(title: windowTitle))
         .ignoresSafeArea(.container, edges: .top)
         .onReceive(NotificationCenter.default.publisher(for: .quickOpen)) { _ in
             showQuickOpen.toggle()
@@ -247,6 +255,7 @@ struct MainWindow: View {
                 isFocused: true,
                 isWindowTitleBar: true,
                 showVCSButton: true,
+                showDevelopmentBadge: AppEnvironment.isDevelopment,
                 projectID: project.id,
                 onSelectTab: { tabID in
                     appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
@@ -278,8 +287,12 @@ struct MainWindow: View {
                     area.togglePin(tabID)
                 },
                 onSetCustomTitle: { tabID, title in
-                    guard let tab = area.tabs.first(where: { $0.id == tabID }) else { return }
-                    tab.customTitle = title
+                    area.setCustomTitle(tabID, title: title)
+                    appState.saveWorkspaces()
+                },
+                onSetColorID: { tabID, colorID in
+                    area.setColorID(tabID, colorID: colorID)
+                    appState.saveWorkspaces()
                 },
                 onReorderTab: { fromOffsets, toOffset in
                     area.reorderTab(fromOffsets: fromOffsets, toOffset: toOffset)
@@ -301,6 +314,10 @@ struct MainWindow: View {
                 }
                 .overlay(alignment: .trailing) {
                     HStack(spacing: 0) {
+                        if AppEnvironment.isDevelopment {
+                            devModeBadge
+                                .padding(.trailing, 6)
+                        }
                         if let version = UpdateService.shared.availableUpdateVersion {
                             UpdateBadge(version: version) {
                                 UpdateService.shared.checkForUpdates()
@@ -366,6 +383,10 @@ struct MainWindow: View {
         return max(trafficLightWidth, sidebarWidth)
     }
 
+    private var devModeBadge: some View {
+        DevelopmentBadge()
+    }
+
     private var activeWorktreeKey: WorktreeKey? {
         guard let projectID = appState.activeProjectID,
               let worktreeID = appState.activeWorktreeID[projectID]
@@ -378,6 +399,14 @@ struct MainWindow: View {
         return projectStore.projects.first { $0.id == pid }
     }
 
+    private var windowTitle: String {
+        guard let project = activeProject else { return "Muxy" }
+        guard let tabTitle = appState.activeTab(for: project.id)?.title,
+              !tabTitle.isEmpty
+        else { return project.name }
+        return "\(project.name) — \(tabTitle)"
+    }
+
     private var activeProjectWithWorkspace: Project? {
         guard let project = activeProject,
               appState.workspaceRoot(for: project.id) != nil
@@ -385,10 +414,25 @@ struct MainWindow: View {
         return project
     }
 
+    private var shortcutDispatcher: ShortcutActionDispatcher {
+        ShortcutActionDispatcher(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            ghostty: ghostty
+        )
+    }
+
     private func mountedWorktreeKeys(for project: Project) -> [WorktreeKey] {
         appState.workspaceRoots.keys
             .filter { $0.projectID == project.id }
             .sorted { $0.worktreeID.uuidString < $1.worktreeID.uuidString }
+    }
+
+    private func handleShortcutAction(_ action: ShortcutAction) -> Bool {
+        shortcutDispatcher.perform(action, activeProject: activeProject) { project in
+            openVCS(for: project)
+        }
     }
 
     private var activeProjectHasSplitWorkspace: Bool {
@@ -546,5 +590,57 @@ struct MainWindow: View {
         alert.beginSheetModal(for: window) { _ in
             appState.pendingSaveErrorMessage = nil
         }
+    }
+}
+
+private struct WindowTitleUpdater: NSViewRepresentable {
+    let title: String
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            view.window?.title = title
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let window = nsView.window, window.title != title else { return }
+        window.title = title
+    }
+}
+
+private struct MainWindowShortcutInterceptor: NSViewRepresentable {
+    let onShortcut: (ShortcutAction) -> Bool
+
+    func makeNSView(context: Context) -> ShortcutInterceptingView {
+        let view = ShortcutInterceptingView()
+        view.onShortcut = onShortcut
+        return view
+    }
+
+    func updateNSView(_ nsView: ShortcutInterceptingView, context: Context) {
+        nsView.onShortcut = onShortcut
+    }
+}
+
+private final class ShortcutInterceptingView: NSView {
+    var onShortcut: ((ShortcutAction) -> Bool)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              ShortcutContext.isMainWindow(window)
+        else { return super.performKeyEquivalent(with: event) }
+
+        let scopes = ShortcutContext.activeScopes(for: window)
+        guard let action = KeyBindingStore.shared.action(for: event, scopes: scopes) else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        if onShortcut?(action) == true {
+            return true
+        }
+
+        return super.performKeyEquivalent(with: event)
     }
 }

@@ -6,9 +6,30 @@ struct GitWorktreeRecord: Hashable {
     let head: String?
     let isBare: Bool
     let isDetached: Bool
+    let isPrunable: Bool
+
+    init(
+        path: String,
+        branch: String?,
+        head: String?,
+        isBare: Bool,
+        isDetached: Bool,
+        isPrunable: Bool = false
+    ) {
+        self.path = path
+        self.branch = branch
+        self.head = head
+        self.isBare = isBare
+        self.isDetached = isDetached
+        self.isPrunable = isPrunable
+    }
 }
 
-actor GitWorktreeService {
+protocol GitWorktreeListing {
+    func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord]
+}
+
+actor GitWorktreeService: GitWorktreeListing {
     static let shared = GitWorktreeService()
 
     enum GitWorktreeError: LocalizedError {
@@ -112,6 +133,7 @@ actor GitWorktreeService {
         var currentHead: String?
         var isBare = false
         var isDetached = false
+        var isPrunable = false
 
         func flush() {
             guard let path = currentPath else { return }
@@ -120,13 +142,15 @@ actor GitWorktreeService {
                 branch: currentBranch,
                 head: currentHead,
                 isBare: isBare,
-                isDetached: isDetached
+                isDetached: isDetached,
+                isPrunable: isPrunable
             ))
             currentPath = nil
             currentBranch = nil
             currentHead = nil
             isBare = false
             isDetached = false
+            isPrunable = false
         }
 
         for line in raw.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -148,6 +172,8 @@ actor GitWorktreeService {
                 isBare = true
             } else if trimmed == "detached" {
                 isDetached = true
+            } else if trimmed == "prunable" || trimmed.hasPrefix("prunable ") {
+                isPrunable = true
             }
         }
         flush()

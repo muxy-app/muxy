@@ -43,12 +43,16 @@ final class KeyBindingStore {
     }
 
     func isRegisteredShortcut(event: NSEvent, scopes: Set<ShortcutScope>) -> Bool {
+        action(for: event, scopes: scopes) != nil
+    }
+
+    func action(for event: NSEvent, scopes: Set<ShortcutScope>) -> ShortcutAction? {
         let normalizedKey = KeyCombo.normalized(
             key: event.charactersIgnoringModifiers ?? "",
             keyCode: event.keyCode
         )
         let flags = event.modifierFlags.intersection(KeyCombo.supportedModifierMask).rawValue
-        return ShortcutAction.allCases.contains { action in
+        return ShortcutAction.allCases.first { action in
             guard scopes.contains(action.scope) else { return false }
             let combo = combo(for: action)
             return combo.key == normalizedKey && combo.modifiers == flags

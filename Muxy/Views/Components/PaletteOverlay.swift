@@ -38,6 +38,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
             .padding(.top, 60)
             .frame(maxHeight: .infinity, alignment: .top)
+            .accessibilityAddTraits(.isModal)
         }
         .onAppear {
             performSearch(debounce: false)
@@ -52,6 +53,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .font(.system(size: 13))
+                .accessibilityHidden(true)
             PaletteSearchField(
                 text: $query,
                 placeholder: placeholder,

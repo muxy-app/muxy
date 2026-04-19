@@ -7,54 +7,43 @@ struct AppearanceSettingsView: View {
     @AppStorage("muxy.vcsDisplayMode") private var vcsDisplayMode = VCSDisplayMode.tab.rawValue
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Terminal Theme")
-                    .font(.system(size: 12))
-
-                Spacer()
-
-                Button {
-                    showThemePicker.toggle()
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(currentTheme ?? "Default")
-                            .font(.system(size: 12))
-                            .lineLimit(1)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 10))
+        SettingsContainer {
+            SettingsSection("Terminal") {
+                SettingsRow("Theme") {
+                    Button {
+                        showThemePicker.toggle()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(currentTheme ?? "Default")
+                                .font(.system(size: SettingsMetrics.labelFontSize))
+                                .lineLimit(1)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 10))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $showThemePicker) {
-                    ThemePicker()
-                        .environment(themeService)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            HStack {
-                Text("Source Control")
-                    .font(.system(size: 12))
-
-                Spacer()
-
-                Picker("", selection: $vcsDisplayMode) {
-                    ForEach(VCSDisplayMode.allCases) { mode in
-                        Text(mode.title).tag(mode.rawValue)
+                    .buttonStyle(.plain)
+                    .popover(isPresented: $showThemePicker) {
+                        ThemePicker()
+                            .environment(themeService)
                     }
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 210)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
 
-            Spacer()
+            SettingsSection("Source Control", showsDivider: false) {
+                SettingsRow("Display Mode") {
+                    Picker("", selection: $vcsDisplayMode) {
+                        ForEach(VCSDisplayMode.allCases) { mode in
+                            Text(mode.title).tag(mode.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: SettingsMetrics.controlWidth)
+                }
+            }
         }
         .task {
             currentTheme = themeService.currentThemeName()

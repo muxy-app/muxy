@@ -18,6 +18,14 @@ struct WindowDragRepresentable: NSViewRepresentable {
 final class WindowDragView: NSView {
     var alwaysEnabled = false
 
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        .unknown
+    }
+
+    override func isAccessibilityElement() -> Bool {
+        false
+    }
+
     private var isAtWindowTop: Bool {
         guard let window else { return false }
         let frameInWindow = convert(bounds, to: nil)

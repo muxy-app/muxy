@@ -49,5 +49,8 @@ jobs:
       - name: Build
         run: swift build
 
+      - name: Build (iOS)
+        run: xcodebuild -project MuxyMobile.xcodeproj -scheme MuxyMobile -destination "generic/platform=iOS Simulator" -quiet build
+
       - name: Test
         run: swift test

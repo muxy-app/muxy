@@ -10,6 +10,8 @@ struct WorktreePopover: View {
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
 
+    @State private var isRefreshing = false
+
     private var worktrees: [Worktree] {
         worktreeStore.list(for: project.id)
     }
@@ -26,9 +28,7 @@ struct WorktreePopover: View {
             },
             searchPlaceholder: "Search worktrees…",
             emptyLabel: "No matches",
-            footerTitle: isGitRepo ? "New Worktree…" : nil,
-            footerIcon: isGitRepo ? "plus.square.dashed" : nil,
-            onFooterAction: isGitRepo ? onRequestCreate : nil,
+            footerActions: footerActions,
             onSelect: { worktree in
                 appState.selectWorktree(projectID: project.id, worktree: worktree)
                 onDismiss()
@@ -49,14 +49,40 @@ struct WorktreePopover: View {
                             to: newName
                         )
                     },
-                    onRemove: worktree.isPrimary ? nil : {
+                    onRemove: worktree.canBeRemoved ? {
                         Task { await requestRemove(worktree: worktree) }
-                    }
+                    } : nil
                 )
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
             }
         )
+    }
+
+    private var footerActions: [PopoverFooterAction] {
+        guard isGitRepo else { return [] }
+        return [
+            PopoverFooterAction(
+                title: "Refresh Worktrees",
+                icon: "arrow.clockwise",
+                isBusy: isRefreshing,
+                action: {
+                    Task {
+                        await WorktreeRefreshHelper.refresh(
+                            project: project,
+                            appState: appState,
+                            worktreeStore: worktreeStore,
+                            isRefreshing: $isRefreshing
+                        )
+                    }
+                }
+            ),
+            PopoverFooterAction(
+                title: "New Worktree…",
+                icon: "plus.square.dashed",
+                action: onRequestCreate
+            ),
+        ]
     }
 
     private func requestRemove(worktree: Worktree) async {
@@ -189,12 +215,16 @@ private struct WorktreePopoverRow: View {
             onSelect()
         }
         .contextMenu {
-            if let onRemove {
+            if worktree.isPrimary {
+                Text("Primary worktree").font(.system(size: 11))
+            } else if let onRemove {
                 Button("Rename") { startRename() }
                 Divider()
                 Button("Remove", role: .destructive, action: onRemove)
             } else {
-                Text("Primary worktree").font(.system(size: 11))
+                Button("Rename") { startRename() }
+                Divider()
+                Text("External worktree").font(.system(size: 11))
             }
         }
     }

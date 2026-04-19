@@ -2,6 +2,16 @@
 
 Thank you for your interest in contributing to Muxy! This guide will help you get started.
 
+## Humans Only Policy
+
+Muxy is a community project and we want communication to stay between humans. **AI-generated text is not allowed** in:
+
+- Issue descriptions and comments
+- Pull request titles, descriptions, summaries, and comments
+- Discussion replies and code review comments
+
+You are welcome to use AI to help you write code, but the text you post on GitHub must be written by you, in your own words. Issues and PRs with AI-generated text will be closed without review.
+
 ## Getting Started
 
 ### Prerequisites

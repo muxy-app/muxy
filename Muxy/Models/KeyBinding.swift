@@ -172,6 +172,36 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         guard index >= 1, index <= actions.count else { return nil }
         return actions[index - 1]
     }
+
+    var tabSelectionIndex: Int? {
+        switch self {
+        case .selectTab1: 0
+        case .selectTab2: 1
+        case .selectTab3: 2
+        case .selectTab4: 3
+        case .selectTab5: 4
+        case .selectTab6: 5
+        case .selectTab7: 6
+        case .selectTab8: 7
+        case .selectTab9: 8
+        default: nil
+        }
+    }
+
+    var projectSelectionIndex: Int? {
+        switch self {
+        case .selectProject1: 0
+        case .selectProject2: 1
+        case .selectProject3: 2
+        case .selectProject4: 3
+        case .selectProject5: 4
+        case .selectProject6: 5
+        case .selectProject7: 6
+        case .selectProject8: 7
+        case .selectProject9: 8
+        default: nil
+        }
+    }
 }
 
 struct KeyBinding: Codable, Identifiable {

@@ -17,6 +17,13 @@ final class ThemeService {
 
     @ObservationIgnored private let config: MuxyConfig
     @ObservationIgnored private let ghostty: GhosttyService
+    @ObservationIgnored private var cachedColors: CachedThemeColors?
+
+    private struct CachedThemeColors {
+        let name: String
+        let fg: UInt32
+        let bg: UInt32
+    }
 
     init(config: MuxyConfig = .shared, ghostty: GhosttyService = .shared) {
         self.config = config
@@ -31,6 +38,32 @@ final class ThemeService {
         config.configValue(for: "theme")?.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
     }
 
+    func currentThemeColors() -> (fg: UInt32, bg: UInt32)? {
+        guard let name = currentThemeName() else { return nil }
+        if let cached = cachedColors, cached.name == name {
+            return (fg: cached.fg, bg: cached.bg)
+        }
+        for dir in Self.themeDirectories() {
+            let path = dir + "/" + name
+            guard FileManager.default.fileExists(atPath: path),
+                  let theme = Self.parseThemeFile(atPath: path, name: name)
+            else { continue }
+            let fg = Self.rgb(from: theme.foreground)
+            let bg = Self.rgb(from: theme.background)
+            cachedColors = CachedThemeColors(name: name, fg: fg, bg: bg)
+            return (fg: fg, bg: bg)
+        }
+        return nil
+    }
+
+    nonisolated private static func rgb(from color: NSColor) -> UInt32 {
+        let srgb = color.usingColorSpace(.sRGB) ?? color
+        let r = UInt32((srgb.redComponent * 255).rounded()) & 0xFF
+        let g = UInt32((srgb.greenComponent * 255).rounded()) & 0xFF
+        let b = UInt32((srgb.blueComponent * 255).rounded()) & 0xFF
+        return (r << 16) | (g << 8) | b
+    }
+
     func applyDefaultThemeIfNeeded() {
         guard currentThemeName() == nil else { return }
         applyTheme(Self.defaultThemeName)
@@ -39,6 +72,7 @@ final class ThemeService {
     func applyTheme(_ name: String) {
         let sanitized = name.filter { $0 != "\"" && $0 != "\n" && $0 != "\r" }
         config.updateConfigValue("theme", value: "\"\(sanitized)\"")
+        cachedColors = nil
         ghostty.reloadConfig()
         NotificationCenter.default.post(name: .themeDidChange, object: nil)
     }

@@ -28,5 +28,7 @@ struct UpdateBadge: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
+        .accessibilityLabel("Update available: version \(version)")
+        .accessibilityHint("Activates to check for updates")
     }
 }
