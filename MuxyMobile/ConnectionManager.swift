@@ -291,7 +291,7 @@ final class ConnectionManager {
 
     func reconnect() {
         guard let host = lastHost, let port = lastPort else { return }
-        connect(host: host, port: port)
+        connect(host: host, port: port, name: lastDeviceName ?? "Mac")
     }
 
     func handleBackground() {
@@ -599,6 +599,7 @@ final class ConnectionManager {
         }
 
         guard let connection else {
+            if case .disconnected = state { return nil }
             fail(
                 "Could not reach device",
                 operation: "Sending \(method.rawValue) request",
