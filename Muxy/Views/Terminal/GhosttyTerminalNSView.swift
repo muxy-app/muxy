@@ -815,19 +815,10 @@ extension GhosttyTerminalNSView {
               !urls.isEmpty
         else { return false }
 
-        let paths = urls.map { Self.shellEscapedPath($0.path) }
+        let paths = urls.map { ShellEscaper.escape($0.path) }
         let text = paths.joined(separator: " ")
         insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
         return true
-    }
-
-    private static func shellEscapedPath(_ path: String) -> String {
-        let needsQuoting = path.contains(" ") || path.contains("(") || path.contains(")")
-            || path.contains("'") || path.contains("\"") || path.contains("\\")
-            || path.contains("&") || path.contains("|") || path.contains(";")
-            || path.contains("$") || path.contains("`") || path.contains("!")
-        guard needsQuoting else { return path }
-        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 
