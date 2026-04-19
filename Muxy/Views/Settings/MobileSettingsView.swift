@@ -6,6 +6,7 @@ struct MobileSettingsView: View {
     @State private var deviceToRevoke: ApprovedDevice?
     @State private var portText: String = ""
     @State private var portValidationError: String?
+    @State private var showFreePortConfirmation = false
 
     private var enabledBinding: Binding<Bool> {
         Binding(
@@ -48,7 +49,7 @@ struct MobileSettingsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                         if service.isPortInUse {
                             Button("Free Port") {
-                                service.freePort()
+                                showFreePortConfirmation = true
                             }
                             .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
                             .buttonStyle(.borderless)
@@ -82,6 +83,17 @@ struct MobileSettingsView: View {
         .onChange(of: service.port) { _, newValue in
             let text = String(newValue)
             if portText != text { portText = text }
+        }
+        .alert(
+            "Free port \(String(service.port))?",
+            isPresented: $showFreePortConfirmation
+        ) {
+            Button("Free Port", role: .destructive) {
+                service.freePort()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will terminate any process currently listening on port \(String(service.port)).")
         }
         .alert(
             "Revoke \(deviceToRevoke?.name ?? "device")?",

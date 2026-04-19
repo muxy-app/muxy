@@ -182,27 +182,35 @@ final class MobileServerService {
         let port = self.port
         logger.info("Attempting to free port \(port)")
         Task.detached {
-            let pids = Self.pidsListening(on: port)
-            guard !pids.isEmpty else {
-                await MainActor.run {
-                    logger.info("No process found on port \(port)")
+            let killed = await Self.terminateListeners(on: port)
+            if killed {
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            let stillInUse = !Self.pidsListening(on: port).isEmpty
+            await MainActor.run {
+                if stillInUse {
+                    self.lastError = "Port \(port) is still in use. The process may not have exited."
+                    self.isPortInUse = true
+                } else {
                     self.lastError = nil
                     self.isPortInUse = false
                     self.setEnabled(true)
                 }
-                return
-            }
-            for pid in pids {
-                logger.info("Killing PID \(pid) on port \(port)")
-                kill(pid, SIGTERM)
-            }
-            try? await Task.sleep(for: .milliseconds(500))
-            await MainActor.run {
-                self.lastError = nil
-                self.isPortInUse = false
-                self.setEnabled(true)
             }
         }
+    }
+
+    nonisolated private static func terminateListeners(on port: UInt16) async -> Bool {
+        let pids = pidsListening(on: port)
+        guard !pids.isEmpty else {
+            logger.info("No process found on port \(port)")
+            return false
+        }
+        for pid in pids {
+            logger.info("Killing PID \(pid) on port \(port)")
+            kill(pid, SIGTERM)
+        }
+        return true
     }
 
     nonisolated private static func pidsListening(on port: UInt16) -> [pid_t] {
