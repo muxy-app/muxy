@@ -73,6 +73,8 @@ struct TerminalView: View {
     @State private var pollTask: Task<Void, Never>?
     @State private var inputCoordinator = TerminalInputCoordinator()
     @State private var pendingGridSize: (cols: UInt32, rows: UInt32)?
+    @State private var isSelectingText = false
+    @State private var selectedText = ""
 
     private var themeBg: Color {
         connection.deviceTheme?.bgColor ?? .black
@@ -80,6 +82,10 @@ struct TerminalView: View {
 
     private var isOwnedBySelf: Bool {
         connection.paneIsOwnedBySelf(paneID)
+    }
+
+    private var canCopySelectedText: Bool {
+        !selectedText.isEmpty
     }
 
     var body: some View {
@@ -114,6 +120,8 @@ struct TerminalView: View {
         }
         .onChange(of: paneID) { _, _ in
             cells = nil
+            isSelectingText = false
+            selectedText = ""
             stopPolling()
             bindInput()
             startPolling()
@@ -121,6 +129,18 @@ struct TerminalView: View {
         .onChange(of: isOwnedBySelf) { _, newValue in
             if newValue {
                 inputCoordinator.becomeFirstResponder()
+            } else {
+                isSelectingText = false
+                selectedText = ""
+            }
+        }
+        .onChange(of: isSelectingText) { _, newValue in
+            if newValue {
+                stopPolling()
+            } else {
+                selectedText = ""
+                startPolling()
+                refreshTerminalCells()
             }
         }
         .onChange(of: connection.activeProjectID) { _, newValue in
@@ -164,16 +184,28 @@ struct TerminalView: View {
                             cells = dto
                         }
                     }
-                }
+                },
+                selectionMode: isSelectingText,
+                onSelectionChange: { selectedText = $0 },
+                onSelectionModeChange: handleSelectionModeChange
             )
 
-            TerminalInputField(coordinator: inputCoordinator, theme: connection.deviceTheme)
-                .frame(height: 1)
-                .opacity(0.01)
+            TerminalInputField(
+                coordinator: inputCoordinator,
+                theme: connection.deviceTheme,
+                canCopySelection: canCopySelectedText,
+                onPaste: pasteClipboard,
+                onCopy: copySelectedText
+            )
+            .frame(height: 1)
+            .opacity(0.01)
         }
         .contentShape(Rectangle())
         .onTapGesture {
             guard isOwnedBySelf else { return }
+            if isSelectingText {
+                clearTextSelection()
+            }
             inputCoordinator.becomeFirstResponder()
         }
     }
@@ -184,7 +216,51 @@ struct TerminalView: View {
         }
     }
 
+    private func handleSelectionModeChange(_ active: Bool) {
+        guard isOwnedBySelf else { return }
+        if active {
+            if !isSelectingText {
+                isSelectingText = true
+            }
+            return
+        }
+        clearTextSelection()
+    }
+
+    private func clearTextSelection() {
+        isSelectingText = false
+        selectedText = ""
+        inputCoordinator.becomeFirstResponder()
+    }
+
+    private func copySelectedText() {
+        guard canCopySelectedText else { return }
+        UIPasteboard.general.string = selectedText
+        clearTextSelection()
+    }
+
+    private func pasteClipboard() {
+        guard isOwnedBySelf,
+              let text = UIPasteboard.general.string,
+              !text.isEmpty
+        else { return }
+        if isSelectingText {
+            clearTextSelection()
+        }
+        inputCoordinator.send(text)
+        inputCoordinator.becomeFirstResponder()
+    }
+
+    private func refreshTerminalCells() {
+        Task {
+            if let dto = await connection.getTerminalCells(paneID: paneID) {
+                cells = dto
+            }
+        }
+    }
+
     private func startPolling() {
+        guard pollTask == nil, !isSelectingText else { return }
         pollTask = Task {
             while !Task.isCancelled {
                 if let dto = await connection.getTerminalCells(paneID: paneID) {
@@ -271,24 +347,45 @@ struct TerminalGridRepresentable: UIViewRepresentable {
     let paneID: UUID
     let onResize: (UInt32, UInt32) -> Void
     let onScroll: (Double) -> Void
+    let selectionMode: Bool
+    let onSelectionChange: (String) -> Void
+    let onSelectionModeChange: (Bool) -> Void
 
     func makeUIView(context _: Context) -> TerminalGridView {
         let view = TerminalGridView(frame: .zero)
         view.onResize = onResize
         view.onScroll = onScroll
+        view.onSelectionChange = onSelectionChange
+        view.onSelectionModeChange = onSelectionModeChange
+        view.setSelectionMode(selectionMode)
         return view
     }
 
     func updateUIView(_ uiView: TerminalGridView, context _: Context) {
         uiView.onResize = onResize
         uiView.onScroll = onScroll
+        uiView.onSelectionChange = onSelectionChange
+        uiView.onSelectionModeChange = onSelectionModeChange
+        uiView.setSelectionMode(selectionMode)
         uiView.update(cells: cells)
     }
+}
+
+private struct TerminalGridPoint: Equatable {
+    let row: Int
+    let col: Int
+}
+
+private struct TerminalGridSelection {
+    let start: TerminalGridPoint
+    let end: TerminalGridPoint
 }
 
 final class TerminalGridView: UIView {
     var onResize: ((UInt32, UInt32) -> Void)?
     var onScroll: ((Double) -> Void)?
+    var onSelectionChange: ((String) -> Void)?
+    var onSelectionModeChange: ((Bool) -> Void)?
 
     private var cells: TerminalCellsDTO?
     private let fontSize: CGFloat = 12
@@ -300,6 +397,24 @@ final class TerminalGridView: UIView {
     private var scrollAccumulator: CGFloat = 0
     private var cursorBlinkOn: Bool = true
     private var cursorBlinkTimer: Timer?
+    private var selectionMode = false
+    private var selectionAnchor: TerminalGridPoint?
+    private var selectionExtent: TerminalGridPoint?
+    private var lastReportedSelectionText = ""
+
+    private lazy var scrollPanGesture: UIPanGestureRecognizer = {
+        let gesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        gesture.minimumNumberOfTouches = 1
+        gesture.maximumNumberOfTouches = 2
+        return gesture
+    }()
+
+    private lazy var selectionGesture: UILongPressGestureRecognizer = {
+        let gesture = UILongPressGestureRecognizer(target: self, action: #selector(handleSelection(_:)))
+        gesture.minimumPressDuration = 0.35
+        gesture.allowableMovement = 16
+        return gesture
+    }()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -307,10 +422,8 @@ final class TerminalGridView: UIView {
         contentMode = .redraw
         isOpaque = true
         recomputeMetrics()
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        pan.minimumNumberOfTouches = 1
-        pan.maximumNumberOfTouches = 2
-        addGestureRecognizer(pan)
+        addGestureRecognizer(scrollPanGesture)
+        addGestureRecognizer(selectionGesture)
         startCursorBlink()
     }
 
@@ -342,6 +455,7 @@ final class TerminalGridView: UIView {
 
     @objc
     private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard !selectionMode else { return }
         switch gesture.state {
         case .began:
             lastPanTranslation = .zero
@@ -366,14 +480,64 @@ final class TerminalGridView: UIView {
         }
     }
 
+    @objc
+    private func handleSelection(_ gesture: UILongPressGestureRecognizer) {
+        guard let point = gridPoint(at: gesture.location(in: self)) else { return }
+
+        switch gesture.state {
+        case .began:
+            activateSelectionModeIfNeeded()
+            selectionAnchor = point
+            selectionExtent = point
+            reportSelectionTextIfNeeded()
+            setNeedsDisplay()
+        case .changed:
+            guard selectionMode, selectionAnchor != nil else { return }
+            selectionExtent = point
+            reportSelectionTextIfNeeded()
+            setNeedsDisplay()
+        case .ended,
+             .cancelled,
+             .failed:
+            guard selectionMode, selectionAnchor != nil else { return }
+            selectionExtent = point
+            reportSelectionTextIfNeeded()
+            setNeedsDisplay()
+        default:
+            break
+        }
+    }
+
     @available(*, unavailable)
     required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    func setSelectionMode(_ enabled: Bool) {
+        guard selectionMode != enabled else { return }
+        selectionMode = enabled
+        scrollPanGesture.isEnabled = !enabled
+        if !enabled {
+            clearSelection()
+        }
+    }
+
+    private func activateSelectionModeIfNeeded() {
+        guard !selectionMode else { return }
+        selectionMode = true
+        scrollPanGesture.isEnabled = false
+        onSelectionModeChange?(true)
+    }
+
     func update(cells: TerminalCellsDTO?) {
         let previousCursor = self.cells.map { ($0.cursorX, $0.cursorY) }
+        let sizeChanged = self.cells?.cols != cells?.cols || self.cells?.rows != cells?.rows
         self.cells = cells
+        if sizeChanged {
+            clearSelection()
+        } else {
+            reportSelectionTextIfNeeded()
+        }
         if let newCells = cells {
             let newCursor = (newCells.cursorX, newCells.cursorY)
             if previousCursor == nil || previousCursor! != newCursor {
@@ -393,6 +557,189 @@ final class TerminalGridView: UIView {
         let font = TerminalFont.regular(size: fontSize)
         advanceWidth = ceil(("M" as NSString).size(withAttributes: [.font: font]).width)
         rowHeight = ceil(font.ascender - font.descender + font.leading)
+    }
+
+    private func clearSelection() {
+        let hadSelection = selectionAnchor != nil || selectionExtent != nil || !lastReportedSelectionText.isEmpty
+        selectionAnchor = nil
+        selectionExtent = nil
+        reportSelectionText("")
+        if hadSelection {
+            setNeedsDisplay()
+        }
+    }
+
+    private func reportSelectionTextIfNeeded() {
+        reportSelectionText(selectedText())
+    }
+
+    private func reportSelectionText(_ text: String) {
+        guard text != lastReportedSelectionText else { return }
+        lastReportedSelectionText = text
+        onSelectionChange?(text)
+    }
+
+    private func normalizedSelection() -> TerminalGridSelection? {
+        guard let selectionAnchor,
+              let selectionExtent
+        else { return nil }
+
+        if selectionAnchor.row < selectionExtent.row {
+            return TerminalGridSelection(start: selectionAnchor, end: selectionExtent)
+        }
+
+        if selectionAnchor.row > selectionExtent.row {
+            return TerminalGridSelection(start: selectionExtent, end: selectionAnchor)
+        }
+
+        if selectionAnchor.col <= selectionExtent.col {
+            return TerminalGridSelection(start: selectionAnchor, end: selectionExtent)
+        }
+
+        return TerminalGridSelection(start: selectionExtent, end: selectionAnchor)
+    }
+
+    private func gridPoint(at location: CGPoint) -> TerminalGridPoint? {
+        guard let cells,
+              advanceWidth > 0,
+              rowHeight > 0
+        else { return nil }
+
+        let cols = Int(cells.cols)
+        let rows = Int(cells.rows)
+        guard cols > 0, rows > 0 else { return nil }
+
+        let maxX = max(bounds.width - 1, 0)
+        let maxY = max(bounds.height - 1, 0)
+        let x = min(max(location.x, 0), maxX)
+        let y = min(max(location.y, 0), maxY)
+        let row = min(max(Int(floor(y / rowHeight)), 0), rows - 1)
+        var col = min(max(Int(floor(x / advanceWidth)), 0), cols - 1)
+
+        let cell = cells.cells[row * cols + col]
+        if cell.flags & TerminalCellFlag.spacer != 0, col > 0 {
+            col -= 1
+        }
+
+        return TerminalGridPoint(row: row, col: col)
+    }
+
+    private func selectedText() -> String {
+        guard let selection = normalizedSelection(),
+              let cells
+        else { return "" }
+
+        let cols = Int(cells.cols)
+        var lines: [String] = []
+
+        for row in selection.start.row ... selection.end.row {
+            let startCol = row == selection.start.row ? selection.start.col : 0
+            let endCol = row == selection.end.row ? selection.end.col : cols - 1
+            lines.append(selectedLineText(
+                row: row,
+                startCol: startCol,
+                endCol: endCol,
+                cols: cols,
+                trimTrailingSpaces: row != selection.end.row
+            ))
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func selectedLineText(
+        row: Int,
+        startCol: Int,
+        endCol: Int,
+        cols: Int,
+        trimTrailingSpaces: Bool
+    ) -> String {
+        guard let cells, startCol <= endCol else { return "" }
+
+        var line = ""
+        for col in startCol ... endCol {
+            let cell = cells.cells[row * cols + col]
+            if cell.flags & TerminalCellFlag.spacer != 0 {
+                continue
+            }
+            if cell.flags & TerminalCellFlag.invisible != 0 || cell.codepoint == 0 || cell.codepoint == 0x20 {
+                line.append(" ")
+                continue
+            }
+            if let scalar = Unicode.Scalar(cell.codepoint) {
+                line.unicodeScalars.append(scalar)
+            } else {
+                line.append(" ")
+            }
+        }
+
+        if trimTrailingSpaces {
+            while line.last == " " {
+                line.removeLast()
+            }
+        }
+
+        return line
+    }
+
+    private func cellIsSelected(row: Int, col: Int, cols: Int, selection: TerminalGridSelection) -> Bool {
+        if rawCellIsSelected(row: row, col: col, selection: selection) {
+            return true
+        }
+
+        guard let cells,
+              col > 0
+        else { return false }
+
+        let cell = cells.cells[row * cols + col]
+        guard cell.flags & TerminalCellFlag.spacer != 0 else { return false }
+        return rawCellIsSelected(row: row, col: col - 1, selection: selection)
+    }
+
+    private func rawCellIsSelected(row: Int, col: Int, selection: TerminalGridSelection) -> Bool {
+        if row < selection.start.row || row > selection.end.row {
+            return false
+        }
+
+        if selection.start.row == selection.end.row {
+            return row == selection.start.row && col >= selection.start.col && col <= selection.end.col
+        }
+
+        if row == selection.start.row {
+            return col >= selection.start.col
+        }
+
+        if row == selection.end.row {
+            return col <= selection.end.col
+        }
+
+        return true
+    }
+
+    private func blendedColor(base: UIColor, tint: UIColor, amount: CGFloat) -> UIColor {
+        var baseR: CGFloat = 0
+        var baseG: CGFloat = 0
+        var baseB: CGFloat = 0
+        var baseA: CGFloat = 0
+        var tintR: CGFloat = 0
+        var tintG: CGFloat = 0
+        var tintB: CGFloat = 0
+        var tintA: CGFloat = 0
+
+        guard base.getRed(&baseR, green: &baseG, blue: &baseB, alpha: &baseA),
+              tint.getRed(&tintR, green: &tintG, blue: &tintB, alpha: &tintA)
+        else {
+            return tint.withAlphaComponent(0.3)
+        }
+
+        let clampedAmount = min(max(amount, 0), 1)
+        let inverseAmount = 1 - clampedAmount
+        return UIColor(
+            red: baseR * inverseAmount + tintR * clampedAmount,
+            green: baseG * inverseAmount + tintG * clampedAmount,
+            blue: baseB * inverseAmount + tintB * clampedAmount,
+            alpha: max(baseA, tintA)
+        )
     }
 
     private func reportGridSize() {
@@ -435,6 +782,8 @@ final class TerminalGridView: UIView {
         let cursorY = Int(cells.cursorY)
         let cursorStyle = TerminalCursorStyle.current
         let cursorActive = cursorVisible && cursorBlinkOn
+        let selection = normalizedSelection()
+        let selectionTint = color(rgb: cells.defaultFg)
 
         for row in 0 ..< rows {
             for col in 0 ..< cols {
@@ -452,6 +801,12 @@ final class TerminalGridView: UIView {
 
                 var bgColor = color(rgb: cell.bg)
                 var fgColor = color(rgb: cell.fg)
+
+                if let selection,
+                   cellIsSelected(row: row, col: col, cols: cols, selection: selection)
+                {
+                    bgColor = blendedColor(base: bgColor, tint: selectionTint, amount: 0.3)
+                }
 
                 let onCursor = cursorActive && cursorStyle == .block && row == cursorY && col == cursorX
                 if onCursor {
@@ -646,6 +1001,9 @@ final class TerminalInputCoordinator {
 struct TerminalInputField: UIViewRepresentable {
     let coordinator: TerminalInputCoordinator
     let theme: ConnectionManager.DeviceTheme?
+    let canCopySelection: Bool
+    let onPaste: () -> Void
+    let onCopy: () -> Void
 
     func makeUIView(context _: Context) -> TerminalUITextField {
         let field = TerminalUITextField(frame: .zero)
@@ -658,12 +1016,18 @@ struct TerminalInputField: UIViewRepresentable {
         field.onAccessoryKey = { [weak coordinator] text in
             coordinator?.send(text)
         }
+        field.onPasteAction = onPaste
+        field.onCopyAction = onCopy
+        field.setCanCopySelection(canCopySelection)
         field.applyTheme(theme)
         coordinator.textField = field
         return field
     }
 
     func updateUIView(_ uiView: TerminalUITextField, context _: Context) {
+        uiView.onPasteAction = onPaste
+        uiView.onCopyAction = onCopy
+        uiView.setCanCopySelection(canCopySelection)
         uiView.applyTheme(theme)
     }
 }
@@ -702,6 +1066,14 @@ final class TerminalUITextField: UIView, UIKeyInput, UITextInputTraits {
     var onDelete: (() -> Void)?
     var onAccessoryKey: ((String) -> Void)?
 
+    var onPasteAction: (() -> Void)? {
+        didSet { accessoryBar.onPaste = onPasteAction }
+    }
+
+    var onCopyAction: (() -> Void)? {
+        didSet { accessoryBar.onCopy = onCopyAction }
+    }
+
     private var modifierArmed = false
     private var activeModifier: TerminalModifier = .ctrl
 
@@ -718,6 +1090,13 @@ final class TerminalUITextField: UIView, UIKeyInput, UITextInputTraits {
     var hasText: Bool { true }
 
     override var canBecomeFirstResponder: Bool { true }
+
+    override var keyCommands: [UIKeyCommand]? {
+        [
+            UIKeyCommand(input: "v", modifierFlags: .command, action: #selector(handlePasteCommand)),
+            UIKeyCommand(input: "c", modifierFlags: .command, action: #selector(handleCopyCommand)),
+        ]
+    }
 
     private lazy var accessoryBar: TerminalAccessoryBar = {
         let bar = TerminalAccessoryBar()
@@ -749,8 +1128,23 @@ final class TerminalUITextField: UIView, UIKeyInput, UITextInputTraits {
 
     override var inputAccessoryView: UIView? { accessoryBar }
 
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        switch action {
+        case #selector(copy(_:)):
+            accessoryBar.canCopySelection
+        case #selector(paste(_:)):
+            onPasteAction != nil
+        default:
+            super.canPerformAction(action, withSender: sender)
+        }
+    }
+
     func applyTheme(_ theme: ConnectionManager.DeviceTheme?) {
         accessoryBar.applyTheme(theme)
+    }
+
+    func setCanCopySelection(_ enabled: Bool) {
+        accessoryBar.setCanCopySelection(enabled)
     }
 
     func insertText(_ text: String) {
@@ -769,6 +1163,25 @@ final class TerminalUITextField: UIView, UIKeyInput, UITextInputTraits {
 
     func deleteBackward() {
         onDelete?()
+    }
+
+    override func copy(_ sender: Any?) {
+        guard accessoryBar.canCopySelection else { return }
+        onCopyAction?()
+    }
+
+    override func paste(_ sender: Any?) {
+        onPasteAction?()
+    }
+
+    @objc
+    private func handlePasteCommand() {
+        paste(nil)
+    }
+
+    @objc
+    private func handleCopyCommand() {
+        copy(nil)
     }
 
     private static func transform(_ text: String, with modifier: TerminalModifier) -> String? {
@@ -806,11 +1219,14 @@ final class TerminalAccessoryModel: ObservableObject {
     @Published var modifierArmed: Bool = false
     @Published var activeModifier: TerminalModifier = .ctrl
     @Published var keyboardVisible: Bool = true
+    @Published var canCopySelection: Bool = false
 
     var onKey: ((String) -> Void)?
     var onModifierToggle: ((Bool) -> Void)?
     var onModifierChange: ((TerminalModifier) -> Void)?
     var onKeyboardToggle: (() -> Void)?
+    var onPaste: (() -> Void)?
+    var onCopy: (() -> Void)?
 
     func setModifierArmed(_ armed: Bool) {
         guard modifierArmed != armed else { return }
@@ -853,8 +1269,26 @@ final class TerminalAccessoryBar: UIInputView {
         set { model.onKeyboardToggle = newValue }
     }
 
+    var onPaste: (() -> Void)? {
+        get { model.onPaste }
+        set { model.onPaste = newValue }
+    }
+
+    var onCopy: (() -> Void)? {
+        get { model.onCopy }
+        set { model.onCopy = newValue }
+    }
+
+    var canCopySelection: Bool {
+        model.canCopySelection
+    }
+
     func setKeyboardVisible(_ visible: Bool) {
         model.keyboardVisible = visible
+    }
+
+    func setCanCopySelection(_ enabled: Bool) {
+        model.canCopySelection = enabled
     }
 
     private let model = TerminalAccessoryModel()
@@ -904,7 +1338,6 @@ struct TerminalAccessoryView: View {
     @ObservedObject var model: TerminalAccessoryModel
 
     private var fg: Color { model.theme?.fgColor ?? .white }
-    private var accent: Color { model.theme?.fgColor ?? .white }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -925,6 +1358,8 @@ struct TerminalAccessoryView: View {
                 key("esc", payload: "\u{1B}")
                 modifierKey
                 key("tab", payload: "\t")
+                actionIcon("doc.on.clipboard", label: "Paste", action: { model.onPaste?() })
+                actionIcon("doc.on.doc", label: "Copy", enabled: model.canCopySelection, action: { model.onCopy?() })
                 key("~", payload: "~")
                 key("|", payload: "|")
                 key("/", payload: "/")
@@ -950,47 +1385,33 @@ struct TerminalAccessoryView: View {
         .buttonStyle(.plain)
     }
 
-    private var modifierKey: some View {
-        Menu {
-            Picker("Modifier", selection: modifierSelection) {
-                ForEach(TerminalModifier.allCases) { modifier in
-                    Text("\(modifier.glyph)  \(modifier.displayName)")
-                        .tag(modifier)
-                }
-            }
-        } label: {
-            modifierLabel
-        } primaryAction: {
-            model.toggleModifier()
+    private func actionIcon(
+        _ systemName: String,
+        label: String,
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(fg)
+                .frame(width: 32, height: 28)
         }
-        .menuStyle(.button)
         .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
+        .accessibilityLabel(label)
     }
 
-    private var modifierSelection: Binding<TerminalModifier> {
-        Binding(
-            get: { model.activeModifier },
-            set: { model.selectModifier($0) }
+    private var modifierKey: some View {
+        ModifierKeyButton(
+            active: model.activeModifier,
+            armed: model.modifierArmed,
+            fg: fg,
+            bg: model.theme?.bgColor ?? .black,
+            onTap: { model.toggleModifier() },
+            onSelect: { model.selectModifier($0) }
         )
-    }
-
-    private var modifierLabel: some View {
-        HStack(spacing: 4) {
-            Text(model.activeModifier.title)
-                .font(.system(size: 14, weight: .medium, design: .monospaced))
-            Text(model.activeModifier.glyph)
-                .font(.system(size: 11, weight: .semibold))
-                .opacity(0.7)
-        }
-        .foregroundStyle(model.modifierArmed ? (model.theme?.bgColor ?? .black) : fg)
-        .frame(minWidth: 52)
-        .padding(.vertical, 4)
-        .padding(.horizontal, 8)
-        .background {
-            if model.modifierArmed {
-                Capsule().fill(fg)
-            }
-        }
     }
 
     private var keyboardButton: some View {
@@ -1004,6 +1425,434 @@ struct TerminalAccessoryView: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: Circle())
+    }
+}
+
+struct ModifierKeyButton: UIViewRepresentable {
+    let active: TerminalModifier
+    let armed: Bool
+    let fg: Color
+    let bg: Color
+    let onTap: () -> Void
+    let onSelect: (TerminalModifier) -> Void
+
+    func makeUIView(context: Context) -> ModifierKeyHostView {
+        let view = ModifierKeyHostView()
+        view.configure(
+            active: active,
+            armed: armed,
+            fg: UIColor(fg),
+            bg: UIColor(bg),
+            onTap: onTap,
+            onSelect: onSelect
+        )
+        return view
+    }
+
+    func updateUIView(_ uiView: ModifierKeyHostView, context _: Context) {
+        uiView.configure(
+            active: active,
+            armed: armed,
+            fg: UIColor(fg),
+            bg: UIColor(bg),
+            onTap: onTap,
+            onSelect: onSelect
+        )
+    }
+}
+
+final class ModifierKeyHostView: UIView {
+    private let label = UILabel()
+    private let chevron = UIImageView()
+    private let stack = UIStackView()
+    private let background = UIView()
+
+    private var activeModifier: TerminalModifier = .ctrl
+    private var armed: Bool = false
+    private var fgColor: UIColor = .white
+    private var bgColor: UIColor = .black
+    private var onTap: (() -> Void)?
+    private var onSelect: ((TerminalModifier) -> Void)?
+
+    private var pickerView: ModifierPickerView?
+    private var didCommitSelection = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupViews()
+        setupGestures()
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupViews() {
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .vertical)
+
+        background.translatesAutoresizingMaskIntoConstraints = false
+        background.isUserInteractionEnabled = false
+        background.layer.cornerCurve = .continuous
+        addSubview(background)
+
+        label.font = UIFont.monospacedSystemFont(ofSize: 14, weight: .medium)
+        chevron.image = UIImage(systemName: "chevron.up", withConfiguration: UIImage.SymbolConfiguration(pointSize: 9, weight: .semibold))
+        chevron.contentMode = .scaleAspectFit
+        chevron.alpha = 0.6
+
+        stack.axis = .horizontal
+        stack.spacing = 4
+        stack.alignment = .center
+        stack.isUserInteractionEnabled = false
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(label)
+        stack.addArrangedSubview(chevron)
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            background.topAnchor.constraint(equalTo: topAnchor),
+            background.bottomAnchor.constraint(equalTo: bottomAnchor),
+            background.leadingAnchor.constraint(equalTo: leadingAnchor),
+            background.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let stackSize = stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        let width = max(stackSize.width + 16, 52)
+        let height = max(stackSize.height + 8, 32)
+        return CGSize(width: width, height: height)
+    }
+
+    private func setupGestures() {
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.3
+        longPress.allowableMovement = .greatestFiniteMagnitude
+        addGestureRecognizer(longPress)
+
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        tap.require(toFail: longPress)
+        addGestureRecognizer(tap)
+    }
+
+    func configure(
+        active: TerminalModifier,
+        armed: Bool,
+        fg: UIColor,
+        bg: UIColor,
+        onTap: @escaping () -> Void,
+        onSelect: @escaping (TerminalModifier) -> Void
+    ) {
+        activeModifier = active
+        self.armed = armed
+        fgColor = fg
+        bgColor = bg
+        self.onTap = onTap
+        self.onSelect = onSelect
+        refreshAppearance()
+    }
+
+    private func refreshAppearance() {
+        label.text = activeModifier.title
+        let textColor = armed ? bgColor : fgColor
+        label.textColor = textColor
+        chevron.tintColor = textColor
+        background.backgroundColor = armed ? fgColor : .clear
+        background.layer.cornerRadius = background.bounds.height / 2
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        background.layer.cornerRadius = background.bounds.height / 2
+    }
+
+    @objc
+    private func handleTap() {
+        onTap?()
+    }
+
+    @objc
+    private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            presentPicker()
+        case .changed:
+            guard let pickerView else { return }
+            let location = gesture.location(in: pickerView)
+            pickerView.updateHover(at: location)
+        case .ended:
+            commitSelectionIfNeeded()
+            dismissPicker()
+        case .cancelled,
+             .failed:
+            dismissPicker()
+        default:
+            break
+        }
+    }
+
+    private func presentPicker() {
+        guard pickerView == nil,
+              let window
+        else { return }
+
+        didCommitSelection = false
+        let picker = ModifierPickerView(active: activeModifier, fg: fgColor)
+        picker.translatesAutoresizingMaskIntoConstraints = false
+        window.addSubview(picker)
+
+        let buttonFrame = convert(bounds, to: window)
+        let pickerSize = picker.intrinsicContentSize
+        var originX = buttonFrame.midX - pickerSize.width / 2
+        let minX: CGFloat = 8
+        let maxX = window.bounds.width - pickerSize.width - 8
+        originX = min(max(originX, minX), maxX)
+        let originY = buttonFrame.minY - pickerSize.height - 8
+
+        NSLayoutConstraint.activate([
+            picker.leadingAnchor.constraint(equalTo: window.leadingAnchor, constant: originX),
+            picker.topAnchor.constraint(equalTo: window.topAnchor, constant: originY),
+            picker.widthAnchor.constraint(equalToConstant: pickerSize.width),
+            picker.heightAnchor.constraint(equalToConstant: pickerSize.height),
+        ])
+
+        picker.alpha = 0
+        picker.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+        UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut]) {
+            picker.alpha = 1
+            picker.transform = .identity
+        }
+
+        pickerView = picker
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    private func commitSelectionIfNeeded() {
+        guard let pickerView,
+              let selection = pickerView.currentHoveredModifier,
+              selection != activeModifier
+        else { return }
+        didCommitSelection = true
+        onSelect?(selection)
+        UISelectionFeedbackGenerator().selectionChanged()
+    }
+
+    private func dismissPicker() {
+        guard let picker = pickerView else { return }
+        pickerView = nil
+        UIView.animate(
+            withDuration: 0.15,
+            delay: 0,
+            options: [.curveEaseIn],
+            animations: {
+                picker.alpha = 0
+                picker.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+            },
+            completion: { _ in picker.removeFromSuperview() }
+        )
+    }
+}
+
+final class ModifierPickerView: UIView {
+    private let rowHeight: CGFloat = 44
+    private let horizontalPadding: CGFloat = 16
+    private let verticalPadding: CGFloat = 6
+    private let pickerWidth: CGFloat = 180
+    private let arrowHeight: CGFloat = 8
+
+    private let active: TerminalModifier
+    private let fgColor: UIColor
+    private let containerView = UIView()
+    private var rowViews: [ModifierPickerRow] = []
+    private(set) var currentHoveredModifier: TerminalModifier?
+
+    init(active: TerminalModifier, fg: UIColor) {
+        self.active = active
+        fgColor = fg
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        isOpaque = false
+        setupViews()
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let rows = CGFloat(TerminalModifier.allCases.count)
+        let height = rows * rowHeight + verticalPadding * 2 + arrowHeight
+        return CGSize(width: pickerWidth, height: height)
+    }
+
+    private func setupViews() {
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.backgroundColor = UIColor.black.withAlphaComponent(0.7)
+        containerView.layer.cornerRadius = 18
+        containerView.layer.cornerCurve = .continuous
+        containerView.layer.borderWidth = 0.5
+        containerView.layer.borderColor = fgColor.withAlphaComponent(0.12).cgColor
+        addSubview(containerView)
+
+        let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        blur.translatesAutoresizingMaskIntoConstraints = false
+        blur.layer.cornerRadius = 18
+        blur.layer.cornerCurve = .continuous
+        blur.clipsToBounds = true
+        containerView.insertSubview(blur, at: 0)
+
+        let rows = TerminalModifier.allCases
+        var previousAnchor: NSLayoutYAxisAnchor = containerView.topAnchor
+        var topInset: CGFloat = verticalPadding
+        for (index, modifier) in rows.enumerated() {
+            let row = ModifierPickerRow(modifier: modifier, fg: fgColor, disabled: modifier == active)
+            row.translatesAutoresizingMaskIntoConstraints = false
+            containerView.addSubview(row)
+            rowViews.append(row)
+
+            NSLayoutConstraint.activate([
+                row.topAnchor.constraint(equalTo: previousAnchor, constant: topInset),
+                row.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                row.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                row.heightAnchor.constraint(equalToConstant: rowHeight),
+            ])
+
+            if index < rows.count - 1 {
+                let divider = UIView()
+                divider.translatesAutoresizingMaskIntoConstraints = false
+                divider.backgroundColor = fgColor.withAlphaComponent(0.08)
+                containerView.addSubview(divider)
+                NSLayoutConstraint.activate([
+                    divider.topAnchor.constraint(equalTo: row.bottomAnchor),
+                    divider.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: horizontalPadding),
+                    divider.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -horizontalPadding),
+                    divider.heightAnchor.constraint(equalToConstant: 0.5),
+                ])
+            }
+
+            previousAnchor = row.bottomAnchor
+            topInset = 0
+        }
+
+        NSLayoutConstraint.activate([
+            containerView.topAnchor.constraint(equalTo: topAnchor),
+            containerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            containerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            containerView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -arrowHeight),
+            blur.topAnchor.constraint(equalTo: containerView.topAnchor),
+            blur.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            blur.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            blur.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+        ])
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard let ctx = UIGraphicsGetCurrentContext() else { return }
+        let arrowWidth: CGFloat = 18
+        let midX = rect.midX
+        let topY = rect.maxY - arrowHeight
+        ctx.beginPath()
+        ctx.move(to: CGPoint(x: midX - arrowWidth / 2, y: topY))
+        ctx.addLine(to: CGPoint(x: midX + arrowWidth / 2, y: topY))
+        ctx.addLine(to: CGPoint(x: midX, y: rect.maxY))
+        ctx.closePath()
+        ctx.setFillColor(UIColor.black.withAlphaComponent(0.7).cgColor)
+        ctx.fillPath()
+    }
+
+    func updateHover(at location: CGPoint) {
+        var hovered: TerminalModifier?
+        for row in rowViews {
+            let frameInSelf = row.convert(row.bounds, to: self)
+            if frameInSelf.contains(location), !row.isDisabled {
+                hovered = row.modifier
+                row.setHighlighted(true)
+            } else {
+                row.setHighlighted(false)
+            }
+        }
+        currentHoveredModifier = hovered
+    }
+}
+
+final class ModifierPickerRow: UIView {
+    let modifier: TerminalModifier
+    let isDisabled: Bool
+    private let glyphLabel = UILabel()
+    private let titleLabel = UILabel()
+    private let highlight = UIView()
+
+    init(modifier: TerminalModifier, fg: UIColor, disabled: Bool) {
+        self.modifier = modifier
+        isDisabled = disabled
+        super.init(frame: .zero)
+
+        highlight.translatesAutoresizingMaskIntoConstraints = false
+        highlight.backgroundColor = fg.withAlphaComponent(0.18)
+        highlight.alpha = 0
+        highlight.isUserInteractionEnabled = false
+        addSubview(highlight)
+
+        glyphLabel.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+        glyphLabel.textAlignment = .center
+        glyphLabel.text = modifier.glyph
+        glyphLabel.textColor = disabled ? fg.withAlphaComponent(0.4) : fg
+        glyphLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.font = UIFont.monospacedSystemFont(ofSize: 14, weight: .medium)
+        titleLabel.text = modifier.displayName.lowercased()
+        titleLabel.textColor = disabled ? fg.withAlphaComponent(0.4) : fg
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(glyphLabel)
+        addSubview(titleLabel)
+
+        NSLayoutConstraint.activate([
+            highlight.topAnchor.constraint(equalTo: topAnchor),
+            highlight.bottomAnchor.constraint(equalTo: bottomAnchor),
+            highlight.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            highlight.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            glyphLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            glyphLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            glyphLabel.widthAnchor.constraint(equalToConstant: 20),
+            titleLabel.leadingAnchor.constraint(equalTo: glyphLabel.trailingAnchor, constant: 14),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        highlight.layer.cornerRadius = 10
+        highlight.layer.cornerCurve = .continuous
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setHighlighted(_ active: Bool) {
+        let target: CGFloat = active && !isDisabled ? 1 : 0
+        guard highlight.alpha != target else { return }
+        UIView.animate(withDuration: 0.08) { self.highlight.alpha = target }
     }
 }
 

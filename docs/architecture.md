@@ -318,8 +318,11 @@ The `MuxyCodec` handles JSON encoding/decoding with ISO 8601 dates.
 `ConnectionManager` manages the WebSocket lifecycle and maintains a local mirror
 of the remote state (projects, workspace layout, notifications). It also keeps a
 rolling connection trace so mobile failures can surface a user-shareable
-technical report from the phone's error sheet. Views observe this state and
-dispatch actions back through the connection.
+technical report from the phone's error sheet. `TerminalView` renders the
+remote terminal grid locally, sends input back over the socket, and freezes the
+current snapshot during long-press text selection so copy actions operate on a
+stable view. Views observe this state and dispatch actions back through the
+connection.
 
 ### Device Pairing
 
