@@ -316,8 +316,10 @@ The `MuxyCodec` handles JSON encoding/decoding with ISO 8601 dates.
 ### iOS App (MuxyMobile)
 
 `ConnectionManager` manages the WebSocket lifecycle and maintains a local mirror
-of the remote state (projects, workspace layout, notifications). Views observe
-this state and dispatch actions back through the connection.
+of the remote state (projects, workspace layout, notifications). It also keeps a
+rolling connection trace so mobile failures can surface a user-shareable
+technical report from the phone's error sheet. Views observe this state and
+dispatch actions back through the connection.
 
 ### Device Pairing
 

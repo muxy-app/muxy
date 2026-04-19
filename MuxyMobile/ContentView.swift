@@ -1,5 +1,6 @@
 import MuxyShared
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @Environment(ConnectionManager.self) private var connection
@@ -16,8 +17,8 @@ struct ContentView: View {
             AwaitingApprovalView()
         case .connected:
             ProjectPickerView()
-        case let .error(message):
-            ErrorView(message: message)
+        case let .error(issue):
+            ErrorView(issue: issue)
         }
     }
 }
@@ -41,21 +42,79 @@ struct AwaitingApprovalView: View {
 }
 
 struct ErrorView: View {
-    let message: String
+    let issue: ConnectionManager.ConnectionIssue
     @Environment(ConnectionManager.self) private var connection
+    @State private var showingDetails = false
 
     var body: some View {
         ContentUnavailableView {
             Label("Connection Failed", systemImage: "wifi.exclamationmark")
         } description: {
-            Text(message)
+            Text(issue.message)
         } actions: {
-            Button("Retry") {
-                connection.reconnect()
+            HStack(spacing: 12) {
+                Button("Retry") {
+                    connection.reconnect()
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("Debug Info") {
+                    showingDetails = true
+                }
+                .buttonStyle(.bordered)
+                .tint(.accentColor)
             }
-            .buttonStyle(.borderedProminent)
+
             Button("Disconnect", role: .destructive) {
                 connection.disconnect()
+            }
+        }
+        .sheet(isPresented: $showingDetails) {
+            ConnectionIssueDetailsView(issue: issue)
+        }
+    }
+}
+
+struct ConnectionIssueDetailsView: View {
+    let issue: ConnectionManager.ConnectionIssue
+    @Environment(\.dismiss) private var dismiss
+    @State private var didCopy = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(issue.technicalDetails)
+                    .font(.system(.footnote, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .textSelection(.enabled)
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Connection Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                HStack(spacing: 12) {
+                    Button(didCopy ? "Copied" : "Copy Details") {
+                        UIPasteboard.general.string = issue.technicalDetails
+                        didCopy = true
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    ShareLink(item: issue.technicalDetails) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding()
+                .frame(maxWidth: .infinity)
+                .background(.ultraThinMaterial)
             }
         }
     }
