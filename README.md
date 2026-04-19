@@ -13,9 +13,7 @@
 
 ## Screenshots
 
-<img width="3212" alt="Muxy Dark" src="https://github.com/user-attachments/assets/5a15a0cb-9285-4492-9b94-2a77ec044a26" />
-<img width="3212" alt="Muxy Light" src="https://github.com/user-attachments/assets/767de746-ca9d-4f3d-82fc-c8765d135149" />
-<img width="3212" alt="Muxy Dark 2" src="https://github.com/user-attachments/assets/dd93f651-8c29-43fb-894c-9fbeed6db266" />
+<img width="3004" alt="image" src="https://github.com/user-attachments/assets/721c6b4a-bd9c-4e4e-ade0-cd2597399801" />
 
 ## Features
 
