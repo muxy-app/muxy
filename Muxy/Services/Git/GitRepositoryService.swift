@@ -193,99 +193,8 @@ struct GitRepositoryService {
             arguments: arguments,
             workingDirectory: repoPath
         )
-        guard let result, result.status == 0,
-              let data = result.stdout.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-
-        guard let url = json["url"] as? String,
-              let number = json["number"] as? Int,
-              let stateRaw = json["state"] as? String
-        else { return nil }
-
-        let state = PRState(rawValue: stateRaw) ?? .open
-        let isDraft = json["isDraft"] as? Bool ?? false
-        let baseBranch = json["baseRefName"] as? String ?? ""
-        let mergeableRaw = json["mergeable"] as? String
-        let mergeable: Bool? = switch mergeableRaw {
-        case "MERGEABLE": true
-        case "CONFLICTING": false
-        default: nil
-        }
-
-        let rollup = json["statusCheckRollup"] as? [[String: Any]] ?? []
-        let checks = Self.parseStatusChecks(rollup)
-
-        return PRInfo(
-            url: url,
-            number: number,
-            state: state,
-            isDraft: isDraft,
-            baseBranch: baseBranch,
-            mergeable: mergeable,
-            checks: checks
-        )
-    }
-
-    private static func parseStatusChecks(_ rollup: [[String: Any]]) -> PRChecks {
-        if rollup.isEmpty {
-            return PRChecks(status: .none, passing: 0, failing: 0, pending: 0, total: 0)
-        }
-
-        var passing = 0
-        var failing = 0
-        var pending = 0
-
-        for entry in rollup {
-            let typename = entry["__typename"] as? String ?? ""
-            let outcome: String
-            if typename == "CheckRun" {
-                let status = (entry["status"] as? String ?? "").uppercased()
-                let conclusion = (entry["conclusion"] as? String ?? "").uppercased()
-                if status != "COMPLETED" {
-                    outcome = "PENDING"
-                } else {
-                    outcome = conclusion
-                }
-            } else {
-                outcome = (entry["state"] as? String ?? "").uppercased()
-            }
-
-            switch outcome {
-            case "SUCCESS",
-                 "NEUTRAL",
-                 "SKIPPED":
-                passing += 1
-            case "FAILURE",
-                 "ERROR",
-                 "CANCELLED",
-                 "TIMED_OUT",
-                 "ACTION_REQUIRED",
-                 "STARTUP_FAILURE":
-                failing += 1
-            case "PENDING",
-                 "QUEUED",
-                 "IN_PROGRESS",
-                 "WAITING",
-                 "REQUESTED",
-                 "EXPECTED":
-                pending += 1
-            default:
-                pending += 1
-            }
-        }
-
-        let total = passing + failing + pending
-        let status: PRChecksStatus = if failing > 0 {
-            .failure
-        } else if pending > 0 {
-            .pending
-        } else if passing > 0 {
-            .success
-        } else {
-            .none
-        }
-        return PRChecks(status: status, passing: passing, failing: failing, pending: pending, total: total)
+        guard let result, result.status == 0 else { return nil }
+        return GitPRParser.parsePRInfo(result.stdout)
     }
 
     func aheadBehind(repoPath: String, branch: String) async -> AheadBehind {
@@ -307,16 +216,7 @@ struct GitRepositoryService {
         guard let countsResult = try? await countsTask, countsResult.status == 0 else {
             return AheadBehind(ahead: 0, behind: 0, hasUpstream: true)
         }
-        let parts = countsResult.stdout
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(whereSeparator: { $0 == "\t" || $0 == " " })
-        guard parts.count == 2,
-              let ahead = Int(parts[0]),
-              let behind = Int(parts[1])
-        else {
-            return AheadBehind(ahead: 0, behind: 0, hasUpstream: true)
-        }
-        return AheadBehind(ahead: ahead, behind: behind, hasUpstream: true)
+        return GitPRParser.parseAheadBehind(counts: countsResult.stdout, hasUpstream: true)
     }
 
     func hasRemoteBranch(repoPath: String, branch: String) async -> Bool {
@@ -888,20 +788,13 @@ struct GitRepositoryService {
         }
     }
 
-    private static let commitFieldSeparator = "\u{1F}"
-    private static let commitRecordSeparator = "\u{1E}"
-
-    private static let logFormat = [
-        "%H", "%h", "%s", "%an", "%aI", "%D", "%P",
-    ].joined(separator: commitFieldSeparator) + commitRecordSeparator
-
     func commitLog(repoPath: String, maxCount: Int = 100, skip: Int = 0) async throws -> [GitCommit] {
         let result = try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: [
                 "log",
                 "--decorate=full",
-                "--format=\(Self.logFormat)",
+                "--format=\(GitCommitLogParser.logFormat)",
                 "--max-count=\(maxCount)",
                 "--skip=\(skip)",
             ]
@@ -909,74 +802,7 @@ struct GitRepositoryService {
         guard result.status == 0 else {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load commit history." : result.stderr)
         }
-        return Self.parseCommitLog(result.stdout)
-    }
-
-    private static func parseCommitLog(_ raw: String) -> [GitCommit] {
-        let records = raw.split(separator: Character(commitRecordSeparator), omittingEmptySubsequences: true)
-        let dateFormatter = ISO8601DateFormatter()
-        dateFormatter.formatOptions = [.withInternetDateTime]
-
-        return records.compactMap { record in
-            let fields = record.trimmingCharacters(in: .whitespacesAndNewlines)
-                .split(separator: Character(commitFieldSeparator), maxSplits: 6, omittingEmptySubsequences: false)
-            guard fields.count >= 7 else { return nil }
-
-            let hash = String(fields[0])
-            let shortHash = String(fields[1])
-            let subject = String(fields[2])
-            let authorName = String(fields[3])
-            let dateString = String(fields[4])
-            let refsRaw = String(fields[5])
-            let parentsRaw = String(fields[6])
-
-            let date = dateFormatter.date(from: dateString) ?? Date.distantPast
-            let refs = parseRefs(refsRaw)
-            let parents = parentsRaw.split(separator: " ").map(String.init)
-
-            return GitCommit(
-                hash: hash,
-                shortHash: shortHash,
-                subject: subject,
-                authorName: authorName,
-                authorDate: date,
-                refs: refs,
-                parentHashes: parents
-            )
-        }
-    }
-
-    private static func parseRefs(_ raw: String) -> [GitRef] {
-        guard !raw.isEmpty else { return [] }
-        return raw.split(separator: ",").compactMap { segment in
-            let trimmed = segment.trimmingCharacters(in: .whitespaces)
-            if trimmed == "HEAD" {
-                return GitRef(name: "HEAD", kind: .head)
-            }
-            if trimmed.hasPrefix("HEAD -> ") {
-                let branch = String(trimmed.dropFirst("HEAD -> ".count))
-                    .replacingOccurrences(of: "refs/heads/", with: "")
-                return GitRef(name: branch, kind: .localBranch)
-            }
-            if trimmed.hasPrefix("tag: ") {
-                let tag = String(trimmed.dropFirst("tag: ".count))
-                    .replacingOccurrences(of: "refs/tags/", with: "")
-                return GitRef(name: tag, kind: .tag)
-            }
-            if trimmed.hasPrefix("refs/heads/") {
-                let name = String(trimmed.dropFirst("refs/heads/".count))
-                return GitRef(name: name, kind: .localBranch)
-            }
-            if trimmed.hasPrefix("refs/remotes/") {
-                let name = String(trimmed.dropFirst("refs/remotes/".count))
-                return GitRef(name: name, kind: .remoteBranch)
-            }
-            if trimmed.hasPrefix("refs/tags/") {
-                let name = String(trimmed.dropFirst("refs/tags/".count))
-                return GitRef(name: name, kind: .tag)
-            }
-            return GitRef(name: trimmed, kind: .localBranch)
-        }
+        return GitCommitLogParser.parseCommitLog(result.stdout)
     }
 
     func cherryPick(repoPath: String, hash: String) async throws {
