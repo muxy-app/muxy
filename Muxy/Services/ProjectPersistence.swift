@@ -6,20 +6,17 @@ protocol ProjectPersisting {
 }
 
 final class FileProjectPersistence: ProjectPersisting {
-    private let fileURL: URL
+    private let store: CodableFileStore<[Project]>
 
     init(fileURL: URL = MuxyFileStorage.fileURL(filename: "projects.json")) {
-        self.fileURL = fileURL
+        store = CodableFileStore(fileURL: fileURL)
     }
 
     func loadProjects() throws -> [Project] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
-        let data = try Data(contentsOf: fileURL)
-        return try JSONDecoder().decode([Project].self, from: data)
+        try store.load() ?? []
     }
 
     func saveProjects(_ projects: [Project]) throws {
-        let data = try JSONEncoder().encode(projects)
-        try data.write(to: fileURL, options: .atomic)
+        try store.save(projects)
     }
 }

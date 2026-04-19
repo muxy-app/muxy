@@ -1,5 +1,8 @@
 import Foundation
+import os
 import SwiftUI
+
+private let logger = Logger(subsystem: "app.muxy", category: "AppState")
 
 @MainActor
 @Observable
@@ -76,8 +79,15 @@ final class AppState {
     }
 
     func restoreSelection(projects: [Project], worktrees: [UUID: [Worktree]]) {
+        let snapshots: [WorkspaceSnapshot]
+        do {
+            snapshots = try workspacePersistence.loadWorkspaces()
+        } catch {
+            logger.error("Failed to load workspaces: \(error)")
+            snapshots = []
+        }
         let restored = WorkspaceRestorer.restoreAll(
-            from: workspacePersistence.loadWorkspaces(),
+            from: snapshots,
             projects: projects,
             worktrees: worktrees
         )
@@ -111,7 +121,11 @@ final class AppState {
             workspaceRoots: workspaceRoots,
             focusedAreaID: focusedAreaID
         )
-        workspacePersistence.saveWorkspaces(snapshots)
+        do {
+            try workspacePersistence.saveWorkspaces(snapshots)
+        } catch {
+            logger.error("Failed to save workspaces: \(error)")
+        }
     }
 
     private func saveSelection() {

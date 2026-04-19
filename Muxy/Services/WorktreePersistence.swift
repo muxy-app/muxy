@@ -19,26 +19,21 @@ final class FileWorktreePersistence: WorktreePersisting {
     }
 
     func loadWorktrees(projectID: UUID) throws -> [Worktree] {
-        let url = fileURL(for: projectID)
-        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode([Worktree].self, from: data)
+        try store(for: projectID).load() ?? []
     }
 
     func saveWorktrees(_ worktrees: [Worktree], projectID: UUID) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .prettyPrinted
-        let data = try encoder.encode(worktrees)
-        try data.write(to: fileURL(for: projectID), options: .atomic)
+        try store(for: projectID).save(worktrees)
     }
 
     func removeWorktrees(projectID: UUID) throws {
-        let url = fileURL(for: projectID)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        try FileManager.default.removeItem(at: url)
+        try store(for: projectID).remove()
     }
 
-    private func fileURL(for projectID: UUID) -> URL {
-        directory.appendingPathComponent("\(projectID.uuidString).json")
+    private func store(for projectID: UUID) -> CodableFileStore<[Worktree]> {
+        CodableFileStore(
+            fileURL: directory.appendingPathComponent("\(projectID.uuidString).json"),
+            options: .pretty
+        )
     }
 }

@@ -6,31 +6,28 @@ protocol KeyBindingPersisting {
 }
 
 final class FileKeyBindingPersistence: KeyBindingPersisting {
-    private let fileURL: URL
+    private let reader: CodableFileStore<[SafeKeyBinding]>
+    private let writer: CodableFileStore<[KeyBinding]>
 
     init(fileURL: URL = MuxyFileStorage.fileURL(filename: "keybindings.json")) {
-        self.fileURL = fileURL
+        reader = CodableFileStore(fileURL: fileURL)
+        writer = CodableFileStore(
+            fileURL: fileURL,
+            options: CodableFileStoreOptions(
+                prettyPrinted: true,
+                sortedKeys: true,
+                filePermissions: 0o600
+            )
+        )
     }
 
     func loadBindings() throws -> [KeyBinding] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return KeyBinding.defaults
-        }
-        let data = try Data(contentsOf: fileURL)
-        let containers = try JSONDecoder().decode([SafeKeyBinding].self, from: data)
-        let saved = containers.compactMap(\.binding)
-        return Self.mergeWithDefaults(saved)
+        guard let containers = try reader.load() else { return KeyBinding.defaults }
+        return Self.mergeWithDefaults(containers.compactMap(\.binding))
     }
 
     func saveBindings(_ bindings: [KeyBinding]) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(bindings)
-        try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: fileURL.path
-        )
+        try writer.save(bindings)
     }
 
     private static func mergeWithDefaults(_ saved: [KeyBinding]) -> [KeyBinding] {
@@ -40,11 +37,15 @@ final class FileKeyBindingPersistence: KeyBindingPersisting {
         }
     }
 
-    private struct SafeKeyBinding: Decodable {
+    private struct SafeKeyBinding: Codable {
         let binding: KeyBinding?
 
         init(from decoder: Decoder) throws {
             binding = try? KeyBinding(from: decoder)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            try binding?.encode(to: encoder)
         }
     }
 }
