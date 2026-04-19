@@ -75,6 +75,8 @@ struct TerminalView: View {
     @State private var pendingGridSize: (cols: UInt32, rows: UInt32)?
     @State private var isSelectingText = false
     @State private var selectedText = ""
+    @State private var autoTakenPaneID: UUID?
+    @State private var takeOverInFlight = false
 
     private var themeBg: Color {
         connection.deviceTheme?.bgColor ?? .black
@@ -94,7 +96,7 @@ struct TerminalView: View {
                 .opacity(isOwnedBySelf ? 1 : 0)
                 .allowsHitTesting(isOwnedBySelf)
 
-            if !isOwnedBySelf {
+            if !isOwnedBySelf, !takeOverInFlight {
                 MobileTakeOverOverlay(
                     ownerName: ownerDisplayName,
                     theme: connection.deviceTheme,
@@ -108,6 +110,7 @@ struct TerminalView: View {
         .onAppear {
             bindInput()
             startPolling()
+            autoTakeOverIfNeeded()
             if isOwnedBySelf {
                 Task { @MainActor in
                     inputCoordinator.becomeFirstResponder()
@@ -122,9 +125,11 @@ struct TerminalView: View {
             cells = nil
             isSelectingText = false
             selectedText = ""
+            takeOverInFlight = false
             stopPolling()
             bindInput()
             startPolling()
+            autoTakeOverIfNeeded()
         }
         .onChange(of: isOwnedBySelf) { _, newValue in
             if newValue {
@@ -158,12 +163,21 @@ struct TerminalView: View {
 
     private func takeOverCurrentPane() {
         let size = pendingGridSize ?? (cols: 80, rows: 24)
+        takeOverInFlight = true
         Task {
             await connection.takeOverPane(paneID: paneID, cols: size.cols, rows: size.rows)
             if let dto = await connection.getTerminalCells(paneID: paneID) {
                 cells = dto
             }
+            takeOverInFlight = false
         }
+    }
+
+    private func autoTakeOverIfNeeded() {
+        guard autoTakenPaneID != paneID else { return }
+        autoTakenPaneID = paneID
+        guard !isOwnedBySelf else { return }
+        takeOverCurrentPane()
     }
 
     private var terminalGrid: some View {
