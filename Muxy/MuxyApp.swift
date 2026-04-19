@@ -186,7 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationStore.shared.saveToDisk()
         NotificationSocketServer.shared.stop()
         MainActor.assumeIsolated {
-            MobileServerService.shared.stop()
+            MobileServerService.shared.stopForTermination()
         }
     }
 

@@ -94,6 +94,10 @@ final class MobileServerService {
         setEnabled(false)
     }
 
+    func stopForTermination() {
+        retireCurrentServer()
+    }
+
     static func isValid(port: UInt16) -> Bool {
         port >= minPort && port <= maxPort
     }
