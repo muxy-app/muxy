@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Muxy/Resources/logo.png" alt="Muxy" width="128" height="128">
+  <img src="Muxy/Resources/Assets.xcassets/AppIcon.appiconset/icon_128@2x.png" alt="Muxy" width="128" height="128">
 </p>
 
 <h1 align="center">Muxy</h1>
