@@ -153,12 +153,18 @@ final class FileTreeState {
     }
 
     func extendSelection(to path: String) {
-        let anchor = selectionAnchorPath ?? selectedFilePath ?? path
         let ordered = visiblePathsInOrder()
-        guard let startIdx = ordered.firstIndex(of: anchor),
-              let endIdx = ordered.firstIndex(of: path)
-        else {
-            selectOnly(path)
+        guard let endIdx = ordered.firstIndex(of: path) else {
+            selectedPaths.insert(path)
+            selectedFilePath = path
+            selectionAnchorPath = path
+            return
+        }
+        let anchor = selectionAnchorPath ?? selectedFilePath ?? path
+        guard let startIdx = ordered.firstIndex(of: anchor) else {
+            selectedPaths.insert(path)
+            selectedFilePath = path
+            selectionAnchorPath = path
             return
         }
         let range = startIdx <= endIdx ? startIdx ... endIdx : endIdx ... startIdx
