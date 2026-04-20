@@ -84,6 +84,8 @@ Muxy/
     GitDirectoryWatcher.swift FSEvents watcher for .git changes
     FileSearchService.swift   Quick open file search via /usr/bin/find subprocess
     FileTreeService.swift     Lazy directory listing that respects .gitignore via git check-ignore
+    FileSystemOperations.swift Off-main create / rename / move / copy / trash primitives
+    FileClipboard.swift       NSPasteboard wrapper for file cut/copy/paste with cut-marker type
     ThemeService.swift        Theme discovery + application
     MuxyConfig.swift          Ghostty config file read/write
     KeyBindingStore.swift     @Observable store for keyboard shortcuts
@@ -136,6 +138,7 @@ Muxy/
       EditorPane.swift        SwiftUI wrapper for editor tab (breadcrumb + editor)
     FileTree/
       FileTreeView.swift      Side panel rendering of the lightweight file tree
+      FileTreeCommands.swift  Orchestrates create/rename/delete/cut/copy/paste/drop
     VCS/
       VCSTabView.swift        Source control tab (commit, stage, diff, branch) + PRPill + PRPopover
       BranchPicker.swift      Branch selection dropdown with filter and right-click delete
@@ -248,6 +251,43 @@ tree and the changed-only filter.
 
 The panel width is persisted in `UserDefaults` under `muxy.fileTreeWidth`.
 Expansion state is in-memory only.
+
+### File Operations
+
+The tree supports direct manipulation through a right-click context menu,
+keyboard shortcuts, and drag-and-drop. `FileTreeCommands` (held as view
+state inside `FileTreeView`) orchestrates the flow: it mutates transient
+`FileTreeState` fields (`pendingNewEntry`, `pendingRenamePath`,
+`pendingDeletePaths`, `cutPaths`, `dropHighlightPath`, `selectedPaths`,
+`selectionAnchorPath`) and dispatches work to `FileSystemOperations`, a
+stateless service that runs create / rename / move / copy / trash off the
+main thread via `GitProcessRunner.offMainThrowing`. Trash goes through
+`NSWorkspace.shared.recycle` so the OS handles Undo.
+
+Selection is multi-item: plain click selects one, `⌘`-click toggles, and
+`⇧`-click extends the range using the currently visible row order.
+Rename and new-entry both use `FileTreeRenameField`, an inline text field
+that commits on Return / blur and cancels on Escape. Errors from any
+operation surface through `ToastState.shared` and are also logged.
+
+Cut / copy / paste is backed by `FileClipboard`, which writes file URLs to
+`NSPasteboard.general` and tags cuts with a private pasteboard type
+(`app.muxy.fileCut`). This lets Muxy round-trip cut state while remaining
+interoperable with Finder (which only sees the file URLs). Paste into a
+file selects that file's parent directory as the destination.
+
+Drag-and-drop accepts `.fileURL` providers on every directory row and on
+the empty space below the tree. Holding Option turns a move into a copy;
+drops that would move a path into itself are filtered out. The dragged
+row and all drop targets are driven by the same `FileTreeDropDelegate`.
+
+When a path changes on disk (rename, move, paste) the tree calls
+`AppState.handleFileMoved(from:to:)`, which walks every open editor tab
+and rewrites `EditorTabState.filePath` — both exact matches and paths
+under a moved directory — keeping editors pointed at the same content.
+"Open in Terminal" dispatches `.createTabInDirectory`, a reducer case
+that opens a new terminal tab rooted at the selected directory rather
+than the project root.
 
 ## VCS Tab Layout
 

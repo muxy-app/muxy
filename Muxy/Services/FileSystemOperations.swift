@@ -7,6 +7,21 @@ enum FileSystemOperationError: Error, Equatable {
     case invalidName
     case sameAsSource
     case underlying(String)
+
+    var userMessage: String {
+        switch self {
+        case let .destinationExists(path):
+            "“\((path as NSString).lastPathComponent)” already exists"
+        case let .sourceMissing(path):
+            "“\((path as NSString).lastPathComponent)” no longer exists"
+        case .invalidName:
+            "That name is not allowed"
+        case .sameAsSource:
+            "Can’t move a folder into itself"
+        case let .underlying(message):
+            message
+        }
+    }
 }
 
 enum FileSystemOperations {

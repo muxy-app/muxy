@@ -55,8 +55,7 @@ final class FileTreeCommands {
                     state.selectOnly(created)
                 }
             } catch {
-                let label = kind == .file ? "file" : "folder"
-                logger.error("Create \(label, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                report(error, action: kind == .file ? "Create file" : "Create folder")
             }
         }
     }
@@ -86,7 +85,7 @@ final class FileTreeCommands {
                 }
                 onFileMoved(originalPath, newPath)
             } catch {
-                logger.error("Rename failed: \(error.localizedDescription, privacy: .public)")
+                report(error, action: "Rename")
             }
         }
     }
@@ -121,7 +120,7 @@ final class FileTreeCommands {
                     state.selectedFilePath = state.selectedPaths.first
                 }
             } catch {
-                logger.error("Trash failed: \(error.localizedDescription, privacy: .public)")
+                report(error, action: "Move to Trash")
             }
         }
     }
@@ -170,7 +169,7 @@ final class FileTreeCommands {
                     }
                 }
             } catch {
-                logger.error("Paste failed: \(error.localizedDescription, privacy: .public)")
+                report(error, action: "Paste")
             }
         }
     }
@@ -225,9 +224,15 @@ final class FileTreeCommands {
                     }
                 }
             } catch {
-                logger.error("Drop failed: \(error.localizedDescription, privacy: .public)")
+                report(error, action: copy ? "Copy" : "Move")
             }
         }
+    }
+
+    private func report(_ error: Error, action: String) {
+        let message = (error as? FileSystemOperationError)?.userMessage ?? error.localizedDescription
+        logger.error("\(action, privacy: .public) failed: \(message, privacy: .public)")
+        ToastState.shared.show("\(action) failed: \(message)")
     }
 
     private func resolveDirectoryContext(for path: String) -> String {
