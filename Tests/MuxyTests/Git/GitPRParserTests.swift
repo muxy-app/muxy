@@ -99,6 +99,7 @@ struct GitPRParserTests {
               "isDraft": true,
               "baseRefName": "main",
               "mergeable": "MERGEABLE",
+              "mergeStateStatus": "CLEAN",
               "statusCheckRollup": []
             }
             """
@@ -109,7 +110,25 @@ struct GitPRParserTests {
             #expect(info?.isDraft == true)
             #expect(info?.baseBranch == "main")
             #expect(info?.mergeable == true)
+            #expect(info?.mergeStateStatus == .clean)
             #expect(info?.checks.status == GitRepositoryService.PRChecksStatus.none)
+        }
+
+        @Test("BEHIND mergeStateStatus parses even when mergeable is MERGEABLE")
+        func behindMergeState() {
+            let json = """
+            {"url":"u","number":1,"state":"OPEN","mergeable":"MERGEABLE","mergeStateStatus":"BEHIND"}
+            """
+            let info = GitPRParser.parsePRInfo(json)
+            #expect(info?.mergeable == true)
+            #expect(info?.mergeStateStatus == .behind)
+        }
+
+        @Test("missing mergeStateStatus defaults to unknown")
+        func missingMergeState() {
+            let json = #"{"url":"u","number":1,"state":"OPEN","mergeable":"MERGEABLE"}"#
+            let info = GitPRParser.parsePRInfo(json)
+            #expect(info?.mergeStateStatus == .unknown)
         }
 
         @Test("CONFLICTING mergeable maps to false")

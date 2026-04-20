@@ -32,6 +32,7 @@ struct GitRepositoryService {
         let isDraft: Bool
         let baseBranch: String
         let mergeable: Bool?
+        let mergeStateStatus: PRMergeStateStatus
         let checks: PRChecks
     }
 
@@ -39,6 +40,17 @@ struct GitRepositoryService {
         case open = "OPEN"
         case closed = "CLOSED"
         case merged = "MERGED"
+    }
+
+    enum PRMergeStateStatus: String {
+        case clean = "CLEAN"
+        case hasHooks = "HAS_HOOKS"
+        case unstable = "UNSTABLE"
+        case behind = "BEHIND"
+        case blocked = "BLOCKED"
+        case dirty = "DIRTY"
+        case draft = "DRAFT"
+        case unknown = "UNKNOWN"
     }
 
     struct PRChecks: Equatable {
@@ -166,7 +178,7 @@ struct GitRepositoryService {
 
     func pullRequestInfo(repoPath: String, branch: String) async -> PRInfo? {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
-        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,statusCheckRollup"
+        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup"
 
         if let info = await ghPRView(ghPath: ghPath, repoPath: repoPath, jsonFields: jsonFields) {
             return info

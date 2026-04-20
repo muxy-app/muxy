@@ -22,6 +22,9 @@ enum GitPRParser {
         case "CONFLICTING": false
         default: nil
         }
+        let mergeStateStatus = GitRepositoryService.PRMergeStateStatus(
+            rawValue: (json["mergeStateStatus"] as? String) ?? ""
+        ) ?? .unknown
         let rollup = json["statusCheckRollup"] as? [[String: Any]] ?? []
 
         return GitRepositoryService.PRInfo(
@@ -31,6 +34,7 @@ enum GitPRParser {
             isDraft: isDraft,
             baseBranch: baseBranch,
             mergeable: mergeable,
+            mergeStateStatus: mergeStateStatus,
             checks: parseStatusChecks(rollup)
         )
     }

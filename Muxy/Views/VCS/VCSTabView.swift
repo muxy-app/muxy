@@ -853,11 +853,11 @@ struct PRPopover: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 infoRow(label: "Base", value: info.baseBranch)
-                if let mergeable = info.mergeable {
+                if let label = mergeableLabel {
                     infoRow(
                         label: "Mergeable",
-                        value: mergeable ? "Yes" : "Conflicts",
-                        valueColor: mergeable ? MuxyTheme.diffAddFg : MuxyTheme.diffRemoveFg
+                        value: label.text,
+                        valueColor: label.color
                     )
                 }
                 checksRow
@@ -962,14 +962,60 @@ struct PRPopover: View {
     private var mergeDisabled: Bool {
         if state.isMergingPullRequest { return true }
         if info.mergeable == false { return true }
-        return false
+        switch info.mergeStateStatus {
+        case .dirty,
+             .blocked,
+             .behind,
+             .draft: return true
+        case .clean,
+             .hasHooks,
+             .unstable,
+             .unknown: return false
+        }
     }
 
     private var mergeHelp: String {
         if info.mergeable == false { return "This PR has conflicts and cannot be merged." }
-        if info.checks.status == .failure { return "Checks are failing. You will be asked to confirm before merging." }
-        if info.checks.status == .pending { return "Checks are still running. You will be asked to confirm before merging." }
-        return "Merge PR #\(info.number)"
+        switch info.mergeStateStatus {
+        case .dirty: return "This PR has conflicts and cannot be merged."
+        case .behind: return "This branch is out of date with the base branch. Update it before merging."
+        case .blocked: return "Merging is blocked by branch protection (required reviews or checks)."
+        case .draft: return "This PR is a draft. Mark it ready for review before merging."
+        case .unstable:
+            return "Checks are failing or pending. You will be asked to confirm before merging."
+        case .clean,
+             .hasHooks,
+             .unknown:
+            if info.checks.status == .failure {
+                return "Checks are failing. You will be asked to confirm before merging."
+            }
+            if info.checks.status == .pending {
+                return "Checks are still running. You will be asked to confirm before merging."
+            }
+            return "Merge PR #\(info.number)"
+        }
+    }
+
+    private var mergeableLabel: (text: String, color: Color)? {
+        switch info.mergeStateStatus {
+        case .dirty:
+            return ("Conflicts", MuxyTheme.diffRemoveFg)
+        case .behind:
+            return ("Behind base", MuxyTheme.diffRemoveFg)
+        case .blocked:
+            return ("Blocked", MuxyTheme.diffRemoveFg)
+        case .draft:
+            return ("Draft", MuxyTheme.fgMuted)
+        case .clean,
+             .hasHooks:
+            return ("Yes", MuxyTheme.diffAddFg)
+        case .unstable:
+            return ("Yes (checks failing)", MuxyTheme.diffAddFg)
+        case .unknown:
+            if info.mergeable == true { return ("Yes", MuxyTheme.diffAddFg) }
+            if info.mergeable == false { return ("Conflicts", MuxyTheme.diffRemoveFg) }
+            return nil
+        }
     }
 
     @ViewBuilder
