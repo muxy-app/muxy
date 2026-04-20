@@ -54,7 +54,7 @@ Muxy/
     KeyCombo.swift            Key combo encoding, display, matching
     VCSTabState.swift         Git diff viewer state + loading orchestration
     EditorTabState.swift      Code editor tab state (backing store, cursor, search, save)
-    DiffViewerTabState.swift  Standalone diff-viewer tab state (single-file diff, unified/split toggle)
+    DiffViewerTabState.swift  Standalone diff-viewer tab state (single-file diff, unified/split toggle, session-only — not persisted)
     FileTreeState.swift       Lightweight file tree state per worktree (lazy expansion, git statuses)
     EditorSettings.swift      @Observable editor preferences (default editor, font)
     TextBackingStore.swift    Line-array backing store for editor documents

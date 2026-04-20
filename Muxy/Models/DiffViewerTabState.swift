@@ -10,12 +10,8 @@ final class DiffViewerTabState: Identifiable {
     let projectPath: String
     var mode: VCSTabState.ViewMode
 
-    var fileName: String {
-        (filePath as NSString).lastPathComponent
-    }
-
     var displayTitle: String {
-        fileName
+        (filePath as NSString).lastPathComponent
     }
 
     init(vcs: VCSTabState, filePath: String, isStaged: Bool) {

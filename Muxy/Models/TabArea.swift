@@ -36,11 +36,12 @@ final class TabArea: Identifiable {
     }
 
     func snapshot() -> TabAreaSnapshot {
-        let activeIndex = tabs.firstIndex(where: { $0.id == activeTabID })
+        let persistedTabs = tabs.filter { $0.kind != .diffViewer }
+        let activeIndex = persistedTabs.firstIndex(where: { $0.id == activeTabID })
         return TabAreaSnapshot(
             id: id,
             projectPath: projectPath,
-            tabs: tabs.map { $0.snapshot() },
+            tabs: persistedTabs.map { $0.snapshot() },
             activeTabIndex: activeIndex
         )
     }

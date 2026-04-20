@@ -105,7 +105,6 @@ struct TerminalTabSnapshot: Codable {
     let projectPath: String
     let paneTitle: String
     let filePath: String?
-    let diffViewerIsStaged: Bool?
 
     init(
         kind: TerminalTab.Kind,
@@ -114,8 +113,7 @@ struct TerminalTabSnapshot: Codable {
         isPinned: Bool,
         projectPath: String,
         paneTitle: String?,
-        filePath: String? = nil,
-        diffViewerIsStaged: Bool? = nil
+        filePath: String? = nil
     ) {
         self.kind = kind
         self.customTitle = customTitle
@@ -124,7 +122,6 @@ struct TerminalTabSnapshot: Codable {
         self.projectPath = projectPath
         self.paneTitle = paneTitle ?? "Terminal"
         self.filePath = filePath
-        self.diffViewerIsStaged = diffViewerIsStaged
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -135,7 +132,6 @@ struct TerminalTabSnapshot: Codable {
         case projectPath
         case paneTitle
         case filePath
-        case diffViewerIsStaged
     }
 
     init(from decoder: Decoder) throws {
@@ -147,7 +143,6 @@ struct TerminalTabSnapshot: Codable {
         projectPath = try container.decode(String.self, forKey: .projectPath)
         paneTitle = try container.decodeIfPresent(String.self, forKey: .paneTitle) ?? "Terminal"
         filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
-        diffViewerIsStaged = try container.decodeIfPresent(Bool.self, forKey: .diffViewerIsStaged)
     }
 }
 

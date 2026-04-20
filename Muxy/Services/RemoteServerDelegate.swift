@@ -86,6 +86,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             appState.dispatch(.createVCSTab(projectID: projectID, areaID: areaID))
         case .editor:
             appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
+        case .diffViewer:
+            appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
         }
 
         guard let area = appState.focusedArea(for: projectID),

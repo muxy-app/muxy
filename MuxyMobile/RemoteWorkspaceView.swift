@@ -145,6 +145,7 @@ struct WorkspaceContentWrapper: View {
         case .terminal: "terminal"
         case .vcs: "arrow.triangle.branch"
         case .editor: "doc.text"
+        case .diffViewer: "rectangle.split.2x1"
         }
     }
 }
@@ -163,6 +164,8 @@ struct TabDetailView: View {
                 vcsPlaceholder
             case .editor:
                 editorPlaceholder
+            case .diffViewer:
+                diffViewerPlaceholder
             }
         }
     }
@@ -182,6 +185,10 @@ struct TabDetailView: View {
 
     private var editorPlaceholder: some View {
         placeholder(icon: "doc.text", title: tab.title)
+    }
+
+    private var diffViewerPlaceholder: some View {
+        placeholder(icon: "rectangle.split.2x1", title: tab.title)
     }
 
     private func placeholder(icon: String, title: String) -> some View {

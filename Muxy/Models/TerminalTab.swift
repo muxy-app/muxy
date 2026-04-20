@@ -111,15 +111,7 @@ final class TerminalTab: Identifiable {
                 content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
             }
         case .diffViewer:
-            if let filePath = snapshot.filePath {
-                content = .diffViewer(DiffViewerTabState(
-                    vcs: VCSTabState(projectPath: snapshot.projectPath),
-                    filePath: filePath,
-                    isStaged: snapshot.diffViewerIsStaged ?? false
-                ))
-            } else {
-                content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
-            }
+            content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
         }
     }
 
@@ -131,8 +123,7 @@ final class TerminalTab: Identifiable {
             isPinned: isPinned,
             projectPath: content.projectPath,
             paneTitle: content.pane?.title,
-            filePath: content.editorState?.filePath ?? content.diffViewerState?.filePath,
-            diffViewerIsStaged: content.diffViewerState?.isStaged
+            filePath: content.editorState?.filePath
         )
     }
 }
