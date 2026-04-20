@@ -66,6 +66,7 @@ final class VCSTabState {
     var openPullRequestError: String?
     var isMergingPullRequest = false
     var isClosingPullRequest = false
+    var isRefreshingPullRequest = false
     var hasFetchedPullRequestInfo = false
     private(set) var isGitRepo = false
 
@@ -711,6 +712,7 @@ final class VCSTabState {
         prInfoTask?.cancel()
         prInfoTask = Task { [weak self] in
             guard let self else { return }
+            defer { if forceFresh { isRefreshingPullRequest = false } }
             async let ghInstalledValue = git.isGhInstalled()
             async let defaultBranchValue = git.defaultBranch(repoPath: projectPath)
             let ghInstalled = await ghInstalledValue
@@ -764,10 +766,15 @@ final class VCSTabState {
 
     func refreshPullRequest() {
         guard let branch = branchName else { return }
+        guard !isRefreshingPullRequest else { return }
+        isRefreshingPullRequest = true
         Task { [weak self] in
             guard let self else { return }
             let head = await git.headSha(repoPath: projectPath)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                isRefreshingPullRequest = false
+                return
+            }
             fetchPRInfo(branch: branch, headSha: head, forceFresh: true)
         }
     }
