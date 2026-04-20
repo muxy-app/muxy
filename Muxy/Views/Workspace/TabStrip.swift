@@ -454,6 +454,7 @@ private struct TabCell: View {
         case .terminal: label += ", Terminal"
         case .vcs: label += ", Source Control"
         case .editor: label += ", Editor"
+        case .diffViewer: label += ", Diff Viewer"
         }
         if tab.isPinned { label += ", Pinned" }
         if hasUnread { label += ", Unread" }
@@ -472,6 +473,9 @@ private struct TabCell: View {
         } else if tab.kind == .editor {
             Image(systemName: "pencil.line")
                 .font(.system(size: 12, weight: .semibold))
+        } else if tab.kind == .diffViewer {
+            Image(systemName: "rectangle.split.2x1")
+                .font(.system(size: 11, weight: .semibold))
         } else {
             Image(systemName: "terminal")
                 .font(.system(size: 12, weight: .semibold))

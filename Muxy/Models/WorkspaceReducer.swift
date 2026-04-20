@@ -85,6 +85,14 @@ enum WorkspaceReducer {
                 state: &state
             )
 
+        case let .createDiffViewerTab(projectID, areaID, request):
+            TabReducer.createDiffViewerTab(
+                projectID: projectID,
+                areaID: areaID,
+                request: request,
+                state: &state
+            )
+
         case let .closeTab(projectID, areaID, tabID):
             guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
             TabReducer.closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)

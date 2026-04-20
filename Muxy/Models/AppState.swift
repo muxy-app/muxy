@@ -14,6 +14,12 @@ final class AppState {
         let position: SplitPosition
     }
 
+    struct DiffViewerRequest {
+        let vcs: VCSTabState
+        let filePath: String
+        let isStaged: Bool
+    }
+
     enum Action {
         case selectProject(projectID: UUID, worktreeID: UUID, worktreePath: String)
         case selectWorktree(projectID: UUID, worktreeID: UUID, worktreePath: String)
@@ -28,6 +34,7 @@ final class AppState {
         case createVCSTab(projectID: UUID, areaID: UUID?)
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String)
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
+        case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, areaID: UUID?, index: Int)
@@ -215,6 +222,23 @@ final class AppState {
             }
         }
         dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath))
+    }
+
+    func openDiffViewer(vcs: VCSTabState, filePath: String, isStaged: Bool, projectID: UUID) {
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { tab in
+                guard let diff = tab.content.diffViewerState else { return false }
+                return diff.filePath == filePath && diff.isStaged == isStaged
+            }) {
+                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                return
+            }
+        }
+        dispatch(.createDiffViewerTab(
+            projectID: projectID,
+            areaID: nil,
+            request: DiffViewerRequest(vcs: vcs, filePath: filePath, isStaged: isStaged)
+        ))
     }
 
     private func openFileInExternalEditor(_ filePath: String, projectID: UUID, command: String) {

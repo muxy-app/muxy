@@ -984,38 +984,42 @@ final class VCSTabState {
     }
 
     private func loadDiff(filePath: String, forceFull: Bool) {
-        diffCache.markLoading(filePath)
+        DiffLoader.load(
+            DiffLoader.Request(
+                repoPath: projectPath,
+                filePath: filePath,
+                hints: diffHints(for: filePath),
+                forceFull: forceFull,
+                pinnedPaths: expandedFilePaths
+            ),
+            cache: diffCache,
+            git: git
+        )
+    }
 
-        let lineLimit = forceFull ? nil : 20000
-        let hints = diffHints(for: filePath)
-
-        let task = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let result = try await git.patchAndCompare(
-                    repoPath: projectPath,
-                    filePath: filePath,
-                    lineLimit: lineLimit,
-                    hints: hints
-                )
-                guard !Task.isCancelled else { return }
-
-                diffCache.store(
-                    LoadedDiff(
-                        rows: result.rows,
-                        additions: result.additions,
-                        deletions: result.deletions,
-                        truncated: result.truncated
-                    ),
-                    for: filePath,
-                    pinnedPaths: expandedFilePaths
-                )
-            } catch {
-                guard !Task.isCancelled else { return }
-                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                diffCache.storeError(message, for: filePath)
-            }
+    func ensureDiffLoaded(filePath: String, forceFull: Bool = false) {
+        if !forceFull, diffCache.hasDiff(for: filePath) {
+            diffCache.touch(filePath)
+            return
         }
-        diffCache.registerTask(task, for: filePath)
+        loadDiff(filePath: filePath, forceFull: forceFull)
+    }
+
+    func loadDiffWithHints(
+        filePath: String,
+        hints: GitRepositoryService.DiffHints,
+        forceFull: Bool = false
+    ) {
+        DiffLoader.load(
+            DiffLoader.Request(
+                repoPath: projectPath,
+                filePath: filePath,
+                hints: hints,
+                forceFull: forceFull,
+                pinnedPaths: expandedFilePaths.union([filePath])
+            ),
+            cache: diffCache,
+            git: git
+        )
     }
 }

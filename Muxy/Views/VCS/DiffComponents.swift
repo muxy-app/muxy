@@ -3,6 +3,7 @@ import SwiftUI
 
 struct DiffSectionDivider: View {
     let text: String
+    var showsTopBorder: Bool = true
 
     var body: some View {
         HStack(spacing: 0) {
@@ -18,8 +19,10 @@ struct DiffSectionDivider: View {
         .frame(maxWidth: .infinity)
         .background(MuxyTheme.bg)
         .overlay(alignment: .top) {
-            Rectangle().fill(MuxyTheme.border).frame(height: 1)
-                .accessibilityHidden(true)
+            if showsTopBorder {
+                Rectangle().fill(MuxyTheme.border).frame(height: 1)
+                    .accessibilityHidden(true)
+            }
         }
         .overlay(alignment: .bottom) {
             Rectangle().fill(MuxyTheme.border).frame(height: 1)

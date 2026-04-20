@@ -40,6 +40,23 @@ enum TabReducer {
         area.createExternalEditorTab(filePath: filePath, command: command)
     }
 
+    static func createDiffViewerTab(
+        projectID: UUID,
+        areaID: UUID?,
+        request: AppState.DiffViewerRequest,
+        state: inout WorkspaceState
+    ) {
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
+              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
+        else { return }
+        FocusReducer.focusArea(area.id, key: key, state: &state)
+        area.createDiffViewerTab(
+            vcs: request.vcs,
+            filePath: request.filePath,
+            isStaged: request.isStaged
+        )
+    }
+
     static func selectTab(projectID: UUID, areaID: UUID?, tabID: UUID, state: inout WorkspaceState) {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)

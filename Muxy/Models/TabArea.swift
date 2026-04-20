@@ -70,6 +70,21 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(editorState: EditorTabState(projectPath: projectPath, filePath: filePath)))
     }
 
+    func createDiffViewerTab(vcs: VCSTabState, filePath: String, isStaged: Bool) {
+        if let existing = tabs.first(where: { tab in
+            guard let diff = tab.content.diffViewerState else { return false }
+            return diff.filePath == filePath && diff.isStaged == isStaged
+        }) {
+            selectTab(existing.id)
+            return
+        }
+        insertTab(TerminalTab(diffViewerState: DiffViewerTabState(
+            vcs: vcs,
+            filePath: filePath,
+            isStaged: isStaged
+        )))
+    }
+
     func createExternalEditorTab(filePath: String, command: String) {
         if let existing = tabs.first(where: { $0.content.pane?.externalEditorFilePath == filePath }) {
             selectTab(existing.id)

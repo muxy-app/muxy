@@ -431,7 +431,8 @@ struct VCSTabView: View {
                     onFocus: onFocus,
                     showDiscardAllConfirmation: $showDiscardAllConfirmation,
                     pendingDiscardPath: $pendingDiscardPath,
-                    onOpenInEditor: openFileInEditor
+                    onOpenInEditor: openFileInEditor,
+                    onOpenDiff: openDiffInTab
                 )
             }
         }
@@ -656,6 +657,11 @@ struct VCSTabView: View {
             ? state.projectPath + relativePath
             : state.projectPath + "/" + relativePath
         appState.openFile(fullPath, projectID: projectID)
+    }
+
+    private func openDiffInTab(_ relativePath: String, isStaged: Bool) {
+        guard let projectID = appState.activeProjectID else { return }
+        appState.openDiffViewer(vcs: state, filePath: relativePath, isStaged: isStaged, projectID: projectID)
     }
 }
 
@@ -1104,6 +1110,7 @@ private struct SectionSplitLayout: View {
     @Binding var showDiscardAllConfirmation: Bool
     @Binding var pendingDiscardPath: String?
     let onOpenInEditor: (String) -> Void
+    let onOpenDiff: (String, Bool) -> Void
 
     private static let sectionHeaderHeight: CGFloat = 30
 
@@ -1424,7 +1431,8 @@ private struct SectionSplitLayout: View {
                 onStage: { state.stageFile(file.path) },
                 onUnstage: { state.unstageFile(file.path) },
                 onDiscard: { pendingDiscardPath = file.path },
-                onOpenInEditor: { onOpenInEditor(file.path) }
+                onOpenInEditor: { onOpenInEditor(file.path) },
+                onOpenDiff: { onOpenDiff(file.path, isStaged) }
             )
 
             if expanded {
@@ -1436,58 +1444,15 @@ private struct SectionSplitLayout: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
     private func expandedDiff(for file: GitStatusFile) -> some View {
-        if state.diffCache.isLoading(file.path) {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(14)
-                .background(MuxyTheme.bg)
-        } else if let error = state.diffCache.error(for: file.path) {
-            Text(error)
-                .font(.system(size: 12))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(MuxyTheme.bg)
-        } else if let diff = state.diffCache.diff(for: file.path) {
-            VStack(spacing: 0) {
-                if diff.truncated {
-                    HStack {
-                        Text("Large diff preview")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(MuxyTheme.fgMuted)
-                        Spacer(minLength: 0)
-                        Button("Load full diff") {
-                            state.loadFullDiff(filePath: file.path)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(MuxyTheme.accent)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(MuxyTheme.bg)
-                    Rectangle().fill(MuxyTheme.border).frame(height: 1)
-                }
-
-                switch state.mode {
-                case .unified:
-                    UnifiedDiffView(rows: diff.rows, filePath: file.path)
-                case .split:
-                    SplitDiffView(rows: diff.rows, filePath: file.path)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MuxyTheme.bg)
-        } else {
-            Text("No diff output")
-                .font(.system(size: 12))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(MuxyTheme.bg)
-        }
+        DiffBodyView(
+            isLoading: state.diffCache.isLoading(file.path),
+            error: state.diffCache.error(for: file.path),
+            diff: state.diffCache.diff(for: file.path),
+            filePath: file.path,
+            mode: state.mode,
+            onLoadFull: { state.loadFullDiff(filePath: file.path) }
+        )
     }
 }
 
@@ -1522,6 +1487,7 @@ private struct FileRow: View {
     let onUnstage: () -> Void
     let onDiscard: () -> Void
     let onOpenInEditor: () -> Void
+    let onOpenDiff: () -> Void
     @State private var hovered = false
 
     private var statusColor: Color {
@@ -1597,6 +1563,8 @@ private struct FileRow: View {
         HStack(spacing: 0) {
             IconButton(symbol: "doc.text", size: 11, accessibilityLabel: "Open in Editor", action: onOpenInEditor)
                 .help("Open in Editor")
+            IconButton(symbol: "rectangle.split.2x1", size: 11, accessibilityLabel: "Open Diff in New Tab", action: onOpenDiff)
+                .help("Open Diff in New Tab")
             if isStaged {
                 IconButton(symbol: "minus", size: 11, accessibilityLabel: "Unstage", action: onUnstage)
                     .help("Unstage")
