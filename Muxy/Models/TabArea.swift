@@ -36,11 +36,12 @@ final class TabArea: Identifiable {
     }
 
     func snapshot() -> TabAreaSnapshot {
-        let activeIndex = tabs.firstIndex(where: { $0.id == activeTabID })
+        let persistedTabs = tabs.filter { $0.kind != .diffViewer }
+        let activeIndex = persistedTabs.firstIndex(where: { $0.id == activeTabID })
         return TabAreaSnapshot(
             id: id,
             projectPath: projectPath,
-            tabs: tabs.map { $0.snapshot() },
+            tabs: persistedTabs.map { $0.snapshot() },
             activeTabIndex: activeIndex
         )
     }
@@ -68,6 +69,21 @@ final class TabArea: Identifiable {
             return
         }
         insertTab(TerminalTab(editorState: EditorTabState(projectPath: projectPath, filePath: filePath)))
+    }
+
+    func createDiffViewerTab(vcs: VCSTabState, filePath: String, isStaged: Bool) {
+        if let existing = tabs.first(where: { tab in
+            guard let diff = tab.content.diffViewerState else { return false }
+            return diff.filePath == filePath && diff.isStaged == isStaged
+        }) {
+            selectTab(existing.id)
+            return
+        }
+        insertTab(TerminalTab(diffViewerState: DiffViewerTabState(
+            vcs: vcs,
+            filePath: filePath,
+            isStaged: isStaged
+        )))
     }
 
     func createExternalEditorTab(filePath: String, command: String) {

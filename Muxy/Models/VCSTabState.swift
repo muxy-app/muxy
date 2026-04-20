@@ -19,12 +19,7 @@ final class VCSTabState {
         }
     }
 
-    struct LoadedDiff {
-        let rows: [DiffDisplayRow]
-        let additions: Int
-        let deletions: Int
-        let truncated: Bool
-    }
+    typealias LoadedDiff = DiffCache.LoadedDiff
 
     enum PRLaunchState: Equatable {
         case hidden
@@ -59,9 +54,7 @@ final class VCSTabState {
     var expandedFilePaths: Set<String> = []
     var isLoadingFiles = false
     var errorMessage: String?
-    var diffsByPath: [String: LoadedDiff] = [:]
-    var loadingDiffPaths: Set<String> = []
-    var diffErrorsByPath: [String: String] = [:]
+    let diffCache = DiffCache()
     var branchName: String?
     var pullRequestInfo: GitRepositoryService.PRInfo?
     var defaultBranch: String?
@@ -73,6 +66,7 @@ final class VCSTabState {
     var openPullRequestError: String?
     var isMergingPullRequest = false
     var isClosingPullRequest = false
+    var isRefreshingPullRequest = false
     var hasFetchedPullRequestInfo = false
     private(set) var isGitRepo = false
 
@@ -136,17 +130,14 @@ final class VCSTabState {
     @ObservationIgnored private var branchTask: Task<Void, Never>?
     @ObservationIgnored private var prInfoTask: Task<Void, Never>?
     @ObservationIgnored private var loadBranchesTask: Task<Void, Never>?
-    @ObservationIgnored private var loadDiffTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var commitLogTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: GitDirectoryWatcher?
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var pendingRefresh = false
-    @ObservationIgnored private var diffAccessOrder: [String] = []
     @ObservationIgnored private var lastFetchedHeadSha: String?
     private(set) var hasCompletedInitialLoad = false
     @ObservationIgnored private static let commitsPerPage = 100
-    @ObservationIgnored private static let diffCacheCap = 50
 
     init(projectPath: String) {
         self.projectPath = projectPath
@@ -160,7 +151,7 @@ final class VCSTabState {
         prInfoTask?.cancel()
         loadBranchesTask?.cancel()
         commitLogTask?.cancel()
-        loadDiffTasks.values.forEach { $0.cancel() }
+        diffCache.cancelAll()
         if let remoteChangeObserver {
             NotificationCenter.default.removeObserver(remoteChangeObserver)
         }
@@ -279,7 +270,7 @@ final class VCSTabState {
                 if !removedPaths.isEmpty {
                     expandedFilePaths = expandedFilePaths.intersection(validPaths)
                     for path in removedPaths {
-                        evictDiff(filePath: path)
+                        diffCache.evict(path)
                     }
                 }
 
@@ -291,7 +282,7 @@ final class VCSTabState {
                     }
                     if Self.stagingStateChanged(old: old, new: file) {
                         changedPaths.insert(file.path)
-                        evictDiff(filePath: file.path)
+                        diffCache.evict(file.path)
                     }
                 }
 
@@ -315,12 +306,7 @@ final class VCSTabState {
                 guard !Task.isCancelled else { return }
                 files = []
                 expandedFilePaths = []
-                diffsByPath = [:]
-                loadingDiffPaths = []
-                diffErrorsByPath = [:]
-                loadDiffTasks.values.forEach { $0.cancel() }
-                loadDiffTasks = [:]
-                diffAccessOrder = []
+                diffCache.clearAll()
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 isLoadingFiles = false
             }
@@ -337,59 +323,21 @@ final class VCSTabState {
     func toggleExpanded(filePath: String) {
         if expandedFilePaths.contains(filePath) {
             expandedFilePaths.remove(filePath)
-            loadDiffTasks[filePath]?.cancel()
-            loadDiffTasks.removeValue(forKey: filePath)
-            loadingDiffPaths.remove(filePath)
+            diffCache.cancelLoad(for: filePath)
             return
         }
 
         expandedFilePaths.insert(filePath)
-        if needsDiffReload(filePath: filePath) {
-            loadDiff(filePath: filePath, forceFull: false)
+        if diffCache.hasDiff(for: filePath) {
+            diffCache.touch(filePath)
         } else {
-            touchCache(filePath: filePath)
+            loadDiff(filePath: filePath, forceFull: false)
         }
     }
 
     func collapseAll() {
         expandedFilePaths.removeAll()
-        loadDiffTasks.values.forEach { $0.cancel() }
-        loadDiffTasks.removeAll()
-        loadingDiffPaths.removeAll()
-        diffErrorsByPath.removeAll()
-    }
-
-    private func evictDiff(filePath: String) {
-        diffsByPath.removeValue(forKey: filePath)
-        diffErrorsByPath.removeValue(forKey: filePath)
-        loadDiffTasks[filePath]?.cancel()
-        loadDiffTasks.removeValue(forKey: filePath)
-        loadingDiffPaths.remove(filePath)
-        diffAccessOrder.removeAll { $0 == filePath }
-    }
-
-    private func needsDiffReload(filePath: String) -> Bool {
-        diffsByPath[filePath] == nil
-    }
-
-    private func touchCache(filePath: String) {
-        diffAccessOrder.removeAll { $0 == filePath }
-        diffAccessOrder.append(filePath)
-    }
-
-    private func storeDiff(_ diff: LoadedDiff, for filePath: String) {
-        diffsByPath[filePath] = diff
-        touchCache(filePath: filePath)
-        enforceDiffCacheCap()
-    }
-
-    private func enforceDiffCacheCap() {
-        while diffAccessOrder.count > Self.diffCacheCap {
-            let oldest = diffAccessOrder.removeFirst()
-            if expandedFilePaths.contains(oldest) { continue }
-            diffsByPath.removeValue(forKey: oldest)
-            diffErrorsByPath.removeValue(forKey: oldest)
-        }
+        diffCache.collapseAll()
     }
 
     func expandAll() {
@@ -402,10 +350,10 @@ final class VCSTabState {
             var toLoad: [String] = []
             for file in files where !updated.contains(file.path) {
                 updated.insert(file.path)
-                if needsDiffReload(filePath: file.path) {
-                    toLoad.append(file.path)
+                if diffCache.hasDiff(for: file.path) {
+                    diffCache.touch(file.path)
                 } else {
-                    touchCache(filePath: file.path)
+                    toLoad.append(file.path)
                 }
             }
             expandedFilePaths = updated
@@ -418,9 +366,7 @@ final class VCSTabState {
         var updated = expandedFilePaths
         for file in files where updated.contains(file.path) {
             updated.remove(file.path)
-            loadDiffTasks[file.path]?.cancel()
-            loadDiffTasks.removeValue(forKey: file.path)
-            loadingDiffPaths.remove(file.path)
+            diffCache.cancelLoad(for: file.path)
         }
         expandedFilePaths = updated
     }
@@ -436,7 +382,7 @@ final class VCSTabState {
     }
 
     func displayedStats(for file: GitStatusFile) -> FileStats {
-        if let loaded = diffsByPath[file.path] {
+        if let loaded = diffCache.diff(for: file.path) {
             return FileStats(additions: loaded.additions, deletions: loaded.deletions, binary: false)
         }
         return FileStats(additions: file.additions, deletions: file.deletions, binary: file.isBinary)
@@ -766,6 +712,7 @@ final class VCSTabState {
         prInfoTask?.cancel()
         prInfoTask = Task { [weak self] in
             guard let self else { return }
+            defer { if forceFresh { isRefreshingPullRequest = false } }
             async let ghInstalledValue = git.isGhInstalled()
             async let defaultBranchValue = git.defaultBranch(repoPath: projectPath)
             let ghInstalled = await ghInstalledValue
@@ -819,10 +766,15 @@ final class VCSTabState {
 
     func refreshPullRequest() {
         guard let branch = branchName else { return }
+        guard !isRefreshingPullRequest else { return }
+        isRefreshingPullRequest = true
         Task { [weak self] in
             guard let self else { return }
             let head = await git.headSha(repoPath: projectPath)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                isRefreshingPullRequest = false
+                return
+            }
             fetchPRInfo(branch: branch, headSha: head, forceFresh: true)
         }
     }
@@ -1039,41 +991,42 @@ final class VCSTabState {
     }
 
     private func loadDiff(filePath: String, forceFull: Bool) {
-        loadDiffTasks[filePath]?.cancel()
-        loadingDiffPaths.insert(filePath)
-        diffErrorsByPath[filePath] = nil
+        DiffLoader.load(
+            DiffLoader.Request(
+                repoPath: projectPath,
+                filePath: filePath,
+                hints: diffHints(for: filePath),
+                forceFull: forceFull,
+                pinnedPaths: expandedFilePaths
+            ),
+            cache: diffCache,
+            git: git
+        )
+    }
 
-        let lineLimit = forceFull ? nil : 20000
-        let hints = diffHints(for: filePath)
-
-        loadDiffTasks[filePath] = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let result = try await git.patchAndCompare(
-                    repoPath: projectPath,
-                    filePath: filePath,
-                    lineLimit: lineLimit,
-                    hints: hints
-                )
-                guard !Task.isCancelled else { return }
-
-                storeDiff(
-                    LoadedDiff(
-                        rows: result.rows,
-                        additions: result.additions,
-                        deletions: result.deletions,
-                        truncated: result.truncated
-                    ),
-                    for: filePath
-                )
-                loadingDiffPaths.remove(filePath)
-                loadDiffTasks.removeValue(forKey: filePath)
-            } catch {
-                guard !Task.isCancelled else { return }
-                diffErrorsByPath[filePath] = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                loadingDiffPaths.remove(filePath)
-                loadDiffTasks.removeValue(forKey: filePath)
-            }
+    func ensureDiffLoaded(filePath: String, forceFull: Bool = false) {
+        if !forceFull, diffCache.hasDiff(for: filePath) {
+            diffCache.touch(filePath)
+            return
         }
+        loadDiff(filePath: filePath, forceFull: forceFull)
+    }
+
+    func loadDiffWithHints(
+        filePath: String,
+        hints: GitRepositoryService.DiffHints,
+        forceFull: Bool = false
+    ) {
+        DiffLoader.load(
+            DiffLoader.Request(
+                repoPath: projectPath,
+                filePath: filePath,
+                hints: hints,
+                forceFull: forceFull,
+                pinnedPaths: expandedFilePaths.union([filePath])
+            ),
+            cache: diffCache,
+            git: git
+        )
     }
 }

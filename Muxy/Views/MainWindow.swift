@@ -14,6 +14,12 @@ struct MainWindow: View {
         static let maxWidth: CGFloat = 800
     }
 
+    private enum FileTreeLayout {
+        static let minWidth: CGFloat = 180
+        static let defaultWidth: CGFloat = 260
+        static let maxWidth: CGFloat = 600
+    }
+
     private enum CloseConfirmationKind {
         case lastTab
         case unsavedEditor
@@ -45,6 +51,9 @@ struct MainWindow: View {
     @State private var vcsPanelVisible = false
     @State private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
     @State private var vcsStates: [WorktreeKey: VCSTabState] = [:]
+    @State private var fileTreePanelVisible = false
+    @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
+    @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
     @State private var showQuickOpen = false
     @State private var showWorktreeSwitcher = false
     @State private var isFullScreen = false
@@ -56,7 +65,9 @@ struct MainWindow: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 if !isFullScreen {
-                    Color.clear.frame(width: topBarLeadingWidth)
+                    Color.clear
+                        .frame(width: topBarLeadingWidth)
+                        .fixedSize(horizontal: true, vertical: false)
                         .overlay(alignment: .trailing) {
                             if sidebarExpanded {
                                 Rectangle().fill(MuxyTheme.border).frame(width: 1)
@@ -78,6 +89,7 @@ struct MainWindow: View {
                     Rectangle().fill(MuxyTheme.border).frame(width: 1)
                         .accessibilityHidden(true)
                 }
+                .fixedSize(horizontal: true, vertical: false)
                 .background(MuxyTheme.bg)
 
                 ZStack {
@@ -102,28 +114,29 @@ struct MainWindow: View {
 
                 if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
                     HStack(spacing: 0) {
-                        Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                            .accessibilityHidden(true)
-                            .overlay {
-                                Color.clear
-                                    .frame(width: 5)
-                                    .contentShape(Rectangle())
-                                    .gesture(
-                                        DragGesture(minimumDistance: 1)
-                                            .onChanged { v in
-                                                let delta = v.translation.width
-                                                vcsPanelWidth = max(
-                                                    AttachedVCSLayout.minWidth,
-                                                    min(AttachedVCSLayout.maxWidth, vcsPanelWidth - delta)
-                                                )
-                                            }
-                                    )
-                                    .onHover { on in
-                                        if on { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-                                    }
-                            }
+                        sidePanelResizeHandle { delta in
+                            vcsPanelWidth = max(
+                                AttachedVCSLayout.minWidth,
+                                min(AttachedVCSLayout.maxWidth, vcsPanelWidth - delta)
+                            )
+                        }
                         VCSTabView(state: state, focused: false, onFocus: {})
                             .frame(width: vcsPanelWidth)
+                    }
+                } else if fileTreePanelVisible, VCSDisplayMode.current == .attached, let treeState = activeFileTreeState {
+                    HStack(spacing: 0) {
+                        sidePanelResizeHandle { delta in
+                            let next = fileTreePanelWidth - Double(delta)
+                            fileTreePanelWidth = max(
+                                Double(FileTreeLayout.minWidth),
+                                min(Double(FileTreeLayout.maxWidth), next)
+                            )
+                        }
+                        FileTreeView(state: treeState) { filePath in
+                            guard let projectID = appState.activeProjectID else { return }
+                            appState.openFile(filePath, projectID: projectID)
+                        }
+                        .frame(width: CGFloat(fileTreePanelWidth))
                     }
                 }
             }
@@ -211,19 +224,29 @@ struct MainWindow: View {
             openWindow(id: "vcs")
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleAttachedVCS)) { _ in
-            if let project = activeProject {
-                ensureVCSState(for: project)
-            }
-            vcsPanelVisible.toggle()
+            toggleAttachedVCSPanel()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleFileTree)) { _ in
+            toggleFileTreePanel()
         }
         .onChange(of: vcsPruneSignature) {
             pruneVCSStates()
+            pruneFileTreeStates()
         }
         .onChange(of: vcsEnsureSignature) {
             guard let project = activeProject else { return }
-            guard vcsPanelVisible, VCSDisplayMode.current == .attached else { return }
-            ensureVCSState(for: project)
+            if vcsPanelVisible, VCSDisplayMode.current == .attached {
+                ensureVCSState(for: project)
+            }
+            if fileTreePanelVisible {
+                ensureFileTreeState(for: project)
+            }
         }
+        .modifier(FileTreeSelectionSync(
+            filePath: activeEditorFilePath,
+            panelVisible: fileTreePanelVisible,
+            sync: syncFileTreeSelection
+        ))
         .onChange(of: appState.pendingLastTabClose != nil) { _, isPresented in
             guard isPresented else { return }
             presentCloseConfirmation(.lastTab)
@@ -327,6 +350,12 @@ struct MainWindow: View {
                         if let project = activeProject, activeProjectHasSplitWorkspace {
                             FileDiffIconButton {
                                 openVCS(for: project)
+                            }
+                            if VCSDisplayMode.current == .attached {
+                                FileTreeIconButton {
+                                    NotificationCenter.default.post(name: .toggleFileTree, object: nil)
+                                }
+                                .help("File Tree (\(KeyBindingStore.shared.combo(for: .toggleFileTree).displayString))")
                             }
                         }
                     }
@@ -447,6 +476,92 @@ struct MainWindow: View {
         projectStore.projects.filter { appState.workspaceRoot(for: $0.id) != nil }
     }
 
+    private func sidePanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
+        Rectangle().fill(MuxyTheme.border).frame(width: 1)
+            .accessibilityHidden(true)
+            .overlay {
+                Color.clear
+                    .frame(width: 5)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { v in onDrag(v.translation.width) }
+                    )
+                    .onHover { on in
+                        if on { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+            }
+    }
+
+    private var activeFileTreeState: FileTreeState? {
+        guard let project = activeProject,
+              let key = appState.activeWorktreeKey(for: project.id)
+        else { return nil }
+        return fileTreeStates[key]
+    }
+
+    private func ensureFileTreeState(for project: Project) {
+        guard let key = appState.activeWorktreeKey(for: project.id) else { return }
+        let path = activeWorktreePath(for: project)
+        if let existing = fileTreeStates[key], existing.rootPath == path { return }
+        fileTreeStates[key] = FileTreeState(rootPath: path)
+    }
+
+    private var activeEditorFilePath: String? {
+        guard let project = activeProject else { return nil }
+        return appState.activeTab(for: project.id)?.content.editorState?.filePath
+    }
+
+    private func syncFileTreeSelection(filePath: String?) {
+        guard fileTreePanelVisible,
+              let project = activeProject,
+              let key = appState.activeWorktreeKey(for: project.id),
+              let state = fileTreeStates[key]
+        else { return }
+        if let filePath {
+            state.revealFile(at: filePath)
+        } else {
+            state.selectedFilePath = nil
+        }
+    }
+
+    private func pruneFileTreeStates() {
+        let validKeys = validVCSKeys()
+        fileTreeStates = fileTreeStates.filter { validKeys.contains($0.key) }
+    }
+
+    private func toggleAttachedVCSPanel() {
+        guard VCSDisplayMode.current == .attached,
+              let project = activeProject
+        else {
+            vcsPanelVisible = false
+            return
+        }
+
+        ensureVCSState(for: project)
+        let isShowing = !vcsPanelVisible
+        vcsPanelVisible = isShowing
+        if isShowing {
+            fileTreePanelVisible = false
+        }
+    }
+
+    private func toggleFileTreePanel() {
+        guard VCSDisplayMode.current == .attached,
+              let project = activeProject
+        else {
+            fileTreePanelVisible = false
+            return
+        }
+
+        ensureFileTreeState(for: project)
+        let isShowing = !fileTreePanelVisible
+        fileTreePanelVisible = isShowing
+        if isShowing {
+            vcsPanelVisible = false
+        }
+    }
+
     private var activeVCSState: VCSTabState? {
         guard let project = activeProject,
               let key = appState.activeWorktreeKey(for: project.id)
@@ -478,8 +593,7 @@ struct MainWindow: View {
             },
             window: { openWindow(id: "vcs") },
             attached: {
-                ensureVCSState(for: project)
-                vcsPanelVisible.toggle()
+                toggleAttachedVCSPanel()
             }
         )
     }
@@ -607,6 +721,23 @@ private struct WindowTitleUpdater: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let window = nsView.window, window.title != title else { return }
         window.title = title
+    }
+}
+
+private struct FileTreeSelectionSync: ViewModifier {
+    let filePath: String?
+    let panelVisible: Bool
+    let sync: (String?) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: filePath) { _, newValue in
+                sync(newValue)
+            }
+            .onChange(of: panelVisible) { _, visible in
+                guard visible else { return }
+                sync(filePath)
+            }
     }
 }
 

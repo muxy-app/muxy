@@ -68,10 +68,18 @@ struct SettingsSheet: View {
     private var aboutView: some View {
         Form {
             Section {
-                LabeledContent("Version", value: "0.1.0")
-                LabeledContent("Build", value: "1")
+                LabeledContent("Version", value: appVersion)
+                LabeledContent("Build", value: appBuild)
             }
         }
         .navigationTitle("About")
+    }
+
+    private var appVersion: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "-"
+    }
+
+    private var appBuild: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "-"
     }
 }

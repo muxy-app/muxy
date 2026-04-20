@@ -48,12 +48,14 @@ Muxy/
     WorkspaceSnapshot.swift   Save/restore workspace layout to disk
     SplitNode.swift           Recursive binary tree for pane splits
     TabArea.swift             Container for tabs within a single pane
-    TerminalTab.swift         Terminal or VCS tab model
+    TerminalTab.swift         Terminal, VCS, editor, or diff-viewer tab model
     TabDragCoordinator.swift  Cross-pane tab drag-and-drop, TabMoveRequest, SplitPlacement
     KeyBinding.swift          ShortcutAction enum + KeyBinding defaults
     KeyCombo.swift            Key combo encoding, display, matching
     VCSTabState.swift         Git diff viewer state + loading orchestration
     EditorTabState.swift      Code editor tab state (backing store, cursor, search, save)
+    DiffViewerTabState.swift  Standalone diff-viewer tab state (single-file diff, unified/split toggle, session-only — not persisted)
+    FileTreeState.swift       Lightweight file tree state per worktree (lazy expansion, git statuses)
     EditorSettings.swift      @Observable editor preferences (default editor, font)
     TextBackingStore.swift    Line-array backing store for editor documents
     ViewportState.swift       Viewport window computation and line mapping for editor documents
@@ -81,6 +83,7 @@ Muxy/
       GitModels.swift             GitStatusFile, DiffDisplayRow, NumstatEntry
     GitDirectoryWatcher.swift FSEvents watcher for .git changes
     FileSearchService.swift   Quick open file search via /usr/bin/find subprocess
+    FileTreeService.swift     Lazy directory listing that respects .gitignore via git check-ignore
     ThemeService.swift        Theme discovery + application
     MuxyConfig.swift          Ghostty config file read/write
     KeyBindingStore.swift     @Observable store for keyboard shortcuts
@@ -117,6 +120,7 @@ Muxy/
     Components/
       IconButton.swift        Reusable icon button
       FileDiffIcon.swift      Git diff file icon (SVG shape)
+      FileTreeIcon.swift      File tree toggle button (SF symbol)
       WindowDragView.swift    NSView for window title bar dragging
       MiddleClickView.swift   NSView for middle-click tab close
       UUIDFramePreferenceKey.swift  Generic PreferenceKey for frame tracking
@@ -130,11 +134,14 @@ Muxy/
     Editor/
       CodeEditorRepresentable.swift  NSViewRepresentable bridge for code editor (viewport rendering path)
       EditorPane.swift        SwiftUI wrapper for editor tab (breadcrumb + editor)
+    FileTree/
+      FileTreeView.swift      Side panel rendering of the lightweight file tree
     VCS/
       VCSTabView.swift        Source control tab (commit, stage, diff, branch) + PRPill + PRPopover
       BranchPicker.swift      Branch selection dropdown with filter and right-click delete
       UnifiedDiffView.swift   Unified diff rendering
       SplitDiffView.swift     Side-by-side diff rendering
+      DiffViewerPane.swift    Standalone diff-viewer tab (top bar + unified/split switch)
       DiffComponents.swift    Shared diff UI: line rows, highlighting, cache
       CreatePRSheet.swift     Sheet for opening a pull request on the current branch
       CommitHistoryView.swift Commit history list with context menu actions
@@ -206,6 +213,41 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
   color accent via `TerminalTab.colorID` ("Set Tab Color…" context menu). Both fields persist
   to `workspaces.json` through `TerminalTabSnapshot`. Colors resolve through
   `ProjectIconColor.palette` (shared with project icon colors).
+
+## File Tree
+
+The file tree is a lightweight side panel mounted at the trailing edge of the
+main window, in the same slot used by the attached VCS panel. Only one of the
+two panels can be visible at a time — opening one closes the other. Both are
+toggled from buttons in the topbar (file tree button appears only when the VCS
+display mode is `attached`, since the file tree panel reuses the attached slot).
+
+`FileTreeState` is created per `WorktreeKey` and held by `MainWindow`. It lazily
+loads directory contents through `FileTreeService.loadChildren`, which calls
+`git check-ignore --stdin` for the candidate names in each directory so the
+visible tree matches `.gitignore`. Non-git folders fall back to a hardcoded
+prune list (same one used by `FileSearchService`).
+
+Per-file git statuses come from `git status --porcelain=v1 -z` and are mapped
+to colors (modified → diff hunk color, added/untracked → diff add color,
+deleted/conflict → diff remove color). Parent directories of changed files are
+highlighted with the modified color. The tree subscribes to
+`.vcsRepoDidChange` and uses `GitDirectoryWatcher` so external changes refresh
+the panel without user action — there is no manual refresh button. Clicking a
+file routes through `AppState.openFile`, the same path used by the quick open
+overlay.
+
+The header has a filter button that toggles `showOnlyChanges`, hiding any
+entry whose absolute path is not in the status set (and any directory whose
+subtree has no changes). The panel also tracks the active editor file via
+`AppState.activeTab(for:)?.content.editorState?.filePath`: changes to that path
+auto-expand its parent directories and highlight the row using
+`MuxyTheme.accentSoft`. Deleted paths that no longer exist on disk are
+materialized as synthetic tree rows so removals still appear in both the full
+tree and the changed-only filter.
+
+The panel width is persisted in `UserDefaults` under `muxy.fileTreeWidth`.
+Expansion state is in-memory only.
 
 ## VCS Tab Layout
 
@@ -316,8 +358,13 @@ The `MuxyCodec` handles JSON encoding/decoding with ISO 8601 dates.
 ### iOS App (MuxyMobile)
 
 `ConnectionManager` manages the WebSocket lifecycle and maintains a local mirror
-of the remote state (projects, workspace layout, notifications). Views observe
-this state and dispatch actions back through the connection.
+of the remote state (projects, workspace layout, notifications). It also keeps a
+rolling connection trace so mobile failures can surface a user-shareable
+technical report from the phone's error sheet. `TerminalView` renders the
+remote terminal grid locally, sends input back over the socket, and freezes the
+current snapshot during long-press text selection so copy actions operate on a
+stable view. Views observe this state and dispatch actions back through the
+connection.
 
 ### Device Pairing
 

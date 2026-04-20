@@ -3,6 +3,7 @@ import SwiftUI
 struct UnifiedDiffView: View {
     let rows: [DiffDisplayRow]
     let filePath: String
+    var suppressLeadingTopBorder: Bool = false
 
     private var chunks: [DiffChunk] {
         buildDiffChunks(from: rows)
@@ -14,10 +15,13 @@ struct UnifiedDiffView: View {
 
     var body: some View {
         LazyVStack(spacing: 0) {
-            ForEach(chunks) { chunk in
+            ForEach(Array(chunks.enumerated()), id: \.element.id) { index, chunk in
                 switch chunk {
                 case let .divider(_, text):
-                    DiffSectionDivider(text: text)
+                    DiffSectionDivider(
+                        text: text,
+                        showsTopBorder: !(index == 0 && suppressLeadingTopBorder)
+                    )
                 case let .codeBlock(_, blockRows):
                     unifiedCodeBlock(blockRows)
                 }

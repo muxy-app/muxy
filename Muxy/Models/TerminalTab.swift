@@ -7,18 +7,21 @@ final class TerminalTab: Identifiable {
         case terminal
         case vcs
         case editor
+        case diffViewer
     }
 
     enum Content {
         case terminal(TerminalPaneState)
         case vcs(VCSTabState)
         case editor(EditorTabState)
+        case diffViewer(DiffViewerTabState)
 
         var kind: Kind {
             switch self {
             case .terminal: .terminal
             case .vcs: .vcs
             case .editor: .editor
+            case .diffViewer: .diffViewer
             }
         }
 
@@ -37,11 +40,17 @@ final class TerminalTab: Identifiable {
             return state
         }
 
+        var diffViewerState: DiffViewerTabState? {
+            guard case let .diffViewer(state) = self else { return nil }
+            return state
+        }
+
         var projectPath: String {
             switch self {
             case let .terminal(pane): pane.projectPath
             case let .vcs(state): state.projectPath
             case let .editor(state): state.projectPath
+            case let .diffViewer(state): state.projectPath
             }
         }
     }
@@ -65,6 +74,8 @@ final class TerminalTab: Identifiable {
             return "Git Diff"
         case let .editor(state):
             return state.displayTitle
+        case let .diffViewer(state):
+            return state.displayTitle
         }
     }
 
@@ -78,6 +89,10 @@ final class TerminalTab: Identifiable {
 
     init(editorState: EditorTabState) {
         content = .editor(editorState)
+    }
+
+    init(diffViewerState: DiffViewerTabState) {
+        content = .diffViewer(diffViewerState)
     }
 
     init(restoring snapshot: TerminalTabSnapshot) {
@@ -95,6 +110,8 @@ final class TerminalTab: Identifiable {
             } else {
                 content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
             }
+        case .diffViewer:
+            content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
         }
     }
 

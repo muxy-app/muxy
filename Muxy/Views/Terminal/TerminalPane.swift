@@ -80,10 +80,18 @@ struct RemoteControlledPlaceholder: View {
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
-            Button("Take Over") {
+            Button {
                 onTakeOver()
+            } label: {
+                HStack(spacing: 8) {
+                    Text("Take Over")
+                    Text("⌘↩")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .opacity(0.72)
+                }
             }
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(.return, modifiers: .command)
+            .buttonStyle(.borderedProminent)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

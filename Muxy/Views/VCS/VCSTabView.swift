@@ -431,7 +431,8 @@ struct VCSTabView: View {
                     onFocus: onFocus,
                     showDiscardAllConfirmation: $showDiscardAllConfirmation,
                     pendingDiscardPath: $pendingDiscardPath,
-                    onOpenInEditor: openFileInEditor
+                    onOpenInEditor: openFileInEditor,
+                    onOpenDiff: openDiffInTab
                 )
             }
         }
@@ -657,6 +658,11 @@ struct VCSTabView: View {
             : state.projectPath + "/" + relativePath
         appState.openFile(fullPath, projectID: projectID)
     }
+
+    private func openDiffInTab(_ relativePath: String, isStaged: Bool) {
+        guard let projectID = appState.activeProjectID else { return }
+        appState.openDiffViewer(vcs: state, filePath: relativePath, isStaged: isStaged, projectID: projectID)
+    }
 }
 
 struct PRPill: View {
@@ -842,22 +848,29 @@ struct PRPopover: View {
                 Button {
                     onRefresh()
                 } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(MuxyTheme.fgMuted)
-                        .frame(width: 20, height: 20)
+                    Group {
+                        if state.isRefreshingPullRequest {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(MuxyTheme.fgMuted)
+                        }
+                    }
+                    .frame(width: 20, height: 20)
                 }
                 .buttonStyle(.plain)
+                .disabled(state.isRefreshingPullRequest)
                 .help("Refresh")
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 infoRow(label: "Base", value: info.baseBranch)
-                if let mergeable = info.mergeable {
+                if let label = mergeableLabel {
                     infoRow(
                         label: "Mergeable",
-                        value: mergeable ? "Yes" : "Conflicts",
-                        valueColor: mergeable ? MuxyTheme.diffAddFg : MuxyTheme.diffRemoveFg
+                        value: label.text,
+                        valueColor: label.color
                     )
                 }
                 checksRow
@@ -937,39 +950,67 @@ struct PRPopover: View {
         .padding(12)
         .frame(width: 260)
         .task(id: info.number) {
-            await pollLoop()
-        }
-    }
-
-    private func pollLoop() async {
-        var intervalSeconds: UInt64 = 5
-        let maxIntervalSeconds: UInt64 = 60
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(nanoseconds: intervalSeconds * 1_000_000_000)
-            } catch {
-                return
-            }
-            guard state.pullRequestInfo?.state == .open,
-                  !state.isMergingPullRequest,
-                  !state.isClosingPullRequest
-            else { return }
             onRefresh()
-            intervalSeconds = min(intervalSeconds * 2, maxIntervalSeconds)
         }
     }
 
     private var mergeDisabled: Bool {
         if state.isMergingPullRequest { return true }
         if info.mergeable == false { return true }
-        return false
+        switch info.mergeStateStatus {
+        case .dirty,
+             .blocked,
+             .behind,
+             .draft: return true
+        case .clean,
+             .hasHooks,
+             .unstable,
+             .unknown: return false
+        }
     }
 
     private var mergeHelp: String {
         if info.mergeable == false { return "This PR has conflicts and cannot be merged." }
-        if info.checks.status == .failure { return "Checks are failing. You will be asked to confirm before merging." }
-        if info.checks.status == .pending { return "Checks are still running. You will be asked to confirm before merging." }
-        return "Merge PR #\(info.number)"
+        switch info.mergeStateStatus {
+        case .dirty: return "This PR has conflicts and cannot be merged."
+        case .behind: return "This branch is out of date with the base branch. Update it before merging."
+        case .blocked: return "Merging is blocked by branch protection (required reviews or checks)."
+        case .draft: return "This PR is a draft. Mark it ready for review before merging."
+        case .unstable:
+            return "Checks are failing or pending. You will be asked to confirm before merging."
+        case .clean,
+             .hasHooks,
+             .unknown:
+            if info.checks.status == .failure {
+                return "Checks are failing. You will be asked to confirm before merging."
+            }
+            if info.checks.status == .pending {
+                return "Checks are still running. You will be asked to confirm before merging."
+            }
+            return "Merge PR #\(info.number)"
+        }
+    }
+
+    private var mergeableLabel: (text: String, color: Color)? {
+        switch info.mergeStateStatus {
+        case .dirty:
+            return ("Conflicts", MuxyTheme.diffRemoveFg)
+        case .behind:
+            return ("Behind base", MuxyTheme.diffRemoveFg)
+        case .blocked:
+            return ("Blocked", MuxyTheme.diffRemoveFg)
+        case .draft:
+            return ("Draft", MuxyTheme.fgMuted)
+        case .clean,
+             .hasHooks:
+            return ("Yes", MuxyTheme.diffAddFg)
+        case .unstable:
+            return ("Yes (checks failing)", MuxyTheme.diffAddFg)
+        case .unknown:
+            if info.mergeable == true { return ("Yes", MuxyTheme.diffAddFg) }
+            if info.mergeable == false { return ("Conflicts", MuxyTheme.diffRemoveFg) }
+            return nil
+        }
     }
 
     @ViewBuilder
@@ -1058,6 +1099,7 @@ private struct SectionSplitLayout: View {
     @Binding var showDiscardAllConfirmation: Bool
     @Binding var pendingDiscardPath: String?
     let onOpenInEditor: (String) -> Void
+    let onOpenDiff: (String, Bool) -> Void
 
     private static let sectionHeaderHeight: CGFloat = 30
 
@@ -1378,7 +1420,8 @@ private struct SectionSplitLayout: View {
                 onStage: { state.stageFile(file.path) },
                 onUnstage: { state.unstageFile(file.path) },
                 onDiscard: { pendingDiscardPath = file.path },
-                onOpenInEditor: { onOpenInEditor(file.path) }
+                onOpenInEditor: { onOpenInEditor(file.path) },
+                onOpenDiff: { onOpenDiff(file.path, isStaged) }
             )
 
             if expanded {
@@ -1390,58 +1433,15 @@ private struct SectionSplitLayout: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
     private func expandedDiff(for file: GitStatusFile) -> some View {
-        if state.loadingDiffPaths.contains(file.path) {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(14)
-                .background(MuxyTheme.bg)
-        } else if let error = state.diffErrorsByPath[file.path] {
-            Text(error)
-                .font(.system(size: 12))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(MuxyTheme.bg)
-        } else if let diff = state.diffsByPath[file.path] {
-            VStack(spacing: 0) {
-                if diff.truncated {
-                    HStack {
-                        Text("Large diff preview")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(MuxyTheme.fgMuted)
-                        Spacer(minLength: 0)
-                        Button("Load full diff") {
-                            state.loadFullDiff(filePath: file.path)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(MuxyTheme.accent)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(MuxyTheme.bg)
-                    Rectangle().fill(MuxyTheme.border).frame(height: 1)
-                }
-
-                switch state.mode {
-                case .unified:
-                    UnifiedDiffView(rows: diff.rows, filePath: file.path)
-                case .split:
-                    SplitDiffView(rows: diff.rows, filePath: file.path)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MuxyTheme.bg)
-        } else {
-            Text("No diff output")
-                .font(.system(size: 12))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(MuxyTheme.bg)
-        }
+        DiffBodyView(
+            isLoading: state.diffCache.isLoading(file.path),
+            error: state.diffCache.error(for: file.path),
+            diff: state.diffCache.diff(for: file.path),
+            filePath: file.path,
+            mode: state.mode,
+            onLoadFull: { state.loadFullDiff(filePath: file.path) }
+        )
     }
 }
 
@@ -1476,6 +1476,7 @@ private struct FileRow: View {
     let onUnstage: () -> Void
     let onDiscard: () -> Void
     let onOpenInEditor: () -> Void
+    let onOpenDiff: () -> Void
     @State private var hovered = false
 
     private var statusColor: Color {
@@ -1551,6 +1552,8 @@ private struct FileRow: View {
         HStack(spacing: 0) {
             IconButton(symbol: "doc.text", size: 11, accessibilityLabel: "Open in Editor", action: onOpenInEditor)
                 .help("Open in Editor")
+            IconButton(symbol: "rectangle.split.2x1", size: 11, accessibilityLabel: "Open Diff in New Tab", action: onOpenDiff)
+                .help("Open Diff in New Tab")
             if isStaged {
                 IconButton(symbol: "minus", size: 11, accessibilityLabel: "Unstage", action: onUnstage)
                     .help("Unstage")

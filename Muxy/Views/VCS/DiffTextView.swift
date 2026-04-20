@@ -22,8 +22,18 @@ final class DiffBackgroundLayoutManager: NSLayoutManager {
               let storage = textStorage
         else { return }
 
+        guard glyphsToShow.location != NSNotFound,
+              glyphsToShow.length > 0
+        else { return }
+
+        let glyphCount = numberOfGlyphs
+        guard glyphCount > 0 else { return }
+
+        let safeGlyphRange = NSIntersectionRange(glyphsToShow, NSRange(location: 0, length: glyphCount))
+        guard safeGlyphRange.length > 0 else { return }
+
         let fullText = storage.string as NSString
-        let startCharIndex = characterIndexForGlyph(at: glyphsToShow.location)
+        let startCharIndex = characterIndexForGlyph(at: safeGlyphRange.location)
         var lineIndex = 0
         var pos = 0
         while pos < startCharIndex, pos < fullText.length {
@@ -33,7 +43,7 @@ final class DiffBackgroundLayoutManager: NSLayoutManager {
             pos += 1
         }
 
-        enumerateLineFragments(forGlyphRange: glyphsToShow) { [self] _, usedRect, _, _, _ in
+        enumerateLineFragments(forGlyphRange: safeGlyphRange) { [self] _, usedRect, _, _, _ in
             if lineIndex < self.lineBackgrounds.count,
                let bgColor = self.lineBackgrounds[lineIndex]
             {

@@ -143,6 +143,8 @@ private struct TabContentView: View {
             VCSTabView(state: vcsState, focused: focused, onFocus: onFocus)
         case let .editor(editorState):
             EditorPane(state: editorState, focused: focused, onFocus: onFocus)
+        case let .diffViewer(diffState):
+            DiffViewerPane(state: diffState, focused: focused, onFocus: onFocus)
         }
     }
 }
