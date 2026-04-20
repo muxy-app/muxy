@@ -3,7 +3,6 @@ import Foundation
 
 @MainActor
 enum FileClipboard {
-    private static let cutMarkerType = NSPasteboard.PasteboardType("app.muxy.fileCut")
     private static var lastWriteChangeCount: Int?
     private static var lastWriteWasCut = false
 
@@ -17,9 +16,6 @@ enum FileClipboard {
         pb.clearContents()
         let urls = paths.map { URL(fileURLWithPath: $0) as NSURL }
         pb.writeObjects(urls)
-        if isCut {
-            pb.setData(Data([1]), forType: cutMarkerType)
-        }
         lastWriteChangeCount = pb.changeCount
         lastWriteWasCut = isCut
     }
