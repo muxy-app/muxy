@@ -280,7 +280,7 @@ final class VCSTabState {
                         changedPaths.insert(file.path)
                         continue
                     }
-                    if Self.stagingStateChanged(old: old, new: file) {
+                    if Self.fileChanged(old: old, new: file) {
                         changedPaths.insert(file.path)
                         diffCache.evict(file.path)
                     }
@@ -293,14 +293,8 @@ final class VCSTabState {
                 isLoadingFiles = false
                 hasCompletedInitialLoad = true
 
-                if incremental {
-                    for path in expandedFilePaths where changedPaths.contains(path) {
-                        loadDiff(filePath: path, forceFull: false)
-                    }
-                } else {
-                    for path in expandedFilePaths {
-                        loadDiff(filePath: path, forceFull: false)
-                    }
+                for path in expandedFilePaths where validPaths.contains(path) {
+                    loadDiff(filePath: path, forceFull: false)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -313,11 +307,13 @@ final class VCSTabState {
         }
     }
 
-    private static func stagingStateChanged(old: GitStatusFile, new: GitStatusFile) -> Bool {
+    private static func fileChanged(old: GitStatusFile, new: GitStatusFile) -> Bool {
         old.xStatus != new.xStatus
             || old.yStatus != new.yStatus
             || old.isBinary != new.isBinary
             || old.oldPath != new.oldPath
+            || old.additions != new.additions
+            || old.deletions != new.deletions
     }
 
     func toggleExpanded(filePath: String) {
