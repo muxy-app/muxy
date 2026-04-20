@@ -15,14 +15,14 @@ struct SplitDiffView: View {
 
     var body: some View {
         LazyVStack(spacing: 0) {
-            ForEach(Array(chunks.enumerated()), id: \.element.id) { index, chunk in
+            ForEach(Array(chunks.enumerated()), id: \.offset) { index, chunk in
                 switch chunk {
-                case let .divider(_, text):
+                case let .divider(text):
                     DiffSectionDivider(
                         text: text,
                         showsTopBorder: !(index == 0 && suppressLeadingTopBorder)
                     )
-                case let .codeBlock(_, leftRows, rightRows):
+                case let .codeBlock(leftRows, rightRows):
                     splitCodeBlock(leftRows: leftRows, rightRows: rightRows)
                 }
             }
@@ -71,16 +71,9 @@ struct SplitDiffView: View {
     }
 }
 
-enum SplitDiffChunk: Identifiable {
-    case divider(id: UUID, text: String)
-    case codeBlock(id: UUID, leftRows: [DiffDisplayRow], rightRows: [DiffDisplayRow])
-
-    var id: UUID {
-        switch self {
-        case let .divider(id, _): id
-        case let .codeBlock(id, _, _): id
-        }
-    }
+enum SplitDiffChunk {
+    case divider(text: String)
+    case codeBlock(leftRows: [DiffDisplayRow], rightRows: [DiffDisplayRow])
 }
 
 func buildSplitDiffChunks(from rows: [DiffDisplayRow]) -> [SplitDiffChunk] {
@@ -93,13 +86,13 @@ func buildSplitDiffChunks(from rows: [DiffDisplayRow]) -> [SplitDiffChunk] {
         if paired.kind == .hunk || paired.kind == .collapsed {
             if !leftRows.isEmpty || !rightRows.isEmpty {
                 padToEqualLength(&leftRows, &rightRows)
-                chunks.append(.codeBlock(id: UUID(), leftRows: leftRows, rightRows: rightRows))
+                chunks.append(.codeBlock(leftRows: leftRows, rightRows: rightRows))
                 leftRows = []
                 rightRows = []
             }
             let rawText = paired.left?.text ?? paired.right?.text ?? ""
             let label = paired.kind == .hunk ? hunkLabel(rawText) : rawText
-            chunks.append(.divider(id: UUID(), text: label))
+            chunks.append(.divider(text: label))
         } else {
             leftRows.append(paired.left ?? emptyRow(kind: .context))
             rightRows.append(paired.right ?? emptyRow(kind: .context))
@@ -108,7 +101,7 @@ func buildSplitDiffChunks(from rows: [DiffDisplayRow]) -> [SplitDiffChunk] {
 
     if !leftRows.isEmpty || !rightRows.isEmpty {
         padToEqualLength(&leftRows, &rightRows)
-        chunks.append(.codeBlock(id: UUID(), leftRows: leftRows, rightRows: rightRows))
+        chunks.append(.codeBlock(leftRows: leftRows, rightRows: rightRows))
     }
 
     return chunks

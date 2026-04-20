@@ -132,10 +132,25 @@ struct MainWindow: View {
                                 min(Double(FileTreeLayout.maxWidth), next)
                             )
                         }
-                        FileTreeView(state: treeState) { filePath in
-                            guard let projectID = appState.activeProjectID else { return }
-                            appState.openFile(filePath, projectID: projectID)
-                        }
+                        FileTreeView(
+                            state: treeState,
+                            onOpenFile: { filePath in
+                                guard let projectID = appState.activeProjectID else { return }
+                                appState.openFile(filePath, projectID: projectID)
+                            },
+                            onOpenTerminal: { directory in
+                                guard let projectID = appState.activeProjectID else { return }
+                                appState.dispatch(.createTabInDirectory(
+                                    projectID: projectID,
+                                    areaID: nil,
+                                    directory: directory
+                                ))
+                            },
+                            onFileMoved: { oldPath, newPath in
+                                appState.handleFileMoved(from: oldPath, to: newPath)
+                            }
+                        )
+                        .id(treeState.rootPath)
                         .frame(width: CGFloat(fileTreePanelWidth))
                     }
                 }
@@ -521,7 +536,7 @@ struct MainWindow: View {
         if let filePath {
             state.revealFile(at: filePath)
         } else {
-            state.selectedFilePath = nil
+            state.clearSelection()
         }
     }
 

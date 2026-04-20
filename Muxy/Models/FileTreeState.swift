@@ -12,6 +12,17 @@ final class FileTreeState {
         case conflict
     }
 
+    enum PendingEntryKind {
+        case file
+        case folder
+    }
+
+    struct PendingNewEntry: Equatable {
+        let parentPath: String
+        let kind: PendingEntryKind
+        let token: UUID
+    }
+
     let rootPath: String
     private(set) var rootEntries: [FileTreeEntry] = []
     private(set) var children: [String: [FileTreeEntry]] = [:]
@@ -22,6 +33,13 @@ final class FileTreeState {
     private(set) var dirHasChange: Set<String> = []
     var showOnlyChanges = false
     var selectedFilePath: String?
+    var selectedPaths: Set<String> = []
+    var selectionAnchorPath: String?
+    var pendingRenamePath: String?
+    var pendingNewEntry: PendingNewEntry?
+    var pendingDeletePaths: [String] = []
+    var cutPaths: Set<String> = []
+    var dropHighlightPath: String?
 
     @ObservationIgnored private var watcher: GitDirectoryWatcher?
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
@@ -53,6 +71,29 @@ final class FileTreeState {
             reloadChildren(of: path)
         }
         refreshStatuses()
+    }
+
+    func refreshDirectory(path: String) {
+        let normalized = path.hasSuffix("/") ? String(path.dropLast()) : path
+        if normalized == normalizedRootPath {
+            reloadRoot()
+        } else {
+            reloadChildren(of: normalized)
+        }
+        refreshStatuses()
+    }
+
+    func expand(path: String) {
+        let normalized = path.hasSuffix("/") ? String(path.dropLast()) : path
+        guard normalized != normalizedRootPath else { return }
+        guard !expanded.contains(normalized) else { return }
+        expanded.insert(normalized)
+        reloadChildren(of: normalized)
+    }
+
+    func parentDirectory(of path: String) -> String {
+        let normalized = path.hasSuffix("/") ? String(path.dropLast()) : path
+        return (normalized as NSString).deletingLastPathComponent
     }
 
     func toggle(_ entry: FileTreeEntry) {
@@ -92,8 +133,77 @@ final class FileTreeState {
         return statuses[entry.absolutePath] != nil
     }
 
+    func selectOnly(_ path: String) {
+        selectedFilePath = path
+        selectedPaths = [path]
+        selectionAnchorPath = path
+    }
+
+    func toggleSelection(_ path: String) {
+        if selectedPaths.contains(path) {
+            selectedPaths.remove(path)
+            if selectedFilePath == path {
+                selectedFilePath = selectedPaths.first
+            }
+        } else {
+            selectedPaths.insert(path)
+            selectedFilePath = path
+        }
+        selectionAnchorPath = path
+    }
+
+    func extendSelection(to path: String) {
+        let ordered = visiblePathsInOrder()
+        guard let endIdx = ordered.firstIndex(of: path) else {
+            selectedPaths.insert(path)
+            selectedFilePath = path
+            selectionAnchorPath = path
+            return
+        }
+        let anchor = selectionAnchorPath ?? selectedFilePath ?? path
+        guard let startIdx = ordered.firstIndex(of: anchor) else {
+            selectedPaths.insert(path)
+            selectedFilePath = path
+            selectionAnchorPath = path
+            return
+        }
+        let range = startIdx <= endIdx ? startIdx ... endIdx : endIdx ... startIdx
+        selectedPaths = Set(ordered[range])
+        selectedFilePath = path
+    }
+
+    func clearSelection() {
+        selectedFilePath = nil
+        selectedPaths = []
+        selectionAnchorPath = nil
+    }
+
+    func isPathSelected(_ path: String) -> Bool {
+        selectedPaths.contains(path)
+    }
+
+    func visiblePathsInOrder() -> [String] {
+        var result: [String] = []
+        for entry in visibleRootEntries() {
+            appendVisible(entry, into: &result)
+        }
+        return result
+    }
+
+    private func appendVisible(_ entry: FileTreeEntry, into result: inout [String]) {
+        result.append(entry.absolutePath)
+        guard entry.isDirectory, expanded.contains(entry.absolutePath),
+              let children = visibleChildren(of: entry)
+        else { return }
+        for child in children {
+            appendVisible(child, into: &result)
+        }
+    }
+
     func revealFile(at filePath: String) {
         selectedFilePath = filePath
+        selectedPaths = [filePath]
+        selectionAnchorPath = filePath
         guard filePath.hasPrefix(normalizedRootPath + "/") else { return }
         let relative = String(filePath.dropFirst(normalizedRootPath.count + 1))
         let components = relative.split(separator: "/").map(String.init)

@@ -31,6 +31,7 @@ final class AppState {
             replacementWorktreePath: String?
         )
         case createTab(projectID: UUID, areaID: UUID?)
+        case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
         case createVCSTab(projectID: UUID, areaID: UUID?)
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String)
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
@@ -222,6 +223,24 @@ final class AppState {
             }
         }
         dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath))
+    }
+
+    func handleFileMoved(from oldPath: String, to newPath: String) {
+        guard oldPath != newPath else { return }
+        let oldPrefix = oldPath + "/"
+        for (_, root) in workspaceRoots {
+            for area in root.allAreas() {
+                for tab in area.tabs {
+                    guard let editorState = tab.content.editorState else { continue }
+                    let currentPath = editorState.filePath
+                    if currentPath == oldPath {
+                        editorState.updateFilePath(newPath)
+                    } else if currentPath.hasPrefix(oldPrefix) {
+                        editorState.updateFilePath(newPath + "/" + String(currentPath.dropFirst(oldPrefix.count)))
+                    }
+                }
+            }
+        }
     }
 
     func openDiffViewer(vcs: VCSTabState, filePath: String, isStaged: Bool, projectID: UUID) {

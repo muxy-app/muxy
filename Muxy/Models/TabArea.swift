@@ -59,6 +59,10 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(pane: TerminalPaneState(projectPath: projectPath)))
     }
 
+    func createTab(inDirectory directory: String) {
+        insertTab(TerminalTab(pane: TerminalPaneState(projectPath: directory)))
+    }
+
     func createVCSTab() {
         insertTab(TerminalTab(vcsState: VCSTabState(projectPath: projectPath)))
     }
