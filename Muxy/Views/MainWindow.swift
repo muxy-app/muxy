@@ -146,8 +146,11 @@ struct MainWindow: View {
                                     directory: directory
                                 ))
                             },
-                            onFileMoved: { _, _ in }
+                            onFileMoved: { oldPath, newPath in
+                                appState.handleFileMoved(from: oldPath, to: newPath)
+                            }
                         )
+                        .id(treeState.rootPath)
                         .frame(width: CGFloat(fileTreePanelWidth))
                     }
                 }
@@ -533,7 +536,7 @@ struct MainWindow: View {
         if let filePath {
             state.revealFile(at: filePath)
         } else {
-            state.selectedFilePath = nil
+            state.clearSelection()
         }
     }
 

@@ -5,33 +5,39 @@ import os
 private let logger = Logger(subsystem: "app.muxy", category: "FileTreeCommands")
 
 @MainActor
-@Observable
 final class FileTreeCommands {
     private let state: FileTreeState
-    private let openTerminal: (String) -> Void
-    private let onFileMoved: (String, String) -> Void
+    var openTerminal: (String) -> Void
+    var onFileMoved: (String, String) -> Void
 
     init(
         state: FileTreeState,
-        openTerminal: @escaping (String) -> Void,
-        onFileMoved: @escaping (String, String) -> Void
+        openTerminal: @escaping (String) -> Void = { _ in },
+        onFileMoved: @escaping (String, String) -> Void = { _, _ in }
     ) {
         self.state = state
         self.openTerminal = openTerminal
         self.onFileMoved = onFileMoved
     }
 
+    func effectiveTargets(primaryPath: String) -> [String] {
+        if state.selectedPaths.contains(primaryPath), state.selectedPaths.count > 1 {
+            return Array(state.selectedPaths)
+        }
+        return [primaryPath]
+    }
+
     func beginNewFile(in directoryPath: String) {
         let parent = resolveDirectoryContext(for: directoryPath)
         state.expand(path: parent)
-        state.pendingNewEntry = FileTreeState.PendingNewEntry(parentPath: parent, kind: .file)
+        state.pendingNewEntry = FileTreeState.PendingNewEntry(parentPath: parent, kind: .file, token: UUID())
         state.pendingRenamePath = nil
     }
 
     func beginNewFolder(in directoryPath: String) {
         let parent = resolveDirectoryContext(for: directoryPath)
         state.expand(path: parent)
-        state.pendingNewEntry = FileTreeState.PendingNewEntry(parentPath: parent, kind: .folder)
+        state.pendingNewEntry = FileTreeState.PendingNewEntry(parentPath: parent, kind: .folder, token: UUID())
         state.pendingRenamePath = nil
     }
 
@@ -46,7 +52,7 @@ final class FileTreeCommands {
                 }
                 state.refreshDirectory(path: parent)
                 if kind == .file {
-                    state.selectedFilePath = created
+                    state.selectOnly(created)
                 }
             } catch {
                 let label = kind == .file ? "file" : "folder"
@@ -71,6 +77,10 @@ final class FileTreeCommands {
             do {
                 let newPath = try await FileSystemOperations.rename(at: originalPath, to: newName)
                 state.refreshDirectory(path: parent)
+                if state.selectedPaths.contains(originalPath) {
+                    state.selectedPaths.remove(originalPath)
+                    state.selectedPaths.insert(newPath)
+                }
                 if state.selectedFilePath == originalPath {
                     state.selectedFilePath = newPath
                 }
@@ -85,29 +95,44 @@ final class FileTreeCommands {
         state.pendingRenamePath = nil
     }
 
-    func trash(path: String) {
-        state.pendingDeletePath = path
+    func trash(paths: [String]) {
+        guard !paths.isEmpty else { return }
+        state.pendingDeletePaths = paths
     }
 
     func cancelPendingDelete() {
-        state.pendingDeletePath = nil
+        state.pendingDeletePaths = []
     }
 
     func confirmPendingDelete() {
-        guard let path = state.pendingDeletePath else { return }
-        state.pendingDeletePath = nil
-        let parent = state.parentDirectory(of: path)
+        let paths = state.pendingDeletePaths
+        guard !paths.isEmpty else { return }
+        state.pendingDeletePaths = []
+        let parents = Set(paths.map { state.parentDirectory(of: $0) })
         Task {
             do {
-                try await FileSystemOperations.moveToTrash([path])
-                state.refreshDirectory(path: parent)
-                if state.selectedFilePath == path {
-                    state.selectedFilePath = nil
+                try await FileSystemOperations.moveToTrash(paths)
+                for parent in parents {
+                    state.refreshDirectory(path: parent)
+                }
+                let removed = Set(paths)
+                state.selectedPaths.subtract(removed)
+                if let current = state.selectedFilePath, removed.contains(current) {
+                    state.selectedFilePath = state.selectedPaths.first
                 }
             } catch {
                 logger.error("Trash failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    func deleteAlertKind() -> String {
+        let paths = state.pendingDeletePaths
+        if paths.count > 1 { return "\(paths.count) items" }
+        guard let path = paths.first else { return "file" }
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
+        return exists && isDir.boolValue ? "folder" : "file"
     }
 
     func copyToClipboard(paths: [String]) {

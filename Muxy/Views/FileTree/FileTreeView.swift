@@ -8,8 +8,25 @@ struct FileTreeView: View {
     let onOpenTerminal: (String) -> Void
     let onFileMoved: (String, String) -> Void
 
-    @State private var commands: FileTreeCommands?
+    @State private var commands: FileTreeCommands
     @FocusState private var treeFocused: Bool
+
+    init(
+        state: FileTreeState,
+        onOpenFile: @escaping (String) -> Void,
+        onOpenTerminal: @escaping (String) -> Void,
+        onFileMoved: @escaping (String, String) -> Void
+    ) {
+        self.state = state
+        self.onOpenFile = onOpenFile
+        self.onOpenTerminal = onOpenTerminal
+        self.onFileMoved = onFileMoved
+        _commands = State(initialValue: FileTreeCommands(
+            state: state,
+            openTerminal: onOpenTerminal,
+            onFileMoved: onFileMoved
+        ))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,7 +41,7 @@ struct FileTreeView: View {
                                 entry: entry,
                                 depth: 0,
                                 state: state,
-                                commands: commandsOrCreate(),
+                                commands: commands,
                                 onOpenFile: onOpenFile,
                                 requestFocus: { treeFocused = true }
                             )
@@ -33,8 +50,9 @@ struct FileTreeView: View {
                             FileTreeNewEntryRow(
                                 kind: pending.kind,
                                 depth: 0,
-                                commands: commandsOrCreate()
+                                commands: commands
                             )
+                            .id(pending.token)
                         }
                     }
                     .padding(.vertical, 4)
@@ -53,25 +71,38 @@ struct FileTreeView: View {
             state.loadRootIfNeeded()
         }
         .alert(
-            deleteAlertTitle,
-            isPresented: Binding(
-                get: { state.pendingDeletePath != nil },
-                set: { newValue in
-                    if !newValue { commandsOrCreate().cancelPendingDelete() }
-                }
-            ),
-            presenting: state.pendingDeletePath
-        ) { _ in
+            "Move \(commands.deleteAlertKind()) to Trash?",
+            isPresented: deleteAlertBinding
+        ) {
             Button("Move to Trash", role: .destructive) {
-                commandsOrCreate().confirmPendingDelete()
+                commands.confirmPendingDelete()
             }
             .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) {
-                commandsOrCreate().cancelPendingDelete()
+                commands.cancelPendingDelete()
             }
-        } message: { path in
-            Text("“\((path as NSString).lastPathComponent)” will be moved to the Trash.")
+        } message: {
+            Text(deleteAlertMessage)
         }
+    }
+
+    private var deleteAlertBinding: Binding<Bool> {
+        Binding(
+            get: { !state.pendingDeletePaths.isEmpty },
+            set: { newValue in
+                if !newValue, !state.pendingDeletePaths.isEmpty {
+                    commands.cancelPendingDelete()
+                }
+            }
+        )
+    }
+
+    private var deleteAlertMessage: String {
+        let paths = state.pendingDeletePaths
+        if paths.count == 1, let path = paths.first {
+            return "“\((path as NSString).lastPathComponent)” will be moved to the Trash."
+        }
+        return "\(paths.count) items will be moved to the Trash."
     }
 
     private var header: some View {
@@ -99,7 +130,7 @@ struct FileTreeView: View {
                 path: state.rootPath,
                 isDirectory: true,
                 includesTargetActions: false,
-                commands: commandsOrCreate()
+                commands: commands
             )
         }
     }
@@ -110,7 +141,7 @@ struct FileTreeView: View {
             .containerRelativeFrame(.vertical)
             .contentShape(Rectangle())
             .onTapGesture {
-                state.selectedFilePath = nil
+                state.clearSelection()
                 treeFocused = true
             }
             .contextMenu {
@@ -118,7 +149,7 @@ struct FileTreeView: View {
                     path: state.rootPath,
                     isDirectory: true,
                     includesTargetActions: false,
-                    commands: commandsOrCreate()
+                    commands: commands
                 )
             }
     }
@@ -130,7 +161,7 @@ struct FileTreeView: View {
                 delegate: FileTreeDropDelegate(
                     destinationPath: state.rootPath,
                     state: state,
-                    commands: commandsOrCreate()
+                    commands: commands
                 )
             )
     }
@@ -138,38 +169,42 @@ struct FileTreeView: View {
     private var keyboardShortcuts: some View {
         Group {
             Button("") {
-                guard let path = state.selectedFilePath else { return }
-                commandsOrCreate().beginRename(path: path)
+                guard state.selectedPaths.count == 1, let path = state.selectedPaths.first else { return }
+                commands.beginRename(path: path)
             }
             .keyboardShortcut(.return, modifiers: [])
 
             Button("") {
-                guard let path = state.selectedFilePath else { return }
-                commandsOrCreate().trash(path: path)
+                let paths = Array(state.selectedPaths)
+                guard !paths.isEmpty else { return }
+                commands.trash(paths: paths)
             }
             .keyboardShortcut(.delete, modifiers: [])
 
             Button("") {
-                guard let path = state.selectedFilePath else { return }
-                commandsOrCreate().trash(path: path)
+                let paths = Array(state.selectedPaths)
+                guard !paths.isEmpty else { return }
+                commands.trash(paths: paths)
             }
             .keyboardShortcut(.delete, modifiers: [.command])
 
             Button("") {
-                guard let path = state.selectedFilePath else { return }
-                commandsOrCreate().copyToClipboard(paths: [path])
+                let paths = Array(state.selectedPaths)
+                guard !paths.isEmpty else { return }
+                commands.copyToClipboard(paths: paths)
             }
             .keyboardShortcut("c", modifiers: [.command])
 
             Button("") {
-                guard let path = state.selectedFilePath else { return }
-                commandsOrCreate().cutToClipboard(paths: [path])
+                let paths = Array(state.selectedPaths)
+                guard !paths.isEmpty else { return }
+                commands.cutToClipboard(paths: paths)
             }
             .keyboardShortcut("x", modifiers: [.command])
 
             Button("") {
                 let target = state.selectedFilePath ?? state.rootPath
-                commandsOrCreate().paste(into: target)
+                commands.paste(into: target)
             }
             .keyboardShortcut("v", modifiers: [.command])
         }
@@ -180,27 +215,8 @@ struct FileTreeView: View {
         .accessibilityHidden(true)
     }
 
-    private var deleteAlertTitle: String {
-        guard let path = state.pendingDeletePath else { return "Move to Trash?" }
-        var isDir: ObjCBool = false
-        let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
-        let kind = exists && isDir.boolValue ? "folder" : "file"
-        return "Move \(kind) to Trash?"
-    }
-
     private var normalizedRootPath: String {
         state.rootPath.hasSuffix("/") ? String(state.rootPath.dropLast()) : state.rootPath
-    }
-
-    private func commandsOrCreate() -> FileTreeCommands {
-        if let commands { return commands }
-        let created = FileTreeCommands(
-            state: state,
-            openTerminal: onOpenTerminal,
-            onFileMoved: onFileMoved
-        )
-        commands = created
-        return created
     }
 }
 
@@ -234,6 +250,7 @@ private struct FileTreeRowGroup: View {
             }
             if let pending = state.pendingNewEntry, pending.parentPath == entry.absolutePath {
                 FileTreeNewEntryRow(kind: pending.kind, depth: depth + 1, commands: commands)
+                    .id(pending.token)
             }
         }
     }
@@ -249,7 +266,7 @@ private struct FileTreeRow: View {
     @State private var hovered = false
 
     private var isSelected: Bool {
-        !entry.isDirectory && state.selectedFilePath == entry.absolutePath
+        state.isPathSelected(entry.absolutePath)
     }
 
     private var isRenaming: Bool {
@@ -380,7 +397,16 @@ private struct FileTreeRow: View {
 
     private func handleTap() {
         requestFocus()
-        state.selectedFilePath = entry.absolutePath
+        let modifiers = NSEvent.modifierFlags
+        if modifiers.contains(.command) {
+            state.toggleSelection(entry.absolutePath)
+            return
+        }
+        if modifiers.contains(.shift) {
+            state.extendSelection(to: entry.absolutePath)
+            return
+        }
+        state.selectOnly(entry.absolutePath)
         if entry.isDirectory {
             state.toggle(entry)
         } else if state.status(for: entry.absolutePath) != .deleted {
@@ -443,6 +469,7 @@ private struct FileTreeRenameField: View {
     @State private var text: String = ""
     @FocusState private var focused: Bool
     @State private var didAppear = false
+    @State private var didResolve = false
 
     var body: some View {
         TextField("", text: $text)
@@ -454,25 +481,29 @@ private struct FileTreeRenameField: View {
                 guard !didAppear else { return }
                 didAppear = true
                 text = initialName
-                DispatchQueue.main.async { focused = true }
+                Task { @MainActor in focused = true }
             }
-            .onSubmit {
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { cancel()
-                    return
-                }
-                commit(trimmed)
+            .onSubmit { resolve() }
+            .onExitCommand {
+                guard !didResolve else { return }
+                didResolve = true
+                cancel()
             }
-            .onExitCommand { cancel() }
             .onChange(of: focused) { _, isFocused in
                 guard didAppear, !isFocused else { return }
-                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.isEmpty || trimmed == initialName {
-                    cancel()
-                } else {
-                    commit(trimmed)
-                }
+                resolve()
             }
+    }
+
+    private func resolve() {
+        guard !didResolve else { return }
+        didResolve = true
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == initialName {
+            cancel()
+        } else {
+            commit(trimmed)
+        }
     }
 }
 
@@ -482,16 +513,27 @@ private struct FileTreeContextMenuContents: View {
     let includesTargetActions: Bool
     let commands: FileTreeCommands
 
+    private var targets: [String] {
+        commands.effectiveTargets(primaryPath: path)
+    }
+
     var body: some View {
         Button("New File") { commands.beginNewFile(in: path) }
         Button("New Folder") { commands.beginNewFolder(in: path) }
         if includesTargetActions {
             Divider()
             Button("Rename") { commands.beginRename(path: path) }
-            Button("Delete") { commands.trash(path: path) }
+                .disabled(targets.count > 1)
+            Button(targets.count > 1 ? "Delete \(targets.count) Items" : "Delete") {
+                commands.trash(paths: targets)
+            }
             Divider()
-            Button("Cut") { commands.cutToClipboard(paths: [path]) }
-            Button("Copy") { commands.copyToClipboard(paths: [path]) }
+            Button(targets.count > 1 ? "Cut \(targets.count) Items" : "Cut") {
+                commands.cutToClipboard(paths: targets)
+            }
+            Button(targets.count > 1 ? "Copy \(targets.count) Items" : "Copy") {
+                commands.copyToClipboard(paths: targets)
+            }
         }
         Divider()
         Button("Paste") { commands.paste(into: path) }
