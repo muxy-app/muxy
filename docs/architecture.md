@@ -240,7 +240,9 @@ entry whose absolute path is not in the status set (and any directory whose
 subtree has no changes). The panel also tracks the active editor file via
 `AppState.activeTab(for:)?.content.editorState?.filePath`: changes to that path
 auto-expand its parent directories and highlight the row using
-`MuxyTheme.accentSoft`.
+`MuxyTheme.accentSoft`. Deleted paths that no longer exist on disk are
+materialized as synthetic tree rows so removals still appear in both the full
+tree and the changed-only filter.
 
 The panel width is persisted in `UserDefaults` under `muxy.fileTreeWidth`.
 Expansion state is in-memory only.

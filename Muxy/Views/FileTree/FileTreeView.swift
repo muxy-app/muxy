@@ -18,7 +18,9 @@ struct FileTreeView: View {
             }
         }
         .background(MuxyTheme.bg)
-        .onAppear { state.loadRootIfNeeded() }
+        .task(id: state.rootPath) {
+            state.loadRootIfNeeded()
+        }
     }
 
     private var header: some View {
@@ -147,8 +149,10 @@ private struct FileTreeRow: View {
     private func handleTap() {
         if entry.isDirectory {
             state.toggle(entry)
-        } else {
+        } else if state.status(for: entry.absolutePath) != .deleted {
             onOpenFile(entry.absolutePath)
+        } else {
+            return
         }
     }
 }

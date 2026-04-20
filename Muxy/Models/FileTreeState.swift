@@ -61,9 +61,7 @@ final class FileTreeState {
             expanded.remove(entry.absolutePath)
         } else {
             expanded.insert(entry.absolutePath)
-            if children[entry.absolutePath] == nil {
-                reloadChildren(of: entry.absolutePath)
-            }
+            reloadChildren(of: entry.absolutePath)
         }
     }
 
@@ -76,14 +74,17 @@ final class FileTreeState {
     }
 
     func visibleRootEntries() -> [FileTreeEntry] {
-        guard showOnlyChanges else { return rootEntries }
-        return rootEntries.filter { entryHasChanges($0) }
+        let entries = mergedEntries(in: normalizedRootPath, realEntries: rootEntries)
+        guard showOnlyChanges else { return entries }
+        return entries.filter { entryHasChanges($0) }
     }
 
     func visibleChildren(of entry: FileTreeEntry) -> [FileTreeEntry]? {
-        guard let all = children[entry.absolutePath] else { return nil }
-        guard showOnlyChanges else { return all }
-        return all.filter { entryHasChanges($0) }
+        let realEntries = children[entry.absolutePath] ?? []
+        let entries = mergedEntries(in: entry.absolutePath, realEntries: realEntries)
+        guard !entries.isEmpty || children[entry.absolutePath] != nil else { return nil }
+        guard showOnlyChanges else { return entries }
+        return entries.filter { entryHasChanges($0) }
     }
 
     func entryHasChanges(_ entry: FileTreeEntry) -> Bool {
@@ -93,19 +94,16 @@ final class FileTreeState {
 
     func revealFile(at filePath: String) {
         selectedFilePath = filePath
-        let normalizedRoot = rootPath.hasSuffix("/") ? String(rootPath.dropLast()) : rootPath
-        guard filePath.hasPrefix(normalizedRoot + "/") else { return }
-        let relative = String(filePath.dropFirst(normalizedRoot.count + 1))
+        guard filePath.hasPrefix(normalizedRootPath + "/") else { return }
+        let relative = String(filePath.dropFirst(normalizedRootPath.count + 1))
         let components = relative.split(separator: "/").map(String.init)
         guard components.count > 1 else { return }
-        var current = normalizedRoot
+        var current = normalizedRootPath
         for component in components.dropLast() {
             current += "/" + component
             if !expanded.contains(current) {
                 expanded.insert(current)
-                if children[current] == nil {
-                    reloadChildren(of: current)
-                }
+                reloadChildren(of: current)
             }
         }
     }
@@ -116,6 +114,10 @@ final class FileTreeState {
 
     func directoryHasChanges(_ absolutePath: String) -> Bool {
         dirHasChange.contains(absolutePath)
+    }
+
+    private var normalizedRootPath: String {
+        rootPath.hasSuffix("/") ? String(rootPath.dropLast()) : rootPath
     }
 
     private func reloadRoot() {
@@ -192,7 +194,7 @@ final class FileTreeState {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: gitPath)
-        process.arguments = ["-C", repoRoot, "status", "--porcelain=v1", "-z", "--untracked-files=normal"]
+        process.arguments = ["-C", repoRoot, "-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "--untracked-files=normal"]
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -209,48 +211,14 @@ final class FileTreeState {
         _ = try? stderrPipe.fileHandleForReading.readToEnd()
         process.waitUntilExit()
 
-        guard let raw = String(data: outData, encoding: .utf8) else {
-            return StatusResult(fileStatuses: [:], dirtyDirs: [])
-        }
-
         let normalizedRoot = repoRoot.hasSuffix("/") ? String(repoRoot.dropLast()) : repoRoot
         var fileStatuses: [String: FileStatus] = [:]
         var dirtyDirs: Set<String> = []
 
-        let entries = raw.split(separator: "\u{0}", omittingEmptySubsequences: true)
-        var index = 0
-        while index < entries.count {
-            let entry = entries[index]
-            index += 1
-            guard entry.count >= 3 else { continue }
-            let chars = Array(entry)
-            let x = chars[0]
-            let y = chars[1]
-            let pathStart = entry.index(entry.startIndex, offsetBy: 3)
-            let path = String(entry[pathStart...])
-
-            if x == "R" || x == "C", index < entries.count {
-                index += 1
-            }
-
-            let absolute = normalizedRoot + "/" + path
+        for file in GitStatusParser.parseStatusPorcelain(outData, stats: [:]) {
+            let absolute = normalizedRoot + "/" + file.path
             let trimmed = absolute.hasSuffix("/") ? String(absolute.dropLast()) : absolute
-
-            let status: FileStatus = if x == "U" || y == "U" || (x == "A" && y == "A") || (x == "D" && y == "D") {
-                .conflict
-            } else if x == "?" {
-                .untracked
-            } else if x == "A" || y == "A" {
-                .added
-            } else if x == "D" || y == "D" {
-                .deleted
-            } else if x == "R" || y == "R" {
-                .renamed
-            } else {
-                .modified
-            }
-
-            fileStatuses[trimmed] = status
+            fileStatuses[trimmed] = mapStatus(file)
 
             var current = (trimmed as NSString).deletingLastPathComponent
             while current.count > normalizedRoot.count {
@@ -261,5 +229,71 @@ final class FileTreeState {
         }
 
         return StatusResult(fileStatuses: fileStatuses, dirtyDirs: dirtyDirs)
+    }
+
+    private func mergedEntries(in directoryPath: String, realEntries: [FileTreeEntry]) -> [FileTreeEntry] {
+        let existingPaths = Set(realEntries.map(\.absolutePath))
+        var entries = realEntries
+        entries.append(contentsOf: syntheticEntries(in: directoryPath, excluding: existingPaths))
+        entries.sort { lhs, rhs in
+            if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory && !rhs.isDirectory }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+        return entries
+    }
+
+    private func syntheticEntries(in directoryPath: String, excluding existingPaths: Set<String>) -> [FileTreeEntry] {
+        let prefix = directoryPath.hasSuffix("/") ? directoryPath : directoryPath + "/"
+        var entriesByPath: [String: FileTreeEntry] = [:]
+
+        for absolutePath in statuses.keys where absolutePath.hasPrefix(prefix) {
+            let remainder = String(absolutePath.dropFirst(prefix.count))
+            guard !remainder.isEmpty else { continue }
+
+            let components = remainder.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true)
+            guard let first = components.first else { continue }
+
+            let name = String(first)
+            let childPath = prefix + name
+            guard !existingPaths.contains(childPath), entriesByPath[childPath] == nil else { continue }
+
+            let isDirectory = components.count > 1
+            let relativePath: String = if childPath.hasPrefix(normalizedRootPath + "/") {
+                String(childPath.dropFirst(normalizedRootPath.count + 1))
+            } else {
+                name
+            }
+
+            entriesByPath[childPath] = FileTreeEntry(
+                name: name,
+                absolutePath: childPath,
+                relativePath: relativePath,
+                isDirectory: isDirectory
+            )
+        }
+
+        return Array(entriesByPath.values)
+    }
+
+    nonisolated private static func mapStatus(_ file: GitStatusFile) -> FileStatus {
+        let x = file.xStatus
+        let y = file.yStatus
+
+        if x == "U" || y == "U" || (x == "A" && y == "A") || (x == "D" && y == "D") {
+            return .conflict
+        }
+        if x == "?" && y == "?" {
+            return .untracked
+        }
+        if x == "A" || y == "A" {
+            return .added
+        }
+        if x == "D" || y == "D" {
+            return .deleted
+        }
+        if x == "R" || y == "R" || x == "C" || y == "C" {
+            return .renamed
+        }
+        return .modified
     }
 }

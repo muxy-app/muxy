@@ -123,7 +123,7 @@ struct MainWindow: View {
                         VCSTabView(state: state, focused: false, onFocus: {})
                             .frame(width: vcsPanelWidth)
                     }
-                } else if fileTreePanelVisible, let treeState = activeFileTreeState {
+                } else if fileTreePanelVisible, VCSDisplayMode.current == .attached, let treeState = activeFileTreeState {
                     HStack(spacing: 0) {
                         sidePanelResizeHandle { delta in
                             let next = fileTreePanelWidth - Double(delta)
@@ -224,18 +224,10 @@ struct MainWindow: View {
             openWindow(id: "vcs")
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleAttachedVCS)) { _ in
-            if let project = activeProject {
-                ensureVCSState(for: project)
-            }
-            vcsPanelVisible.toggle()
-            if vcsPanelVisible { fileTreePanelVisible = false }
+            toggleAttachedVCSPanel()
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleFileTree)) { _ in
-            if let project = activeProject {
-                ensureFileTreeState(for: project)
-            }
-            fileTreePanelVisible.toggle()
-            if fileTreePanelVisible { vcsPanelVisible = false }
+            toggleFileTreePanel()
         }
         .onChange(of: vcsPruneSignature) {
             pruneVCSStates()
@@ -538,6 +530,38 @@ struct MainWindow: View {
         fileTreeStates = fileTreeStates.filter { validKeys.contains($0.key) }
     }
 
+    private func toggleAttachedVCSPanel() {
+        guard VCSDisplayMode.current == .attached,
+              let project = activeProject
+        else {
+            vcsPanelVisible = false
+            return
+        }
+
+        ensureVCSState(for: project)
+        let isShowing = !vcsPanelVisible
+        vcsPanelVisible = isShowing
+        if isShowing {
+            fileTreePanelVisible = false
+        }
+    }
+
+    private func toggleFileTreePanel() {
+        guard VCSDisplayMode.current == .attached,
+              let project = activeProject
+        else {
+            fileTreePanelVisible = false
+            return
+        }
+
+        ensureFileTreeState(for: project)
+        let isShowing = !fileTreePanelVisible
+        fileTreePanelVisible = isShowing
+        if isShowing {
+            vcsPanelVisible = false
+        }
+    }
+
     private var activeVCSState: VCSTabState? {
         guard let project = activeProject,
               let key = appState.activeWorktreeKey(for: project.id)
@@ -569,8 +593,7 @@ struct MainWindow: View {
             },
             window: { openWindow(id: "vcs") },
             attached: {
-                ensureVCSState(for: project)
-                vcsPanelVisible.toggle()
+                toggleAttachedVCSPanel()
             }
         )
     }
