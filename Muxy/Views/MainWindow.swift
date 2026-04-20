@@ -132,10 +132,22 @@ struct MainWindow: View {
                                 min(Double(FileTreeLayout.maxWidth), next)
                             )
                         }
-                        FileTreeView(state: treeState) { filePath in
-                            guard let projectID = appState.activeProjectID else { return }
-                            appState.openFile(filePath, projectID: projectID)
-                        }
+                        FileTreeView(
+                            state: treeState,
+                            onOpenFile: { filePath in
+                                guard let projectID = appState.activeProjectID else { return }
+                                appState.openFile(filePath, projectID: projectID)
+                            },
+                            onOpenTerminal: { directory in
+                                guard let projectID = appState.activeProjectID else { return }
+                                appState.dispatch(.createTabInDirectory(
+                                    projectID: projectID,
+                                    areaID: nil,
+                                    directory: directory
+                                ))
+                            },
+                            onFileMoved: { _, _ in }
+                        )
                         .frame(width: CGFloat(fileTreePanelWidth))
                     }
                 }

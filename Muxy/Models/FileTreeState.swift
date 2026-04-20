@@ -12,6 +12,16 @@ final class FileTreeState {
         case conflict
     }
 
+    enum PendingEntryKind {
+        case file
+        case folder
+    }
+
+    struct PendingNewEntry: Equatable {
+        let parentPath: String
+        let kind: PendingEntryKind
+    }
+
     let rootPath: String
     private(set) var rootEntries: [FileTreeEntry] = []
     private(set) var children: [String: [FileTreeEntry]] = [:]
@@ -22,6 +32,11 @@ final class FileTreeState {
     private(set) var dirHasChange: Set<String> = []
     var showOnlyChanges = false
     var selectedFilePath: String?
+    var pendingRenamePath: String?
+    var pendingNewEntry: PendingNewEntry?
+    var pendingDeletePath: String?
+    var cutPaths: Set<String> = []
+    var dropHighlightPath: String?
 
     @ObservationIgnored private var watcher: GitDirectoryWatcher?
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
@@ -53,6 +68,29 @@ final class FileTreeState {
             reloadChildren(of: path)
         }
         refreshStatuses()
+    }
+
+    func refreshDirectory(path: String) {
+        let normalized = path.hasSuffix("/") ? String(path.dropLast()) : path
+        if normalized == normalizedRootPath {
+            reloadRoot()
+        } else {
+            reloadChildren(of: normalized)
+        }
+        refreshStatuses()
+    }
+
+    func expand(path: String) {
+        let normalized = path.hasSuffix("/") ? String(path.dropLast()) : path
+        guard normalized != normalizedRootPath else { return }
+        guard !expanded.contains(normalized) else { return }
+        expanded.insert(normalized)
+        reloadChildren(of: normalized)
+    }
+
+    func parentDirectory(of path: String) -> String {
+        let normalized = path.hasSuffix("/") ? String(path.dropLast()) : path
+        return (normalized as NSString).deletingLastPathComponent
     }
 
     func toggle(_ entry: FileTreeEntry) {

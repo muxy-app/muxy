@@ -70,6 +70,14 @@ enum WorkspaceReducer {
         case let .createTab(projectID, areaID):
             TabReducer.createTab(projectID: projectID, areaID: areaID, state: &state)
 
+        case let .createTabInDirectory(projectID, areaID, directory):
+            TabReducer.createTabInDirectory(
+                projectID: projectID,
+                areaID: areaID,
+                directory: directory,
+                state: &state
+            )
+
         case let .createVCSTab(projectID, areaID):
             TabReducer.createVCSTab(projectID: projectID, areaID: areaID, state: &state)
 

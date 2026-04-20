@@ -31,6 +31,7 @@ final class AppState {
             replacementWorktreePath: String?
         )
         case createTab(projectID: UUID, areaID: UUID?)
+        case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
         case createVCSTab(projectID: UUID, areaID: UUID?)
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String)
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
