@@ -951,25 +951,6 @@ struct PRPopover: View {
         .frame(width: 260)
         .task(id: info.number) {
             onRefresh()
-            await pollLoop()
-        }
-    }
-
-    private func pollLoop() async {
-        var intervalSeconds: UInt64 = 10
-        let maxIntervalSeconds: UInt64 = 60
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(nanoseconds: intervalSeconds * 1_000_000_000)
-            } catch {
-                return
-            }
-            guard state.pullRequestInfo?.state == .open,
-                  !state.isMergingPullRequest,
-                  !state.isClosingPullRequest
-            else { return }
-            onRefresh()
-            intervalSeconds = min(intervalSeconds * 2, maxIntervalSeconds)
         }
     }
 
