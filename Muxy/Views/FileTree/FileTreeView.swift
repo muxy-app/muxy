@@ -284,7 +284,6 @@ private struct FileTreeRow: View {
     var body: some View {
         HStack(spacing: 4) {
             Color.clear.frame(width: CGFloat(depth) * 12)
-            chevron
             icon
             if isRenaming {
                 FileTreeRenameField(
@@ -301,7 +300,7 @@ private struct FileTreeRow: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 6)
         .frame(height: 22)
         .opacity(rowOpacity)
         .background(rowBackground)
@@ -348,23 +347,16 @@ private struct FileTreeRow: View {
         }
     }
 
-    @ViewBuilder
-    private var chevron: some View {
-        if entry.isDirectory {
-            Image(systemName: state.isExpanded(entry) ? "chevron.down" : "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fgDim)
-                .frame(width: 10)
-        } else {
-            Color.clear.frame(width: 10)
-        }
-    }
-
     private var icon: some View {
-        Image(systemName: entry.isDirectory ? "folder" : "doc")
+        Image(systemName: iconSymbol)
             .font(.system(size: 11))
             .foregroundStyle(iconColor)
             .frame(width: 14)
+    }
+
+    private var iconSymbol: String {
+        guard entry.isDirectory else { return "doc" }
+        return state.isExpanded(entry) ? "folder.fill" : "folder"
     }
 
     private var iconColor: Color {
@@ -444,7 +436,6 @@ private struct FileTreeNewEntryRow: View {
     var body: some View {
         HStack(spacing: 4) {
             Color.clear.frame(width: CGFloat(depth) * 12)
-            Color.clear.frame(width: 10)
             Image(systemName: kind == .folder ? "folder" : "doc")
                 .font(.system(size: 11))
                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -456,7 +447,7 @@ private struct FileTreeNewEntryRow: View {
             )
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 6)
         .frame(height: 22)
     }
 }
