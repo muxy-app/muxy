@@ -15,14 +15,14 @@ struct UnifiedDiffView: View {
 
     var body: some View {
         LazyVStack(spacing: 0) {
-            ForEach(Array(chunks.enumerated()), id: \.element.id) { index, chunk in
+            ForEach(Array(chunks.enumerated()), id: \.offset) { index, chunk in
                 switch chunk {
-                case let .divider(_, text):
+                case let .divider(text):
                     DiffSectionDivider(
                         text: text,
                         showsTopBorder: !(index == 0 && suppressLeadingTopBorder)
                     )
-                case let .codeBlock(_, blockRows):
+                case let .codeBlock(blockRows):
                     unifiedCodeBlock(blockRows)
                 }
             }

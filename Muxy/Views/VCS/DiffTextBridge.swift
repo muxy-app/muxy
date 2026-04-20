@@ -3,16 +3,9 @@ import SwiftUI
 
 let diffLineHeight: CGFloat = 20
 
-enum DiffChunk: Identifiable {
-    case divider(id: UUID, text: String)
-    case codeBlock(id: UUID, rows: [DiffDisplayRow])
-
-    var id: UUID {
-        switch self {
-        case let .divider(id, _): id
-        case let .codeBlock(id, _): id
-        }
-    }
+enum DiffChunk {
+    case divider(text: String)
+    case codeBlock(rows: [DiffDisplayRow])
 }
 
 func buildDiffChunks(from rows: [DiffDisplayRow]) -> [DiffChunk] {
@@ -22,18 +15,18 @@ func buildDiffChunks(from rows: [DiffDisplayRow]) -> [DiffChunk] {
     for row in rows {
         if row.kind == .hunk || row.kind == .collapsed {
             if !currentRows.isEmpty {
-                chunks.append(.codeBlock(id: UUID(), rows: currentRows))
+                chunks.append(.codeBlock(rows: currentRows))
                 currentRows = []
             }
             let label = row.kind == .hunk ? hunkLabel(row.text) : row.text
-            chunks.append(.divider(id: UUID(), text: label))
+            chunks.append(.divider(text: label))
         } else {
             currentRows.append(row)
         }
     }
 
     if !currentRows.isEmpty {
-        chunks.append(.codeBlock(id: UUID(), rows: currentRows))
+        chunks.append(.codeBlock(rows: currentRows))
     }
 
     return chunks
