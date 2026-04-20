@@ -5,16 +5,10 @@ struct FileTreeEntry: Hashable {
     let absolutePath: String
     let relativePath: String
     let isDirectory: Bool
+    let isIgnored: Bool
 }
 
 enum FileTreeService {
-    private static let prunedDirectoryNames: Set<String> = [
-        ".git", "node_modules", ".build", "build", "DerivedData",
-        "__pycache__", ".venv", "venv", "dist", ".next", ".nuxt",
-        "target", "Pods", ".swiftpm", ".idea", ".vscode",
-        "vendor", "coverage", ".cache", ".parcel-cache",
-    ]
-
     static func loadChildren(of directoryAbsolutePath: String, repoRoot: String) async -> [FileTreeEntry] {
         await GitProcessRunner.offMain {
             loadChildrenSync(of: directoryAbsolutePath, repoRoot: repoRoot)
@@ -27,13 +21,13 @@ enum FileTreeService {
             return []
         }
 
-        let allowed = allowedNames(in: directoryAbsolutePath, repoRoot: repoRoot, candidates: contents)
+        let classification = classifyNames(in: directoryAbsolutePath, repoRoot: repoRoot, candidates: contents)
         let normalizedRoot = repoRoot.hasSuffix("/") ? String(repoRoot.dropLast()) : repoRoot
 
         var entries: [FileTreeEntry] = []
-        entries.reserveCapacity(allowed.count)
+        entries.reserveCapacity(classification.visible.count)
 
-        for name in allowed {
+        for name in classification.visible {
             if name == "." || name == ".." { continue }
             let absolute = directoryAbsolutePath.hasSuffix("/")
                 ? directoryAbsolutePath + name
@@ -52,7 +46,8 @@ enum FileTreeService {
                 name: name,
                 absolutePath: absolute,
                 relativePath: relative,
-                isDirectory: isDir.boolValue
+                isDirectory: isDir.boolValue,
+                isIgnored: classification.ignored.contains(name)
             ))
         }
 
@@ -64,21 +59,24 @@ enum FileTreeService {
         return entries
     }
 
-    private static func allowedNames(
+    private struct NameClassification {
+        let visible: [String]
+        let ignored: Set<String>
+    }
+
+    private static func classifyNames(
         in directoryAbsolutePath: String,
         repoRoot: String,
         candidates: [String]
-    ) -> [String] {
+    ) -> NameClassification {
         let isRepoChild = isInsideRepo(path: directoryAbsolutePath, repoRoot: repoRoot)
         guard isRepoChild else {
-            return candidates.filter { !prunedDirectoryNames.contains($0) }
+            return NameClassification(visible: candidates, ignored: [])
         }
 
         let ignored = ignoredNames(directoryAbsolutePath: directoryAbsolutePath, candidates: candidates)
-        return candidates.filter { name in
-            if name == ".git" { return false }
-            return !ignored.contains(name)
-        }
+        let visible = candidates.filter { $0 != ".git" }
+        return NameClassification(visible: visible, ignored: ignored)
     }
 
     private static func isInsideRepo(path: String, repoRoot: String) -> Bool {
@@ -95,7 +93,7 @@ enum FileTreeService {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: gitPath)
-        process.arguments = ["check-ignore", "--stdin"]
+        process.arguments = ["check-ignore", "-z", "--stdin"]
         process.currentDirectoryURL = URL(fileURLWithPath: directoryAbsolutePath)
 
         let stdinPipe = Pipe()
@@ -111,20 +109,31 @@ enum FileTreeService {
             return []
         }
 
-        let payload = candidates.joined(separator: "\n") + "\n"
-        if let data = payload.data(using: .utf8) {
-            stdinPipe.fileHandleForWriting.write(data)
+        var payload = Data()
+        for name in candidates {
+            if let data = name.data(using: .utf8) {
+                payload.append(data)
+                payload.append(0)
+            }
         }
+        stdinPipe.fileHandleForWriting.write(payload)
         try? stdinPipe.fileHandleForWriting.close()
 
         let outData = (try? stdoutPipe.fileHandleForReading.readToEnd()) ?? Data()
         _ = try? stderrPipe.fileHandleForReading.readToEnd()
         process.waitUntilExit()
 
-        guard let output = String(data: outData, encoding: .utf8) else { return [] }
         var result: Set<String> = []
-        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            result.insert(String(line))
+        var current = Data()
+        for byte in outData {
+            if byte == 0 {
+                if let name = String(data: current, encoding: .utf8) {
+                    result.insert(name)
+                }
+                current.removeAll(keepingCapacity: true)
+            } else {
+                current.append(byte)
+            }
         }
         return result
     }

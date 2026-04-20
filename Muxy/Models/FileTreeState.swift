@@ -268,7 +268,8 @@ final class FileTreeState {
                 name: name,
                 absolutePath: childPath,
                 relativePath: relativePath,
-                isDirectory: isDirectory
+                isDirectory: isDirectory,
+                isIgnored: false
             )
         }
 

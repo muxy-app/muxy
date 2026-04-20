@@ -87,6 +87,7 @@ private struct FileTreeRow: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 22)
+        .opacity(entry.isIgnored ? 0.45 : 1)
         .background(rowBackground)
         .contentShape(Rectangle())
         .onTapGesture { handleTap() }
