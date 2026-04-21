@@ -6,7 +6,7 @@ enum GeneralSettingsKeys {
 
 struct GeneralSettingsView: View {
     @AppStorage(GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch)
-    private var autoExpandWorktrees = true
+    private var autoExpandWorktrees = false
 
     var body: some View {
         SettingsContainer {

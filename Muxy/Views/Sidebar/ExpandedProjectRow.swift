@@ -16,7 +16,7 @@ struct ExpandedProjectRow: View {
     @Environment(WorktreeStore.self) private var worktreeStore
 
     @AppStorage(GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch)
-    private var autoExpandWorktrees = true
+    private var autoExpandWorktrees = false
 
     @State private var hovered = false
     @State private var isRenaming = false
