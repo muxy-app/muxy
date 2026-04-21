@@ -46,6 +46,7 @@ Muxy/
     AppState.swift            @Observable root state, dispatches workspace actions
     WorkspaceReducer.swift    Pure reducer: all workspace state transitions
     WorkspaceSnapshot.swift   Save/restore workspace layout to disk
+    NavigationHistory.swift   Stacked back/forward history over project+worktree+area+tab tuples
     SplitNode.swift           Recursive binary tree for pane splits
     TabArea.swift             Container for tabs within a single pane
     TerminalTab.swift         Terminal, VCS, editor, or diff-viewer tab model
@@ -316,6 +317,30 @@ Pull request management lives entirely in the header via `PRPill`, not in the co
 5. **Draft** — checkbox that adds `--draft` to `gh pr create`.
 
 On submit, `performPRFlow` runs: optional branch create+switch → optional stage (all if include=all, staged-only otherwise) → commit with title if anything is staged → `git push -u origin <branch>` → `gh pr create`. No rollback on partial failure — errors surface to the sheet with a clear message so the user can retry manually from wherever the flow stopped. Ahead/behind counts are populated by `GitRepositoryService.aheadBehind` during refresh and drive the push/pull badges in the commit area.
+
+## Navigation History
+
+`AppState` owns a `NavigationHistory` that captures a stacked history of
+user navigation across projects, worktrees, split areas, and tabs. Each
+entry is a `(projectID, worktreeID, areaID, tabID)` tuple. After every
+successful `dispatch`, the current tuple is recorded (deduping against the
+top of the stack). Selecting a different project, switching worktrees,
+focusing another split pane, or selecting a different tab all count as
+navigation events.
+
+Back/forward navigation is exposed via `AppState.goBack()` /
+`AppState.goForward()`. Both validate the target entry still references
+live state (the worktree root is still in `workspaceRoots`, the area and
+tab still exist) and transparently skip stale entries. The `isNavigating`
+flag on `NavigationHistory` suppresses re-recording while a back/forward
+step is in flight. Entries are pruned automatically when the project or
+worktree they reference is removed.
+
+The topbar hosts two chevron buttons (to the right of the sidebar border)
+wired to these calls. Keyboard (default `⌘←` / `⌘→`) and mouse buttons 3/4
+trigger the same actions via `ShortcutActionDispatcher` and a local
+`otherMouseDown` event monitor installed by the main window's shortcut
+interceptor.
 
 ## Notification System
 
