@@ -15,6 +15,9 @@ struct ExpandedProjectRow: View {
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
 
+    @AppStorage(GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch)
+    private var autoExpandWorktrees = true
+
     @State private var hovered = false
     @State private var isRenaming = false
     @State private var renameText = ""
@@ -54,12 +57,14 @@ struct ExpandedProjectRow: View {
         }
         .task(id: project.path) {
             isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
+            if autoExpandWorktrees, isActive, isGitRepo {
+                worktreesExpanded = true
+            }
         }
         .onChange(of: isActive) { _, active in
-            if !active {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    worktreesExpanded = false
-                }
+            guard autoExpandWorktrees, active, isGitRepo else { return }
+            withAnimation(.easeInOut(duration: 0.15)) {
+                worktreesExpanded = true
             }
         }
         .contextMenu {
