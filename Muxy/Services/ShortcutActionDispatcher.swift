@@ -162,10 +162,6 @@ struct ShortcutActionDispatcher {
     }
 
     private func resolveActiveWorktree(for projectID: UUID) -> Worktree? {
-        let list = worktreeStore.list(for: projectID)
-        let existingID = appState.activeWorktreeID[projectID]
-        return list.first(where: { $0.id == existingID })
-            ?? list.first(where: { $0.isPrimary })
-            ?? list.first
+        worktreeStore.preferred(for: projectID, matching: appState.activeWorktreeID[projectID])
     }
 }

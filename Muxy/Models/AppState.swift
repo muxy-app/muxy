@@ -458,19 +458,10 @@ final class AppState {
             activeWorktreeID: activeWorktreeID,
             workspaceRoots: workspaceRoots,
             focusedAreaID: focusedAreaID,
-            focusHistory: focusHistory
+            focusHistory: focusHistory,
+            keepProjectOpenWhenEmpty: ProjectLifecyclePreferences.keepOpenWhenNoTabs
         )
         let effects = WorkspaceReducer.reduce(action: action, state: &workspace)
-        if ProjectLifecyclePreferences.keepOpenWhenNoTabs {
-            for projectID in effects.projectIDsToRemove {
-                if let previous = activeWorktreeID[projectID] {
-                    workspace.activeWorktreeID[projectID] = previous
-                }
-                if activeProjectID == projectID {
-                    workspace.activeProjectID = projectID
-                }
-            }
-        }
         if activeProjectID != workspace.activeProjectID {
             activeProjectID = workspace.activeProjectID
         }
@@ -492,11 +483,8 @@ final class AppState {
             terminalViews.removeView(for: paneID)
         }
 
-        let projectsToRemove = ProjectLifecyclePreferences.keepOpenWhenNoTabs
-            ? []
-            : effects.projectIDsToRemove
-        if !projectsToRemove.isEmpty {
-            onProjectsEmptied?(projectsToRemove)
+        if !effects.projectIDsToRemove.isEmpty {
+            onProjectsEmptied?(effects.projectIDsToRemove)
         }
 
         if let activeTabID = NotificationNavigator.activeTabID(appState: self) {

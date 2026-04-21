@@ -42,6 +42,7 @@ enum WorkspaceReducerShared {
     ) {
         let hasAnyWorkspace = state.workspaceRoots.keys.contains { $0.projectID == projectID }
         guard !hasAnyWorkspace else { return }
+        guard !state.keepProjectOpenWhenEmpty else { return }
         state.activeWorktreeID.removeValue(forKey: projectID)
         if state.activeProjectID == projectID {
             state.activeProjectID = nil

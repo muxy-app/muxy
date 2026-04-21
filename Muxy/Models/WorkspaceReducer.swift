@@ -7,6 +7,7 @@ struct WorkspaceState {
     var workspaceRoots: [WorktreeKey: SplitNode]
     var focusedAreaID: [WorktreeKey: UUID]
     var focusHistory: [WorktreeKey: [UUID]]
+    var keepProjectOpenWhenEmpty: Bool = false
 }
 
 @MainActor

@@ -65,6 +65,13 @@ final class WorktreeStore {
         list(for: projectID).first(where: { $0.id == worktreeID })
     }
 
+    func preferred(for projectID: UUID, matching preferredID: UUID?) -> Worktree? {
+        let list = list(for: projectID)
+        return list.first(where: { $0.id == preferredID })
+            ?? list.first(where: { $0.isPrimary })
+            ?? list.first
+    }
+
     func add(_ worktree: Worktree, to projectID: UUID) {
         var list = worktrees[projectID] ?? []
         list.append(worktree)

@@ -27,7 +27,7 @@ struct GeneralSettingsView: View {
             SettingsSection(
                 "Projects",
                 footer: "Keep projects in the sidebar after closing their last tab. "
-                    + "Remove them from the right-click menu."
+                    + "To remove a project afterward, use the right-click menu."
             ) {
                 SettingsToggleRow(
                     label: "Keep projects open after closing the last tab",

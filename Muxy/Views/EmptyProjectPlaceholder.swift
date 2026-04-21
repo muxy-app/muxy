@@ -26,7 +26,6 @@ struct EmptyProjectPlaceholder: View {
                         .opacity(0.72)
                 }
             }
-            .keyboardShortcut("t", modifiers: .command)
             .buttonStyle(.borderedProminent)
             Spacer()
         }
