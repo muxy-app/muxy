@@ -37,6 +37,11 @@ struct ShortcutActionDispatcher {
         switch action {
         case .newTab:
             guard let projectID = appState.activeProjectID else { return false }
+            if appState.workspaceRoot(for: projectID) == nil {
+                guard let worktree = resolveActiveWorktree(for: projectID) else { return false }
+                appState.selectWorktree(projectID: projectID, worktree: worktree)
+                return true
+            }
             appState.createTab(projectID: projectID)
             return true
         case .closeTab:
@@ -154,5 +159,13 @@ struct ShortcutActionDispatcher {
              .selectProject9:
             return false
         }
+    }
+
+    private func resolveActiveWorktree(for projectID: UUID) -> Worktree? {
+        let list = worktreeStore.list(for: projectID)
+        let existingID = appState.activeWorktreeID[projectID]
+        return list.first(where: { $0.id == existingID })
+            ?? list.first(where: { $0.isPrimary })
+            ?? list.first
     }
 }

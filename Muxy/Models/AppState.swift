@@ -337,7 +337,9 @@ final class AppState {
     }
 
     private func closeTabWithLastCheck(_ tabID: UUID, areaID: UUID, projectID: UUID) {
-        if isLastTabInProject(tabID, areaID: areaID, projectID: projectID) {
+        if !ProjectLifecyclePreferences.keepOpenWhenNoTabs,
+           isLastTabInProject(tabID, areaID: areaID, projectID: projectID)
+        {
             pendingLastTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
         }
@@ -459,6 +461,16 @@ final class AppState {
             focusHistory: focusHistory
         )
         let effects = WorkspaceReducer.reduce(action: action, state: &workspace)
+        if ProjectLifecyclePreferences.keepOpenWhenNoTabs {
+            for projectID in effects.projectIDsToRemove {
+                if let previous = activeWorktreeID[projectID] {
+                    workspace.activeWorktreeID[projectID] = previous
+                }
+                if activeProjectID == projectID {
+                    workspace.activeProjectID = projectID
+                }
+            }
+        }
         if activeProjectID != workspace.activeProjectID {
             activeProjectID = workspace.activeProjectID
         }
@@ -480,8 +492,11 @@ final class AppState {
             terminalViews.removeView(for: paneID)
         }
 
-        if !effects.projectIDsToRemove.isEmpty {
-            onProjectsEmptied?(effects.projectIDsToRemove)
+        let projectsToRemove = ProjectLifecyclePreferences.keepOpenWhenNoTabs
+            ? []
+            : effects.projectIDsToRemove
+        if !projectsToRemove.isEmpty {
+            onProjectsEmptied?(projectsToRemove)
         }
 
         if let activeTabID = NotificationNavigator.activeTabID(appState: self) {
