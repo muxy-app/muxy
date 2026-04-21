@@ -171,6 +171,7 @@ struct CodeEditorView: NSViewRepresentable {
     let replaceVersion: Int
     let replaceAllVersion: Int
     let editorFocusVersion: Int
+    let focusAtStartVersion: Int
 
     func makeCoordinator() -> Coordinator {
         Coordinator(state: state, editorSettings: editorSettings)
@@ -237,6 +238,7 @@ struct CodeEditorView: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollView.contentView.postsFrameChangedNotifications = true
 
         let coordinator = context.coordinator
         textView.delegate = coordinator
@@ -356,6 +358,11 @@ struct CodeEditorView: NSViewRepresentable {
         if coordinator.lastEditorFocusVersion != editorFocusVersion {
             coordinator.lastEditorFocusVersion = editorFocusVersion
             coordinator.focusEditorPreservingSelection()
+        }
+
+        if coordinator.lastFocusAtStartVersion != focusAtStartVersion {
+            coordinator.lastFocusAtStartVersion = focusAtStartVersion
+            coordinator.focusEditorAtStart()
         }
     }
 
@@ -485,6 +492,7 @@ struct CodeEditorView: NSViewRepresentable {
         var lastReplaceVersion = 0
         var lastReplaceAllVersion = 0
         var lastEditorFocusVersion = 0
+        var lastFocusAtStartVersion = 0
         var lastSyncedBackingStoreVersion = -1
         var wasIncrementalLoading = false
         private static let initialViewportLineLimit = 1100
@@ -584,7 +592,7 @@ struct CodeEditorView: NSViewRepresentable {
 
             let container = ViewportContainerView()
             container.wantsLayer = true
-            let height = viewport.totalDocumentHeight
+            let height = max(viewport.totalDocumentHeight, scrollView.contentView.bounds.height)
             let width = max(scrollView.contentSize.width, textView.frame.width)
             container.frame = NSRect(x: 0, y: 0, width: width, height: height)
             container.autoresizingMask = []
@@ -603,7 +611,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         func updateContainerHeight() {
             guard let viewport = viewportState, let container = containerView, let scrollView else { return }
-            let height = viewport.totalDocumentHeight
+            let height = max(viewport.totalDocumentHeight, scrollView.contentView.bounds.height)
             let width = max(scrollView.contentSize.width, textView?.frame.width ?? scrollView.contentSize.width)
             container.frame = NSRect(x: 0, y: 0, width: width, height: height)
         }
@@ -735,6 +743,16 @@ struct CodeEditorView: NSViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak textView] in
                 guard let textView, let window = textView.window else { return }
                 window.makeFirstResponder(textView)
+            }
+        }
+
+        func focusEditorAtStart() {
+            guard let textView else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak textView] in
+                guard let textView, let window = textView.window else { return }
+                window.makeFirstResponder(textView)
+                textView.setSelectedRange(NSRange(location: 0, length: 0))
+                textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
             }
         }
 
@@ -988,11 +1006,12 @@ struct CodeEditorView: NSViewRepresentable {
             }
 
             if let container = containerView {
+                let containerHeight = max(viewport.totalDocumentHeight, scrollView.contentView.bounds.height)
                 let newContainerFrame = NSRect(
                     x: 0,
                     y: 0,
                     width: viewportWidth,
-                    height: viewport.totalDocumentHeight
+                    height: containerHeight
                 )
                 if container.frame != newContainerFrame {
                     container.frame = newContainerFrame
@@ -1015,7 +1034,7 @@ struct CodeEditorView: NSViewRepresentable {
                 x: 0,
                 y: 0,
                 width: width,
-                height: viewport.totalDocumentHeight
+                height: max(viewport.totalDocumentHeight, scrollView.contentView.bounds.height)
             )
         }
 
@@ -1032,12 +1051,23 @@ struct CodeEditorView: NSViewRepresentable {
                 name: NSView.boundsDidChangeNotification,
                 object: scrollView.contentView
             )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleClipFrameChange),
+                name: NSView.frameDidChangeNotification,
+                object: scrollView.contentView
+            )
         }
 
         private func removeScrollObserver() {
             NotificationCenter.default.removeObserver(
                 self,
                 name: NSView.boundsDidChangeNotification,
+                object: observedContentView
+            )
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSView.frameDidChangeNotification,
                 object: observedContentView
             )
             observedContentView = nil
@@ -1051,8 +1081,27 @@ struct CodeEditorView: NSViewRepresentable {
                 if boundsSize.width != lastObservedClipSize.width {
                     ensureViewportMinimumWidth()
                 }
+                if boundsSize.height != lastObservedClipSize.height {
+                    updateContainerHeight()
+                }
                 lastObservedClipSize = boundsSize
             }
+            if !isEditingViewport {
+                refreshViewport(force: false)
+            }
+        }
+
+        @objc
+        private func handleClipFrameChange() {
+            guard let observedContentView else { return }
+            let frameSize = observedContentView.frame.size
+            if frameSize.width != lastObservedClipSize.width {
+                ensureViewportMinimumWidth()
+            }
+            if frameSize.height != lastObservedClipSize.height {
+                updateContainerHeight()
+            }
+            lastObservedClipSize = frameSize
             if !isEditingViewport {
                 refreshViewport(force: false)
             }

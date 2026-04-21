@@ -9,7 +9,8 @@ struct FileTreeView: View {
     let onFileMoved: (String, String) -> Void
 
     @State private var commands: FileTreeCommands
-    @FocusState private var treeFocused: Bool
+    @State private var isPointerInside = false
+    @State private var keyboardMonitor: Any?
 
     init(
         state: FileTreeState,
@@ -42,8 +43,7 @@ struct FileTreeView: View {
                                 depth: 0,
                                 state: state,
                                 commands: commands,
-                                onOpenFile: onOpenFile,
-                                requestFocus: { treeFocused = true }
+                                onOpenFile: onOpenFile
                             )
                         }
                         if let pending = state.pendingNewEntry, pending.parentPath == normalizedRootPath {
@@ -63,10 +63,9 @@ struct FileTreeView: View {
         }
         .background(MuxyTheme.bg)
         .contentShape(Rectangle())
-        .focusable()
-        .focusEffectDisabled()
-        .focused($treeFocused)
-        .onKeyPress(phases: .down, action: handleKeyPress)
+        .onHover { isPointerInside = $0 }
+        .onAppear(perform: installKeyboardMonitor)
+        .onDisappear(perform: removeKeyboardMonitor)
         .task(id: state.rootPath) {
             state.loadRootIfNeeded()
         }
@@ -142,7 +141,6 @@ struct FileTreeView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 state.clearSelection()
-                treeFocused = true
             }
             .contextMenu {
                 FileTreeContextMenuContents(
@@ -166,40 +164,56 @@ struct FileTreeView: View {
             )
     }
 
-    private func handleKeyPress(_ press: KeyPress) -> KeyPress.Result {
-        let mods = press.modifiers
-        switch (press.key, mods) {
-        case (.return, []):
-            guard state.selectedPaths.count == 1, let path = state.selectedPaths.first else { return .ignored }
-            commands.beginRename(path: path)
-            return .handled
-        case (.delete, []),
-             (.delete, [.command]):
-            let paths = Array(state.selectedPaths)
-            guard !paths.isEmpty else { return .ignored }
-            commands.trash(paths: paths)
-            return .handled
-        default:
-            break
+    private func installKeyboardMonitor() {
+        guard keyboardMonitor == nil else { return }
+        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            handleHoverKeyEvent(event)
         }
-        guard mods == [.command] else { return .ignored }
-        switch press.key {
-        case KeyEquivalent("c"):
+    }
+
+    private func removeKeyboardMonitor() {
+        guard let monitor = keyboardMonitor else { return }
+        NSEvent.removeMonitor(monitor)
+        keyboardMonitor = nil
+    }
+
+    private func handleHoverKeyEvent(_ event: NSEvent) -> NSEvent? {
+        guard isPointerInside else { return event }
+        guard state.pendingRenamePath == nil, state.pendingNewEntry == nil else { return event }
+        guard state.pendingDeletePaths.isEmpty else { return event }
+
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let keyCode = event.keyCode
+
+        if keyCode == 36, mods.isEmpty {
+            guard state.selectedPaths.count == 1, let path = state.selectedPaths.first else { return event }
+            commands.beginRename(path: path)
+            return nil
+        }
+        if keyCode == 51, mods.isEmpty || mods == .command {
             let paths = Array(state.selectedPaths)
-            guard !paths.isEmpty else { return .ignored }
+            guard !paths.isEmpty else { return event }
+            commands.trash(paths: paths)
+            return nil
+        }
+        guard mods == .command else { return event }
+        switch event.charactersIgnoringModifiers {
+        case "c":
+            let paths = Array(state.selectedPaths)
+            guard !paths.isEmpty else { return event }
             commands.copyToClipboard(paths: paths)
-            return .handled
-        case KeyEquivalent("x"):
+            return nil
+        case "x":
             let paths = Array(state.selectedPaths)
-            guard !paths.isEmpty else { return .ignored }
+            guard !paths.isEmpty else { return event }
             commands.cutToClipboard(paths: paths)
-            return .handled
-        case KeyEquivalent("v"):
+            return nil
+        case "v":
             let target = state.selectedFilePath ?? state.rootPath
             commands.paste(into: target)
-            return .handled
+            return nil
         default:
-            return .ignored
+            return event
         }
     }
 
@@ -214,7 +228,6 @@ private struct FileTreeRowGroup: View {
     @Bindable var state: FileTreeState
     let commands: FileTreeCommands
     let onOpenFile: (String) -> Void
-    let requestFocus: () -> Void
 
     var body: some View {
         FileTreeRow(
@@ -222,8 +235,7 @@ private struct FileTreeRowGroup: View {
             depth: depth,
             state: state,
             commands: commands,
-            onOpenFile: onOpenFile,
-            requestFocus: requestFocus
+            onOpenFile: onOpenFile
         )
         if entry.isDirectory, state.isExpanded(entry), let children = state.visibleChildren(of: entry) {
             ForEach(children, id: \.absolutePath) { child in
@@ -232,8 +244,7 @@ private struct FileTreeRowGroup: View {
                     depth: depth + 1,
                     state: state,
                     commands: commands,
-                    onOpenFile: onOpenFile,
-                    requestFocus: requestFocus
+                    onOpenFile: onOpenFile
                 )
             }
             if let pending = state.pendingNewEntry, pending.parentPath == entry.absolutePath {
@@ -250,7 +261,6 @@ private struct FileTreeRow: View {
     @Bindable var state: FileTreeState
     let commands: FileTreeCommands
     let onOpenFile: (String) -> Void
-    let requestFocus: () -> Void
     @State private var hovered = false
 
     private var isSelected: Bool {
@@ -376,7 +386,6 @@ private struct FileTreeRow: View {
     }
 
     private func handleTap() {
-        requestFocus()
         let modifiers = NSEvent.modifierFlags
         if modifiers.contains(.command) {
             state.toggleSelection(entry.absolutePath)

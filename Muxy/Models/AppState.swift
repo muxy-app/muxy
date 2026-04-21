@@ -219,10 +219,17 @@ final class AppState {
         for area in allAreas(for: projectID) {
             if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
                 dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                tab.content.editorState?.requestFocusAtStart()
                 return
             }
         }
         dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath))
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
+                tab.content.editorState?.requestFocusAtStart()
+                break
+            }
+        }
     }
 
     func handleFileMoved(from oldPath: String, to newPath: String) {

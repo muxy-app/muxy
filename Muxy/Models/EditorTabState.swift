@@ -23,6 +23,7 @@ final class EditorTabState: Identifiable {
     var searchVisible = false
     var searchFocusVersion = 0
     var editorFocusVersion = 0
+    var focusAtStartVersion = 0
     var searchNeedle = ""
     var searchMatchCount = 0
     var searchCurrentIndex = 0
@@ -366,6 +367,12 @@ final class EditorTabState: Identifiable {
     func markModified() {
         guard !isModified else { return }
         isModified = true
+    }
+
+    func requestFocusAtStart() {
+        cursorLine = 1
+        cursorColumn = 1
+        focusAtStartVersion += 1
     }
 
     func navigateSearch(_ direction: EditorSearchNavigationDirection) {
