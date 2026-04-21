@@ -9,8 +9,7 @@ struct FileTreeView: View {
     let onFileMoved: (String, String) -> Void
 
     @State private var commands: FileTreeCommands
-    @State private var isPointerInside = false
-    @State private var keyboardMonitor: Any?
+    @FocusState private var treeFocused: Bool
 
     init(
         state: FileTreeState,
@@ -43,7 +42,8 @@ struct FileTreeView: View {
                                 depth: 0,
                                 state: state,
                                 commands: commands,
-                                onOpenFile: onOpenFile
+                                onOpenFile: onOpenFile,
+                                requestFocus: { treeFocused = true }
                             )
                         }
                         if let pending = state.pendingNewEntry, pending.parentPath == normalizedRootPath {
@@ -62,10 +62,11 @@ struct FileTreeView: View {
             .background(rootDropTarget)
         }
         .background(MuxyTheme.bg)
+        .background(keyboardShortcuts)
         .contentShape(Rectangle())
-        .onHover { isPointerInside = $0 }
-        .onAppear(perform: installKeyboardMonitor)
-        .onDisappear(perform: removeKeyboardMonitor)
+        .focusable()
+        .focusEffectDisabled()
+        .focused($treeFocused)
         .task(id: state.rootPath) {
             state.loadRootIfNeeded()
         }
@@ -141,6 +142,7 @@ struct FileTreeView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 state.clearSelection()
+                treeFocused = true
             }
             .contextMenu {
                 FileTreeContextMenuContents(
@@ -164,57 +166,65 @@ struct FileTreeView: View {
             )
     }
 
-    private func installKeyboardMonitor() {
-        guard keyboardMonitor == nil else { return }
-        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            handleHoverKeyEvent(event)
+    private var keyboardShortcuts: some View {
+        Group {
+            Button("") {
+                guard state.selectedPaths.count == 1, let path = state.selectedPaths.first else { return }
+                commands.beginRename(path: path)
+            }
+            .keyboardShortcut(.return, modifiers: [])
+            .disabled(!canHandleShortcuts || state.selectedPaths.count != 1)
+
+            Button("") {
+                let paths = Array(state.selectedPaths)
+                guard !paths.isEmpty else { return }
+                commands.trash(paths: paths)
+            }
+            .keyboardShortcut(.delete, modifiers: [])
+            .disabled(!canHandleShortcuts || state.selectedPaths.isEmpty)
+
+            Button("") {
+                let paths = Array(state.selectedPaths)
+                guard !paths.isEmpty else { return }
+                commands.trash(paths: paths)
+            }
+            .keyboardShortcut(.delete, modifiers: [.command])
+            .disabled(!canHandleShortcuts || state.selectedPaths.isEmpty)
+
+            Button("") {
+                let paths = Array(state.selectedPaths)
+                guard !paths.isEmpty else { return }
+                commands.copyToClipboard(paths: paths)
+            }
+            .keyboardShortcut("c", modifiers: [.command])
+            .disabled(!canHandleShortcuts || state.selectedPaths.isEmpty)
+
+            Button("") {
+                let paths = Array(state.selectedPaths)
+                guard !paths.isEmpty else { return }
+                commands.cutToClipboard(paths: paths)
+            }
+            .keyboardShortcut("x", modifiers: [.command])
+            .disabled(!canHandleShortcuts || state.selectedPaths.isEmpty)
+
+            Button("") {
+                let target = state.selectedFilePath ?? state.rootPath
+                commands.paste(into: target)
+            }
+            .keyboardShortcut("v", modifiers: [.command])
+            .disabled(!canHandleShortcuts)
         }
+        .buttonStyle(.plain)
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
-    private func removeKeyboardMonitor() {
-        guard let monitor = keyboardMonitor else { return }
-        NSEvent.removeMonitor(monitor)
-        keyboardMonitor = nil
-    }
-
-    private func handleHoverKeyEvent(_ event: NSEvent) -> NSEvent? {
-        guard isPointerInside else { return event }
-        guard state.pendingRenamePath == nil, state.pendingNewEntry == nil else { return event }
-        guard state.pendingDeletePaths.isEmpty else { return event }
-
-        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let keyCode = event.keyCode
-
-        if keyCode == 36, mods.isEmpty {
-            guard state.selectedPaths.count == 1, let path = state.selectedPaths.first else { return event }
-            commands.beginRename(path: path)
-            return nil
-        }
-        if keyCode == 51, mods.isEmpty || mods == .command {
-            let paths = Array(state.selectedPaths)
-            guard !paths.isEmpty else { return event }
-            commands.trash(paths: paths)
-            return nil
-        }
-        guard mods == .command else { return event }
-        switch event.charactersIgnoringModifiers {
-        case "c":
-            let paths = Array(state.selectedPaths)
-            guard !paths.isEmpty else { return event }
-            commands.copyToClipboard(paths: paths)
-            return nil
-        case "x":
-            let paths = Array(state.selectedPaths)
-            guard !paths.isEmpty else { return event }
-            commands.cutToClipboard(paths: paths)
-            return nil
-        case "v":
-            let target = state.selectedFilePath ?? state.rootPath
-            commands.paste(into: target)
-            return nil
-        default:
-            return event
-        }
+    private var canHandleShortcuts: Bool {
+        guard treeFocused else { return false }
+        guard state.pendingRenamePath == nil, state.pendingNewEntry == nil else { return false }
+        return state.pendingDeletePaths.isEmpty
     }
 
     private var normalizedRootPath: String {
@@ -228,6 +238,7 @@ private struct FileTreeRowGroup: View {
     @Bindable var state: FileTreeState
     let commands: FileTreeCommands
     let onOpenFile: (String) -> Void
+    let requestFocus: () -> Void
 
     var body: some View {
         FileTreeRow(
@@ -235,7 +246,8 @@ private struct FileTreeRowGroup: View {
             depth: depth,
             state: state,
             commands: commands,
-            onOpenFile: onOpenFile
+            onOpenFile: onOpenFile,
+            requestFocus: requestFocus
         )
         if entry.isDirectory, state.isExpanded(entry), let children = state.visibleChildren(of: entry) {
             ForEach(children, id: \.absolutePath) { child in
@@ -244,7 +256,8 @@ private struct FileTreeRowGroup: View {
                     depth: depth + 1,
                     state: state,
                     commands: commands,
-                    onOpenFile: onOpenFile
+                    onOpenFile: onOpenFile,
+                    requestFocus: requestFocus
                 )
             }
             if let pending = state.pendingNewEntry, pending.parentPath == entry.absolutePath {
@@ -261,6 +274,7 @@ private struct FileTreeRow: View {
     @Bindable var state: FileTreeState
     let commands: FileTreeCommands
     let onOpenFile: (String) -> Void
+    let requestFocus: () -> Void
     @State private var hovered = false
 
     private var isSelected: Bool {
@@ -386,6 +400,7 @@ private struct FileTreeRow: View {
     }
 
     private func handleTap() {
+        requestFocus()
         let modifiers = NSEvent.modifierFlags
         if modifiers.contains(.command) {
             state.toggleSelection(entry.absolutePath)

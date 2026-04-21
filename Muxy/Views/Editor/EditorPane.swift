@@ -24,7 +24,6 @@ struct EditorPane: View {
                             state: state,
                             editorSettings: editorSettings,
                             themeVersion: ghostty.configVersion,
-                            focused: focused,
                             searchNeedle: state.searchNeedle,
                             searchNavigationVersion: state.searchNavigationVersion,
                             searchNavigationDirection: state.searchNavigationDirection,
@@ -33,8 +32,7 @@ struct EditorPane: View {
                             replaceText: state.replaceText,
                             replaceVersion: state.replaceVersion,
                             replaceAllVersion: state.replaceAllVersion,
-                            editorFocusVersion: state.editorFocusVersion,
-                            focusAtStartVersion: state.focusAtStartVersion
+                            editorFocusVersion: state.editorFocusVersion
                         )
                     }
 

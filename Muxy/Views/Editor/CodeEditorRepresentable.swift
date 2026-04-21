@@ -161,7 +161,6 @@ struct CodeEditorView: NSViewRepresentable {
     @Bindable var state: EditorTabState
     let editorSettings: EditorSettings
     let themeVersion: Int
-    let focused: Bool
     let searchNeedle: String
     let searchNavigationVersion: Int
     let searchNavigationDirection: EditorSearchNavigationDirection
@@ -171,7 +170,8 @@ struct CodeEditorView: NSViewRepresentable {
     let replaceVersion: Int
     let replaceAllVersion: Int
     let editorFocusVersion: Int
-    let focusAtStartVersion: Int
+
+    fileprivate static let focusClaimDelay: TimeInterval = 0.02
 
     func makeCoordinator() -> Coordinator {
         Coordinator(state: state, editorSettings: editorSettings)
@@ -278,20 +278,6 @@ struct CodeEditorView: NSViewRepresentable {
         coordinator.textView?.delegate = nil
     }
 
-    private static func claimFirstResponder(textView: NSTextView, attemptsRemaining: Int) {
-        guard attemptsRemaining > 0 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak textView] in
-            guard let textView else { return }
-            guard let window = textView.window else {
-                claimFirstResponder(textView: textView, attemptsRemaining: attemptsRemaining - 1)
-                return
-            }
-            window.makeFirstResponder(textView)
-            textView.setSelectedRange(NSRange(location: 0, length: 0))
-            textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
-        }
-    }
-
     // MARK: - updateNSView
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -327,9 +313,6 @@ struct CodeEditorView: NSViewRepresentable {
         if !coordinator.hasAppliedInitialContent, viewport.backingStore.lineCount > 1 || backingStoreChanged {
             coordinator.hasAppliedInitialContent = true
             coordinator.refreshViewport(force: true)
-            if focused {
-                Self.claimFirstResponder(textView: textView, attemptsRemaining: 20)
-            }
         }
 
         let themeChanged = coordinator.lastThemeVersion != themeVersion
@@ -358,11 +341,6 @@ struct CodeEditorView: NSViewRepresentable {
         if coordinator.lastEditorFocusVersion != editorFocusVersion {
             coordinator.lastEditorFocusVersion = editorFocusVersion
             coordinator.focusEditorPreservingSelection()
-        }
-
-        if coordinator.lastFocusAtStartVersion != focusAtStartVersion {
-            coordinator.lastFocusAtStartVersion = focusAtStartVersion
-            coordinator.focusEditorAtStart()
         }
     }
 
@@ -492,7 +470,6 @@ struct CodeEditorView: NSViewRepresentable {
         var lastReplaceVersion = 0
         var lastReplaceAllVersion = 0
         var lastEditorFocusVersion = 0
-        var lastFocusAtStartVersion = 0
         var lastSyncedBackingStoreVersion = -1
         var wasIncrementalLoading = false
         private static let initialViewportLineLimit = 1100
@@ -740,19 +717,9 @@ struct CodeEditorView: NSViewRepresentable {
                     }
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak textView] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + CodeEditorView.focusClaimDelay) { [weak textView] in
                 guard let textView, let window = textView.window else { return }
                 window.makeFirstResponder(textView)
-            }
-        }
-
-        func focusEditorAtStart() {
-            guard let textView else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak textView] in
-                guard let textView, let window = textView.window else { return }
-                window.makeFirstResponder(textView)
-                textView.setSelectedRange(NSRange(location: 0, length: 0))
-                textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
             }
         }
 
@@ -1076,32 +1043,24 @@ struct CodeEditorView: NSViewRepresentable {
 
         @objc
         private func handleScrollBoundsChange() {
-            if let observedContentView {
-                let boundsSize = observedContentView.bounds.size
-                if boundsSize.width != lastObservedClipSize.width {
-                    ensureViewportMinimumWidth()
-                }
-                if boundsSize.height != lastObservedClipSize.height {
-                    updateContainerHeight()
-                }
-                lastObservedClipSize = boundsSize
-            }
-            if !isEditingViewport {
-                refreshViewport(force: false)
-            }
+            reconcileClipSize(observedContentView?.bounds.size)
         }
 
         @objc
         private func handleClipFrameChange() {
-            guard let observedContentView else { return }
-            let frameSize = observedContentView.frame.size
-            if frameSize.width != lastObservedClipSize.width {
-                ensureViewportMinimumWidth()
+            reconcileClipSize(observedContentView?.frame.size)
+        }
+
+        private func reconcileClipSize(_ size: CGSize?) {
+            if let size {
+                if size.width != lastObservedClipSize.width {
+                    ensureViewportMinimumWidth()
+                }
+                if size.height != lastObservedClipSize.height {
+                    updateContainerHeight()
+                }
+                lastObservedClipSize = size
             }
-            if frameSize.height != lastObservedClipSize.height {
-                updateContainerHeight()
-            }
-            lastObservedClipSize = frameSize
             if !isEditingViewport {
                 refreshViewport(force: false)
             }
