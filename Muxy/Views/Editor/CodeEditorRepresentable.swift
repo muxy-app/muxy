@@ -171,8 +171,6 @@ struct CodeEditorView: NSViewRepresentable {
     let replaceAllVersion: Int
     let editorFocusVersion: Int
 
-    fileprivate static let focusClaimDelay: TimeInterval = 0.02
-
     func makeCoordinator() -> Coordinator {
         Coordinator(state: state, editorSettings: editorSettings)
     }
@@ -717,7 +715,7 @@ struct CodeEditorView: NSViewRepresentable {
                     }
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + CodeEditorView.focusClaimDelay) { [weak textView] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak textView] in
                 guard let textView, let window = textView.window else { return }
                 window.makeFirstResponder(textView)
             }
