@@ -395,16 +395,60 @@ Request-response with server-pushed events:
 Platform-agnostic DTOs used by both apps. All types are `Codable` and `Sendable`.
 The `MuxyCodec` handles JSON encoding/decoding with ISO 8601 dates.
 
+### Terminal I/O Streaming
+
+Terminal traffic between Mac and remote clients flows as raw PTY bytes, not
+rendered cell grids. This relies on two additive exports on the `muxy-app/ghostty`
+fork (see [building-ghostty.md](building-ghostty.md)):
+
+- `ghostty_surface_set_data_callback(surface, cb, userdata)` — registers a
+  per-surface callback invoked on the termio thread every time Ghostty receives
+  a chunk of bytes from the PTY, before its emulator parses them.
+- `ghostty_surface_send_input_raw(surface, ptr, len)` — writes bytes directly
+  to the PTY, bypassing Ghostty's paste pipeline (no bracketed-paste wrapping,
+  no newline filtering, no keyboard-protocol interpretation).
+
+`RemoteTerminalStreamer` on the Mac registers the data callback on every
+terminal surface at creation (`GhosttyTerminalNSView.createSurface`),
+unregisters on teardown, and forwards bytes as `terminalOutput` events targeted
+at the owning client via `MuxyRemoteServer.send(_:to:)`. The event payload is
+a `TerminalOutputEventDTO` containing the paneID and a `Data` of raw bytes
+(base64-encoded on the JSON wire).
+
+Input from mobile flows `terminalInput → sendRemoteText →
+ghostty_surface_send_input_raw`, so every byte — including escape sequences,
+mouse reports, arrow keys, and control codes — is delivered to the child
+process verbatim.
+
 ### iOS App (MuxyMobile)
 
 `ConnectionManager` manages the WebSocket lifecycle and maintains a local mirror
 of the remote state (projects, workspace layout, notifications). It also keeps a
 rolling connection trace so mobile failures can surface a user-shareable
-technical report from the phone's error sheet. `TerminalView` renders the
-remote terminal grid locally, sends input back over the socket, and freezes the
-current snapshot during long-press text selection so copy actions operate on a
-stable view. Views observe this state and dispatch actions back through the
-connection.
+technical report from the phone's error sheet.
+
+`TerminalView` hosts a full VT emulator on-device via [SwiftTerm]
+(https://github.com/migueldeicaza/SwiftTerm), wrapped in a `UIViewRepresentable`
+as `SwiftTermRepresentable` / `MuxySwiftTermView`. The Mac streams raw PTY
+bytes to the owning client via `terminalOutput` events; `ConnectionManager`
+routes them via `subscribeTerminalBytes(paneID:handler:)` into
+`SwiftTerm.TerminalView.feed(byteArray:)`. User input from the on-screen
+keyboard flows out through `TerminalViewDelegate.send(source:data:)` back to
+`sendTerminalInput`. Text selection (double-tap for word, triple-tap for line),
+scrollback, tap-to-position, hardware-keyboard chords, accessibility, and
+predictive text all come from SwiftTerm's native implementation.
+
+Mobile scroll gestures are translated to escape sequences based on the remote
+TUI's state. When the remote program has enabled mouse reporting
+(`terminal.mouseMode != .off`), a custom `UIPanGestureRecognizer` on
+`MuxySwiftTermView` emits SGR mouse-wheel events
+(`ESC[<64;x;yM` / `ESC[<65;x;yM`) via `terminal.encodeButton` + `sendEvent`.
+When mouse reporting is off, SwiftTerm's built-in gesture converts panning into
+cursor-key sequences (`ESC[A/B`), which scrolls pagers and arrow-key-driven
+TUIs. The custom Muxy accessory bar (`TerminalAccessoryBar` +
+`TerminalAccessoryView`) is wired as `inputAccessoryView` and provides the
+D-pad, esc / tab / `~` / `|` / `/` / `-` keys, a long-press modifier arm-next
+key for Ctrl/Shift/Alt/Cmd chords, and Copy / Paste actions.
 
 ### Device Pairing
 

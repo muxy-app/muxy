@@ -255,6 +255,12 @@ Notes:
 - A client should call `takeOverPane` before sending input or resize events.
 - `releasePane` returns control to the Mac.
 - If the pane is owned by another client, control requests may be ignored.
+- `terminalInput` now delivers bytes verbatim to the PTY (no keyboard/paste
+  interpretation), so the client is responsible for encoding escape sequences,
+  control codes, and mouse reports directly.
+- `getTerminalContent` is a legacy pull API that snapshots the rendered grid.
+  New clients should render the pane with their own VT emulator and subscribe
+  to the `terminalOutput` event stream instead.
 
 ### Notifications and Visual Data
 
@@ -294,13 +300,33 @@ The server can push these event names:
 | --- | --- | --- |
 | `workspaceChanged` | `workspace` | Full workspace layout update |
 | `tabChanged` | `tab` | Tab created, closed, selected, or retitled |
-| `terminalOutput` | `terminalOutput` | Terminal output for a pane |
+| `terminalOutput` | `terminalOutput` | Raw PTY bytes for a pane the client owns. Pushed as the shell/TUI writes. |
 | `notificationReceived` | `notification` | New notification emitted by Muxy |
 | `projectsChanged` | `projects` | Updated project list |
 | `paneOwnershipChanged` | `paneOwnership` | Pane control changed between Mac and remote clients |
 | `themeChanged` | `deviceTheme` | Updated terminal foreground/background colors |
 
 For most clients, `workspaceChanged` should be treated as the main source of truth for layout updates.
+
+### `terminalOutput` Event
+
+Pushed only to the client that currently owns the pane. Payload:
+
+```json
+{
+  "type": "terminalOutput",
+  "value": {
+    "paneID": "uuid",
+    "bytes": "<base64-encoded raw PTY bytes>"
+  }
+}
+```
+
+The bytes are the exact sequence Ghostty read from the PTY on the Mac, before
+any terminal emulation. A client should feed them into its own VT emulator
+(e.g. SwiftTerm's `feed(byteArray:)`) to render the pane. There is no guarantee
+that a chunk ends on a UTF-8 boundary or an escape-sequence boundary; the
+emulator is expected to buffer partial sequences across chunks.
 
 ## Data Objects
 

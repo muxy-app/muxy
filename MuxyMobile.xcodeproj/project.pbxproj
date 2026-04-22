@@ -22,6 +22,7 @@
 		A100000D /* WorktreesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000012 /* WorktreesSheet.swift */; };
 		A100000E /* CreatePRSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013 /* CreatePRSheet.swift */; };
 		A1000010 /* MuxyShared in Frameworks */ = {isa = PBXBuildFile; productRef = A4000001 /* MuxyShared */; };
+		A1000011 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A4000002 /* SwiftTerm */; };
 		A1000020 /* JetBrainsMonoNerdFontMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A200000A /* JetBrainsMonoNerdFontMono-Regular.ttf */; };
 		A1000021 /* JetBrainsMonoNerdFontMono-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A200000B /* JetBrainsMonoNerdFontMono-Bold.ttf */; };
 		A1000022 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A200000C /* Assets.xcassets */; };
@@ -57,6 +58,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000010 /* MuxyShared in Frameworks */,
+				A1000011 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -139,6 +141,7 @@
 			name = MuxyMobile;
 			packageProductDependencies = (
 				A4000001 /* MuxyShared */,
+				A4000002 /* SwiftTerm */,
 			);
 			productName = MuxyMobile;
 			productReference = A2000020 /* MuxyMobile.app */;
@@ -165,6 +168,7 @@
 			mainGroup = A3000001;
 			packageReferences = (
 				A5000001 /* XCLocalSwiftPackageReference "." */,
+				A5000002 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 			);
 			productRefGroup = A3000003 /* Products */;
 			projectDirPath = "";
@@ -396,10 +400,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A5000002 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		A4000001 /* MuxyShared */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MuxyShared;
+		};
+		A4000002 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5000002 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

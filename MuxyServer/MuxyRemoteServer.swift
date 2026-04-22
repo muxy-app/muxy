@@ -127,6 +127,16 @@ public final class MuxyRemoteServer: @unchecked Sendable {
         }
     }
 
+    public func send(_ event: MuxyEvent, to clientID: UUID) {
+        guard let data = try? MuxyCodec.encode(.event(event)) else { return }
+        queue.async { [weak self] in
+            guard let self,
+                  self.authenticatedClients.contains(clientID)
+            else { return }
+            self.connections[clientID]?.send(data)
+        }
+    }
+
     public func disconnect(clientID: UUID) {
         queue.async { [weak self] in
             self?.connections[clientID]?.cancel()

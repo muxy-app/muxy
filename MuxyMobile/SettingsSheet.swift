@@ -4,7 +4,6 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var useNerdFont = TerminalFont.useNerdFont
     @State private var fontSize = TerminalFont.fontSize
-    @State private var cursorStyle = TerminalCursorStyle.current
 
     var body: some View {
         NavigationStack {
@@ -28,19 +27,10 @@ struct SettingsSheet: View {
                     }
 
                     Text("The quick brown fox")
-                        .font(TerminalFont.current)
+                        .font(.system(size: fontSize, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 4)
-
-                    Picker("Cursor", selection: $cursorStyle) {
-                        ForEach(TerminalCursorStyle.allCases) { style in
-                            Text(style.displayName).tag(style)
-                        }
-                    }
-                    .onChange(of: cursorStyle) { _, newValue in
-                        TerminalCursorStyle.current = newValue
-                    }
                 }
 
                 Section {

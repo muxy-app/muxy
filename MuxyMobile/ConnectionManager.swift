@@ -81,6 +81,16 @@ final class ConnectionManager {
     private var connection: URLSessionWebSocketTask?
     private var session: URLSession?
     private var pendingRequests: [String: PendingRequest] = [:]
+    private var terminalByteHandlers: [UUID: (Data) -> Void] = [:]
+
+    func subscribeTerminalBytes(paneID: UUID, handler: @escaping (Data) -> Void) {
+        terminalByteHandlers[paneID] = handler
+    }
+
+    func unsubscribeTerminalBytes(paneID: UUID) {
+        terminalByteHandlers.removeValue(forKey: paneID)
+    }
+
     private var lastHost: String?
     private var lastPort: UInt16?
     private var lastDeviceName: String?
@@ -717,8 +727,9 @@ final class ConnectionManager {
         case let .deviceTheme(dto):
             recordDiagnostic("Event \(event.event.rawValue): deviceTheme(fg=\(dto.fg), bg=\(dto.bg))")
             deviceTheme = DeviceTheme(fg: dto.fg, bg: dto.bg)
-        case .tab,
-             .terminalOutput:
+        case let .terminalOutput(dto):
+            terminalByteHandlers[dto.paneID]?(dto.bytes)
+        case .tab:
             break
         }
     }

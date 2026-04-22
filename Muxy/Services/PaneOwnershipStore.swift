@@ -34,6 +34,11 @@ final class PaneOwnershipStore {
         return false
     }
 
+    func remoteOwner(for paneID: UUID) -> UUID? {
+        if case let .remote(clientID, _) = owners[paneID] { return clientID }
+        return nil
+    }
+
     func registerDevice(clientID: UUID, name: String) {
         deviceNames[clientID] = name
     }

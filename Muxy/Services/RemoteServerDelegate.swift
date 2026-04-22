@@ -12,7 +12,9 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     private let projectStore: ProjectStore
     private let worktreeStore: WorktreeStore
     private let gitService = GitRepositoryService()
-    weak var server: MuxyRemoteServer?
+    weak var server: MuxyRemoteServer? {
+        didSet { RemoteTerminalStreamer.shared.server = server }
+    }
 
     init(appState: AppState, projectStore: ProjectStore, worktreeStore: WorktreeStore) {
         self.appState = appState

@@ -33,3 +33,23 @@ scripts/setup.sh
 ## Syncing the fork
 
 The fork auto-syncs from upstream ghostty daily via the "Sync Upstream" workflow.
+
+## Muxy-specific patches
+
+The fork carries two additive exports used by the mobile remote-server
+integration. Both live near `ghostty_surface_text` in the embedded apprt so
+they're easy to keep on top of upstream:
+
+- `ghostty_surface_set_data_callback(surface, cb, userdata)` — registers a
+  per-surface callback that fires on the termio thread with raw PTY bytes
+  before Ghostty's emulator parses them. Used by `RemoteTerminalStreamer` to
+  tee output to remote clients.
+- `ghostty_surface_send_input_raw(surface, ptr, len)` — writes bytes straight
+  to the PTY, bypassing the paste pipeline (no bracketed-paste wrapping, no
+  newline filtering). Used by `GhosttyTerminalNSView.sendRemoteText` so
+  remote-client keystrokes, escape sequences, and mouse reports reach the
+  child process verbatim.
+
+The patch touches three Zig files (`src/Surface.zig`, `src/termio/Termio.zig`,
+`src/apprt/embedded.zig`) plus `include/ghostty.h`. Everything is strictly
+additive except a three-line tee at the top of `Termio.processOutput`.
