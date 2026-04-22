@@ -9,6 +9,8 @@ struct GeneralSettingsView: View {
     private var autoExpandWorktrees = false
     @AppStorage(TabCloseConfirmationPreferences.confirmRunningProcessKey)
     private var confirmRunningProcess = true
+    @AppStorage(ProjectLifecyclePreferences.keepOpenWhenNoTabsKey)
+    private var keepProjectsOpenWhenNoTabs = false
 
     var body: some View {
         SettingsContainer {
@@ -19,6 +21,17 @@ struct GeneralSettingsView: View {
                 SettingsToggleRow(
                     label: "Auto-expand worktrees on project switch",
                     isOn: $autoExpandWorktrees
+                )
+            }
+
+            SettingsSection(
+                "Projects",
+                footer: "Keep projects in the sidebar after closing their last tab. "
+                    + "To remove a project afterward, use the right-click menu."
+            ) {
+                SettingsToggleRow(
+                    label: "Keep projects open after closing the last tab",
+                    isOn: $keepProjectsOpenWhenNoTabs
                 )
             }
 

@@ -70,7 +70,10 @@ struct MainWindow: View {
                         .fixedSize(horizontal: true, vertical: false)
                         .overlay(alignment: .trailing) {
                             if sidebarExpanded {
-                                Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                                HStack(spacing: 0) {
+                                    navigationArrows
+                                    Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                                }
                             }
                         }
                 }
@@ -94,7 +97,14 @@ struct MainWindow: View {
 
                 ZStack {
                     MuxyTheme.bg
-                    if projectsWithWorkspaces.isEmpty {
+                    if let project = activeProject,
+                       appState.workspaceRoot(for: project.id) == nil,
+                       let worktree = resolvedActiveWorktree(for: project)
+                    {
+                        EmptyProjectPlaceholder(project: project) {
+                            appState.selectWorktree(projectID: project.id, worktree: worktree)
+                        }
+                    } else if projectsWithWorkspaces.isEmpty {
                         WelcomeView()
                     } else if let project = activeProjectWithWorkspace,
                               let activeKey = appState.activeWorktreeKey(for: project.id)
@@ -215,9 +225,11 @@ struct MainWindow: View {
         .animation(.easeInOut(duration: 0.2), value: ToastState.shared.message != nil)
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
-        .background(MainWindowShortcutInterceptor { action in
-            handleShortcutAction(action)
-        })
+        .background(MainWindowShortcutInterceptor(
+            onShortcut: { action in handleShortcutAction(action) },
+            onMouseBack: { appState.goBack() },
+            onMouseForward: { appState.goForward() }
+        ))
         .background(WindowConfigurator(configVersion: ghostty.configVersion))
         .background(WindowTitleUpdater(title: windowTitle))
         .ignoresSafeArea(.container, edges: .top)
@@ -278,6 +290,26 @@ struct MainWindow: View {
             guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
             presentSaveErrorAlert(message: message)
         }
+    }
+
+    private var navigationArrows: some View {
+        HStack(spacing: 2) {
+            NavigationArrowButton(
+                symbol: "chevron.left",
+                isEnabled: appState.navigation.canGoBack,
+                label: "Back (\(KeyBindingStore.shared.combo(for: .navigateBack).displayString))"
+            ) {
+                appState.goBack()
+            }
+            NavigationArrowButton(
+                symbol: "chevron.right",
+                isEnabled: appState.navigation.canGoForward,
+                label: "Forward (\(KeyBindingStore.shared.combo(for: .navigateForward).displayString))"
+            ) {
+                appState.goForward()
+            }
+        }
+        .padding(.trailing, 4)
     }
 
     @ViewBuilder
@@ -456,6 +488,10 @@ struct MainWindow: View {
               appState.workspaceRoot(for: project.id) != nil
         else { return nil }
         return project
+    }
+
+    private func resolvedActiveWorktree(for project: Project) -> Worktree? {
+        worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id])
     }
 
     private var shortcutDispatcher: ShortcutActionDispatcher {
@@ -764,22 +800,68 @@ private struct FileTreeSelectionSync: ViewModifier {
     }
 }
 
+private struct NavigationArrowButton: View {
+    let symbol: String
+    let isEnabled: Bool
+    let label: String
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(foregroundColor)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .onHover { hovered = $0 }
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    private var foregroundColor: Color {
+        guard isEnabled else { return MuxyTheme.fgMuted.opacity(0.35) }
+        return hovered ? MuxyTheme.fg : MuxyTheme.fgMuted
+    }
+}
+
 private struct MainWindowShortcutInterceptor: NSViewRepresentable {
     let onShortcut: (ShortcutAction) -> Bool
+    let onMouseBack: () -> Void
+    let onMouseForward: () -> Void
 
     func makeNSView(context: Context) -> ShortcutInterceptingView {
         let view = ShortcutInterceptingView()
         view.onShortcut = onShortcut
+        view.onMouseBack = onMouseBack
+        view.onMouseForward = onMouseForward
         return view
     }
 
     func updateNSView(_ nsView: ShortcutInterceptingView, context: Context) {
         nsView.onShortcut = onShortcut
+        nsView.onMouseBack = onMouseBack
+        nsView.onMouseForward = onMouseForward
     }
 }
 
 private final class ShortcutInterceptingView: NSView {
     var onShortcut: ((ShortcutAction) -> Bool)?
+    var onMouseBack: (() -> Void)?
+    var onMouseForward: (() -> Void)?
+    private var mouseMonitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            removeMouseMonitor()
+        } else {
+            installMouseMonitorIfNeeded()
+        }
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown,
@@ -796,5 +878,51 @@ private final class ShortcutInterceptingView: NSView {
         }
 
         return super.performKeyEquivalent(with: event)
+    }
+
+    private func installMouseMonitorIfNeeded() {
+        guard mouseMonitor == nil else { return }
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .swipe]) { [weak self] event in
+            guard let self,
+                  let window = self.window,
+                  window.isKeyWindow,
+                  ShortcutContext.isMainWindow(window)
+            else { return event }
+            return self.handleNavigationEvent(event)
+        }
+    }
+
+    private func handleNavigationEvent(_ event: NSEvent) -> NSEvent? {
+        switch event.type {
+        case .otherMouseDown:
+            switch event.buttonNumber {
+            case 3:
+                onMouseBack?()
+                return nil
+            case 4:
+                onMouseForward?()
+                return nil
+            default:
+                return event
+            }
+        case .swipe:
+            if event.deltaX > 0 {
+                onMouseBack?()
+                return nil
+            }
+            if event.deltaX < 0 {
+                onMouseForward?()
+                return nil
+            }
+            return event
+        default:
+            return event
+        }
+    }
+
+    private func removeMouseMonitor() {
+        guard let mouseMonitor else { return }
+        NSEvent.removeMonitor(mouseMonitor)
+        self.mouseMonitor = nil
     }
 }

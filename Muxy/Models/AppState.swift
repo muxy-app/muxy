@@ -51,6 +51,7 @@ final class AppState {
         case moveTab(projectID: UUID, request: TabMoveRequest)
         case selectNextProject(projects: [Project], worktrees: [UUID: [Worktree]])
         case selectPreviousProject(projects: [Project], worktrees: [UUID: [Worktree]])
+        case navigate(projectID: UUID, worktreeID: UUID, areaID: UUID, tabID: UUID?)
     }
 
     private let selectionStore: any ActiveProjectSelectionStoring
@@ -74,6 +75,7 @@ final class AppState {
     var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
     var pendingSaveErrorMessage: String?
+    let navigation = NavigationHistory()
     private var focusHistory: [WorktreeKey: [UUID]] = [:]
 
     init(
@@ -122,6 +124,7 @@ final class AppState {
               activeWorktreeID[id] != nil
         else { return }
         activeProjectID = id
+        recordCurrentNavigationEntry()
     }
 
     func saveWorkspaces() {
@@ -337,7 +340,9 @@ final class AppState {
     }
 
     private func closeTabWithLastCheck(_ tabID: UUID, areaID: UUID, projectID: UUID) {
-        if isLastTabInProject(tabID, areaID: areaID, projectID: projectID) {
+        if !ProjectLifecyclePreferences.keepOpenWhenNoTabs,
+           isLastTabInProject(tabID, areaID: areaID, projectID: projectID)
+        {
             pendingLastTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
         }
@@ -456,7 +461,8 @@ final class AppState {
             activeWorktreeID: activeWorktreeID,
             workspaceRoots: workspaceRoots,
             focusedAreaID: focusedAreaID,
-            focusHistory: focusHistory
+            focusHistory: focusHistory,
+            keepProjectOpenWhenEmpty: ProjectLifecyclePreferences.keepOpenWhenNoTabs
         )
         let effects = WorkspaceReducer.reduce(action: action, state: &workspace)
         if activeProjectID != workspace.activeProjectID {
@@ -484,12 +490,92 @@ final class AppState {
             onProjectsEmptied?(effects.projectIDsToRemove)
         }
 
+        pruneNavigationHistory()
+        recordCurrentNavigationEntry()
+
         if let activeTabID = NotificationNavigator.activeTabID(appState: self) {
             NotificationStore.shared.markAsRead(tabID: activeTabID)
         }
 
         saveWorkspaces()
         saveSelection()
+    }
+
+    func goBack() {
+        step(delta: -1)
+    }
+
+    func goForward() {
+        step(delta: 1)
+    }
+
+    private func step(delta: Int) {
+        while true {
+            let targetIndex = navigation.cursor + delta
+            guard targetIndex >= 0, targetIndex < navigation.entries.count else { return }
+            let target = navigation.entries[targetIndex]
+            if applyNavigationEntry(target) {
+                navigation.setCursor(targetIndex)
+                return
+            }
+            navigation.removeEntry(at: targetIndex)
+        }
+    }
+
+    private func applyNavigationEntry(_ entry: NavigationEntry) -> Bool {
+        guard navigationEntryIsLive(entry) else { return false }
+        navigation.performWithRecordingSuppressed {
+            dispatch(.navigate(
+                projectID: entry.projectID,
+                worktreeID: entry.worktreeID,
+                areaID: entry.areaID,
+                tabID: entry.tabID
+            ))
+        }
+        return true
+    }
+
+    private func currentNavigationEntry() -> NavigationEntry? {
+        guard let projectID = activeProjectID,
+              let worktreeID = activeWorktreeID[projectID]
+        else { return nil }
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        guard let root = workspaceRoots[key],
+              let areaID = focusedAreaID[key],
+              let area = root.findArea(id: areaID)
+        else { return nil }
+        return NavigationEntry(
+            projectID: projectID,
+            worktreeID: worktreeID,
+            areaID: areaID,
+            tabID: area.activeTabID
+        )
+    }
+
+    private func recordCurrentNavigationEntry() {
+        guard let entry = currentNavigationEntry() else { return }
+        navigation.record(entry)
+    }
+
+    private func pruneNavigationHistory() {
+        let originalCount = navigation.entries.count
+        navigation.removeEntries { !navigationEntryIsLive($0) }
+        guard navigation.entries.count != originalCount else { return }
+        guard let live = currentNavigationEntry(),
+              let matchIndex = navigation.entries.lastIndex(of: live)
+        else { return }
+        navigation.setCursor(matchIndex)
+    }
+
+    private func navigationEntryIsLive(_ entry: NavigationEntry) -> Bool {
+        let key = WorktreeKey(projectID: entry.projectID, worktreeID: entry.worktreeID)
+        guard let root = workspaceRoots[key],
+              let area = root.findArea(id: entry.areaID)
+        else { return false }
+        if let tabID = entry.tabID, !area.tabs.contains(where: { $0.id == tabID }) {
+            return false
+        }
+        return true
     }
 
     private func workspaceRootSignature(_ roots: [WorktreeKey: SplitNode]) -> [WorktreeKey: UUID] {

@@ -126,12 +126,11 @@ struct Sidebar: View {
 
     private func select(_ project: Project) {
         worktreeStore.ensurePrimary(for: project)
-        let list = worktreeStore.list(for: project.id)
-        let existingID = appState.activeWorktreeID[project.id]
-        let worktree = list.first(where: { $0.id == existingID })
-            ?? list.first(where: { $0.isPrimary })
-            ?? list.first
-        guard let worktree else { return }
+        guard let worktree = worktreeStore.preferred(
+            for: project.id,
+            matching: appState.activeWorktreeID[project.id]
+        )
+        else { return }
         appState.selectProject(project, worktree: worktree)
     }
 
