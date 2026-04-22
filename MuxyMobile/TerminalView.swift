@@ -75,8 +75,6 @@ struct TerminalView: View {
         .onChange(of: paneID) { _, _ in
             takeOverInFlight = false
             autoTakenPaneID = nil
-            reportedCols = nil
-            reportedRows = nil
             attemptAutoTakeOver()
         }
         .onChange(of: reportedCols) { _, _ in attemptAutoTakeOver() }
@@ -213,11 +211,7 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
     }
 
     private func applyTheme(to view: MuxySwiftTermView) {
-        let theme = connection.deviceTheme
-        view.nativeForegroundColor = UIColor(theme?.fgColor ?? .white)
-        view.nativeBackgroundColor = UIColor(theme?.bgColor ?? .black)
-        view.caretColor = UIColor(theme?.fgColor ?? .white)
-        view.overrideUserInterfaceStyle = (theme?.isDark ?? true) ? .dark : .light
+        view.applyMuxyTheme(connection.deviceTheme)
     }
 
     @MainActor
@@ -236,6 +230,14 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
             self.onSize = onSize
             lastReportedCols = 0
             lastReportedRows = 0
+            let terminal = view.getTerminal()
+            let cols = terminal.cols
+            let rows = terminal.rows
+            if cols > 0, rows > 0 {
+                lastReportedCols = cols
+                lastReportedRows = rows
+                onSize(UInt32(cols), UInt32(rows))
+            }
         }
 
         func updateOnSize(_ onSize: @escaping (UInt32, UInt32) -> Void) {
@@ -320,6 +322,32 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
 
     func applyAccessoryTheme(_ theme: ConnectionManager.DeviceTheme?) {
         muxyAccessoryBar.applyTheme(theme)
+    }
+
+    private var lastAppliedFg: UInt32?
+    private var lastAppliedBg: UInt32?
+
+    func applyMuxyTheme(_ theme: ConnectionManager.DeviceTheme?) {
+        let fgRGB = theme?.fg ?? 0xFFFFFF
+        let bgRGB = theme?.bg ?? 0x000000
+        if fgRGB != lastAppliedFg || bgRGB != lastAppliedBg {
+            lastAppliedFg = fgRGB
+            lastAppliedBg = bgRGB
+            let terminal = getTerminal()
+            setForegroundColor(source: terminal, color: Self.swiftTermColor(fgRGB))
+            setBackgroundColor(source: terminal, color: Self.swiftTermColor(bgRGB))
+        }
+        caretColor = UIColor(theme?.fgColor ?? .white)
+        overrideUserInterfaceStyle = (theme?.isDark ?? true) ? .dark : .light
+        applyAccessoryTheme(theme)
+    }
+
+    private static func swiftTermColor(_ rgb: UInt32) -> SwiftTerm.Color {
+        SwiftTerm.Color(
+            red: UInt16((rgb >> 16) & 0xFF) * 0x0101,
+            green: UInt16((rgb >> 8) & 0xFF) * 0x0101,
+            blue: UInt16(rgb & 0xFF) * 0x0101
+        )
     }
 
     var modifierIsArmed: Bool { muxyAccessoryBar.modifierArmed }
