@@ -69,11 +69,9 @@ struct MainWindow: View {
                         .frame(width: topBarLeadingWidth)
                         .fixedSize(horizontal: true, vertical: false)
                         .overlay(alignment: .trailing) {
-                            HStack(spacing: 0) {
-                                if sidebarExpanded {
+                            if sidebarExpanded {
+                                HStack(spacing: 0) {
                                     navigationArrows
-                                }
-                                if sidebarExpanded {
                                     Rectangle().fill(MuxyTheme.border).frame(width: 1)
                                 }
                             }

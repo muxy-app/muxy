@@ -51,6 +51,7 @@ final class AppState {
         case moveTab(projectID: UUID, request: TabMoveRequest)
         case selectNextProject(projects: [Project], worktrees: [UUID: [Worktree]])
         case selectPreviousProject(projects: [Project], worktrees: [UUID: [Worktree]])
+        case navigate(projectID: UUID, worktreeID: UUID, areaID: UUID, tabID: UUID?)
     }
 
     private let selectionStore: any ActiveProjectSelectionStoring
@@ -455,7 +456,6 @@ final class AppState {
         }
 
         let currentWorkspaceRootSignature = workspaceRootSignature(workspaceRoots)
-        let preWorktreeKeys = Set(workspaceRoots.keys)
         var workspace = WorkspaceState(
             activeProjectID: activeProjectID,
             activeWorktreeID: activeWorktreeID,
@@ -490,11 +490,7 @@ final class AppState {
             onProjectsEmptied?(effects.projectIDsToRemove)
         }
 
-        let removedWorktreeKeys = preWorktreeKeys.subtracting(workspaceRoots.keys)
-        pruneNavigationHistory(
-            removedProjectIDs: effects.projectIDsToRemove,
-            removedWorktreeKeys: removedWorktreeKeys
-        )
+        pruneNavigationHistory()
         recordCurrentNavigationEntry()
 
         if let activeTabID = NotificationNavigator.activeTabID(appState: self) {
@@ -506,29 +502,17 @@ final class AppState {
     }
 
     func goBack() {
-        step(direction: .back)
+        step(delta: -1)
     }
 
     func goForward() {
-        step(direction: .forward)
+        step(delta: 1)
     }
 
-    private enum NavigationStepDirection {
-        case back
-        case forward
-    }
-
-    private func step(direction: NavigationStepDirection) {
+    private func step(delta: Int) {
         while true {
-            let targetIndex: Int
-            switch direction {
-            case .back:
-                guard navigation.canGoBack else { return }
-                targetIndex = navigation.cursor - 1
-            case .forward:
-                guard navigation.canGoForward else { return }
-                targetIndex = navigation.cursor + 1
-            }
+            let targetIndex = navigation.cursor + delta
+            guard targetIndex >= 0, targetIndex < navigation.entries.count else { return }
             let target = navigation.entries[targetIndex]
             if applyNavigationEntry(target) {
                 navigation.setCursor(targetIndex)
@@ -539,26 +523,14 @@ final class AppState {
     }
 
     private func applyNavigationEntry(_ entry: NavigationEntry) -> Bool {
-        let key = WorktreeKey(projectID: entry.projectID, worktreeID: entry.worktreeID)
-        guard let root = workspaceRoots[key],
-              let area = root.findArea(id: entry.areaID)
-        else { return false }
-        if let tabID = entry.tabID, !area.tabs.contains(where: { $0.id == tabID }) {
-            return false
-        }
-
-        navigation.isNavigating = true
-        defer { navigation.isNavigating = false }
-
-        if activeProjectID != entry.projectID {
-            activeProjectID = entry.projectID
-        }
-        if activeWorktreeID[entry.projectID] != entry.worktreeID {
-            activeWorktreeID[entry.projectID] = entry.worktreeID
-        }
-        dispatch(.focusArea(projectID: entry.projectID, areaID: entry.areaID))
-        if let tabID = entry.tabID {
-            dispatch(.selectTab(projectID: entry.projectID, areaID: entry.areaID, tabID: tabID))
+        guard navigationEntryIsLive(entry) else { return false }
+        navigation.performWithRecordingSuppressed {
+            dispatch(.navigate(
+                projectID: entry.projectID,
+                worktreeID: entry.worktreeID,
+                areaID: entry.areaID,
+                tabID: entry.tabID
+            ))
         }
         return true
     }
@@ -585,17 +557,25 @@ final class AppState {
         navigation.record(entry)
     }
 
-    private func pruneNavigationHistory(
-        removedProjectIDs: [UUID],
-        removedWorktreeKeys: Set<WorktreeKey>
-    ) {
-        guard !removedProjectIDs.isEmpty || !removedWorktreeKeys.isEmpty else { return }
-        let projectIDs = Set(removedProjectIDs)
-        navigation.removeEntries { entry in
-            if projectIDs.contains(entry.projectID) { return true }
-            let key = WorktreeKey(projectID: entry.projectID, worktreeID: entry.worktreeID)
-            return removedWorktreeKeys.contains(key)
+    private func pruneNavigationHistory() {
+        let originalCount = navigation.entries.count
+        navigation.removeEntries { !navigationEntryIsLive($0) }
+        guard navigation.entries.count != originalCount else { return }
+        guard let live = currentNavigationEntry(),
+              let matchIndex = navigation.entries.lastIndex(of: live)
+        else { return }
+        navigation.setCursor(matchIndex)
+    }
+
+    private func navigationEntryIsLive(_ entry: NavigationEntry) -> Bool {
+        let key = WorktreeKey(projectID: entry.projectID, worktreeID: entry.worktreeID)
+        guard let root = workspaceRoots[key],
+              let area = root.findArea(id: entry.areaID)
+        else { return false }
+        if let tabID = entry.tabID, !area.tabs.contains(where: { $0.id == tabID }) {
+            return false
         }
+        return true
     }
 
     private func workspaceRootSignature(_ roots: [WorktreeKey: SplitNode]) -> [WorktreeKey: UUID] {

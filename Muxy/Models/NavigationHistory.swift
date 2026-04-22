@@ -12,7 +12,7 @@ struct NavigationEntry: Equatable, Hashable {
 final class NavigationHistory {
     private(set) var entries: [NavigationEntry] = []
     private(set) var cursor: Int = -1
-    var isNavigating: Bool = false
+    private var isRecordingSuppressed: Bool = false
 
     private let maxSize: Int = 100
 
@@ -25,7 +25,7 @@ final class NavigationHistory {
     }
 
     func record(_ entry: NavigationEntry) {
-        guard !isNavigating else { return }
+        guard !isRecordingSuppressed else { return }
         if let current, current == entry { return }
         if cursor < entries.count - 1 {
             entries.removeSubrange((cursor + 1)...)
@@ -39,14 +39,11 @@ final class NavigationHistory {
         }
     }
 
-    func peekBack() -> NavigationEntry? {
-        guard canGoBack else { return nil }
-        return entries[cursor - 1]
-    }
-
-    func peekForward() -> NavigationEntry? {
-        guard canGoForward else { return nil }
-        return entries[cursor + 1]
+    func performWithRecordingSuppressed(_ body: () -> Void) {
+        let previous = isRecordingSuppressed
+        isRecordingSuppressed = true
+        defer { isRecordingSuppressed = previous }
+        body()
     }
 
     func setCursor(_ index: Int) {
@@ -66,17 +63,16 @@ final class NavigationHistory {
 
     func removeEntries(where predicate: (NavigationEntry) -> Bool) {
         let previousCursor = cursor
-        let previousCurrent = current
         var kept: [NavigationEntry] = []
-        var mappedCursor: Int?
+        var cursorAtOrBefore: Int = -1
         for (index, entry) in entries.enumerated() {
             if predicate(entry) { continue }
-            if index == previousCursor, let previousCurrent, entry == previousCurrent {
-                mappedCursor = kept.count
-            }
             kept.append(entry)
+            if index <= previousCursor {
+                cursorAtOrBefore = kept.count - 1
+            }
         }
         entries = kept
-        cursor = mappedCursor ?? (kept.count - 1)
+        cursor = kept.isEmpty ? -1 : max(0, cursorAtOrBefore)
     }
 }

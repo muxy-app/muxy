@@ -263,7 +263,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .saveFile, combo: KeyCombo(key: "s", command: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .toggleFileTree, combo: KeyCombo(key: "e", command: true)),
-        Self(action: .navigateBack, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true)),
-        Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true)),
+        Self(action: .navigateBack, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, control: true)),
+        Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),
     ]
 }

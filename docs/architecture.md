@@ -331,16 +331,22 @@ navigation events.
 Back/forward navigation is exposed via `AppState.goBack()` /
 `AppState.goForward()`. Both validate the target entry still references
 live state (the worktree root is still in `workspaceRoots`, the area and
-tab still exist) and transparently skip stale entries. The `isNavigating`
-flag on `NavigationHistory` suppresses re-recording while a back/forward
-step is in flight. Entries are pruned automatically when the project or
-worktree they reference is removed.
+tab still exist) and transparently skip stale entries. The single state
+transition is driven through the reducer via a dedicated
+`Action.navigate(projectID:worktreeID:areaID:tabID:)` case so all
+workspace mutations stay in the reducer. Re-recording during a
+back/forward step is gated by
+`NavigationHistory.performWithRecordingSuppressed`. After every dispatch
+the history is swept: entries whose project, worktree, area, or tab no
+longer exist are removed eagerly, and the cursor snaps to the post-reducer
+active tuple when it is still present — so closing a tab simply takes
+that entry out of the stack rather than leaving a stale hop.
 
 The topbar hosts two chevron buttons (to the right of the sidebar border)
-wired to these calls. Keyboard (default `⌘←` / `⌘→`) and mouse buttons 3/4
-trigger the same actions via `ShortcutActionDispatcher` and a local
-`otherMouseDown` event monitor installed by the main window's shortcut
-interceptor.
+wired to these calls. Keyboard (default `⌃⌘←` / `⌃⌘→`) and mouse
+buttons 3/4 trigger the same actions via `ShortcutActionDispatcher` and a
+local `otherMouseDown` event monitor installed by the main window's
+shortcut interceptor.
 
 ## Notification System
 

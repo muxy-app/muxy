@@ -143,6 +143,17 @@ enum WorkspaceReducer {
 
         case let .focusPaneDown(projectID):
             FocusReducer.focusPane(projectID: projectID, direction: .down, state: &state)
+
+        case let .navigate(projectID, worktreeID, areaID, tabID):
+            let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+            guard state.workspaceRoots[key] != nil else { break }
+            state.activeProjectID = projectID
+            state.activeWorktreeID[projectID] = worktreeID
+            if let tabID {
+                TabReducer.selectTab(projectID: projectID, areaID: areaID, tabID: tabID, state: &state)
+            } else {
+                FocusReducer.focusArea(projectID: projectID, areaID: areaID, state: &state)
+            }
         }
 
         return effects
