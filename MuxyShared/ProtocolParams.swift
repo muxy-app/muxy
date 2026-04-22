@@ -101,10 +101,10 @@ public struct FocusAreaParams: Codable, Sendable {
 
 public struct TerminalInputParams: Codable, Sendable {
     public let paneID: UUID
-    public let text: String
-    public init(paneID: UUID, text: String) {
+    public let bytes: Data
+    public init(paneID: UUID, bytes: Data) {
         self.paneID = paneID
-        self.text = text
+        self.bytes = bytes
     }
 }
 

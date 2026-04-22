@@ -8,7 +8,7 @@ import Testing
 private final class MockDelegate: MuxyRemoteServerDelegate {
     var listProjectsCalled = 0
     var selectProjectCalls: [UUID] = []
-    var terminalInputCalls: [(paneID: UUID, text: String, clientID: UUID)] = []
+    var terminalInputCalls: [(paneID: UUID, bytes: Data, clientID: UUID)] = []
     var takeOverCalls: [(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32)] = []
     var releasePaneCalls: [(paneID: UUID, clientID: UUID)] = []
     var registerDeviceCalls: [(clientID: UUID, name: String)] = []
@@ -54,8 +54,8 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     func closeArea(projectID _: UUID, areaID _: UUID) {}
     func focusArea(projectID _: UUID, areaID _: UUID) {}
 
-    func sendTerminalInput(paneID: UUID, text: String, clientID: UUID) {
-        terminalInputCalls.append((paneID, text, clientID))
+    func sendTerminalInput(paneID: UUID, bytes: Data, clientID: UUID) {
+        terminalInputCalls.append((paneID, bytes, clientID))
     }
 
     func resizeTerminal(paneID _: UUID, cols _: UInt32, rows _: UInt32, clientID _: UUID) {}
@@ -250,14 +250,14 @@ struct MuxyRemoteServerRoutingTests {
             MuxyRequest(
                 id: "4",
                 method: .terminalInput,
-                params: .terminalInput(TerminalInputParams(paneID: paneID, text: "hello"))
+                params: .terminalInput(TerminalInputParams(paneID: paneID, bytes: Data("hello".utf8)))
             ),
             clientID: clientID
         )
 
         #expect(delegate.terminalInputCalls.count == 1)
         #expect(delegate.terminalInputCalls.first?.paneID == paneID)
-        #expect(delegate.terminalInputCalls.first?.text == "hello")
+        #expect(delegate.terminalInputCalls.first?.bytes == Data("hello".utf8))
         #expect(delegate.terminalInputCalls.first?.clientID == clientID)
     }
 

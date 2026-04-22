@@ -126,7 +126,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         appState.dispatch(.focusArea(projectID: projectID, areaID: areaID))
     }
 
-    func sendTerminalInput(paneID: UUID, text: String, clientID: UUID) {
+    func sendTerminalInput(paneID: UUID, bytes: Data, clientID: UUID) {
         guard let view = TerminalViewRegistry.shared.existingView(for: paneID) else {
             logger.warning("No terminal view for pane \(paneID)")
             return
@@ -136,7 +136,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             return
         }
 
-        view.sendRemoteText(text)
+        view.sendRemoteBytes(bytes)
     }
 
     func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool, clientID: UUID) {

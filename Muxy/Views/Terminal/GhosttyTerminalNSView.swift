@@ -701,13 +701,11 @@ final class GhosttyTerminalNSView: NSView {
         sendKeyPress(codepoint: 13, keycode: 36)
     }
 
-    func sendRemoteText(_ text: String) {
-        guard let surface else { return }
-        let bytes = Array(text.utf8)
-        guard !bytes.isEmpty else { return }
-        bytes.withUnsafeBufferPointer { buffer in
-            guard let base = buffer.baseAddress else { return }
-            ghostty_surface_send_input_raw(surface, base, UInt(buffer.count))
+    func sendRemoteBytes(_ bytes: Data) {
+        guard let surface, !bytes.isEmpty else { return }
+        bytes.withUnsafeBytes { raw in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
+            ghostty_surface_send_input_raw(surface, base, UInt(bytes.count))
         }
     }
 

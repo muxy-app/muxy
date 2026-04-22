@@ -549,8 +549,8 @@ final class ConnectionManager {
         await refreshWorkspace(projectID: projectID)
     }
 
-    func sendTerminalInput(paneID: UUID, text: String) async {
-        let params = TerminalInputParams(paneID: paneID, text: text)
+    func sendTerminalInput(paneID: UUID, bytes: Data) async {
+        let params = TerminalInputParams(paneID: paneID, bytes: bytes)
         _ = await send(.terminalInput, params: .terminalInput(params))
     }
 

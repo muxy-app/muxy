@@ -244,7 +244,7 @@ Valid enum values:
 | --- | --- | --- |
 | `takeOverPane` | `paneID`, `cols`, `rows` | `ok` |
 | `releasePane` | `paneID` | `ok` |
-| `terminalInput` | `paneID`, `text` | `ok` |
+| `terminalInput` | `paneID`, `bytes` | `ok` |
 | `terminalResize` | `paneID`, `cols`, `rows` | `ok` |
 | `terminalScroll` | `paneID`, `deltaX`, `deltaY`, `precise` | `ok` |
 | `getTerminalContent` | `paneID` | `terminalCells` |
@@ -255,9 +255,9 @@ Notes:
 - A client should call `takeOverPane` before sending input or resize events.
 - `releasePane` returns control to the Mac.
 - If the pane is owned by another client, control requests may be ignored.
-- `terminalInput` now delivers bytes verbatim to the PTY (no keyboard/paste
-  interpretation), so the client is responsible for encoding escape sequences,
-  control codes, and mouse reports directly.
+- `terminalInput` carries raw bytes (base64-encoded on the JSON wire) that are
+  delivered verbatim to the PTY, so the client is responsible for encoding
+  escape sequences, control codes, and mouse reports directly.
 - `getTerminalContent` is a legacy pull API that snapshots the rendered grid.
   New clients should render the pane with their own VT emulator and subscribe
   to the `terminalOutput` event stream instead.

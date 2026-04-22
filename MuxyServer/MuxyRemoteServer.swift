@@ -38,7 +38,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func splitArea(projectID: UUID, areaID: UUID, direction: SplitDirectionDTO, position: SplitPositionDTO)
     func closeArea(projectID: UUID, areaID: UUID)
     func focusArea(projectID: UUID, areaID: UUID)
-    func sendTerminalInput(paneID: UUID, text: String, clientID: UUID)
+    func sendTerminalInput(paneID: UUID, bytes: Data, clientID: UUID)
     func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32, clientID: UUID)
     func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool, clientID: UUID)
     func getTerminalContent(paneID: UUID) -> TerminalCellsDTO?
@@ -394,7 +394,7 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             guard case let .terminalInput(params) = request.params else {
                 return MuxyResponse(id: request.id, error: .invalidParams)
             }
-            delegate.sendTerminalInput(paneID: params.paneID, text: params.text, clientID: clientID)
+            delegate.sendTerminalInput(paneID: params.paneID, bytes: params.bytes, clientID: clientID)
             return MuxyResponse(id: request.id, result: .ok)
 
         case .terminalResize:

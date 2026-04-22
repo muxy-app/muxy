@@ -415,7 +415,8 @@ at the owning client via `MuxyRemoteServer.send(_:to:)`. The event payload is
 a `TerminalOutputEventDTO` containing the paneID and a `Data` of raw bytes
 (base64-encoded on the JSON wire).
 
-Input from mobile flows `terminalInput → sendRemoteText →
+Input from mobile flows as raw bytes (`TerminalInputParams.bytes: Data`,
+base64-encoded on the JSON wire) through `terminalInput → sendRemoteBytes →
 ghostty_surface_send_input_raw`, so every byte — including escape sequences,
 mouse reports, arrow keys, and control codes — is delivered to the child
 process verbatim.

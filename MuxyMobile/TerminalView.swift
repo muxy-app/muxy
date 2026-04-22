@@ -3,8 +3,6 @@ import SwiftTerm
 import SwiftUI
 import UIKit
 
-typealias Color = SwiftUI.Color
-
 enum TerminalFont {
     static let nerdFontName = "JetBrainsMonoNFM-Regular"
     static let nerdFontBoldName = "JetBrainsMonoNFM-Bold"
@@ -39,8 +37,10 @@ struct TerminalView: View {
     @Environment(ConnectionManager.self) private var connection
     @State private var autoTakenPaneID: UUID?
     @State private var takeOverInFlight = false
+    @State private var reportedCols: UInt32?
+    @State private var reportedRows: UInt32?
 
-    private var themeBg: Color {
+    private var themeBg: SwiftUI.Color {
         connection.deviceTheme?.bgColor ?? .black
     }
 
@@ -50,9 +50,12 @@ struct TerminalView: View {
 
     var body: some View {
         ZStack {
-            SwiftTermRepresentable(paneID: paneID)
-                .opacity(isOwnedBySelf ? 1 : 0)
-                .allowsHitTesting(isOwnedBySelf)
+            SwiftTermRepresentable(paneID: paneID) { cols, rows in
+                reportedCols = cols
+                reportedRows = rows
+            }
+            .opacity(isOwnedBySelf ? 1 : 0)
+            .allowsHitTesting(isOwnedBySelf)
 
             if !isOwnedBySelf, !takeOverInFlight {
                 MobileTakeOverOverlay(
@@ -65,16 +68,19 @@ struct TerminalView: View {
             }
         }
         .background(themeBg)
-        .onAppear {
-            autoTakeOverIfNeeded()
-        }
+        .onAppear { attemptAutoTakeOver() }
         .onDisappear {
             Task { await connection.releasePane(paneID: paneID) }
         }
         .onChange(of: paneID) { _, _ in
             takeOverInFlight = false
-            autoTakeOverIfNeeded()
+            autoTakenPaneID = nil
+            reportedCols = nil
+            reportedRows = nil
+            attemptAutoTakeOver()
         }
+        .onChange(of: reportedCols) { _, _ in attemptAutoTakeOver() }
+        .onChange(of: reportedRows) { _, _ in attemptAutoTakeOver() }
     }
 
     private var ownerDisplayName: String {
@@ -84,18 +90,24 @@ struct TerminalView: View {
     }
 
     private func takeOverCurrentPane() {
+        guard let cols = reportedCols, let rows = reportedRows else { return }
         takeOverInFlight = true
         Task {
-            await connection.takeOverPane(paneID: paneID, cols: 80, rows: 24)
+            await connection.takeOverPane(paneID: paneID, cols: cols, rows: rows)
             takeOverInFlight = false
         }
     }
 
-    private func autoTakeOverIfNeeded() {
+    private func attemptAutoTakeOver() {
+        guard let cols = reportedCols, let rows = reportedRows else { return }
         guard autoTakenPaneID != paneID else { return }
-        autoTakenPaneID = paneID
         guard !isOwnedBySelf else { return }
-        takeOverCurrentPane()
+        autoTakenPaneID = paneID
+        takeOverInFlight = true
+        Task {
+            await connection.takeOverPane(paneID: paneID, cols: cols, rows: rows)
+            takeOverInFlight = false
+        }
     }
 }
 
@@ -143,15 +155,16 @@ struct MobileTakeOverOverlay: View {
         .padding(.horizontal, 24)
     }
 
-    private var accentColor: Color { theme?.fgColor ?? .white }
-    private var primaryColor: Color { theme?.fgColor ?? .white }
-    private var secondaryColor: Color { (theme?.fgColor ?? .white).opacity(0.7) }
-    private var buttonForeground: Color { theme?.bgColor ?? .black }
-    private var panelBackground: Color { (theme?.fgColor ?? .white).opacity(0.08) }
+    private var accentColor: SwiftUI.Color { theme?.fgColor ?? .white }
+    private var primaryColor: SwiftUI.Color { theme?.fgColor ?? .white }
+    private var secondaryColor: SwiftUI.Color { (theme?.fgColor ?? .white).opacity(0.7) }
+    private var buttonForeground: SwiftUI.Color { theme?.bgColor ?? .black }
+    private var panelBackground: SwiftUI.Color { (theme?.fgColor ?? .white).opacity(0.08) }
 }
 
 private struct SwiftTermRepresentable: UIViewRepresentable {
     let paneID: UUID
+    let onSize: (UInt32, UInt32) -> Void
     @Environment(ConnectionManager.self) private var connection
 
     func makeUIView(context: Context) -> MuxySwiftTermView {
@@ -162,26 +175,20 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
         view.backspaceSendsControlH = false
         view.allowMouseReporting = false
         applyTheme(to: view)
-        context.coordinator.bind(view: view, paneID: paneID, connection: connection)
-        connection.subscribeTerminalBytes(paneID: paneID) { [weak view] data in
-            guard let view else { return }
-            let bytes = [UInt8](data)
-            view.feed(byteArray: bytes[...])
-        }
+        context.coordinator.bind(view: view, paneID: paneID, connection: connection, onSize: onSize)
+        subscribe(view: view, paneID: paneID)
         return view
     }
 
     func updateUIView(_ uiView: MuxySwiftTermView, context: Context) {
-        if uiView.paneID != paneID {
+        if let previousPaneID = uiView.paneID, previousPaneID != paneID {
             context.coordinator.unbind()
-            connection.unsubscribeTerminalBytes(paneID: uiView.paneID ?? UUID())
+            connection.unsubscribeTerminalBytes(paneID: previousPaneID)
             uiView.paneID = paneID
-            context.coordinator.bind(view: uiView, paneID: paneID, connection: connection)
-            connection.subscribeTerminalBytes(paneID: paneID) { [weak uiView] data in
-                guard let uiView else { return }
-                let bytes = [UInt8](data)
-                uiView.feed(byteArray: bytes[...])
-            }
+            context.coordinator.bind(view: uiView, paneID: paneID, connection: connection, onSize: onSize)
+            subscribe(view: uiView, paneID: paneID)
+        } else {
+            context.coordinator.updateOnSize(onSize)
         }
         applyTheme(to: uiView)
     }
@@ -197,6 +204,14 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
         Coordinator()
     }
 
+    private func subscribe(view: MuxySwiftTermView, paneID: UUID) {
+        connection.subscribeTerminalBytes(paneID: paneID) { [weak view] data in
+            guard let view else { return }
+            let bytes = [UInt8](data)
+            view.feed(byteArray: bytes[...])
+        }
+    }
+
     private func applyTheme(to view: MuxySwiftTermView) {
         let theme = connection.deviceTheme
         view.nativeForegroundColor = UIColor(theme?.fgColor ?? .white)
@@ -205,37 +220,41 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
         view.overrideUserInterfaceStyle = (theme?.isDark ?? true) ? .dark : .light
     }
 
-    nonisolated final class Coordinator: NSObject, TerminalViewDelegate, @unchecked Sendable {
-        nonisolated(unsafe) weak var view: MuxySwiftTermView?
-        nonisolated(unsafe) weak var connection: ConnectionManager?
-        nonisolated(unsafe) var paneID: UUID?
-        nonisolated(unsafe) private var lastReportedCols: Int = 0
-        nonisolated(unsafe) private var lastReportedRows: Int = 0
+    @MainActor
+    final class Coordinator: NSObject, TerminalViewDelegate {
+        weak var view: MuxySwiftTermView?
+        weak var connection: ConnectionManager?
+        var paneID: UUID?
+        private var onSize: ((UInt32, UInt32) -> Void)?
+        private var lastReportedCols: Int = 0
+        private var lastReportedRows: Int = 0
 
-        @MainActor
-        func bind(view: MuxySwiftTermView, paneID: UUID, connection: ConnectionManager) {
+        func bind(view: MuxySwiftTermView, paneID: UUID, connection: ConnectionManager, onSize: @escaping (UInt32, UInt32) -> Void) {
             self.view = view
             self.paneID = paneID
             self.connection = connection
+            self.onSize = onSize
             lastReportedCols = 0
             lastReportedRows = 0
         }
 
-        @MainActor
+        func updateOnSize(_ onSize: @escaping (UInt32, UInt32) -> Void) {
+            self.onSize = onSize
+        }
+
         func unbind() {
             view = nil
             paneID = nil
             connection = nil
+            onSize = nil
         }
 
         nonisolated func send(source _: SwiftTerm.TerminalView, data: ArraySlice<UInt8>) {
             MainActor.assumeIsolated {
-                guard let paneID,
-                      let connection,
-                      let view,
-                      let text = view.accessoryTransformedInput(bytes: data)
-                else { return }
-                Task { await connection.sendTerminalInput(paneID: paneID, text: text) }
+                guard let paneID, let connection, let view else { return }
+                let bytes = view.accessoryTransformedBytes(data)
+                guard !bytes.isEmpty else { return }
+                Task { await connection.sendTerminalInput(paneID: paneID, bytes: bytes) }
             }
         }
 
@@ -245,10 +264,11 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
                 if newCols == lastReportedCols, newRows == lastReportedRows { return }
                 lastReportedCols = newCols
                 lastReportedRows = newRows
+                let cols = UInt32(newCols)
+                let rows = UInt32(newRows)
+                onSize?(cols, rows)
                 guard let paneID, let connection else { return }
-                Task {
-                    await connection.resizeTerminal(paneID: paneID, cols: UInt32(newCols), rows: UInt32(newRows))
-                }
+                Task { await connection.resizeTerminal(paneID: paneID, cols: cols, rows: rows) }
             }
         }
 
@@ -277,6 +297,12 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
     private var wheelAccumulatedDelta: CGFloat = 0
     private static let wheelPointsPerTick: CGFloat = 24
 
+    private let hiddenKeyboardPlaceholder: UIView = {
+        let view = UIView(frame: .zero)
+        view.isHidden = true
+        return view
+    }()
+
     override init(frame: CGRect, font: UIFont?) {
         super.init(frame: frame, font: font)
         muxyAccessoryBar.onKey = { [weak self] text in self?.sendAccessoryKey(text) }
@@ -303,27 +329,29 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
         muxyAccessoryBar.setModifierArmed(false)
     }
 
-    func accessoryTransformedInput(bytes: ArraySlice<UInt8>) -> String? {
-        guard let text = String(bytes: bytes, encoding: .utf8) else {
-            return String(decoding: bytes, as: UTF8.self)
-        }
+    func accessoryTransformedBytes(_ slice: ArraySlice<UInt8>) -> Data {
         if modifierIsArmed,
+           let text = String(bytes: slice, encoding: .utf8),
            let transformed = Self.transform(text, with: activeAccessoryModifier)
         {
             clearArmedModifier()
-            return transformed
+            return Data(transformed.utf8)
         }
-        return text
+        return Data(slice)
     }
 
     private func sendAccessoryKey(_ text: String) {
-        guard let paneID, let connection else { return }
-        Task { await connection.sendTerminalInput(paneID: paneID, text: text) }
+        sendBytes(Data(text.utf8))
+    }
+
+    private func sendBytes(_ bytes: Data) {
+        guard !bytes.isEmpty, let paneID, let connection else { return }
+        Task { await connection.sendTerminalInput(paneID: paneID, bytes: bytes) }
     }
 
     private func pasteFromClipboard() {
         guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
-        sendAccessoryKey(text)
+        sendBytes(Data(text.utf8))
     }
 
     private func copySelectionToClipboard() {
@@ -334,11 +362,9 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
     private func toggleKeyboard() {
         keyboardHidden.toggle()
         muxyAccessoryBar.setKeyboardVisible(!keyboardHidden)
-        if keyboardHidden {
-            resignFirstResponder()
-        } else {
-            becomeFirstResponder()
-        }
+        inputView = keyboardHidden ? hiddenKeyboardPlaceholder : nil
+        if !isFirstResponder { _ = becomeFirstResponder() }
+        reloadInputViews()
     }
 
     override func didMoveToWindow() {
@@ -587,7 +613,7 @@ final class TerminalAccessoryBar: UIInputView {
 struct TerminalAccessoryView: View {
     @ObservedObject var model: TerminalAccessoryModel
 
-    private var fg: Color { model.theme?.fgColor ?? .white }
+    private var fg: SwiftUI.Color { model.theme?.fgColor ?? .white }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -681,8 +707,8 @@ struct TerminalAccessoryView: View {
 struct ModifierKeyButton: UIViewRepresentable {
     let active: TerminalModifier
     let armed: Bool
-    let fg: Color
-    let bg: Color
+    let fg: SwiftUI.Color
+    let bg: SwiftUI.Color
     let onTap: () -> Void
     let onSelect: (TerminalModifier) -> Void
 
@@ -1107,7 +1133,7 @@ final class ModifierPickerRow: UIView {
 }
 
 struct DPadControl: View {
-    let tint: Color
+    let tint: SwiftUI.Color
     let onDirection: (String) -> Void
 
     private let outerSize: CGFloat = 44
