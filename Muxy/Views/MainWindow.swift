@@ -882,21 +882,41 @@ private final class ShortcutInterceptingView: NSView {
 
     private func installMouseMonitorIfNeeded() {
         guard mouseMonitor == nil else { return }
-        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [weak self] event in
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .swipe]) { [weak self] event in
             guard let self,
                   let window = self.window,
-                  event.window === window
+                  window.isKeyWindow,
+                  ShortcutContext.isMainWindow(window)
             else { return event }
+            return self.handleNavigationEvent(event)
+        }
+    }
+
+    private func handleNavigationEvent(_ event: NSEvent) -> NSEvent? {
+        switch event.type {
+        case .otherMouseDown:
             switch event.buttonNumber {
             case 3:
-                self.onMouseBack?()
+                onMouseBack?()
                 return nil
             case 4:
-                self.onMouseForward?()
+                onMouseForward?()
                 return nil
             default:
                 return event
             }
+        case .swipe:
+            if event.deltaX > 0 {
+                onMouseBack?()
+                return nil
+            }
+            if event.deltaX < 0 {
+                onMouseForward?()
+                return nil
+            }
+            return event
+        default:
+            return event
         }
     }
 

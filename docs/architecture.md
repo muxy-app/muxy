@@ -343,10 +343,12 @@ active tuple when it is still present — so closing a tab simply takes
 that entry out of the stack rather than leaving a stale hop.
 
 The topbar hosts two chevron buttons (to the right of the sidebar border)
-wired to these calls. Keyboard (default `⌃⌘←` / `⌃⌘→`) and mouse
-buttons 3/4 trigger the same actions via `ShortcutActionDispatcher` and a
-local `otherMouseDown` event monitor installed by the main window's
-shortcut interceptor.
+wired to these calls. Keyboard (default `⌃⌘←` / `⌃⌘→`), mouse side
+buttons (buttons 3/4), and horizontal swipe gestures (Magic Mouse
+1-finger, 3-finger trackpad) all trigger the same actions. The main
+window's shortcut interceptor installs a local `addLocalMonitorForEvents`
+handler for `[.otherMouseDown, .swipe]`, gated on the monitored window
+being key and identified as a Muxy main window.
 
 ## Notification System
 
