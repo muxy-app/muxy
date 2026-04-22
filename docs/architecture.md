@@ -46,6 +46,7 @@ Muxy/
     AppState.swift            @Observable root state, dispatches workspace actions
     WorkspaceReducer.swift    Pure reducer: all workspace state transitions
     WorkspaceSnapshot.swift   Save/restore workspace layout to disk
+    NavigationHistory.swift   Stacked back/forward history over project+worktree+area+tab tuples
     SplitNode.swift           Recursive binary tree for pane splits
     TabArea.swift             Container for tabs within a single pane
     TerminalTab.swift         Terminal, VCS, editor, or diff-viewer tab model
@@ -60,6 +61,7 @@ Muxy/
     TextBackingStore.swift    Line-array backing store for editor documents
     ViewportState.swift       Viewport window computation and line mapping for editor documents
     TerminalSettings.swift    Terminal preference keys and quick-select label layout helpers
+    ProjectLifecyclePreferences.swift  Project lifecycle preferences (keep-open-when-no-tabs)
     Project.swift             Project folder metadata
     Worktree.swift            Per-project worktree slot (primary or git worktree)
     WorktreeKey.swift         Hashable (projectID, worktreeID) key for workspace maps
@@ -315,6 +317,38 @@ Pull request management lives entirely in the header via `PRPill`, not in the co
 5. **Draft** — checkbox that adds `--draft` to `gh pr create`.
 
 On submit, `performPRFlow` runs: optional branch create+switch → optional stage (all if include=all, staged-only otherwise) → commit with title if anything is staged → `git push -u origin <branch>` → `gh pr create`. No rollback on partial failure — errors surface to the sheet with a clear message so the user can retry manually from wherever the flow stopped. Ahead/behind counts are populated by `GitRepositoryService.aheadBehind` during refresh and drive the push/pull badges in the commit area.
+
+## Navigation History
+
+`AppState` owns a `NavigationHistory` that captures a stacked history of
+user navigation across projects, worktrees, split areas, and tabs. Each
+entry is a `(projectID, worktreeID, areaID, tabID)` tuple. After every
+successful `dispatch`, the current tuple is recorded (deduping against the
+top of the stack). Selecting a different project, switching worktrees,
+focusing another split pane, or selecting a different tab all count as
+navigation events.
+
+Back/forward navigation is exposed via `AppState.goBack()` /
+`AppState.goForward()`. Both validate the target entry still references
+live state (the worktree root is still in `workspaceRoots`, the area and
+tab still exist) and transparently skip stale entries. The single state
+transition is driven through the reducer via a dedicated
+`Action.navigate(projectID:worktreeID:areaID:tabID:)` case so all
+workspace mutations stay in the reducer. Re-recording during a
+back/forward step is gated by
+`NavigationHistory.performWithRecordingSuppressed`. After every dispatch
+the history is swept: entries whose project, worktree, area, or tab no
+longer exist are removed eagerly, and the cursor snaps to the post-reducer
+active tuple when it is still present — so closing a tab simply takes
+that entry out of the stack rather than leaving a stale hop.
+
+The topbar hosts two chevron buttons (to the right of the sidebar border)
+wired to these calls. Keyboard (default `⌃⌘←` / `⌃⌘→`), mouse side
+buttons (buttons 3/4), and horizontal swipe gestures (Magic Mouse
+1-finger, 3-finger trackpad) all trigger the same actions. The main
+window's shortcut interceptor installs a local `addLocalMonitorForEvents`
+handler for `[.otherMouseDown, .swipe]`, gated on the monitored window
+being key and identified as a Muxy main window.
 
 ## Notification System
 

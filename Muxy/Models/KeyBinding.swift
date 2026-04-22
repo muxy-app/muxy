@@ -52,6 +52,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case saveFile
     case toggleSidebar
     case toggleFileTree
+    case navigateBack
+    case navigateForward
 
     static let allCases: [Self] = [
         .newTab,
@@ -97,6 +99,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .saveFile,
         .toggleSidebar,
         .toggleFileTree,
+        .navigateBack,
+        .navigateForward,
     ]
 
     var id: String { rawValue }
@@ -143,6 +147,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .saveFile: ShortcutMetadata(displayName: "Save File", category: "Editor", scope: .mainWindow)
         case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
         case .toggleFileTree: ShortcutMetadata(displayName: "Toggle File Tree", category: "App", scope: .mainWindow)
+        case .navigateBack: ShortcutMetadata(displayName: "Navigate Back", category: "Navigation", scope: .mainWindow)
+        case .navigateForward: ShortcutMetadata(displayName: "Navigate Forward", category: "Navigation", scope: .mainWindow)
         case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
@@ -155,7 +161,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Terminal", "Editor", "App"]
+        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Editor", "App"]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -257,5 +263,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .saveFile, combo: KeyCombo(key: "s", command: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .toggleFileTree, combo: KeyCombo(key: "e", command: true)),
+        Self(action: .navigateBack, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, control: true)),
+        Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),
     ]
 }

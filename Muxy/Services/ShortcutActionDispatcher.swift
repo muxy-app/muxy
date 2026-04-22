@@ -37,6 +37,11 @@ struct ShortcutActionDispatcher {
         switch action {
         case .newTab:
             guard let projectID = appState.activeProjectID else { return false }
+            if appState.workspaceRoot(for: projectID) == nil {
+                guard let worktree = resolveActiveWorktree(for: projectID) else { return false }
+                appState.selectWorktree(projectID: projectID, worktree: worktree)
+                return true
+            }
             appState.createTab(projectID: projectID)
             return true
         case .closeTab:
@@ -134,6 +139,14 @@ struct ShortcutActionDispatcher {
         case .toggleFileTree:
             notificationCenter.post(name: .toggleFileTree, object: nil)
             return true
+        case .navigateBack:
+            guard appState.navigation.canGoBack else { return false }
+            appState.goBack()
+            return true
+        case .navigateForward:
+            guard appState.navigation.canGoForward else { return false }
+            appState.goForward()
+            return true
         case .selectTab1,
              .selectTab2,
              .selectTab3,
@@ -154,5 +167,9 @@ struct ShortcutActionDispatcher {
              .selectProject9:
             return false
         }
+    }
+
+    private func resolveActiveWorktree(for projectID: UUID) -> Worktree? {
+        worktreeStore.preferred(for: projectID, matching: appState.activeWorktreeID[projectID])
     }
 }
