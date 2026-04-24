@@ -9,9 +9,12 @@ enum RemoteTerminalSnapshotBuilder {
 
         var output = String()
         output.reserveCapacity(cols * rows * 4)
+        output.append("\u{1B}[0m")
+        if snapshot.altScreen {
+            output.append("\u{1B}[?1049h")
+        }
         output.append("\u{1B}[2J")
         output.append("\u{1B}[H")
-        output.append("\u{1B}[0m")
 
         var currentFg: UInt32 = snapshot.defaultFg
         var currentBg: UInt32 = snapshot.defaultBg
@@ -64,6 +67,22 @@ enum RemoteTerminalSnapshotBuilder {
 
         if !snapshot.cursorVisible {
             output.append("\u{1B}[?25l")
+        }
+
+        if snapshot.cursorKeys {
+            output.append("\u{1B}[?1h")
+        }
+        if snapshot.bracketedPaste {
+            output.append("\u{1B}[?2004h")
+        }
+        if snapshot.focusEvent {
+            output.append("\u{1B}[?1004h")
+        }
+        if snapshot.mouseEvent != 0 {
+            output.append("\u{1B}[?\(snapshot.mouseEvent)h")
+        }
+        if snapshot.mouseFormat != 0 {
+            output.append("\u{1B}[?\(snapshot.mouseFormat)h")
         }
 
         return Data(output.utf8)

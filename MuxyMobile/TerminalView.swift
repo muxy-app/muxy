@@ -295,7 +295,8 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
 
     private var keyboardHidden = false
     private var wheelAccumulatedDelta: CGFloat = 0
-    private static let wheelPointsPerTick: CGFloat = 24
+    private static let wheelPointsPerTick: CGFloat = 8
+    private static let wheelMaxTicksPerFrame: Int = 6
 
     private var userDetachedFromBottom = false
     private static let bottomStickThreshold: CGFloat = 2
@@ -468,10 +469,14 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
             let translation = gesture.translation(in: self)
             gesture.setTranslation(.zero, in: self)
             wheelAccumulatedDelta += translation.y
-            let ticks = Int((wheelAccumulatedDelta / Self.wheelPointsPerTick).rounded(.towardZero))
-            guard ticks != 0 else { return }
-            wheelAccumulatedDelta -= CGFloat(ticks) * Self.wheelPointsPerTick
-            emitWheelTicks(ticks, terminal: terminal, location: gesture.location(in: self))
+            let baseTicks = Int((wheelAccumulatedDelta / Self.wheelPointsPerTick).rounded(.towardZero))
+            guard baseTicks != 0 else { return }
+            wheelAccumulatedDelta -= CGFloat(baseTicks) * Self.wheelPointsPerTick
+            let multiplier = Self.accelerationMultiplier(forVelocity: gesture.velocity(in: self).y)
+            let accelerated = Int((Double(baseTicks) * multiplier).rounded(.towardZero))
+            let clamped = max(-Self.wheelMaxTicksPerFrame, min(Self.wheelMaxTicksPerFrame, accelerated))
+            guard clamped != 0 else { return }
+            emitWheelTicks(clamped, terminal: terminal, location: gesture.location(in: self))
         case .ended,
              .cancelled,
              .failed:
@@ -479,6 +484,13 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
         default:
             break
         }
+    }
+
+    private static func accelerationMultiplier(forVelocity velocity: CGFloat) -> Double {
+        let speed = Double(abs(velocity))
+        if speed < 300 { return 1.0 }
+        if speed > 3000 { return 4.0 }
+        return 1.0 + (speed - 300) / 900
     }
 
     private func emitWheelTicks(_ ticks: Int, terminal: Terminal, location _: CGPoint) {

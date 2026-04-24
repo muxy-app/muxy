@@ -270,7 +270,13 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             cursorVisible: out.cursor_visible,
             defaultFg: out.default_fg,
             defaultBg: out.default_bg,
-            cells: cells
+            cells: cells,
+            altScreen: out.alt_screen,
+            cursorKeys: out.cursor_keys,
+            bracketedPaste: out.bracketed_paste,
+            focusEvent: out.focus_event,
+            mouseEvent: out.mouse_event,
+            mouseFormat: out.mouse_format
         )
     }
 

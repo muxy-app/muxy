@@ -286,6 +286,12 @@ public struct TerminalCellsDTO: Codable, Sendable {
     public let defaultFg: UInt32
     public let defaultBg: UInt32
     public let cells: [TerminalCellDTO]
+    public let altScreen: Bool
+    public let cursorKeys: Bool
+    public let bracketedPaste: Bool
+    public let focusEvent: Bool
+    public let mouseEvent: UInt16
+    public let mouseFormat: UInt16
 
     public init(
         paneID: UUID,
@@ -296,7 +302,13 @@ public struct TerminalCellsDTO: Codable, Sendable {
         cursorVisible: Bool,
         defaultFg: UInt32,
         defaultBg: UInt32,
-        cells: [TerminalCellDTO]
+        cells: [TerminalCellDTO],
+        altScreen: Bool = false,
+        cursorKeys: Bool = false,
+        bracketedPaste: Bool = false,
+        focusEvent: Bool = false,
+        mouseEvent: UInt16 = 0,
+        mouseFormat: UInt16 = 0
     ) {
         self.paneID = paneID
         self.cols = cols
@@ -307,6 +319,12 @@ public struct TerminalCellsDTO: Codable, Sendable {
         self.defaultFg = defaultFg
         self.defaultBg = defaultBg
         self.cells = cells
+        self.altScreen = altScreen
+        self.cursorKeys = cursorKeys
+        self.bracketedPaste = bracketedPaste
+        self.focusEvent = focusEvent
+        self.mouseEvent = mouseEvent
+        self.mouseFormat = mouseFormat
     }
 }
 
