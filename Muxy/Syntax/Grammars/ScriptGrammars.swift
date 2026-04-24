@@ -300,7 +300,7 @@ extension SyntaxGrammar {
         identifierBody.insert(".")
         return SyntaxGrammar(
             name: "R",
-            extensions: ["r", "R", "Rprofile"],
+            extensions: ["r", ".rprofile", ".renviron"],
             caseSensitiveKeywords: true,
             lineComments: ["#"],
             lineCommentScope: .comment,
@@ -356,9 +356,9 @@ extension SyntaxGrammar {
         keywordGroups: [
             KeywordGroup(words: [
                 "abstract", "baremodule", "begin", "break", "catch", "const", "continue", "do", "else",
-                "elseif", "end", "export", "false", "finally", "for", "function", "global", "if",
+                "elseif", "end", "export", "finally", "for", "function", "global", "if",
                 "import", "in", "isa", "let", "local", "macro", "module", "mutable", "primitive",
-                "quote", "return", "struct", "true", "try", "type", "using", "where", "while",
+                "quote", "return", "struct", "try", "type", "using", "where", "while",
             ], scope: .keyword),
             KeywordGroup(words: ["true", "false", "nothing", "missing", "Inf", "NaN"], scope: .builtin),
             KeywordGroup(words: [
@@ -396,7 +396,6 @@ extension SyntaxGrammar {
         identifierStart.insert("*")
         identifierStart.insert("?")
         identifierStart.insert("!")
-        identifierStart.insert("/")
         var identifierBody = SyntaxGrammar.defaultIdentifierBody
         identifierBody.insert("-")
         identifierBody.insert("?")
@@ -455,7 +454,6 @@ extension SyntaxGrammar {
         ],
         strings: [
             StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: true, scope: .string),
-            StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: false, scope: .string),
         ],
         keywordGroups: [
             KeywordGroup(words: [
