@@ -82,12 +82,10 @@ struct PaneTabStrip: View {
                 if showVCSButton {
                     FileDiffIconButton(action: onCreateVCSTab)
                         .help(shortcutTooltip("Source Control", for: .openVCSTab))
-                    if VCSDisplayMode.current == .attached {
-                        FileTreeIconButton {
-                            NotificationCenter.default.post(name: .toggleFileTree, object: nil)
-                        }
-                        .help(shortcutTooltip("File Tree", for: .toggleFileTree))
+                    FileTreeIconButton {
+                        NotificationCenter.default.post(name: .toggleFileTree, object: nil)
                     }
+                    .help(shortcutTooltip("File Tree", for: .toggleFileTree))
                 }
             }
             .padding(.trailing, 4)
