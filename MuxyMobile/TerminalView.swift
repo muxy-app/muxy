@@ -99,7 +99,6 @@ struct TerminalView: View {
     private func attemptAutoTakeOver() {
         guard let cols = reportedCols, let rows = reportedRows else { return }
         guard autoTakenPaneID != paneID else { return }
-        guard !isOwnedBySelf else { return }
         autoTakenPaneID = paneID
         takeOverInFlight = true
         Task {
