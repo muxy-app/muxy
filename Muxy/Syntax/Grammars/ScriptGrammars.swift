@@ -294,4 +294,249 @@ extension SyntaxGrammar {
             return set
         }()
     )
+
+    static let r: SyntaxGrammar = {
+        var identifierBody = SyntaxGrammar.defaultIdentifierBody
+        identifierBody.insert(".")
+        return SyntaxGrammar(
+            name: "R",
+            extensions: ["r", ".rprofile", ".renviron"],
+            caseSensitiveKeywords: true,
+            lineComments: ["#"],
+            lineCommentScope: .comment,
+            blockComments: [],
+            strings: [
+                StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+                StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: false, scope: .string),
+                StringRule(id: 3, open: "`", close: "`", escape: nil, multiline: false, scope: .string),
+            ],
+            keywordGroups: [
+                KeywordGroup(words: [
+                    "if", "else", "for", "while", "repeat", "function", "return", "break", "next",
+                    "in", "library", "require", "source",
+                ], scope: .keyword),
+                KeywordGroup(words: [
+                    "TRUE", "FALSE", "T", "F", "NULL", "NA", "NA_integer_", "NA_real_", "NA_character_",
+                    "NA_complex_", "Inf", "NaN",
+                ], scope: .builtin),
+                KeywordGroup(words: [
+                    "c", "list", "vector", "matrix", "data.frame", "factor", "array", "length", "dim",
+                    "names", "nrow", "ncol", "print", "cat", "paste", "paste0", "sprintf", "lapply",
+                    "sapply", "mapply", "apply", "Reduce", "Filter", "Map", "do.call", "sum", "mean",
+                    "median", "min", "max", "range", "seq", "seq_len", "seq_along", "rep", "which",
+                    "any", "all", "is.null", "is.na", "is.numeric", "is.character",
+                ], scope: .builtin),
+            ],
+            supportsNumbers: true,
+            supportsHashDirectives: false,
+            hashDirectiveScope: .preprocessor,
+            supportsAtAttributes: false,
+            atAttributeScope: .attribute,
+            highlightFunctionCalls: true,
+            highlightAllCapsAsConstant: true,
+            identifierStart: SyntaxGrammar.defaultIdentifierStart,
+            identifierBody: identifierBody
+        )
+    }()
+
+    static let julia = SyntaxGrammar(
+        name: "Julia",
+        extensions: ["jl"],
+        caseSensitiveKeywords: true,
+        lineComments: ["#"],
+        lineCommentScope: .comment,
+        blockComments: [
+            BlockCommentRule(id: 1, open: "#=", close: "=#", scope: .comment, nestable: true),
+        ],
+        strings: [
+            StringRule(id: 1, open: "\"\"\"", close: "\"\"\"", escape: "\\", multiline: true, scope: .string),
+            StringRule(id: 2, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+            StringRule(id: 3, open: "'", close: "'", escape: "\\", multiline: false, scope: .string),
+        ],
+        keywordGroups: [
+            KeywordGroup(words: [
+                "abstract", "baremodule", "begin", "break", "catch", "const", "continue", "do", "else",
+                "elseif", "end", "export", "finally", "for", "function", "global", "if",
+                "import", "in", "isa", "let", "local", "macro", "module", "mutable", "primitive",
+                "quote", "return", "struct", "try", "type", "using", "where", "while",
+            ], scope: .keyword),
+            KeywordGroup(words: ["true", "false", "nothing", "missing", "Inf", "NaN"], scope: .builtin),
+            KeywordGroup(words: [
+                "Int", "Int8", "Int16", "Int32", "Int64", "Int128", "UInt", "UInt8", "UInt16", "UInt32",
+                "UInt64", "UInt128", "Float16", "Float32", "Float64", "Bool", "Char", "String", "Symbol",
+                "Array", "Vector", "Matrix", "Tuple", "NamedTuple", "Dict", "Set", "Number", "Integer",
+                "AbstractFloat", "AbstractString", "Any", "Nothing", "Missing",
+            ], scope: .type),
+            KeywordGroup(words: [
+                "println", "print", "show", "error", "throw", "length", "size", "push!", "pop!",
+                "append!", "insert!", "delete!", "get", "haskey", "keys", "values", "map", "filter",
+                "reduce", "sum", "prod", "min", "max", "sort", "reverse", "collect", "enumerate",
+                "zip", "typeof", "eltype",
+            ], scope: .builtin),
+        ],
+        supportsNumbers: true,
+        supportsHashDirectives: false,
+        hashDirectiveScope: .preprocessor,
+        supportsAtAttributes: true,
+        atAttributeScope: .attribute,
+        highlightFunctionCalls: true,
+        highlightAllCapsAsConstant: true,
+        identifierStart: SyntaxGrammar.defaultIdentifierStart,
+        identifierBody: {
+            var set = SyntaxGrammar.defaultIdentifierBody
+            set.insert("!")
+            return set
+        }()
+    )
+
+    static let clojure: SyntaxGrammar = {
+        var identifierStart = SyntaxGrammar.defaultIdentifierStart
+        identifierStart.insert("-")
+        identifierStart.insert("+")
+        identifierStart.insert("*")
+        identifierStart.insert("?")
+        identifierStart.insert("!")
+        var identifierBody = SyntaxGrammar.defaultIdentifierBody
+        identifierBody.insert("-")
+        identifierBody.insert("?")
+        identifierBody.insert("!")
+        identifierBody.insert("*")
+        identifierBody.insert("/")
+        identifierBody.insert(".")
+        return SyntaxGrammar(
+            name: "Clojure",
+            extensions: ["clj", "cljs", "cljc", "edn", "boot"],
+            caseSensitiveKeywords: true,
+            lineComments: [";"],
+            lineCommentScope: .comment,
+            blockComments: [],
+            strings: [
+                StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: true, scope: .string),
+            ],
+            keywordGroups: [
+                KeywordGroup(words: [
+                    "def", "defn", "defn-", "defmacro", "defmulti", "defmethod", "defprotocol",
+                    "defrecord", "deftype", "defstruct", "definterface", "defonce", "fn", "let",
+                    "letfn", "if", "if-not", "if-let", "when", "when-not", "when-let", "cond", "condp",
+                    "case", "do", "loop", "recur", "for", "doseq", "dotimes", "while", "quote",
+                    "var", "ns", "in-ns", "require", "use", "import", "refer", "try", "catch",
+                    "finally", "throw", "reify", "proxy", "binding", "set!", "new",
+                ], scope: .keyword),
+                KeywordGroup(words: ["true", "false", "nil"], scope: .builtin),
+                KeywordGroup(words: [
+                    "map", "filter", "reduce", "apply", "partial", "comp", "identity", "constantly",
+                    "first", "rest", "next", "cons", "conj", "assoc", "dissoc", "get", "get-in",
+                    "update", "update-in", "merge", "count", "empty?", "seq", "vec", "vector", "list",
+                    "hash-map", "hash-set", "str", "print", "println", "prn", "pr", "range", "repeat",
+                    "take", "drop", "concat", "into", "some", "every?", "not", "not=",
+                ], scope: .builtin),
+            ],
+            supportsNumbers: true,
+            supportsHashDirectives: false,
+            hashDirectiveScope: .preprocessor,
+            supportsAtAttributes: false,
+            atAttributeScope: .attribute,
+            highlightFunctionCalls: true,
+            highlightAllCapsAsConstant: false,
+            identifierStart: identifierStart,
+            identifierBody: identifierBody
+        )
+    }()
+
+    static let ocaml = SyntaxGrammar(
+        name: "OCaml",
+        extensions: ["ml", "mli"],
+        caseSensitiveKeywords: true,
+        lineComments: [],
+        lineCommentScope: .comment,
+        blockComments: [
+            BlockCommentRule(id: 1, open: "(*", close: "*)", scope: .comment, nestable: true),
+        ],
+        strings: [
+            StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: true, scope: .string),
+        ],
+        keywordGroups: [
+            KeywordGroup(words: [
+                "and", "as", "assert", "asr", "begin", "class", "constraint", "do", "done", "downto",
+                "else", "end", "exception", "external", "false", "for", "fun", "function", "functor",
+                "if", "in", "include", "inherit", "initializer", "land", "lazy", "let", "lor", "lsl",
+                "lsr", "lxor", "match", "method", "mod", "module", "mutable", "new", "nonrec",
+                "object", "of", "open", "or", "private", "rec", "sig", "struct", "then", "to", "true",
+                "try", "type", "val", "virtual", "when", "while", "with",
+            ], scope: .keyword),
+            KeywordGroup(words: ["true", "false", "None", "Some", "Ok", "Error"], scope: .builtin),
+            KeywordGroup(words: [
+                "int", "float", "bool", "char", "string", "unit", "list", "array", "option", "ref",
+                "result", "bytes",
+            ], scope: .type),
+        ],
+        supportsNumbers: true,
+        supportsHashDirectives: false,
+        hashDirectiveScope: .preprocessor,
+        supportsAtAttributes: false,
+        atAttributeScope: .attribute,
+        highlightFunctionCalls: true,
+        highlightAllCapsAsConstant: false,
+        identifierStart: SyntaxGrammar.defaultIdentifierStart,
+        identifierBody: {
+            var set = SyntaxGrammar.defaultIdentifierBody
+            set.insert("'")
+            return set
+        }()
+    )
+
+    static let powershell: SyntaxGrammar = {
+        var identifierStart = SyntaxGrammar.defaultIdentifierStart
+        identifierStart.insert("$")
+        var identifierBody = SyntaxGrammar.defaultIdentifierBody
+        identifierBody.insert("$")
+        identifierBody.insert("-")
+        return SyntaxGrammar(
+            name: "PowerShell",
+            extensions: ["ps1", "psm1", "psd1"],
+            caseSensitiveKeywords: false,
+            lineComments: ["#"],
+            lineCommentScope: .comment,
+            blockComments: [
+                BlockCommentRule(id: 1, open: "<#", close: "#>", scope: .comment, nestable: false),
+            ],
+            strings: [
+                StringRule(id: 1, open: "@\"", close: "\"@", escape: "`", multiline: true, scope: .string),
+                StringRule(id: 2, open: "@'", close: "'@", escape: nil, multiline: true, scope: .string),
+                StringRule(id: 3, open: "\"", close: "\"", escape: "`", multiline: false, scope: .string),
+                StringRule(id: 4, open: "'", close: "'", escape: nil, multiline: false, scope: .string),
+            ],
+            keywordGroups: [
+                KeywordGroup(words: [
+                    "begin", "break", "catch", "class", "continue", "data", "define", "do", "dynamicparam",
+                    "else", "elseif", "end", "enum", "exit", "filter", "finally", "for", "foreach",
+                    "from", "function", "hidden", "if", "in", "param", "process", "return", "static",
+                    "switch", "throw", "trap", "try", "until", "using", "var", "while", "workflow",
+                ], scope: .keyword),
+                KeywordGroup(words: [
+                    "true", "false", "null",
+                ], scope: .builtin),
+                KeywordGroup(words: [
+                    "Write-Host", "Write-Output", "Write-Error", "Write-Warning", "Write-Verbose",
+                    "Write-Debug", "Get-Content", "Set-Content", "Add-Content", "Get-ChildItem",
+                    "Get-Item", "Set-Item", "Remove-Item", "Copy-Item", "Move-Item", "New-Item",
+                    "Test-Path", "Join-Path", "Split-Path", "Resolve-Path", "Get-Location",
+                    "Set-Location", "Push-Location", "Pop-Location", "Invoke-Expression",
+                    "Invoke-Command", "Invoke-WebRequest", "Invoke-RestMethod", "Select-Object",
+                    "Where-Object", "ForEach-Object", "Sort-Object", "Group-Object", "Measure-Object",
+                    "Get-Process", "Stop-Process", "Start-Process", "Get-Service", "Start-Service",
+                    "Stop-Service", "Get-Member", "Get-Command", "Get-Help",
+                ], scope: .builtin),
+            ],
+            supportsNumbers: true,
+            supportsHashDirectives: false,
+            hashDirectiveScope: .preprocessor,
+            supportsAtAttributes: false,
+            atAttributeScope: .attribute,
+            highlightFunctionCalls: true,
+            highlightAllCapsAsConstant: true,
+            identifierStart: identifierStart,
+            identifierBody: identifierBody
+        )
+    }()
 }
