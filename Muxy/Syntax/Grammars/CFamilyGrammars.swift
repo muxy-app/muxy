@@ -301,6 +301,29 @@ extension SyntaxGrammar {
         supportsAtAttributes: false
     )
 
+    static let zig = makeCLike(
+        name: "Zig",
+        extensions: ["zig", "zon"],
+        keywords: [
+            "addrspace", "align", "allowzero", "and", "anyframe", "anytype", "asm", "async", "await",
+            "break", "callconv", "catch", "comptime", "const", "continue", "defer", "else", "enum",
+            "errdefer", "error", "export", "extern", "fn", "for", "if", "inline", "linksection",
+            "noalias", "noinline", "nosuspend", "opaque", "or", "orelse", "packed", "pub", "resume",
+            "return", "struct", "suspend", "switch", "test", "threadlocal", "try", "union", "unreachable",
+            "usingnamespace", "var", "volatile", "while",
+        ],
+        types: [
+            "bool", "void", "noreturn", "type", "anyerror", "anyopaque", "comptime_int", "comptime_float",
+            "isize", "usize", "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "i128", "u128",
+            "f16", "f32", "f64", "f80", "f128", "c_char", "c_short", "c_ushort", "c_int", "c_uint",
+            "c_long", "c_ulong", "c_longlong", "c_ulonglong", "c_longdouble",
+        ],
+        builtins: ["true", "false", "null", "undefined"],
+        blockComment: nil,
+        supportsAtAttributes: true,
+        atAttributeScope: .builtin
+    )
+
     static let dart = makeCLike(
         name: "Dart",
         extensions: ["dart"],
