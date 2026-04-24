@@ -17,8 +17,8 @@ extension SyntaxGrammar {
                 BlockCommentRule(id: 1, open: "<!--", close: "-->", scope: .comment, nestable: false),
             ],
             strings: [
-                StringRule(id: 1, open: "\"", close: "\"", escape: nil, multiline: false, scope: .attributeValue, interpolation: nil),
-                StringRule(id: 2, open: "'", close: "'", escape: nil, multiline: false, scope: .attributeValue, interpolation: nil),
+                StringRule(id: 1, open: "\"", close: "\"", escape: nil, multiline: false, scope: .attributeValue),
+                StringRule(id: 2, open: "'", close: "'", escape: nil, multiline: false, scope: .attributeValue),
             ],
             keywordGroups: [
                 KeywordGroup(words: [
@@ -32,7 +32,6 @@ extension SyntaxGrammar {
                     "legend", "datalist", "picture",
                 ], scope: .tag),
             ],
-            operatorCharacters: [],
             supportsNumbers: false,
             supportsHashDirectives: false,
             hashDirectiveScope: .preprocessor,
@@ -57,11 +56,10 @@ extension SyntaxGrammar {
             BlockCommentRule(id: 3, open: "<![CDATA[", close: "]]>", scope: .string, nestable: false),
         ],
         strings: [
-            StringRule(id: 1, open: "\"", close: "\"", escape: nil, multiline: false, scope: .attributeValue, interpolation: nil),
-            StringRule(id: 2, open: "'", close: "'", escape: nil, multiline: false, scope: .attributeValue, interpolation: nil),
+            StringRule(id: 1, open: "\"", close: "\"", escape: nil, multiline: false, scope: .attributeValue),
+            StringRule(id: 2, open: "'", close: "'", escape: nil, multiline: false, scope: .attributeValue),
         ],
         keywordGroups: [],
-        operatorCharacters: [],
         supportsNumbers: false,
         supportsHashDirectives: false,
         hashDirectiveScope: .preprocessor,
@@ -91,8 +89,8 @@ extension SyntaxGrammar {
                 BlockCommentRule(id: 1, open: "/*", close: "*/", scope: .comment, nestable: false),
             ],
             strings: [
-                StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string, interpolation: nil),
-                StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: false, scope: .string, interpolation: nil),
+                StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+                StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: false, scope: .string),
             ],
             keywordGroups: [
                 KeywordGroup(words: [
@@ -102,7 +100,6 @@ extension SyntaxGrammar {
                     "transparent", "center", "left", "right", "top", "bottom", "middle",
                 ], scope: .builtin),
             ],
-            operatorCharacters: Set(":;,{}"),
             supportsNumbers: true,
             supportsHashDirectives: false,
             hashDirectiveScope: .preprocessor,
@@ -127,10 +124,9 @@ extension SyntaxGrammar {
             BlockCommentRule(id: 3, open: "<!--", close: "-->", scope: .comment, nestable: false),
         ],
         strings: [
-            StringRule(id: 1, open: "`", close: "`", escape: nil, multiline: false, scope: .string, interpolation: nil),
+            StringRule(id: 1, open: "`", close: "`", escape: nil, multiline: false, scope: .string),
         ],
         keywordGroups: [],
-        operatorCharacters: [],
         supportsNumbers: false,
         supportsHashDirectives: false,
         hashDirectiveScope: .heading,

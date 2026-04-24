@@ -9,16 +9,16 @@ extension SyntaxGrammar {
         lineCommentScope: .comment,
         blockComments: [],
         strings: [
-            StringRule(id: 1, open: "\"\"\"", close: "\"\"\"", escape: "\\", multiline: true, scope: .docComment, interpolation: nil),
-            StringRule(id: 2, open: "'''", close: "'''", escape: "\\", multiline: true, scope: .docComment, interpolation: nil),
-            StringRule(id: 3, open: "f\"", close: "\"", escape: "\\", multiline: false, scope: .string, interpolation: "{"),
-            StringRule(id: 4, open: "f'", close: "'", escape: "\\", multiline: false, scope: .string, interpolation: "{"),
-            StringRule(id: 5, open: "r\"", close: "\"", escape: nil, multiline: false, scope: .string, interpolation: nil),
-            StringRule(id: 6, open: "r'", close: "'", escape: nil, multiline: false, scope: .string, interpolation: nil),
-            StringRule(id: 7, open: "b\"", close: "\"", escape: "\\", multiline: false, scope: .string, interpolation: nil),
-            StringRule(id: 8, open: "b'", close: "'", escape: "\\", multiline: false, scope: .string, interpolation: nil),
-            StringRule(id: 9, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string, interpolation: nil),
-            StringRule(id: 10, open: "'", close: "'", escape: "\\", multiline: false, scope: .string, interpolation: nil),
+            StringRule(id: 1, open: "\"\"\"", close: "\"\"\"", escape: "\\", multiline: true, scope: .docComment),
+            StringRule(id: 2, open: "'''", close: "'''", escape: "\\", multiline: true, scope: .docComment),
+            StringRule(id: 3, open: "f\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+            StringRule(id: 4, open: "f'", close: "'", escape: "\\", multiline: false, scope: .string),
+            StringRule(id: 5, open: "r\"", close: "\"", escape: nil, multiline: false, scope: .string),
+            StringRule(id: 6, open: "r'", close: "'", escape: nil, multiline: false, scope: .string),
+            StringRule(id: 7, open: "b\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+            StringRule(id: 8, open: "b'", close: "'", escape: "\\", multiline: false, scope: .string),
+            StringRule(id: 9, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+            StringRule(id: 10, open: "'", close: "'", escape: "\\", multiline: false, scope: .string),
         ],
         keywordGroups: [
             KeywordGroup(words: [
@@ -44,7 +44,6 @@ extension SyntaxGrammar {
                 "self", "cls",
             ], scope: .builtin),
         ],
-        operatorCharacters: SyntaxGrammar.defaultOperatorCharacters,
         supportsNumbers: true,
         supportsHashDirectives: false,
         hashDirectiveScope: .preprocessor,
@@ -71,10 +70,10 @@ extension SyntaxGrammar {
                 BlockCommentRule(id: 1, open: "=begin", close: "=end", scope: .comment, nestable: false),
             ],
             strings: [
-                StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: true, scope: .string, interpolation: "#{"),
-                StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: true, scope: .string, interpolation: nil),
-                StringRule(id: 3, open: "%w(", close: ")", escape: "\\", multiline: true, scope: .string, interpolation: nil),
-                StringRule(id: 4, open: "%Q(", close: ")", escape: "\\", multiline: true, scope: .string, interpolation: "#{"),
+                StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: true, scope: .string),
+                StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: true, scope: .string),
+                StringRule(id: 3, open: "%w(", close: ")", escape: "\\", multiline: true, scope: .string),
+                StringRule(id: 4, open: "%Q(", close: ")", escape: "\\", multiline: true, scope: .string),
             ],
             keywordGroups: [
                 KeywordGroup(words: [
@@ -87,7 +86,6 @@ extension SyntaxGrammar {
                 ], scope: .keyword),
                 KeywordGroup(words: ["true", "false", "nil", "self"], scope: .builtin),
             ],
-            operatorCharacters: SyntaxGrammar.defaultOperatorCharacters,
             supportsNumbers: true,
             supportsHashDirectives: false,
             hashDirectiveScope: .preprocessor,
@@ -110,9 +108,9 @@ extension SyntaxGrammar {
             BlockCommentRule(id: 1, open: "--[[", close: "]]", scope: .comment, nestable: false),
         ],
         strings: [
-            StringRule(id: 1, open: "[[", close: "]]", escape: nil, multiline: true, scope: .string, interpolation: nil),
-            StringRule(id: 2, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string, interpolation: nil),
-            StringRule(id: 3, open: "'", close: "'", escape: "\\", multiline: false, scope: .string, interpolation: nil),
+            StringRule(id: 1, open: "[[", close: "]]", escape: nil, multiline: true, scope: .string),
+            StringRule(id: 2, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+            StringRule(id: 3, open: "'", close: "'", escape: "\\", multiline: false, scope: .string),
         ],
         keywordGroups: [
             KeywordGroup(words: [
@@ -127,7 +125,6 @@ extension SyntaxGrammar {
                 "unpack", "xpcall", "self",
             ], scope: .builtin),
         ],
-        operatorCharacters: SyntaxGrammar.defaultOperatorCharacters,
         supportsNumbers: true,
         supportsHashDirectives: false,
         hashDirectiveScope: .preprocessor,
@@ -152,8 +149,8 @@ extension SyntaxGrammar {
             lineCommentScope: .comment,
             blockComments: [],
             strings: [
-                StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: true, scope: .string, interpolation: "$"),
-                StringRule(id: 2, open: "'", close: "'", escape: nil, multiline: true, scope: .string, interpolation: nil),
+                StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: true, scope: .string),
+                StringRule(id: 2, open: "'", close: "'", escape: nil, multiline: true, scope: .string),
             ],
             keywordGroups: [
                 KeywordGroup(words: [
@@ -168,7 +165,6 @@ extension SyntaxGrammar {
                 ], scope: .builtin),
                 KeywordGroup(words: ["true", "false"], scope: .builtin),
             ],
-            operatorCharacters: SyntaxGrammar.defaultOperatorCharacters,
             supportsNumbers: true,
             supportsHashDirectives: false,
             hashDirectiveScope: .preprocessor,
@@ -196,8 +192,8 @@ extension SyntaxGrammar {
             lineCommentScope: .comment,
             blockComments: [],
             strings: [
-                StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string, interpolation: nil),
-                StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: false, scope: .string, interpolation: nil),
+                StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+                StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: false, scope: .string),
             ],
             keywordGroups: [
                 KeywordGroup(words: [
@@ -214,7 +210,6 @@ extension SyntaxGrammar {
                     "splice",
                 ], scope: .builtin),
             ],
-            operatorCharacters: SyntaxGrammar.defaultOperatorCharacters,
             supportsNumbers: true,
             supportsHashDirectives: false,
             hashDirectiveScope: .preprocessor,
@@ -235,9 +230,9 @@ extension SyntaxGrammar {
         lineCommentScope: .comment,
         blockComments: [],
         strings: [
-            StringRule(id: 1, open: "\"\"\"", close: "\"\"\"", escape: "\\", multiline: true, scope: .docComment, interpolation: "#{"),
-            StringRule(id: 2, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string, interpolation: "#{"),
-            StringRule(id: 3, open: "'", close: "'", escape: "\\", multiline: false, scope: .string, interpolation: nil),
+            StringRule(id: 1, open: "\"\"\"", close: "\"\"\"", escape: "\\", multiline: true, scope: .docComment),
+            StringRule(id: 2, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+            StringRule(id: 3, open: "'", close: "'", escape: "\\", multiline: false, scope: .string),
         ],
         keywordGroups: [
             KeywordGroup(words: [
@@ -249,7 +244,6 @@ extension SyntaxGrammar {
             ], scope: .keyword),
             KeywordGroup(words: ["true", "false", "nil"], scope: .builtin),
         ],
-        operatorCharacters: SyntaxGrammar.defaultOperatorCharacters,
         supportsNumbers: true,
         supportsHashDirectives: false,
         hashDirectiveScope: .preprocessor,
@@ -271,8 +265,8 @@ extension SyntaxGrammar {
             BlockCommentRule(id: 1, open: "{-", close: "-}", scope: .comment, nestable: true),
         ],
         strings: [
-            StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string, interpolation: nil),
-            StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: false, scope: .string, interpolation: nil),
+            StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+            StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: false, scope: .string),
         ],
         keywordGroups: [
             KeywordGroup(words: [
@@ -286,7 +280,6 @@ extension SyntaxGrammar {
                 "IO", "Ordering", "Functor", "Monad", "Applicative", "Show", "Eq", "Ord",
             ], scope: .type),
         ],
-        operatorCharacters: Set("+-*/%=<>!&|^~?:.$"),
         supportsNumbers: true,
         supportsHashDirectives: false,
         hashDirectiveScope: .preprocessor,

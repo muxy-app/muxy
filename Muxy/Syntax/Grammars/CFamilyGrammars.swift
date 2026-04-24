@@ -40,8 +40,8 @@ extension SyntaxGrammar {
         if !builtins.isEmpty { keywordGroups.append(KeywordGroup(words: builtins, scope: .builtin)) }
 
         var strings: [StringRule] = [
-            StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string, interpolation: nil),
-            StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: false, scope: .string, interpolation: nil),
+            StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+            StringRule(id: 2, open: "'", close: "'", escape: "\\", multiline: false, scope: .string),
         ]
         strings.append(contentsOf: extraStrings)
 
@@ -65,7 +65,6 @@ extension SyntaxGrammar {
             blockComments: blocks,
             strings: strings,
             keywordGroups: keywordGroups,
-            operatorCharacters: defaultOperatorCharacters,
             supportsNumbers: true,
             supportsHashDirectives: supportsHashDirectives,
             hashDirectiveScope: hashDirectiveScope,
@@ -272,7 +271,7 @@ extension SyntaxGrammar {
             "make", "new", "panic", "print", "println", "recover",
         ],
         extraStrings: [
-            SyntaxGrammar.StringRule(id: 3, open: "`", close: "`", escape: nil, multiline: true, scope: .string, interpolation: nil),
+            SyntaxGrammar.StringRule(id: 3, open: "`", close: "`", escape: nil, multiline: true, scope: .string),
         ]
     )
 
@@ -294,7 +293,7 @@ extension SyntaxGrammar {
         ],
         builtins: ["true", "false", "None", "Some", "Ok", "Err"],
         extraStrings: [
-            SyntaxGrammar.StringRule(id: 3, open: "b\"", close: "\"", escape: "\\", multiline: false, scope: .string, interpolation: nil),
+            SyntaxGrammar.StringRule(id: 3, open: "b\"", close: "\"", escape: "\\", multiline: false, scope: .string),
         ],
         blockComment: CLikeBlockComment(open: "/*", close: "*/", nestable: true),
         supportsAtAttributes: false
@@ -324,10 +323,9 @@ extension SyntaxGrammar {
                 close: "\"\"\"",
                 escape: "\\",
                 multiline: true,
-                scope: .string,
-                interpolation: nil
+                scope: .string
             ),
-            SyntaxGrammar.StringRule(id: 4, open: "'''", close: "'''", escape: "\\", multiline: true, scope: .string, interpolation: nil),
+            SyntaxGrammar.StringRule(id: 4, open: "'''", close: "'''", escape: "\\", multiline: true, scope: .string),
         ],
         supportsAtAttributes: true,
         allowDollarInIdentifier: true
@@ -351,7 +349,7 @@ extension SyntaxGrammar {
             "Error", "TypeError", "RangeError", "SyntaxError",
         ],
         extraStrings: [
-            SyntaxGrammar.StringRule(id: 3, open: "`", close: "`", escape: "\\", multiline: true, scope: .string, interpolation: "${"),
+            SyntaxGrammar.StringRule(id: 3, open: "`", close: "`", escape: "\\", multiline: true, scope: .string),
         ],
         allowDollarInIdentifier: true
     )
@@ -379,7 +377,7 @@ extension SyntaxGrammar {
             "document", "console", "Math", "JSON",
         ],
         extraStrings: [
-            SyntaxGrammar.StringRule(id: 3, open: "`", close: "`", escape: "\\", multiline: true, scope: .string, interpolation: "${"),
+            SyntaxGrammar.StringRule(id: 3, open: "`", close: "`", escape: "\\", multiline: true, scope: .string),
         ],
         supportsAtAttributes: true,
         allowDollarInIdentifier: true

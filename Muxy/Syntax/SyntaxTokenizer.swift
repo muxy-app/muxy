@@ -54,14 +54,16 @@ struct SyntaxTokenizer {
                 }
             }
 
-            if grammar.supportsAtAttributes, codeUnit == 0x40, let consumed = scanAtAttribute(ns: ns, length: length, from: cursor) {
+            if grammar.supportsAtAttributes, codeUnit == 0x40,
+               let consumed = scanPrefixedIdentifier(ns: ns, length: length, from: cursor)
+            {
                 tokens.append(TokenSpan(location: cursor, length: consumed, scope: grammar.atAttributeScope))
                 cursor += consumed
                 continue
             }
 
             if grammar.supportsHashDirectives, codeUnit == 0x23, isAtLineStart(ns: ns, upTo: cursor),
-               let consumed = scanHashDirective(ns: ns, length: length, from: cursor)
+               let consumed = scanPrefixedIdentifier(ns: ns, length: length, from: cursor)
             {
                 tokens.append(TokenSpan(location: cursor, length: consumed, scope: grammar.hashDirectiveScope))
                 cursor += consumed
@@ -254,20 +256,7 @@ struct SyntaxTokenizer {
         return (length, false)
     }
 
-    private func scanAtAttribute(ns: NSString, length: Int, from start: Int) -> Int? {
-        var scan = start + 1
-        while scan < length {
-            let ch = ns.character(at: scan)
-            guard let scalar = Unicode.Scalar(ch) else { break }
-            let character = Character(scalar)
-            if !grammar.identifierBody.contains(character) { break }
-            scan += 1
-        }
-        let consumed = scan - start
-        return consumed > 1 ? consumed : nil
-    }
-
-    private func scanHashDirective(ns: NSString, length: Int, from start: Int) -> Int? {
+    private func scanPrefixedIdentifier(ns: NSString, length: Int, from start: Int) -> Int? {
         var scan = start + 1
         while scan < length {
             let ch = ns.character(at: scan)

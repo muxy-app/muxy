@@ -14,7 +14,6 @@ struct SyntaxGrammar {
         let escape: String?
         let multiline: Bool
         let scope: SyntaxScope
-        let interpolation: String?
     }
 
     struct BlockCommentRule {
@@ -38,7 +37,6 @@ struct SyntaxGrammar {
     let blockComments: [BlockCommentRule]
     let strings: [StringRule]
     let keywordGroups: [KeywordGroup]
-    let operatorCharacters: Set<Character>
     let supportsNumbers: Bool
     let supportsHashDirectives: Bool
     let hashDirectiveScope: SyntaxScope
@@ -68,6 +66,4 @@ struct SyntaxGrammar {
         }
         return set
     }()
-
-    static let defaultOperatorCharacters: Set<Character> = Set("+-*/%=<>!&|^~?:")
 }
