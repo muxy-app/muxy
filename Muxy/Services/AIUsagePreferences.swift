@@ -94,6 +94,7 @@ enum AIUsageSettingsStore {
     static let usageDisplayModeKey = "muxy.usage.displayMode"
     static let usageEnabledKey = "muxy.usage.enabled"
     static let showSecondaryLimitsKey = "muxy.usage.showSecondaryLimits"
+    static let sidebarPreviewProviderIDKey = "muxy.usage.sidebarPreviewProviderID"
 
     static let defaultAutoRefreshInterval: AIUsageAutoRefreshInterval = .fiveMinutes
     static let defaultUsageDisplayMode: AIUsageDisplayMode = .used
@@ -157,6 +158,29 @@ enum AIUsageSettingsStore {
 
     static func setShowSecondaryLimits(_ show: Bool, defaults: UserDefaults = .standard) {
         defaults.set(show, forKey: showSecondaryLimitsKey)
+    }
+
+    static func sidebarPreviewProviderID(defaults: UserDefaults = .standard) -> String? {
+        guard let raw = defaults.string(forKey: sidebarPreviewProviderIDKey),
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return nil
+        }
+        return canonicalAIUsageProviderID(raw)
+    }
+
+    static func setSidebarPreviewProviderID(_ providerID: String?, defaults: UserDefaults = .standard) {
+        if let providerID {
+            defaults.set(canonicalAIUsageProviderID(providerID), forKey: sidebarPreviewProviderIDKey)
+        } else {
+            defaults.removeObject(forKey: sidebarPreviewProviderIDKey)
+        }
+    }
+
+    static func isSidebarPinned(providerID: String, pinnedRawValue: String) -> Bool {
+        let trimmed = pinnedRawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return canonicalAIUsageProviderID(trimmed) == canonicalAIUsageProviderID(providerID)
     }
 }
 

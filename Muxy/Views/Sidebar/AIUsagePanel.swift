@@ -72,26 +72,26 @@ struct AIUsagePanel: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 Text("AI Usage")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 Spacer()
                 Button(action: onRefresh) {
                     Group {
                         if isRefreshing {
                             ProgressView()
-                                .controlSize(.mini)
+                                .controlSize(.small)
                         } else {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(.system(size: 11, weight: .semibold))
                         }
                     }
-                    .frame(width: 10, height: 10)
+                    .frame(width: 14, height: 14)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -99,27 +99,27 @@ struct AIUsagePanel: View {
                 .help("Refresh usage")
                 if let lastRefreshDate {
                     Text(Self.relativeFormatter.localizedString(for: lastRefreshDate, relativeTo: Date()))
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
             }
 
             if snapshots.isEmpty {
                 Text(isRefreshing ? "Refreshing usage data..." : "No usage data yet.")
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
 
             if !snapshots.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 10) {
                     ForEach(snapshots) { snapshot in
                         AIProviderUsageView(snapshot: snapshot)
                     }
                 }
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 8))
     }
 }
@@ -127,18 +127,54 @@ struct AIUsagePanel: View {
 struct AIProviderUsageView: View {
     let snapshot: AIProviderUsageSnapshot
 
+    @AppStorage(AIUsageSettingsStore.sidebarPreviewProviderIDKey) private var pinnedProviderID: String = ""
+    @State private var pinHovered = false
+
+    private var isAvailable: Bool {
+        if case .available = snapshot.state { return true }
+        return false
+    }
+
+    private var isPinned: Bool {
+        AIUsageSettingsStore.isSidebarPinned(providerID: snapshot.providerID, pinnedRawValue: pinnedProviderID)
+    }
+
+    private func togglePin() {
+        if isPinned {
+            AIUsageSettingsStore.setSidebarPreviewProviderID(nil)
+        } else {
+            AIUsageSettingsStore.setSidebarPreviewProviderID(snapshot.providerID)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                ProviderIconView(iconName: snapshot.providerIconName, size: 12, style: .monochrome(MuxyTheme.fg))
+                ProviderIconView(iconName: snapshot.providerIconName, size: 14, style: .monochrome(MuxyTheme.fg))
                 Text(snapshot.providerName)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(MuxyTheme.fg)
+
+                Spacer(minLength: 4)
+
+                if isAvailable {
+                    Button(action: togglePin) {
+                        Image(systemName: isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(isPinned ? MuxyTheme.accent : (pinHovered ? MuxyTheme.fg : MuxyTheme.fgMuted))
+                            .rotationEffect(.degrees(45))
+                            .frame(width: 14, height: 14)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { pinHovered = $0 }
+                    .help(isPinned ? "Unpin from sidebar" : "Show this provider in the sidebar")
+                }
             }
 
             switch snapshot.state {
             case .available:
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(snapshot.rows) { row in
                         AIUsageMetricRowView(row: row, fetchedAt: snapshot.fetchedAt)
                     }
@@ -146,7 +182,7 @@ struct AIProviderUsageView: View {
             case let .unavailable(message),
                  let .error(message):
                 Text(message)
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
         }
@@ -317,26 +353,26 @@ struct AIUsageMetricRowView: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 Text(row.label)
-                    .font(.system(size: 10))
+                    .font(.system(size: 12))
                     .foregroundStyle(MuxyTheme.fgMuted)
 
                 if paceDetailText != nil {
                     Circle()
                         .fill(paceIndicatorColor)
-                        .frame(width: 5, height: 5)
+                        .frame(width: 6, height: 6)
                 }
                 Spacer()
                 if let percent = displayPercent {
                     Text("\(Int(percent.rounded()))%")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(MuxyTheme.fg)
                 }
                 if let detail = displayDetail {
                     Text(detail)
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
             }
@@ -344,20 +380,20 @@ struct AIUsageMetricRowView: View {
             if let percent = displayPercent {
                 ProgressView(value: percent, total: 100)
                     .tint(MuxyTheme.accent)
-                    .controlSize(.mini)
+                    .controlSize(.small)
             }
 
             if let resetDate = row.resetDate {
                 HStack(spacing: 6) {
                     Text("Resets \(Self.resetFormatter.string(from: resetDate))")
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundStyle(MuxyTheme.fgDim)
 
                     Spacer(minLength: 0)
 
                     if let paceDetailText {
                         Text(paceDetailText)
-                            .font(.system(size: 9))
+                            .font(.system(size: 11))
                             .foregroundStyle(MuxyTheme.fgDim)
                             .lineLimit(1)
                     }
