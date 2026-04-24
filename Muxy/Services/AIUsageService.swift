@@ -196,31 +196,24 @@ final class AIUsageService {
             return pinned
         }
 
-        if previousSnapshotsCache.isEmpty {
-            return mostUsedProviderSnapshot
-        }
         return mostActiveProviderSnapshot ?? mostUsedProviderSnapshot
     }
 
     var mostActiveProviderSnapshot: AIProviderUsageSnapshot? {
-        guard !snapshots.isEmpty else { return nil }
+        guard !snapshots.isEmpty, !previousSnapshotsCache.isEmpty else { return nil }
 
-        var maxScore: Double = 0
+        var maxDelta: Double = 0
         var mostActive: AIProviderUsageSnapshot?
 
         for current in snapshots {
-            guard let currentPercent = usedPercent(for: current) else { continue }
+            guard let currentPercent = usedPercent(for: current),
+                  let previous = previousSnapshotsCache.first(where: { $0.providerID == current.providerID }),
+                  let previousPercent = usedPercent(for: previous)
+            else { continue }
 
-            let score: Double = if let previous = previousSnapshotsCache.first(where: { $0.providerID == current.providerID }),
-                                   let previousPercent = usedPercent(for: previous)
-            {
-                abs(currentPercent - previousPercent)
-            } else {
-                currentPercent
-            }
-
-            if score > maxScore {
-                maxScore = score
+            let delta = abs(currentPercent - previousPercent)
+            if delta > maxDelta {
+                maxDelta = delta
                 mostActive = current
             }
         }
