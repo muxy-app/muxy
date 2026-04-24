@@ -403,10 +403,10 @@
 /* Begin XCRemoteSwiftPackageReference section */
 		A5000002 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/muxy-app/SwiftTerm";
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
 			requirement = {
-				branch = main;
-				kind = branch;
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
