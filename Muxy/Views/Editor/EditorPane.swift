@@ -32,7 +32,8 @@ struct EditorPane: View {
                             replaceText: state.replaceText,
                             replaceVersion: state.replaceVersion,
                             replaceAllVersion: state.replaceAllVersion,
-                            editorFocusVersion: state.editorFocusVersion
+                            editorFocusVersion: state.editorFocusVersion,
+                            onFocus: onFocus
                         )
                     }
 

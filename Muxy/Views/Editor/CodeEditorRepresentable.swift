@@ -10,6 +10,17 @@ private final class CodeEditorTextView: NSTextView {
     var onRedoRequest: (() -> Bool)?
     var canUndoRequest: (() -> Bool)?
     var canRedoRequest: (() -> Bool)?
+    var onFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result {
+            DispatchQueue.main.async { [weak self] in
+                self?.onFocus?()
+            }
+        }
+        return result
+    }
 
     override func paste(_ sender: Any?) {
         pasteAsPlainText(sender)
@@ -170,6 +181,7 @@ struct CodeEditorView: NSViewRepresentable {
     let replaceVersion: Int
     let replaceAllVersion: Int
     let editorFocusVersion: Int
+    let onFocus: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(state: state, editorSettings: editorSettings)
@@ -254,6 +266,7 @@ struct CodeEditorView: NSViewRepresentable {
         textView.canRedoRequest = { [weak coordinator] in
             coordinator?.canPerformRedoRequest() ?? false
         }
+        textView.onFocus = onFocus
         coordinator.setScrollObserver(for: scrollView)
         textView.undoManager?.removeAllActions()
 
@@ -271,6 +284,7 @@ struct CodeEditorView: NSViewRepresentable {
                 codeTextView.onRedoRequest = nil
                 codeTextView.canUndoRequest = nil
                 codeTextView.canRedoRequest = nil
+                codeTextView.onFocus = nil
             }
         }
         coordinator.textView?.delegate = nil
@@ -281,6 +295,9 @@ struct CodeEditorView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView else { return }
         let coordinator = context.coordinator
+        if let codeTextView = textView as? CodeEditorTextView {
+            codeTextView.onFocus = onFocus
+        }
 
         if state.backingStore != nil, coordinator.viewportState == nil {
             coordinator.enterViewportMode(scrollView: scrollView)
