@@ -186,6 +186,16 @@ final class AIUsageService {
     }
 
     var previewProviderSnapshot: AIProviderUsageSnapshot? {
+        if let pinnedID = AIUsageSettingsStore.sidebarPreviewProviderID(),
+           let pinned = snapshots.first(where: {
+               canonicalAIUsageProviderID($0.providerID) == pinnedID
+           }),
+           case .available = pinned.state,
+           pinned.rows.contains(where: { $0.percent != nil })
+        {
+            return pinned
+        }
+
         if previousSnapshotsCache.isEmpty {
             return mostUsedProviderSnapshot
         }
