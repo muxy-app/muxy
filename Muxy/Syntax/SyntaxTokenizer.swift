@@ -310,6 +310,16 @@ struct SyntaxTokenizer {
             return
         }
 
+        if grammar.jsxAware, isJSXTagName(ns: ns, match: match) {
+            tokens.append(TokenSpan(location: match.start, length: spanLength, scope: .tag))
+            return
+        }
+
+        if grammar.jsxAware, isPascalCase(match.word) {
+            tokens.append(TokenSpan(location: match.start, length: spanLength, scope: .type))
+            return
+        }
+
         if grammar.highlightFunctionCalls {
             var probe = match.end
             while probe < length {
@@ -324,6 +334,34 @@ struct SyntaxTokenizer {
                 tokens.append(TokenSpan(location: match.start, length: spanLength, scope: .function))
             }
         }
+    }
+
+    private func isJSXTagName(ns: NSString, match: IdentifierMatch) -> Bool {
+        var probe = match.start - 1
+        if probe >= 0, ns.character(at: probe) == 0x2F {
+            probe -= 1
+        }
+        guard probe >= 0, ns.character(at: probe) == 0x3C else { return false }
+        if probe - 1 >= 0 {
+            let prior = ns.character(at: probe - 1)
+            if isIdentifierBodyCodeUnit(prior) { return false }
+        }
+        return true
+    }
+
+    private func isIdentifierBodyCodeUnit(_ ch: unichar) -> Bool {
+        guard let scalar = Unicode.Scalar(ch) else { return false }
+        return grammar.identifierBody.contains(Character(scalar))
+    }
+
+    private func isPascalCase(_ word: String) -> Bool {
+        guard let first = word.first, first.isUppercase else { return false }
+        var hasLower = false
+        for character in word where character.isLowercase {
+            hasLower = true
+            break
+        }
+        return hasLower
     }
 
     private func isAllCapsConstant(_ word: String) -> Bool {

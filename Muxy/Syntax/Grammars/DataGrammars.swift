@@ -226,4 +226,96 @@ extension SyntaxGrammar {
             return set
         }()
     )
+
+    static let graphql = SyntaxGrammar(
+        name: "GraphQL",
+        extensions: ["graphql", "gql"],
+        caseSensitiveKeywords: true,
+        lineComments: ["#"],
+        lineCommentScope: .comment,
+        blockComments: [],
+        strings: [
+            StringRule(id: 1, open: "\"\"\"", close: "\"\"\"", escape: "\\", multiline: true, scope: .docComment),
+            StringRule(id: 2, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+        ],
+        keywordGroups: [
+            KeywordGroup(words: [
+                "query", "mutation", "subscription", "fragment", "on", "type", "interface", "union",
+                "enum", "input", "schema", "scalar", "directive", "extend", "implements", "repeatable",
+            ], scope: .keyword),
+            KeywordGroup(words: [
+                "Int", "Float", "String", "Boolean", "ID",
+            ], scope: .type),
+            KeywordGroup(words: ["true", "false", "null"], scope: .builtin),
+        ],
+        supportsNumbers: true,
+        supportsHashDirectives: false,
+        hashDirectiveScope: .preprocessor,
+        supportsAtAttributes: true,
+        atAttributeScope: .attribute,
+        highlightFunctionCalls: true,
+        highlightAllCapsAsConstant: true,
+        identifierStart: SyntaxGrammar.defaultIdentifierStart,
+        identifierBody: SyntaxGrammar.defaultIdentifierBody
+    )
+
+    static let terraform = SyntaxGrammar(
+        name: "Terraform",
+        extensions: ["tf", "tfvars", "hcl"],
+        caseSensitiveKeywords: true,
+        lineComments: ["#", "//"],
+        lineCommentScope: .comment,
+        blockComments: [
+            BlockCommentRule(id: 1, open: "/*", close: "*/", scope: .comment, nestable: false),
+        ],
+        strings: [
+            StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+        ],
+        keywordGroups: [
+            KeywordGroup(words: [
+                "resource", "data", "variable", "output", "module", "provider", "terraform",
+                "locals", "for_each", "count", "depends_on", "lifecycle", "dynamic", "provisioner",
+                "connection", "backend", "required_providers", "required_version",
+            ], scope: .keyword),
+            KeywordGroup(words: [
+                "string", "number", "bool", "list", "map", "set", "object", "tuple", "any",
+            ], scope: .type),
+            KeywordGroup(words: ["true", "false", "null"], scope: .builtin),
+        ],
+        supportsNumbers: true,
+        supportsHashDirectives: false,
+        hashDirectiveScope: .preprocessor,
+        supportsAtAttributes: false,
+        atAttributeScope: .attribute,
+        highlightFunctionCalls: true,
+        highlightAllCapsAsConstant: true,
+        identifierStart: SyntaxGrammar.defaultIdentifierStart,
+        identifierBody: {
+            var set = SyntaxGrammar.defaultIdentifierBody
+            set.insert("-")
+            return set
+        }()
+    )
+
+    static let csv = SyntaxGrammar(
+        name: "CSV",
+        extensions: ["csv", "tsv"],
+        caseSensitiveKeywords: true,
+        lineComments: [],
+        lineCommentScope: .comment,
+        blockComments: [],
+        strings: [
+            StringRule(id: 1, open: "\"", close: "\"", escape: "\"", multiline: true, scope: .string),
+        ],
+        keywordGroups: [],
+        supportsNumbers: true,
+        supportsHashDirectives: false,
+        hashDirectiveScope: .preprocessor,
+        supportsAtAttributes: false,
+        atAttributeScope: .attribute,
+        highlightFunctionCalls: false,
+        highlightAllCapsAsConstant: false,
+        identifierStart: SyntaxGrammar.defaultIdentifierStart,
+        identifierBody: SyntaxGrammar.defaultIdentifierBody
+    )
 }

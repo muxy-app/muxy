@@ -46,6 +46,47 @@ struct SyntaxGrammar {
     let highlightAllCapsAsConstant: Bool
     let identifierStart: Set<Character>
     let identifierBody: Set<Character>
+    let jsxAware: Bool
+
+    init(
+        name: String,
+        extensions: [String],
+        caseSensitiveKeywords: Bool,
+        lineComments: [String],
+        lineCommentScope: SyntaxScope,
+        blockComments: [BlockCommentRule],
+        strings: [StringRule],
+        keywordGroups: [KeywordGroup],
+        supportsNumbers: Bool,
+        supportsHashDirectives: Bool,
+        hashDirectiveScope: SyntaxScope,
+        supportsAtAttributes: Bool,
+        atAttributeScope: SyntaxScope,
+        highlightFunctionCalls: Bool,
+        highlightAllCapsAsConstant: Bool,
+        identifierStart: Set<Character>,
+        identifierBody: Set<Character>,
+        jsxAware: Bool = false
+    ) {
+        self.name = name
+        self.extensions = extensions
+        self.caseSensitiveKeywords = caseSensitiveKeywords
+        self.lineComments = lineComments
+        self.lineCommentScope = lineCommentScope
+        self.blockComments = blockComments
+        self.strings = strings
+        self.keywordGroups = keywordGroups
+        self.supportsNumbers = supportsNumbers
+        self.supportsHashDirectives = supportsHashDirectives
+        self.hashDirectiveScope = hashDirectiveScope
+        self.supportsAtAttributes = supportsAtAttributes
+        self.atAttributeScope = atAttributeScope
+        self.highlightFunctionCalls = highlightFunctionCalls
+        self.highlightAllCapsAsConstant = highlightAllCapsAsConstant
+        self.identifierStart = identifierStart
+        self.identifierBody = identifierBody
+        self.jsxAware = jsxAware
+    }
 
     static let defaultIdentifierStart: Set<Character> = {
         var set = Set<Character>()

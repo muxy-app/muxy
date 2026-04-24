@@ -24,7 +24,8 @@ extension SyntaxGrammar {
         supportsAtAttributes: Bool = false,
         atAttributeScope: SyntaxScope = .attribute,
         highlightFunctionCalls: Bool = true,
-        allowDollarInIdentifier: Bool = false
+        allowDollarInIdentifier: Bool = false,
+        jsxAware: Bool = false
     ) -> SyntaxGrammar {
         var identifierStart = defaultIdentifierStart
         var identifierBody = defaultIdentifierBody
@@ -73,7 +74,8 @@ extension SyntaxGrammar {
             highlightFunctionCalls: highlightFunctionCalls,
             highlightAllCapsAsConstant: true,
             identifierStart: identifierStart,
-            identifierBody: identifierBody
+            identifierBody: identifierBody,
+            jsxAware: jsxAware
         )
     }
 
@@ -351,7 +353,8 @@ extension SyntaxGrammar {
         extraStrings: [
             SyntaxGrammar.StringRule(id: 3, open: "`", close: "`", escape: "\\", multiline: true, scope: .string),
         ],
-        allowDollarInIdentifier: true
+        allowDollarInIdentifier: true,
+        jsxAware: true
     )
 
     static let typescript = makeCLike(
@@ -380,7 +383,8 @@ extension SyntaxGrammar {
             SyntaxGrammar.StringRule(id: 3, open: "`", close: "`", escape: "\\", multiline: true, scope: .string),
         ],
         supportsAtAttributes: true,
-        allowDollarInIdentifier: true
+        allowDollarInIdentifier: true,
+        jsxAware: true
     )
 
     static let php = makeCLike(

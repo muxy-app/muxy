@@ -170,6 +170,111 @@ struct SyntaxTokenizerTests {
         #expect(highlighter.tokens(forLine: 0)?.isEmpty == true)
     }
 
+    @Test("GraphQL tags keywords and types")
+    func graphqlKeywordsAndTypes() {
+        let result = tokenize("type Query { id: ID }", grammar: .graphql)
+        #expect(result.tokens.contains(where: { $0.scope == .keyword }))
+        #expect(result.tokens.contains(where: { $0.scope == .type }))
+    }
+
+    @Test("Terraform recognizes resource keyword and string")
+    func terraformBasic() {
+        let result = tokenize(
+            "resource \"aws_instance\" \"web\" {",
+            grammar: .terraform
+        )
+        #expect(result.tokens.contains(where: { $0.scope == .keyword }))
+        #expect(result.tokens.contains(where: { $0.scope == .string }))
+    }
+
+    @Test("CSV quoted field is a string, plain fields not keywords")
+    func csvQuoted() {
+        let result = tokenize("a,b,\"c,d\"", grammar: .csv)
+        #expect(result.tokens.contains(where: { $0.scope == .string }))
+        #expect(!result.tokens.contains(where: { $0.scope == .keyword }))
+    }
+
+    @Test("Vue and Svelte tokenize attribute strings")
+    func vueSvelteAttributeStrings() {
+        let vueResult = tokenize("<div class=\"foo\">", grammar: .vue)
+        #expect(vueResult.tokens.contains(where: { $0.scope == .attributeValue }))
+        let svelteResult = tokenize("<div class=\"bar\">", grammar: .svelte)
+        #expect(svelteResult.tokens.contains(where: { $0.scope == .attributeValue }))
+    }
+
+    @Test("Vue and Svelte recognize block comments")
+    func vueSvelteComments() {
+        let vueResult = tokenize("<!-- comment -->", grammar: .vue)
+        #expect(vueResult.tokens.contains(where: { $0.scope == .comment }))
+        let svelteResult = tokenize("<!-- comment -->", grammar: .svelte)
+        #expect(svelteResult.tokens.contains(where: { $0.scope == .comment }))
+    }
+
+    @Test("TSX: component name in opening tag is tagged")
+    func tsxOpeningTag() {
+        let result = tokenize("<Dialog open={open}>", grammar: .typescript)
+        let dialog = result.tokens.first { span in
+            let s = (("<Dialog open={open}>" as NSString).substring(with: NSRange(location: span.location, length: span.length)))
+            return s == "Dialog"
+        }
+        #expect(dialog?.scope == .tag)
+    }
+
+    @Test("TSX: component name in closing tag is tagged")
+    func tsxClosingTag() {
+        let line = "</DialogContent>"
+        let result = tokenize(line, grammar: .typescript)
+        let dc = result.tokens.first { span in
+            let s = (line as NSString).substring(with: NSRange(location: span.location, length: span.length))
+            return s == "DialogContent"
+        }
+        #expect(dc?.scope == .tag)
+    }
+
+    @Test("TSX: lowercase HTML tag is tagged")
+    func tsxLowercaseTag() {
+        let line = "<form onSubmit={x}>"
+        let result = tokenize(line, grammar: .typescript)
+        let form = result.tokens.first { span in
+            let s = (line as NSString).substring(with: NSRange(location: span.location, length: span.length))
+            return s == "form"
+        }
+        #expect(form?.scope == .tag)
+    }
+
+    @Test("TSX: PascalCase identifier outside JSX is tagged as type")
+    func tsxPascalCaseAsType() {
+        let line = "const x: MyType = new MyClass()"
+        let result = tokenize(line, grammar: .typescript)
+        let myType = result.tokens.first { span in
+            let s = (line as NSString).substring(with: NSRange(location: span.location, length: span.length))
+            return s == "MyType"
+        }
+        #expect(myType?.scope == .type)
+    }
+
+    @Test("TSX: ALL_CAPS still wins over PascalCase rule")
+    func tsxAllCapsPriority() {
+        let line = "const X = FOO"
+        let result = tokenize(line, grammar: .typescript)
+        let foo = result.tokens.first { span in
+            let s = (line as NSString).substring(with: NSRange(location: span.location, length: span.length))
+            return s == "FOO"
+        }
+        #expect(foo?.scope == .constant)
+    }
+
+    @Test("TSX: less-than comparison not mistaken for tag")
+    func tsxComparisonNotTag() {
+        let line = "if (a < B) {}"
+        let result = tokenize(line, grammar: .typescript)
+        let b = result.tokens.first { span in
+            let s = (line as NSString).substring(with: NSRange(location: span.location, length: span.length))
+            return s == "B"
+        }
+        #expect(b?.scope != .tag)
+    }
+
     @Test("Escape sequence inside string does not end it early")
     func escapeInString() {
         let result = tokenize("\"a\\\"b\"", grammar: .swift)

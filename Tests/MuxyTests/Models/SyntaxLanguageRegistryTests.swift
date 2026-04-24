@@ -38,4 +38,34 @@ struct SyntaxLanguageRegistryTests {
     func pathWithDirectories() {
         #expect(SyntaxLanguageRegistry.grammar(forFile: "/a/b/c/foo.go")?.name == "Go")
     }
+
+    @Test("recognizes JSX and TSX via JavaScript/TypeScript")
+    func jsxTsxRecognized() {
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "App.jsx")?.name == "JavaScript")
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "App.tsx")?.name == "TypeScript")
+    }
+
+    @Test("recognizes Vue and Svelte")
+    func vueSvelte() {
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "App.vue")?.name == "Vue")
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "App.svelte")?.name == "Svelte")
+    }
+
+    @Test("recognizes GraphQL")
+    func graphql() {
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "schema.graphql")?.name == "GraphQL")
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "query.gql")?.name == "GraphQL")
+    }
+
+    @Test("recognizes Terraform")
+    func terraform() {
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "main.tf")?.name == "Terraform")
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "prod.tfvars")?.name == "Terraform")
+    }
+
+    @Test("recognizes CSV")
+    func csv() {
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "data.csv")?.name == "CSV")
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "data.tsv")?.name == "CSV")
+    }
 }
