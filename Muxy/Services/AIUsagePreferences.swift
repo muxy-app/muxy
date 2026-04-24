@@ -176,6 +176,12 @@ enum AIUsageSettingsStore {
             defaults.removeObject(forKey: sidebarPreviewProviderIDKey)
         }
     }
+
+    static func isSidebarPinned(providerID: String, pinnedRawValue: String) -> Bool {
+        let trimmed = pinnedRawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return canonicalAIUsageProviderID(trimmed) == canonicalAIUsageProviderID(providerID)
+    }
 }
 
 enum AIUsageAutoRefreshInterval: Int, CaseIterable, Identifiable {

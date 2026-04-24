@@ -136,8 +136,7 @@ struct AIProviderUsageView: View {
     }
 
     private var isPinned: Bool {
-        !pinnedProviderID.isEmpty
-            && canonicalAIUsageProviderID(pinnedProviderID) == canonicalAIUsageProviderID(snapshot.providerID)
+        AIUsageSettingsStore.isSidebarPinned(providerID: snapshot.providerID, pinnedRawValue: pinnedProviderID)
     }
 
     private func togglePin() {

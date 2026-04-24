@@ -186,17 +186,23 @@ final class AIUsageService {
     }
 
     var previewProviderSnapshot: AIProviderUsageSnapshot? {
-        if let pinnedID = AIUsageSettingsStore.sidebarPreviewProviderID(),
-           let pinned = snapshots.first(where: {
-               canonicalAIUsageProviderID($0.providerID) == pinnedID
-           }),
-           case .available = pinned.state,
-           pinned.rows.contains(where: { $0.percent != nil })
-        {
+        previewProviderSnapshot(pinnedRawValue: UserDefaults.standard
+            .string(forKey: AIUsageSettingsStore.sidebarPreviewProviderIDKey) ?? "")
+    }
+
+    func previewProviderSnapshot(pinnedRawValue: String) -> AIProviderUsageSnapshot? {
+        if let pinned = snapshots.first(where: { isPinnedCandidate($0, pinnedRawValue: pinnedRawValue) }) {
             return pinned
         }
-
         return mostActiveProviderSnapshot ?? mostUsedProviderSnapshot
+    }
+
+    private func isPinnedCandidate(_ snapshot: AIProviderUsageSnapshot, pinnedRawValue: String) -> Bool {
+        guard AIUsageSettingsStore.isSidebarPinned(providerID: snapshot.providerID, pinnedRawValue: pinnedRawValue) else {
+            return false
+        }
+        guard case .available = snapshot.state else { return false }
+        return snapshot.rows.contains { $0.percent != nil }
     }
 
     var mostActiveProviderSnapshot: AIProviderUsageSnapshot? {

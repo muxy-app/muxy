@@ -306,8 +306,7 @@ struct SidebarFooter: View {
     }
 
     private var previewProviderDisplay: (percent: Int, iconName: String)? {
-        _ = pinnedPreviewProviderID
-        guard let snapshot = usageService.previewProviderSnapshot,
+        guard let snapshot = usageService.previewProviderSnapshot(pinnedRawValue: pinnedPreviewProviderID),
               case .available = snapshot.state
         else { return nil }
 
