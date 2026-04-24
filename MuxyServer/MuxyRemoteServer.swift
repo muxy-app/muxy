@@ -246,6 +246,10 @@ public final class MuxyRemoteServer: @unchecked Sendable {
     }
 
     func handleRequest(_ request: MuxyRequest, from clientID: UUID) {
+        if Self.voidMethods.contains(request.method) {
+            Task { @MainActor in _ = await processRequest(request, clientID: clientID) }
+            return
+        }
         Task { @MainActor in
             let response = await processRequest(request, clientID: clientID)
             guard let data = try? MuxyCodec.encode(.response(response)) else { return }
@@ -254,6 +258,8 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             }
         }
     }
+
+    private static let voidMethods: Set<MuxyMethod> = [.terminalInput]
 
     @MainActor
     func processRequest(_ request: MuxyRequest, clientID: UUID) async -> MuxyResponse {

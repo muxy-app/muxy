@@ -550,9 +550,19 @@ final class ConnectionManager {
         await refreshWorkspace(projectID: projectID)
     }
 
-    func sendTerminalInput(paneID: UUID, bytes: Data) async {
+    func sendTerminalInput(paneID: UUID, bytes: Data) {
         let params = TerminalInputParams(paneID: paneID, bytes: bytes)
-        _ = await send(.terminalInput, params: .terminalInput(params))
+        sendFireAndForget(.terminalInput, params: .terminalInput(params))
+    }
+
+    private func sendFireAndForget(_ method: MuxyMethod, params: MuxyParams) {
+        guard let connection else { return }
+        let request = MuxyRequest(id: UUID().uuidString, method: method, params: params)
+        let message = MuxyMessage.request(request)
+        guard let data = try? MuxyCodec.encode(message),
+              let text = String(data: data, encoding: .utf8)
+        else { return }
+        connection.send(.string(text)) { _ in }
     }
 
     func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32) async {
@@ -653,25 +663,27 @@ final class ConnectionManager {
 
     private func receiveLoop() {
         connection?.receive { [weak self] result in
-            Task { @MainActor in
-                guard let self else { return }
-                switch result {
-                case let .success(message):
-                    self.handleMessage(message)
-                    self.receiveLoop()
-                case let .failure(error):
-                    switch self.state {
-                    case .disconnected,
-                         .error:
-                        return
-                    case .connecting,
-                         .awaitingApproval:
-                        logger.error("Connect failed: \(error)")
-                        self.fail("Could not reach device", operation: "Opening WebSocket", underlyingError: error)
-                    case .connected:
-                        logger.error("Receive failed: \(error)")
-                        if !self.isBackgrounded {
-                            self.fail("Connection lost", operation: "Receiving WebSocket message", underlyingError: error)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    switch result {
+                    case let .success(message):
+                        self.handleMessage(message)
+                        self.receiveLoop()
+                    case let .failure(error):
+                        switch self.state {
+                        case .disconnected,
+                             .error:
+                            return
+                        case .connecting,
+                             .awaitingApproval:
+                            logger.error("Connect failed: \(error)")
+                            self.fail("Could not reach device", operation: "Opening WebSocket", underlyingError: error)
+                        case .connected:
+                            logger.error("Receive failed: \(error)")
+                            if !self.isBackgrounded {
+                                self.fail("Connection lost", operation: "Receiving WebSocket message", underlyingError: error)
+                            }
                         }
                     }
                 }
@@ -701,8 +713,6 @@ final class ConnectionManager {
             if let pending = pendingRequests.removeValue(forKey: response.id) {
                 recordDiagnostic("← \(pending.method.rawValue) [\(response.id)] \(Self.responseSummary(response))")
                 pending.continuation.resume(returning: response)
-            } else {
-                recordDiagnostic("← response [\(response.id)] with no pending request: \(Self.responseSummary(response))")
             }
         case let .event(event):
             handleEvent(event)
@@ -822,7 +832,7 @@ final class ConnectionManager {
 
     private func recordDiagnostic(_ message: String) {
         diagnosticLog.append("\(Self.timestampString(Date())) \(message)")
-        if diagnosticLog.count > 60 {
+        if diagnosticLog.count > 120 {
             diagnosticLog.removeFirst(diagnosticLog.count - 60)
         }
     }

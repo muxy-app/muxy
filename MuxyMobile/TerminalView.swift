@@ -253,7 +253,7 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
                 guard let paneID, let connection, let view else { return }
                 let bytes = view.accessoryTransformedBytes(data)
                 guard !bytes.isEmpty else { return }
-                Task { await connection.sendTerminalInput(paneID: paneID, bytes: bytes) }
+                connection.sendTerminalInput(paneID: paneID, bytes: bytes)
             }
         }
 
@@ -295,8 +295,8 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
 
     private var keyboardHidden = false
     private var wheelAccumulatedDelta: CGFloat = 0
-    private static let wheelPointsPerTick: CGFloat = 8
-    private static let wheelMaxTicksPerFrame: Int = 6
+    private static let wheelPointsPerTick: CGFloat = 16
+    private static let wheelMaxTicksPerFrame: Int = 2
 
     private var userDetachedFromBottom = false
     private static let bottomStickThreshold: CGFloat = 2
@@ -319,7 +319,11 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
     }
 
     override func updateScroller() {
-        if getTerminal().isCurrentBufferAlternate {
+        let terminal = getTerminal()
+        let mouseReporting = terminal.mouseMode != .off
+        isScrollEnabled = !mouseReporting
+
+        if terminal.isCurrentBufferAlternate || mouseReporting {
             userDetachedFromBottom = false
             super.updateScroller()
             return
@@ -413,7 +417,7 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
 
     private func sendBytes(_ bytes: Data) {
         guard !bytes.isEmpty, let paneID, let connection else { return }
-        Task { await connection.sendTerminalInput(paneID: paneID, bytes: bytes) }
+        connection.sendTerminalInput(paneID: paneID, bytes: bytes)
     }
 
     private func pasteFromClipboard() {
@@ -486,11 +490,8 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
         }
     }
 
-    private static func accelerationMultiplier(forVelocity velocity: CGFloat) -> Double {
-        let speed = Double(abs(velocity))
-        if speed < 300 { return 1.0 }
-        if speed > 3000 { return 4.0 }
-        return 1.0 + (speed - 300) / 900
+    private static func accelerationMultiplier(forVelocity _: CGFloat) -> Double {
+        1.0
     }
 
     private func emitWheelTicks(_ ticks: Int, terminal: Terminal, location _: CGPoint) {
