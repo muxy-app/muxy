@@ -584,11 +584,18 @@ final class ConnectionManager {
         return nil
     }
 
+    private static let voidMethods: Set<MuxyMethod> = [.terminalInput]
+
     func send(
         _ method: MuxyMethod,
         params: MuxyParams? = nil,
         timeout: Duration = .seconds(10)
     ) async -> MuxyResponse? {
+        assert(!Self.voidMethods.contains(method), "\(method.rawValue) is fire-and-forget; use sendFireAndForget")
+        if Self.voidMethods.contains(method) {
+            if let params { sendFireAndForget(method, params: params) }
+            return nil
+        }
         let id = UUID().uuidString
         let request = MuxyRequest(id: id, method: method, params: params)
         let message = MuxyMessage.request(request)
@@ -833,7 +840,7 @@ final class ConnectionManager {
     private func recordDiagnostic(_ message: String) {
         diagnosticLog.append("\(Self.timestampString(Date())) \(message)")
         if diagnosticLog.count > 120 {
-            diagnosticLog.removeFirst(diagnosticLog.count - 60)
+            diagnosticLog.removeFirst(diagnosticLog.count - 120)
         }
     }
 

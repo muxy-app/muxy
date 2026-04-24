@@ -476,9 +476,7 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
             let baseTicks = Int((wheelAccumulatedDelta / Self.wheelPointsPerTick).rounded(.towardZero))
             guard baseTicks != 0 else { return }
             wheelAccumulatedDelta -= CGFloat(baseTicks) * Self.wheelPointsPerTick
-            let multiplier = Self.accelerationMultiplier(forVelocity: gesture.velocity(in: self).y)
-            let accelerated = Int((Double(baseTicks) * multiplier).rounded(.towardZero))
-            let clamped = max(-Self.wheelMaxTicksPerFrame, min(Self.wheelMaxTicksPerFrame, accelerated))
+            let clamped = max(-Self.wheelMaxTicksPerFrame, min(Self.wheelMaxTicksPerFrame, baseTicks))
             guard clamped != 0 else { return }
             emitWheelTicks(clamped, terminal: terminal, location: gesture.location(in: self))
         case .ended,
@@ -488,10 +486,6 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
         default:
             break
         }
-    }
-
-    private static func accelerationMultiplier(forVelocity _: CGFloat) -> Double {
-        1.0
     }
 
     private func emitWheelTicks(_ ticks: Int, terminal: Terminal, location _: CGPoint) {
