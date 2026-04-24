@@ -57,7 +57,8 @@ extension SyntaxGrammar {
             set.insert("-")
             set.insert(".")
             return set
-        }()
+        }(),
+        yamlAware: true
     )
 
     static let toml = SyntaxGrammar(

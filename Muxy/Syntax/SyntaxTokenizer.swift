@@ -23,6 +23,10 @@ struct SyntaxTokenizer {
         continueString(ns: ns, length: length, cursor: &cursor, state: &state, tokens: &tokens)
         if case .inString = state { return (tokens, state) }
 
+        if grammar.yamlAware {
+            matchYAMLKey(ns: ns, length: length, cursor: &cursor, tokens: &tokens)
+        }
+
         while cursor < length {
             let codeUnit = ns.character(at: cursor)
 
@@ -145,6 +149,138 @@ struct SyntaxTokenizer {
         tokens.append(TokenSpan(location: start, length: end.position - start, scope: rule.scope))
         cursor = end.position
         state = end.closed ? .normal : .inString(id: rule.id)
+    }
+
+    private func matchYAMLKey(
+        ns: NSString,
+        length: Int,
+        cursor: inout Int,
+        tokens: inout [TokenSpan]
+    ) {
+        var scan = cursor
+        while scan < length {
+            let ch = ns.character(at: scan)
+            if ch == 0x20 || ch == 0x09 { scan += 1 } else { break }
+        }
+
+        if scan < length, ns.character(at: scan) == 0x2D {
+            let next = scan + 1 < length ? ns.character(at: scan + 1) : 0
+            if next == 0x20 || next == 0x09 || scan + 1 == length {
+                scan += 1
+                while scan < length {
+                    let ch = ns.character(at: scan)
+                    if ch == 0x20 || ch == 0x09 { scan += 1 } else { break }
+                }
+            }
+        }
+
+        let keyStart = scan
+        while scan < length {
+            let ch = ns.character(at: scan)
+            if ch == 0x3A || ch == 0x23 || ch == 0x20 || ch == 0x09 { break }
+            if ch == 0x22 || ch == 0x27 { return }
+            scan += 1
+        }
+
+        var afterKey = scan
+        while afterKey < length {
+            let ch = ns.character(at: afterKey)
+            if ch == 0x20 || ch == 0x09 { afterKey += 1 } else { break }
+        }
+
+        let hasKey = scan > keyStart
+        let hasColon = afterKey < length && ns.character(at: afterKey) == 0x3A
+        let colonFollowedByBoundary: Bool = {
+            guard hasColon else { return false }
+            let after = afterKey + 1
+            if after >= length { return true }
+            let ch = ns.character(at: after)
+            return ch == 0x20 || ch == 0x09
+        }()
+
+        if hasKey, hasColon, colonFollowedByBoundary {
+            tokens.append(TokenSpan(location: keyStart, length: scan - keyStart, scope: .attributeName))
+            cursor = scan
+            emitYAMLValueIfPlain(ns: ns, length: length, afterColon: afterKey + 1, tokens: &tokens, cursor: &cursor)
+            return
+        }
+
+        if hasKey, !hasColon {
+            let plainEnd = findYAMLPlainEnd(ns: ns, length: length, from: keyStart)
+            if plainEnd > keyStart, isYAMLPlainScalarContent(ns: ns, from: keyStart, to: plainEnd) {
+                tokens.append(TokenSpan(location: keyStart, length: plainEnd - keyStart, scope: .string))
+                cursor = plainEnd
+            }
+        }
+    }
+
+    private func emitYAMLValueIfPlain(
+        ns: NSString,
+        length: Int,
+        afterColon: Int,
+        tokens: inout [TokenSpan],
+        cursor: inout Int
+    ) {
+        var scan = afterColon
+        while scan < length {
+            let ch = ns.character(at: scan)
+            if ch == 0x20 || ch == 0x09 { scan += 1 } else { break }
+        }
+        if scan >= length { return }
+        let ch = ns.character(at: scan)
+        if ch == 0x22 || ch == 0x27 || ch == 0x23 { return }
+        if ch == 0x7B || ch == 0x5B || ch == 0x7C || ch == 0x3E { return }
+        if ch == 0x26 || ch == 0x2A || ch == 0x21 { return }
+        if ch == 0x2D, scan + 1 < length {
+            let next = ns.character(at: scan + 1)
+            if next >= 0x30, next <= 0x39 {} else { return }
+        }
+        if isNumberStart(ns: ns, length: length, at: scan) { return }
+        if let identifier = scanIdentifier(ns: ns, length: length, from: scan) {
+            let lookup = grammar.caseSensitiveKeywords ? identifier.word : identifier.word.lowercased()
+            for group in grammar.keywordGroups where group.words.contains(lookup) {
+                _ = group
+                return
+            }
+        }
+        let valueEnd = findYAMLPlainEnd(ns: ns, length: length, from: scan)
+        if valueEnd > scan {
+            tokens.append(TokenSpan(location: scan, length: valueEnd - scan, scope: .string))
+            cursor = valueEnd
+        }
+    }
+
+    private func findYAMLPlainEnd(ns: NSString, length: Int, from start: Int) -> Int {
+        var scan = start
+        while scan < length {
+            let ch = ns.character(at: scan)
+            if ch == 0x23, scan > start {
+                let prev = ns.character(at: scan - 1)
+                if prev == 0x20 || prev == 0x09 {
+                    var trim = scan
+                    while trim > start {
+                        let t = ns.character(at: trim - 1)
+                        if t == 0x20 || t == 0x09 { trim -= 1 } else { break }
+                    }
+                    return trim
+                }
+            }
+            scan += 1
+        }
+        var trim = scan
+        while trim > start {
+            let t = ns.character(at: trim - 1)
+            if t == 0x20 || t == 0x09 { trim -= 1 } else { break }
+        }
+        return trim
+    }
+
+    private func isYAMLPlainScalarContent(ns: NSString, from start: Int, to end: Int) -> Bool {
+        guard end > start else { return false }
+        let first = ns.character(at: start)
+        if first == 0x22 || first == 0x27 || first == 0x23 { return false }
+        if first == 0x7B || first == 0x5B { return false }
+        return true
     }
 
     private func matchLineComment(

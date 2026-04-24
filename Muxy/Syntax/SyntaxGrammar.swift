@@ -47,6 +47,7 @@ struct SyntaxGrammar {
     let identifierStart: Set<Character>
     let identifierBody: Set<Character>
     let jsxAware: Bool
+    let yamlAware: Bool
 
     init(
         name: String,
@@ -66,7 +67,8 @@ struct SyntaxGrammar {
         highlightAllCapsAsConstant: Bool,
         identifierStart: Set<Character>,
         identifierBody: Set<Character>,
-        jsxAware: Bool = false
+        jsxAware: Bool = false,
+        yamlAware: Bool = false
     ) {
         self.name = name
         self.extensions = extensions
@@ -86,6 +88,7 @@ struct SyntaxGrammar {
         self.identifierStart = identifierStart
         self.identifierBody = identifierBody
         self.jsxAware = jsxAware
+        self.yamlAware = yamlAware
     }
 
     static let defaultIdentifierStart: Set<Character> = {
