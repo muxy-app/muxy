@@ -1,5 +1,5 @@
 {
-  "originHash" : "0fd34b64cfc5981e44775742872c80728d169bea03c89efe7714d88831ca405f",
+  "originHash" : "8f75691fef31a8bab84c1bb60b6eb756b787af78a179dffd3e7b15855b80ec70",
   "pins" : [
     {
       "identity" : "swift-argument-parser",
@@ -13,10 +13,10 @@
     {
       "identity" : "swiftterm",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/muxy-app/SwiftTerm",
+      "location" : "https://github.com/migueldeicaza/SwiftTerm",
       "state" : {
-        "branch" : "main",
-        "revision" : "64cc19f10258468d6745f528eb28101ee4735856"
+        "revision" : "8e7a1e154f470e19c709a00a8768df348ba5fc43",
+        "version" : "1.13.0"
       }
     }
   ],

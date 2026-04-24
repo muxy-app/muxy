@@ -318,27 +318,6 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
         panGestureRecognizer.addTarget(self, action: #selector(trackUserPan(_:)))
     }
 
-    override func updateScroller() {
-        let terminal = getTerminal()
-        let mouseReporting = terminal.mouseMode != .off
-        isScrollEnabled = !mouseReporting
-
-        if terminal.isCurrentBufferAlternate || mouseReporting {
-            userDetachedFromBottom = false
-            super.updateScroller()
-            return
-        }
-
-        if userDetachedFromBottom {
-            let savedOffset = contentOffset
-            super.updateScroller()
-            contentOffset = savedOffset
-            return
-        }
-
-        super.updateScroller()
-    }
-
     @objc
     private func trackUserPan(_ gesture: UIPanGestureRecognizer) {
         switch gesture.state {
