@@ -299,6 +299,9 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
     private var wheelAccumulatedDelta: CGFloat = 0
     private static let wheelPointsPerTick: CGFloat = 24
 
+    private var userDetachedFromBottom = false
+    private static let bottomStickThreshold: CGFloat = 2
+
     private let hiddenKeyboardPlaceholder: UIView = {
         let view = UIView(frame: .zero)
         view.isHidden = true
@@ -313,6 +316,38 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
         muxyAccessoryBar.onKeyboardToggle = { [weak self] in self?.toggleKeyboard() }
         inputAccessoryView = muxyAccessoryBar
         setupWheelGesture()
+        panGestureRecognizer.addTarget(self, action: #selector(trackUserPan(_:)))
+    }
+
+    override func updateScroller() {
+        if getTerminal().isCurrentBufferAlternate {
+            userDetachedFromBottom = false
+            super.updateScroller()
+            return
+        }
+
+        if userDetachedFromBottom {
+            let savedOffset = contentOffset
+            super.updateScroller()
+            contentOffset = savedOffset
+            return
+        }
+
+        super.updateScroller()
+    }
+
+    @objc
+    private func trackUserPan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .changed,
+             .ended,
+             .cancelled:
+            let maxOffsetY = max(0, contentSize.height - bounds.height)
+            let distanceFromBottom = maxOffsetY - contentOffset.y
+            userDetachedFromBottom = distanceFromBottom > Self.bottomStickThreshold
+        default:
+            break
+        }
     }
 
     @available(*, unavailable)
