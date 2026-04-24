@@ -449,6 +449,11 @@ final class GhosttyTerminalNSView: NSView {
         let hasActionModifier = flags.contains(.command) || flags.contains(.control) || flags.contains(.option)
         guard hasActionModifier else { return false }
 
+        if isPasteShortcut(event, flags: flags), pasteboardHasImage() {
+            sendRemoteBytes(Data([0x16]))
+            return true
+        }
+
         var keyEvent = buildKeyEvent(from: event, action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS)
         keyEvent.text = nil
         if ghostty_surface_key_is_binding(surface, keyEvent, nil) {
@@ -551,8 +556,23 @@ final class GhosttyTerminalNSView: NSView {
     @objc
     private func handleContextPaste(_: Any?) {
         window?.makeFirstResponder(self)
+        if pasteboardHasImage() {
+            sendRemoteBytes(Data([0x16]))
+            return
+        }
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
         insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+    }
+
+    private func isPasteShortcut(_ event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
+        guard flags.contains(.command), !flags.contains(.control), !flags.contains(.option) else { return false }
+        return event.keyCode == 9
+    }
+
+    private func pasteboardHasImage() -> Bool {
+        let pb = NSPasteboard.general
+        if pb.string(forType: .string) != nil { return false }
+        return pb.canReadObject(forClasses: [NSImage.self], options: nil)
     }
 
     @objc
