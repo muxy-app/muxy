@@ -208,7 +208,7 @@ private struct SwiftTermRepresentable: UIViewRepresentable {
         connection.subscribeTerminalBytes(paneID: paneID) { [weak view] data in
             guard let view else { return }
             let bytes = [UInt8](data)
-            view.feed(byteArray: bytes[...])
+            view.feedPreservingScroll(byteArray: bytes[...])
         }
     }
 
@@ -315,26 +315,25 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
         muxyAccessoryBar.onKeyboardToggle = { [weak self] in self?.toggleKeyboard() }
         inputAccessoryView = muxyAccessoryBar
         setupWheelGesture()
-        panGestureRecognizer.addTarget(self, action: #selector(trackUserPan(_:)))
-    }
-
-    @objc
-    private func trackUserPan(_ gesture: UIPanGestureRecognizer) {
-        switch gesture.state {
-        case .changed,
-             .ended,
-             .cancelled:
-            let maxOffsetY = max(0, contentSize.height - bounds.height)
-            let distanceFromBottom = maxOffsetY - contentOffset.y
-            userDetachedFromBottom = distanceFromBottom > Self.bottomStickThreshold
-        default:
-            break
-        }
     }
 
     @available(*, unavailable)
     required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override var contentOffset: CGPoint {
+        didSet {
+            if isTracking || isDragging || isDecelerating {
+                updateUserDetachedFromBottom()
+            }
+        }
+    }
+
+    func feedPreservingScroll(byteArray: ArraySlice<UInt8>) {
+        preserveDetachedScrollPosition {
+            feed(byteArray: byteArray)
+        }
     }
 
     func applyAccessoryTheme(_ theme: ConnectionManager.DeviceTheme?) {
@@ -429,6 +428,28 @@ final class MuxySwiftTermView: SwiftTerm.TerminalView {
         gesture.maximumNumberOfTouches = 1
         gesture.delegate = wheelGestureDelegate
         addGestureRecognizer(gesture)
+    }
+
+    private func preserveDetachedScrollPosition(_ update: () -> Void) {
+        let wasDetached = userDetachedFromBottom
+        let preservedOffset = contentOffset
+        update()
+        guard wasDetached else {
+            updateUserDetachedFromBottom()
+            return
+        }
+        let maxOffsetY = max(0, contentSize.height - bounds.height)
+        let restoredOffset = CGPoint(x: preservedOffset.x, y: min(preservedOffset.y, maxOffsetY))
+        if contentOffset != restoredOffset {
+            setContentOffset(restoredOffset, animated: false)
+        }
+        updateUserDetachedFromBottom()
+    }
+
+    private func updateUserDetachedFromBottom() {
+        let maxOffsetY = max(0, contentSize.height - bounds.height)
+        let distanceFromBottom = maxOffsetY - contentOffset.y
+        userDetachedFromBottom = distanceFromBottom > Self.bottomStickThreshold
     }
 
     private lazy var wheelGestureDelegate: WheelGestureDelegate = {
