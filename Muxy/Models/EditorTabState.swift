@@ -39,6 +39,7 @@ final class EditorTabState: Identifiable {
     var awaitingLargeFileConfirmation = false
     var largeFileSize: Int64 = 0
     var backingStore: TextBackingStore?
+    @ObservationIgnored private(set) var syntaxHighlighter: SyntaxHighlighter?
 
     static let largeFileWarningThreshold: Int64 = 5 * 1024 * 1024
     static let largeFileRefuseThreshold: Int64 = 50 * 1024 * 1024
@@ -84,13 +85,20 @@ final class EditorTabState: Identifiable {
     init(projectPath: String, filePath: String) {
         self.projectPath = projectPath
         self.filePath = filePath
+        syntaxHighlighter = Self.makeSyntaxHighlighter(for: filePath)
         loadFile()
     }
 
     func updateFilePath(_ newPath: String) {
         guard filePath != newPath else { return }
         filePath = newPath
+        syntaxHighlighter = Self.makeSyntaxHighlighter(for: newPath)
         refreshReadOnlyStatus()
+    }
+
+    private static func makeSyntaxHighlighter(for filePath: String) -> SyntaxHighlighter? {
+        guard let grammar = SyntaxLanguageRegistry.grammar(forFile: filePath) else { return nil }
+        return SyntaxHighlighter(grammar: grammar)
     }
 
     deinit {
@@ -140,6 +148,7 @@ final class EditorTabState: Identifiable {
         isModified = false
         errorMessage = nil
         backingStore = nil
+        syntaxHighlighter?.reset()
         loadTask?.cancel()
         let path = filePath
         loadTask = Task { [weak self] in

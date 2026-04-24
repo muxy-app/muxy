@@ -499,6 +499,7 @@ struct CodeEditorView: NSViewRepresentable {
         private var highlightTimingCount = 0
         private var lastRefreshDurationMs: Double = 0
         private var lastHighlightDurationMs: Double = 0
+        private var pendingCascadeReapplyGeneration: UInt64 = 0
 
         init(state: EditorTabState, editorSettings: EditorSettings) {
             self.state = state
@@ -636,6 +637,7 @@ struct CodeEditorView: NSViewRepresentable {
                 lastRenderedViewportRange = newRange
                 lastRenderedBackingStoreVersion = state.backingStoreVersion
                 needsViewportTextReload = false
+                rebuildLineStartOffsetsForViewport()
             }
             let font = editorSettings.resolvedFont
             if let storage = textView.textStorage, storage.length > 0 {
@@ -643,6 +645,7 @@ struct CodeEditorView: NSViewRepresentable {
                 storage.beginEditing()
                 storage.addAttribute(.font, value: font, range: fullRange)
                 storage.endEditing()
+                applySyntaxHighlights(storage: storage, viewport: viewport)
             }
 
             updateViewportFrames(
@@ -654,10 +657,6 @@ struct CodeEditorView: NSViewRepresentable {
             )
 
             CATransaction.commit()
-
-            if shouldReloadText {
-                rebuildLineStartOffsetsForViewport()
-            }
 
             if let savedCursor,
                let newLocalLine = viewport.viewportLine(forBackingStoreLine: savedCursor.line)
@@ -673,6 +672,127 @@ struct CodeEditorView: NSViewRepresentable {
 
             isUpdating = false
             applySearchHighlights()
+        }
+
+        func applySyntaxHighlights(storage: NSTextStorage, viewport: ViewportState) {
+            guard let highlighter = state.syntaxHighlighter,
+                  let backingStore = state.backingStore,
+                  let textView,
+                  let layoutManager = textView.layoutManager
+            else { return }
+            let storageLength = storage.length
+            guard storageLength > 0 else { return }
+            let range = viewport.viewportStartLine ..< viewport.viewportEndLine
+            guard !range.isEmpty else { return }
+
+            let spans = highlighter.spans(
+                in: range,
+                lineStartOffsets: lineStartOffsets,
+                backingStore: backingStore
+            )
+
+            let fullRange = NSRange(location: 0, length: storageLength)
+            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
+            for span in spans {
+                let availableLength = storageLength - span.range.location
+                guard span.range.location >= 0, availableLength > 0 else { continue }
+                let clampedLength = min(span.range.length, availableLength)
+                guard clampedLength > 0 else { continue }
+                layoutManager.addTemporaryAttribute(
+                    .foregroundColor,
+                    value: SyntaxTheme.color(for: span.scope),
+                    forCharacterRange: NSRange(location: span.range.location, length: clampedLength)
+                )
+            }
+        }
+
+        func invalidateSyntaxHighlightsFromLine(_ line: Int) {
+            state.syntaxHighlighter?.invalidate(fromLine: max(0, line))
+        }
+
+        func reapplySyntaxHighlights() {
+            guard let textView, let storage = textView.textStorage, let viewport = viewportState else { return }
+            applySyntaxHighlights(storage: storage, viewport: viewport)
+        }
+
+        func applyIncrementalSyntaxHighlights(
+            startLine: Int,
+            oldLineCount: Int,
+            newLineCount: Int
+        ) {
+            guard let highlighter = state.syntaxHighlighter,
+                  let backingStore = state.backingStore,
+                  let viewport = viewportState,
+                  let textView,
+                  let storage = textView.textStorage
+            else { return }
+
+            let outcome = highlighter.applyEdit(
+                startLine: startLine,
+                oldLineCount: oldLineCount,
+                newLineCount: newLineCount,
+                backingStore: backingStore
+            )
+
+            applySyntaxAttributes(
+                storage: storage,
+                viewport: viewport,
+                highlighter: highlighter,
+                lineRange: startLine ..< startLine + newLineCount
+            )
+
+            if case .cascade = outcome {
+                scheduleCascadeReapply()
+            }
+        }
+
+        private func scheduleCascadeReapply() {
+            pendingCascadeReapplyGeneration &+= 1
+            let generation = pendingCascadeReapplyGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(16)) { [weak self] in
+                guard let self, self.pendingCascadeReapplyGeneration == generation else { return }
+                self.reapplySyntaxHighlights()
+            }
+        }
+
+        private func applySyntaxAttributes(
+            storage: NSTextStorage,
+            viewport: ViewportState,
+            highlighter: SyntaxHighlighter,
+            lineRange: Range<Int>
+        ) {
+            guard let textView, let layoutManager = textView.layoutManager else { return }
+            let storageLength = storage.length
+            guard storageLength > 0 else { return }
+
+            let viewportStart = viewport.viewportStartLine
+            let localStart = max(0, lineRange.lowerBound - viewportStart)
+            let localEndRaw = lineRange.upperBound - viewportStart
+            let localEnd = min(localEndRaw, viewport.viewportLineCount)
+            guard localStart < localEnd, localStart < lineStartOffsets.count else { return }
+
+            let charStart = lineStartOffsets[localStart]
+            let charEnd: Int = localEnd < lineStartOffsets.count ? lineStartOffsets[localEnd] : storageLength
+            guard charEnd > charStart, charStart >= 0, charEnd <= storageLength else { return }
+
+            layoutManager.removeTemporaryAttribute(
+                .foregroundColor,
+                forCharacterRange: NSRange(location: charStart, length: charEnd - charStart)
+            )
+            for localIndex in localStart ..< localEnd {
+                let globalLine = viewportStart + localIndex
+                guard let tokens = highlighter.tokens(forLine: globalLine) else { continue }
+                let lineOffset = lineStartOffsets[localIndex]
+                for token in tokens {
+                    let location = lineOffset + token.location
+                    guard location >= 0, location + token.length <= storageLength else { continue }
+                    layoutManager.addTemporaryAttribute(
+                        .foregroundColor,
+                        value: SyntaxTheme.color(for: token.scope),
+                        forCharacterRange: NSRange(location: location, length: token.length)
+                    )
+                }
+            }
         }
 
         func rebuildLineStartOffsetsForViewport() {
@@ -692,6 +812,45 @@ struct CodeEditorView: NSViewRepresentable {
                 searchRange.length = content.length - next
             }
             lineStartOffsets = offsets
+        }
+
+        private func updateLineStartOffsetsAfterEdit(
+            viewportStartLine: Int,
+            globalStartLine: Int,
+            oldLineCount: Int,
+            newLines: [String]
+        ) {
+            let localStart = globalStartLine - viewportStartLine
+            let oldCount = lineStartOffsets.count
+            guard localStart >= 0,
+                  localStart < oldCount,
+                  localStart + oldLineCount <= oldCount,
+                  localStart + oldLineCount < oldCount
+            else {
+                rebuildLineStartOffsetsForViewport()
+                return
+            }
+
+            let baseOffset = lineStartOffsets[localStart]
+            let oldBlockSpan = lineStartOffsets[localStart + oldLineCount] - baseOffset
+
+            var newBlockSpan = 0
+            var newOffsets: [Int] = []
+            newOffsets.reserveCapacity(newLines.count)
+            for line in newLines {
+                newOffsets.append(baseOffset + newBlockSpan)
+                newBlockSpan += (line as NSString).length + 1
+            }
+
+            let delta = newBlockSpan - oldBlockSpan
+            lineStartOffsets.replaceSubrange(localStart ..< localStart + oldLineCount, with: newOffsets)
+
+            let shiftStart = localStart + newLines.count
+            if delta != 0, shiftStart < lineStartOffsets.count {
+                for index in shiftStart ..< lineStartOffsets.count {
+                    lineStartOffsets[index] += delta
+                }
+            }
         }
 
         // MARK: - Editor Focus
@@ -886,6 +1045,7 @@ struct CodeEditorView: NSViewRepresentable {
             _ = store.replaceLines(in: match.lineIndex ..< match.lineIndex + 1, with: [newLine])
             state.backingStoreVersion += 1
             state.markModified()
+            invalidateSyntaxHighlightsFromLine(match.lineIndex)
             invalidateRenderedViewportText()
             performSearchViewport(needle, caseSensitive: caseSensitive, useRegex: useRegex)
             refreshViewport(force: true)
@@ -898,6 +1058,7 @@ struct CodeEditorView: NSViewRepresentable {
             for match in viewportSearchMatches {
                 grouped[match.lineIndex, default: []].append(match.range)
             }
+            var earliestInvalidation = Int.max
             for lineIndex in grouped.keys.sorted().reversed() {
                 guard let lineRanges = grouped[lineIndex] else { continue }
                 let ranges = lineRanges.sorted { $0.location > $1.location }
@@ -906,6 +1067,10 @@ struct CodeEditorView: NSViewRepresentable {
                     nsLine = nsLine.replacingCharacters(in: range, with: replacement) as NSString
                 }
                 _ = store.replaceLines(in: lineIndex ..< lineIndex + 1, with: [nsLine as String])
+                earliestInvalidation = min(earliestInvalidation, lineIndex)
+            }
+            if earliestInvalidation != Int.max {
+                invalidateSyntaxHighlightsFromLine(earliestInvalidation)
             }
             state.backingStoreVersion += 1
             state.markModified()
@@ -1096,6 +1261,7 @@ struct CodeEditorView: NSViewRepresentable {
                 _ = viewport.backingStore.replaceLines(in: oldRange, with: newLocalLines)
                 lineDelta = newLocalLines.count - oldRange.count
                 viewport.applyViewport(viewport.viewportStartLine ..< viewport.viewportStartLine + newLocalLines.count)
+                invalidateSyntaxHighlightsFromLine(viewportStartLine)
             }
 
             state.markModified()
@@ -1106,7 +1272,16 @@ struct CodeEditorView: NSViewRepresentable {
             lastRenderedViewportRange = viewport.viewportStartLine ..< viewport.viewportEndLine
             lastRenderedBackingStoreVersion = state.backingStoreVersion
             needsViewportTextReload = false
-            rebuildLineStartOffsetsForViewport()
+            if let pendingEdit {
+                updateLineStartOffsetsAfterEdit(
+                    viewportStartLine: viewportStartLine,
+                    globalStartLine: pendingEdit.startLine,
+                    oldLineCount: pendingEdit.oldLines.count,
+                    newLines: pendingEdit.newLines
+                )
+            } else {
+                rebuildLineStartOffsetsForViewport()
+            }
 
             if let pendingEdit,
                !isApplyingViewportHistory,
@@ -1142,6 +1317,9 @@ struct CodeEditorView: NSViewRepresentable {
             let scrollY = scrollView.contentView.bounds.origin.y
             let visibleHeight = scrollView.contentView.bounds.height
             if viewport.shouldUpdateViewport(scrollY: scrollY, visibleHeight: visibleHeight) {
+                if let pendingEdit {
+                    invalidateSyntaxHighlightsFromLine(pendingEdit.startLine)
+                }
                 let localLine = lineNumber(atCharacterLocation: cursorLocation)
                 let globalLine = viewport.backingStoreLine(forViewportLine: localLine - 1)
                 let columnOffset = cursorLocation - lineStartOffsets[max(0, min(localLine - 1, lineStartOffsets.count - 1))]
@@ -1157,6 +1335,16 @@ struct CodeEditorView: NSViewRepresentable {
                     let safeCursor = min(newCursor, content.length)
                     textView.setSelectedRange(NSRange(location: safeCursor, length: 0))
                     scrollCursorVisibleInViewport(textView: textView, cursorLocation: safeCursor)
+                }
+            } else {
+                if let pendingEdit {
+                    applyIncrementalSyntaxHighlights(
+                        startLine: pendingEdit.startLine,
+                        oldLineCount: pendingEdit.oldLines.count,
+                        newLineCount: pendingEdit.newLines.count
+                    )
+                } else {
+                    reapplySyntaxHighlights()
                 }
             }
         }
@@ -1191,6 +1379,7 @@ struct CodeEditorView: NSViewRepresentable {
             isApplyingViewportHistory = true
             defer { isApplyingViewportHistory = false }
 
+            var earliestInvalidation = Int.max
             for edit in group.edits.reversed() {
                 let replaceRange = edit.startLine ..< edit.startLine + edit.newLines.count
                 _ = viewport.backingStore.replaceLines(in: replaceRange, with: edit.oldLines)
@@ -1199,6 +1388,10 @@ struct CodeEditorView: NSViewRepresentable {
                     replacedLineCount: edit.newLines.count,
                     insertedLineCount: edit.oldLines.count
                 )
+                earliestInvalidation = min(earliestInvalidation, edit.startLine)
+            }
+            if earliestInvalidation != Int.max {
+                invalidateSyntaxHighlightsFromLine(earliestInvalidation)
             }
             state.markModified()
             invalidateRenderedViewportText()
@@ -1217,6 +1410,7 @@ struct CodeEditorView: NSViewRepresentable {
             isApplyingViewportHistory = true
             defer { isApplyingViewportHistory = false }
 
+            var earliestInvalidation = Int.max
             for edit in group.edits {
                 let replaceRange = edit.startLine ..< edit.startLine + edit.oldLines.count
                 _ = viewport.backingStore.replaceLines(in: replaceRange, with: edit.newLines)
@@ -1225,6 +1419,10 @@ struct CodeEditorView: NSViewRepresentable {
                     replacedLineCount: edit.oldLines.count,
                     insertedLineCount: edit.newLines.count
                 )
+                earliestInvalidation = min(earliestInvalidation, edit.startLine)
+            }
+            if earliestInvalidation != Int.max {
+                invalidateSyntaxHighlightsFromLine(earliestInvalidation)
             }
             state.markModified()
             invalidateRenderedViewportText()

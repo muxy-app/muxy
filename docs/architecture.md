@@ -123,6 +123,17 @@ Muxy/
     ShortcutContext.swift     Window focus context for shortcuts
     AppEnvironment.swift      Dependency injection container
     AppStateDependencies.swift Protocol definitions for DI
+  Syntax/
+    SyntaxScope.swift         Scope enum (keyword/string/comment/…) + SyntaxTheme mapping scopes to Ghostty palette colors
+    SyntaxGrammar.swift       SyntaxGrammar model (keywords, comments, strings, numbers) + LineEndState enum
+    SyntaxTokenizer.swift     Stateful per-line tokenizer emitting TokenSpans and end state
+    SyntaxHighlighter.swift   Per-file line-end-state cache + viewport highlight API
+    SyntaxLanguageRegistry.swift  File-extension → grammar lookup
+    Grammars/
+      CFamilyGrammars.swift   Swift, JS, TS, Objective-C, C, C++, C#, Java, Kotlin, Scala, Go, Rust, Dart, PHP
+      ScriptGrammars.swift    Python, Ruby, Lua, Shell, Perl, Elixir, Haskell
+      MarkupGrammars.swift    HTML, XML, CSS, Markdown
+      DataGrammars.swift      JSON, YAML, TOML, INI, SQL, Dockerfile, Makefile
   Theme/
     MuxyTheme.swift           Color system derived from Ghostty palette
   Views/
@@ -222,6 +233,15 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
   `TextBackingStore` and render through `CodeEditorRepresentable`; terminal editor tabs create a normal
   terminal pane with the configured Ghostty startup command. The size thresholds in
   `EditorTabState` apply only to the built-in editor path.
+- **Syntax Highlighting**: `EditorTabState` owns a `SyntaxHighlighter` created from the file
+  extension via `SyntaxLanguageRegistry`. The highlighter keeps a per-line `LineEndState` cache
+  so multiline constructs (block comments, multiline strings) are preserved across scroll without
+  rescanning from the file start. During `CodeEditorRepresentable.refreshViewport`, the
+  highlighter tokenizes the visible lines and returns `AppliedSpan`s that are applied as
+  `.foregroundColor` attributes on the viewport's `NSTextStorage`. Colors come from
+  `SyntaxTheme` which maps scopes (`.keyword`, `.string`, `.comment`, …) to the active
+  Ghostty palette — themes Just Work. Edits invalidate the cache from the earliest affected
+  line; search highlights (temporary attributes) layer on top without losing syntax colors.
 - **GhosttyKit**: C module wrapping `ghostty.h`. Precompiled xcframework from `muxy-app/ghostty` fork. Surfaces created/destroyed via `TerminalViewRegistry`.
 - **Persistence**: All files in `~/Library/Application Support/Muxy/`. Shared directory helper: `MuxyFileStorage`. Worktrees are persisted per-project at `worktrees/{projectID}.json`, including whether a secondary worktree is Muxy-managed or externally discovered. Git projects can manually refresh this list from `git worktree list --porcelain` to import existing worktrees without deleting absent entries; paths are matched after symlink resolution so a repo opened via a symlinked path still collapses onto a single primary entry. Externally discovered worktrees are never touched by Muxy's `cleanupOnDisk` paths (project removal, post-merge cleanup, manual removal) — they can only be unregistered by the user in the underlying repo. Worktree setup commands live in-repo at `{Project.path}/.muxy/worktree.json`.
 - **Ghostty Config**: Managed by `MuxyConfig`, stored at `~/Library/Application Support/Muxy/ghostty.conf`. Seeded from `~/.config/ghostty/config` on first run.
