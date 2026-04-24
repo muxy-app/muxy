@@ -57,6 +57,7 @@ final class ConnectionManager {
     struct DeviceTheme: Equatable {
         let fg: UInt32
         let bg: UInt32
+        let palette: [UInt32]
 
         var fgColor: Color { Self.color(rgb: fg) }
         var bgColor: Color { Self.color(rgb: bg) }
@@ -273,7 +274,7 @@ final class ConnectionManager {
         recordDiagnostic("Authenticated as client \(info.clientID.uuidString)")
         myClientID = info.clientID
         if let fg = info.themeFg, let bg = info.themeBg {
-            deviceTheme = DeviceTheme(fg: fg, bg: bg)
+            deviceTheme = DeviceTheme(fg: fg, bg: bg, palette: info.themePalette ?? [])
         }
         return true
     }
@@ -726,8 +727,10 @@ final class ConnectionManager {
             paneOwners[dto.paneID] = dto.owner
         case let .deviceTheme(dto):
             recordDiagnostic("Event \(event.event.rawValue): deviceTheme(fg=\(dto.fg), bg=\(dto.bg))")
-            deviceTheme = DeviceTheme(fg: dto.fg, bg: dto.bg)
+            deviceTheme = DeviceTheme(fg: dto.fg, bg: dto.bg, palette: dto.palette ?? [])
         case let .terminalOutput(dto):
+            terminalByteHandlers[dto.paneID]?(dto.bytes)
+        case let .terminalSnapshot(dto):
             terminalByteHandlers[dto.paneID]?(dto.bytes)
         case .tab:
             break

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import MuxyShared
 
 struct ThemePreview: Identifiable {
     let name: String
@@ -23,6 +24,7 @@ final class ThemeService {
         let name: String
         let fg: UInt32
         let bg: UInt32
+        let palette: [UInt32]
     }
 
     init(config: MuxyConfig = .shared, ghostty: GhosttyService = .shared) {
@@ -38,10 +40,10 @@ final class ThemeService {
         config.configValue(for: "theme")?.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
     }
 
-    func currentThemeColors() -> (fg: UInt32, bg: UInt32)? {
+    func currentThemeColors() -> DeviceThemeEventDTO? {
         guard let name = currentThemeName() else { return nil }
         if let cached = cachedColors, cached.name == name {
-            return (fg: cached.fg, bg: cached.bg)
+            return DeviceThemeEventDTO(fg: cached.fg, bg: cached.bg, palette: cached.palette)
         }
         for dir in Self.themeDirectories() {
             let path = dir + "/" + name
@@ -50,10 +52,18 @@ final class ThemeService {
             else { continue }
             let fg = Self.rgb(from: theme.foreground)
             let bg = Self.rgb(from: theme.background)
-            cachedColors = CachedThemeColors(name: name, fg: fg, bg: bg)
-            return (fg: fg, bg: bg)
+            let palette = currentPalette()
+            cachedColors = CachedThemeColors(name: name, fg: fg, bg: bg, palette: palette)
+            return DeviceThemeEventDTO(fg: fg, bg: bg, palette: palette)
         }
         return nil
+    }
+
+    private func currentPalette() -> [UInt32] {
+        (0 ..< 16).map { index in
+            guard let color = ghostty.paletteColor(at: index) else { return 0 }
+            return Self.rgb(from: color)
+        }
     }
 
     nonisolated private static func rgb(from color: NSColor) -> UInt32 {

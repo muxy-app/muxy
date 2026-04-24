@@ -349,6 +349,7 @@ public enum MuxyEventKind: String, Codable, Sendable {
     case workspaceChanged
     case tabChanged
     case terminalOutput
+    case terminalSnapshot
     case notificationReceived
     case projectsChanged
     case paneOwnershipChanged
@@ -359,6 +360,7 @@ public enum MuxyEventData: Codable, Sendable {
     case workspace(WorkspaceDTO)
     case tab(TabChangeEventDTO)
     case terminalOutput(TerminalOutputEventDTO)
+    case terminalSnapshot(TerminalOutputEventDTO)
     case notification(NotificationDTO)
     case projects([ProjectDTO])
     case paneOwnership(PaneOwnershipEventDTO)
@@ -376,6 +378,7 @@ public enum MuxyEventData: Codable, Sendable {
         case "workspace": self = try .workspace(container.decode(WorkspaceDTO.self, forKey: .value))
         case "tab": self = try .tab(container.decode(TabChangeEventDTO.self, forKey: .value))
         case "terminalOutput": self = try .terminalOutput(container.decode(TerminalOutputEventDTO.self, forKey: .value))
+        case "terminalSnapshot": self = try .terminalSnapshot(container.decode(TerminalOutputEventDTO.self, forKey: .value))
         case "notification": self = try .notification(container.decode(NotificationDTO.self, forKey: .value))
         case "projects": self = try .projects(container.decode([ProjectDTO].self, forKey: .value))
         case "paneOwnership": self = try .paneOwnership(container.decode(PaneOwnershipEventDTO.self, forKey: .value))
@@ -392,6 +395,8 @@ public enum MuxyEventData: Codable, Sendable {
         case let .tab(v): try container.encode("tab", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .terminalOutput(v): try container.encode("terminalOutput", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .terminalSnapshot(v): try container.encode("terminalSnapshot", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .notification(v): try container.encode("notification", forKey: .type)
             try container.encode(v, forKey: .value)

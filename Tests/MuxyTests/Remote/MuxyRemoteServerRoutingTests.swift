@@ -82,7 +82,7 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
         .approved(deviceName: name)
     }
 
-    func getDeviceTheme() -> (fg: UInt32, bg: UInt32)? { nil }
+    func getDeviceTheme() -> DeviceThemeEventDTO? { nil }
 
     func clientDisconnected(clientID: UUID) {
         clientDisconnectedCalls.append(clientID)

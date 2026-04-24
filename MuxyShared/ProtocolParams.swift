@@ -153,11 +153,13 @@ public struct PairingResultDTO: Codable, Sendable {
     public let deviceName: String
     public let themeFg: UInt32?
     public let themeBg: UInt32?
-    public init(clientID: UUID, deviceName: String, themeFg: UInt32? = nil, themeBg: UInt32? = nil) {
+    public let themePalette: [UInt32]?
+    public init(clientID: UUID, deviceName: String, themeFg: UInt32? = nil, themeBg: UInt32? = nil, themePalette: [UInt32]? = nil) {
         self.clientID = clientID
         self.deviceName = deviceName
         self.themeFg = themeFg
         self.themeBg = themeBg
+        self.themePalette = themePalette
     }
 }
 
@@ -166,11 +168,13 @@ public struct DeviceInfoDTO: Codable, Sendable {
     public let deviceName: String
     public let themeFg: UInt32?
     public let themeBg: UInt32?
-    public init(clientID: UUID, deviceName: String, themeFg: UInt32? = nil, themeBg: UInt32? = nil) {
+    public let themePalette: [UInt32]?
+    public init(clientID: UUID, deviceName: String, themeFg: UInt32? = nil, themeBg: UInt32? = nil, themePalette: [UInt32]? = nil) {
         self.clientID = clientID
         self.deviceName = deviceName
         self.themeFg = themeFg
         self.themeBg = themeBg
+        self.themePalette = themePalette
     }
 }
 
@@ -216,9 +220,11 @@ public struct PaneOwnershipEventDTO: Codable, Sendable {
 public struct DeviceThemeEventDTO: Codable, Sendable {
     public let fg: UInt32
     public let bg: UInt32
-    public init(fg: UInt32, bg: UInt32) {
+    public let palette: [UInt32]?
+    public init(fg: UInt32, bg: UInt32, palette: [UInt32]? = nil) {
         self.fg = fg
         self.bg = bg
+        self.palette = palette
     }
 }
 
