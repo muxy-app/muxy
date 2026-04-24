@@ -4,7 +4,7 @@ struct AppearanceSettingsView: View {
     @State private var themeService = ThemeService.shared
     @State private var showThemePicker = false
     @State private var currentTheme: String?
-    @AppStorage("muxy.vcsDisplayMode") private var vcsDisplayMode = VCSDisplayMode.tab.rawValue
+    @AppStorage("muxy.vcsDisplayMode") private var vcsDisplayMode = VCSDisplayMode.attached.rawValue
 
     var body: some View {
         SettingsContainer {
