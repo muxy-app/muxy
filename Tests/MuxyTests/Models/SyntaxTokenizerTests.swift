@@ -335,6 +335,55 @@ struct SyntaxTokenizerTests {
         #expect(result.tokens.contains(where: { $0.scope == .string }))
     }
 
+    @Test("YAML quoted key is not tagged as attributeName")
+    func yamlQuotedKey() {
+        let result = tokenize("\"path\": foo", grammar: .yaml)
+        #expect(!result.tokens.contains(where: { $0.scope == .attributeName }))
+        #expect(result.tokens.contains(where: { $0.scope == .string }))
+    }
+
+    @Test("YAML anchor value is left to default pipeline")
+    func yamlAnchorValue() {
+        let result = tokenize("base: &anchor", grammar: .yaml)
+        #expect(result.tokens.contains(where: { $0.scope == .attributeName }))
+        #expect(!result.tokens.contains(where: { $0.scope == .string }))
+    }
+
+    @Test("YAML alias value is left to default pipeline")
+    func yamlAliasValue() {
+        let result = tokenize("ref: *anchor", grammar: .yaml)
+        #expect(result.tokens.contains(where: { $0.scope == .attributeName }))
+        #expect(!result.tokens.contains(where: { $0.scope == .string }))
+    }
+
+    @Test("YAML tag value is left to default pipeline")
+    func yamlTagValue() {
+        let result = tokenize("val: !Tag", grammar: .yaml)
+        #expect(result.tokens.contains(where: { $0.scope == .attributeName }))
+        #expect(!result.tokens.contains(where: { $0.scope == .string }))
+    }
+
+    @Test("YAML flow collection start is not tokenized as plain scalar")
+    func yamlFlowCollection() {
+        let result = tokenize("list: [1, 2, 3]", grammar: .yaml)
+        #expect(result.tokens.contains(where: { $0.scope == .attributeName }))
+        #expect(!result.tokens.contains(where: { $0.scope == .string }))
+    }
+
+    @Test("YAML block scalar indicator is not tokenized as plain scalar")
+    func yamlBlockScalar() {
+        let result = tokenize("desc: |", grammar: .yaml)
+        #expect(result.tokens.contains(where: { $0.scope == .attributeName }))
+        #expect(!result.tokens.contains(where: { $0.scope == .string }))
+    }
+
+    @Test("YAML key with no value emits attributeName only")
+    func yamlKeyOnly() {
+        let result = tokenize("parent:", grammar: .yaml)
+        #expect(result.tokens.contains(where: { $0.scope == .attributeName }))
+        #expect(!result.tokens.contains(where: { $0.scope == .string }))
+    }
+
     @Test("Escape sequence inside string does not end it early")
     func escapeInString() {
         let result = tokenize("\"a\\\"b\"", grammar: .swift)

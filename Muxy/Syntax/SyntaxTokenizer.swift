@@ -233,15 +233,12 @@ struct SyntaxTokenizer {
         if ch == 0x26 || ch == 0x2A || ch == 0x21 { return }
         if ch == 0x2D, scan + 1 < length {
             let next = ns.character(at: scan + 1)
-            if next >= 0x30, next <= 0x39 {} else { return }
+            guard next >= 0x30, next <= 0x39 else { return }
         }
         if isNumberStart(ns: ns, length: length, at: scan) { return }
         if let identifier = scanIdentifier(ns: ns, length: length, from: scan) {
             let lookup = grammar.caseSensitiveKeywords ? identifier.word : identifier.word.lowercased()
-            for group in grammar.keywordGroups where group.words.contains(lookup) {
-                _ = group
-                return
-            }
+            if grammar.keywordGroups.contains(where: { $0.words.contains(lookup) }) { return }
         }
         let valueEnd = findYAMLPlainEnd(ns: ns, length: length, from: scan)
         if valueEnd > scan {
