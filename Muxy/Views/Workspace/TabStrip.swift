@@ -69,10 +69,6 @@ struct PaneTabStrip: View {
                     }
                     .padding(.trailing, 4)
                 }
-                IconButton(symbol: "magnifyingglass", size: 12, accessibilityLabel: "Quick Open") {
-                    NotificationCenter.default.post(name: .quickOpen, object: nil)
-                }
-                .help(shortcutTooltip("Quick Open", for: .quickOpen))
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))
                 IconButton(symbol: "square.split.1x2", accessibilityLabel: "Split Down") { onSplit(.vertical) }
@@ -80,6 +76,10 @@ struct PaneTabStrip: View {
                 IconButton(symbol: "plus", accessibilityLabel: "New Tab") { onCreateTab() }
                     .help(shortcutTooltip("New Tab", for: .newTab))
                 if showVCSButton {
+                    IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
+                        NotificationCenter.default.post(name: .quickOpen, object: nil)
+                    }
+                    .help(shortcutTooltip("Quick Open", for: .quickOpen))
                     FileDiffIconButton(action: onCreateVCSTab)
                         .help(shortcutTooltip("Source Control", for: .openVCSTab))
                     FileTreeIconButton {

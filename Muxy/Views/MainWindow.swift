@@ -395,6 +395,10 @@ struct MainWindow: View {
                             .padding(.trailing, 4)
                         }
                         if let project = activeProject, activeProjectHasSplitWorkspace {
+                            IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
+                                NotificationCenter.default.post(name: .quickOpen, object: nil)
+                            }
+                            .help("Quick Open (\(KeyBindingStore.shared.combo(for: .quickOpen).displayString))")
                             FileDiffIconButton {
                                 openVCS(for: project)
                             }

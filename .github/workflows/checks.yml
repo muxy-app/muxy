@@ -14,6 +14,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Detect changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            mobile:
+              - 'MuxyMobile.xcodeproj/**'
+              - 'MuxyMobile/**'
+
       - name: Read tool versions
         run: |
           echo "SWIFTFORMAT_VERSION=$(grep '^swiftformat ' .tool-versions | awk '{print $2}')" >> "$GITHUB_ENV"
@@ -50,6 +59,7 @@ jobs:
         run: swift build
 
       - name: Build (iOS)
+        if: steps.changes.outputs.mobile == 'true'
         run: xcodebuild -project MuxyMobile.xcodeproj -scheme MuxyMobile -destination "generic/platform=iOS Simulator" -quiet build
 
       - name: Test

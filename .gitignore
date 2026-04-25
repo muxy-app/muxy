@@ -16,3 +16,4 @@ GhosttyKit/ghostty.h
 *.dmg
 appcast*.xml
 .plans/
+/muxy-markdown-remote-image-urlcache

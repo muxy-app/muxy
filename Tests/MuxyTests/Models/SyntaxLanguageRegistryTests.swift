@@ -68,4 +68,32 @@ struct SyntaxLanguageRegistryTests {
         #expect(SyntaxLanguageRegistry.grammar(forFile: "data.csv")?.name == "CSV")
         #expect(SyntaxLanguageRegistry.grammar(forFile: "data.tsv")?.name == "CSV")
     }
+
+    @Test("language hint resolves common fence labels")
+    func hintCommonFences() {
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "swift")?.name == "Swift")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "py")?.name == "Python")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "python")?.name == "Python")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "ts")?.name == "TypeScript")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "typescript")?.name == "TypeScript")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "js")?.name == "JavaScript")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "bash")?.name == "Shell")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "sh")?.name == "Shell")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "yaml")?.name == "YAML")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "yml")?.name == "YAML")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "rust")?.name == "Rust")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "go")?.name == "Go")
+    }
+
+    @Test("language hint is case insensitive and trimmed")
+    func hintCaseAndWhitespace() {
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "  Swift  ")?.name == "Swift")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "JSON")?.name == "JSON")
+    }
+
+    @Test("unknown language hint returns nil")
+    func hintUnknown() {
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "brainfuck") == nil)
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "") == nil)
+    }
 }
