@@ -495,33 +495,60 @@
         });
     }
 
+    function encodeRemoteURL(rawUrl) {
+        try {
+            var binary = '';
+            var bytes = new TextEncoder().encode(rawUrl);
+            for (var i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary)
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function rewriteImageSource(image) {
+        var rawSrc = image.getAttribute('src');
+        if (!rawSrc) {
+            return;
+        }
+        var trimmed = rawSrc.trim();
+        if (!trimmed) {
+            return;
+        }
+        var lower = trimmed.toLowerCase();
+        if (lower.startsWith('data:') || lower.startsWith('blob:')) {
+            return;
+        }
+        if (lower.startsWith('http://') || lower.startsWith('https://')) {
+            var encoded = encodeRemoteURL(trimmed);
+            if (encoded) {
+                image.setAttribute('src', 'muxy-md-remote://image/' + encoded);
+            }
+            return;
+        }
+        var hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed);
+        if (hasScheme || trimmed.startsWith('//')) {
+            return;
+        }
+        var baseHost = window.__muxyImageBaseHost || '';
+        if (!baseHost) {
+            return;
+        }
+        var relative = trimmed.replace(/^\/+/, '');
+        var encodedRelative = relative.split('/').map(encodeURIComponent).join('/');
+        image.setAttribute('src', 'muxy-md-image://' + baseHost + '/' + encodedRelative);
+    }
+
     function normalizeLocalImageSources(markdownRoot) {
         if (!markdownRoot) {
             return;
         }
-        var baseHost = window.__muxyImageBaseHost || '';
-        var images = markdownRoot.querySelectorAll('img[src]');
-        images.forEach(function (image) {
-            var rawSrc = image.getAttribute('src');
-            if (!rawSrc) {
-                return;
-            }
-            var trimmed = rawSrc.trim();
-            if (!trimmed) {
-                return;
-            }
-            var lower = trimmed.toLowerCase();
-            var hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed);
-            if (hasScheme || trimmed.startsWith('//') || lower.startsWith('data:') || lower.startsWith('blob:')) {
-                return;
-            }
-            if (!baseHost) {
-                return;
-            }
-            var relative = trimmed.replace(/^\/+/, '');
-            var encodedRelative = relative.split('/').map(encodeURIComponent).join('/');
-            image.setAttribute('src', 'muxy-md-image://' + baseHost + '/' + encodedRelative);
-        });
+        markdownRoot.querySelectorAll('img[src]').forEach(rewriteImageSource);
     }
 
     function assignAnchorMetadata(markdownRoot, anchors) {
@@ -562,9 +589,7 @@
         if (!image) {
             return '';
         }
-        var src = image.getAttribute('src') || image.currentSrc || '';
-        var alt = image.getAttribute('alt') || '';
-        return src + '||' + alt;
+        return image.getAttribute('src') || image.currentSrc || '';
     }
 
     function syncImageAttributes(sourceImage, targetImage) {
@@ -650,6 +675,7 @@
             diagramMap[id] = code.trim();
             return '<div class="mermaid" id="' + id + '" data-muxy-mermaid="true"></div>';
         });
+        window.__muxyMermaidDiagrams = diagramMap;
 
         var html = marked.parse(content);
         var markdownRoot = document.getElementById('markdown');
@@ -723,5 +749,43 @@
             console.error('renderMarkdown failed:', err);
         });
         return true;
+    };
+
+    window.__muxyRerenderMermaid = async function () {
+        var diagrams = window.__muxyMermaidDiagrams;
+        if (!diagrams || !Object.keys(diagrams).length) {
+            return false;
+        }
+        try {
+            var ready = await ensureMermaidLoaded();
+            if (!ready || typeof mermaid === 'undefined') {
+                return false;
+            }
+            var config = {
+                startOnLoad: false,
+                securityLevel: 'strict',
+                theme: window.__muxyMermaidBaseTheme || 'default',
+                flowchart: { htmlLabels: false }
+            };
+            if (window.__muxyMermaidUseThemeVariables && window.__muxyMermaidThemeVariables) {
+                config.themeVariables = window.__muxyMermaidThemeVariables;
+            }
+            mermaid.initialize(config);
+            for (var id in diagrams) {
+                var el = document.getElementById(id);
+                if (!el) continue;
+                try {
+                    var rendered = await mermaid.render(id + '-svg-' + Date.now(), diagrams[id]);
+                    el.innerHTML = rendered.svg;
+                } catch (err) {
+                    el.innerHTML = '<div class="mermaid-error">Diagram Error: '
+                        + escapeHTML(err.message || err) + '</div>';
+                }
+            }
+            initializeMermaidControls();
+            return true;
+        } catch (_) {
+            return false;
+        }
     };
 })();

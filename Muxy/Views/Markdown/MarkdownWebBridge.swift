@@ -3,7 +3,6 @@ import Foundation
 
 enum MarkdownWebBridge {
     static let scrollHandlerName = "muxyMarkdownScroll"
-    static let wheelHandlerName = "muxyMarkdownWheel"
 
     static let scrollObserverScript = #"""
     (() => {
@@ -11,7 +10,6 @@ enum MarkdownWebBridge {
         if (!handler) return;
 
         let attachedRoot = null;
-        let wheelListener = null;
         let reportScheduled = false;
 
         const scrollRoot = () => document.getElementById('content')
@@ -41,29 +39,15 @@ enum MarkdownWebBridge {
         const attach = () => {
             const root = scrollRoot();
             if (!root) return;
-
             if (attachedRoot === root) {
                 scheduleReport();
                 return;
             }
-
             if (attachedRoot) {
                 attachedRoot.removeEventListener('scroll', scheduleReport);
-                if (wheelListener) {
-                    attachedRoot.removeEventListener('wheel', wheelListener);
-                }
             }
-
-            wheelListener = event => {
-                if (!document.documentElement?.classList.contains('muxy-linked-scroll')) return;
-                event.preventDefault();
-                event.stopPropagation();
-            };
-
             attachedRoot = root;
-
             root.addEventListener('scroll', scheduleReport, { passive: true });
-            root.addEventListener('wheel', wheelListener, { passive: false });
             scheduleReport();
         };
 

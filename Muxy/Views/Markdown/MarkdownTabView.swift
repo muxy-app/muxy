@@ -18,6 +18,7 @@ struct MarkdownWebView: NSViewRepresentable {
     struct ContentUpdateRequest {
         let html: String
         let content: String
+        let palette: MarkdownRenderer.Palette
         let syncScrollRequest: CGFloat?
         let syncScrollRequestVersion: Int
         let filePath: String?
@@ -25,12 +26,9 @@ struct MarkdownWebView: NSViewRepresentable {
 
     struct Configuration {
         let scrollSyncEnabled: Bool
-        let showsVerticalScroller: Bool
-        let hidesContentScrollbar: Bool
         let syncScrollRequestVersion: Int
         let syncScrollRequest: CGFloat?
         let onScrollReport: ((MarkdownPreviewScrollReport) -> Void)?
-        let onWheelDelta: ((CGFloat) -> Void)?
         let onLayoutChanged: (() -> Void)?
         let onAnchorGeometryChanged: (([MarkdownPreviewAnchorGeometry]) -> Void)?
     }
@@ -38,25 +36,20 @@ struct MarkdownWebView: NSViewRepresentable {
     let html: String
     let content: String
     let filePath: String?
+    let palette: MarkdownRenderer.Palette
     @Binding var syncScrollRequest: CGFloat?
     let syncScrollRequestVersion: Int
     var scrollSyncEnabled = true
-    var showsVerticalScroller = true
-    var hidesContentScrollbar = false
     var onScrollReport: ((MarkdownPreviewScrollReport) -> Void)?
-    var onWheelDelta: ((CGFloat) -> Void)?
     var onLayoutChanged: (() -> Void)?
     var onAnchorGeometryChanged: (([MarkdownPreviewAnchorGeometry]) -> Void)?
 
     private var configuration: Configuration {
         Configuration(
             scrollSyncEnabled: scrollSyncEnabled,
-            showsVerticalScroller: showsVerticalScroller,
-            hidesContentScrollbar: hidesContentScrollbar,
             syncScrollRequestVersion: syncScrollRequestVersion,
             syncScrollRequest: syncScrollRequest,
             onScrollReport: onScrollReport,
-            onWheelDelta: onWheelDelta,
             onLayoutChanged: onLayoutChanged,
             onAnchorGeometryChanged: onAnchorGeometryChanged
         )
@@ -76,13 +69,15 @@ struct MarkdownWebView: NSViewRepresentable {
             MarkdownLocalImageSchemeHandler(),
             forURLScheme: MarkdownLocalImageSchemeHandler.scheme
         )
+        config.setURLSchemeHandler(
+            MarkdownRemoteImageSchemeHandler(),
+            forURLScheme: MarkdownRemoteImageSchemeHandler.scheme
+        )
         context.coordinator.installBridge(into: config)
 
-        let webView = MarkdownPassiveWebView(frame: .zero, configuration: config)
+        let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         context.coordinator.configure(with: configuration)
-        context.coordinator.updateScrollerVisibility(in: webView)
-        context.coordinator.updateUserScrollInteractivity(in: webView)
         if scrollSyncEnabled {
             context.coordinator.applyPreferredScroll(
                 requestVersion: syncScrollRequestVersion,
@@ -91,19 +86,17 @@ struct MarkdownWebView: NSViewRepresentable {
             )
         }
 
-        context.coordinator.loadHTML(html, content: content, filePath: filePath, into: webView)
+        context.coordinator.loadHTML(html, content: content, palette: palette, filePath: filePath, into: webView)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.configure(with: configuration)
-        context.coordinator.updateScrollerVisibility(in: webView)
-        context.coordinator.updateUserScrollInteractivity(in: webView)
-        context.coordinator.updateContentScrollbarVisibility(in: webView)
         context.coordinator.updateHTML(
             ContentUpdateRequest(
                 html: html,
                 content: content,
+                palette: palette,
                 syncScrollRequest: syncScrollRequest,
                 syncScrollRequestVersion: syncScrollRequestVersion,
                 filePath: filePath
@@ -115,7 +108,6 @@ struct MarkdownWebView: NSViewRepresentable {
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.navigationDelegate = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: MarkdownWebBridge.scrollHandlerName)
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: MarkdownWebBridge.wheelHandlerName)
         webView.configuration.userContentController
             .removeScriptMessageHandler(forName: MarkdownPreviewAnchorGeometryBridge.geometryHandlerName)
         coordinator.removeScrollObserver()
@@ -125,6 +117,8 @@ struct MarkdownWebView: NSViewRepresentable {
         private static let programmaticScrollSuppressionWindow: TimeInterval = 0.2
 
         private var lastHTML: String = ""
+        private var lastAppliedPalette: MarkdownRenderer.Palette?
+        private var pendingPalette: MarkdownRenderer.Palette?
         private var lastAppliedSyncRequestVersion: Int = -1
         private var lastReportedScrollTop: CGFloat = -1
         private var pendingSyncScrollTop: CGFloat?
@@ -136,84 +130,26 @@ struct MarkdownWebView: NSViewRepresentable {
         private var pendingContent: String?
         private var scrollSyncEnabled = true
         private var lastConfiguredScrollSyncEnabled = true
-        private var showsVerticalScroller = true
-        private var hidesContentScrollbar = false
         private var onScrollReport: ((MarkdownPreviewScrollReport) -> Void)?
-        private var onWheelDelta: ((CGFloat) -> Void)?
         private var onLayoutChanged: (() -> Void)?
         private var onAnchorGeometryChanged: (([MarkdownPreviewAnchorGeometry]) -> Void)?
         private var isApplyingProgrammaticScroll = false
         private var isNavigationInFlight = false
         private var programmaticScrollSuppressionUntil: Date?
         private var lastAnchorGeometrySnapshot: [MarkdownPreviewAnchorGeometry] = []
-        private var lastAppliedHideContentScrollbar = false
-        private var lastAppliedLinkedScroll = false
 
         func configure(with configuration: Configuration) {
             scrollSyncEnabled = configuration.scrollSyncEnabled
-            showsVerticalScroller = configuration.showsVerticalScroller
-            hidesContentScrollbar = configuration.hidesContentScrollbar
             onScrollReport = configuration.onScrollReport
-            onWheelDelta = configuration.onWheelDelta
             onLayoutChanged = configuration.onLayoutChanged
             onAnchorGeometryChanged = configuration.onAnchorGeometryChanged
         }
 
-        func updateScrollerVisibility(in webView: WKWebView) {
-            guard let scrollView = webView.safeScrollView else { return }
-            if scrollView.hasVerticalScroller != showsVerticalScroller {
-                scrollView.hasVerticalScroller = showsVerticalScroller
-            }
-            if scrollView.autohidesScrollers != showsVerticalScroller {
-                scrollView.autohidesScrollers = showsVerticalScroller
-            }
-        }
-
-        func updateUserScrollInteractivity(in webView: WKWebView) {
-            guard let webView = webView as? MarkdownPassiveWebView else { return }
-            webView.blocksUserScrollInput = scrollSyncEnabled && hidesContentScrollbar
-        }
-
-        func updateContentScrollbarVisibility(in webView: WKWebView) {
-            let hideScrollbar = hidesContentScrollbar
-            let linkedScroll = scrollSyncEnabled && hidesContentScrollbar
-            guard hideScrollbar != lastAppliedHideContentScrollbar || linkedScroll != lastAppliedLinkedScroll else {
-                return
-            }
-
-            lastAppliedHideContentScrollbar = hideScrollbar
-            lastAppliedLinkedScroll = linkedScroll
-
-            let hideScrollbarLiteral = hideScrollbar ? "true" : "false"
-            let linkedScrollLiteral = linkedScroll ? "true" : "false"
-            let script = """
-            (() => {
-                const root = document.documentElement;
-                if (!root) return;
-                root.classList.toggle('muxy-hide-content-scrollbar', \(
-                    hideScrollbarLiteral
-                ));
-                root.classList.toggle('muxy-linked-scroll', \(
-                    linkedScrollLiteral
-                ));
-            })();
-            """
-            webView.evaluateJavaScript(script) { _, error in
-                if let error {
-                    markdownWebLogger.error(
-                        "Failed updating markdown content scrollbar visibility: \(error.localizedDescription, privacy: .public)"
-                    )
-                }
-            }
-        }
-
         func installBridge(into configuration: WKWebViewConfiguration) {
             configuration.userContentController.removeScriptMessageHandler(forName: MarkdownWebBridge.scrollHandlerName)
-            configuration.userContentController.removeScriptMessageHandler(forName: MarkdownWebBridge.wheelHandlerName)
             configuration.userContentController.removeScriptMessageHandler(forName: MarkdownPreviewAnchorGeometryBridge.geometryHandlerName)
             configuration.userContentController.removeAllUserScripts()
             configuration.userContentController.add(self, name: MarkdownWebBridge.scrollHandlerName)
-            configuration.userContentController.add(self, name: MarkdownWebBridge.wheelHandlerName)
             configuration.userContentController.add(self, name: MarkdownPreviewAnchorGeometryBridge.geometryHandlerName)
             configuration.userContentController.addUserScript(
                 WKUserScript(
@@ -236,15 +172,15 @@ struct MarkdownWebView: NSViewRepresentable {
             programmaticScrollSuppressionUntil = nil
         }
 
-        func loadHTML(_ html: String, content: String, filePath: String?, into webView: WKWebView) {
+        func loadHTML(_ html: String, content: String, palette: MarkdownRenderer.Palette, filePath: String?, into webView: WKWebView) {
             lastHTML = html
             currentFilePath = filePath
             pendingContent = content
+            pendingPalette = palette
+            lastAppliedPalette = nil
             lastRenderedContent = ""
             lastAppliedSyncRequestVersion = -1
             lastReportedScrollTop = -1
-            lastAppliedHideContentScrollbar = false
-            lastAppliedLinkedScroll = false
             loadCount += 1
             isNavigationInFlight = true
             markdownWebLogger.debug(
@@ -260,6 +196,8 @@ struct MarkdownWebView: NSViewRepresentable {
             if request.html != lastHTML {
                 lastHTML = request.html
                 pendingContent = request.content
+                pendingPalette = request.palette
+                lastAppliedPalette = nil
                 lastRenderedContent = ""
                 pendingSyncScrollTop = scrollSyncEnabled ? request.syncScrollRequest : nil
                 pendingSyncRequestVersion = scrollSyncEnabled ? request.syncScrollRequestVersion : -1
@@ -274,13 +212,21 @@ struct MarkdownWebView: NSViewRepresentable {
                     """
                 )
                 activeNavigation = webView.loadHTMLString(request.html, baseURL: nil)
-            } else if isNavigationInFlight {
+                return
+            }
+            if isNavigationInFlight {
                 pendingContent = request.content
+                pendingPalette = request.palette
                 if scrollSyncEnabled {
                     pendingSyncScrollTop = request.syncScrollRequest
                     pendingSyncRequestVersion = request.syncScrollRequestVersion
                 }
-            } else if request.content != lastRenderedContent {
+                return
+            }
+
+            applyPaletteIfNeeded(request.palette, to: webView)
+
+            if request.content != lastRenderedContent {
                 applyContentUpdate(
                     request.content,
                     to: webView,
@@ -298,6 +244,19 @@ struct MarkdownWebView: NSViewRepresentable {
                     scrollTop: request.syncScrollRequest,
                     to: webView
                 )
+            }
+        }
+
+        private func applyPaletteIfNeeded(_ palette: MarkdownRenderer.Palette, to webView: WKWebView) {
+            if let lastAppliedPalette, lastAppliedPalette == palette { return }
+            lastAppliedPalette = palette
+            let script = MarkdownRenderer.themeApplyScript(palette: palette)
+            webView.evaluateJavaScript(script) { _, error in
+                if let error {
+                    markdownWebLogger.error(
+                        "Failed applying markdown theme: \(error.localizedDescription, privacy: .public)"
+                    )
+                }
             }
         }
 
@@ -392,6 +351,10 @@ struct MarkdownWebView: NSViewRepresentable {
             )
             isNavigationInFlight = false
             lastAnchorGeometrySnapshot = []
+            if let pendingPalette {
+                self.pendingPalette = nil
+                applyPaletteIfNeeded(pendingPalette, to: webView)
+            }
             if let pendingContent {
                 self.pendingContent = nil
                 applyContentUpdate(
@@ -419,7 +382,6 @@ struct MarkdownWebView: NSViewRepresentable {
                     )
                 }
             }
-            updateContentScrollbarVisibility(in: webView)
             collectJavaScriptErrors(from: webView)
         }
 
@@ -454,20 +416,6 @@ struct MarkdownWebView: NSViewRepresentable {
             if message.name == MarkdownPreviewAnchorGeometryBridge.geometryHandlerName {
                 guard !isNavigationInFlight else { return }
                 handleAnchorGeometryMessage(message.body)
-                return
-            }
-
-            if message.name == MarkdownWebBridge.wheelHandlerName {
-                guard scrollSyncEnabled,
-                      !isNavigationInFlight,
-                      let payload = message.body as? [String: Any],
-                      let deltaYNumber = payload["deltaY"] as? NSNumber
-                else { return }
-
-                let deltaY = CGFloat(truncating: deltaYNumber)
-                DispatchQueue.main.async {
-                    self.onWheelDelta?(deltaY)
-                }
                 return
             }
 

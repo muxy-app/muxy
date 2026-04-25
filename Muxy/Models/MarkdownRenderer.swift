@@ -83,106 +83,14 @@ private struct MermaidThemeVariables: Codable {
 }
 
 enum MarkdownRenderer {
-    struct Palette {
+    struct Palette: Equatable {
         let background: NSColor
         let foreground: NSColor
         let accent: NSColor
     }
 
     @MainActor
-    static func html(
-        anchors: [MarkdownSyncAnchor],
-        filePath: String?,
-        palette: Palette
-    ) -> String {
-        let bgHex = colorToHex(palette.background)
-        let fgHex = colorToHex(palette.foreground)
-        let accentHex = colorToHex(palette.accent)
-        let borderHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.2))
-        let mutedHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.65))
-        let codeBgHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.08))
-        let rowAltHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.04))
-        let mermaidSecondaryHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.12))
-        let mermaidTertiaryHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.18))
-        let accentSoftHex = colorToHex(blend(foreground: palette.accent, background: palette.background, amount: 0.22))
-        let accentSubtleHex = colorToHex(blend(foreground: palette.accent, background: palette.background, amount: 0.12))
-        let accentMutedHex = colorToHex(blend(foreground: palette.accent, background: palette.background, amount: 0.35))
-        let accentStrongHex = colorToHex(blend(foreground: palette.accent, background: palette.background, amount: 0.5))
-        let mermaidThemeVariables = MermaidThemeVariables(
-            primaryColor: "#\(accentHex)",
-            primaryTextColor: "#\(fgHex)",
-            primaryBorderColor: "#\(borderHex)",
-            textColor: "#\(fgHex)",
-            lineColor: "#\(mutedHex)",
-            secondaryColor: "#\(mermaidSecondaryHex)",
-            tertiaryColor: "#\(mermaidTertiaryHex)",
-            background: "#\(bgHex)",
-            mainBkg: "#\(codeBgHex)",
-            secondBkg: "#\(mermaidSecondaryHex)",
-            tertiaryBkg: "#\(mermaidTertiaryHex)",
-            nodeBorder: "#\(borderHex)",
-            clusterBkg: "#\(mermaidSecondaryHex)",
-            clusterBorder: "#\(borderHex)",
-            defaultLinkColor: "#\(mutedHex)",
-            titleColor: "#\(fgHex)",
-            edgeLabelBackground: "#\(codeBgHex)",
-            nodeTextColor: "#\(fgHex)",
-            labelTextColor: "#\(fgHex)",
-            noteBkgColor: "#\(codeBgHex)",
-            noteTextColor: "#\(fgHex)",
-            noteBorderColor: "#\(borderHex)",
-            actorBkg: "#\(mermaidSecondaryHex)",
-            actorBorder: "#\(borderHex)",
-            actorTextColor: "#\(fgHex)",
-            actorLineColor: "#\(mutedHex)",
-            signalColor: "#\(fgHex)",
-            signalTextColor: "#\(fgHex)",
-            labelBoxBkgColor: "#\(codeBgHex)",
-            labelBoxBorderColor: "#\(borderHex)",
-            loopTextColor: "#\(fgHex)",
-            activationBorderColor: "#\(borderHex)",
-            activationBkgColor: "#\(accentSubtleHex)",
-            sequenceNumberColor: "#\(bgHex)",
-            classText: "#\(fgHex)",
-            entityBkgColor: "#\(codeBgHex)",
-            entityBorderColor: "#\(borderHex)",
-            entityTextColor: "#\(fgHex)",
-            sectionBkgColor: "#\(mermaidSecondaryHex)",
-            altSectionBkgColor: "#\(codeBgHex)",
-            sectionBkgColor2: "#\(mermaidTertiaryHex)",
-            taskBkgColor: "#\(accentSoftHex)",
-            taskTextColor: "#\(fgHex)",
-            taskTextDarkColor: "#\(bgHex)",
-            taskTextOutsideColor: "#\(fgHex)",
-            taskTextClickableColor: "#\(accentHex)",
-            activeTaskBkgColor: "#\(accentMutedHex)",
-            doneTaskBkgColor: "#\(mermaidTertiaryHex)",
-            doneTaskBorderColor: "#\(borderHex)",
-            critBorderColor: "#\(accentStrongHex)",
-            critBkgColor: "#\(accentMutedHex)",
-            todayLineColor: "#\(accentHex)",
-            personBorder: "#\(borderHex)",
-            personBkg: "#\(mermaidSecondaryHex)",
-            pie1: "#\(accentHex)",
-            pie2: "#\(accentMutedHex)",
-            pie3: "#\(mermaidSecondaryHex)",
-            pie4: "#\(mermaidTertiaryHex)",
-            pie5: "#\(accentSoftHex)",
-            pie6: "#\(accentStrongHex)",
-            pie7: "#\(borderHex)",
-            pie8: "#\(mutedHex)",
-            pie9: "#\(codeBgHex)",
-            pie10: "#\(accentSubtleHex)",
-            pie11: "#\(mermaidSecondaryHex)",
-            pie12: "#\(mermaidTertiaryHex)"
-        )
-        let mermaidThemeVariablesJSON = mermaidThemeVariables.jsObjectLiteral
-        let isDarkPreview = isDarkColor(palette.background)
-        let mermaidBaseTheme = isDarkPreview ? "dark" : "default"
-        let colorScheme = isDarkPreview ? "dark" : "light"
-        let codeBackground = blend(foreground: palette.foreground, background: palette.background, amount: 0.08)
-        let syntaxCSS = SyntaxHTMLRenderer.cssStylesheet(background: codeBackground, foreground: palette.foreground)
-
+    static func html(filePath: String?) -> String {
         let title = escapeForHTML(filePath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Markdown")
         let imageBaseHost = filePath.flatMap { encodedImageBaseHost(forMarkdownFilePath: $0) } ?? ""
         return """
@@ -193,17 +101,17 @@ enum MarkdownRenderer {
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>\(title)</title>
             <script src="muxy-asset://markdown/marked.min.js"></script>
-            <style>
+            <style id="muxy-base-style">
                 :root {
-                    color-scheme: \(colorScheme);
-                    --bg: #\(bgHex);
-                    --fg: #\(fgHex);
-                    --accent: #\(accentHex);
-                    --border: #\(borderHex);
-                    --muted: #\(mutedHex);
-                    --code-bg: #\(codeBgHex);
-                    --blockquote-border: #\(borderHex);
-                    --row-alt: #\(rowAltHex);
+                    color-scheme: light;
+                    --bg: #FFFFFF;
+                    --fg: #1F2328;
+                    --accent: #0969DA;
+                    --border: #D0D7DE;
+                    --muted: #57606A;
+                    --code-bg: #F6F8FA;
+                    --blockquote-border: #D0D7DE;
+                    --row-alt: #F6F8FA;
                 }
                 * { box-sizing: border-box; margin: 0; padding: 0; }
                 html, body {
@@ -222,20 +130,6 @@ enum MarkdownRenderer {
                     overflow-y: auto;
                     padding: 24px 32px max(60px, 40vh) 32px;
                     box-sizing: border-box;
-                }
-                html.muxy-hide-content-scrollbar #content {
-                    scrollbar-width: none;
-                    -ms-overflow-style: none;
-                    overscroll-behavior: none;
-                }
-                html.muxy-hide-content-scrollbar #content::-webkit-scrollbar {
-                    width: 0;
-                    height: 0;
-                    display: none;
-                }
-                html.muxy-linked-scroll #content {
-                    overflow-y: hidden;
-                    overscroll-behavior: none;
                 }
                 .markdown-body {
                     max-width: 900px;
@@ -366,8 +260,8 @@ enum MarkdownRenderer {
                 }
                 .markdown-body pre.muxy-prehl { background: var(--code-bg); }
                 .markdown-body pre.muxy-prehl code.muxy-hl { color: var(--fg); }
-                \(syntaxCSS)
             </style>
+            <style id="muxy-syntax-style"></style>
         </head>
         <body>
             <div id="content">
@@ -375,9 +269,6 @@ enum MarkdownRenderer {
             </div>
             <script>
                 window.__muxyImageBaseHost = "\(imageBaseHost)";
-                window.__muxyMermaidBaseTheme = "\(mermaidBaseTheme)";
-                window.__muxyMermaidUseThemeVariables = \(isDarkPreview ? "true" : "false");
-                window.__muxyMermaidThemeVariables = \(mermaidThemeVariablesJSON);
             </script>
             <script src="muxy-asset://markdown/markdown-renderer.js"></script>
         </body>
@@ -395,6 +286,126 @@ enum MarkdownRenderer {
                 return false;
             }
             return window.__muxyRenderMarkdown("\(encodedPayload)");
+        })();
+        """
+    }
+
+    @MainActor
+    static func themeApplyScript(palette: Palette) -> String {
+        let bgHex = colorToHex(palette.background)
+        let fgHex = colorToHex(palette.foreground)
+        let accentHex = colorToHex(palette.accent)
+        let borderHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.2))
+        let mutedHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.65))
+        let codeBgHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.08))
+        let rowAltHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.04))
+        let mermaidSecondaryHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.12))
+        let mermaidTertiaryHex = colorToHex(blend(foreground: palette.foreground, background: palette.background, amount: 0.18))
+        let accentSoftHex = colorToHex(blend(foreground: palette.accent, background: palette.background, amount: 0.22))
+        let accentSubtleHex = colorToHex(blend(foreground: palette.accent, background: palette.background, amount: 0.12))
+        let accentMutedHex = colorToHex(blend(foreground: palette.accent, background: palette.background, amount: 0.35))
+        let accentStrongHex = colorToHex(blend(foreground: palette.accent, background: palette.background, amount: 0.5))
+        let mermaidThemeVariables = MermaidThemeVariables(
+            primaryColor: "#\(accentHex)",
+            primaryTextColor: "#\(fgHex)",
+            primaryBorderColor: "#\(borderHex)",
+            textColor: "#\(fgHex)",
+            lineColor: "#\(mutedHex)",
+            secondaryColor: "#\(mermaidSecondaryHex)",
+            tertiaryColor: "#\(mermaidTertiaryHex)",
+            background: "#\(bgHex)",
+            mainBkg: "#\(codeBgHex)",
+            secondBkg: "#\(mermaidSecondaryHex)",
+            tertiaryBkg: "#\(mermaidTertiaryHex)",
+            nodeBorder: "#\(borderHex)",
+            clusterBkg: "#\(mermaidSecondaryHex)",
+            clusterBorder: "#\(borderHex)",
+            defaultLinkColor: "#\(mutedHex)",
+            titleColor: "#\(fgHex)",
+            edgeLabelBackground: "#\(codeBgHex)",
+            nodeTextColor: "#\(fgHex)",
+            labelTextColor: "#\(fgHex)",
+            noteBkgColor: "#\(codeBgHex)",
+            noteTextColor: "#\(fgHex)",
+            noteBorderColor: "#\(borderHex)",
+            actorBkg: "#\(mermaidSecondaryHex)",
+            actorBorder: "#\(borderHex)",
+            actorTextColor: "#\(fgHex)",
+            actorLineColor: "#\(mutedHex)",
+            signalColor: "#\(fgHex)",
+            signalTextColor: "#\(fgHex)",
+            labelBoxBkgColor: "#\(codeBgHex)",
+            labelBoxBorderColor: "#\(borderHex)",
+            loopTextColor: "#\(fgHex)",
+            activationBorderColor: "#\(borderHex)",
+            activationBkgColor: "#\(accentSubtleHex)",
+            sequenceNumberColor: "#\(bgHex)",
+            classText: "#\(fgHex)",
+            entityBkgColor: "#\(codeBgHex)",
+            entityBorderColor: "#\(borderHex)",
+            entityTextColor: "#\(fgHex)",
+            sectionBkgColor: "#\(mermaidSecondaryHex)",
+            altSectionBkgColor: "#\(codeBgHex)",
+            sectionBkgColor2: "#\(mermaidTertiaryHex)",
+            taskBkgColor: "#\(accentSoftHex)",
+            taskTextColor: "#\(fgHex)",
+            taskTextDarkColor: "#\(bgHex)",
+            taskTextOutsideColor: "#\(fgHex)",
+            taskTextClickableColor: "#\(accentHex)",
+            activeTaskBkgColor: "#\(accentMutedHex)",
+            doneTaskBkgColor: "#\(mermaidTertiaryHex)",
+            doneTaskBorderColor: "#\(borderHex)",
+            critBorderColor: "#\(accentStrongHex)",
+            critBkgColor: "#\(accentMutedHex)",
+            todayLineColor: "#\(accentHex)",
+            personBorder: "#\(borderHex)",
+            personBkg: "#\(mermaidSecondaryHex)",
+            pie1: "#\(accentHex)",
+            pie2: "#\(accentMutedHex)",
+            pie3: "#\(mermaidSecondaryHex)",
+            pie4: "#\(mermaidTertiaryHex)",
+            pie5: "#\(accentSoftHex)",
+            pie6: "#\(accentStrongHex)",
+            pie7: "#\(borderHex)",
+            pie8: "#\(mutedHex)",
+            pie9: "#\(codeBgHex)",
+            pie10: "#\(accentSubtleHex)",
+            pie11: "#\(mermaidSecondaryHex)",
+            pie12: "#\(mermaidTertiaryHex)"
+        )
+        let mermaidThemeJSON = mermaidThemeVariables.jsObjectLiteral
+        let isDarkPreview = isDarkColor(palette.background)
+        let mermaidBaseTheme = isDarkPreview ? "dark" : "default"
+        let colorScheme = isDarkPreview ? "dark" : "light"
+        let codeBackground = blend(foreground: palette.foreground, background: palette.background, amount: 0.08)
+        let syntaxCSS = SyntaxHTMLRenderer.cssStylesheet(background: codeBackground, foreground: palette.foreground)
+        let escapedSyntaxCSS = syntaxCSS
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "$", with: "\\$")
+        return """
+        (() => {
+            const root = document.documentElement;
+            if (!root) return;
+            root.style.colorScheme = "\(colorScheme)";
+            root.style.setProperty('--bg', '#\(bgHex)');
+            root.style.setProperty('--fg', '#\(fgHex)');
+            root.style.setProperty('--accent', '#\(accentHex)');
+            root.style.setProperty('--border', '#\(borderHex)');
+            root.style.setProperty('--muted', '#\(mutedHex)');
+            root.style.setProperty('--code-bg', '#\(codeBgHex)');
+            root.style.setProperty('--blockquote-border', '#\(borderHex)');
+            root.style.setProperty('--row-alt', '#\(rowAltHex)');
+            const syntaxStyle = document.getElementById('muxy-syntax-style');
+            if (syntaxStyle) {
+                syntaxStyle.textContent = `\(escapedSyntaxCSS)`;
+            }
+            window.__muxyMermaidBaseTheme = "\(mermaidBaseTheme)";
+            window.__muxyMermaidUseThemeVariables = \(isDarkPreview ? "true" : "false");
+            window.__muxyMermaidThemeVariables = \(mermaidThemeJSON);
+            if (typeof window.__muxyRerenderMermaid === 'function') {
+                window.__muxyRerenderMermaid();
+            }
         })();
         """
     }

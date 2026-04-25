@@ -89,8 +89,6 @@ final class EditorTabState: Identifiable {
     @ObservationIgnored var markdownPreviewMaxScrollTop: CGFloat = 0
     @ObservationIgnored var markdownPreviewViewportHeight: CGFloat = 0
 
-    @ObservationIgnored private weak var linkedMarkdownEditorScrollView: NSScrollView?
-
     @ObservationIgnored let markdownSyncCoordinator = MarkdownSyncCoordinator()
     @ObservationIgnored private var markdownSyncAnchorsCache: [MarkdownSyncAnchor] = []
     @ObservationIgnored private var markdownSyncAnchorsCacheVersion: Int = -1
@@ -156,31 +154,6 @@ final class EditorTabState: Identifiable {
         filePath = newPath
         syntaxHighlighter = Self.makeSyntaxHighlighter(for: newPath)
         refreshReadOnlyStatus()
-    }
-
-    func registerLinkedMarkdownEditorScrollView(_ scrollView: NSScrollView) {
-        linkedMarkdownEditorScrollView = scrollView
-    }
-
-    func unregisterLinkedMarkdownEditorScrollView(_ scrollView: NSScrollView) {
-        guard linkedMarkdownEditorScrollView === scrollView else { return }
-        linkedMarkdownEditorScrollView = nil
-    }
-
-    func forwardLinkedMarkdownScroll(deltaY: CGFloat) {
-        guard let scrollView = linkedMarkdownEditorScrollView else { return }
-
-        let visibleHeight = scrollView.contentView.bounds.height
-        let documentHeight = scrollView.documentView?.bounds.height ?? 0
-        let maxScrollY = max(0, documentHeight - visibleHeight)
-        let currentY = scrollView.contentView.bounds.origin.y
-        let targetY = min(maxScrollY, max(0, currentY + deltaY))
-
-        guard abs(targetY - currentY) > 0.1 else { return }
-
-        markdownScrollDriver = .preview
-        scrollView.contentView.setBoundsOrigin(NSPoint(x: scrollView.contentView.bounds.origin.x, y: targetY))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     func markdownSyncAnchors() -> [MarkdownSyncAnchor] {
