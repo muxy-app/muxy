@@ -606,7 +606,14 @@ final class GhosttyTerminalNSView: NSView {
     private func buildKeyEvent(from event: NSEvent, action: ghostty_input_action_e) -> ghostty_input_key_s {
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = action
-        keyEvent.keycode = UInt32(event.keyCode)
+
+        let normalized = KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
+        if let mappedCode = KeyCombo.keyCode(for: normalized) {
+            keyEvent.keycode = UInt32(mappedCode)
+        } else {
+            keyEvent.keycode = UInt32(event.keyCode)
+        }
+
         keyEvent.mods = modsFromEvent(event)
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.composing = false
@@ -670,6 +677,13 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func shortcutText(from event: NSEvent) -> String {
+        let normalized = KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
+        if normalized.unicodeScalars.count == 1,
+           let scalar = normalized.unicodeScalars.first,
+           scalar.isASCII, scalar.value >= 32, scalar.value <= 126
+        {
+            return normalized
+        }
         if let scalar = KeyCombo.scalar(for: event.keyCode) {
             return String(scalar)
         }
@@ -677,6 +691,10 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func unshiftedCodepoint(from event: NSEvent) -> UInt32 {
+        let normalized = KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
+        if let scalar = normalized.unicodeScalars.first, normalized.unicodeScalars.count == 1 {
+            return scalar.value
+        }
         if let scalar = KeyCombo.scalar(for: event.keyCode) {
             return scalar.value
         }
