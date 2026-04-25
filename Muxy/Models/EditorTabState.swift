@@ -1,3 +1,5 @@
+import AppKit
+import CoreGraphics
 import Foundation
 
 enum EditorSearchNavigationDirection {
@@ -5,13 +7,43 @@ enum EditorSearchNavigationDirection {
     case previous
 }
 
+enum EditorMarkdownViewMode: String, CaseIterable {
+    case code
+    case preview
+    case split
+
+    var title: String {
+        switch self {
+        case .code: "Code"
+        case .preview: "Preview"
+        case .split: "Split"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .code: "curlybraces"
+        case .preview: "doc.richtext"
+        case .split: "rectangle.split.2x1"
+        }
+    }
+}
+
+enum EditorMarkdownScrollDriver {
+    case editor
+    case preview
+}
+
 @MainActor
 @Observable
 final class EditorTabState: Identifiable {
+    private static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd"]
+
     let id = UUID()
     let projectPath: String
     private(set) var filePath: String
     var backingStoreVersion = 0
+    var previewRefreshVersion = 0
     var isLoading = false
     var isIncrementalLoading = false
     var isModified = false
@@ -39,6 +71,27 @@ final class EditorTabState: Identifiable {
     var awaitingLargeFileConfirmation = false
     var largeFileSize: Int64 = 0
     var backingStore: TextBackingStore?
+    var markdownViewMode: EditorMarkdownViewMode = .code
+    var markdownScrollPosition: CGFloat = 0
+    var markdownScrollSyncEnabled = true
+    var markdownScrollDriver: EditorMarkdownScrollDriver = .editor
+
+    var markdownPreviewScrollRequestVersion: Int = 0
+    var markdownPreviewScrollRequest: CGFloat?
+    var markdownEditorScrollRequestVersion: Int = 0
+    var markdownEditorScrollRequestY: CGFloat?
+
+    @ObservationIgnored var markdownEditorScrollY: CGFloat = 0
+    @ObservationIgnored var markdownEditorViewportHeight: CGFloat = 0
+    @ObservationIgnored var markdownEditorMaxScrollY: CGFloat = 0
+    @ObservationIgnored var markdownEditorLineHeight: CGFloat = 0
+    @ObservationIgnored var markdownPreviewGeometries: [MarkdownPreviewAnchorGeometry] = []
+    @ObservationIgnored var markdownPreviewMaxScrollTop: CGFloat = 0
+    @ObservationIgnored var markdownPreviewViewportHeight: CGFloat = 0
+
+    @ObservationIgnored let markdownSyncCoordinator = MarkdownSyncCoordinator()
+    @ObservationIgnored private var markdownSyncAnchorsCache: [MarkdownSyncAnchor] = []
+    @ObservationIgnored private var markdownSyncAnchorsCacheVersion: Int = -1
     @ObservationIgnored private(set) var syntaxHighlighter: SyntaxHighlighter?
 
     static let largeFileWarningThreshold: Int64 = 5 * 1024 * 1024
@@ -63,6 +116,10 @@ final class EditorTabState: Identifiable {
         return isModified ? "\(name) \u{2022}" : name
     }
 
+    var isMarkdownFile: Bool {
+        Self.markdownExtensions.contains(fileExtension)
+    }
+
     @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     private enum FileLoadEvent {
@@ -85,6 +142,9 @@ final class EditorTabState: Identifiable {
     init(projectPath: String, filePath: String) {
         self.projectPath = projectPath
         self.filePath = filePath
+        if isMarkdownFile {
+            markdownViewMode = .preview
+        }
         syntaxHighlighter = Self.makeSyntaxHighlighter(for: filePath)
         loadFile()
     }
@@ -94,6 +154,44 @@ final class EditorTabState: Identifiable {
         filePath = newPath
         syntaxHighlighter = Self.makeSyntaxHighlighter(for: newPath)
         refreshReadOnlyStatus()
+    }
+
+    func markdownSyncAnchors() -> [MarkdownSyncAnchor] {
+        guard isMarkdownFile else { return [] }
+        guard let backingStore else { return [] }
+        guard markdownSyncAnchorsCacheVersion != backingStoreVersion else {
+            return markdownSyncAnchorsCache
+        }
+        markdownSyncAnchorsCache = MarkdownAnchorParser.parseAnchors(in: backingStore.fullText())
+        markdownSyncAnchorsCacheVersion = backingStoreVersion
+        return markdownSyncAnchorsCache
+    }
+
+    func applyMarkdownSyncOutput(_ output: MarkdownSyncCoordinator.Output) {
+        if let scrollTop = output.requestPreviewScrollTop {
+            markdownScrollDriver = .editor
+            markdownPreviewScrollRequest = scrollTop
+            markdownPreviewScrollRequestVersion += 1
+        }
+        if let scrollY = output.requestEditorScrollY {
+            markdownScrollDriver = .preview
+            markdownEditorScrollRequestY = scrollY
+            markdownEditorScrollRequestVersion += 1
+        }
+    }
+
+    func currentMarkdownSyncMap() -> MarkdownSyncMap {
+        MarkdownSyncMapBuilder.build(
+            MarkdownSyncMapInputs(
+                anchors: markdownSyncAnchors(),
+                previewGeometries: markdownPreviewGeometries,
+                editorLineHeight: markdownEditorLineHeight,
+                editorMaxScrollY: markdownEditorMaxScrollY,
+                editorViewportHeight: markdownEditorViewportHeight,
+                previewMaxScrollY: markdownPreviewMaxScrollTop,
+                previewViewportHeight: markdownPreviewViewportHeight
+            )
+        )
     }
 
     private static func makeSyntaxHighlighter(for filePath: String) -> SyntaxHighlighter? {

@@ -10,6 +10,7 @@ final class ViewportState {
     private(set) var viewportStartLine = 0
     private(set) var viewportEndLine = 0
     private(set) var estimatedLineHeight: CGFloat = 16
+    private(set) var documentVerticalPadding: CGFloat = 8
 
     static let viewportBuffer = 500
     static let scrollHysteresis = 200
@@ -17,7 +18,7 @@ final class ViewportState {
     var viewportLineCount: Int { viewportEndLine - viewportStartLine }
 
     var totalDocumentHeight: CGFloat {
-        CGFloat(backingStore.lineCount) * estimatedLineHeight
+        CGFloat(backingStore.lineCount) * estimatedLineHeight + documentVerticalPadding
     }
 
     init(backingStore: TextBackingStore) {
@@ -25,10 +26,14 @@ final class ViewportState {
     }
 
     func updateEstimatedLineHeight(font: NSFont) {
-        estimatedLineHeight = ceil(font.ascender - font.descender + font.leading)
+        estimatedLineHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
         if estimatedLineHeight < 1 {
             estimatedLineHeight = 16
         }
+    }
+
+    func updateDocumentPadding(topInset: CGFloat, bottomInset: CGFloat, safetyPadding: CGFloat = 24) {
+        documentVerticalPadding = topInset + bottomInset + safetyPadding
     }
 
     func visibleLineRange(scrollY: CGFloat, visibleHeight: CGFloat) -> Range<Int> {

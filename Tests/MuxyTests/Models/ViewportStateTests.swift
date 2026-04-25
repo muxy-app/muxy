@@ -21,10 +21,10 @@ struct ViewportStateTests {
         #expect(vp.viewportLineCount == 0)
     }
 
-    @Test("totalDocumentHeight is lineCount * lineHeight")
+    @Test("totalDocumentHeight includes document padding")
     func totalDocumentHeight() {
         let vp = makeViewport(lineCount: 100)
-        #expect(vp.totalDocumentHeight == 1600)
+        #expect(vp.totalDocumentHeight == 1608)
     }
 
     @Test("visibleLineRange at scroll 0")
