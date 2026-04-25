@@ -75,6 +75,46 @@ enum GitPRParser {
         )
     }
 
+    static func parsePRList(_ json: String) -> [GitRepositoryService.PRListItem] {
+        guard let data = json.data(using: .utf8),
+              let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return [] }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fallbackFormatter = ISO8601DateFormatter()
+
+        return array.compactMap { entry -> GitRepositoryService.PRListItem? in
+            guard let number = entry["number"] as? Int,
+                  let title = entry["title"] as? String
+            else { return nil }
+            let author = (entry["author"] as? [String: Any])?["login"] as? String ?? ""
+            let headBranch = entry["headRefName"] as? String ?? ""
+            let baseBranch = entry["baseRefName"] as? String ?? ""
+            let stateRaw = (entry["state"] as? String) ?? "OPEN"
+            let state = GitRepositoryService.PRState(rawValue: stateRaw) ?? .open
+            let isDraft = entry["isDraft"] as? Bool ?? false
+            let url = entry["url"] as? String ?? ""
+            var updatedAt: Date?
+            if let raw = entry["updatedAt"] as? String {
+                updatedAt = formatter.date(from: raw) ?? fallbackFormatter.date(from: raw)
+            }
+            let rollup = entry["statusCheckRollup"] as? [[String: Any]] ?? []
+            return GitRepositoryService.PRListItem(
+                number: number,
+                title: title,
+                author: author,
+                headBranch: headBranch,
+                baseBranch: baseBranch,
+                state: state,
+                isDraft: isDraft,
+                url: url,
+                updatedAt: updatedAt,
+                checks: parseStatusChecks(rollup)
+            )
+        }
+    }
+
     static func parseAheadBehind(counts: String, hasUpstream: Bool) -> GitRepositoryService.AheadBehind {
         guard hasUpstream else {
             return GitRepositoryService.AheadBehind(ahead: 0, behind: 0, hasUpstream: false)
