@@ -56,5 +56,16 @@
 	<string>A process running in Muxy's terminal would like to use speech recognition.</string>
 	<key>NSSystemAdministrationUsageDescription</key>
 	<string>A process running in Muxy's terminal requires elevated privileges.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.muxy.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>muxy</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

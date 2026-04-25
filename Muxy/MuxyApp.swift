@@ -50,6 +50,20 @@ struct MuxyApp: App {
                     appDelegate.hasUnsavedEditorTabs = { [appState] in
                         appState.unsavedEditorTabs()
                     }
+                    appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore] path in
+                        CLIAccessor.openProjectFromPath(
+                            path,
+                            appState: appState,
+                            projectStore: projectStore,
+                            worktreeStore: worktreeStore
+                        )
+                    }
+                    appDelegate.flushPendingOpens()
+                    NotificationSocketServer.shared.openProjectHandler = { [appDelegate] path in
+                        Task { @MainActor in
+                            appDelegate.handleOpenProjectPath(path)
+                        }
+                    }
                     MobileServerService.shared.configure { server in
                         let delegate = RemoteServerDelegate(
                             appState: appState,
@@ -110,6 +124,79 @@ struct MuxyApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var onTerminate: (() -> Void)?
     var hasUnsavedEditorTabs: (() -> [EditorTabState])?
+    var openProjectFromPath: ((String) -> Void)?
+
+    private var pendingOpenPaths: [String] = []
+
+    @MainActor
+    func handleOpenProjectPath(_ path: String) {
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: standardized, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else { return }
+        if let handler = openProjectFromPath {
+            handler(standardized)
+            return
+        }
+        pendingOpenPaths.append(standardized)
+    }
+
+    @MainActor
+    func flushPendingOpens() {
+        guard let handler = openProjectFromPath else { return }
+        let queued = pendingOpenPaths
+        pendingOpenPaths.removeAll()
+        for path in queued {
+            handler(path)
+        }
+    }
+
+    static func resolveProjectPath(from url: URL) -> String? {
+        if url.isFileURL {
+            let standardized = url.standardizedFileURL.path
+            return standardized.isEmpty || standardized == "/" ? nil : standardized
+        }
+        guard url.scheme == "muxy" else { return nil }
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        var raw: String?
+        if let queryItems = components.queryItems,
+           let pathItem = queryItems.first(where: { $0.name == "path" })?.value,
+           !pathItem.isEmpty
+        {
+            raw = pathItem
+        } else {
+            var combined = ""
+            if let host = components.host, !host.isEmpty {
+                combined = host
+            }
+            if !components.path.isEmpty, components.path != "/" {
+                combined += components.path
+            }
+            raw = combined.isEmpty ? nil : combined
+        }
+        guard var resolved = raw else { return nil }
+        if let decoded = resolved.removingPercentEncoding {
+            resolved = decoded
+        }
+        guard !resolved.isEmpty, resolved != "/" else { return nil }
+        if !resolved.hasPrefix("/") {
+            resolved = "/" + resolved
+        }
+        let standardized = URL(fileURLWithPath: resolved).standardizedFileURL.path
+        guard !standardized.isEmpty, standardized != "/" else { return nil }
+        return standardized
+    }
+
+    @MainActor
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard let path = Self.resolveProjectPath(from: url) else { continue }
+            handleOpenProjectPath(path)
+        }
+    }
 
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -123,6 +210,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationSocketServer.shared.start()
         AIProviderRegistry.shared.installAll()
         _ = AIUsageSettingsStore.isUsageEnabled()
+
+        consumeLaunchArguments()
+    }
+
+    @MainActor
+    private func consumeLaunchArguments() {
+        guard CommandLine.argc > 1 else { return }
+        let candidate = CommandLine.arguments[1]
+        guard candidate.hasPrefix("/") || candidate.hasPrefix("~") else { return }
+        let expanded = (candidate as NSString).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: expanded, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else { return }
+        handleOpenProjectPath(expanded)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -258,7 +360,6 @@ struct WindowConfigurator: NSViewRepresentable {
             let name = NSStringFromClass(type(of: view))
             guard name.contains("NSTitlebarContainerView") else { continue }
 
-            // Make the container itself transparent
             view.wantsLayer = true
             view.layer?.backgroundColor = CGColor.clear
             view.layer?.isOpaque = false
@@ -288,7 +389,6 @@ struct WindowConfigurator: NSViewRepresentable {
     static func repositionTrafficLights(in window: NSWindow) {
         let y: CGFloat
         if #available(macOS 26.0, *) {
-            // On macOS 26, center traffic lights vertically in the 32px title bar
             let buttonHeight: CGFloat = 14
             y = (32 - buttonHeight) / 2
         } else {

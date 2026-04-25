@@ -1,0 +1,44 @@
+#!/bin/bash
+# Muxy CLI wrapper - Usage: muxy /path/to/project
+# Opens a folder in Muxy app
+
+TARGET_DIR="$1"
+
+if [ -z "$TARGET_DIR" ]; then
+    echo "Usage: muxy <path>"
+    echo "       muxy ."
+    exit 1
+fi
+
+case "$TARGET_DIR" in
+    ~*) TARGET_DIR="${HOME}${TARGET_DIR:1}" ;;
+    .)  TARGET_DIR="$(pwd)" ;;
+    ..) TARGET_DIR="$(cd .. && pwd)" ;;
+    *)  TARGET_DIR="$(cd "$TARGET_DIR" 2>/dev/null && pwd)" ;;
+esac
+
+if [ ! -d "$TARGET_DIR" ]; then
+    echo "Error: $TARGET_DIR is not a valid directory"
+    exit 1
+fi
+
+percent_encode() {
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import sys, urllib.parse; sys.stdout.write(urllib.parse.quote(sys.argv[1], safe="/"))' "$1"
+    elif command -v python >/dev/null 2>&1; then
+        python -c 'import sys, urllib; sys.stdout.write(urllib.quote(sys.argv[1], safe="/"))' "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
+
+ENCODED_PATH="$(percent_encode "$TARGET_DIR")"
+
+open "muxy://open?path=${ENCODED_PATH}" 2>/dev/null \
+    || open -b com.muxy.app "$TARGET_DIR" 2>/dev/null \
+    || {
+        SOCKET="$HOME/Library/Application Support/Muxy/muxy.sock"
+        if [ -e "$SOCKET" ]; then
+            printf 'open-project|%s\n' "$TARGET_DIR" | nc -U "$SOCKET" 2>/dev/null
+        fi
+    }

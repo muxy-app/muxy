@@ -60,6 +60,12 @@ struct MuxyCommands: Commands {
             Divider()
 
             Button {
+                CLIAccessor.installCLI()
+            } label: {
+                Label("Install CLI", systemImage: "terminal")
+            }
+
+            Button {
                 updateService.checkForUpdates()
             } label: {
                 Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")

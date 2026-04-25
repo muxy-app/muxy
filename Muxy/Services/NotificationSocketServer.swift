@@ -9,6 +9,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private var serverFD: Int32 = -1
     private var acceptSource: DispatchSourceRead?
     private let queue = DispatchQueue(label: "app.muxy.notificationSocket")
+    var openProjectHandler: (@Sendable (String) -> Void)?
 
     static var socketPath: String {
         MuxyFileStorage.appSupportDirectory()
@@ -119,6 +120,22 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     private func processMessage(_ data: Data) {
         guard let message = String(data: data, encoding: .utf8) else { return }
+        let prefix = "open-project|"
+        if message.hasPrefix(prefix) {
+            let path = String(message.dropFirst(prefix.count))
+            var isDirectory: ObjCBool = false
+            guard !path.isEmpty,
+                  FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+                  isDirectory.boolValue
+            else {
+                logger.warning("Ignoring open-project for invalid path")
+                return
+            }
+            logger.info("Received open-project request via socket")
+            openProjectHandler?(path)
+            return
+        }
+
         let parts = message.split(separator: "|", maxSplits: 3).map(String.init)
         guard parts.count >= 3 else {
             logger.warning("Invalid message on notification socket: expected type|paneID|title|body")

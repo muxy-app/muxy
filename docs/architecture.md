@@ -393,6 +393,48 @@ window's shortcut interceptor installs a local `addLocalMonitorForEvents`
 handler for `[.otherMouseDown, .swipe]`, gated on the monitored window
 being key and identified as a Muxy main window.
 
+## CLI / URL Scheme Entry Points
+
+External callers can open a project in Muxy through three coordinated paths,
+all funneled into a single `AppDelegate.handleOpenProjectPath(_:)` choke point
+so persistence, dedupe, and activation behave consistently.
+
+- **`muxy` shell wrapper** (`Muxy/Resources/scripts/muxy-cli`, installed to
+  `/usr/local/bin/muxy` via `CLIAccessor.installCLI`) — resolves the argument to
+  an absolute directory and tries, in order via `||` chaining: open the
+  `muxy://open?path=<percent-encoded>` URL, fall back to `open -b com.muxy.app`
+  Apple Events, and finally pipe `open-project|<path>` to the Unix socket. A
+  small `python3`/`python` percent-encoder shells out without taking a
+  dependency on `jq`.
+- **`muxy://` URL scheme** — handled by `AppDelegate.application(_:open:)`.
+  `AppDelegate.resolveProjectPath(from:)` parses with `URLComponents`,
+  prefers a `path` query item, falls back to `host + path`, percent-decodes,
+  and standardizes via `URL(fileURLWithPath:).standardizedFileURL.path`. File
+  URLs are accepted directly. Foreign schemes are rejected.
+- **Launch arguments** — `applicationDidFinishLaunching` reads
+  `CommandLine.arguments[1]` only when the candidate begins with `/` or `~` and
+  resolves to an existing directory, so Xcode/test runner flags do not get
+  treated as project paths.
+- **Notification socket** — `NotificationSocketServer` accepts an
+  `open-project|<path>` line in addition to its notification format. It
+  validates the path is an existing directory and dispatches via an injected
+  `openProjectHandler` closure (wired in `MainWindow.onAppear`). No global
+  app-state references are read from inside the socket handler.
+
+`AppDelegate` holds an `openProjectFromPath` closure plus a `pendingOpenPaths`
+queue. URL events that arrive before `MainWindow.onAppear` wires the closure
+are buffered and replayed via `flushPendingOpens()` once the app state is
+ready. `CLIAccessor.openProjectFromPath` standardizes the path once and uses
+the same value for both the dedupe lookup and the persisted `Project.path`,
+so reopening the same folder always selects the existing project rather than
+creating a duplicate.
+
+The privileged install flow in `CLIAccessor.installCLI` runs off the main
+thread (`Task.detached` + AppleScript), and the bundle path is escaped using
+`ShellEscaper` before it is interpolated into `do shell script "…" with
+administrator privileges`, defending against backslash / `$` / backtick
+injection from the bundle path.
+
 ## Notification System
 
 Notifications alert users when terminal events occur (command completion, AI agent
