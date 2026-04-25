@@ -1,0 +1,50 @@
+#!/bin/bash
+# Muxy CLI wrapper - Usage: muxy /path/to/project
+# Opens a folder in Muxy app
+
+TARGET_DIR="$1"
+
+if [ -z "$TARGET_DIR" ]; then
+    echo "Usage: muxy <path>"
+    echo "       muxy ."
+    exit 1
+fi
+
+# Resolve relative paths
+case "$TARGET_DIR" in
+    ~*) TARGET_DIR="${HOME}${TARGET_DIR:1}" ;;
+    .)  TARGET_DIR="$(pwd)" ;;
+    ..) TARGET_DIR="$(cd .. && pwd)" ;;
+    *)  TARGET_DIR="$(cd "$TARGET_DIR" 2>/dev/null && pwd)" ;;
+esac
+
+if [ ! -d "$TARGET_DIR" ]; then
+    echo "Error: $TARGET_DIR is not a valid directory"
+    exit 1
+fi
+
+# Get the bundle path of the running app
+SCRIPT_DIR="$(cd "$(dirname "$0")" && cd .. && pwd)"
+APP_PATH="$SCRIPT_DIR/../MacOS/Muxy"
+
+# If running from Xcode build, use the app in /Applications if available
+if [ ! -f "$APP_PATH" ]; then
+    APP_PATH="/Applications/Muxy.app/Contents/MacOS/Muxy"
+fi
+
+# Use NSAppleEvent to open URL scheme without prompting
+osascript -e "
+tell app \"System Events\"
+    tell process \"Muxy\"
+        if it exists then
+            activate
+        end if
+    end tell
+end tell
+" 2>/dev/null
+
+# Open with URL scheme
+open "muxy://$(echo "$TARGET_DIR" | sed 's|/|%2F|g')" 2>/dev/null
+
+# Also pass via file URL as launch argument
+"$APP_PATH" "$TARGET_DIR" &

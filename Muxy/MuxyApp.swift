@@ -8,6 +8,9 @@ struct MuxyApp: App {
     @State private var projectStore: ProjectStore
     @State private var worktreeStore: WorktreeStore
     private let updateService = UpdateService.shared
+    static var sharedAppState: AppState?
+    static var sharedProjectStore: ProjectStore?
+    static var sharedWorktreeStore: WorktreeStore?
 
     init() {
         let environment = AppEnvironment.live
@@ -28,6 +31,22 @@ struct MuxyApp: App {
         _appState = State(initialValue: appState)
         _projectStore = State(initialValue: projectStore)
         _worktreeStore = State(initialValue: worktreeStore)
+
+        Self.sharedAppState = appState
+        Self.sharedProjectStore = projectStore
+        Self.sharedWorktreeStore = worktreeStore
+
+        if CommandLine.argc > 1 {
+            let path = String(CommandLine.arguments[1])
+            Task { @MainActor in
+                CLIAccessor.openProjectFromPath(
+                    path,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore
+                )
+            }
+        }
     }
 
     var body: some Scene {
