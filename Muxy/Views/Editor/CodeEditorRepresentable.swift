@@ -366,7 +366,6 @@ struct CodeEditorView: NSViewRepresentable {
         updateSearchViewport(coordinator: coordinator)
         coordinator.syncMarkdownScrollPositionIfNeeded()
         coordinator.updateMarkdownEditorScrollMetrics()
-        coordinator.updateMarkdownEditorAnchorSnapshot()
 
         if coordinator.lastEditorFocusVersion != editorFocusVersion {
             coordinator.lastEditorFocusVersion = editorFocusVersion
@@ -1242,7 +1241,6 @@ struct CodeEditorView: NSViewRepresentable {
                 object: scrollView.contentView
             )
             updateMarkdownEditorScrollMetrics()
-            updateMarkdownEditorAnchorSnapshot()
             updateMarkdownPreviewSyncPointFromEditorScroll()
         }
 
@@ -1282,7 +1280,6 @@ struct CodeEditorView: NSViewRepresentable {
                 lastObservedClipSize = size
             }
             updateMarkdownEditorScrollMetrics()
-            updateMarkdownEditorAnchorSnapshot()
             if isApplyingMarkdownScroll {
                 isApplyingMarkdownScroll = false
             } else {
@@ -1305,14 +1302,9 @@ struct CodeEditorView: NSViewRepresentable {
                 lastObservedClipSize = size
             }
             updateMarkdownEditorScrollMetrics()
-            updateMarkdownEditorAnchorSnapshot()
             if !isEditingViewport {
                 refreshViewport(force: false)
             }
-        }
-
-        func updateMarkdownEditorAnchorSnapshot() {
-            // No-op retained for call-site stability; metrics are now published in updateMarkdownEditorScrollMetrics.
         }
 
         func updateMarkdownEditorScrollMetrics() {

@@ -8,8 +8,23 @@ private let remoteImageLogger = Logger(subsystem: "app.muxy", category: "Markdow
 
 private final class WKURLSchemeTaskBox: @unchecked Sendable {
     let schemeTask: WKURLSchemeTask
+    private let stateLock = NSLock()
+    private var stoppedFlag = false
+
     init(schemeTask: WKURLSchemeTask) {
         self.schemeTask = schemeTask
+    }
+
+    var isStopped: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return stoppedFlag
+    }
+
+    func markStopped() {
+        stateLock.lock()
+        stoppedFlag = true
+        stateLock.unlock()
     }
 }
 
@@ -25,14 +40,20 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 60
-        config.requestCachePolicy = .returnCacheDataElseLoad
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.urlCache = nil
         return URLSession(configuration: config)
     }()
 
-    private let activeTasks = NSMapTable<URLSessionDataTask, AnyObject>.weakToStrongObjects()
+    private let activeTasks = NSMapTable<URLSessionDataTask, WKURLSchemeTaskBox>.weakToStrongObjects()
     private let activeTasksLock = NSLock()
 
     func webView(_: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        guard MarkdownPreviewPreferences.allowRemoteImages else {
+            urlSchemeTask.didFailWithError(URLError(.cancelled))
+            return
+        }
+
         guard let url = urlSchemeTask.request.url,
               url.scheme == Self.scheme,
               let remoteURL = Self.decodeRemoteURL(from: url)
@@ -41,14 +62,15 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
 
+        let schemeTaskBox = WKURLSchemeTaskBox(schemeTask: urlSchemeTask)
+
         if let cached = Self.readCache(for: remoteURL) {
-            deliver(cached.data, mimeType: cached.mimeType, to: urlSchemeTask, originalURL: url)
+            deliver(cached.data, mimeType: cached.mimeType, to: schemeTaskBox, originalURL: url)
             return
         }
 
         var request = URLRequest(url: remoteURL)
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
-        let schemeTaskBox = WKURLSchemeTaskBox(schemeTask: urlSchemeTask)
         let task = Self.urlSession.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
             let outcome = FetchOutcome(
@@ -64,7 +86,7 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
             }
         }
         activeTasksLock.lock()
-        activeTasks.setObject(urlSchemeTask as AnyObject, forKey: task)
+        activeTasks.setObject(schemeTaskBox, forKey: task)
         activeTasksLock.unlock()
         task.resume()
     }
@@ -80,14 +102,14 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     @MainActor
     private func handleFetchResult(_ outcome: FetchOutcome) {
-        let urlSchemeTask = outcome.schemeTaskBox.schemeTask
+        let schemeTaskBox = outcome.schemeTaskBox
         let remoteURL = outcome.remoteURL
         let originalURL = outcome.originalURL
         let data = outcome.data
         let response = outcome.response
         let error = outcome.error
         activeTasksLock.lock()
-        removeTaskMapping(for: urlSchemeTask)
+        removeTaskMapping(for: schemeTaskBox)
         activeTasksLock.unlock()
 
         if let error {
@@ -97,16 +119,16 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
                 reason=\(error.localizedDescription, privacy: .public)
                 """
             )
-            failTask(urlSchemeTask, error: error)
+            failTask(schemeTaskBox, error: error)
             return
         }
 
         guard let data, !data.isEmpty else {
-            failTask(urlSchemeTask, error: URLError(.zeroByteResource))
+            failTask(schemeTaskBox, error: URLError(.zeroByteResource))
             return
         }
         guard data.count <= Self.maxImageBytes else {
-            failTask(urlSchemeTask, error: URLError(.dataLengthExceedsMaximum))
+            failTask(schemeTaskBox, error: URLError(.dataLengthExceedsMaximum))
             return
         }
         let mimeType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")
@@ -114,41 +136,48 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
             ?? Self.mimeType(forURL: remoteURL)
         let resolvedMIME = Self.resolvedMIMEType(mimeType, fallbackURL: remoteURL)
         guard Self.isAllowedMIME(resolvedMIME) else {
-            failTask(urlSchemeTask, error: URLError(.unsupportedURL))
+            failTask(schemeTaskBox, error: URLError(.unsupportedURL))
             return
         }
 
         Self.writeCache(data: data, mimeType: resolvedMIME, for: remoteURL)
-        deliver(data, mimeType: resolvedMIME, to: urlSchemeTask, originalURL: originalURL)
+        deliver(data, mimeType: resolvedMIME, to: schemeTaskBox, originalURL: originalURL)
     }
 
     func webView(_: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         activeTasksLock.lock()
-        let taskToCancel = findTask(for: urlSchemeTask)
-        if let taskToCancel {
-            activeTasks.removeObject(forKey: taskToCancel)
+        let entry = findEntry(for: urlSchemeTask)
+        if let entry {
+            entry.box.markStopped()
+            activeTasks.removeObject(forKey: entry.task)
         }
         activeTasksLock.unlock()
-        taskToCancel?.cancel()
+        entry?.task.cancel()
     }
 
-    private func findTask(for schemeTask: WKURLSchemeTask) -> URLSessionDataTask? {
+    private func findEntry(for schemeTask: WKURLSchemeTask) -> (task: URLSessionDataTask, box: WKURLSchemeTaskBox)? {
         let enumerator = activeTasks.keyEnumerator()
         while let key = enumerator.nextObject() as? URLSessionDataTask {
-            if (activeTasks.object(forKey: key) as AnyObject) === (schemeTask as AnyObject) {
-                return key
+            guard let box = activeTasks.object(forKey: key) else { continue }
+            if box.schemeTask === schemeTask {
+                return (key, box)
             }
         }
         return nil
     }
 
-    private func removeTaskMapping(for schemeTask: WKURLSchemeTask) {
-        if let task = findTask(for: schemeTask) {
-            activeTasks.removeObject(forKey: task)
+    private func removeTaskMapping(for box: WKURLSchemeTaskBox) {
+        let enumerator = activeTasks.keyEnumerator()
+        while let key = enumerator.nextObject() as? URLSessionDataTask {
+            if activeTasks.object(forKey: key) === box {
+                activeTasks.removeObject(forKey: key)
+                return
+            }
         }
     }
 
-    private func deliver(_ data: Data, mimeType: String, to task: WKURLSchemeTask, originalURL: URL) {
+    private func deliver(_ data: Data, mimeType: String, to box: WKURLSchemeTaskBox, originalURL: URL) {
+        guard !box.isStopped else { return }
         let response = HTTPURLResponse(
             url: originalURL,
             statusCode: 200,
@@ -161,14 +190,15 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
             ]
         )
         if let response {
-            task.didReceive(response)
+            box.schemeTask.didReceive(response)
         }
-        task.didReceive(data)
-        task.didFinish()
+        box.schemeTask.didReceive(data)
+        box.schemeTask.didFinish()
     }
 
-    private func failTask(_ task: WKURLSchemeTask, error: Error) {
-        task.didFailWithError(error)
+    private func failTask(_ box: WKURLSchemeTaskBox, error: Error) {
+        guard !box.isStopped else { return }
+        box.schemeTask.didFailWithError(error)
     }
 
     static func decodeRemoteURL(from url: URL) -> URL? {
@@ -181,7 +211,9 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
               let decoded = String(data: data, encoding: .utf8),
               let resolved = URL(string: decoded),
               let scheme = resolved.scheme?.lowercased(),
-              scheme == "http" || scheme == "https"
+              scheme == "https",
+              let host = resolved.host,
+              !host.isEmpty
         else {
             return nil
         }

@@ -524,11 +524,15 @@
         if (lower.startsWith('data:') || lower.startsWith('blob:')) {
             return;
         }
-        if (lower.startsWith('http://') || lower.startsWith('https://')) {
+        if (lower.startsWith('https://')) {
             var encoded = encodeRemoteURL(trimmed);
             if (encoded) {
                 image.setAttribute('src', 'muxy-md-remote://image/' + encoded);
             }
+            return;
+        }
+        if (lower.startsWith('http://')) {
+            image.removeAttribute('src');
             return;
         }
         var hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed);
