@@ -151,6 +151,11 @@ enum AIUsageRowPolicy {
     }
 }
 
+struct AIUsagePreviewSelection {
+    let snapshot: AIProviderUsageSnapshot
+    let row: AIUsageMetricRow?
+}
+
 @MainActor
 @Observable
 final class AIUsageService {
@@ -186,23 +191,32 @@ final class AIUsageService {
     }
 
     var previewProviderSnapshot: AIProviderUsageSnapshot? {
-        previewProviderSnapshot(pinnedRawValue: UserDefaults.standard
-            .string(forKey: AIUsageSettingsStore.sidebarPreviewProviderIDKey) ?? "")
+        previewSelection(pinnedRawValue: UserDefaults.standard
+            .string(forKey: AIUsageSettingsStore.sidebarPreviewProviderIDKey) ?? "")?.snapshot
+    }
+
+    func previewSelection(pinnedRawValue: String) -> AIUsagePreviewSelection? {
+        if let pin = AISidebarPreviewPin(rawValue: pinnedRawValue),
+           let snapshot = snapshots.first(where: { canonicalAIUsageProviderID($0.providerID) == pin.providerID }),
+           case .available = snapshot.state
+        {
+            if let label = pin.rowLabel,
+               let row = snapshot.rows.first(where: { $0.label == label && $0.percent != nil })
+            {
+                return AIUsagePreviewSelection(snapshot: snapshot, row: row)
+            }
+            if pin.rowLabel == nil, snapshot.rows.contains(where: { $0.percent != nil }) {
+                return AIUsagePreviewSelection(snapshot: snapshot, row: nil)
+            }
+        }
+        if let fallback = mostActiveProviderSnapshot ?? mostUsedProviderSnapshot {
+            return AIUsagePreviewSelection(snapshot: fallback, row: nil)
+        }
+        return nil
     }
 
     func previewProviderSnapshot(pinnedRawValue: String) -> AIProviderUsageSnapshot? {
-        if let pinned = snapshots.first(where: { isPinnedCandidate($0, pinnedRawValue: pinnedRawValue) }) {
-            return pinned
-        }
-        return mostActiveProviderSnapshot ?? mostUsedProviderSnapshot
-    }
-
-    private func isPinnedCandidate(_ snapshot: AIProviderUsageSnapshot, pinnedRawValue: String) -> Bool {
-        guard AIUsageSettingsStore.isSidebarPinned(providerID: snapshot.providerID, pinnedRawValue: pinnedRawValue) else {
-            return false
-        }
-        guard case .available = snapshot.state else { return false }
-        return snapshot.rows.contains { $0.percent != nil }
+        previewSelection(pinnedRawValue: pinnedRawValue)?.snapshot
     }
 
     var mostActiveProviderSnapshot: AIProviderUsageSnapshot? {
