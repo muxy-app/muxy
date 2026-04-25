@@ -26,11 +26,6 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 60
         config.requestCachePolicy = .returnCacheDataElseLoad
-        config.urlCache = URLCache(
-            memoryCapacity: 8 * 1024 * 1024,
-            diskCapacity: 64 * 1024 * 1024,
-            diskPath: "muxy-markdown-remote-image-urlcache"
-        )
         return URLSession(configuration: config)
     }()
 
