@@ -10,7 +10,6 @@ if [ -z "$TARGET_DIR" ]; then
     exit 1
 fi
 
-# Resolve relative paths to absolute
 case "$TARGET_DIR" in
     ~*) TARGET_DIR="${HOME}${TARGET_DIR:1}" ;;
     .)  TARGET_DIR="$(pwd)" ;;
@@ -23,17 +22,23 @@ if [ ! -d "$TARGET_DIR" ]; then
     exit 1
 fi
 
-# Open via URL scheme — works with installed .app bundle
-open "muxy:$TARGET_DIR" 2>/dev/null
+percent_encode() {
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import sys, urllib.parse; sys.stdout.write(urllib.parse.quote(sys.argv[1], safe="/"))' "$1"
+    elif command -v python >/dev/null 2>&1; then
+        python -c 'import sys, urllib; sys.stdout.write(urllib.quote(sys.argv[1], safe="/"))' "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
 
-# Fallback via old muxy://host/path format
-open "muxy://$TARGET_DIR" 2>/dev/null
+ENCODED_PATH="$(percent_encode "$TARGET_DIR")"
 
-# Fallback via Apple Events — works even without registered URL scheme
-open -b com.muxy.app "$TARGET_DIR" 2>/dev/null
-
-# Fallback: send path to running Muxy via its notification socket
-SOCKET="$HOME/Library/Application Support/Muxy/muxy.sock"
-if [ -e "$SOCKET" ]; then
-  echo "open-project|$TARGET_DIR" | nc -U "$SOCKET" 2>/dev/null
-fi
+open "muxy://open?path=${ENCODED_PATH}" 2>/dev/null \
+    || open -b com.muxy.app "$TARGET_DIR" 2>/dev/null \
+    || {
+        SOCKET="$HOME/Library/Application Support/Muxy/muxy.sock"
+        if [ -e "$SOCKET" ]; then
+            printf 'open-project|%s\n' "$TARGET_DIR" | nc -U "$SOCKET" 2>/dev/null
+        fi
+    }

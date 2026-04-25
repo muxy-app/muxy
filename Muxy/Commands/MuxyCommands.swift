@@ -59,8 +59,10 @@ struct MuxyCommands: Commands {
 
             Divider()
 
-            Button("Install CLI") {
+            Button {
                 CLIAccessor.installCLI()
+            } label: {
+                Label("Install CLI", systemImage: "terminal")
             }
 
             Button {

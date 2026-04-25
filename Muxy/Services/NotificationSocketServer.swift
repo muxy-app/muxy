@@ -9,6 +9,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private var serverFD: Int32 = -1
     private var acceptSource: DispatchSourceRead?
     private let queue = DispatchQueue(label: "app.muxy.notificationSocket")
+    var openProjectHandler: (@Sendable (String) -> Void)?
 
     static var socketPath: String {
         MuxyFileStorage.appSupportDirectory()
@@ -122,18 +123,16 @@ final class NotificationSocketServer: @unchecked Sendable {
         let prefix = "open-project|"
         if message.hasPrefix(prefix) {
             let path = String(message.dropFirst(prefix.count))
-            DispatchQueue.main.async {
-                guard let appState = MuxyApp.sharedAppState,
-                      let projectStore = MuxyApp.sharedProjectStore,
-                      let worktreeStore = MuxyApp.sharedWorktreeStore
-                else { return }
-                CLIAccessor.openProjectFromPath(
-                    path,
-                    appState: appState,
-                    projectStore: projectStore,
-                    worktreeStore: worktreeStore
-                )
+            var isDirectory: ObjCBool = false
+            guard !path.isEmpty,
+                  FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+                  isDirectory.boolValue
+            else {
+                logger.warning("Ignoring open-project for invalid path")
+                return
             }
+            logger.info("Received open-project request via socket")
+            openProjectHandler?(path)
             return
         }
 
