@@ -167,6 +167,27 @@ struct GitPRParserTests {
             let info = GitPRParser.parsePRInfo(json)
             #expect(info?.state == .open)
         }
+
+        @Test("isCrossRepository true parses")
+        func isCrossRepositoryTrue() {
+            let json = #"{"url":"u","number":1,"state":"OPEN","isCrossRepository":true}"#
+            let info = GitPRParser.parsePRInfo(json)
+            #expect(info?.isCrossRepository == true)
+        }
+
+        @Test("isCrossRepository false parses")
+        func isCrossRepositoryFalse() {
+            let json = #"{"url":"u","number":1,"state":"OPEN","isCrossRepository":false}"#
+            let info = GitPRParser.parsePRInfo(json)
+            #expect(info?.isCrossRepository == false)
+        }
+
+        @Test("missing isCrossRepository defaults to false")
+        func isCrossRepositoryMissing() {
+            let json = #"{"url":"u","number":1,"state":"OPEN"}"#
+            let info = GitPRParser.parsePRInfo(json)
+            #expect(info?.isCrossRepository == false)
+        }
     }
 
     @Suite("parsePRInfoMatchingHeadSha")

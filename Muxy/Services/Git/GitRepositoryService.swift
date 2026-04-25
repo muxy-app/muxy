@@ -195,25 +195,29 @@ struct GitRepositoryService {
         return info
     }
 
+    private static let prInfoJSONFields =
+        "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,isCrossRepository"
+    private static let prInfoJSONFieldsWithHeadRefOid = prInfoJSONFields + ",headRefOid"
+
     func pullRequestInfo(repoPath: String, branch: String, headSha: String? = nil) async -> PRInfo? {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
 
-        let resolvedSha: String? = if let headSha { headSha } else { await self.headSha(repoPath: repoPath) }
-        if let resolvedSha,
-           let info = await pullRequestInfoByHeadSha(
-               ghPath: ghPath, repoPath: repoPath, headSha: resolvedSha
-           )
-        {
+        if let info = await ghPRView(ghPath: ghPath, repoPath: repoPath, jsonFields: Self.prInfoJSONFields) {
+            return info
+        }
+        if let info = await ghPRView(
+            ghPath: ghPath, repoPath: repoPath, argument: branch, jsonFields: Self.prInfoJSONFields
+        ) {
             return info
         }
 
-        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,isCrossRepository"
-        if let info = await ghPRView(ghPath: ghPath, repoPath: repoPath, jsonFields: jsonFields) {
-            return info
+        let resolvedSha: String? = if let headSha { headSha } else { await self.headSha(repoPath: repoPath) }
+        if let resolvedSha {
+            return await pullRequestInfoByHeadSha(
+                ghPath: ghPath, repoPath: repoPath, headSha: resolvedSha
+            )
         }
-        return await ghPRView(
-            ghPath: ghPath, repoPath: repoPath, branch: branch, jsonFields: jsonFields
-        )
+        return nil
     }
 
     private func pullRequestInfoByHeadSha(
@@ -221,12 +225,11 @@ struct GitRepositoryService {
         repoPath: String,
         headSha: String
     ) async -> PRInfo? {
-        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,headRefOid,isCrossRepository"
         let arguments = [
             "pr", "list",
             "--state", "all",
             "--limit", "100",
-            "--json", jsonFields,
+            "--json", Self.prInfoJSONFieldsWithHeadRefOid,
         ]
         let result = try? await GitProcessRunner.runCommand(
             executable: ghPath,
@@ -240,15 +243,12 @@ struct GitRepositoryService {
     private func ghPRView(
         ghPath: String,
         repoPath: String,
-        branch: String? = nil,
-        selector: String? = nil,
+        argument: String? = nil,
         jsonFields: String
     ) async -> PRInfo? {
         var arguments = ["pr", "view"]
-        if let selector {
-            arguments.append(selector)
-        } else if let branch {
-            arguments.append(branch)
+        if let argument {
+            arguments.append(argument)
         }
         arguments += ["--json", jsonFields]
 
@@ -459,12 +459,11 @@ struct GitRepositoryService {
             .map(String.init)
             .first(where: { $0.hasPrefix("https://") }) ?? ""
 
-        let viewFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,isCrossRepository"
         if !createdURL.isEmpty, let info = await ghPRView(
             ghPath: ghPath,
             repoPath: repoPath,
-            selector: createdURL,
-            jsonFields: viewFields
+            argument: createdURL,
+            jsonFields: Self.prInfoJSONFields
         ) {
             return info
         }
