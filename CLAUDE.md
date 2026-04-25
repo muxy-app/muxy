@@ -81,8 +81,11 @@ The xcframework is built via GitHub Actions on the [muxy-app/ghostty](https://gi
 - Follow the existing code's pattern but offer refactors if they improve code quality and maintainability.
 - Use logs for debugging.
 - If the feature is testable, then you must write tests.
+- Avoid long PR descriptions. It is for humans and keep it in 3 lines maximum.
+- Upload screenshots or recordings for the PRs.
 
 
 ## Code Review
 
-Review the PRs/Code against the purpose of the PR/Issue/Asked. If you find unrelated issues to the PR during the review, Report them in a separate section.
+- Review the PRs/Code against the purpose of the PR/Issue/Asked. If you find unrelated issues to the PR during the review, Report them in a separate section.
+- Apply review recommendations only after user's confirmation.
