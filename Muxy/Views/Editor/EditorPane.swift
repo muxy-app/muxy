@@ -139,19 +139,24 @@ struct EditorPane: View {
                     scrollSyncEnabled: usesMarkdownAnchorSync,
                     showsVerticalScroller: state.markdownViewMode != .split,
                     hidesContentScrollbar: state.markdownViewMode == .split,
-                    onSyncPointChanged: { point in
-                        let lineCount = state.backingStore?.lineCount ?? 0
-                        let output = state.markdownSyncCoordinator.previewDidScroll(point: point, totalLineCount: lineCount)
+                    onScrollReport: { report in
+                        state.markdownPreviewMaxScrollTop = report.maxScrollTop
+                        state.markdownPreviewViewportHeight = report.clientHeight
+                        let map = state.currentMarkdownSyncMap()
+                        let output = state.markdownSyncCoordinator.previewDidScroll(scrollTop: report.scrollTop, map: map)
                         state.applyMarkdownSyncOutput(output)
                     },
                     onWheelDelta: { deltaY in
                         state.forwardLinkedMarkdownScroll(deltaY: deltaY)
                     },
                     onLayoutChanged: {
-                        let output = state.markdownSyncCoordinator.previewDidRelayout()
+                        let map = state.currentMarkdownSyncMap()
+                        let output = state.markdownSyncCoordinator.reissueAfterRelayout(map: map)
                         state.applyMarkdownSyncOutput(output)
                     },
-                    onAnchorGeometryChanged: nil
+                    onAnchorGeometryChanged: { geometries in
+                        state.markdownPreviewGeometries = geometries
+                    }
                 )
             }
         }

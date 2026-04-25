@@ -531,8 +531,6 @@ struct CodeEditorView: NSViewRepresentable {
         private var lastRenderedBackingStoreVersion = -1
         private var lastObservedClipSize: CGSize = .zero
         private var isApplyingMarkdownScroll = false
-        private var cachedMarkdownAnchorsBackingStoreVersion = -1
-        private var cachedMarkdownAnchors: [MarkdownSyncAnchor] = []
         private var refreshTimingCount = 0
         private var highlightTimingCount = 0
         private var lastRefreshDurationMs: Double = 0
@@ -1316,55 +1314,15 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func updateMarkdownEditorAnchorSnapshot() {
-            guard state.isMarkdownFile,
-                  state.markdownViewMode == .split,
-                  state.markdownScrollSyncEnabled,
-                  let viewport = viewportState,
-                  let scrollView,
-                  let store = state.backingStore
-            else {
-                state.markdownActiveAnchorID = nil
-                state.markdownActiveAnchorLocalProgress = 0
-                return
-            }
-
-            if cachedMarkdownAnchorsBackingStoreVersion != state.backingStoreVersion {
-                cachedMarkdownAnchorsBackingStoreVersion = state.backingStoreVersion
-                cachedMarkdownAnchors = MarkdownAnchorParser.parseAnchors(in: store.fullText())
-            }
-
-            let scrollY = scrollView.contentView.bounds.origin.y
-            let visibleHeight = scrollView.contentView.bounds.height
-            let documentHeight = scrollView.documentView?.bounds.height ?? 0
-            let maxScrollY = max(0, documentHeight - visibleHeight)
-            let bottomThreshold = max(2, min(viewport.estimatedLineHeight * 0.12, 4))
-            let isNearBottom = maxScrollY > 0 && scrollY >= maxScrollY - bottomThreshold
-
-            let focusLine = if isNearBottom {
-                store.lineCount
-            } else {
-                MarkdownEditorAnchorMapper.focusLine(
-                    scrollY: scrollY,
-                    visibleHeight: visibleHeight,
-                    estimatedLineHeight: viewport.estimatedLineHeight,
-                    lineCount: store.lineCount
-                )
-            }
-
-            let snapshot = MarkdownEditorAnchorMapper.snapshot(focusLine: focusLine, anchors: cachedMarkdownAnchors)
-            if state.markdownActiveAnchorID != snapshot.activeAnchorID {
-                state.markdownActiveAnchorID = snapshot.activeAnchorID
-            }
-            if abs(state.markdownActiveAnchorLocalProgress - snapshot.localProgress) > 0.0005 {
-                state.markdownActiveAnchorLocalProgress = snapshot.localProgress
-            }
+            // No-op retained for call-site stability; metrics are now published in updateMarkdownEditorScrollMetrics.
         }
 
         func updateMarkdownEditorScrollMetrics() {
             guard state.isMarkdownFile,
                   state.markdownViewMode == .split,
                   state.markdownScrollSyncEnabled,
-                  let scrollView
+                  let scrollView,
+                  let viewport = viewportState
             else { return }
 
             let visibleHeight = scrollView.contentView.bounds.height
@@ -1374,6 +1332,8 @@ struct CodeEditorView: NSViewRepresentable {
 
             state.markdownEditorScrollY = scrollY
             state.markdownEditorMaxScrollY = maxScrollY
+            state.markdownEditorViewportHeight = visibleHeight
+            state.markdownEditorLineHeight = viewport.estimatedLineHeight
         }
 
         func syncMarkdownScrollPositionIfNeeded() {
@@ -1390,16 +1350,11 @@ struct CodeEditorView: NSViewRepresentable {
             guard state.markdownScrollDriver != .preview else { return }
             guard state.isMarkdownFile,
                   state.markdownViewMode == .split,
-                  state.markdownScrollSyncEnabled,
-                  state.markdownActiveAnchorID != nil
+                  state.markdownScrollSyncEnabled
             else { return }
 
-            let snapshot = MarkdownEditorAnchorSyncSnapshot(
-                activeAnchorID: state.markdownActiveAnchorID,
-                localProgress: state.markdownActiveAnchorLocalProgress
-            )
-            let anchors = state.markdownSyncAnchors()
-            let output = state.markdownSyncCoordinator.editorDidScroll(snapshot: snapshot, anchors: anchors)
+            let map = state.currentMarkdownSyncMap()
+            let output = state.markdownSyncCoordinator.editorDidScroll(scrollY: state.markdownEditorScrollY, map: map)
             guard !output.isEmpty else { return }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -1422,13 +1377,18 @@ struct CodeEditorView: NSViewRepresentable {
             guard state.isMarkdownFile,
                   state.markdownViewMode == .split,
                   state.markdownScrollSyncEnabled,
-                  let targetLine = state.markdownEditorScrollRequestLine
+                  let targetY = state.markdownEditorScrollRequestY
             else { return }
 
             isApplyingMarkdownScroll = true
-            let column = max(0, state.cursorColumn - 1)
-            scrollToGlobalLine(targetLine, column: column)
-            _ = scrollView
+            let visibleHeight = scrollView.contentView.bounds.height
+            let documentHeight = scrollView.documentView?.bounds.height ?? 0
+            let maxScrollY = max(0, documentHeight - visibleHeight)
+            let clamped = min(max(0, targetY), maxScrollY)
+            scrollView.contentView.setBoundsOrigin(NSPoint(x: scrollView.contentView.bounds.origin.x, y: clamped))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            refreshViewport(force: true)
+            rebuildLineStartOffsetsForViewport()
         }
 
         private func publishMarkdownProgressIfEditorAutoScrolled(_ work: () -> Void) {
@@ -1442,7 +1402,7 @@ struct CodeEditorView: NSViewRepresentable {
             let afterY = scrollView.contentView.bounds.origin.y
 
             guard abs(afterY - beforeY) > 0.5 else { return }
-            updateMarkdownEditorAnchorSnapshot()
+            updateMarkdownEditorScrollMetrics()
             updateMarkdownPreviewSyncPointFromEditorScroll()
         }
 

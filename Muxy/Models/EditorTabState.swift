@@ -73,17 +73,21 @@ final class EditorTabState: Identifiable {
     var backingStore: TextBackingStore?
     var markdownViewMode: EditorMarkdownViewMode = .code
     var markdownScrollPosition: CGFloat = 0
-    var markdownEditorScrollY: CGFloat = 0
-    var markdownEditorMaxScrollY: CGFloat = 0
     var markdownScrollSyncEnabled = true
     var markdownScrollDriver: EditorMarkdownScrollDriver = .editor
-    var markdownActiveAnchorID: String?
-    var markdownActiveAnchorLocalProgress: Double = 0
 
     var markdownPreviewScrollRequestVersion: Int = 0
-    var markdownPreviewScrollRequest: MarkdownSyncPoint?
+    var markdownPreviewScrollRequest: CGFloat?
     var markdownEditorScrollRequestVersion: Int = 0
-    var markdownEditorScrollRequestLine: Int?
+    var markdownEditorScrollRequestY: CGFloat?
+
+    @ObservationIgnored var markdownEditorScrollY: CGFloat = 0
+    @ObservationIgnored var markdownEditorViewportHeight: CGFloat = 0
+    @ObservationIgnored var markdownEditorMaxScrollY: CGFloat = 0
+    @ObservationIgnored var markdownEditorLineHeight: CGFloat = 0
+    @ObservationIgnored var markdownPreviewGeometries: [MarkdownPreviewAnchorGeometry] = []
+    @ObservationIgnored var markdownPreviewMaxScrollTop: CGFloat = 0
+    @ObservationIgnored var markdownPreviewViewportHeight: CGFloat = 0
 
     @ObservationIgnored private weak var linkedMarkdownEditorScrollView: NSScrollView?
 
@@ -191,16 +195,30 @@ final class EditorTabState: Identifiable {
     }
 
     func applyMarkdownSyncOutput(_ output: MarkdownSyncCoordinator.Output) {
-        if let point = output.requestPreviewScroll {
+        if let scrollTop = output.requestPreviewScrollTop {
             markdownScrollDriver = .editor
-            markdownPreviewScrollRequest = point
+            markdownPreviewScrollRequest = scrollTop
             markdownPreviewScrollRequestVersion += 1
         }
-        if let line = output.requestEditorScrollLine {
+        if let scrollY = output.requestEditorScrollY {
             markdownScrollDriver = .preview
-            markdownEditorScrollRequestLine = line
+            markdownEditorScrollRequestY = scrollY
             markdownEditorScrollRequestVersion += 1
         }
+    }
+
+    func currentMarkdownSyncMap() -> MarkdownSyncMap {
+        MarkdownSyncMapBuilder.build(
+            MarkdownSyncMapInputs(
+                anchors: markdownSyncAnchors(),
+                previewGeometries: markdownPreviewGeometries,
+                editorLineHeight: markdownEditorLineHeight,
+                editorMaxScrollY: markdownEditorMaxScrollY,
+                editorViewportHeight: markdownEditorViewportHeight,
+                previewMaxScrollY: markdownPreviewMaxScrollTop,
+                previewViewportHeight: markdownPreviewViewportHeight
+            )
+        )
     }
 
     private static func makeSyntaxHighlighter(for filePath: String) -> SyntaxHighlighter? {

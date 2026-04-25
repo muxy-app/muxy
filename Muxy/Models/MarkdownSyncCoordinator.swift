@@ -1,25 +1,6 @@
 import CoreGraphics
 import Foundation
 
-struct MarkdownSyncPoint: Equatable {
-    let anchorID: String
-    let startLine: Int
-    let endLine: Int
-    let localProgress: CGFloat
-
-    var clampedProgress: CGFloat {
-        min(max(localProgress, 0), 1)
-    }
-
-    var representativeLine: Int {
-        let span = max(0, endLine - startLine)
-        if span == 0 {
-            return startLine
-        }
-        return startLine + Int(round(clampedProgress * CGFloat(span)))
-    }
-}
-
 @MainActor
 final class MarkdownSyncCoordinator {
     enum Driver {
@@ -28,11 +9,11 @@ final class MarkdownSyncCoordinator {
     }
 
     struct Output: Equatable {
-        var requestPreviewScroll: MarkdownSyncPoint?
-        var requestEditorScrollLine: Int?
+        var requestPreviewScrollTop: CGFloat?
+        var requestEditorScrollY: CGFloat?
 
         var isEmpty: Bool {
-            requestPreviewScroll == nil && requestEditorScrollLine == nil
+            requestPreviewScrollTop == nil && requestEditorScrollY == nil
         }
     }
 
@@ -41,135 +22,89 @@ final class MarkdownSyncCoordinator {
     private var driver: Driver?
     private var driverSince: TimeInterval = 0
 
-    private var lastIssuedPreviewPoint: MarkdownSyncPoint?
-    private var lastIssuedPreviewTime: TimeInterval = 0
-
-    private var lastIssuedEditorLine: Int?
-    private var lastIssuedEditorTime: TimeInterval = 0
-
-    private var lastPreviewPoint: MarkdownSyncPoint?
-    private var lastEditorPoint: MarkdownSyncPoint?
+    private var lastIssuedPreviewScrollTop: CGFloat?
+    private var lastIssuedEditorScrollY: CGFloat?
+    private var lastEditorInputScrollY: CGFloat?
+    private var lastPreviewInputScrollTop: CGFloat?
 
     init(now: @escaping () -> TimeInterval = { CFAbsoluteTimeGetCurrent() }) {
         self.now = now
     }
 
-    func editorDidScroll(snapshot: MarkdownEditorAnchorSyncSnapshot, anchors: [MarkdownSyncAnchor]) -> Output {
-        guard let point = syncPoint(from: snapshot, anchors: anchors) else {
+    func editorDidScroll(scrollY: CGFloat, map: MarkdownSyncMap) -> Output {
+        guard !map.isEmpty else { return Output() }
+
+        lastEditorInputScrollY = scrollY
+
+        let timestamp = now()
+        guard shouldAcceptUpdate(from: .editor, timestamp: timestamp, incoming: scrollY) else {
             return Output()
         }
 
-        lastEditorPoint = point
-
-        let timestamp = now()
-        guard shouldAcceptUpdate(from: .editor, timestamp: timestamp) else {
+        let target = map.previewScrollTop(forEditorScrollY: scrollY)
+        if let lastIssuedPreviewScrollTop, abs(target - lastIssuedPreviewScrollTop) < 0.5 {
             return Output()
         }
 
         driver = .editor
         driverSince = timestamp
-        lastIssuedPreviewPoint = point
-        lastIssuedPreviewTime = timestamp
-        return Output(requestPreviewScroll: point)
+        lastIssuedPreviewScrollTop = target
+        return Output(requestPreviewScrollTop: target)
     }
 
-    func previewDidScroll(point: MarkdownSyncPoint, totalLineCount: Int) -> Output {
-        lastPreviewPoint = point
+    func previewDidScroll(scrollTop: CGFloat, map: MarkdownSyncMap) -> Output {
+        guard !map.isEmpty else { return Output() }
+
+        lastPreviewInputScrollTop = scrollTop
 
         let timestamp = now()
-        guard shouldAcceptUpdate(from: .preview, timestamp: timestamp, incomingPreviewPoint: point) else {
+        guard shouldAcceptUpdate(from: .preview, timestamp: timestamp, incoming: scrollTop) else {
+            return Output()
+        }
+
+        let target = map.editorScrollY(forPreviewScrollTop: scrollTop)
+        if let lastIssuedEditorScrollY, abs(target - lastIssuedEditorScrollY) < 0.5 {
             return Output()
         }
 
         driver = .preview
         driverSince = timestamp
-
-        let lineIndex: Int
-        let remainingLines = max(0, totalLineCount - point.endLine)
-        if point.localProgress >= 0.985, remainingLines <= 6 {
-            lineIndex = max(0, totalLineCount - 1)
-        } else {
-            lineIndex = max(0, min(totalLineCount - 1, point.representativeLine - 1))
-        }
-        lastIssuedEditorLine = lineIndex
-        lastIssuedEditorTime = timestamp
-        return Output(requestEditorScrollLine: lineIndex)
+        lastIssuedEditorScrollY = target
+        return Output(requestEditorScrollY: target)
     }
 
-    func previewDidRelayout() -> Output {
-        guard driver == .editor,
-              let lastIssuedPreviewPoint
-        else {
-            return Output()
-        }
+    func reissueAfterRelayout(map: MarkdownSyncMap) -> Output {
+        guard !map.isEmpty else { return Output() }
+        guard let driver else { return Output() }
 
-        let timestamp = now()
-        let relayoutDelay: TimeInterval = 0.05
-        let relayoutWindow: TimeInterval = 1.0
-        let elapsed = timestamp - lastIssuedPreviewTime
-        guard elapsed >= relayoutDelay, elapsed <= relayoutWindow else {
-            return Output()
+        switch driver {
+        case .editor:
+            guard let lastEditorInputScrollY else { return Output() }
+            let target = map.previewScrollTop(forEditorScrollY: lastEditorInputScrollY)
+            lastIssuedPreviewScrollTop = target
+            return Output(requestPreviewScrollTop: target)
+        case .preview:
+            guard let lastPreviewInputScrollTop else { return Output() }
+            let target = map.editorScrollY(forPreviewScrollTop: lastPreviewInputScrollTop)
+            lastIssuedEditorScrollY = target
+            return Output(requestEditorScrollY: target)
         }
-
-        return Output(requestPreviewScroll: lastIssuedPreviewPoint)
     }
 
-    private func shouldAcceptUpdate(
-        from incoming: Driver,
-        timestamp: TimeInterval,
-        incomingPreviewPoint: MarkdownSyncPoint? = nil
-    ) -> Bool {
-        guard let driver else {
-            return true
+    private func shouldAcceptUpdate(from incoming: Driver, timestamp: TimeInterval, incoming value: CGFloat) -> Bool {
+        guard let driver else { return true }
+        if driver == incoming { return true }
+
+        let suppressionWindow: TimeInterval = 0.18
+        guard timestamp - driverSince < suppressionWindow else { return true }
+
+        switch incoming {
+        case .editor:
+            guard let lastIssuedEditorScrollY else { return true }
+            return abs(value - lastIssuedEditorScrollY) > 1.5
+        case .preview:
+            guard let lastIssuedPreviewScrollTop else { return true }
+            return abs(value - lastIssuedPreviewScrollTop) > 1.5
         }
-
-        if driver == incoming {
-            return true
-        }
-
-        let suppressionWindow: TimeInterval = 0.25
-        if timestamp - driverSince < suppressionWindow {
-            if incoming == .preview, let incomingPreviewPoint, let lastIssuedPreviewPoint {
-                if isEquivalent(incomingPreviewPoint, lastIssuedPreviewPoint) {
-                    return false
-                }
-            }
-
-            if incoming == .editor, let lastIssuedEditorLine, let lastPreviewPoint {
-                let line = lastPreviewPoint.representativeLine - 1
-                if abs(line - lastIssuedEditorLine) <= 1 {
-                    return false
-                }
-            }
-        }
-
-        return true
-    }
-
-    private func isEquivalent(_ lhs: MarkdownSyncPoint, _ rhs: MarkdownSyncPoint) -> Bool {
-        if lhs.anchorID != rhs.anchorID {
-            return false
-        }
-        if lhs.startLine != rhs.startLine || lhs.endLine != rhs.endLine {
-            return false
-        }
-        return abs(lhs.clampedProgress - rhs.clampedProgress) <= 0.02
-    }
-
-    private func syncPoint(from snapshot: MarkdownEditorAnchorSyncSnapshot, anchors: [MarkdownSyncAnchor]) -> MarkdownSyncPoint? {
-        guard let anchorID = snapshot.activeAnchorID else {
-            return nil
-        }
-
-        guard let anchor = anchors.first(where: { $0.id == anchorID }) else {
-            return nil
-        }
-
-        return MarkdownSyncPoint(
-            anchorID: anchor.id,
-            startLine: anchor.startLine,
-            endLine: anchor.endLine,
-            localProgress: CGFloat(snapshot.localProgress)
-        )
     }
 }

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -5,65 +6,89 @@ import Testing
 
 @Suite("MarkdownSyncCoordinator")
 struct MarkdownSyncCoordinatorTests {
-    @Test("editor snapshot yields preview sync point")
+    @Test("editor scroll yields preview scroll target")
     @MainActor
-    func editorSnapshotToPreviewPoint() {
-        let anchors = [
-            MarkdownSyncAnchor(id: "a", kind: .heading, startLine: 1, endLine: 1),
-            MarkdownSyncAnchor(id: "b", kind: .paragraph, startLine: 3, endLine: 6),
-        ]
-
+    func editorToPreview() {
+        let map = makeMap()
         let coordinator = MarkdownSyncCoordinator(now: { 0 })
-        let snapshot = MarkdownEditorAnchorSyncSnapshot(activeAnchorID: "b", localProgress: 0.25)
-        let output = coordinator.editorDidScroll(snapshot: snapshot, anchors: anchors)
+        let output = coordinator.editorDidScroll(scrollY: 0, map: map)
 
-        #expect(output.requestPreviewScroll == MarkdownSyncPoint(anchorID: "b", startLine: 3, endLine: 6, localProgress: 0.25))
-        #expect(output.requestEditorScrollLine == nil)
+        #expect(output.requestPreviewScrollTop != nil)
+        #expect(output.requestEditorScrollY == nil)
     }
 
-    @Test("preview sync point yields editor scroll line")
+    @Test("preview scroll yields editor scroll target")
     @MainActor
-    func previewPointToEditorLine() {
+    func previewToEditor() {
+        let map = makeMap()
         let coordinator = MarkdownSyncCoordinator(now: { 0 })
-        let point = MarkdownSyncPoint(anchorID: "x", startLine: 10, endLine: 20, localProgress: 0.5)
-        let output = coordinator.previewDidScroll(point: point, totalLineCount: 500)
+        let output = coordinator.previewDidScroll(scrollTop: 0, map: map)
 
-        #expect(output.requestPreviewScroll == nil)
-        #expect(output.requestEditorScrollLine == 14)
+        #expect(output.requestPreviewScrollTop == nil)
+        #expect(output.requestEditorScrollY != nil)
     }
 
-    @Test("suppresses preview echo after editor-driven request")
+    @Test("suppresses preview echo immediately after editor-driven request")
     @MainActor
     func suppressPreviewEcho() {
         var time: TimeInterval = 0
         let coordinator = MarkdownSyncCoordinator(now: { time })
+        let map = makeMap()
 
-        let anchors = [MarkdownSyncAnchor(id: "a", kind: .paragraph, startLine: 1, endLine: 10)]
-        let snapshot = MarkdownEditorAnchorSyncSnapshot(activeAnchorID: "a", localProgress: 0.3)
-        let output = coordinator.editorDidScroll(snapshot: snapshot, anchors: anchors)
-        #expect(output.requestPreviewScroll != nil)
+        let firstOutput = coordinator.editorDidScroll(scrollY: 100, map: map)
+        let echoTarget = firstOutput.requestPreviewScrollTop ?? 0
 
-        time = 0.1
-        let echo = output.requestPreviewScroll!
-        let previewOutput = coordinator.previewDidScroll(point: echo, totalLineCount: 500)
-        #expect(previewOutput.isEmpty)
+        time = 0.05
+        let echo = coordinator.previewDidScroll(scrollTop: echoTarget, map: map)
+        #expect(echo.isEmpty)
     }
 
-    @Test("reissues last preview request on relayout when editor is driver")
+    @Test("accepts later preview update outside suppression window")
     @MainActor
-    func relayoutReissue() {
+    func acceptsAfterWindow() {
         var time: TimeInterval = 0
         let coordinator = MarkdownSyncCoordinator(now: { time })
+        let map = makeMap()
 
-        let anchors = [MarkdownSyncAnchor(id: "a", kind: .paragraph, startLine: 1, endLine: 10)]
-        let snapshot = MarkdownEditorAnchorSyncSnapshot(activeAnchorID: "a", localProgress: 0)
-        _ = coordinator.editorDidScroll(snapshot: snapshot, anchors: anchors)
+        _ = coordinator.editorDidScroll(scrollY: 100, map: map)
 
-        time = 0.01
-        #expect(coordinator.previewDidRelayout().isEmpty)
+        time = 0.5
+        let later = coordinator.previewDidScroll(scrollTop: 250, map: map)
+        #expect(later.requestEditorScrollY != nil)
+    }
 
-        time = 0.06
-        let output = coordinator.previewDidRelayout()
-        #expect(output.requestPreviewScroll == MarkdownSyncPoint(anchorID: "a", startLine: 1, endLine: 10, localProgress: 0))
+    @Test("reissues preview target after relayout when editor is driver")
+    @MainActor
+    func relayoutReissue() {
+        let coordinator = MarkdownSyncCoordinator(now: { 0 })
+        let map = makeMap()
+
+        _ = coordinator.editorDidScroll(scrollY: 50, map: map)
+        let output = coordinator.reissueAfterRelayout(map: map)
+        #expect(output.requestPreviewScrollTop != nil)
+    }
+
+    private func makeMap() -> MarkdownSyncMap {
+        let anchors = [
+            MarkdownSyncAnchor(id: "a", kind: .heading, startLine: 1, endLine: 1),
+            MarkdownSyncAnchor(id: "b", kind: .heading, startLine: 21, endLine: 21),
+            MarkdownSyncAnchor(id: "c", kind: .heading, startLine: 41, endLine: 41),
+        ]
+        let geometries = [
+            MarkdownPreviewAnchorGeometry(anchorID: "a", startLine: 1, endLine: 1, top: 0, height: 30),
+            MarkdownPreviewAnchorGeometry(anchorID: "b", startLine: 21, endLine: 21, top: 400, height: 30),
+            MarkdownPreviewAnchorGeometry(anchorID: "c", startLine: 41, endLine: 41, top: 800, height: 30),
+        ]
+        return MarkdownSyncMapBuilder.build(
+            MarkdownSyncMapInputs(
+                anchors: anchors,
+                previewGeometries: geometries,
+                editorLineHeight: 20,
+                editorMaxScrollY: 800,
+                editorViewportHeight: 400,
+                previewMaxScrollY: 1000,
+                previewViewportHeight: 400
+            )
+        )
     }
 }
