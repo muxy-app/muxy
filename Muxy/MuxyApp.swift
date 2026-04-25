@@ -131,6 +131,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var hasUnsavedEditorTabs: (() -> [EditorTabState])?
 
     @MainActor
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let appState = MuxyApp.sharedAppState,
+              let projectStore = MuxyApp.sharedProjectStore,
+              let worktreeStore = MuxyApp.sharedWorktreeStore
+        else { return }
+        for url in urls {
+            let path: String
+            if url.scheme == "muxy" {
+                if let host = url.host {
+                    path = host.removingPercentEncoding ?? host
+                } else {
+                    path = url.path.removingPercentEncoding ?? url.path
+                }
+            } else if url.isFileURL {
+                path = url.path
+            } else {
+                continue
+            }
+            guard !path.isEmpty, path != "/" else { continue }
+            CLIAccessor.openProjectFromPath(
+                path,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
+        }
+    }
+
+    @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
