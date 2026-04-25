@@ -26,6 +26,7 @@ enum GitPRParser {
             rawValue: (json["mergeStateStatus"] as? String) ?? ""
         ) ?? .unknown
         let rollup = json["statusCheckRollup"] as? [[String: Any]] ?? []
+        let isCrossRepository = json["isCrossRepository"] as? Bool ?? false
 
         return GitRepositoryService.PRInfo(
             url: url,
@@ -35,7 +36,8 @@ enum GitPRParser {
             baseBranch: baseBranch,
             mergeable: mergeable,
             mergeStateStatus: mergeStateStatus,
-            checks: parseStatusChecks(rollup)
+            checks: parseStatusChecks(rollup),
+            isCrossRepository: isCrossRepository
         )
     }
 

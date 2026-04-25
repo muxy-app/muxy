@@ -34,6 +34,7 @@ struct GitRepositoryService {
         let mergeable: Bool?
         let mergeStateStatus: PRMergeStateStatus
         let checks: PRChecks
+        let isCrossRepository: Bool
     }
 
     struct PRListItem: Equatable, Identifiable {
@@ -206,7 +207,7 @@ struct GitRepositoryService {
             return info
         }
 
-        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup"
+        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,isCrossRepository"
         if let info = await ghPRView(ghPath: ghPath, repoPath: repoPath, jsonFields: jsonFields) {
             return info
         }
@@ -220,7 +221,7 @@ struct GitRepositoryService {
         repoPath: String,
         headSha: String
     ) async -> PRInfo? {
-        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,headRefOid"
+        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,headRefOid,isCrossRepository"
         let arguments = [
             "pr", "list",
             "--state", "all",
@@ -458,7 +459,7 @@ struct GitRepositoryService {
             .map(String.init)
             .first(where: { $0.hasPrefix("https://") }) ?? ""
 
-        let viewFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup"
+        let viewFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,isCrossRepository"
         if !createdURL.isEmpty, let info = await ghPRView(
             ghPath: ghPath,
             repoPath: repoPath,

@@ -929,7 +929,7 @@ final class VCSTabState {
                     repoPath: projectPath,
                     number: info.number,
                     method: method,
-                    deleteBranch: deleteBranch
+                    deleteBranch: deleteBranch && !info.isCrossRepository
                 )
                 guard !Task.isCancelled else { return }
                 pullRequestInfo = nil
