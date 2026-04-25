@@ -77,6 +77,9 @@ struct MarkdownWebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.wantsLayer = true
+        webView.layer?.backgroundColor = palette.background.cgColor
         context.coordinator.configure(with: configuration)
         if scrollSyncEnabled {
             context.coordinator.applyPreferredScroll(
@@ -250,6 +253,7 @@ struct MarkdownWebView: NSViewRepresentable {
         private func applyPaletteIfNeeded(_ palette: MarkdownRenderer.Palette, to webView: WKWebView) {
             if let lastAppliedPalette, lastAppliedPalette == palette { return }
             lastAppliedPalette = palette
+            webView.layer?.backgroundColor = palette.background.cgColor
             let script = MarkdownRenderer.themeApplyScript(palette: palette)
             webView.evaluateJavaScript(script) { _, error in
                 if let error {
