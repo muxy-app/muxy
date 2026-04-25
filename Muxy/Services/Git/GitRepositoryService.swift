@@ -36,6 +36,21 @@ struct GitRepositoryService {
         let checks: PRChecks
     }
 
+    struct PRListItem: Equatable, Identifiable {
+        let number: Int
+        let title: String
+        let author: String
+        let headBranch: String
+        let baseBranch: String
+        let state: PRState
+        let isDraft: Bool
+        let url: String
+        let updatedAt: Date?
+        let checks: PRChecks
+
+        var id: Int { number }
+    }
+
     enum PRState: String {
         case open = "OPEN"
         case closed = "CLOSED"
@@ -207,6 +222,63 @@ struct GitRepositoryService {
         )
         guard let result, result.status == 0 else { return nil }
         return GitPRParser.parsePRInfo(result.stdout)
+    }
+
+    enum PRListFilter: String {
+        case open
+        case closed
+        case merged
+        case all
+    }
+
+    func listPullRequests(
+        repoPath: String,
+        filter: PRListFilter = .open,
+        limit: Int = 100
+    ) async throws -> [PRListItem] {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+            throw PRCreateError.ghNotInstalled
+        }
+        let jsonFields = "number,title,author,headRefName,baseRefName,state,isDraft,url,updatedAt,statusCheckRollup"
+        let arguments = [
+            "pr", "list",
+            "--state", filter.rawValue,
+            "--limit", String(limit),
+            "--json", jsonFields,
+        ]
+        let result = try await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: arguments,
+            workingDirectory: repoPath
+        )
+        guard result.status == 0 else {
+            let message = result.stderr.isEmpty ? result.stdout : result.stderr
+            throw PRCreateError.commandFailed(
+                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Failed to list pull requests."
+                    : message.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        return GitPRParser.parsePRList(result.stdout)
+    }
+
+    func checkoutPullRequest(repoPath: String, number: Int) async throws {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+            throw PRCreateError.ghNotInstalled
+        }
+        let result = try await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: ["pr", "checkout", String(number)],
+            workingDirectory: repoPath
+        )
+        guard result.status == 0 else {
+            let message = result.stderr.isEmpty ? result.stdout : result.stderr
+            throw PRCreateError.commandFailed(
+                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Failed to checkout pull request."
+                    : message.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
     }
 
     func aheadBehind(repoPath: String, branch: String) async -> AheadBehind {

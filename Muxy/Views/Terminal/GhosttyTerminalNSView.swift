@@ -37,7 +37,7 @@ final class GhosttyTerminalNSView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes([.fileURL, .string])
         setAccessibilityRole(.textArea)
         setAccessibilityRoleDescription("Terminal")
         let directoryName = URL(fileURLWithPath: workingDirectory).lastPathComponent
@@ -774,19 +774,25 @@ final class GhosttyTerminalNSView: NSView {
 
 extension GhosttyTerminalNSView {
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self]) else { return [] }
-        return .copy
+        droppedPaths(from: sender).isEmpty ? [] : .copy
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        droppedPaths(from: sender).isEmpty ? [] : .copy
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-              !urls.isEmpty
-        else { return false }
-
-        let paths = urls.map { ShellEscaper.escape($0.path) }
-        let text = paths.joined(separator: " ")
+        let paths = droppedPaths(from: sender)
+        guard !paths.isEmpty else { return false }
+        let text = paths.map { ShellEscaper.escape($0) }.joined(separator: " ")
         insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
         return true
+    }
+
+    private func droppedPaths(from sender: any NSDraggingInfo) -> [String] {
+        let pasteboard = sender.draggingPasteboard
+        let urls = (pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL]) ?? []
+        return DroppedPathsParser.parse(fileURLs: urls, plainString: pasteboard.string(forType: .string))
     }
 }
 

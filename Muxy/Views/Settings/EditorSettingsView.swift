@@ -3,12 +3,13 @@ import SwiftUI
 struct EditorSettingsView: View {
     @State private var settings = EditorSettings.shared
     @State private var monoFonts: [String] = []
+    @State private var allowMarkdownRemoteImages = MarkdownPreviewPreferences.allowRemoteImages
 
     private var showsAppearanceSection: Bool { settings.defaultEditor == .builtIn }
 
     var body: some View {
         VStack(spacing: 0) {
-            SettingsSection("Editor", showsDivider: showsAppearanceSection) {
+            SettingsSection("Editor") {
                 SettingsRow("Default Editor") {
                     Picker("", selection: $settings.defaultEditor) {
                         ForEach(EditorSettings.DefaultEditor.allCases) { editor in
@@ -27,6 +28,17 @@ struct EditorSettingsView: View {
                             .frame(width: SettingsMetrics.controlWidth)
                     }
                 }
+            }
+
+            SettingsSection(
+                "Markdown Preview",
+                footer: "Remote images are fetched over HTTPS only. Plain HTTP and other schemes are blocked.",
+                showsDivider: showsAppearanceSection
+            ) {
+                SettingsToggleRow(label: "Allow Remote Images", isOn: $allowMarkdownRemoteImages)
+                    .onChange(of: allowMarkdownRemoteImages) { _, newValue in
+                        MarkdownPreviewPreferences.allowRemoteImages = newValue
+                    }
             }
 
             if showsAppearanceSection {

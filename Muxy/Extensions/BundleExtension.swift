@@ -2,22 +2,21 @@ import Foundation
 
 extension Bundle {
     static let appResources: Bundle = {
-        let bundleName = "Muxy_Muxy"
+        let bundleName = "Muxy_Muxy.bundle"
 
-        let candidates = [
-            Bundle.main.resourceURL,
-            Bundle.main.bundleURL,
+        let candidates: [URL?] = [
+            Bundle.main.resourceURL?.appendingPathComponent(bundleName),
+            Bundle.main.bundleURL.appendingPathComponent(bundleName),
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(bundleName)"),
         ]
 
-        for candidate in candidates {
-            guard let candidate else { continue }
-            let path = candidate.appendingPathComponent(bundleName + ".bundle")
-            if let bundle = Bundle(path: path.path) {
+        for case let url? in candidates {
+            if let bundle = Bundle(url: url) {
                 return bundle
             }
         }
 
-        return .module
+        return Bundle.main
     }()
 
     static var providerIconsURL: URL? {

@@ -166,6 +166,7 @@ jobs:
           gh release create "v${{ needs.validate.outputs.version }}" \
             --repo "${{ github.repository }}" \
             --title "Muxy v${{ needs.validate.outputs.version }}" \
+            --draft \
             --generate-notes \
             artifacts/dmg-arm64/*.dmg \
             artifacts/dmg-x86_64/*.dmg \

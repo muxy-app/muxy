@@ -10,17 +10,6 @@ private final class CodeEditorTextView: NSTextView {
     var onRedoRequest: (() -> Bool)?
     var canUndoRequest: (() -> Bool)?
     var canRedoRequest: (() -> Bool)?
-    var onFocus: (() -> Void)?
-
-    override func becomeFirstResponder() -> Bool {
-        let result = super.becomeFirstResponder()
-        if result {
-            DispatchQueue.main.async { [weak self] in
-                self?.onFocus?()
-            }
-        }
-        return result
-    }
 
     override func paste(_ sender: Any?) {
         pasteAsPlainText(sender)
@@ -172,6 +161,8 @@ struct CodeEditorView: NSViewRepresentable {
     @Bindable var state: EditorTabState
     let editorSettings: EditorSettings
     let themeVersion: Int
+    let showsVerticalScroller: Bool
+    let focused: Bool
     let searchNeedle: String
     let searchNavigationVersion: Int
     let searchNavigationDirection: EditorSearchNavigationDirection
@@ -189,7 +180,7 @@ struct CodeEditorView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = showsVerticalScroller
         scrollView.hasHorizontalScroller = true
         scrollView.autoresizingMask = [.width, .height]
 
@@ -244,7 +235,7 @@ struct CodeEditorView: NSViewRepresentable {
             .backgroundColor: GhosttyService.shared.foregroundColor.withAlphaComponent(0.15),
         ]
 
-        scrollView.autohidesScrollers = true
+        scrollView.autohidesScrollers = showsVerticalScroller
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.contentView.postsBoundsChangedNotifications = true
@@ -266,7 +257,6 @@ struct CodeEditorView: NSViewRepresentable {
         textView.canRedoRequest = { [weak coordinator] in
             coordinator?.canPerformRedoRequest() ?? false
         }
-        textView.onFocus = onFocus
         coordinator.setScrollObserver(for: scrollView)
         textView.undoManager?.removeAllActions()
 
@@ -284,10 +274,21 @@ struct CodeEditorView: NSViewRepresentable {
                 codeTextView.onRedoRequest = nil
                 codeTextView.canUndoRequest = nil
                 codeTextView.canRedoRequest = nil
-                codeTextView.onFocus = nil
             }
         }
         coordinator.textView?.delegate = nil
+    }
+
+    private static func claimFirstResponder(textView: NSTextView, attemptsRemaining: Int) {
+        guard attemptsRemaining > 0 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak textView] in
+            guard let textView else { return }
+            guard let window = textView.window else {
+                claimFirstResponder(textView: textView, attemptsRemaining: attemptsRemaining - 1)
+                return
+            }
+            window.makeFirstResponder(textView)
+        }
     }
 
     // MARK: - updateNSView
@@ -295,8 +296,10 @@ struct CodeEditorView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView else { return }
         let coordinator = context.coordinator
-        if let codeTextView = textView as? CodeEditorTextView {
-            codeTextView.onFocus = onFocus
+
+        if scrollView.hasVerticalScroller != showsVerticalScroller {
+            scrollView.hasVerticalScroller = showsVerticalScroller
+            scrollView.autohidesScrollers = showsVerticalScroller
         }
 
         if state.backingStore != nil, coordinator.viewportState == nil {
@@ -323,11 +326,15 @@ struct CodeEditorView: NSViewRepresentable {
 
         if backingStoreChanged || incrementalFinished {
             coordinator.updateContainerHeight()
+            coordinator.updateMarkdownEditorScrollMetrics()
         }
 
         if !coordinator.hasAppliedInitialContent, viewport.backingStore.lineCount > 1 || backingStoreChanged {
             coordinator.hasAppliedInitialContent = true
             coordinator.refreshViewport(force: true)
+            if focused {
+                Self.claimFirstResponder(textView: textView, attemptsRemaining: 20)
+            }
         }
 
         let themeChanged = coordinator.lastThemeVersion != themeVersion
@@ -338,7 +345,12 @@ struct CodeEditorView: NSViewRepresentable {
 
         if fontChanged {
             viewport.updateEstimatedLineHeight(font: font)
+            viewport.updateDocumentPadding(
+                topInset: textView.textContainerInset.height,
+                bottomInset: textView.textContainerInset.height
+            )
             coordinator.updateContainerHeight()
+            coordinator.updateMarkdownEditorScrollMetrics()
             coordinator.refreshViewport(force: true)
         }
 
@@ -352,6 +364,8 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         updateSearchViewport(coordinator: coordinator)
+        coordinator.syncMarkdownScrollPositionIfNeeded()
+        coordinator.updateMarkdownEditorScrollMetrics()
 
         if coordinator.lastEditorFocusVersion != editorFocusVersion {
             coordinator.lastEditorFocusVersion = editorFocusVersion
@@ -494,6 +508,7 @@ struct CodeEditorView: NSViewRepresentable {
         private static let viewportUndoCoalesceInterval: CFTimeInterval = 1.0
         private static let undoCommandSelector = #selector(CodeEditorTextView.undo(_:))
         private static let redoCommandSelector = #selector(CodeEditorTextView.redo(_:))
+        private static let previewRefreshDebounceNanos: UInt64 = 500_000_000
         private static let perfLogger = Logger(subsystem: "app.muxy", category: "EditorPerf")
         private static let perfEnabled: Bool = {
             if let env = ProcessInfo.processInfo.environment["MUXY_EDITOR_PERF"] {
@@ -512,10 +527,12 @@ struct CodeEditorView: NSViewRepresentable {
         private var lastRenderedViewportRange: Range<Int>?
         private var lastRenderedBackingStoreVersion = -1
         private var lastObservedClipSize: CGSize = .zero
+        private var isApplyingMarkdownScroll = false
         private var refreshTimingCount = 0
         private var highlightTimingCount = 0
         private var lastRefreshDurationMs: Double = 0
         private var lastHighlightDurationMs: Double = 0
+        private var previewRefreshTask: Task<Void, Never>?
         private var pendingCascadeReapplyGeneration: UInt64 = 0
 
         init(state: EditorTabState, editorSettings: EditorSettings) {
@@ -525,6 +542,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         deinit {
+            previewRefreshTask?.cancel()
             NotificationCenter.default.removeObserver(self)
         }
 
@@ -607,6 +625,12 @@ struct CodeEditorView: NSViewRepresentable {
             let height = max(viewport.totalDocumentHeight, scrollView.contentView.bounds.height)
             let width = max(scrollView.contentSize.width, textView?.frame.width ?? scrollView.contentSize.width)
             container.frame = NSRect(x: 0, y: 0, width: width, height: height)
+            updateMarkdownEditorScrollMetrics()
+            let maxScrollY = max(0, height - scrollView.contentView.bounds.height)
+            if scrollView.contentView.bounds.origin.y > maxScrollY {
+                scrollView.contentView.setBoundsOrigin(NSPoint(x: scrollView.contentView.bounds.origin.x, y: maxScrollY))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
         }
 
         func refreshViewport(force: Bool) {
@@ -1061,9 +1085,11 @@ struct CodeEditorView: NSViewRepresentable {
             let newLine = nsLine.replacingCharacters(in: match.range, with: replacement)
             _ = store.replaceLines(in: match.lineIndex ..< match.lineIndex + 1, with: [newLine])
             state.backingStoreVersion += 1
+            lastSyncedBackingStoreVersion = state.backingStoreVersion
             state.markModified()
             invalidateSyntaxHighlightsFromLine(match.lineIndex)
             invalidateRenderedViewportText()
+            scheduleMarkdownPreviewRefresh(immediate: true)
             performSearchViewport(needle, caseSensitive: caseSensitive, useRegex: useRegex)
             refreshViewport(force: true)
         }
@@ -1090,8 +1116,10 @@ struct CodeEditorView: NSViewRepresentable {
                 invalidateSyntaxHighlightsFromLine(earliestInvalidation)
             }
             state.backingStoreVersion += 1
+            lastSyncedBackingStoreVersion = state.backingStoreVersion
             state.markModified()
             invalidateRenderedViewportText()
+            scheduleMarkdownPreviewRefresh(immediate: true)
             performSearchViewport(needle, caseSensitive: caseSensitive, useRegex: useRegex)
             refreshViewport(force: true)
         }
@@ -1142,11 +1170,19 @@ struct CodeEditorView: NSViewRepresentable {
             let estimatedHeight = viewport.estimatedLineHeight * CGFloat(max(1, visibleLineCount))
                 + textView.textContainerInset.height * 2
             let viewportWidth = viewportContentWidth(for: textView, scrollView: scrollView)
+            if let layoutManager = textView.layoutManager, let textContainer = textView.textContainer {
+                layoutManager.ensureLayout(for: textContainer)
+            }
+            let laidOutHeight: CGFloat = if let layoutManager = textView.layoutManager, let textContainer = textView.textContainer {
+                ceil(layoutManager.usedRect(for: textContainer).height + textView.textContainerInset.height * 2)
+            } else {
+                estimatedHeight
+            }
             let newTextFrame = NSRect(
                 x: 0,
                 y: yOffset,
                 width: viewportWidth,
-                height: max(estimatedHeight, 100)
+                height: max(estimatedHeight, laidOutHeight, 100)
             )
             if textView.frame != newTextFrame {
                 textView.frame = newTextFrame
@@ -1204,6 +1240,8 @@ struct CodeEditorView: NSViewRepresentable {
                 name: NSView.frameDidChangeNotification,
                 object: scrollView.contentView
             )
+            updateMarkdownEditorScrollMetrics()
+            updateMarkdownPreviewSyncPointFromEditorScroll()
         }
 
         private func removeScrollObserver() {
@@ -1223,15 +1261,15 @@ struct CodeEditorView: NSViewRepresentable {
 
         @objc
         private func handleScrollBoundsChange() {
-            reconcileClipSize(observedContentView?.bounds.size)
+            reconcileScrollBoundsChange(observedContentView?.bounds.size)
         }
 
         @objc
         private func handleClipFrameChange() {
-            reconcileClipSize(observedContentView?.frame.size)
+            reconcileClipFrameChange(observedContentView?.frame.size)
         }
 
-        private func reconcileClipSize(_ size: CGSize?) {
+        private func reconcileScrollBoundsChange(_ size: CGSize?) {
             if let size {
                 if size.width != lastObservedClipSize.width {
                     ensureViewportMinimumWidth()
@@ -1241,9 +1279,135 @@ struct CodeEditorView: NSViewRepresentable {
                 }
                 lastObservedClipSize = size
             }
+            updateMarkdownEditorScrollMetrics()
+            if !isMarkdownSplitActive {
+                isApplyingMarkdownScroll = false
+            } else if isApplyingMarkdownScroll {
+                isApplyingMarkdownScroll = false
+            } else {
+                if state.markdownScrollDriver != .editor {
+                    state.markdownScrollDriver = .editor
+                }
+                updateMarkdownPreviewSyncPointFromEditorScroll()
+            }
             if !isEditingViewport {
                 refreshViewport(force: false)
             }
+        }
+
+        private func reconcileClipFrameChange(_ size: CGSize?) {
+            if let size {
+                if size.width != lastObservedClipSize.width {
+                    ensureViewportMinimumWidth()
+                }
+                if size.height != lastObservedClipSize.height {
+                    updateContainerHeight()
+                }
+                lastObservedClipSize = size
+            }
+            updateMarkdownEditorScrollMetrics()
+            if !isEditingViewport {
+                refreshViewport(force: false)
+            }
+        }
+
+        private var isMarkdownSplitActive: Bool {
+            state.isMarkdownFile && state.markdownViewMode == .split && state.markdownScrollSyncEnabled
+        }
+
+        func updateMarkdownEditorScrollMetrics() {
+            guard isMarkdownSplitActive,
+                  let scrollView,
+                  let viewport = viewportState
+            else { return }
+
+            let visibleHeight = scrollView.contentView.bounds.height
+            let documentHeight = scrollView.documentView?.bounds.height ?? 0
+            let maxScrollY = max(0, documentHeight - visibleHeight)
+            let scrollY = min(max(0, scrollView.contentView.bounds.origin.y), maxScrollY)
+
+            state.markdownEditorScrollY = scrollY
+            state.markdownEditorMaxScrollY = maxScrollY
+            state.markdownEditorViewportHeight = visibleHeight
+            state.markdownEditorLineHeight = viewport.estimatedLineHeight
+        }
+
+        func syncMarkdownScrollPositionIfNeeded() {
+            guard state.isMarkdownFile,
+                  state.markdownViewMode == .split,
+                  state.markdownScrollSyncEnabled
+            else { return }
+
+            applyPendingMarkdownEditorScrollRequestIfNeeded()
+        }
+
+        func updateMarkdownPreviewSyncPointFromEditorScroll() {
+            guard !isApplyingMarkdownScroll else { return }
+            guard state.markdownScrollDriver != .preview else { return }
+            guard state.isMarkdownFile,
+                  state.markdownViewMode == .split,
+                  state.markdownScrollSyncEnabled
+            else { return }
+
+            let map = state.currentMarkdownSyncMap()
+            let output = state.markdownSyncCoordinator.editorDidScroll(scrollY: state.markdownEditorScrollY, map: map)
+            guard !output.isEmpty else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.state.applyMarkdownSyncOutput(output)
+            }
+        }
+
+        private var lastAppliedMarkdownEditorScrollRequestVersion: Int {
+            get { _lastAppliedMarkdownEditorScrollRequestVersion }
+            set { _lastAppliedMarkdownEditorScrollRequestVersion = newValue }
+        }
+
+        private var _lastAppliedMarkdownEditorScrollRequestVersion: Int = 0
+
+        private func applyPendingMarkdownEditorScrollRequestIfNeeded() {
+            guard let scrollView, viewportState != nil else { return }
+            guard lastAppliedMarkdownEditorScrollRequestVersion != state.markdownEditorScrollRequestVersion else { return }
+            lastAppliedMarkdownEditorScrollRequestVersion = state.markdownEditorScrollRequestVersion
+
+            guard state.isMarkdownFile,
+                  state.markdownViewMode == .split,
+                  state.markdownScrollSyncEnabled,
+                  let targetY = state.markdownEditorScrollRequestY
+            else { return }
+
+            isApplyingMarkdownScroll = true
+            let visibleHeight = scrollView.contentView.bounds.height
+            let documentHeight = scrollView.documentView?.bounds.height ?? 0
+            let maxScrollY = max(0, documentHeight - visibleHeight)
+            let clamped = min(max(0, targetY), maxScrollY)
+            scrollView.contentView.setBoundsOrigin(NSPoint(x: scrollView.contentView.bounds.origin.x, y: clamped))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            refreshViewport(force: true)
+            rebuildLineStartOffsetsForViewport()
+        }
+
+        private func publishMarkdownProgressIfEditorAutoScrolled(_ work: () -> Void) {
+            guard let scrollView else {
+                work()
+                return
+            }
+
+            let beforeY = scrollView.contentView.bounds.origin.y
+            work()
+            let afterY = scrollView.contentView.bounds.origin.y
+
+            guard abs(afterY - beforeY) > 0.5 else { return }
+            updateMarkdownEditorScrollMetrics()
+            updateMarkdownPreviewSyncPointFromEditorScroll()
+        }
+
+        private func markdownScrollProgress(for scrollView: NSScrollView) -> CGFloat {
+            let visibleHeight = scrollView.contentView.bounds.height
+            let documentHeight = scrollView.documentView?.bounds.height ?? 0
+            let maxScrollY = max(0, documentHeight - visibleHeight)
+            let scrollY = min(max(0, scrollView.contentView.bounds.origin.y), maxScrollY)
+            return maxScrollY > 0 ? scrollY / maxScrollY : 0
         }
 
         // MARK: - NSTextViewDelegate
@@ -1251,6 +1415,23 @@ struct CodeEditorView: NSViewRepresentable {
         func textDidChange(_: Notification) {
             guard let textView, !isUpdating else { return }
             handleTextDidChangeViewport(textView)
+            scheduleMarkdownPreviewRefresh()
+        }
+
+        private func scheduleMarkdownPreviewRefresh(immediate: Bool = false) {
+            guard state.isMarkdownFile else { return }
+            previewRefreshTask?.cancel()
+            if immediate {
+                state.previewRefreshVersion += 1
+                return
+            }
+            let task = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: Self.previewRefreshDebounceNanos)
+                guard !Task.isCancelled, let self else { return }
+                guard self.previewRefreshTask?.isCancelled == false else { return }
+                self.state.previewRefreshVersion += 1
+            }
+            previewRefreshTask = task
         }
 
         private func handleTextDidChangeViewport(_ textView: NSTextView) {
@@ -1281,6 +1462,8 @@ struct CodeEditorView: NSViewRepresentable {
                 invalidateSyntaxHighlightsFromLine(viewportStartLine)
             }
 
+            state.backingStoreVersion += 1
+            lastSyncedBackingStoreVersion = state.backingStoreVersion
             state.markModified()
 
             isEditingViewport = true
@@ -1289,16 +1472,7 @@ struct CodeEditorView: NSViewRepresentable {
             lastRenderedViewportRange = viewport.viewportStartLine ..< viewport.viewportEndLine
             lastRenderedBackingStoreVersion = state.backingStoreVersion
             needsViewportTextReload = false
-            if let pendingEdit {
-                updateLineStartOffsetsAfterEdit(
-                    viewportStartLine: viewportStartLine,
-                    globalStartLine: pendingEdit.startLine,
-                    oldLineCount: pendingEdit.oldLines.count,
-                    newLines: pendingEdit.newLines
-                )
-            } else {
-                rebuildLineStartOffsetsForViewport()
-            }
+            rebuildLineStartOffsetsForViewport()
 
             if let pendingEdit,
                !isApplyingViewportHistory,
@@ -1329,7 +1503,9 @@ struct CodeEditorView: NSViewRepresentable {
                 )
             }
 
-            scrollCursorVisibleInViewport(textView: textView, cursorLocation: cursorLocation)
+            publishMarkdownProgressIfEditorAutoScrolled {
+                scrollCursorVisibleInViewport(textView: textView, cursorLocation: cursorLocation)
+            }
 
             let scrollY = scrollView.contentView.bounds.origin.y
             let visibleHeight = scrollView.contentView.bounds.height
@@ -1351,7 +1527,9 @@ struct CodeEditorView: NSViewRepresentable {
                     let newCursor = newCharOffset + min(columnOffset, max(0, lineLength))
                     let safeCursor = min(newCursor, content.length)
                     textView.setSelectedRange(NSRange(location: safeCursor, length: 0))
-                    scrollCursorVisibleInViewport(textView: textView, cursorLocation: safeCursor)
+                    publishMarkdownProgressIfEditorAutoScrolled {
+                        scrollCursorVisibleInViewport(textView: textView, cursorLocation: safeCursor)
+                    }
                 }
             } else {
                 if let pendingEdit {
@@ -1374,19 +1552,35 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func performUndoRequest() -> Bool {
-            performViewportUndo()
+            if viewportState != nil {
+                return performViewportUndo()
+            }
+            guard let textView, textView.undoManager?.canUndo == true else { return false }
+            textView.undoManager?.undo()
+            return true
         }
 
         func performRedoRequest() -> Bool {
-            performViewportRedo()
+            if viewportState != nil {
+                return performViewportRedo()
+            }
+            guard let textView, textView.undoManager?.canRedo == true else { return false }
+            textView.undoManager?.redo()
+            return true
         }
 
         func canPerformUndoRequest() -> Bool {
-            !viewportUndoStack.isEmpty
+            if viewportState != nil {
+                return !viewportUndoStack.isEmpty
+            }
+            return textView?.undoManager?.canUndo ?? false
         }
 
         func canPerformRedoRequest() -> Bool {
-            !viewportRedoStack.isEmpty
+            if viewportState != nil {
+                return !viewportRedoStack.isEmpty
+            }
+            return textView?.undoManager?.canRedo ?? false
         }
 
         private func performViewportUndo() -> Bool {
@@ -1410,8 +1604,11 @@ struct CodeEditorView: NSViewRepresentable {
             if earliestInvalidation != Int.max {
                 invalidateSyntaxHighlightsFromLine(earliestInvalidation)
             }
+            state.backingStoreVersion += 1
+            lastSyncedBackingStoreVersion = state.backingStoreVersion
             state.markModified()
             invalidateRenderedViewportText()
+            scheduleMarkdownPreviewRefresh(immediate: true)
             appendViewportRedo(group)
             if let selection = group.edits.first?.selectionBefore {
                 applyViewportHistorySelection(selection)
@@ -1441,8 +1638,11 @@ struct CodeEditorView: NSViewRepresentable {
             if earliestInvalidation != Int.max {
                 invalidateSyntaxHighlightsFromLine(earliestInvalidation)
             }
+            state.backingStoreVersion += 1
+            lastSyncedBackingStoreVersion = state.backingStoreVersion
             state.markModified()
             invalidateRenderedViewportText()
+            scheduleMarkdownPreviewRefresh(immediate: true)
             appendViewportUndo(group)
             if let selection = group.edits.last?.selectionAfter {
                 applyViewportHistorySelection(selection)
@@ -1589,35 +1789,18 @@ struct CodeEditorView: NSViewRepresentable {
                 actualCharacterRange: nil
             )
             var cursorRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-            cursorRect.origin.x += textView.textContainerOrigin.x + textView.frame.origin.x
             cursorRect.origin.y += textView.textContainerOrigin.y + textView.frame.origin.y
 
             let clipBounds = scrollView.contentView.bounds
-            let visibleMinX = clipBounds.origin.x
-            let visibleMaxX = visibleMinX + clipBounds.width
             let visibleMinY = clipBounds.origin.y
             let visibleMaxY = visibleMinY + clipBounds.height
 
-            let cursorMinX = cursorRect.origin.x
-            let cursorMaxX = cursorRect.origin.x + max(cursorRect.width, 2)
-            var newOrigin = clipBounds.origin
-
-            if cursorMaxX > visibleMaxX {
-                let maxScrollX = max(0, (containerView?.frame.width ?? textView.frame.width) - clipBounds.width)
-                newOrigin.x = min(maxScrollX, max(0, cursorMaxX - clipBounds.width))
-            } else if cursorMinX < visibleMinX {
-                let maxScrollX = max(0, (containerView?.frame.width ?? textView.frame.width) - clipBounds.width)
-                newOrigin.x = min(maxScrollX, max(0, cursorMinX))
-            }
-
             if cursorRect.maxY > visibleMaxY {
-                newOrigin.y = cursorRect.maxY - clipBounds.height
+                let newY = cursorRect.maxY - clipBounds.height
+                scrollView.contentView.setBoundsOrigin(NSPoint(x: clipBounds.origin.x, y: newY))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
             } else if cursorRect.origin.y < visibleMinY {
-                newOrigin.y = cursorRect.origin.y
-            }
-
-            if newOrigin != clipBounds.origin {
-                scrollView.contentView.setBoundsOrigin(newOrigin)
+                scrollView.contentView.setBoundsOrigin(NSPoint(x: clipBounds.origin.x, y: cursorRect.origin.y))
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             }
         }
@@ -1633,6 +1816,9 @@ struct CodeEditorView: NSViewRepresentable {
                 affectedCharRange: affectedCharRange,
                 replacementString: replacementString
             )
+            if replacementString?.contains("\n") == true {
+                scheduleMarkdownPreviewRefresh(immediate: true)
+            }
             return true
         }
 
@@ -1704,7 +1890,11 @@ struct CodeEditorView: NSViewRepresentable {
             }
 
             let maxScrollY = max(0, viewport.totalDocumentHeight - visibleHeight)
-            newScrollY = min(maxScrollY, max(0, newScrollY))
+            if globalLine >= viewport.backingStore.lineCount - 1 {
+                newScrollY = maxScrollY
+            } else {
+                newScrollY = min(maxScrollY, max(0, newScrollY))
+            }
 
             scrollView.contentView.setBoundsOrigin(NSPoint(x: scrollView.contentView.bounds.origin.x, y: newScrollY))
             scrollView.reflectScrolledClipView(scrollView.contentView)

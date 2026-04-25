@@ -161,26 +161,56 @@ enum AIUsageSettingsStore {
     }
 
     static func sidebarPreviewProviderID(defaults: UserDefaults = .standard) -> String? {
-        guard let raw = defaults.string(forKey: sidebarPreviewProviderIDKey),
-              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            return nil
-        }
-        return canonicalAIUsageProviderID(raw)
+        guard let pin = sidebarPreviewPin(defaults: defaults) else { return nil }
+        return pin.providerID
     }
 
-    static func setSidebarPreviewProviderID(_ providerID: String?, defaults: UserDefaults = .standard) {
-        if let providerID {
-            defaults.set(canonicalAIUsageProviderID(providerID), forKey: sidebarPreviewProviderIDKey)
+    static func sidebarPreviewPin(defaults: UserDefaults = .standard) -> AISidebarPreviewPin? {
+        guard let raw = defaults.string(forKey: sidebarPreviewProviderIDKey) else { return nil }
+        return AISidebarPreviewPin(rawValue: raw)
+    }
+
+    static func setSidebarPreviewPin(_ pin: AISidebarPreviewPin?, defaults: UserDefaults = .standard) {
+        if let pin {
+            defaults.set(pin.encoded, forKey: sidebarPreviewProviderIDKey)
         } else {
             defaults.removeObject(forKey: sidebarPreviewProviderIDKey)
         }
     }
 
-    static func isSidebarPinned(providerID: String, pinnedRawValue: String) -> Bool {
-        let trimmed = pinnedRawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        return canonicalAIUsageProviderID(trimmed) == canonicalAIUsageProviderID(providerID)
+    static func isSidebarPinned(providerID: String, rowLabel: String?, pinnedRawValue: String) -> Bool {
+        guard let pin = AISidebarPreviewPin(rawValue: pinnedRawValue) else { return false }
+        guard pin.providerID == canonicalAIUsageProviderID(providerID) else { return false }
+        return pin.rowLabel == rowLabel
+    }
+}
+
+struct AISidebarPreviewPin: Equatable {
+    let providerID: String
+    let rowLabel: String?
+
+    init(providerID: String, rowLabel: String?) {
+        self.providerID = canonicalAIUsageProviderID(providerID)
+        self.rowLabel = rowLabel
+    }
+
+    init?(rawValue: String) {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let separatorRange = trimmed.range(of: "::") {
+            let provider = String(trimmed[..<separatorRange.lowerBound])
+            let label = String(trimmed[separatorRange.upperBound...])
+            self.init(providerID: provider, rowLabel: label.isEmpty ? nil : label)
+        } else {
+            self.init(providerID: trimmed, rowLabel: nil)
+        }
+    }
+
+    var encoded: String {
+        if let rowLabel {
+            return "\(providerID)::\(rowLabel)"
+        }
+        return providerID
     }
 }
 

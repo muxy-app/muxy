@@ -127,25 +127,7 @@ struct AIUsagePanel: View {
 struct AIProviderUsageView: View {
     let snapshot: AIProviderUsageSnapshot
 
-    @AppStorage(AIUsageSettingsStore.sidebarPreviewProviderIDKey) private var pinnedProviderID: String = ""
-    @State private var pinHovered = false
-
-    private var isAvailable: Bool {
-        if case .available = snapshot.state { return true }
-        return false
-    }
-
-    private var isPinned: Bool {
-        AIUsageSettingsStore.isSidebarPinned(providerID: snapshot.providerID, pinnedRawValue: pinnedProviderID)
-    }
-
-    private func togglePin() {
-        if isPinned {
-            AIUsageSettingsStore.setSidebarPreviewProviderID(nil)
-        } else {
-            AIUsageSettingsStore.setSidebarPreviewProviderID(snapshot.providerID)
-        }
-    }
+    @AppStorage(AIUsageSettingsStore.sidebarPreviewProviderIDKey) private var pinnedRawValue: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -154,29 +136,23 @@ struct AIProviderUsageView: View {
                 Text(snapshot.providerName)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(MuxyTheme.fg)
-
                 Spacer(minLength: 4)
-
-                if isAvailable {
-                    Button(action: togglePin) {
-                        Image(systemName: isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(isPinned ? MuxyTheme.accent : (pinHovered ? MuxyTheme.fg : MuxyTheme.fgMuted))
-                            .rotationEffect(.degrees(45))
-                            .frame(width: 14, height: 14)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .onHover { pinHovered = $0 }
-                    .help(isPinned ? "Unpin from sidebar" : "Show this provider in the sidebar")
-                }
             }
 
             switch snapshot.state {
             case .available:
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(snapshot.rows) { row in
-                        AIUsageMetricRowView(row: row, fetchedAt: snapshot.fetchedAt)
+                        AIUsageMetricRowView(
+                            row: row,
+                            fetchedAt: snapshot.fetchedAt,
+                            providerID: snapshot.providerID,
+                            isPinned: AIUsageSettingsStore.isSidebarPinned(
+                                providerID: snapshot.providerID,
+                                rowLabel: row.label,
+                                pinnedRawValue: pinnedRawValue
+                            )
+                        )
                     }
                 }
             case let .unavailable(message),
@@ -192,9 +168,24 @@ struct AIProviderUsageView: View {
 struct AIUsageMetricRowView: View {
     let row: AIUsageMetricRow
     let fetchedAt: Date
+    let providerID: String
+    let isPinned: Bool
 
     @AppStorage(AIUsageSettingsStore.usageDisplayModeKey) private var usageDisplayModeRaw = AIUsageSettingsStore.defaultUsageDisplayMode
         .rawValue
+    @State private var pinHovered = false
+
+    private var canPin: Bool { row.percent != nil }
+
+    private func togglePin() {
+        if isPinned {
+            AIUsageSettingsStore.setSidebarPreviewPin(nil)
+        } else {
+            AIUsageSettingsStore.setSidebarPreviewPin(
+                AISidebarPreviewPin(providerID: providerID, rowLabel: row.label)
+            )
+        }
+    }
 
     private var usageDisplayMode: AIUsageDisplayMode {
         AIUsageDisplayMode(rawValue: usageDisplayModeRaw) ?? AIUsageSettingsStore.defaultUsageDisplayMode
@@ -364,6 +355,21 @@ struct AIUsageMetricRowView: View {
                         .fill(paceIndicatorColor)
                         .frame(width: 6, height: 6)
                 }
+
+                if canPin {
+                    Button(action: togglePin) {
+                        Image(systemName: isPinned ? "pin.fill" : "pin")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(isPinned ? MuxyTheme.accent : (pinHovered ? MuxyTheme.fg : MuxyTheme.fgMuted))
+                            .rotationEffect(.degrees(45))
+                            .frame(width: 14, height: 14)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { pinHovered = $0 }
+                    .help(isPinned ? "Unpin from sidebar" : "Show this usage in the sidebar")
+                }
+
                 Spacer()
                 if let percent = displayPercent {
                     Text("\(Int(percent.rounded()))%")
