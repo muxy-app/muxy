@@ -1280,15 +1280,15 @@ struct CodeEditorView: NSViewRepresentable {
                 lastObservedClipSize = size
             }
             updateMarkdownEditorScrollMetrics()
-            if isMarkdownSplitActive {
-                if isApplyingMarkdownScroll {
-                    isApplyingMarkdownScroll = false
-                } else {
-                    if state.markdownScrollDriver != .editor {
-                        state.markdownScrollDriver = .editor
-                    }
-                    updateMarkdownPreviewSyncPointFromEditorScroll()
+            if !isMarkdownSplitActive {
+                isApplyingMarkdownScroll = false
+            } else if isApplyingMarkdownScroll {
+                isApplyingMarkdownScroll = false
+            } else {
+                if state.markdownScrollDriver != .editor {
+                    state.markdownScrollDriver = .editor
                 }
+                updateMarkdownPreviewSyncPointFromEditorScroll()
             }
             if !isEditingViewport {
                 refreshViewport(force: false)
