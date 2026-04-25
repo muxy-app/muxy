@@ -1280,11 +1280,15 @@ struct CodeEditorView: NSViewRepresentable {
                 lastObservedClipSize = size
             }
             updateMarkdownEditorScrollMetrics()
-            if isApplyingMarkdownScroll {
-                isApplyingMarkdownScroll = false
-            } else {
-                state.markdownScrollDriver = .editor
-                updateMarkdownPreviewSyncPointFromEditorScroll()
+            if isMarkdownSplitActive {
+                if isApplyingMarkdownScroll {
+                    isApplyingMarkdownScroll = false
+                } else {
+                    if state.markdownScrollDriver != .editor {
+                        state.markdownScrollDriver = .editor
+                    }
+                    updateMarkdownPreviewSyncPointFromEditorScroll()
+                }
             }
             if !isEditingViewport {
                 refreshViewport(force: false)
@@ -1307,10 +1311,12 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
+        private var isMarkdownSplitActive: Bool {
+            state.isMarkdownFile && state.markdownViewMode == .split && state.markdownScrollSyncEnabled
+        }
+
         func updateMarkdownEditorScrollMetrics() {
-            guard state.isMarkdownFile,
-                  state.markdownViewMode == .split,
-                  state.markdownScrollSyncEnabled,
+            guard isMarkdownSplitActive,
                   let scrollView,
                   let viewport = viewportState
             else { return }

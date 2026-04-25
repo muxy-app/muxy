@@ -127,6 +127,8 @@ struct AIUsagePanel: View {
 struct AIProviderUsageView: View {
     let snapshot: AIProviderUsageSnapshot
 
+    @AppStorage(AIUsageSettingsStore.sidebarPreviewProviderIDKey) private var pinnedRawValue: String = ""
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
@@ -144,7 +146,12 @@ struct AIProviderUsageView: View {
                         AIUsageMetricRowView(
                             row: row,
                             fetchedAt: snapshot.fetchedAt,
-                            providerID: snapshot.providerID
+                            providerID: snapshot.providerID,
+                            isPinned: AIUsageSettingsStore.isSidebarPinned(
+                                providerID: snapshot.providerID,
+                                rowLabel: row.label,
+                                pinnedRawValue: pinnedRawValue
+                            )
                         )
                     }
                 }
@@ -162,21 +169,13 @@ struct AIUsageMetricRowView: View {
     let row: AIUsageMetricRow
     let fetchedAt: Date
     let providerID: String
+    let isPinned: Bool
 
     @AppStorage(AIUsageSettingsStore.usageDisplayModeKey) private var usageDisplayModeRaw = AIUsageSettingsStore.defaultUsageDisplayMode
         .rawValue
-    @AppStorage(AIUsageSettingsStore.sidebarPreviewProviderIDKey) private var pinnedRawValue: String = ""
     @State private var pinHovered = false
 
     private var canPin: Bool { row.percent != nil }
-
-    private var isPinned: Bool {
-        AIUsageSettingsStore.isSidebarPinned(
-            providerID: providerID,
-            rowLabel: row.label,
-            pinnedRawValue: pinnedRawValue
-        )
-    }
 
     private func togglePin() {
         if isPinned {
