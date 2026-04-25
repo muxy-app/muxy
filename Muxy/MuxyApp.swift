@@ -137,10 +137,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let worktreeStore = MuxyApp.sharedWorktreeStore
         else { return }
         for url in urls {
-            let path: String
+            var path: String
             if url.scheme == "muxy" {
                 if let host = url.host {
                     path = host.removingPercentEncoding ?? host
+                    if !url.path.isEmpty, url.path != "/" {
+                        path += (url.path.removingPercentEncoding ?? url.path)
+                    }
                 } else {
                     path = url.path.removingPercentEncoding ?? url.path
                 }

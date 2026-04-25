@@ -1,13 +1,8 @@
 import AppKit
 import Foundation
-import UserNotifications
 
 @MainActor
 enum CLIAccessor {
-    private static var isRealAppBundle: Bool {
-        ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] != nil
-    }
-
     static func openProjectFromPath(
         _ path: String,
         appState: AppState,
@@ -15,9 +10,10 @@ enum CLIAccessor {
         worktreeStore: WorktreeStore
     ) {
         let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else { return }
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else { return }
 
         if let existing = projectStore.projects.first(where: { $0.path == url.path }) {
             if let primary = worktreeStore.primary(for: existing.id) {
@@ -40,20 +36,12 @@ enum CLIAccessor {
     }
 
     static func installCLI() {
-        let bundleURL = Bundle.main.bundleURL
-        var resourceURL: URL
-
-        if bundleURL.pathExtension == "app" {
-            resourceURL = bundleURL.appendingPathComponent("Contents/Resources/muxy-cli")
-        } else {
-            resourceURL = bundleURL.appendingPathComponent("Muxy_Muxy.bundle/muxy-cli")
-            if !FileManager.default.fileExists(atPath: resourceURL.path) {
-                resourceURL = bundleURL.appendingPathComponent("muxy-cli")
-            }
-        }
-
-        guard FileManager.default.fileExists(atPath: resourceURL.path) else {
-            alert(title: "CLI Not Found", body: "The CLI script was not found at \(resourceURL.path)")
+        guard let resourceURL = Bundle.appResources.url(
+            forResource: "muxy-cli",
+            withExtension: ""
+        )
+        else {
+            alert(title: "CLI Not Found", body: "The CLI script was not found in the app bundle.")
             return
         }
 
@@ -86,13 +74,13 @@ enum CLIAccessor {
             }
         }
 
-        // Try /usr/local/bin normally first
         if tryCopy("/usr/local/bin", "/usr/local/bin/muxy") { return }
 
-        // If that fails, try with admin privileges via AppleScript
         let escaped = resourceURL.path.replacingOccurrences(of: "\"", with: "\\\"")
         let script = NSAppleScript(source: """
-            do shell script "cp \\\"\(escaped)\\\" /usr/local/bin/muxy && chmod +x /usr/local/bin/muxy" with administrator privileges
+            do shell script "mkdir -p /usr/local/bin && cp \\\"\(
+                escaped
+            )\\\" /usr/local/bin/muxy && chmod +x /usr/local/bin/muxy" with administrator privileges
         """)
         var error: NSDictionary?
         script?.executeAndReturnError(&error)
@@ -104,7 +92,6 @@ enum CLIAccessor {
             return
         }
 
-        // Fallback to user-writable directories
         let fallbacks = [
             (path: "\(home)/bin", label: "~/bin/muxy"),
             (path: "\(home)/.local/bin", label: "~/.local/bin/muxy"),
@@ -132,33 +119,5 @@ enum CLIAccessor {
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()
-    }
-
-    private static func showNotification(title: String, body: String) {
-        guard isRealAppBundle else { return }
-
-        func post() {
-            let center = UNUserNotificationCenter.current()
-            center.requestAuthorization(options: [.alert, .sound]) { _, _ in
-                let content = UNMutableNotificationContent()
-                content.title = title
-                content.body = body
-                content.sound = .default
-                let request = UNNotificationRequest(
-                    identifier: UUID().uuidString,
-                    content: content,
-                    trigger: nil
-                )
-                center.add(request)
-            }
-        }
-
-        if Thread.isMainThread {
-            post()
-        } else {
-            DispatchQueue.main.async {
-                post()
-            }
-        }
     }
 }

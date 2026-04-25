@@ -24,8 +24,13 @@ if [ ! -d "$TARGET_DIR" ]; then
 fi
 
 # Open via URL scheme — works with installed .app bundle
-ENCODED=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=':/'))" "$TARGET_DIR")
-open "muxy:$ENCODED" 2>/dev/null
+open "muxy:$TARGET_DIR" 2>/dev/null
+
+# Fallback via old muxy://host/path format
+open "muxy://$TARGET_DIR" 2>/dev/null
+
+# Fallback via Apple Events — works even without registered URL scheme
+open -b com.muxy.app "$TARGET_DIR" 2>/dev/null
 
 # Fallback: send path to running Muxy via its notification socket
 SOCKET="$HOME/Library/Application Support/Muxy/muxy.sock"

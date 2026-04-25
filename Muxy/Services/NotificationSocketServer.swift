@@ -119,12 +119,11 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     private func processMessage(_ data: Data) {
         guard let message = String(data: data, encoding: .utf8) else { return }
-        let parts = message.split(separator: "|", maxSplits: 3).map(String.init)
-
-        if parts.count == 2 && parts[0] == "open-project" {
-            let path = parts[1]
+        let prefix = "open-project|"
+        if message.hasPrefix(prefix) {
+            let path = String(message.dropFirst(prefix.count))
             DispatchQueue.main.async {
-                guard let appState = NotificationStore.shared.appState,
+                guard let appState = MuxyApp.sharedAppState,
                       let projectStore = MuxyApp.sharedProjectStore,
                       let worktreeStore = MuxyApp.sharedWorktreeStore
                 else { return }
@@ -138,6 +137,7 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
 
+        let parts = message.split(separator: "|", maxSplits: 3).map(String.init)
         guard parts.count >= 3 else {
             logger.warning("Invalid message on notification socket: expected type|paneID|title|body")
             return
