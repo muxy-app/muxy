@@ -156,8 +156,8 @@ final class VCSTabState {
 
     init(projectPath: String) {
         self.projectPath = projectPath
-        pullRequestAutoSyncMinutes = Self.loadAutoSyncMinutes(repoPath: projectPath)
-        let visibility = Self.loadSectionVisibility(repoPath: projectPath)
+        pullRequestAutoSyncMinutes = VCSPersistedSettings.loadAutoSyncMinutes(repoPath: projectPath)
+        let visibility = VCSPersistedSettings.loadSectionVisibility(repoPath: projectPath)
         changesVisible = visibility.changes
         historyVisible = visibility.history
         pullRequestsVisible = visibility.pullRequests
@@ -1071,7 +1071,7 @@ final class VCSTabState {
 
     func setPullRequestAutoSyncMinutes(_ minutes: Int) {
         pullRequestAutoSyncMinutes = minutes
-        Self.storeAutoSyncMinutes(minutes, repoPath: projectPath)
+        VCSPersistedSettings.storeAutoSyncMinutes(minutes, repoPath: projectPath)
         rescheduleAutoSync()
     }
 
@@ -1114,13 +1114,13 @@ final class VCSTabState {
     func setChangesVisible(_ visible: Bool) {
         guard changesVisible != visible else { return }
         changesVisible = visible
-        Self.storeSectionVisibility(currentVisibility, repoPath: projectPath)
+        VCSPersistedSettings.storeSectionVisibility(currentVisibility, repoPath: projectPath)
     }
 
     func setHistoryVisible(_ visible: Bool) {
         guard historyVisible != visible else { return }
         historyVisible = visible
-        Self.storeSectionVisibility(currentVisibility, repoPath: projectPath)
+        VCSPersistedSettings.storeSectionVisibility(currentVisibility, repoPath: projectPath)
         if visible, commits.isEmpty {
             loadCommits()
         }
@@ -1129,59 +1129,15 @@ final class VCSTabState {
     func setPullRequestsVisible(_ visible: Bool) {
         guard pullRequestsVisible != visible else { return }
         pullRequestsVisible = visible
-        Self.storeSectionVisibility(currentVisibility, repoPath: projectPath)
+        VCSPersistedSettings.storeSectionVisibility(currentVisibility, repoPath: projectPath)
     }
 
-    private var currentVisibility: SectionVisibility {
-        SectionVisibility(
+    private var currentVisibility: VCSPersistedSettings.SectionVisibility {
+        VCSPersistedSettings.SectionVisibility(
             changes: changesVisible,
             history: historyVisible,
             pullRequests: pullRequestsVisible
         )
-    }
-
-    struct SectionVisibility {
-        let changes: Bool
-        let history: Bool
-        let pullRequests: Bool
-    }
-
-    private static func sectionVisibilityKey(repoPath: String) -> String {
-        "vcs.sectionVisibility.\(repoPath)"
-    }
-
-    private static func loadSectionVisibility(repoPath: String) -> SectionVisibility {
-        let defaults = UserDefaults.standard
-        let key = sectionVisibilityKey(repoPath: repoPath)
-        guard let raw = defaults.dictionary(forKey: key) as? [String: Bool] else {
-            return SectionVisibility(changes: true, history: true, pullRequests: true)
-        }
-        return SectionVisibility(
-            changes: raw["changes"] ?? true,
-            history: raw["history"] ?? true,
-            pullRequests: raw["pullRequests"] ?? true
-        )
-    }
-
-    private static func storeSectionVisibility(_ visibility: SectionVisibility, repoPath: String) {
-        let raw: [String: Bool] = [
-            "changes": visibility.changes,
-            "history": visibility.history,
-            "pullRequests": visibility.pullRequests,
-        ]
-        UserDefaults.standard.set(raw, forKey: sectionVisibilityKey(repoPath: repoPath))
-    }
-
-    private static func autoSyncDefaultsKey(repoPath: String) -> String {
-        "vcs.prAutoSyncMinutes.\(repoPath)"
-    }
-
-    private static func loadAutoSyncMinutes(repoPath: String) -> Int {
-        UserDefaults.standard.integer(forKey: autoSyncDefaultsKey(repoPath: repoPath))
-    }
-
-    private static func storeAutoSyncMinutes(_ minutes: Int, repoPath: String) {
-        UserDefaults.standard.set(minutes, forKey: autoSyncDefaultsKey(repoPath: repoPath))
     }
 
     func loadDiffWithHints(

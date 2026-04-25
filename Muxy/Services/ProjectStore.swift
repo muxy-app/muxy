@@ -20,6 +20,9 @@ final class ProjectStore {
     }
 
     func remove(id: UUID) {
+        if let project = projects.first(where: { $0.id == id }) {
+            VCSPersistedSettings.clearSettings(repoPath: project.path)
+        }
         projects.removeAll { $0.id == id }
         save()
     }

@@ -202,4 +202,126 @@ struct GitPRParserTests {
             #expect(result.behind == 0)
         }
     }
+
+    @Suite("parsePRList")
+    struct PRList {
+        @Test("well-formed list parses all fields")
+        func wellFormed() {
+            let json = """
+            [
+              {
+                "number": 42,
+                "title": "Add feature",
+                "author": {"login": "alice"},
+                "headRefName": "feature/x",
+                "baseRefName": "main",
+                "state": "OPEN",
+                "isDraft": false,
+                "url": "https://github.com/o/r/pull/42",
+                "updatedAt": "2026-04-01T12:34:56Z",
+                "statusCheckRollup": [
+                  {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS"}
+                ]
+              }
+            ]
+            """
+            let items = GitPRParser.parsePRList(json)
+            #expect(items.count == 1)
+            let item = items[0]
+            #expect(item.number == 42)
+            #expect(item.title == "Add feature")
+            #expect(item.author == "alice")
+            #expect(item.headBranch == "feature/x")
+            #expect(item.baseBranch == "main")
+            #expect(item.state == .open)
+            #expect(item.isDraft == false)
+            #expect(item.url == "https://github.com/o/r/pull/42")
+            #expect(item.updatedAt != nil)
+            #expect(item.checks.status == .success)
+            #expect(item.checks.passing == 1)
+        }
+
+        @Test("empty array returns empty list")
+        func emptyArray() {
+            #expect(GitPRParser.parsePRList("[]").isEmpty)
+        }
+
+        @Test("malformed JSON returns empty list")
+        func malformed() {
+            #expect(GitPRParser.parsePRList("not-json").isEmpty)
+            #expect(GitPRParser.parsePRList("").isEmpty)
+            #expect(GitPRParser.parsePRList("{\"not\": \"array\"}").isEmpty)
+        }
+
+        @Test("missing optional fields fall back to defaults")
+        func missingOptionals() {
+            let json = """
+            [
+              {"number": 7, "title": "Minimal"}
+            ]
+            """
+            let items = GitPRParser.parsePRList(json)
+            #expect(items.count == 1)
+            let item = items[0]
+            #expect(item.number == 7)
+            #expect(item.title == "Minimal")
+            #expect(item.author == "")
+            #expect(item.headBranch == "")
+            #expect(item.baseBranch == "")
+            #expect(item.state == .open)
+            #expect(item.isDraft == false)
+            #expect(item.url == "")
+            #expect(item.updatedAt == nil)
+            #expect(item.checks.status == .none)
+        }
+
+        @Test("entries missing required fields are skipped")
+        func skipsInvalidEntries() {
+            let json = """
+            [
+              {"title": "no number"},
+              {"number": 9},
+              {"number": 10, "title": "kept"}
+            ]
+            """
+            let items = GitPRParser.parsePRList(json)
+            #expect(items.count == 1)
+            #expect(items[0].number == 10)
+        }
+
+        @Test("unknown state falls back to open")
+        func unknownStateFallsBack() {
+            let json = """
+            [{"number": 1, "title": "t", "state": "WEIRD"}]
+            """
+            let items = GitPRParser.parsePRList(json)
+            #expect(items[0].state == .open)
+        }
+
+        @Test("merged and closed states parse")
+        func mergedAndClosed() {
+            let json = """
+            [
+              {"number": 1, "title": "m", "state": "MERGED"},
+              {"number": 2, "title": "c", "state": "CLOSED"}
+            ]
+            """
+            let items = GitPRParser.parsePRList(json)
+            #expect(items[0].state == .merged)
+            #expect(items[1].state == .closed)
+        }
+
+        @Test("updatedAt parses with and without fractional seconds")
+        func updatedAtFormats() {
+            let json = """
+            [
+              {"number": 1, "title": "a", "updatedAt": "2026-04-01T12:00:00Z"},
+              {"number": 2, "title": "b", "updatedAt": "2026-04-01T12:00:00.123Z"}
+            ]
+            """
+            let items = GitPRParser.parsePRList(json)
+            #expect(items[0].updatedAt != nil)
+            #expect(items[1].updatedAt != nil)
+        }
+    }
 }

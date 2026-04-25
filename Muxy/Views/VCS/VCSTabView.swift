@@ -705,33 +705,30 @@ struct VCSSectionVisibilityMenu: View {
     @Bindable var state: VCSTabState
     @State private var hovered = false
 
+    private struct Row: Identifiable {
+        let id: String
+        let visible: Bool
+        let toggle: () -> Void
+        var title: String { id }
+    }
+
+    private var rows: [Row] {
+        [
+            Row(id: "Changes", visible: state.changesVisible) { state.setChangesVisible(!state.changesVisible) },
+            Row(id: "Pull Requests", visible: state.pullRequestsVisible) { state.setPullRequestsVisible(!state.pullRequestsVisible) },
+            Row(id: "History", visible: state.historyVisible) { state.setHistoryVisible(!state.historyVisible) },
+        ]
+    }
+
     var body: some View {
         Menu {
-            Button {
-                state.setChangesVisible(!state.changesVisible)
-            } label: {
-                if state.changesVisible {
-                    Label("Changes", systemImage: "checkmark")
-                } else {
-                    Text("Changes")
-                }
-            }
-            Button {
-                state.setPullRequestsVisible(!state.pullRequestsVisible)
-            } label: {
-                if state.pullRequestsVisible {
-                    Label("Pull Requests", systemImage: "checkmark")
-                } else {
-                    Text("Pull Requests")
-                }
-            }
-            Button {
-                state.setHistoryVisible(!state.historyVisible)
-            } label: {
-                if state.historyVisible {
-                    Label("History", systemImage: "checkmark")
-                } else {
-                    Text("History")
+            ForEach(rows) { row in
+                Button(action: row.toggle) {
+                    if row.visible {
+                        Label(row.title, systemImage: "checkmark")
+                    } else {
+                        Text(row.title)
+                    }
                 }
             }
         } label: {
@@ -1316,6 +1313,11 @@ private struct SectionSplitLayout: View {
                                 else { return }
 
                                 var ratios = state.sectionRatios
+                                if ratios.count < allSections.count {
+                                    let fill = 1.0 / CGFloat(allSections.count)
+                                    ratios.append(contentsOf: Array(repeating: fill, count: allSections.count - ratios.count))
+                                }
+                                guard aboveIdx < ratios.count, belowIdx < ratios.count else { return }
                                 let minRatio: CGFloat = 0.08
 
                                 ratios[aboveIdx] += delta
