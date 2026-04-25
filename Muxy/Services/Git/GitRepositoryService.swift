@@ -41,12 +41,15 @@ struct GitRepositoryService {
         let title: String
         let author: String
         let headBranch: String
+        let headRefOid: String
         let baseBranch: String
         let state: PRState
         let isDraft: Bool
         let url: String
         let updatedAt: Date?
         let checks: PRChecks
+        let mergeable: Bool?
+        let mergeStateStatus: PRMergeStateStatus
 
         var id: Int { number }
     }
@@ -186,15 +189,24 @@ struct GitRepositoryService {
         ) {
             return cached
         }
-        let info = await pullRequestInfo(repoPath: repoPath, branch: branch)
+        let info = await pullRequestInfo(repoPath: repoPath, branch: branch, headSha: headSha)
         GitMetadataCache.shared.storePRInfo(info, repoPath: repoPath, branch: branch, headSha: headSha)
         return info
     }
 
-    func pullRequestInfo(repoPath: String, branch: String) async -> PRInfo? {
+    func pullRequestInfo(repoPath: String, branch: String, headSha: String? = nil) async -> PRInfo? {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
-        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup"
 
+        let resolvedSha: String? = if let headSha { headSha } else { await self.headSha(repoPath: repoPath) }
+        if let resolvedSha,
+           let info = await pullRequestInfoByHeadSha(
+               ghPath: ghPath, repoPath: repoPath, headSha: resolvedSha
+           )
+        {
+            return info
+        }
+
+        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup"
         if let info = await ghPRView(ghPath: ghPath, repoPath: repoPath, jsonFields: jsonFields) {
             return info
         }
@@ -203,14 +215,38 @@ struct GitRepositoryService {
         )
     }
 
+    private func pullRequestInfoByHeadSha(
+        ghPath: String,
+        repoPath: String,
+        headSha: String
+    ) async -> PRInfo? {
+        let jsonFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,headRefOid"
+        let arguments = [
+            "pr", "list",
+            "--state", "all",
+            "--limit", "100",
+            "--json", jsonFields,
+        ]
+        let result = try? await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: arguments,
+            workingDirectory: repoPath
+        )
+        guard let result, result.status == 0 else { return nil }
+        return GitPRParser.parsePRInfoMatchingHeadSha(result.stdout, headSha: headSha)
+    }
+
     private func ghPRView(
         ghPath: String,
         repoPath: String,
         branch: String? = nil,
+        selector: String? = nil,
         jsonFields: String
     ) async -> PRInfo? {
         var arguments = ["pr", "view"]
-        if let branch {
+        if let selector {
+            arguments.append(selector)
+        } else if let branch {
             arguments.append(branch)
         }
         arguments += ["--json", jsonFields]
@@ -239,7 +275,12 @@ struct GitRepositoryService {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
             throw PRCreateError.ghNotInstalled
         }
-        let jsonFields = "number,title,author,headRefName,baseRefName,state,isDraft,url,updatedAt,statusCheckRollup"
+        let jsonFields = [
+            "number", "title", "author",
+            "headRefName", "headRefOid", "baseRefName",
+            "state", "isDraft", "url", "updatedAt",
+            "statusCheckRollup", "mergeable", "mergeStateStatus",
+        ].joined(separator: ",")
         let arguments = [
             "pr", "list",
             "--state", filter.rawValue,
@@ -412,15 +453,29 @@ struct GitRepositoryService {
 
         GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath, branch: branch)
 
+        let createdURL = createResult.stdout
+            .split(whereSeparator: { $0.isNewline || $0.isWhitespace })
+            .map(String.init)
+            .first(where: { $0.hasPrefix("https://") }) ?? ""
+
+        let viewFields = "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup"
+        if !createdURL.isEmpty, let info = await ghPRView(
+            ghPath: ghPath,
+            repoPath: repoPath,
+            selector: createdURL,
+            jsonFields: viewFields
+        ) {
+            return info
+        }
+
         if let info = await pullRequestInfo(repoPath: repoPath, branch: branch) {
             return info
         }
 
-        let fallbackURL = createResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         throw PRCreateError.commandFailed(
-            fallbackURL.isEmpty
+            createdURL.isEmpty
                 ? "Pull request created but could not be read back."
-                : "Pull request created at \(fallbackURL) but could not be read back."
+                : "Pull request created at \(createdURL) but could not be read back."
         )
     }
 

@@ -75,6 +75,18 @@ enum GitPRParser {
         )
     }
 
+    static func parsePRInfoMatchingHeadSha(_ json: String, headSha: String) -> GitRepositoryService.PRInfo? {
+        guard let data = json.data(using: .utf8),
+              let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return nil }
+        let normalized = headSha.lowercased()
+        let match = array.first { entry in
+            (entry["headRefOid"] as? String)?.lowercased() == normalized
+        }
+        guard let match else { return nil }
+        return parsePRInfo(match)
+    }
+
     static func parsePRList(_ json: String) -> [GitRepositoryService.PRListItem] {
         guard let data = json.data(using: .utf8),
               let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
@@ -90,6 +102,7 @@ enum GitPRParser {
             else { return nil }
             let author = (entry["author"] as? [String: Any])?["login"] as? String ?? ""
             let headBranch = entry["headRefName"] as? String ?? ""
+            let headRefOid = entry["headRefOid"] as? String ?? ""
             let baseBranch = entry["baseRefName"] as? String ?? ""
             let stateRaw = (entry["state"] as? String) ?? "OPEN"
             let state = GitRepositoryService.PRState(rawValue: stateRaw) ?? .open
@@ -100,17 +113,28 @@ enum GitPRParser {
                 updatedAt = formatter.date(from: raw) ?? fallbackFormatter.date(from: raw)
             }
             let rollup = entry["statusCheckRollup"] as? [[String: Any]] ?? []
+            let mergeable: Bool? = switch entry["mergeable"] as? String {
+            case "MERGEABLE": true
+            case "CONFLICTING": false
+            default: nil
+            }
+            let mergeStateStatus = GitRepositoryService.PRMergeStateStatus(
+                rawValue: (entry["mergeStateStatus"] as? String) ?? ""
+            ) ?? .unknown
             return GitRepositoryService.PRListItem(
                 number: number,
                 title: title,
                 author: author,
                 headBranch: headBranch,
+                headRefOid: headRefOid,
                 baseBranch: baseBranch,
                 state: state,
                 isDraft: isDraft,
                 url: url,
                 updatedAt: updatedAt,
-                checks: parseStatusChecks(rollup)
+                checks: parseStatusChecks(rollup),
+                mergeable: mergeable,
+                mergeStateStatus: mergeStateStatus
             )
         }
     }
