@@ -86,6 +86,14 @@ struct KeyCombo: Codable, Equatable, Hashable {
         }
     }
 
+    static func keyCode(for keyName: String) -> UInt16? {
+        let name = keyName.lowercased()
+        for code in 0 ... 127 where Self.keyName(for: UInt16(code)) == name {
+            return UInt16(code)
+        }
+        return nil
+    }
+
     let key: String
     let modifiers: UInt
 
@@ -170,25 +178,28 @@ struct KeyCombo: Codable, Equatable, Hashable {
     }
 
     static func normalized(key: String, keyCode: UInt16? = nil) -> String {
-        if let keyCode, let mappedKey = keyName(for: keyCode) {
-            return mappedKey
-        }
-
         let lowercased = key.lowercased()
         if lowercased == leftArrowKey || lowercased == rightArrowKey || lowercased == upArrowKey || lowercased == downArrowKey {
             return lowercased
         }
 
-        guard let scalar = lowercased.unicodeScalars.first, lowercased.unicodeScalars.count == 1 else {
-            return lowercased
+        if let scalar = lowercased.unicodeScalars.first, lowercased.unicodeScalars.count == 1 {
+            switch Int(scalar.value) {
+            case NSLeftArrowFunctionKey: return leftArrowKey
+            case NSRightArrowFunctionKey: return rightArrowKey
+            case NSUpArrowFunctionKey: return upArrowKey
+            case NSDownArrowFunctionKey: return downArrowKey
+            default:
+                if scalar.isASCII, scalar.value >= 32, scalar.value <= 126 {
+                    return lowercased
+                }
+            }
         }
 
-        switch Int(scalar.value) {
-        case NSLeftArrowFunctionKey: return leftArrowKey
-        case NSRightArrowFunctionKey: return rightArrowKey
-        case NSUpArrowFunctionKey: return upArrowKey
-        case NSDownArrowFunctionKey: return downArrowKey
-        default: return lowercased
+        if let keyCode, let mappedKey = keyName(for: keyCode) {
+            return mappedKey
         }
+
+        return lowercased
     }
 }
