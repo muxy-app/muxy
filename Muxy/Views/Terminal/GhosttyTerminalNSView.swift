@@ -37,15 +37,7 @@ final class GhosttyTerminalNSView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
-        registerForDraggedTypes([
-            .fileURL,
-            .fileContents,
-            NSPasteboard.PasteboardType(rawValue: "com.apple.pasteboard.promised-file-url"),
-            NSPasteboard.PasteboardType(rawValue: "com.apple.pasteboard.promised-file-content-type"),
-            NSPasteboard.PasteboardType("public.file-url"),
-            NSPasteboard.PasteboardType("NSFilenamesPboardType"),
-            .string,
-        ])
+        registerForDraggedTypes([.fileURL, .string])
         setAccessibilityRole(.textArea)
         setAccessibilityRoleDescription("Terminal")
         let directoryName = URL(fileURLWithPath: workingDirectory).lastPathComponent
@@ -799,31 +791,8 @@ extension GhosttyTerminalNSView {
 
     private func droppedPaths(from sender: any NSDraggingInfo) -> [String] {
         let pasteboard = sender.draggingPasteboard
-
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !urls.isEmpty {
-            let paths = urls.compactMap { $0.isFileURL ? $0.path : nil }
-            if !paths.isEmpty { return paths }
-        }
-
-        if let string = pasteboard.string(forType: .string) {
-            let candidates = string
-                .split(whereSeparator: \.isNewline)
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-
-            let paths = candidates.compactMap { candidate -> String? in
-                if candidate.hasPrefix("file://"), let url = URL(string: candidate), url.isFileURL {
-                    return url.path
-                }
-                if candidate.hasPrefix("/"), FileManager.default.fileExists(atPath: candidate) {
-                    return candidate
-                }
-                return nil
-            }
-            if !paths.isEmpty { return paths }
-        }
-
-        return []
+        let urls = (pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL]) ?? []
+        return DroppedPathsParser.parse(fileURLs: urls, plainString: pasteboard.string(forType: .string))
     }
 }
 
