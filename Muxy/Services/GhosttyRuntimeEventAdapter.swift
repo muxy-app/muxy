@@ -46,6 +46,11 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
              GHOSTTY_ACTION_SHOW_CHILD_EXITED:
             handleCommandExit(target: target)
             return true
+        case GHOSTTY_ACTION_MOUSE_OVER_LINK:
+            handleMouseOverLink(target: target, link: action.action.mouse_over_link)
+            return true
+        case GHOSTTY_ACTION_OPEN_URL:
+            return handleOpenURL(target: target, openURL: action.action.open_url)
         default:
             return false
         }
@@ -105,6 +110,24 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
             guard !view.processExitHandled else { return }
             view.processExitHandled = true
             view.onProcessExit?()
+        }
+    }
+
+    private func handleOpenURL(target: ghostty_target_s, openURL: ghostty_action_open_url_s) -> Bool {
+        guard let view = surfaceView(from: target) else { return false }
+        guard let urlPtr = openURL.url, openURL.len > 0 else { return false }
+        let urlString = urlPtr.withMemoryRebound(to: UInt8.self, capacity: Int(openURL.len)) { rawPtr in
+            String(bytes: UnsafeBufferPointer(start: rawPtr, count: Int(openURL.len)), encoding: .utf8)
+        }
+        guard let urlString, let url = URL(string: urlString) else { return false }
+        return view.onOpenURL?(url) ?? false
+    }
+
+    private func handleMouseOverLink(target: ghostty_target_s, link: ghostty_action_mouse_over_link_s) {
+        guard let view = surfaceView(from: target) else { return }
+        let hasLink = link.len > 0 && link.url != nil
+        DispatchQueue.main.async {
+            view.hasOSC8LinkUnderCursor = hasLink
         }
     }
 

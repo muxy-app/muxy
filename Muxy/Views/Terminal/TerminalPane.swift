@@ -145,6 +145,7 @@ struct TerminalBridge: NSViewRepresentable {
             }
         }
         configureSearchCallbacks(view)
+        configureFileOpenCallback(view)
         context.coordinator.wasFocused = focused
         if focused, !overlayActive {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -168,6 +169,7 @@ struct TerminalBridge: NSViewRepresentable {
             }
         }
         configureSearchCallbacks(nsView)
+        configureFileOpenCallback(nsView)
         let wasFocused = context.coordinator.wasFocused
         let wasOverlayActive = context.coordinator.wasOverlayActive
         context.coordinator.wasFocused = focused
@@ -202,6 +204,45 @@ struct TerminalBridge: NSViewRepresentable {
             vars.append((key: "MUXY_HOOK_SCRIPT", value: hookPath))
         }
         return vars
+    }
+
+    private func configureFileOpenCallback(_ view: GhosttyTerminalNSView) {
+        let projectID = worktreeKey?.projectID
+        let projectPath = state.projectPath
+        view.onCmdClickFile = { token in
+            guard let projectID else { return }
+            guard let resolved = Self.resolveFilePath(token, projectPath: projectPath) else { return }
+            Task { @MainActor in
+                NotificationStore.shared.appState?.openFile(resolved, projectID: projectID, preserveFocus: true)
+            }
+        }
+        view.resolveCmdHoverFile = { token in
+            Self.resolveFilePath(token, projectPath: projectPath) != nil
+        }
+        view.onOpenURL = { url in
+            guard let projectID, url.isFileURL else { return false }
+            let path = url.path
+            guard !path.isEmpty, FileManager.default.fileExists(atPath: path) else { return false }
+            Task { @MainActor in
+                NotificationStore.shared.appState?.openFile(path, projectID: projectID, preserveFocus: true)
+            }
+            return true
+        }
+    }
+
+    private static func resolveFilePath(_ token: String, projectPath: String) -> String? {
+        let cleaned = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"' \t\n\r()[]<>"))
+        guard !cleaned.isEmpty else { return nil }
+        let expanded = (cleaned as NSString).expandingTildeInPath
+        let candidate: String = if expanded.hasPrefix("/") {
+            expanded
+        } else {
+            (projectPath as NSString).appendingPathComponent(expanded)
+        }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory) else { return nil }
+        guard !isDirectory.boolValue else { return nil }
+        return candidate
     }
 
     private func configureSearchCallbacks(_ view: GhosttyTerminalNSView) {

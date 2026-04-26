@@ -14,6 +14,11 @@ final class GhosttyTerminalNSView: NSView {
     var onSearchEnd: (() -> Void)?
     var onSearchTotal: ((Int?) -> Void)?
     var onSearchSelected: ((Int?) -> Void)?
+    var onCmdClickFile: ((String) -> Void)?
+    var resolveCmdHoverFile: ((String) -> Bool)?
+    var onOpenURL: ((URL) -> Bool)?
+    private var isShowingHandCursor = false
+    var hasOSC8LinkUnderCursor: Bool = false
     var isFocused: Bool = false
     var overlayActive: Bool = false
 
@@ -153,6 +158,10 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func tearDown() {
+        setHandCursor(false)
+        onOpenURL = nil
+        onCmdClickFile = nil
+        resolveCmdHoverFile = nil
         onTitleChange = nil
         onFocus = nil
         onProcessExit = nil
@@ -438,6 +447,7 @@ final class GhosttyTerminalNSView: NSView {
         var keyEvent = buildKeyEvent(from: event, action: isFlagPress(event) ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE)
         keyEvent.text = nil
         _ = ghostty_surface_key(surface, keyEvent)
+        updateCmdHoverCursor(modifierFlags: event.modifierFlags)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -480,7 +490,21 @@ final class GhosttyTerminalNSView: NSView {
         }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
+        if event.modifierFlags.contains(.command), !hasOSC8LinkUnderCursor, let word = readWordUnderMouse() {
+            onCmdClickFile?(word)
+            return
+        }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+    }
+
+    private func readWordUnderMouse() -> String? {
+        guard let surface else { return nil }
+        var text = ghostty_text_s()
+        guard ghostty_surface_quicklook_word(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let value = extractString(from: text) else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -506,6 +530,36 @@ final class GhosttyTerminalNSView: NSView {
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
+        updateCmdHoverCursor(modifierFlags: event.modifierFlags)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        setHandCursor(false)
+    }
+
+    private func updateCmdHoverCursor(modifierFlags: NSEvent.ModifierFlags) {
+        guard modifierFlags.contains(.command), !hasOSC8LinkUnderCursor else {
+            setHandCursor(false)
+            return
+        }
+        guard let word = readWordUnderMouse(), resolveCmdHoverFile?(word) == true else {
+            setHandCursor(false)
+            return
+        }
+        setHandCursor(true)
+    }
+
+    private func setHandCursor(_ on: Bool) {
+        guard on != isShowingHandCursor else { return }
+        isShowingHandCursor = on
+        if on {
+            NSCursor.pointingHand.push()
+            NSCursor.pointingHand.set()
+        } else {
+            NSCursor.pop()
+            NSCursor.arrow.set()
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
