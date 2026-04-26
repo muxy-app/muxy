@@ -280,6 +280,7 @@ struct FileTreeStateTests {
             if !state.visibleRootEntries().isEmpty { return }
             try await Task.sleep(nanoseconds: 5_000_000)
         }
+        throw FileTreeStateTestError.timeout("FileTreeState root entries never loaded")
     }
 
     private func waitForChildrenLoaded(_ state: FileTreeState, of path: String) async throws {
@@ -287,7 +288,12 @@ struct FileTreeStateTests {
             if state.children[path] != nil { return }
             try await Task.sleep(nanoseconds: 5_000_000)
         }
+        throw FileTreeStateTestError.timeout("FileTreeState children of \(path) never loaded")
     }
+}
+
+private enum FileTreeStateTestError: Error {
+    case timeout(String)
 }
 
 @MainActor
