@@ -386,6 +386,43 @@ struct GitRepositoryService {
         return resolved
     }
 
+    func remoteWebURL(repoPath: String, remote: String = "origin") async -> URL? {
+        let result = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["remote", "get-url", remote]
+        )
+        guard let result, result.status == 0 else { return nil }
+        let raw = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Self.webURL(fromRemoteURL: raw)
+    }
+
+    static func webURL(fromRemoteURL raw: String) -> URL? {
+        guard !raw.isEmpty else { return nil }
+        var value = raw
+        if value.hasSuffix(".git") { value = String(value.dropLast(4)) }
+
+        if value.hasPrefix("http://") || value.hasPrefix("https://") {
+            return URL(string: value)
+        }
+
+        if value.hasPrefix("ssh://") {
+            guard var components = URLComponents(string: value) else { return nil }
+            components.scheme = "https"
+            components.user = nil
+            components.password = nil
+            components.port = nil
+            return components.url
+        }
+
+        if let atIndex = value.firstIndex(of: "@"), let colonIndex = value[atIndex...].firstIndex(of: ":") {
+            let host = String(value[value.index(after: atIndex) ..< colonIndex])
+            let path = String(value[value.index(after: colonIndex)...])
+            return URL(string: "https://\(host)/\(path)")
+        }
+
+        return nil
+    }
+
     private func resolveDefaultBranch(repoPath: String) async -> String? {
         let symbolic = try? await GitProcessRunner.runGit(
             repoPath: repoPath,

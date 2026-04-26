@@ -129,8 +129,14 @@ struct VCSTabView: View {
 
             VCSSectionVisibilityMenu(state: state)
 
-            IconButton(symbol: "arrow.clockwise", accessibilityLabel: "Refresh") {
-                state.refresh()
+            if state.isRefreshingPullRequest {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 24, height: 24)
+            } else {
+                IconButton(symbol: "arrow.clockwise", accessibilityLabel: "Refresh") {
+                    state.refresh()
+                }
             }
         }
         .padding(.horizontal, 8)
@@ -756,15 +762,40 @@ struct PRPill: View {
     @State private var showPRPopover = false
 
     var body: some View {
-        switch state.prLaunchState {
-        case .hidden:
+        if !state.hasFetchedPullRequestInfo {
             EmptyView()
-        case .ghMissing:
-            ghMissingPill
-        case .canCreate:
-            createPRPill
-        case let .hasPR(info):
-            hasPRPill(info: info)
+        } else {
+            switch state.prLaunchState {
+            case .hidden:
+                openRepoButton
+            case .ghMissing:
+                HStack(spacing: 4) {
+                    ghMissingPill
+                    openRepoButton
+                }
+            case .canCreate:
+                createPRPill
+            case let .hasPR(info):
+                HStack(spacing: 4) {
+                    hasPRPill(info: info)
+                    openRepoButton
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var openRepoButton: some View {
+        if let url = state.remoteWebURL {
+            pillContainer(
+                icon: "globe",
+                text: "Open Repo",
+                tint: MuxyTheme.fg.opacity(0.85),
+                disabled: false
+            ) {
+                NSWorkspace.shared.open(url)
+            }
+            .help("Open repository on web")
         }
     }
 
@@ -779,14 +810,49 @@ struct PRPill: View {
     }
 
     private var createPRPill: some View {
-        pillContainer(
-            icon: "arrow.triangle.pull",
-            text: "Create PR",
-            tint: MuxyTheme.accent,
-            disabled: state.isOpeningPullRequest,
-            action: onRequestCreate
-        )
-        .help("Create a pull request")
+        HStack(spacing: 0) {
+            Button(action: onRequestCreate) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.pull")
+                        .font(.system(size: 9, weight: .bold))
+                    Text("Create PR")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(MuxyTheme.accent)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(state.isOpeningPullRequest)
+            .help("Create a pull request")
+
+            if state.remoteWebURL != nil {
+                Rectangle()
+                    .fill(MuxyTheme.accent.opacity(0.35))
+                    .frame(width: 1, height: 14)
+                Menu {
+                    if let url = state.remoteWebURL {
+                        Button("Open Repository on Web") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(MuxyTheme.accent)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 5)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .fixedSize()
+            }
+        }
+        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(MuxyTheme.accent.opacity(0.35), lineWidth: 1))
     }
 
     private func hasPRPill(info: GitRepositoryService.PRInfo) -> some View {
