@@ -181,7 +181,7 @@ struct WorkspaceReducerTests {
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
 
         let action = AppState.Action.createEditorTab(
-            projectID: projectID, areaID: nil, filePath: "/tmp/test/file.swift"
+            projectID: projectID, areaID: nil, filePath: "/tmp/test/file.swift", suppressInitialFocus: false
         )
         _ = WorkspaceReducer.reduce(action: action, state: &state)
 

@@ -646,6 +646,7 @@ private struct FileTreeKeyCapture: NSViewRepresentable {
         let view = FileTreeKeyCaptureView()
         configure(view)
         context.coordinator.lastToken = focusToken
+        view.requestFocusClaim()
         return view
     }
 
@@ -653,18 +654,14 @@ private struct FileTreeKeyCapture: NSViewRepresentable {
         configure(nsView)
         if context.coordinator.lastToken != focusToken {
             context.coordinator.lastToken = focusToken
-            DispatchQueue.main.async {
-                nsView.window?.makeFirstResponder(nsView)
-            }
+            nsView.requestFocusClaim()
         }
     }
 
     private func configure(_ view: FileTreeKeyCaptureView) {
         view.canHandleNav = canHandleNav
         view.onFocusChange = { focused in
-            DispatchQueue.main.async {
-                hasFocus = focused
-            }
+            hasFocus = focused
         }
         view.onArrowUp = onArrowUp
         view.onArrowDown = onArrowDown
@@ -681,6 +678,20 @@ private struct FileTreeKeyCapture: NSViewRepresentable {
     }
 }
 
+private enum FileTreeKey: UInt16 {
+    case arrowLeft = 123
+    case arrowRight = 124
+    case arrowDown = 125
+    case arrowUp = 126
+    case returnKey = 36
+    case keypadEnter = 76
+    case escape = 53
+    case space = 49
+    case delete = 51
+    case forwardDelete = 117
+    case f2 = 120
+}
+
 private final class FileTreeKeyCaptureView: NSView {
     var canHandleNav: (() -> Bool)?
     var onFocusChange: ((Bool) -> Void)?
@@ -693,7 +704,24 @@ private final class FileTreeKeyCaptureView: NSView {
     var onDelete: (() -> Void)?
     var onRename: (() -> Void)?
 
+    private var focusClaimPending = false
+
     override var acceptsFirstResponder: Bool { true }
+
+    func requestFocusClaim() {
+        if window != nil {
+            window?.makeFirstResponder(self)
+            return
+        }
+        focusClaimPending = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard focusClaimPending, let window else { return }
+        focusClaimPending = false
+        window.makeFirstResponder(self)
+    }
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
@@ -708,32 +736,22 @@ private final class FileTreeKeyCaptureView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard canHandleNav?() ?? true else {
+        guard canHandleNav?() ?? true, let key = FileTreeKey(rawValue: event.keyCode) else {
             super.keyDown(with: event)
             return
         }
-        switch event.keyCode {
-        case 126:
-            onArrowUp?()
-        case 125:
-            onArrowDown?()
-        case 123:
-            onArrowLeft?()
-        case 124:
-            onArrowRight?()
-        case 49:
-            onActivate?()
-        case 36,
-             76,
-             120:
-            onRename?()
-        case 53:
-            onEscape?()
-        case 51,
-             117:
-            onDelete?()
-        default:
-            super.keyDown(with: event)
+        switch key {
+        case .arrowUp: onArrowUp?()
+        case .arrowDown: onArrowDown?()
+        case .arrowLeft: onArrowLeft?()
+        case .arrowRight: onArrowRight?()
+        case .space: onActivate?()
+        case .returnKey,
+             .keypadEnter,
+             .f2: onRename?()
+        case .escape: onEscape?()
+        case .delete,
+             .forwardDelete: onDelete?()
         }
     }
 }

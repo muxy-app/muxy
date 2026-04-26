@@ -335,7 +335,7 @@ struct CodeEditorView: NSViewRepresentable {
             if focused, !state.suppressInitialFocus {
                 Self.claimFirstResponder(textView: textView, attemptsRemaining: 20)
             }
-            if state.suppressInitialFocus {
+            if state.suppressInitialFocus, !state.isMarkdownFile {
                 state.suppressInitialFocus = false
             }
         }

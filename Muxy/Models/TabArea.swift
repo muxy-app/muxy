@@ -67,12 +67,14 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(vcsState: VCSTabState(projectPath: projectPath)))
     }
 
-    func createEditorTab(filePath: String) {
+    func createEditorTab(filePath: String, suppressInitialFocus: Bool = false) {
         if let existing = tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
             selectTab(existing.id)
             return
         }
-        insertTab(TerminalTab(editorState: EditorTabState(projectPath: projectPath, filePath: filePath)))
+        let editorState = EditorTabState(projectPath: projectPath, filePath: filePath)
+        editorState.suppressInitialFocus = suppressInitialFocus
+        insertTab(TerminalTab(editorState: editorState))
     }
 
     func createDiffViewerTab(vcs: VCSTabState, filePath: String, isStaged: Bool) {

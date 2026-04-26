@@ -175,6 +175,10 @@ struct EditorPane: View {
 
     private func acquireMarkdownPreviewFocusIfNeeded() {
         guard focused, state.isMarkdownFile, state.markdownViewMode == .preview else { return }
+        if state.suppressInitialFocus {
+            state.suppressInitialFocus = false
+            return
+        }
         markdownPreviewFocused = true
     }
 
