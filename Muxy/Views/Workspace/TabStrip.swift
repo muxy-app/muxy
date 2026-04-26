@@ -20,7 +20,7 @@ struct PaneTabStrip: View {
     var showDevelopmentBadge = false
     let projectID: UUID
     let onSelectTab: (UUID) -> Void
-    let onCreateTab: () -> Void
+    let onCreateTab: (TerminalTab.Kind) -> Void
     let onCreateVCSTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
@@ -30,8 +30,10 @@ struct PaneTabStrip: View {
     let onSetCustomTitle: (UUID, String?) -> Void
     let onSetColorID: (UUID, String?) -> Void
     let onReorderTab: (IndexSet, Int) -> Void
-    @Environment(TabDragCoordinator.self) private var dragCoordinator
-    @State private var dragState = TabDragState()
+    @Environment(TabDragCoordinator.self)
+    private var dragCoordinator
+    @State
+    private var dragState = TabDragState()
 
     static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
         tabs.map { tab in
@@ -73,8 +75,29 @@ struct PaneTabStrip: View {
                     .help(shortcutTooltip("Split Right", for: .splitRight))
                 IconButton(symbol: "square.split.1x2", accessibilityLabel: "Split Down") { onSplit(.vertical) }
                     .help(shortcutTooltip("Split Down", for: .splitDown))
-                IconButton(symbol: "plus", accessibilityLabel: "New Tab") { onCreateTab() }
-                    .help(shortcutTooltip("New Tab", for: .newTab))
+
+                Menu {
+                    Button { onCreateTab(.claude) } label: {
+                        Label("Claude Code", systemImage: "sparkles")
+                    }
+                    Button { onCreateTab(.gemini) } label: {
+                        Label("Gemini", systemImage: "wand.and.stars")
+                    }
+                    Divider()
+                    Button { onCreateTab(.terminal) } label: {
+                        Label("Terminal", systemImage: "terminal")
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .help(shortcutTooltip("New Tab", for: .newTab))
+
                 if showVCSButton {
                     IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
                         NotificationCenter.default.post(name: .quickOpen, object: nil)
@@ -283,12 +306,18 @@ private struct TabCell: View {
     let onTogglePin: () -> Void
     let onSetCustomTitle: (String?) -> Void
     let onSetColorID: (String?) -> Void
-    @State private var hovered = false
-    @State private var isRenaming = false
-    @State private var renameText = ""
-    @State private var showColorPicker = false
-    @State private var measuredWidth: CGFloat = TabCell.maxWidth
-    @FocusState private var renameFieldFocused: Bool
+    @State
+    private var hovered = false
+    @State
+    private var isRenaming = false
+    @State
+    private var renameText = ""
+    @State
+    private var showColorPicker = false
+    @State
+    private var measuredWidth: CGFloat = TabCell.maxWidth
+    @FocusState
+    private var renameFieldFocused: Bool
 
     private var titleHidden: Bool {
         measuredWidth < Self.titleHideThreshold
@@ -472,6 +501,8 @@ private struct TabCell: View {
         case .vcs: label += ", Source Control"
         case .editor: label += ", Editor"
         case .diffViewer: label += ", Diff Viewer"
+        case .claude: label += ", Claude Code"
+        case .gemini: label += ", Gemini"
         }
         if tab.isPinned { label += ", Pinned" }
         if hasUnread { label += ", Unread" }
@@ -493,6 +524,12 @@ private struct TabCell: View {
         } else if tab.kind == .diffViewer {
             Image(systemName: "rectangle.split.2x1")
                 .font(.system(size: 11, weight: .semibold))
+        } else if tab.kind == .claude {
+            Image(systemName: "sparkles")
+                .font(.system(size: 12, weight: .semibold))
+        } else if tab.kind == .gemini {
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 12, weight: .semibold))
         } else {
             Image(systemName: "terminal")
                 .font(.system(size: 12, weight: .semibold))

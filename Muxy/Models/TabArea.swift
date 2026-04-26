@@ -55,8 +55,19 @@ final class TabArea: Identifiable {
         tabs.firstIndex(where: { !$0.isPinned }) ?? tabs.count
     }
 
-    func createTab() {
-        insertTab(TerminalTab(pane: TerminalPaneState(projectPath: projectPath)))
+    func createTab(kind: TerminalTab.Kind = .terminal) {
+        let command: String? = switch kind {
+        case .claude: "claude"
+        case .gemini: "gemini"
+        default: nil
+        }
+        let title = switch kind {
+        case .claude: "Claude Code"
+        case .gemini: "Gemini"
+        default: "Terminal"
+        }
+        let pane = TerminalPaneState(projectPath: projectPath, title: title, startupCommand: command)
+        insertTab(TerminalTab(pane: pane, kind: kind))
     }
 
     func createTab(inDirectory directory: String) {

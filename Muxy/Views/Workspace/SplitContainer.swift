@@ -9,7 +9,7 @@ struct SplitContainer: View {
     let projectID: UUID
     let onFocusArea: (UUID) -> Void
     let onSelectTab: (UUID, UUID) -> Void
-    let onCreateTab: (UUID) -> Void
+    let onCreateTab: (UUID, TerminalTab.Kind) -> Void
     let onCreateVCSTab: (UUID) -> Void
     let onCloseTab: (UUID, UUID) -> Void
     let onForceCloseTab: (UUID, UUID) -> Void

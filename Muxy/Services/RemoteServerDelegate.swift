@@ -80,15 +80,10 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func createTab(projectID: UUID, areaID: UUID?, kind: TabKindDTO) -> TabDTO? {
-        switch kind {
-        case .terminal:
-            appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
-        case .vcs:
+        if kind == .vcs {
             appState.dispatch(.createVCSTab(projectID: projectID, areaID: areaID))
-        case .editor:
-            appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
-        case .diffViewer:
-            appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
+        } else {
+            appState.dispatch(.createTab(projectID: projectID, areaID: areaID, kind: kind.toKind()))
         }
 
         guard let area = appState.focusedArea(for: projectID),

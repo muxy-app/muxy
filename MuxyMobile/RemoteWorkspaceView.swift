@@ -2,8 +2,10 @@ import MuxyShared
 import SwiftUI
 
 struct WorkspaceContentWrapper: View {
-    @Environment(ConnectionManager.self) private var connection
-    @State private var showingVCS = false
+    @Environment(ConnectionManager.self)
+    private var connection
+    @State
+    private var showingVCS = false
 
     private var activeProject: ProjectDTO? {
         guard let id = connection.activeProjectID else { return nil }
@@ -146,6 +148,8 @@ struct WorkspaceContentWrapper: View {
         case .vcs: "arrow.triangle.branch"
         case .editor: "doc.text"
         case .diffViewer: "rectangle.split.2x1"
+        case .claude: "sparkles"
+        case .gemini: "wand.and.stars"
         }
     }
 }
@@ -153,12 +157,15 @@ struct WorkspaceContentWrapper: View {
 struct TabDetailView: View {
     let area: TabAreaDTO
     let tab: TabDTO
-    @Environment(ConnectionManager.self) private var connection
+    @Environment(ConnectionManager.self)
+    private var connection
 
     var body: some View {
         VStack(spacing: 0) {
             switch tab.kind {
-            case .terminal:
+            case .terminal,
+                 .claude,
+                 .gemini:
                 terminalPlaceholder
             case .vcs:
                 vcsPlaceholder

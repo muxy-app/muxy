@@ -8,6 +8,8 @@ final class TerminalTab: Identifiable {
         case vcs
         case editor
         case diffViewer
+        case claude
+        case gemini
     }
 
     enum Content {
@@ -15,6 +17,8 @@ final class TerminalTab: Identifiable {
         case vcs(VCSTabState)
         case editor(EditorTabState)
         case diffViewer(DiffViewerTabState)
+        case claude(TerminalPaneState)
+        case gemini(TerminalPaneState)
 
         var kind: Kind {
             switch self {
@@ -22,12 +26,18 @@ final class TerminalTab: Identifiable {
             case .vcs: .vcs
             case .editor: .editor
             case .diffViewer: .diffViewer
+            case .claude: .claude
+            case .gemini: .gemini
             }
         }
 
         var pane: TerminalPaneState? {
-            guard case let .terminal(pane) = self else { return nil }
-            return pane
+            switch self {
+            case let .terminal(pane): pane
+            case let .claude(pane): pane
+            case let .gemini(pane): pane
+            default: nil
+            }
         }
 
         var vcsState: VCSTabState? {
@@ -51,6 +61,8 @@ final class TerminalTab: Identifiable {
             case let .vcs(state): state.projectPath
             case let .editor(state): state.projectPath
             case let .diffViewer(state): state.projectPath
+            case let .claude(pane): pane.projectPath
+            case let .gemini(pane): pane.projectPath
             }
         }
     }
@@ -76,11 +88,19 @@ final class TerminalTab: Identifiable {
             return state.displayTitle
         case let .diffViewer(state):
             return state.displayTitle
+        case let .claude(pane):
+            return pane.title
+        case let .gemini(pane):
+            return pane.title
         }
     }
 
-    init(pane: TerminalPaneState) {
-        content = .terminal(pane)
+    init(pane: TerminalPaneState, kind: Kind = .terminal) {
+        switch kind {
+        case .claude: content = .claude(pane)
+        case .gemini: content = .gemini(pane)
+        default: content = .terminal(pane)
+        }
     }
 
     init(vcsState: VCSTabState) {
@@ -99,19 +119,24 @@ final class TerminalTab: Identifiable {
         customTitle = snapshot.customTitle
         colorID = snapshot.colorID
         isPinned = snapshot.isPinned
+        let pane = TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle)
         switch snapshot.kind {
         case .terminal:
-            content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
+            content = .terminal(pane)
         case .vcs:
             content = .vcs(VCSTabState(projectPath: snapshot.projectPath))
         case .editor:
             if let filePath = snapshot.filePath {
                 content = .editor(EditorTabState(projectPath: snapshot.projectPath, filePath: filePath))
             } else {
-                content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
+                content = .terminal(pane)
             }
         case .diffViewer:
-            content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
+            content = .terminal(pane)
+        case .claude:
+            content = .claude(pane)
+        case .gemini:
+            content = .gemini(pane)
         }
     }
 

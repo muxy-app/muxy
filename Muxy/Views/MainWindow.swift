@@ -2,12 +2,18 @@ import AppKit
 import SwiftUI
 
 struct MainWindow: View {
-    @Environment(AppState.self) private var appState
-    @Environment(ProjectStore.self) private var projectStore
-    @Environment(WorktreeStore.self) private var worktreeStore
-    @Environment(GhosttyService.self) private var ghostty
-    @Environment(\.openWindow) private var openWindow
-    @State private var dragCoordinator = TabDragCoordinator()
+    @Environment(AppState.self)
+    private var appState
+    @Environment(ProjectStore.self)
+    private var projectStore
+    @Environment(WorktreeStore.self)
+    private var worktreeStore
+    @Environment(GhosttyService.self)
+    private var ghostty
+    @Environment(\.openWindow)
+    private var openWindow
+    @State
+    private var dragCoordinator = TabDragCoordinator()
     private enum AttachedVCSLayout {
         static let minWidth: CGFloat = 200
         static let defaultWidth: CGFloat = 400
@@ -48,17 +54,28 @@ struct MainWindow: View {
         }
     }
 
-    @State private var vcsPanelVisible = false
-    @State private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
-    @State private var vcsStates: [WorktreeKey: VCSTabState] = [:]
-    @State private var fileTreePanelVisible = false
-    @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
-    @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
-    @State private var showQuickOpen = false
-    @State private var showWorktreeSwitcher = false
-    @State private var isFullScreen = false
-    @State private var sidebarExpanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
-    @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
+    @State
+    private var vcsPanelVisible = false
+    @State
+    private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
+    @State
+    private var vcsStates: [WorktreeKey: VCSTabState] = [:]
+    @State
+    private var fileTreePanelVisible = false
+    @AppStorage("muxy.fileTreeWidth")
+    private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
+    @State
+    private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
+    @State
+    private var showQuickOpen = false
+    @State
+    private var showWorktreeSwitcher = false
+    @State
+    private var isFullScreen = false
+    @State
+    private var sidebarExpanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
+    @AppStorage("muxy.notifications.toastPosition")
+    private var toastPositionRaw = ToastPosition.topCenter.rawValue
     private let trafficLightWidth: CGFloat = 75
 
     var body: some View {
@@ -330,8 +347,8 @@ struct MainWindow: View {
                 onSelectTab: { tabID in
                     appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
                 },
-                onCreateTab: {
-                    appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
+                onCreateTab: { kind in
+                    appState.dispatch(.createTab(projectID: project.id, areaID: area.id, kind: kind))
                 },
                 onCreateVCSTab: {
                     openVCS(for: project, preferredAreaID: area.id)
@@ -805,7 +822,8 @@ private struct NavigationArrowButton: View {
     let isEnabled: Bool
     let label: String
     let action: () -> Void
-    @State private var hovered = false
+    @State
+    private var hovered = false
 
     var body: some View {
         Button(action: action) {

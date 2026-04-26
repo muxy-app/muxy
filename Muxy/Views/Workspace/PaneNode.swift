@@ -9,7 +9,7 @@ struct PaneNode: View {
     let projectID: UUID
     let onFocusArea: (UUID) -> Void
     let onSelectTab: (UUID, UUID) -> Void
-    let onCreateTab: (UUID) -> Void
+    let onCreateTab: (UUID, TerminalTab.Kind) -> Void
     let onCreateVCSTab: (UUID) -> Void
     let onCloseTab: (UUID, UUID) -> Void
     let onForceCloseTab: (UUID, UUID) -> Void
@@ -29,7 +29,7 @@ struct PaneNode: View {
                 projectID: projectID,
                 onFocus: { onFocusArea(area.id) },
                 onSelectTab: { tabID in onSelectTab(area.id, tabID) },
-                onCreateTab: { onCreateTab(area.id) },
+                onCreateTab: { kind in onCreateTab(area.id, kind) },
                 onCreateVCSTab: { onCreateVCSTab(area.id) },
                 onCloseTab: { tabID in onCloseTab(area.id, tabID) },
                 onForceCloseTab: { tabID in onForceCloseTab(area.id, tabID) },

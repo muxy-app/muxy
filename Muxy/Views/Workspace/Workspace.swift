@@ -4,9 +4,12 @@ struct TerminalArea: View {
     let project: Project
     let worktreeKey: WorktreeKey
     let isActiveProject: Bool
-    @Environment(AppState.self) private var appState
-    @Environment(TabDragCoordinator.self) private var dragCoordinator
-    @Environment(\.openWindow) private var openWindow
+    @Environment(AppState.self)
+    private var appState
+    @Environment(TabDragCoordinator.self)
+    private var dragCoordinator
+    @Environment(\.openWindow)
+    private var openWindow
 
     private var root: SplitNode? {
         appState.workspaceRoots[worktreeKey]
@@ -37,8 +40,8 @@ struct TerminalArea: View {
                 onSelectTab: { areaID, tabID in
                     appState.dispatch(.selectTab(projectID: project.id, areaID: areaID, tabID: tabID))
                 },
-                onCreateTab: { areaID in
-                    appState.dispatch(.createTab(projectID: project.id, areaID: areaID))
+                onCreateTab: { areaID, kind in
+                    appState.dispatch(.createTab(projectID: project.id, areaID: areaID, kind: kind))
                 },
                 onCreateVCSTab: { areaID in
                     VCSDisplayMode.current.route(

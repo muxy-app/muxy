@@ -87,6 +87,21 @@ extension TerminalTab.Kind {
         case .vcs: .vcs
         case .editor: .editor
         case .diffViewer: .diffViewer
+        case .claude: .claude
+        case .gemini: .gemini
+        }
+    }
+}
+
+extension TabKindDTO {
+    func toKind() -> TerminalTab.Kind {
+        switch self {
+        case .terminal: .terminal
+        case .vcs: .vcs
+        case .editor: .editor
+        case .diffViewer: .diffViewer
+        case .claude: .claude
+        case .gemini: .gemini
         }
     }
 }

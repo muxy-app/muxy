@@ -9,14 +9,16 @@ struct TabAreaView: View {
     let projectID: UUID
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
-    let onCreateTab: () -> Void
+    let onCreateTab: (TerminalTab.Kind) -> Void
     let onCreateVCSTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onForceCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
-    @Environment(TabDragCoordinator.self) private var dragCoordinator
-    @Environment(AppState.self) private var appState
+    @Environment(TabDragCoordinator.self)
+    private var dragCoordinator
+    @Environment(AppState.self)
+    private var appState
 
     var body: some View {
         VStack(spacing: 0) {
@@ -130,7 +132,9 @@ private struct TabContentView: View {
 
     var body: some View {
         switch tab.content {
-        case let .terminal(pane):
+        case let .terminal(pane),
+             let .claude(pane),
+             let .gemini(pane):
             TerminalPane(
                 state: pane,
                 focused: focused,

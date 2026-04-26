@@ -30,7 +30,7 @@ final class AppState {
             replacementWorktreeID: UUID?,
             replacementWorktreePath: String?
         )
-        case createTab(projectID: UUID, areaID: UUID?)
+        case createTab(projectID: UUID, areaID: UUID?, kind: TerminalTab.Kind = .terminal)
         case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
         case createVCSTab(projectID: UUID, areaID: UUID?)
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String)
@@ -202,8 +202,8 @@ final class AppState {
         dispatch(.closeArea(projectID: projectID, areaID: areaID))
     }
 
-    func createTab(projectID: UUID) {
-        dispatch(.createTab(projectID: projectID, areaID: nil))
+    func createTab(projectID: UUID, kind: TerminalTab.Kind = .terminal) {
+        dispatch(.createTab(projectID: projectID, areaID: nil, kind: kind))
     }
 
     func createVCSTab(projectID: UUID) {

@@ -131,4 +131,6 @@ public enum TabKindDTO: String, Codable, Sendable {
     case vcs
     case editor
     case diffViewer
+    case claude
+    case gemini
 }
