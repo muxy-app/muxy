@@ -332,8 +332,11 @@ struct CodeEditorView: NSViewRepresentable {
         if !coordinator.hasAppliedInitialContent, viewport.backingStore.lineCount > 1 || backingStoreChanged {
             coordinator.hasAppliedInitialContent = true
             coordinator.refreshViewport(force: true)
-            if focused {
+            if focused, !state.suppressInitialFocus {
                 Self.claimFirstResponder(textView: textView, attemptsRemaining: 20)
+            }
+            if state.suppressInitialFocus {
+                state.suppressInitialFocus = false
             }
         }
 

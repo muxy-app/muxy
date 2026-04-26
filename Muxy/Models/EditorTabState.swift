@@ -55,6 +55,7 @@ final class EditorTabState: Identifiable {
     var searchVisible = false
     var searchFocusVersion = 0
     var editorFocusVersion = 0
+    var suppressInitialFocus = false
     var searchNeedle = ""
     var searchMatchCount = 0
     var searchCurrentIndex = 0

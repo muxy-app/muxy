@@ -210,7 +210,7 @@ final class AppState {
         dispatch(.createVCSTab(projectID: projectID, areaID: nil))
     }
 
-    func openFile(_ filePath: String, projectID: UUID) {
+    func openFile(_ filePath: String, projectID: UUID, preserveFocus: Bool = false) {
         let settings = EditorSettings.shared
         if settings.defaultEditor == .terminalCommand {
             let command = settings.externalEditorCommand.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -226,6 +226,13 @@ final class AppState {
             }
         }
         dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath))
+        guard preserveFocus else { return }
+        for area in allAreas(for: projectID) {
+            if let editorState = area.tabs.first(where: { $0.content.editorState?.filePath == filePath })?.content.editorState {
+                editorState.suppressInitialFocus = true
+                return
+            }
+        }
     }
 
     func handleFileMoved(from oldPath: String, to newPath: String) {

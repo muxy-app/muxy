@@ -146,7 +146,7 @@ struct MainWindow: View {
                             state: treeState,
                             onOpenFile: { filePath in
                                 guard let projectID = appState.activeProjectID else { return }
-                                appState.openFile(filePath, projectID: projectID)
+                                appState.openFile(filePath, projectID: projectID, preserveFocus: true)
                             },
                             onOpenTerminal: { directory in
                                 guard let projectID = appState.activeProjectID else { return }

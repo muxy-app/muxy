@@ -181,7 +181,7 @@ struct FileTreeView: View {
             onArrowDown: { state.moveSelection(by: 1) },
             onArrowLeft: { state.collapseOrJumpToParent() },
             onArrowRight: { state.expandOrDescend() },
-            onReturn: { state.activateSelection(open: onOpenFile) },
+            onActivate: { state.activateSelection(open: onOpenFile) },
             onEscape: { NotificationCenter.default.post(name: .toggleFileTree, object: nil) },
             onDelete: {
                 guard !state.selectedPaths.isEmpty else { return }
@@ -627,7 +627,7 @@ private struct FileTreeKeyCapture: NSViewRepresentable {
     let onArrowDown: () -> Void
     let onArrowLeft: () -> Void
     let onArrowRight: () -> Void
-    let onReturn: () -> Void
+    let onActivate: () -> Void
     let onEscape: () -> Void
     let onDelete: () -> Void
     let onRename: () -> Void
@@ -664,7 +664,7 @@ private struct FileTreeKeyCapture: NSViewRepresentable {
         view.onArrowDown = onArrowDown
         view.onArrowLeft = onArrowLeft
         view.onArrowRight = onArrowRight
-        view.onReturn = onReturn
+        view.onActivate = onActivate
         view.onEscape = onEscape
         view.onDelete = onDelete
         view.onRename = onRename
@@ -682,7 +682,7 @@ private final class FileTreeKeyCaptureView: NSView {
     var onArrowDown: (() -> Void)?
     var onArrowLeft: (() -> Void)?
     var onArrowRight: (() -> Void)?
-    var onReturn: (() -> Void)?
+    var onActivate: (() -> Void)?
     var onEscape: (() -> Void)?
     var onDelete: (() -> Void)?
     var onRename: (() -> Void)?
@@ -715,16 +715,17 @@ private final class FileTreeKeyCaptureView: NSView {
             onArrowLeft?()
         case 124:
             onArrowRight?()
+        case 49:
+            onActivate?()
         case 36,
-             76:
-            onReturn?()
+             76,
+             120:
+            onRename?()
         case 53:
             onEscape?()
         case 51,
              117:
             onDelete?()
-        case 120:
-            onRename?()
         default:
             super.keyDown(with: event)
         }
