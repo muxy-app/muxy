@@ -57,9 +57,11 @@ struct VCSView: View {
             }
             .sheet(isPresented: $showingBranches) {
                 BranchesSheet(projectID: projectID) { await refresh() }
+                    .environment(connection)
             }
             .sheet(isPresented: $showingWorktrees) {
                 WorktreesSheet(projectID: projectID) { await refresh() }
+                    .environment(connection)
             }
             .sheet(isPresented: $showingCreatePR) {
                 CreatePRSheet(
@@ -67,6 +69,7 @@ struct VCSView: View {
                     defaultBase: status?.defaultBranch,
                     currentBranch: status?.branch ?? ""
                 ) { await refresh() }
+                    .environment(connection)
             }
         }
         .task { await refresh() }
