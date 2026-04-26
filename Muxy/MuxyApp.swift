@@ -121,6 +121,7 @@ struct MuxyApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var onTerminate: (() -> Void)?
     var hasUnsavedEditorTabs: (() -> [EditorTabState])?
@@ -152,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    static func resolveProjectPath(from url: URL) -> String? {
+    nonisolated static func resolveProjectPath(from url: URL) -> String? {
         if url.isFileURL {
             let standardized = url.standardizedFileURL.path
             return standardized.isEmpty || standardized == "/" ? nil : standardized

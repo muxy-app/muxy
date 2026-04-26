@@ -9,7 +9,8 @@ struct FileTreeView: View {
     let onFileMoved: (String, String) -> Void
 
     @State private var commands: FileTreeCommands
-    @FocusState private var treeFocused: Bool
+    @State private var hasKeyboardFocus = false
+    @State private var focusToken = 0
 
     init(
         state: FileTreeState,
@@ -32,43 +33,48 @@ struct FileTreeView: View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            ScrollView {
-                ZStack(alignment: .top) {
-                    emptySpaceTarget
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(state.visibleRootEntries(), id: \.absolutePath) { entry in
-                            FileTreeRowGroup(
-                                entry: entry,
-                                depth: 0,
-                                state: state,
-                                commands: commands,
-                                onOpenFile: onOpenFile,
-                                requestFocus: { treeFocused = true }
-                            )
+            ScrollViewReader { proxy in
+                ScrollView {
+                    ZStack(alignment: .top) {
+                        emptySpaceTarget
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(state.visibleRootEntries(), id: \.absolutePath) { entry in
+                                FileTreeRowGroup(
+                                    entry: entry,
+                                    depth: 0,
+                                    state: state,
+                                    commands: commands,
+                                    onOpenFile: onOpenFile,
+                                    requestFocus: requestKeyboardFocus
+                                )
+                            }
+                            if let pending = state.pendingNewEntry, pending.parentPath == normalizedRootPath {
+                                FileTreeNewEntryRow(
+                                    kind: pending.kind,
+                                    depth: 0,
+                                    commands: commands
+                                )
+                                .id(pending.token)
+                            }
                         }
-                        if let pending = state.pendingNewEntry, pending.parentPath == normalizedRootPath {
-                            FileTreeNewEntryRow(
-                                kind: pending.kind,
-                                depth: 0,
-                                commands: commands
-                            )
-                            .id(pending.token)
-                        }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, minHeight: 0, alignment: .top)
                 }
-                .frame(maxWidth: .infinity, minHeight: 0, alignment: .top)
+                .background(rootDropTarget)
+                .onChange(of: state.selectedFilePath) { _, newValue in
+                    guard let newValue else { return }
+                    proxy.scrollTo(newValue, anchor: .center)
+                }
             }
-            .background(rootDropTarget)
         }
         .background(MuxyTheme.bg)
+        .background(keyCaptureLayer)
         .background(keyboardShortcuts)
         .contentShape(Rectangle())
-        .focusable()
-        .focusEffectDisabled()
-        .focused($treeFocused)
         .task(id: state.rootPath) {
             state.loadRootIfNeeded()
+            requestKeyboardFocus()
         }
         .alert(
             "Move \(commands.deleteAlertKind()) to Trash?",
@@ -142,7 +148,7 @@ struct FileTreeView: View {
             .contentShape(Rectangle())
             .onTapGesture {
                 state.clearSelection()
-                treeFocused = true
+                requestKeyboardFocus()
             }
             .contextMenu {
                 FileTreeContextMenuContents(
@@ -166,15 +172,32 @@ struct FileTreeView: View {
             )
     }
 
-    private var keyboardShortcuts: some View {
-        Group {
-            shortcutButton(.return, enabled: state.selectedPaths.count == 1) {
-                guard let path = state.selectedPaths.first else { return }
+    private var keyCaptureLayer: some View {
+        FileTreeKeyCapture(
+            focusToken: focusToken,
+            hasFocus: $hasKeyboardFocus,
+            canHandleNav: { canHandleNav },
+            onArrowUp: { state.moveSelection(by: -1) },
+            onArrowDown: { state.moveSelection(by: 1) },
+            onArrowLeft: { state.collapseOrJumpToParent() },
+            onArrowRight: { state.expandOrDescend() },
+            onReturn: { state.activateSelection(open: onOpenFile) },
+            onEscape: { NotificationCenter.default.post(name: .toggleFileTree, object: nil) },
+            onDelete: {
+                guard !state.selectedPaths.isEmpty else { return }
+                commands.trash(paths: Array(state.selectedPaths))
+            },
+            onRename: {
+                guard state.selectedPaths.count == 1, let path = state.selectedPaths.first else { return }
                 commands.beginRename(path: path)
             }
-            shortcutButton(.delete, enabled: !state.selectedPaths.isEmpty) {
-                commands.trash(paths: Array(state.selectedPaths))
-            }
+        )
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    private var keyboardShortcuts: some View {
+        Group {
             shortcutButton(.delete, modifiers: [.command], enabled: !state.selectedPaths.isEmpty) {
                 commands.trash(paths: Array(state.selectedPaths))
             }
@@ -207,9 +230,16 @@ struct FileTreeView: View {
     }
 
     private var canHandleShortcuts: Bool {
-        guard treeFocused else { return false }
+        hasKeyboardFocus && canHandleNav
+    }
+
+    private var canHandleNav: Bool {
         guard state.pendingRenamePath == nil, state.pendingNewEntry == nil else { return false }
         return state.pendingDeletePaths.isEmpty
+    }
+
+    private func requestKeyboardFocus() {
+        focusToken &+= 1
     }
 
     private var normalizedRootPath: String {
@@ -585,6 +615,118 @@ private struct FileTreeDropDelegate: DropDelegate {
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 continuation.resume(returning: url)
             }
+        }
+    }
+}
+
+private struct FileTreeKeyCapture: NSViewRepresentable {
+    let focusToken: Int
+    @Binding var hasFocus: Bool
+    let canHandleNav: () -> Bool
+    let onArrowUp: () -> Void
+    let onArrowDown: () -> Void
+    let onArrowLeft: () -> Void
+    let onArrowRight: () -> Void
+    let onReturn: () -> Void
+    let onEscape: () -> Void
+    let onDelete: () -> Void
+    let onRename: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> FileTreeKeyCaptureView {
+        let view = FileTreeKeyCaptureView()
+        configure(view)
+        context.coordinator.lastToken = focusToken
+        return view
+    }
+
+    func updateNSView(_ nsView: FileTreeKeyCaptureView, context: Context) {
+        configure(nsView)
+        if context.coordinator.lastToken != focusToken {
+            context.coordinator.lastToken = focusToken
+            DispatchQueue.main.async {
+                nsView.window?.makeFirstResponder(nsView)
+            }
+        }
+    }
+
+    private func configure(_ view: FileTreeKeyCaptureView) {
+        view.canHandleNav = canHandleNav
+        view.onFocusChange = { focused in
+            DispatchQueue.main.async {
+                hasFocus = focused
+            }
+        }
+        view.onArrowUp = onArrowUp
+        view.onArrowDown = onArrowDown
+        view.onArrowLeft = onArrowLeft
+        view.onArrowRight = onArrowRight
+        view.onReturn = onReturn
+        view.onEscape = onEscape
+        view.onDelete = onDelete
+        view.onRename = onRename
+    }
+
+    final class Coordinator {
+        var lastToken: Int = .min
+    }
+}
+
+private final class FileTreeKeyCaptureView: NSView {
+    var canHandleNav: (() -> Bool)?
+    var onFocusChange: ((Bool) -> Void)?
+    var onArrowUp: (() -> Void)?
+    var onArrowDown: (() -> Void)?
+    var onArrowLeft: (() -> Void)?
+    var onArrowRight: (() -> Void)?
+    var onReturn: (() -> Void)?
+    var onEscape: (() -> Void)?
+    var onDelete: (() -> Void)?
+    var onRename: (() -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        if result { onFocusChange?(true) }
+        return result
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        if result { onFocusChange?(false) }
+        return result
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard canHandleNav?() ?? true else {
+            super.keyDown(with: event)
+            return
+        }
+        switch event.keyCode {
+        case 126:
+            onArrowUp?()
+        case 125:
+            onArrowDown?()
+        case 123:
+            onArrowLeft?()
+        case 124:
+            onArrowRight?()
+        case 36,
+             76:
+            onReturn?()
+        case 53:
+            onEscape?()
+        case 51,
+             117:
+            onDelete?()
+        case 120:
+            onRename?()
+        default:
+            super.keyDown(with: event)
         }
     }
 }

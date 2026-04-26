@@ -601,7 +601,10 @@ struct MainWindow: View {
 
     private func toggleFileTreePanel() {
         guard let project = activeProject else {
-            fileTreePanelVisible = false
+            if fileTreePanelVisible {
+                fileTreePanelVisible = false
+                NotificationCenter.default.post(name: .refocusActiveTerminal, object: nil)
+            }
             return
         }
 
@@ -610,6 +613,8 @@ struct MainWindow: View {
         fileTreePanelVisible = isShowing
         if isShowing {
             vcsPanelVisible = false
+        } else {
+            NotificationCenter.default.post(name: .refocusActiveTerminal, object: nil)
         }
     }
 

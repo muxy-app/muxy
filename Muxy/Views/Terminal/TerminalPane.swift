@@ -59,6 +59,13 @@ struct TerminalPane: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .refocusActiveTerminal)) { _ in
+            guard focused, visible else { return }
+            let view = TerminalViewRegistry.shared.existingView(for: state.id)
+            DispatchQueue.main.async {
+                view?.window?.makeFirstResponder(view)
+            }
+        }
     }
 }
 

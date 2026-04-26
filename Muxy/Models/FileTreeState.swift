@@ -190,6 +190,71 @@ final class FileTreeState {
         return result
     }
 
+    func entry(at path: String) -> FileTreeEntry? {
+        let parent = parentDirectory(of: path)
+        let candidates: [FileTreeEntry]
+        if parent == normalizedRootPath {
+            candidates = visibleRootEntries()
+        } else if let parentEntry = entry(at: parent),
+                  let kids = visibleChildren(of: parentEntry)
+        {
+            candidates = kids
+        } else {
+            return nil
+        }
+        return candidates.first { $0.absolutePath == path }
+    }
+
+    func moveSelection(by delta: Int) {
+        let ordered = visiblePathsInOrder()
+        guard !ordered.isEmpty else { return }
+        let currentIndex = selectedFilePath.flatMap { ordered.firstIndex(of: $0) }
+        let targetIndex: Int = if let currentIndex {
+            max(0, min(ordered.count - 1, currentIndex + delta))
+        } else {
+            delta >= 0 ? 0 : ordered.count - 1
+        }
+        selectOnly(ordered[targetIndex])
+    }
+
+    func collapseOrJumpToParent() {
+        guard let path = selectedFilePath else { return }
+        if let entry = entry(at: path), entry.isDirectory, expanded.contains(path) {
+            expanded.remove(path)
+            return
+        }
+        let parent = parentDirectory(of: path)
+        guard parent != normalizedRootPath else { return }
+        guard visiblePathsInOrder().contains(parent) else { return }
+        selectOnly(parent)
+    }
+
+    func expandOrDescend() {
+        guard let path = selectedFilePath,
+              let entry = entry(at: path),
+              entry.isDirectory
+        else { return }
+        if !expanded.contains(path) {
+            expand(path: path)
+            return
+        }
+        let ordered = visiblePathsInOrder()
+        guard let idx = ordered.firstIndex(of: path), idx + 1 < ordered.count else { return }
+        let next = ordered[idx + 1]
+        guard next.hasPrefix(path + "/") else { return }
+        selectOnly(next)
+    }
+
+    func activateSelection(open: (String) -> Void) {
+        guard let path = selectedFilePath, let entry = entry(at: path) else { return }
+        if entry.isDirectory {
+            toggle(entry)
+            return
+        }
+        guard status(for: path) != .deleted else { return }
+        open(path)
+    }
+
     private func appendVisible(_ entry: FileTreeEntry, into result: inout [String]) {
         result.append(entry.absolutePath)
         guard entry.isDirectory, expanded.contains(entry.absolutePath),
