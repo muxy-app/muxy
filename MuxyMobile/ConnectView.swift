@@ -70,6 +70,7 @@ struct ConnectView: View {
             }
             .sheet(isPresented: $showAddSheet) {
                 AddDeviceSheet()
+                    .environment(connection)
             }
             .sheet(isPresented: $showSettings) {
                 SettingsSheet()
