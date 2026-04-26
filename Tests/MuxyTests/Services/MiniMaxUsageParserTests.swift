@@ -138,16 +138,26 @@ struct MiniMaxUsageParserTests {
 
     @Test("reads minimax token from env")
     func readTokenFromEnv() throws {
-        let token = try MiniMaxUsageProvider.readToken(env: ["MINIMAX_API_KEY": "mmx-key"])
+        let token = try MiniMaxUsageProvider.readToken(
+            env: ["MINIMAX_API_KEY": "mmx-key"],
+            homeDirectory: "/mock-home",
+            fileExists: { _ in false },
+            dataReader: { _ in throw NSError(domain: "test", code: 1) }
+        )
         #expect(token == "mmx-key")
     }
 
     @Test("prefers CN key when present")
     func readTokenPrefersCNKey() throws {
-        let token = try MiniMaxUsageProvider.readToken(env: [
-            "MINIMAX_API_KEY": "global-key",
-            "MINIMAX_CN_API_KEY": "cn-key",
-        ])
+        let token = try MiniMaxUsageProvider.readToken(
+            env: [
+                "MINIMAX_API_KEY": "global-key",
+                "MINIMAX_CN_API_KEY": "cn-key",
+            ],
+            homeDirectory: "/mock-home",
+            fileExists: { _ in false },
+            dataReader: { _ in throw NSError(domain: "test", code: 1) }
+        )
         #expect(token == "cn-key")
     }
 }

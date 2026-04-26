@@ -32,17 +32,31 @@ struct AmpUsageProvider: AIUsageProvider {
         )
     }
 
-    static func readToken(env: [String: String] = ProcessInfo.processInfo.environment) throws -> String {
+    static func readToken(
+        env: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory(),
+        fileExists: ((String) -> Bool)? = nil,
+        dataReader: ((String) throws -> Data)? = nil
+    ) throws -> String {
         if let token = AIUsageTokenReader.fromEnvironment(keys: ["AMP_API_KEY"], env: env) {
             return token
         }
 
-        let path = NSHomeDirectory() + "/.local/share/amp/secrets.json"
-        if let token = try AIUsageTokenReader.fromJSONFile(
-            path: path,
-            keys: ["apiKey@https://ampcode.com/", "apiKey", "token"]
-        ), !token.isEmpty {
-            return token
+        let doesFileExist = fileExists ?? { FileManager.default.fileExists(atPath: $0) }
+        let readData = dataReader ?? { try Data(contentsOf: URL(fileURLWithPath: $0)) }
+
+        let path = homeDirectory + "/.local/share/amp/secrets.json"
+        if doesFileExist(path) {
+            let data = try readData(path)
+            if let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let token = AIUsageParserSupport.string(
+                   in: payload,
+                   keys: ["apiKey@https://ampcode.com/", "apiKey", "token"]
+               ),
+               !token.isEmpty
+            {
+                return token
+            }
         }
 
         throw AIUsageAuthError.missingCredentials

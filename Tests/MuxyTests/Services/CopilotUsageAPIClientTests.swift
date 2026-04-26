@@ -16,7 +16,9 @@ struct CopilotUsageProviderTests {
                     return "go-keyring-base64:\(encoded)"
                 }
                 return nil
-            }
+            },
+            fileExists: { _ in false },
+            dataReader: { _ in throw NSError(domain: "test", code: 1) }
         )
 
         #expect(token == "gho_decoded")

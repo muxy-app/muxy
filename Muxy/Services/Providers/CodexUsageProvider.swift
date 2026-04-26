@@ -30,21 +30,28 @@ struct CodexUsageProvider: AIUsageProvider {
         )
     }
 
-    static func readAuth(env: [String: String] = ProcessInfo.processInfo.environment) throws -> (accessToken: String, accountID: String?) {
+    static func readAuth(
+        env: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory(),
+        fileExists: ((String) -> Bool)? = nil,
+        dataReader: ((String) throws -> Data)? = nil
+    ) throws -> (accessToken: String, accountID: String?) {
         if let token = AIUsageTokenReader.fromEnvironment(keys: ["CODEX_ACCESS_TOKEN"], env: env) {
             return (token, env["CODEX_ACCOUNT_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines))
         }
 
-        let home = NSHomeDirectory()
+        let doesFileExist = fileExists ?? { FileManager.default.fileExists(atPath: $0) }
+        let readData = dataReader ?? { try Data(contentsOf: URL(fileURLWithPath: $0)) }
+
         let candidatePaths: [String] = [
             env["CODEX_HOME"].map { "\($0)/auth.json" },
-            "\(home)/.config/codex/auth.json",
-            "\(home)/.codex/auth.json",
+            "\(homeDirectory)/.config/codex/auth.json",
+            "\(homeDirectory)/.codex/auth.json",
         ].compactMap(\.self)
 
         for path in candidatePaths {
-            guard FileManager.default.fileExists(atPath: path) else { continue }
-            let data = try Data(contentsOf: URL(fileURLWithPath: path))
+            guard doesFileExist(path) else { continue }
+            let data = try readData(path)
             guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
 
             if let tokens = payload["tokens"] as? [String: Any],

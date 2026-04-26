@@ -49,8 +49,18 @@ struct MiniMaxUsageProvider: AIUsageProvider {
         }
     }
 
-    static func readToken(env: [String: String] = ProcessInfo.processInfo.environment) throws -> String {
-        let credentials = try readCredentials(env: env)
+    static func readToken(
+        env: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory(),
+        fileExists: ((String) -> Bool)? = nil,
+        dataReader: ((String) throws -> Data)? = nil
+    ) throws -> String {
+        let credentials = try readCredentials(
+            env: env,
+            homeDirectory: homeDirectory,
+            fileExists: fileExists,
+            dataReader: dataReader
+        )
         if let token = token(for: preferredRegion(env: credentials.environment), credentials: credentials) {
             return token
         }
@@ -153,13 +163,21 @@ struct MiniMaxUsageProvider: AIUsageProvider {
     }
 
     private static func readCredentials(
-        env: [String: String] = ProcessInfo.processInfo.environment
+        env: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory(),
+        fileExists: ((String) -> Bool)? = nil,
+        dataReader: ((String) throws -> Data)? = nil
     ) throws -> (environment: [String: String], fallbackToken: String?) {
-        let fallbackToken = readFallbackTokenFromDisk()
         let hasEnvToken = AIUsageTokenReader.fromEnvironment(
             keys: ["MINIMAX_CN_API_KEY", "MINIMAX_API_KEY", "MINIMAX_API_TOKEN"],
             env: env
         ) != nil
+
+        let fallbackToken = readFallbackTokenFromDisk(
+            homeDirectory: homeDirectory,
+            fileExists: fileExists ?? { FileManager.default.fileExists(atPath: $0) },
+            dataReader: dataReader ?? { try Data(contentsOf: URL(fileURLWithPath: $0)) }
+        )
 
         if hasEnvToken || fallbackToken != nil {
             return (env, fallbackToken)
@@ -167,20 +185,27 @@ struct MiniMaxUsageProvider: AIUsageProvider {
         throw ClientError.missingAPIKey
     }
 
-    private static func readFallbackTokenFromDisk() -> String? {
-        let home = NSHomeDirectory()
-        for path in ["\(home)/.mmx/config.json", "\(home)/.mmx/credentials.json"] {
-            if let token = try? AIUsageTokenReader.fromJSONFile(
-                path: path,
+    private static func readFallbackTokenFromDisk(
+        homeDirectory: String,
+        fileExists: (String) -> Bool,
+        dataReader: (String) throws -> Data
+    ) -> String? {
+        for path in ["\(homeDirectory)/.mmx/config.json", "\(homeDirectory)/.mmx/credentials.json"] {
+            guard fileExists(path), let data = try? dataReader(path) else { continue }
+            guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            if let token = AIUsageParserSupport.string(
+                in: payload,
                 keys: ["api_key", "apiKey", "token", "access_token"]
             ), !token.isEmpty {
                 return token
             }
-            if let token = try? AIUsageTokenReader.fromJSONFile(
-                path: path,
-                nestedKeyPath: ["auth"],
-                valueKeys: ["api_key", "apiKey", "token", "access_token"]
-            ), !token.isEmpty {
+            if let auth = payload["auth"] as? [String: Any],
+               let token = AIUsageParserSupport.string(
+                   in: auth,
+                   keys: ["api_key", "apiKey", "token", "access_token"]
+               ),
+               !token.isEmpty
+            {
                 return token
             }
         }

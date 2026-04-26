@@ -48,11 +48,35 @@ struct CodexUsageParserTests {
 
     @Test("reads codex auth from env and file payload")
     func readAuthFromEnvAndFilePayload() throws {
-        let envAuth = try CodexUsageProvider.readAuth(env: [
-            "CODEX_ACCESS_TOKEN": "token-123",
-            "CODEX_ACCOUNT_ID": "acct-1",
-        ])
+        let envAuth = try CodexUsageProvider.readAuth(
+            env: [
+                "CODEX_ACCESS_TOKEN": "token-123",
+                "CODEX_ACCOUNT_ID": "acct-1",
+            ],
+            homeDirectory: "/mock-home",
+            fileExists: { _ in false },
+            dataReader: { _ in throw NSError(domain: "test", code: 1) }
+        )
         #expect(envAuth.accessToken == "token-123")
         #expect(envAuth.accountID == "acct-1")
+    }
+
+    @Test("reads codex auth from auth.json fallback")
+    func readAuthFromAuthJSON() throws {
+        let home = "/mock-home"
+        let path = home + "/.config/codex/auth.json"
+        let payload = Data(#"{"tokens":{"access_token":"file-token","account_id":"file-acct"}}"#.utf8)
+
+        let auth = try CodexUsageProvider.readAuth(
+            env: [:],
+            homeDirectory: home,
+            fileExists: { $0 == path },
+            dataReader: { requested in
+                guard requested == path else { throw NSError(domain: "test", code: 1) }
+                return payload
+            }
+        )
+        #expect(auth.accessToken == "file-token")
+        #expect(auth.accountID == "file-acct")
     }
 }
