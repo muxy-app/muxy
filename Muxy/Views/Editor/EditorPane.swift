@@ -157,7 +157,7 @@ struct EditorPane: View {
                 )
             }
         }
-        .background(MuxyTheme.bg)
+        .background(Color(nsColor: markdownPalette.background))
         .focusable(focused)
         .focusEffectDisabled()
         .focused($markdownPreviewFocused)

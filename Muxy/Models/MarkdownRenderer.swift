@@ -104,7 +104,6 @@ enum MarkdownRenderer {
             <style id="muxy-base-style">
                 :root {
                     color-scheme: light;
-                    --bg: #FFFFFF;
                     --fg: #1F2328;
                     --accent: #0969DA;
                     --border: #D0D7DE;
@@ -115,7 +114,7 @@ enum MarkdownRenderer {
                 }
                 * { box-sizing: border-box; margin: 0; padding: 0; }
                 html, body {
-                    background: var(--bg);
+                    background: transparent;
                     color: var(--fg);
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
                     font-size: 14px;
