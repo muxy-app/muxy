@@ -6,6 +6,7 @@ struct EditorPane: View {
     let onFocus: () -> Void
     @Environment(GhosttyService.self) private var ghostty
     @State private var editorSettings = EditorSettings.shared
+    @FocusState private var markdownPreviewFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -157,6 +158,24 @@ struct EditorPane: View {
             }
         }
         .background(MuxyTheme.bg)
+        .focusable(focused)
+        .focusEffectDisabled()
+        .focused($markdownPreviewFocused)
+        .onKeyPress(keys: ["e"]) { press in
+            guard state.markdownViewMode == .preview else { return .ignored }
+            let disallowed: EventModifiers = [.command, .control, .option]
+            guard press.modifiers.isDisjoint(with: disallowed) else { return .ignored }
+            state.markdownViewMode = press.modifiers.contains(.shift) ? .split : .code
+            return .handled
+        }
+        .onAppear { acquireMarkdownPreviewFocusIfNeeded() }
+        .onChange(of: focused) { _, _ in acquireMarkdownPreviewFocusIfNeeded() }
+        .onChange(of: state.markdownViewMode) { _, _ in acquireMarkdownPreviewFocusIfNeeded() }
+    }
+
+    private func acquireMarkdownPreviewFocusIfNeeded() {
+        guard focused, state.isMarkdownFile, state.markdownViewMode == .preview else { return }
+        markdownPreviewFocused = true
     }
 
     private var renderedMarkdownContent: String {
@@ -298,7 +317,7 @@ private struct EditorMarkdownModePicker: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(candidate.title)
+                .help(helpText(for: candidate, currentMode: mode))
                 .accessibilityLabel("Markdown \(candidate.title) View")
             }
         }
@@ -309,6 +328,15 @@ private struct EditorMarkdownModePicker: View {
                 .stroke(MuxyTheme.border, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func helpText(for candidate: EditorMarkdownViewMode, currentMode: EditorMarkdownViewMode) -> String {
+        guard currentMode == .preview else { return candidate.title }
+        switch candidate {
+        case .code: return "\(candidate.title) (E)"
+        case .split: return "\(candidate.title) (⇧E)"
+        case .preview: return candidate.title
+        }
     }
 }
 

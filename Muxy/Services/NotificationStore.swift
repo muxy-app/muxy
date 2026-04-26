@@ -22,6 +22,20 @@ final class NotificationStore {
 
     private init() {
         notifications = Self.loadFromDisk()
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.markActiveTabAsRead()
+            }
+        }
+    }
+
+    private func markActiveTabAsRead() {
+        guard let appState, let tabID = NotificationNavigator.activeTabID(appState: appState) else { return }
+        markAsRead(tabID: tabID)
     }
 
     var unreadCount: Int {
@@ -111,6 +125,7 @@ final class NotificationStore {
 
     private func insertIfNotFocused(_ notification: MuxyNotification, appState: AppState) {
         if NSApp.isActive, NotificationNavigator.isActiveTab(notification.tabID, appState: appState) {
+            playSound()
             return
         }
 

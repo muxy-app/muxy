@@ -1020,16 +1020,19 @@ struct CodeEditorView: NSViewRepresentable {
         private var appliedCurrentSearchMatchRange: NSRange?
 
         private func clearAppliedSearchHighlights(layoutManager: NSLayoutManager, storageLength: Int) {
+            let hadCurrentMatchOverride = appliedCurrentSearchMatchRange != nil
             for range in appliedSearchHighlightRanges {
                 guard NSMaxRange(range) <= storageLength else { continue }
                 layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: range)
-                layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
             }
             if let range = appliedCurrentSearchMatchRange, NSMaxRange(range) <= storageLength {
                 layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
             }
             appliedSearchHighlightRanges.removeAll(keepingCapacity: true)
             appliedCurrentSearchMatchRange = nil
+            if hadCurrentMatchOverride {
+                reapplySyntaxHighlights()
+            }
         }
 
         func performSearchViewport(_ needle: String, caseSensitive: Bool, useRegex: Bool) {
