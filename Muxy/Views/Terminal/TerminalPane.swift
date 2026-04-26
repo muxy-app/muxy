@@ -230,7 +230,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
     }
 
-    private static func resolveFilePath(_ token: String, projectPath: String) -> String? {
+    static func resolveFilePath(_ token: String, projectPath: String) -> String? {
         let cleaned = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"' \t\n\r()[]<>"))
         guard !cleaned.isEmpty else { return nil }
         let expanded = (cleaned as NSString).expandingTildeInPath

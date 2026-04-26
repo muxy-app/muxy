@@ -555,10 +555,8 @@ final class GhosttyTerminalNSView: NSView {
         isShowingHandCursor = on
         if on {
             NSCursor.pointingHand.push()
-            NSCursor.pointingHand.set()
         } else {
             NSCursor.pop()
-            NSCursor.arrow.set()
         }
     }
 
