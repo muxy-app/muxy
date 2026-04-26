@@ -82,7 +82,9 @@ struct WorktreeBranchPicker: View {
     }
 
     private func open() {
-        onRefreshBranches()
+        if segment == .branches {
+            onRefreshBranches()
+        }
         showPopover = true
     }
 
@@ -99,6 +101,9 @@ struct WorktreeBranchPicker: View {
         let isActive = segment == item
         return Button {
             segment = item
+            if item == .branches {
+                onRefreshBranches()
+            }
         } label: {
             Text(item.title)
                 .font(.system(size: 11, weight: isActive ? .semibold : .medium))

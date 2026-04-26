@@ -28,8 +28,11 @@ struct CreatePRForm: View {
     @State private var didLoadRemoteBranches = false
 
     private var availableBaseBranches: [String] {
-        if didLoadRemoteBranches || !context.remoteBranches.isEmpty {
+        if !context.remoteBranches.isEmpty {
             return context.remoteBranches
+        }
+        if didLoadRemoteBranches, context.isLoadingRemoteBranches {
+            return []
         }
         return context.localBranches
     }
@@ -110,7 +113,12 @@ struct CreatePRForm: View {
         .padding(10)
         .background(MuxyTheme.bg)
         .onAppear(perform: applyDefaults)
-        .onChange(of: availableBaseBranches) { _, _ in applyDefaults() }
+        .onChange(of: availableBaseBranches) { _, newList in
+            if !baseBranch.isEmpty, !newList.contains(baseBranch) {
+                baseBranch = ""
+            }
+            applyDefaults()
+        }
         .onChange(of: title) { _, newValue in
             guard !userEditedBranchName else { return }
             newBranchName = Self.slugify(newValue)
@@ -131,7 +139,6 @@ struct CreatePRForm: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(.cancelAction)
             .help("Back to commit")
 
             Image(systemName: "arrow.triangle.pull")
