@@ -66,6 +66,12 @@ struct FileTreeView: View {
                     guard let newValue else { return }
                     proxy.scrollTo(newValue, anchor: .center)
                 }
+                .onChange(of: state.pendingRenamePath) { _, newValue in
+                    if newValue == nil { requestKeyboardFocus() }
+                }
+                .onChange(of: state.pendingNewEntry?.token) { _, newValue in
+                    if newValue == nil { requestKeyboardFocus() }
+                }
             }
         }
         .background(MuxyTheme.bg)
