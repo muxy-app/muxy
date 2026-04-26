@@ -37,6 +37,7 @@ struct WorktreesSheet: View {
             }
             .sheet(isPresented: $showingAdd) {
                 AddWorktreeSheet(projectID: projectID)
+                    .environment(connection)
             }
         }
     }

@@ -28,7 +28,6 @@ struct CreatePRSheet: View {
     @State private var bodyText: String = ""
     @State private var newBranchName: String = ""
     @State private var userEditedBranchName = false
-    @State private var isProgrammaticBranchNameChange = false
     @State private var includeAll = true
     @State private var draft = false
     @State private var didApplyDefaults = false
@@ -96,7 +95,6 @@ struct CreatePRSheet: View {
         .onChange(of: context.availableBaseBranches) { _, _ in applyDefaults() }
         .onChange(of: title) { _, newValue in
             guard !userEditedBranchName else { return }
-            isProgrammaticBranchNameChange = true
             newBranchName = Self.slugify(newValue)
         }
     }
@@ -175,12 +173,11 @@ struct CreatePRSheet: View {
             TextField("branch-name", text: $newBranchName)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11, design: .monospaced))
-                .onChange(of: newBranchName) { _, _ in
-                    if isProgrammaticBranchNameChange {
-                        isProgrammaticBranchNameChange = false
-                        return
+                .onChange(of: newBranchName) { _, newValue in
+                    guard !userEditedBranchName else { return }
+                    if newValue != Self.slugify(title) {
+                        userEditedBranchName = true
                     }
-                    userEditedBranchName = true
                 }
             Text("A new branch will be created from \(currentBranchSnapshot) for this pull request.")
                 .font(.system(size: 11))

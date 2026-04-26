@@ -69,6 +69,7 @@ final class VCSTabState {
     var isRefreshingPullRequest = false
     var hasFetchedPullRequestInfo = false
     private(set) var isGitRepo = false
+    private(set) var remoteWebURL: URL?
 
     var commitMessage = ""
     var branches: [String] = []
@@ -230,16 +231,22 @@ final class VCSTabState {
         branchTask?.cancel()
         prInfoTask?.cancel()
         let shouldForcePR = forcePRFetch || !incremental
+        if shouldForcePR {
+            isRefreshingPullRequest = true
+        }
         branchTask = Task { [weak self] in
             guard let self else { return }
             do {
                 async let branchValue = git.currentBranch(repoPath: projectPath)
                 async let headValue = git.headSha(repoPath: projectPath)
+                async let remoteURLValue = git.remoteWebURL(repoPath: projectPath)
                 let branch = try await branchValue
                 let head = await headValue
+                let remoteURL = await remoteURLValue
                 guard !Task.isCancelled else { return }
 
                 isGitRepo = true
+                remoteWebURL = remoteURL
                 let branchChanged = branchName != branch
                 if branchChanged {
                     hasFetchedPullRequestInfo = false
@@ -264,6 +271,7 @@ final class VCSTabState {
                 hasFetchedPullRequestInfo = false
                 lastFetchedHeadSha = nil
                 aheadBehind = .init(ahead: 0, behind: 0, hasUpstream: false)
+                isRefreshingPullRequest = false
             }
         }
 
