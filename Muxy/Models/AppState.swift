@@ -212,6 +212,15 @@ final class AppState {
         return nil
     }
 
+    func shortcutOffset(forAreaID areaID: UUID, projectID: UUID) -> Int {
+        var offset = 0
+        for area in allAreas(for: projectID) {
+            if area.id == areaID { return offset }
+            offset += area.tabs.count
+        }
+        return 0
+    }
+
     func splitFocusedArea(direction: SplitDirection, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
         dispatch(.splitArea(.init(

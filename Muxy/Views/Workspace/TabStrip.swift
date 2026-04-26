@@ -24,6 +24,7 @@ struct PaneTabStrip: View {
     var openInIDEFilePath: String?
     var openInIDECursorProvider: () -> (line: Int?, column: Int?) = { (nil, nil) }
     let projectID: UUID
+    var shortcutIndexOffset: Int = 0
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
     let onCreateVCSTab: () -> Void
@@ -132,7 +133,7 @@ struct PaneTabStrip: View {
                     areaID: areaID,
                     hasUnread: NotificationStore.shared.hasUnread(tabID: tab.id),
                     isAnyDragging: dragState.draggedID != nil,
-                    shortcutIndex: index < 9 ? index + 1 : nil,
+                    shortcutIndex: shortcutIndexOffset + index < 9 ? shortcutIndexOffset + index + 1 : nil,
                     closableOthersCount: closableOthersCount(excluding: tab.id),
                     closableLeftCount: closableCount(leftOf: index),
                     closableRightCount: closableCount(rightOf: index),

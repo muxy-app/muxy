@@ -38,6 +38,7 @@ struct TabAreaView: View {
                     isFocused: isFocused,
                     showVCSButton: showVCSButton,
                     projectID: projectID,
+                    shortcutIndexOffset: appState.shortcutOffset(forAreaID: area.id, projectID: projectID),
                     onSelectTab: onSelectTab,
                     onCreateTab: onCreateTab,
                     onCreateVCSTab: onCreateVCSTab,
