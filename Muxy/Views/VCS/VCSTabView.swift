@@ -12,8 +12,7 @@ struct VCSTabView: View {
     @State private var pendingDiscardPath: String?
     @State private var showCreateWorktreeSheet = false
     @State private var showCreateBranchSheet = false
-    @State private var showCreatePRSheet = false
-    @State private var showWorktreePopover = false
+    @State private var showInlinePRForm = false
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
     private var commitEnabled: Bool {
@@ -106,17 +105,7 @@ struct VCSTabView: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            worktreeTrigger
-
-            BranchPicker(
-                currentBranch: state.branchName,
-                branches: state.branches,
-                isLoading: state.isLoadingBranches,
-                onSelect: { state.switchBranch($0) },
-                onRefresh: { state.loadBranches() },
-                onCreateBranch: { showCreateBranchSheet = true },
-                onDeleteBranch: { branch in presentDeleteBranchConfirmation(branch) }
-            )
+            worktreeBranchPicker
 
             PRPill(
                 state: state,
@@ -126,6 +115,13 @@ struct VCSTabView: View {
             )
 
             Spacer(minLength: 0)
+
+            if let url = state.remoteWebURL {
+                IconButton(symbol: "globe", accessibilityLabel: "Open Repository on Web") {
+                    NSWorkspace.shared.open(url)
+                }
+                .help("Open repository on web")
+            }
 
             VCSSectionVisibilityMenu(state: state)
 
@@ -160,97 +156,37 @@ struct VCSTabView: View {
                 onCancel: { showCreateBranchSheet = false }
             )
         }
-        .sheet(isPresented: $showCreatePRSheet) {
-            CreatePRSheet(
-                context: CreatePRSheet.Context(
-                    currentBranch: state.branchName ?? "",
-                    defaultBranch: state.defaultBranch,
-                    availableBaseBranches: state.remoteBranches,
-                    isLoadingBranches: state.isLoadingRemoteBranches,
-                    hasStagedChanges: state.hasStagedChanges,
-                    hasUnstagedChanges: !state.unstagedFiles.isEmpty
-                ),
-                inProgress: state.isOpeningPullRequest,
-                errorMessage: state.openPullRequestError,
-                onSubmit: { base, title, body, branchStrategy, includeMode, draft in
-                    ToastState.shared.show("Creating pull request…")
-                    state.openPullRequest(
-                        VCSTabState.PRCreateRequest(
-                            baseBranch: base,
-                            title: title,
-                            body: body,
-                            branchStrategy: branchStrategy,
-                            includeMode: includeMode,
-                            draft: draft
-                        )
-                    )
-                },
-                onCancel: {
-                    state.openPullRequestError = nil
-                    showCreatePRSheet = false
-                }
-            )
-        }
         .onChange(of: state.pullRequestInfo?.number) { _, number in
-            guard number != nil, showCreatePRSheet else { return }
-            showCreatePRSheet = false
+            guard number != nil, showInlinePRForm else { return }
+            showInlinePRForm = false
         }
     }
 
     private func requestOpenPR() {
         state.openPullRequestError = nil
-        state.loadRemoteBranches()
-        showCreatePRSheet = true
+        state.loadBranches()
+        showInlinePRForm = true
     }
 
     @ViewBuilder
-    private var worktreeTrigger: some View {
+    private var worktreeBranchPicker: some View {
         if let project = owningProject {
-            Button {
-                showWorktreePopover = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "square.stack.3d.up")
-                        .font(.system(size: 9, weight: .semibold))
-                    Text(worktreeTriggerLabel)
-                        .font(.system(size: 10, weight: .medium))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: 120, alignment: .leading)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(MuxyTheme.fgDim)
-                }
-                .foregroundStyle(MuxyTheme.fg.opacity(0.85))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
-                .contentShape(RoundedRectangle(cornerRadius: 5))
-            }
-            .buttonStyle(.plain)
-            .help(worktreeTriggerLabel)
-            .popover(isPresented: $showWorktreePopover, arrowEdge: .top) {
-                WorktreePopover(
-                    project: project,
-                    isGitRepo: state.isGitRepo,
-                    onDismiss: { showWorktreePopover = false },
-                    onRequestCreate: {
-                        showWorktreePopover = false
-                        showCreateWorktreeSheet = true
-                    }
-                )
-                .environment(appState)
-                .environment(worktreeStore)
-            }
+            WorktreeBranchPicker(
+                project: project,
+                isGitRepo: state.isGitRepo,
+                currentBranch: state.branchName,
+                branches: state.branches,
+                isLoadingBranches: state.isLoadingBranches,
+                activeWorktree: activeWorktreeForTab,
+                onSelectBranch: { state.switchBranch($0) },
+                onRefreshBranches: { state.loadBranches() },
+                onCreateBranch: { showCreateBranchSheet = true },
+                onDeleteBranch: { branch in presentDeleteBranchConfirmation(branch) },
+                onRequestCreateWorktree: { showCreateWorktreeSheet = true }
+            )
+            .environment(appState)
+            .environment(worktreeStore)
         }
-    }
-
-    private var worktreeTriggerLabel: String {
-        guard let worktree = activeWorktreeForTab else { return "default" }
-        if worktree.isPrimary {
-            return worktree.name.isEmpty ? "default" : worktree.name
-        }
-        return worktree.name
     }
 
     private func performMerge(prInfo: GitRepositoryService.PRInfo, method: GitRepositoryService.PRMergeMethod) {
@@ -439,7 +375,11 @@ struct VCSTabView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 0) {
-                commitArea
+                if showInlinePRForm {
+                    createPRForm
+                } else {
+                    commitArea
+                }
                 SectionSplitLayout(
                     state: state,
                     onFocus: onFocus,
@@ -451,6 +391,40 @@ struct VCSTabView: View {
                 )
             }
         }
+    }
+
+    private var createPRForm: some View {
+        CreatePRForm(
+            context: CreatePRForm.Context(
+                currentBranch: state.branchName ?? "",
+                defaultBranch: state.defaultBranch,
+                localBranches: state.branches,
+                remoteBranches: state.remoteBranches,
+                isLoadingRemoteBranches: state.isLoadingRemoteBranches,
+                hasStagedChanges: state.hasStagedChanges,
+                hasUnstagedChanges: !state.unstagedFiles.isEmpty
+            ),
+            inProgress: state.isOpeningPullRequest,
+            errorMessage: state.openPullRequestError,
+            onLoadRemoteBranches: { state.loadRemoteBranches() },
+            onSubmit: { base, title, body, branchStrategy, includeMode, draft in
+                ToastState.shared.show("Creating pull request…")
+                state.openPullRequest(
+                    VCSTabState.PRCreateRequest(
+                        baseBranch: base,
+                        title: title,
+                        body: body,
+                        branchStrategy: branchStrategy,
+                        includeMode: includeMode,
+                        draft: draft
+                    )
+                )
+            },
+            onCancel: {
+                state.openPullRequestError = nil
+                showInlinePRForm = false
+            }
+        )
     }
 
     private var commitArea: some View {
@@ -767,32 +741,14 @@ struct PRPill: View {
         } else {
             switch state.prLaunchState {
             case .hidden:
-                openRepoButton
+                EmptyView()
             case .ghMissing:
-                HStack(spacing: 4) {
-                    ghMissingPill
-                    openRepoButton
-                }
+                ghMissingPill
             case .canCreate:
                 createPRPill
             case let .hasPR(info):
                 hasPRPill(info: info)
             }
-        }
-    }
-
-    @ViewBuilder
-    private var openRepoButton: some View {
-        if let url = state.remoteWebURL {
-            pillContainer(
-                icon: "globe",
-                text: "Open Repo",
-                tint: MuxyTheme.fg.opacity(0.85),
-                disabled: false
-            ) {
-                NSWorkspace.shared.open(url)
-            }
-            .help("Open repository on web")
         }
     }
 
@@ -807,47 +763,21 @@ struct PRPill: View {
     }
 
     private var createPRPill: some View {
-        HStack(spacing: 0) {
-            Button(action: onRequestCreate) {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.pull")
-                        .font(.system(size: 9, weight: .bold))
-                    Text("Create PR")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-                .foregroundStyle(MuxyTheme.accent)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .contentShape(Rectangle())
+        Button(action: onRequestCreate) {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.triangle.pull")
+                    .font(.system(size: 9, weight: .bold))
+                Text("Create PR")
+                    .font(.system(size: 10, weight: .semibold))
             }
-            .buttonStyle(.plain)
-            .disabled(state.isOpeningPullRequest)
-            .help("Create a pull request")
-
-            if state.remoteWebURL != nil {
-                Rectangle()
-                    .fill(MuxyTheme.accent.opacity(0.35))
-                    .frame(width: 1, height: 14)
-                Menu {
-                    if let url = state.remoteWebURL {
-                        Button("Open Repository on Web") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(MuxyTheme.accent)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 5)
-                        .contentShape(Rectangle())
-                }
-                .menuStyle(.button)
-                .menuIndicator(.hidden)
-                .buttonStyle(.plain)
-                .fixedSize()
-            }
+            .foregroundStyle(MuxyTheme.accent)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(state.isOpeningPullRequest)
+        .help("Create a pull request")
         .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(MuxyTheme.accent.opacity(0.35), lineWidth: 1))
     }
