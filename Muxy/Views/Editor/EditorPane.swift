@@ -1,4 +1,24 @@
+import AppKit
 import SwiftUI
+
+@MainActor
+private final class MarkdownPreviewKeyMonitor {
+    private var monitor: Any?
+
+    func install(handler: @escaping (NSEvent) -> NSEvent?) {
+        remove()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            handler(event)
+        }
+    }
+
+    func remove() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        monitor = nil
+    }
+}
 
 struct EditorPane: View {
     @Bindable var state: EditorTabState
@@ -6,6 +26,7 @@ struct EditorPane: View {
     let onFocus: () -> Void
     @Environment(GhosttyService.self) private var ghostty
     @State private var editorSettings = EditorSettings.shared
+    @State private var markdownKeyMonitor = MarkdownPreviewKeyMonitor()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,6 +55,32 @@ struct EditorPane: View {
             }
             state.searchVisible = true
             state.searchFocusVersion += 1
+        }
+        .onAppear { updateMarkdownKeyMonitor() }
+        .onDisappear { markdownKeyMonitor.remove() }
+        .onChange(of: focused) { _, _ in updateMarkdownKeyMonitor() }
+        .onChange(of: state.isMarkdownFile) { _, _ in updateMarkdownKeyMonitor() }
+        .onChange(of: state.markdownViewMode) { _, _ in updateMarkdownKeyMonitor() }
+    }
+
+    private func updateMarkdownKeyMonitor() {
+        let shouldMonitor = focused && state.isMarkdownFile && state.markdownViewMode == .preview
+        guard shouldMonitor else {
+            markdownKeyMonitor.remove()
+            return
+        }
+        markdownKeyMonitor.install { event in
+            guard event.charactersIgnoringModifiers == "e" || event.charactersIgnoringModifiers == "E" else {
+                return event
+            }
+            let disallowed: NSEvent.ModifierFlags = [.command, .control, .option]
+            guard event.modifierFlags.isDisjoint(with: disallowed) else { return event }
+            guard state.markdownViewMode == .preview else { return event }
+            let isShift = event.modifierFlags.contains(.shift)
+            Task { @MainActor in
+                state.markdownViewMode = isShift ? .split : .code
+            }
+            return nil
         }
     }
 
@@ -298,7 +345,7 @@ private struct EditorMarkdownModePicker: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(candidate.title)
+                .help(helpText(for: candidate, currentMode: mode))
                 .accessibilityLabel("Markdown \(candidate.title) View")
             }
         }
@@ -309,6 +356,15 @@ private struct EditorMarkdownModePicker: View {
                 .stroke(MuxyTheme.border, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func helpText(for candidate: EditorMarkdownViewMode, currentMode: EditorMarkdownViewMode) -> String {
+        guard currentMode == .preview else { return candidate.title }
+        switch candidate {
+        case .code: return "\(candidate.title) (E)"
+        case .split: return "\(candidate.title) (⇧E)"
+        case .preview: return candidate.title
+        }
     }
 }
 
