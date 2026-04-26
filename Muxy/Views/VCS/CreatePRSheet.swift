@@ -1,11 +1,12 @@
 import SwiftUI
 
-struct CreatePRSheet: View {
+struct CreatePRForm: View {
     struct Context {
         let currentBranch: String
         let defaultBranch: String?
-        let availableBaseBranches: [String]
-        let isLoadingBranches: Bool
+        let localBranches: [String]
+        let remoteBranches: [String]
+        let isLoadingRemoteBranches: Bool
         let hasStagedChanges: Bool
         let hasUnstagedChanges: Bool
     }
@@ -13,6 +14,7 @@ struct CreatePRSheet: View {
     let context: Context
     let inProgress: Bool
     let errorMessage: String?
+    let onLoadRemoteBranches: () -> Void
     let onSubmit: (
         _ baseBranch: String,
         _ title: String,
@@ -23,6 +25,18 @@ struct CreatePRSheet: View {
     ) -> Void
     let onCancel: () -> Void
 
+    @State private var didLoadRemoteBranches = false
+
+    private var availableBaseBranches: [String] {
+        if !context.remoteBranches.isEmpty {
+            return context.remoteBranches
+        }
+        if didLoadRemoteBranches, context.isLoadingRemoteBranches {
+            return []
+        }
+        return context.localBranches
+    }
+
     @State private var baseBranch: String = ""
     @State private var title: String = ""
     @State private var bodyText: String = ""
@@ -32,6 +46,7 @@ struct CreatePRSheet: View {
     @State private var draft = false
     @State private var didApplyDefaults = false
     @State private var initialCurrentBranch: String?
+    @State private var advanced = false
     @FocusState private var titleFocused: Bool
 
     private var currentBranchSnapshot: String {
@@ -67,32 +82,43 @@ struct CreatePRSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             header
-            targetBranchField
             titleField
             descriptionField
 
-            if needsNewBranch {
-                newBranchField
+            if advanced {
+                targetBranchField
+                if needsNewBranch {
+                    newBranchField
+                }
+                if hasAnyChanges, context.hasStagedChanges, context.hasUnstagedChanges {
+                    includeSection
+                }
             }
 
-            if hasAnyChanges, context.hasStagedChanges, context.hasUnstagedChanges {
-                includeSection
+            HStack(spacing: 10) {
+                advancedToggle
+                if advanced {
+                    draftToggle
+                }
+                Spacer(minLength: 0)
+                footerButtons
             }
-
-            draftToggle
 
             if let errorMessage {
                 warning(errorMessage)
             }
-
-            footer
         }
-        .padding(20)
-        .frame(width: 500)
+        .padding(10)
+        .background(MuxyTheme.bg)
         .onAppear(perform: applyDefaults)
-        .onChange(of: context.availableBaseBranches) { _, _ in applyDefaults() }
+        .onChange(of: availableBaseBranches) { _, newList in
+            if !baseBranch.isEmpty, !newList.contains(baseBranch) {
+                baseBranch = ""
+            }
+            applyDefaults()
+        }
         .onChange(of: title) { _, newValue in
             guard !userEditedBranchName else { return }
             newBranchName = Self.slugify(newValue)
@@ -101,84 +127,136 @@ struct CreatePRSheet: View {
 
     private var header: some View {
         HStack(spacing: 8) {
+            Button(action: onCancel) {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("Back")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Back to commit")
+
             Image(systemName: "arrow.triangle.pull")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(MuxyTheme.accent)
-            Text("Create Pull Request")
-                .font(.system(size: 14, weight: .semibold))
+            Text("New Pull Request")
+                .font(.system(size: 12, weight: .semibold))
             Spacer(minLength: 0)
         }
     }
 
     private var targetBranchField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Target Branch")
-                .font(.system(size: 11))
-                .foregroundStyle(MuxyTheme.fgMuted)
-            if context.isLoadingBranches, context.availableBaseBranches.isEmpty {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading remote branches…")
-                        .font(.system(size: 11))
-                        .foregroundStyle(MuxyTheme.fgMuted)
-                }
-            } else if context.availableBaseBranches.isEmpty {
-                Text("No remote branches found. Push at least one branch to origin first.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(MuxyTheme.diffRemoveFg)
-            } else {
-                Picker("", selection: $baseBranch) {
-                    ForEach(context.availableBaseBranches, id: \.self) { branch in
-                        Text(branch).tag(branch)
+        VStack(alignment: .leading, spacing: 4) {
+            fieldLabel("Target Branch")
+            if availableBaseBranches.isEmpty {
+                if context.isLoadingRemoteBranches {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading remote branches…")
+                            .font(.system(size: 11))
+                            .foregroundStyle(MuxyTheme.fgMuted)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .themedFieldBackground()
+                } else {
+                    Text("No branches found.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuxyTheme.diffRemoveFg)
                 }
-                .labelsHidden()
+            } else {
+                Menu {
+                    ForEach(availableBaseBranches, id: \.self) { branch in
+                        Button(branch) { baseBranch = branch }
+                    }
+                    Divider()
+                    Button {
+                        didLoadRemoteBranches = true
+                        onLoadRemoteBranches()
+                    } label: {
+                        if context.isLoadingRemoteBranches {
+                            Text("Loading remote branches…")
+                        } else if didLoadRemoteBranches || !context.remoteBranches.isEmpty {
+                            Text("Refresh remote branches")
+                        } else {
+                            Text("Load remote branches")
+                        }
+                    }
+                    .disabled(context.isLoadingRemoteBranches)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(MuxyTheme.fgDim)
+                        Text(baseBranch.isEmpty ? "Select branch" : baseBranch)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(MuxyTheme.fg)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(MuxyTheme.fgDim)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 7)
+                    .contentShape(Rectangle())
+                }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
+                .themedFieldBackground()
             }
         }
     }
 
     private var titleField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Title")
-                .font(.system(size: 11))
-                .foregroundStyle(MuxyTheme.fgMuted)
-            TextField("Short summary of the change", text: $title)
-                .textFieldStyle(.roundedBorder)
-                .focused($titleFocused)
-                .onSubmit { if canSubmit, !inProgress { submit() } }
+        VStack(alignment: .leading, spacing: 4) {
+            fieldLabel("Title")
+            ThemedTextField(
+                text: $title,
+                placeholder: "Short summary of the change",
+                monospaced: false,
+                onSubmit: { if canSubmit, !inProgress { submit() } }
+            )
+            .focused($titleFocused)
         }
     }
 
     private var descriptionField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Description")
-                .font(.system(size: 11))
-                .foregroundStyle(MuxyTheme.fgMuted)
+        VStack(alignment: .leading, spacing: 4) {
+            fieldLabel("Description")
             TextEditor(text: $bodyText)
                 .font(.system(size: 12))
                 .foregroundStyle(MuxyTheme.fg)
                 .scrollContentBackground(.hidden)
-                .padding(6)
-                .frame(minHeight: 100, maxHeight: 160)
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(MuxyTheme.border, lineWidth: 1))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 3)
+                .frame(height: 100)
+                .themedFieldBackground()
         }
     }
 
     private var newBranchField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("New Branch")
-                .font(.system(size: 11))
-                .foregroundStyle(MuxyTheme.fgMuted)
-            TextField("branch-name", text: $newBranchName)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11, design: .monospaced))
-                .onChange(of: newBranchName) { _, newValue in
-                    guard !userEditedBranchName else { return }
-                    if newValue != Self.slugify(title) {
-                        userEditedBranchName = true
-                    }
+        VStack(alignment: .leading, spacing: 4) {
+            fieldLabel("New Branch")
+            ThemedTextField(
+                text: $newBranchName,
+                placeholder: "branch-name",
+                monospaced: true
+            )
+            .onChange(of: newBranchName) { _, newValue in
+                guard !userEditedBranchName else { return }
+                if newValue != Self.slugify(title) {
+                    userEditedBranchName = true
                 }
+            }
             Text("A new branch will be created from \(currentBranchSnapshot) for this pull request.")
                 .font(.system(size: 11))
                 .foregroundStyle(MuxyTheme.fgDim)
@@ -188,16 +266,46 @@ struct CreatePRSheet: View {
 
     private var includeSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Include")
-                .font(.system(size: 11))
-                .foregroundStyle(MuxyTheme.fgMuted)
-            Picker("", selection: $includeAll) {
-                Text("All changes (staged + unstaged)").tag(true)
-                Text("Only staged changes").tag(false)
+            fieldLabel("Include")
+            VStack(alignment: .leading, spacing: 4) {
+                includeRadio(label: "All changes (staged + unstaged)", value: true)
+                includeRadio(label: "Only staged changes", value: false)
             }
-            .pickerStyle(.radioGroup)
-            .labelsHidden()
         }
+    }
+
+    private func includeRadio(label: String, value: Bool) -> some View {
+        Button {
+            includeAll = value
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: includeAll == value ? "largecircle.fill.circle" : "circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(includeAll == value ? MuxyTheme.accent : MuxyTheme.fgDim)
+                Text(label)
+                    .font(.system(size: 11))
+                    .foregroundStyle(MuxyTheme.fg)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var advancedToggle: some View {
+        Button {
+            advanced.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: advanced ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                Text("Advanced")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(MuxyTheme.fgMuted)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Show target branch, include and draft options")
     }
 
     private var draftToggle: some View {
@@ -216,25 +324,53 @@ struct CreatePRSheet: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    private var footer: some View {
-        HStack {
-            Spacer()
-            Button("Cancel", action: onCancel)
-                .keyboardShortcut(.cancelAction)
-                .disabled(inProgress)
-            Button {
-                submit()
-            } label: {
+    private var footerButtons: some View {
+        HStack(spacing: 6) {
+            Button(action: onCancel) {
+                Text("Cancel")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(MuxyTheme.fg)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(MuxyTheme.border, lineWidth: 1))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(inProgress)
+
+            let submitEnabled = canSubmit && !inProgress
+            Button(action: submit) {
                 HStack(spacing: 4) {
                     if inProgress {
                         ProgressView().controlSize(.mini)
                     }
                     Text("Create PR")
+                        .font(.system(size: 11, weight: .semibold))
                 }
+                .foregroundStyle(submitEnabled ? MuxyTheme.bg : MuxyTheme.fgDim)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    submitEnabled ? MuxyTheme.accent : MuxyTheme.surface,
+                    in: RoundedRectangle(cornerRadius: 6)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(MuxyTheme.border, lineWidth: submitEnabled ? 0 : 1)
+                )
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .keyboardShortcut(.defaultAction)
-            .disabled(!canSubmit || inProgress)
+            .disabled(!submitEnabled)
         }
+    }
+
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundStyle(MuxyTheme.fgMuted)
     }
 
     private func applyDefaults() {
@@ -243,8 +379,8 @@ struct CreatePRSheet: View {
         }
         if baseBranch.isEmpty {
             baseBranch = context.defaultBranch
-                ?? context.availableBaseBranches.first(where: { $0 != currentBranchSnapshot })
-                ?? context.availableBaseBranches.first
+                ?? availableBaseBranches.first(where: { $0 != currentBranchSnapshot })
+                ?? availableBaseBranches.first
                 ?? ""
         }
         if !didApplyDefaults {
@@ -268,5 +404,31 @@ struct CreatePRSheet: View {
             .split(separator: "-", omittingEmptySubsequences: true)
             .joined(separator: "-")
         return String(collapsed.prefix(20))
+    }
+}
+
+private struct ThemedTextField: View {
+    @Binding var text: String
+    let placeholder: String
+    var monospaced: Bool = false
+    var onSubmit: (() -> Void)?
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.plain)
+            .font(.system(size: 12, design: monospaced ? .monospaced : .default))
+            .foregroundStyle(MuxyTheme.fg)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .themedFieldBackground()
+            .onSubmit { onSubmit?() }
+    }
+}
+
+private extension View {
+    func themedFieldBackground() -> some View {
+        background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(MuxyTheme.border, lineWidth: 1))
     }
 }

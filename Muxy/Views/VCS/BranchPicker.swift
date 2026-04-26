@@ -42,46 +42,77 @@ struct BranchPicker: View {
         .accessibilityLabel("Branch: \(currentBranch ?? "detached")")
         .accessibilityHint("Opens branch picker")
         .popover(isPresented: $showPopover, arrowEdge: .top) {
-            PopoverPicker(
-                items: branchItems,
-                filterKey: \.name,
-                searchPlaceholder: "Search branches…",
-                emptyLabel: isLoading ? "Loading…" : "No branches found",
-                footerActions: onCreateBranch.map { action in
-                    [
-                        PopoverFooterAction(
-                            title: "New Branch…",
-                            icon: "plus.square.dashed",
-                            action: {
-                                showPopover = false
-                                action()
-                            }
-                        ),
-                    ]
-                } ?? [],
-                onSelect: { item in
+            BranchPickerContent(
+                currentBranch: currentBranch,
+                branches: branches,
+                isLoading: isLoading,
+                fixedSize: true,
+                onSelect: { name in
                     showPopover = false
-                    onSelect(item.name)
+                    onSelect(name)
                 },
-                row: { item, isHighlighted in
-                    BranchRow(
-                        name: item.name,
-                        isActive: item.name == currentBranch,
-                        isHighlighted: isHighlighted
-                    )
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .contextMenu {
-                        if let onDeleteBranch, item.name != currentBranch {
-                            Button("Delete Branch", role: .destructive) {
-                                showPopover = false
-                                onDeleteBranch(item.name)
-                            }
-                        }
+                onCreateBranch: onCreateBranch.map { action in
+                    {
+                        showPopover = false
+                        action()
+                    }
+                },
+                onDeleteBranch: onDeleteBranch.map { action in
+                    { name in
+                        showPopover = false
+                        action(name)
                     }
                 }
             )
         }
+    }
+}
+
+struct BranchPickerContent: View {
+    let currentBranch: String?
+    let branches: [String]
+    let isLoading: Bool
+    var fixedSize: Bool = false
+    let onSelect: (String) -> Void
+    let onCreateBranch: (() -> Void)?
+    let onDeleteBranch: ((String) -> Void)?
+
+    private var items: [BranchItem] { branches.map { BranchItem(name: $0) } }
+
+    var body: some View {
+        PopoverPicker(
+            items: items,
+            filterKey: \.name,
+            searchPlaceholder: "Search branches…",
+            emptyLabel: isLoading ? "Loading…" : "No branches found",
+            footerActions: onCreateBranch.map { action in
+                [
+                    PopoverFooterAction(
+                        title: "New Branch…",
+                        icon: "plus.square.dashed",
+                        action: action
+                    ),
+                ]
+            } ?? [],
+            fixedSize: fixedSize,
+            onSelect: { item in onSelect(item.name) },
+            row: { item, isHighlighted in
+                BranchRow(
+                    name: item.name,
+                    isActive: item.name == currentBranch,
+                    isHighlighted: isHighlighted
+                )
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .contextMenu {
+                    if let onDeleteBranch, item.name != currentBranch {
+                        Button("Delete Branch", role: .destructive) {
+                            onDeleteBranch(item.name)
+                        }
+                    }
+                }
+            }
+        )
     }
 }
 

@@ -28,6 +28,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
     let searchPlaceholder: String
     let emptyLabel: String
     let footerActions: [PopoverFooterAction]
+    let fixedSize: Bool
     let onSelect: (Item) -> Void
     @ViewBuilder let row: (Item, Bool) -> RowContent
 
@@ -37,6 +38,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
         searchPlaceholder: String,
         emptyLabel: String,
         footerActions: [PopoverFooterAction] = [],
+        fixedSize: Bool = true,
         onSelect: @escaping (Item) -> Void,
         @ViewBuilder row: @escaping (Item, Bool) -> RowContent
     ) {
@@ -45,6 +47,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
         self.searchPlaceholder = searchPlaceholder
         self.emptyLabel = emptyLabel
         self.footerActions = footerActions
+        self.fixedSize = fixedSize
         self.onSelect = onSelect
         self.row = row
     }
@@ -73,7 +76,8 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
                 }
             }
         }
-        .frame(width: 300, height: 420)
+        .frame(width: fixedSize ? 300 : nil, height: fixedSize ? 420 : nil)
+        .frame(maxWidth: fixedSize ? nil : .infinity, maxHeight: fixedSize ? nil : .infinity)
         .background(MuxyTheme.bg)
     }
 

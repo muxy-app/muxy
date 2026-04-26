@@ -6,6 +6,7 @@ struct WorktreePopover: View {
     let isGitRepo: Bool
     let onDismiss: () -> Void
     let onRequestCreate: () -> Void
+    var fixedSize: Bool = true
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -29,6 +30,7 @@ struct WorktreePopover: View {
             searchPlaceholder: "Search worktrees…",
             emptyLabel: "No matches",
             footerActions: footerActions,
+            fixedSize: fixedSize,
             onSelect: { worktree in
                 appState.selectWorktree(projectID: project.id, worktree: worktree)
                 onDismiss()
