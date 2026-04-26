@@ -776,10 +776,7 @@ struct PRPill: View {
             case .canCreate:
                 createPRPill
             case let .hasPR(info):
-                HStack(spacing: 4) {
-                    hasPRPill(info: info)
-                    openRepoButton
-                }
+                hasPRPill(info: info)
             }
         }
     }
