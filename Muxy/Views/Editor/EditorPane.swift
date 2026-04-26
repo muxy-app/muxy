@@ -1,24 +1,4 @@
-import AppKit
 import SwiftUI
-
-@MainActor
-private final class MarkdownPreviewKeyMonitor {
-    private var monitor: Any?
-
-    func install(handler: @escaping (NSEvent) -> NSEvent?) {
-        remove()
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            handler(event)
-        }
-    }
-
-    func remove() {
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
-        }
-        monitor = nil
-    }
-}
 
 struct EditorPane: View {
     @Bindable var state: EditorTabState
@@ -26,7 +6,7 @@ struct EditorPane: View {
     let onFocus: () -> Void
     @Environment(GhosttyService.self) private var ghostty
     @State private var editorSettings = EditorSettings.shared
-    @State private var markdownKeyMonitor = MarkdownPreviewKeyMonitor()
+    @FocusState private var markdownPreviewFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -55,32 +35,6 @@ struct EditorPane: View {
             }
             state.searchVisible = true
             state.searchFocusVersion += 1
-        }
-        .onAppear { updateMarkdownKeyMonitor() }
-        .onDisappear { markdownKeyMonitor.remove() }
-        .onChange(of: focused) { _, _ in updateMarkdownKeyMonitor() }
-        .onChange(of: state.isMarkdownFile) { _, _ in updateMarkdownKeyMonitor() }
-        .onChange(of: state.markdownViewMode) { _, _ in updateMarkdownKeyMonitor() }
-    }
-
-    private func updateMarkdownKeyMonitor() {
-        let shouldMonitor = focused && state.isMarkdownFile && state.markdownViewMode == .preview
-        guard shouldMonitor else {
-            markdownKeyMonitor.remove()
-            return
-        }
-        markdownKeyMonitor.install { event in
-            guard event.charactersIgnoringModifiers == "e" || event.charactersIgnoringModifiers == "E" else {
-                return event
-            }
-            let disallowed: NSEvent.ModifierFlags = [.command, .control, .option]
-            guard event.modifierFlags.isDisjoint(with: disallowed) else { return event }
-            guard state.markdownViewMode == .preview else { return event }
-            let isShift = event.modifierFlags.contains(.shift)
-            Task { @MainActor in
-                state.markdownViewMode = isShift ? .split : .code
-            }
-            return nil
         }
     }
 
@@ -204,6 +158,24 @@ struct EditorPane: View {
             }
         }
         .background(MuxyTheme.bg)
+        .focusable(focused)
+        .focusEffectDisabled()
+        .focused($markdownPreviewFocused)
+        .onKeyPress(keys: ["e"]) { press in
+            guard state.markdownViewMode == .preview else { return .ignored }
+            let disallowed: EventModifiers = [.command, .control, .option]
+            guard press.modifiers.isDisjoint(with: disallowed) else { return .ignored }
+            state.markdownViewMode = press.modifiers.contains(.shift) ? .split : .code
+            return .handled
+        }
+        .onAppear { acquireMarkdownPreviewFocusIfNeeded() }
+        .onChange(of: focused) { _, _ in acquireMarkdownPreviewFocusIfNeeded() }
+        .onChange(of: state.markdownViewMode) { _, _ in acquireMarkdownPreviewFocusIfNeeded() }
+    }
+
+    private func acquireMarkdownPreviewFocusIfNeeded() {
+        guard focused, state.isMarkdownFile, state.markdownViewMode == .preview else { return }
+        markdownPreviewFocused = true
     }
 
     private var renderedMarkdownContent: String {
