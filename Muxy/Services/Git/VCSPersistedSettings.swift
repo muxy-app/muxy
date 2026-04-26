@@ -1,9 +1,21 @@
+import CoreGraphics
 import CryptoKit
 import Foundation
 
 enum VCSPersistedSettings {
     private static let visibilityPrefix = "vcs.sectionVisibility."
     private static let autoSyncPrefix = "vcs.prAutoSyncMinutes."
+    private static let collapsePrefix = "vcs.sectionCollapsed."
+    private static let ratiosPrefix = "vcs.sectionRatios."
+
+    struct SectionCollapse: Equatable {
+        var staged: Bool
+        var changes: Bool
+        var history: Bool
+        var pullRequests: Bool
+
+        static let defaults = SectionCollapse(staged: false, changes: false, history: false, pullRequests: true)
+    }
 
     struct SectionVisibility: Equatable {
         var changes: Bool
@@ -59,8 +71,46 @@ enum VCSPersistedSettings {
         let token = token(for: repoPath)
         defaults.removeObject(forKey: visibilityPrefix + token)
         defaults.removeObject(forKey: autoSyncPrefix + token)
+        defaults.removeObject(forKey: collapsePrefix + token)
+        defaults.removeObject(forKey: ratiosPrefix + token)
         defaults.removeObject(forKey: visibilityPrefix + repoPath)
         defaults.removeObject(forKey: autoSyncPrefix + repoPath)
+    }
+
+    static func loadSectionCollapse(repoPath: String) -> SectionCollapse {
+        let defaults = UserDefaults.standard
+        guard let dict = defaults.dictionary(forKey: collapsePrefix + token(for: repoPath)) as? [String: Bool] else {
+            return .defaults
+        }
+        return SectionCollapse(
+            staged: dict["staged"] ?? false,
+            changes: dict["changes"] ?? false,
+            history: dict["history"] ?? false,
+            pullRequests: dict["pullRequests"] ?? true
+        )
+    }
+
+    static func storeSectionCollapse(_ collapse: SectionCollapse, repoPath: String) {
+        let raw: [String: Bool] = [
+            "staged": collapse.staged,
+            "changes": collapse.changes,
+            "history": collapse.history,
+            "pullRequests": collapse.pullRequests,
+        ]
+        UserDefaults.standard.set(raw, forKey: collapsePrefix + token(for: repoPath))
+    }
+
+    static func loadSectionRatios(repoPath: String) -> [CGFloat] {
+        let defaults = UserDefaults.standard
+        guard let raw = defaults.array(forKey: ratiosPrefix + token(for: repoPath)) as? [Double] else {
+            return []
+        }
+        return raw.map { CGFloat($0) }
+    }
+
+    static func storeSectionRatios(_ ratios: [CGFloat], repoPath: String) {
+        let raw = ratios.map { Double($0) }
+        UserDefaults.standard.set(raw, forKey: ratiosPrefix + token(for: repoPath))
     }
 
     private static func migrateLegacy(prefix: String, repoPath: String) -> Any? {

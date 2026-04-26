@@ -85,14 +85,33 @@ final class VCSTabState {
     var commits: [GitCommit] = []
     var isLoadingCommits = false
     var hasMoreCommits = true
-    var stagedCollapsed = false
-    var changesCollapsed = false
-    var historyCollapsed = false
-    var pullRequestsCollapsed = true
+    var stagedCollapsed = false {
+        didSet { persistCollapseIfChanged(oldValue, stagedCollapsed) }
+    }
+
+    var changesCollapsed = false {
+        didSet { persistCollapseIfChanged(oldValue, changesCollapsed) }
+    }
+
+    var historyCollapsed = false {
+        didSet { persistCollapseIfChanged(oldValue, historyCollapsed) }
+    }
+
+    var pullRequestsCollapsed = true {
+        didSet { persistCollapseIfChanged(oldValue, pullRequestsCollapsed) }
+    }
+
     var changesVisible = true
     var historyVisible = true
     var pullRequestsVisible = true
-    var sectionRatios: [CGFloat] = [0.25, 0.25, 0.25, 0.25]
+    var sectionRatios: [CGFloat] = [0.25, 0.25, 0.25, 0.25] {
+        didSet {
+            guard isLoaded, sectionRatios != oldValue else { return }
+            VCSPersistedSettings.storeSectionRatios(sectionRatios, repoPath: projectPath)
+        }
+    }
+
+    @ObservationIgnored private var isLoaded = false
 
     var pullRequests: [GitRepositoryService.PRListItem] = []
     var isLoadingPullRequests = false
@@ -162,6 +181,16 @@ final class VCSTabState {
         changesVisible = visibility.changes
         historyVisible = visibility.history
         pullRequestsVisible = visibility.pullRequests
+        let collapse = VCSPersistedSettings.loadSectionCollapse(repoPath: projectPath)
+        stagedCollapsed = collapse.staged
+        changesCollapsed = collapse.changes
+        historyCollapsed = collapse.history
+        pullRequestsCollapsed = collapse.pullRequests
+        let storedRatios = VCSPersistedSettings.loadSectionRatios(repoPath: projectPath)
+        if storedRatios.count == sectionRatios.count {
+            sectionRatios = storedRatios
+        }
+        isLoaded = true
         startWatching()
         observeRemoteChanges()
         rescheduleAutoSync()
@@ -1142,6 +1171,20 @@ final class VCSTabState {
         guard pullRequestsVisible != visible else { return }
         pullRequestsVisible = visible
         VCSPersistedSettings.storeSectionVisibility(currentVisibility, repoPath: projectPath)
+    }
+
+    private func persistCollapseIfChanged(_ oldValue: Bool, _ newValue: Bool) {
+        guard isLoaded, oldValue != newValue else { return }
+        VCSPersistedSettings.storeSectionCollapse(currentCollapse, repoPath: projectPath)
+    }
+
+    private var currentCollapse: VCSPersistedSettings.SectionCollapse {
+        VCSPersistedSettings.SectionCollapse(
+            staged: stagedCollapsed,
+            changes: changesCollapsed,
+            history: historyCollapsed,
+            pullRequests: pullRequestsCollapsed
+        )
     }
 
     private var currentVisibility: VCSPersistedSettings.SectionVisibility {
