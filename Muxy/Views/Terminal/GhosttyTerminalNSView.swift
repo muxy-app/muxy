@@ -682,6 +682,13 @@ final class GhosttyTerminalNSView: NSView {
         return ghostty_input_mods_e(rawValue: mods)
     }
 
+    private enum RightModifierMask {
+        static let shift: UInt = 0x04
+        static let control: UInt = 0x2000
+        static let option: UInt = 0x40
+        static let command: UInt = 0x10
+    }
+
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
         let flags = event.modifierFlags
@@ -691,10 +698,10 @@ final class GhosttyTerminalNSView: NSView {
         if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
         if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
         if flags.contains(.capsLock) { mods |= GHOSTTY_MODS_CAPS.rawValue }
-        if raw & 0x04 != 0 { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
-        if raw & 0x2000 != 0 { mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }
-        if raw & 0x40 != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
-        if raw & 0x10 != 0 { mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
+        if raw & RightModifierMask.shift != 0 { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
+        if raw & RightModifierMask.control != 0 { mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }
+        if raw & RightModifierMask.option != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
+        if raw & RightModifierMask.command != 0 { mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
     }
 
