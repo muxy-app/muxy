@@ -5,7 +5,7 @@
 <h1 align="center">Muxy</h1>
 
 <p align="center">Lightweight and Memory efficient terminal for Mac built with SwiftUI and <a href="https://github.com/ghostty-org/ghostty">libghostty</a>.</p>
-<p align="center"><a href="#ios-app-testing">Available on iOS</a> | <a href="https://discord.gg/4eMXAmJQ2n">Discord</a></p>
+<p align="center"><p align="center"><a href="#install">Mac</a> | <a href="#ios-app-testing">iOS</a> | <a href="https://discord.gg/4eMXAmJQ2n">Discord</a></p>
 
 <div align="center">
   <img src="https://img.shields.io/github/downloads/muxy-app/muxy/total" />

@@ -371,6 +371,10 @@ final class FileTreeState {
         process.executableURL = URL(fileURLWithPath: gitPath)
         process.arguments = ["-C", repoRoot, "-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "--untracked-files=normal"]
 
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_OPTIONAL_LOCKS"] = "0"
+        process.environment = environment
+
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         process.standardOutput = stdoutPipe
