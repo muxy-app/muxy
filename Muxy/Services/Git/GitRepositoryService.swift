@@ -308,13 +308,35 @@ struct GitRepositoryService {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
             throw PRCreateError.ghNotInstalled
         }
-        let result = try await GitProcessRunner.runCommand(
+        let ghResult = try await GitProcessRunner.runCommand(
             executable: ghPath,
             arguments: ["pr", "checkout", String(number)],
             workingDirectory: repoPath
         )
-        guard result.status == 0 else {
-            let message = result.stderr.isEmpty ? result.stdout : result.stderr
+        if ghResult.status == 0 {
+            return
+        }
+
+        let localBranch = "pr-\(number)"
+        let refspec = "refs/pull/\(number)/head:\(localBranch)"
+        let fetchResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["fetch", "origin", refspec, "--force"]
+        )
+        if fetchResult.status != 0 {
+            let message = ghResult.stderr.isEmpty ? ghResult.stdout : ghResult.stderr
+            throw PRCreateError.commandFailed(
+                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Failed to checkout pull request."
+                    : message.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        let checkoutResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["checkout", localBranch]
+        )
+        guard checkoutResult.status == 0 else {
+            let message = checkoutResult.stderr.isEmpty ? checkoutResult.stdout : checkoutResult.stderr
             throw PRCreateError.commandFailed(
                 message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? "Failed to checkout pull request."
