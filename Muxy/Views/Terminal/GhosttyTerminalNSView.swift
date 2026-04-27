@@ -391,7 +391,8 @@ final class GhosttyTerminalNSView: NSView {
         currentKeyEvent = event
         keyTextAccumulator = []
         commandSelectorCalled = false
-        interpretKeyEvents([event])
+        let interpretEvent = translatedOptionAsAlt(for: event) ? eventStrippingOption(event) : event
+        interpretKeyEvents([interpretEvent])
         currentKeyEvent = nil
 
         syncPreedit(clearIfNeeded: hadMarkedText)
@@ -681,15 +682,53 @@ final class GhosttyTerminalNSView: NSView {
         return ghostty_input_mods_e(rawValue: mods)
     }
 
+    private enum RightModifierMask {
+        static let shift: UInt = 0x04
+        static let control: UInt = 0x2000
+        static let option: UInt = 0x40
+        static let command: UInt = 0x10
+    }
+
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
         let flags = event.modifierFlags
+        let raw = flags.rawValue
         if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
         if flags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
         if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
         if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
         if flags.contains(.capsLock) { mods |= GHOSTTY_MODS_CAPS.rawValue }
+        if raw & RightModifierMask.shift != 0 { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
+        if raw & RightModifierMask.control != 0 { mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }
+        if raw & RightModifierMask.option != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
+        if raw & RightModifierMask.command != 0 { mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
+    }
+
+    private func translatedOptionAsAlt(for event: NSEvent) -> Bool {
+        guard let surface else { return false }
+        let flags = event.modifierFlags
+        guard flags.contains(.option) else { return false }
+        let original = modsFromEvent(event)
+        let translated = ghostty_surface_key_translation_mods(surface, original)
+        return translated.rawValue & GHOSTTY_MODS_ALT.rawValue == 0
+    }
+
+    private func eventStrippingOption(_ event: NSEvent) -> NSEvent {
+        let stripped = event.modifierFlags.subtracting(.option)
+        let synthetic = NSEvent.keyEvent(
+            with: event.type,
+            location: event.locationInWindow,
+            modifierFlags: stripped,
+            timestamp: event.timestamp,
+            windowNumber: event.windowNumber,
+            context: nil,
+            characters: event.charactersIgnoringModifiers ?? "",
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
+            isARepeat: event.isARepeat,
+            keyCode: event.keyCode
+        )
+        return synthetic ?? event
     }
 
     private func isFlagPress(_ event: NSEvent) -> Bool {
