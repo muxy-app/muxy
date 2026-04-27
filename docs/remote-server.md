@@ -78,8 +78,7 @@ Success:
     "id": "request-id",
     "result": {
       "type": "ok"
-    },
-    "error": null
+    }
   }
 }
 ```
@@ -91,7 +90,6 @@ Failure:
   "type": "response",
   "payload": {
     "id": "request-id",
-    "result": null,
     "error": {
       "code": 401,
       "message": "Authentication required"
@@ -99,6 +97,8 @@ Failure:
   }
 }
 ```
+
+Only one of `result` or `error` is present on a given response; the unused field is omitted from the JSON.
 
 ### Event Envelope
 
@@ -160,6 +160,7 @@ Rules:
 | `401` | Authentication required |
 | `403` | Pairing denied |
 | `404` | Resource not found |
+| `408` | Pairing request timed out |
 | `500` | Internal error or operation failure |
 
 ## Authentication Methods
@@ -190,10 +191,13 @@ Success result:
     "clientID": "62ea9d06-a1f4-4a11-9f39-33ee322f6573",
     "deviceName": "Pixel 9",
     "themeFg": 16777215,
-    "themeBg": 197379
+    "themeBg": 197379,
+    "themePalette": [0, 16711680, 65280]
   }
 }
 ```
+
+`themeFg`, `themeBg`, and `themePalette` are optional and may be omitted.
 
 ### `pairDevice`
 
@@ -202,6 +206,21 @@ Requests approval for a new device.
 Request shape is the same as `authenticateDevice`.
 
 Success returns the same `pairing` result.
+
+### `registerDevice`
+
+Registers a transient session for a device that has not persisted credentials. The server returns a `deviceInfo` result with the same fields as `pairing` (`clientID`, `deviceName`, optional `themeFg`, `themeBg`, `themePalette`).
+
+Request:
+
+```json
+{
+  "type": "registerDevice",
+  "value": {
+    "deviceName": "Pixel 9"
+  }
+}
+```
 
 ## Recommended Client Startup Flow
 
@@ -234,7 +253,7 @@ Success returns the same `pairing` result.
 
 Valid enum values:
 
-- `kind`: `terminal`, `vcs`, `editor`
+- `kind`: `terminal`, `vcs`, `editor`, `diffViewer`
 - `direction`: `horizontal`, `vertical`
 - `position`: `first`, `second`
 
@@ -301,6 +320,7 @@ The server can push these event names:
 | `workspaceChanged` | `workspace` | Full workspace layout update |
 | `tabChanged` | `tab` | Tab created, closed, selected, or retitled |
 | `terminalOutput` | `terminalOutput` | Raw PTY bytes for a pane the client owns. Pushed as the shell/TUI writes. |
+| `terminalSnapshot` | `terminalCells` | Full grid snapshot for a pane the client just took over. |
 | `notificationReceived` | `notification` | New notification emitted by Muxy |
 | `projectsChanged` | `projects` | Updated project list |
 | `paneOwnershipChanged` | `paneOwnership` | Pane control changed between Mac and remote clients |
