@@ -1,6 +1,15 @@
 import SwiftUI
 
+enum ThemePickerMode {
+    case light
+    case dark
+    case currentAppearance
+
+    static var sidebar: ThemePickerMode { .currentAppearance }
+}
+
 struct ThemePicker: View {
+    var mode: ThemePickerMode = .currentAppearance
     @Environment(ThemeService.self) private var themeService
     @State private var themes: [ThemePreview] = []
     @State private var currentTheme: String?
@@ -23,13 +32,29 @@ struct ThemePicker: View {
         .frame(width: 280, height: 400)
         .task {
             themes = await themeService.loadThemes()
-            currentTheme = themeService.currentThemeName()
+            currentTheme = currentName()
+        }
+    }
+
+    private func currentName() -> String? {
+        isDarkMode() ? themeService.currentDarkThemeName() : themeService.currentLightThemeName()
+    }
+
+    private func isDarkMode() -> Bool {
+        switch mode {
+        case .light: false
+        case .dark: true
+        case .currentAppearance: ThemeService.isCurrentAppearanceDark()
         }
     }
 
     private func selectTheme(_ theme: ThemePreview) {
         currentTheme = theme.name
-        themeService.applyTheme(theme.name)
+        if isDarkMode() {
+            themeService.applyDarkTheme(theme.name)
+        } else {
+            themeService.applyLightTheme(theme.name)
+        }
     }
 }
 

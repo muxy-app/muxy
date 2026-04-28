@@ -65,6 +65,16 @@ final class ThemeService {
         return Self.parseThemeSelection(value)
     }
 
+    func currentLightThemeName() -> String? {
+        guard let selection = currentThemeSelection() else { return nil }
+        return selection.lightName ?? selection.fallbackName
+    }
+
+    func currentDarkThemeName() -> String? {
+        guard let selection = currentThemeSelection() else { return nil }
+        return selection.darkName ?? selection.fallbackName
+    }
+
     func activeThemeName() -> String? {
         currentThemeSelection()?.resolvedName(isDark: Self.isCurrentAppearanceDark())
     }
@@ -112,6 +122,24 @@ final class ThemeService {
     func applyDefaultThemeIfNeeded() {
         guard currentThemeName() == nil else { return }
         applyTheme(Self.defaultThemeName)
+    }
+
+    func migrateToPairedThemeIfNeeded() {
+        guard let selection = currentThemeSelection() else { return }
+        if selection.darkName != nil, selection.lightName != nil { return }
+        let dark = selection.darkName ?? selection.fallbackName ?? Self.defaultThemeName
+        let light = selection.lightName ?? selection.fallbackName ?? Self.defaultThemeName
+        applyTheme(dark: dark, light: light)
+    }
+
+    func applyLightTheme(_ name: String) {
+        let dark = currentDarkThemeName() ?? name
+        applyTheme(dark: dark, light: name)
+    }
+
+    func applyDarkTheme(_ name: String) {
+        let light = currentLightThemeName() ?? name
+        applyTheme(dark: name, light: light)
     }
 
     func applyTheme(_ name: String) {
