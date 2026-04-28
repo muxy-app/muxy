@@ -304,7 +304,7 @@ final class VCSTabState {
             }
         }
 
-        if !historyCollapsed, commits.isEmpty {
+        if !historyCollapsed, !incremental || commits.isEmpty {
             loadCommits()
         }
 
