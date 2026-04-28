@@ -32,6 +32,7 @@ final class AppState {
         )
         case createTab(projectID: UUID, areaID: UUID?)
         case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
+        case createCommandTab(projectID: UUID, areaID: UUID?, name: String, command: String)
         case createVCSTab(projectID: UUID, areaID: UUID?)
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String, suppressInitialFocus: Bool)
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
@@ -204,6 +205,15 @@ final class AppState {
 
     func createTab(projectID: UUID) {
         dispatch(.createTab(projectID: projectID, areaID: nil))
+    }
+
+    func createCommandTab(projectID: UUID, shortcut: CommandShortcut) {
+        dispatch(.createCommandTab(
+            projectID: projectID,
+            areaID: nil,
+            name: shortcut.displayName,
+            command: shortcut.trimmedCommand
+        ))
     }
 
     func createVCSTab(projectID: UUID) {

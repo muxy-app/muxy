@@ -23,6 +23,20 @@ enum TabReducer {
         area.createTab(inDirectory: directory)
     }
 
+    static func createCommandTab(
+        projectID: UUID,
+        areaID: UUID?,
+        name: String,
+        command: String,
+        state: inout WorkspaceState
+    ) {
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
+              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
+        else { return }
+        FocusReducer.focusArea(area.id, key: key, state: &state)
+        area.createCommandTab(name: name, command: command)
+    }
+
     static func createVCSTab(projectID: UUID, areaID: UUID?, state: inout WorkspaceState) {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)

@@ -79,6 +79,15 @@ enum WorkspaceReducer {
                 state: &state
             )
 
+        case let .createCommandTab(projectID, areaID, name, command):
+            TabReducer.createCommandTab(
+                projectID: projectID,
+                areaID: areaID,
+                name: name,
+                command: command,
+                state: &state
+            )
+
         case let .createVCSTab(projectID, areaID):
             TabReducer.createVCSTab(projectID: projectID, areaID: areaID, state: &state)
 

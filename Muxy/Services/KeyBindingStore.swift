@@ -60,7 +60,16 @@ final class KeyBindingStore {
     }
 
     func conflictingAction(for combo: KeyCombo, excluding: ShortcutAction) -> ShortcutAction? {
-        bindings.first { $0.combo == combo && $0.action != excluding }?.action
+        conflictingAction(for: combo, excluding: Optional(excluding))
+    }
+
+    func conflictingAction(for combo: KeyCombo, excluding: ShortcutAction?) -> ShortcutAction? {
+        bindings.first { binding in
+            if let excluding {
+                return binding.combo == combo && binding.action != excluding
+            }
+            return binding.combo == combo
+        }?.action
     }
 
     private func load() {

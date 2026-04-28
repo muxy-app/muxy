@@ -51,6 +51,7 @@ Muxy/
     TabArea.swift             Container for tabs within a single pane
     TerminalTab.swift         Terminal, VCS, editor, or diff-viewer tab model
     TabDragCoordinator.swift  Cross-pane tab drag-and-drop, TabMoveRequest, SplitPlacement
+    CommandShortcut.swift     User-defined terminal command shortcut model for layered command chords
     KeyBinding.swift          ShortcutAction enum + KeyBinding defaults
     KeyCombo.swift            Key combo encoding, display, matching
     VCSTabState.swift         Git diff viewer state + loading orchestration
@@ -108,6 +109,7 @@ Muxy/
     MuxyConfig.swift          Ghostty config file read/write
     KeyBindingStore.swift     @Observable store for keyboard shortcuts
     KeyBindingPersistence.swift  JSON persistence for shortcuts
+    CommandShortcutStore.swift  @Observable store + JSON persistence for custom command shortcuts and command-layer prefix state
     ProjectStore.swift        @Observable store for projects list
     ProjectPersistence.swift  JSON persistence for projects
     ApprovedDevicesStore.swift Approved mobile devices (deviceID, SHA-256 token hash), revocation
@@ -195,7 +197,7 @@ Muxy/
       AppearanceSettingsView.swift  Theme settings tab
       EditorSettingsView.swift  Editor preferences tab (default editor, font)
       TerminalSettingsView.swift  Terminal preferences tab, including quick-select label layout
-      KeyboardShortcutsSettingsView.swift  Shortcut config tab
+      KeyboardShortcutsSettingsView.swift  Shortcut config tab, including layered custom terminal command shortcuts
       NotificationSettingsView.swift  Notification preferences tab
       AIUsageSettingsView.swift  AI usage tab (global enable, display mode, auto-refresh, secondary limits, per-provider toggles)
       MobileSettingsView.swift  Mobile server and approved devices tab
@@ -253,7 +255,7 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
   Ghostty palette — themes Just Work. Edits invalidate the cache from the earliest affected
   line; search highlights (temporary attributes) layer on top without losing syntax colors.
 - **GhosttyKit**: C module wrapping `ghostty.h`. Precompiled xcframework from `muxy-app/ghostty` fork. Surfaces created/destroyed via `TerminalViewRegistry`.
-- **Persistence**: All files in `~/Library/Application Support/Muxy/`. Shared directory helper: `MuxyFileStorage`. Worktrees are persisted per-project at `worktrees/{projectID}.json`, including whether a secondary worktree is Muxy-managed or externally discovered. Git projects can manually refresh this list from `git worktree list --porcelain` to import existing worktrees without deleting absent entries; paths are matched after symlink resolution so a repo opened via a symlinked path still collapses onto a single primary entry. Externally discovered worktrees are never touched by Muxy's `cleanupOnDisk` paths (project removal, post-merge cleanup, manual removal) — they can only be unregistered by the user in the underlying repo. Worktree setup commands live in-repo at `{Project.path}/.muxy/worktree.json`.
+- **Persistence**: All files in `~/Library/Application Support/Muxy/`. Shared directory helper: `MuxyFileStorage`. Shortcuts are stored in `keybindings.json`; custom command shortcuts are stored in `command-shortcuts.json`. Worktrees are persisted per-project at `worktrees/{projectID}.json`, including whether a secondary worktree is Muxy-managed or externally discovered. Git projects can manually refresh this list from `git worktree list --porcelain` to import existing worktrees without deleting absent entries; paths are matched after symlink resolution so a repo opened via a symlinked path still collapses onto a single primary entry. Externally discovered worktrees are never touched by Muxy's `cleanupOnDisk` paths (project removal, post-merge cleanup, manual removal) — they can only be unregistered by the user in the underlying repo. Worktree setup commands live in-repo at `{Project.path}/.muxy/worktree.json`.
 - **Ghostty Config**: Managed by `MuxyConfig`, stored at `~/Library/Application Support/Muxy/ghostty.conf`. Seeded from `~/.config/ghostty/config` on first run.
 - **Updates**: Sparkle framework via `UpdateService`.
 - **Window Title**: `NSWindow.title` is hidden visually (`titleVisibility = .hidden`) but set
