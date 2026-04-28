@@ -76,6 +76,8 @@ struct CreatePRSheet: View {
                 }
             }
         }
+        .preferredColorScheme(preferredScheme)
+        .presentationBackground(themeBg)
     }
 
     private func submit() async {

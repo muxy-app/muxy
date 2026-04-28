@@ -46,6 +46,8 @@ struct BranchesSheet: View {
                 Text("Creates and switches to a new branch from HEAD.")
             }
         }
+        .preferredColorScheme(preferredScheme)
+        .presentationBackground(themeBg)
         .task { await load() }
     }
 

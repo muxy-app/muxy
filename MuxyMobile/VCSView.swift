@@ -72,6 +72,8 @@ struct VCSView: View {
                     .environment(connection)
             }
         }
+        .preferredColorScheme(preferredScheme)
+        .presentationBackground(themeBg)
         .task { await refresh() }
     }
 

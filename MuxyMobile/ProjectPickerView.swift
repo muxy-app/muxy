@@ -12,6 +12,8 @@ struct ProjectPickerView: View {
                     WorkspaceContentWrapper()
                 }
         }
+        .background(themeBg.ignoresSafeArea())
+        .preferredColorScheme(preferredScheme)
         .onChange(of: connection.activeProjectID) { _, newValue in
             if let id = newValue, path.last != id {
                 path = [id]
@@ -53,7 +55,7 @@ struct ProjectPickerView: View {
             .listRowSeparatorTint(themeFg.opacity(0.15))
         }
         .scrollContentBackground(.hidden)
-        .background(themeBg)
+        .background(themeBg.ignoresSafeArea())
         .navigationTitle("Projects")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -84,6 +86,10 @@ struct ProjectPickerView: View {
 
     private var themeBg: Color {
         connection.deviceTheme?.bgColor ?? Color(.systemBackground)
+    }
+
+    private var preferredScheme: ColorScheme {
+        (connection.deviceTheme?.isDark ?? true) ? .dark : .light
     }
 
     private func worktreeSubtitle(for projectID: UUID) -> String {

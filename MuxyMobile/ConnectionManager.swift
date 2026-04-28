@@ -83,6 +83,12 @@ final class ConnectionManager {
     private var session: URLSession?
     private var pendingRequests: [String: PendingRequest] = [:]
     private var terminalByteHandlers: [UUID: (Data) -> Void] = [:]
+    @ObservationIgnored private var demo: DemoBackend?
+    @ObservationIgnored private var connectTask: Task<Void, Never>?
+    var isDemoMode: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.demoModeKey) }
+        set { setDemoMode(newValue) }
+    }
 
     func subscribeTerminalBytes(paneID: UUID, handler: @escaping (Data) -> Void) {
         terminalByteHandlers[paneID] = handler
@@ -90,6 +96,10 @@ final class ConnectionManager {
 
     func unsubscribeTerminalBytes(paneID: UUID) {
         terminalByteHandlers.removeValue(forKey: paneID)
+    }
+
+    func terminalByteHandler(for paneID: UUID) -> ((Data) -> Void)? {
+        terminalByteHandlers[paneID]
     }
 
     private var lastHost: String?
@@ -110,7 +120,37 @@ final class ConnectionManager {
     }
 
     init() {
-        loadDevices()
+        if UserDefaults.standard.bool(forKey: Self.demoModeKey) {
+            let backend = DemoBackend()
+            backend.owner = self
+            demo = backend
+            savedDevices = backend.savedDevices
+        } else {
+            loadDevices()
+        }
+    }
+
+    func setDemoMode(_ enabled: Bool) {
+        guard enabled != UserDefaults.standard.bool(forKey: Self.demoModeKey) else { return }
+        disconnect()
+        UserDefaults.standard.set(enabled, forKey: Self.demoModeKey)
+        if enabled {
+            let backend = DemoBackend()
+            backend.owner = self
+            demo = backend
+            savedDevices = backend.savedDevices
+        } else {
+            demo = nil
+            loadDevices()
+        }
+        projects = []
+        worktrees = []
+        projectWorktrees = [:]
+        workspace = nil
+        notifications = []
+        projectLogos = [:]
+        paneOwners = [:]
+        myClientID = nil
     }
 
     func connect(host: String, port: UInt16 = 4865, name: String = "Mac") {
@@ -126,12 +166,28 @@ final class ConnectionManager {
         paneOwners = [:]
         deviceTheme = nil
 
+        if let demo {
+            myClientID = DemoBackend.myClientID
+            deviceTheme = DemoBackend.theme
+            projects = demo.projects
+            for project in demo.projects {
+                projectWorktrees[project.id] = demo.worktrees(for: project.id)
+            }
+            state = .connected
+            return
+        }
+
         openSocket(host: host, port: port)
 
-        Task {
+        connectTask?.cancel()
+        connectTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
+            if Task.isCancelled { return }
+            guard let self else { return }
             guard await authenticateOrPair() else { return }
+            if Task.isCancelled { return }
             await refreshProjects()
+            if Task.isCancelled { return }
             switch state {
             case .connecting,
                  .awaitingApproval:
@@ -292,12 +348,18 @@ final class ConnectionManager {
     func disconnect() {
         recordDiagnostic("Disconnected")
         state = .disconnected
+        connectTask?.cancel()
+        connectTask = nil
         connection?.cancel(with: .goingAway, reason: nil)
         connection = nil
         session = nil
         activeProjectID = nil
         workspace = nil
         deviceTheme = nil
+        for (id, pending) in pendingRequests {
+            pending.continuation.resume(returning: MuxyResponse(id: id, error: MuxyError(code: 499, message: "Cancelled")))
+        }
+        pendingRequests.removeAll()
     }
 
     func reconnect() {
@@ -556,6 +618,12 @@ final class ConnectionManager {
     }
 
     private func sendFireAndForget(_ method: MuxyMethod, params: MuxyParams) {
+        if let demo {
+            if case let .terminalInput(p) = params {
+                demo.handleTerminalInput(paneID: p.paneID, bytes: p.bytes)
+            }
+            return
+        }
         guard let connection else { return }
         let request = MuxyRequest(id: UUID().uuidString, method: method, params: params)
         let message = MuxyMessage.request(request)
@@ -595,6 +663,10 @@ final class ConnectionManager {
         if Self.voidMethods.contains(method) {
             if let params { sendFireAndForget(method, params: params) }
             return nil
+        }
+        if let demo {
+            try? await Task.sleep(for: demo.simulatedDelay(for: method))
+            return demo.handle(method, params: params)
         }
         let id = UUID().uuidString
         let request = MuxyRequest(id: id, method: method, params: params)
@@ -764,6 +836,7 @@ final class ConnectionManager {
         notes: [String] = []
     ) {
         recordDiagnostic("Failure during \(operation): \(message)")
+        if case .disconnected = state { return }
         state = .error(
             makeIssue(
                 message: message,
@@ -945,17 +1018,26 @@ final class ConnectionManager {
     }
 
     private static let devicesKey = "savedDevices"
+    fileprivate static let demoModeKey = "demoMode"
 
     func addDevice(name: String, host: String, port: UInt16) {
         let device = SavedDevice(name: name, host: host, port: port)
         savedDevices.removeAll { $0.host == host && $0.port == port }
         savedDevices.insert(device, at: 0)
-        saveDevices()
+        if let demo {
+            demo.addDevice(name: name, host: host, port: port)
+        } else {
+            saveDevices()
+        }
     }
 
     func removeDevice(_ device: SavedDevice) {
         savedDevices.removeAll { $0.id == device.id }
-        saveDevices()
+        if let demo {
+            demo.removeDevice(device)
+        } else {
+            saveDevices()
+        }
     }
 
     private func saveDevices() {

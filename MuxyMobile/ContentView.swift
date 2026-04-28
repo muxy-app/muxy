@@ -10,9 +10,7 @@ struct ContentView: View {
         case .disconnected:
             ConnectView()
         case .connecting:
-            ProgressView("Connecting...")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.systemGroupedBackground))
+            ConnectingView()
         case .awaitingApproval:
             AwaitingApprovalView()
         case .connected:
@@ -20,6 +18,24 @@ struct ContentView: View {
         case let .error(issue):
             ErrorView(issue: issue)
         }
+    }
+}
+
+struct ConnectingView: View {
+    @Environment(ConnectionManager.self) private var connection
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+            Text("Connecting...")
+                .foregroundStyle(.secondary)
+            Button("Cancel", role: .destructive) {
+                connection.disconnect()
+            }
+            .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
     }
 }
 

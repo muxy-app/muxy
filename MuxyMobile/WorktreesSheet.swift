@@ -40,6 +40,8 @@ struct WorktreesSheet: View {
                     .environment(connection)
             }
         }
+        .preferredColorScheme(preferredScheme)
+        .presentationBackground(themeBg)
     }
 
     @ViewBuilder
@@ -188,6 +190,8 @@ struct AddWorktreeSheet: View {
                 }
             }
         }
+        .preferredColorScheme(preferredScheme)
+        .presentationBackground(themeBg)
         .task { await loadBranches() }
     }
 

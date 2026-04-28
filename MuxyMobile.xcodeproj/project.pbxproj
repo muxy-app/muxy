@@ -21,6 +21,7 @@
 		A100000C /* BranchesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000011 /* BranchesSheet.swift */; };
 		A100000D /* WorktreesSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000012 /* WorktreesSheet.swift */; };
 		A100000E /* CreatePRSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013 /* CreatePRSheet.swift */; };
+		A100000F /* DemoBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000014 /* DemoBackend.swift */; };
 		A1000010 /* MuxyShared in Frameworks */ = {isa = PBXBuildFile; productRef = A4000001 /* MuxyShared */; };
 		A1000011 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A4000002 /* SwiftTerm */; };
 		A1000020 /* JetBrainsMonoNerdFontMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A200000A /* JetBrainsMonoNerdFontMono-Regular.ttf */; };
@@ -45,6 +46,7 @@
 		A2000011 /* BranchesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchesSheet.swift; sourceTree = "<group>"; };
 		A2000012 /* WorktreesSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreesSheet.swift; sourceTree = "<group>"; };
 		A2000013 /* CreatePRSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreatePRSheet.swift; sourceTree = "<group>"; };
+		A2000014 /* DemoBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoBackend.swift; sourceTree = "<group>"; };
 		A200000A /* JetBrainsMonoNerdFontMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMonoNerdFontMono-Regular.ttf"; sourceTree = "<group>"; };
 		A200000B /* JetBrainsMonoNerdFontMono-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "JetBrainsMonoNerdFontMono-Bold.ttf"; sourceTree = "<group>"; };
 		A200000C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -89,6 +91,7 @@
 				A2000011 /* BranchesSheet.swift */,
 				A2000012 /* WorktreesSheet.swift */,
 				A2000013 /* CreatePRSheet.swift */,
+				A2000014 /* DemoBackend.swift */,
 				A200000E /* DeviceCredentialsStore.swift */,
 				A2000006 /* Info.plist */,
 				A200000D /* PrivacyInfo.xcprivacy */,
@@ -212,6 +215,7 @@
 				A100000C /* BranchesSheet.swift in Sources */,
 				A100000D /* WorktreesSheet.swift in Sources */,
 				A100000E /* CreatePRSheet.swift in Sources */,
+				A100000F /* DemoBackend.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

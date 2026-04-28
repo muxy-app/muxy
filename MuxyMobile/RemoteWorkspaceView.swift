@@ -29,30 +29,32 @@ struct WorkspaceContentWrapper: View {
     }
 
     var body: some View {
-        tabContentView
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(activeProject?.name ?? "")
-                        .font(.headline)
-                        .foregroundStyle(themeFg)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 16) {
-                        vcsButton
-                        tabPicker
-                    }
+        ZStack {
+            themeBg.ignoresSafeArea()
+            tabContentView
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text(activeProject?.name ?? "")
+                    .font(.headline)
+                    .foregroundStyle(themeFg)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 16) {
+                    vcsButton
+                    tabPicker
                 }
             }
-            .toolbarColorScheme(preferredScheme, for: .navigationBar)
-            .tint(themeFg)
-            .background(themeBg.ignoresSafeArea())
-            .sheet(isPresented: $showingVCS) {
-                if let id = connection.activeProjectID {
-                    VCSView(projectID: id)
-                        .environment(connection)
-                }
+        }
+        .toolbarColorScheme(preferredScheme, for: .navigationBar)
+        .tint(themeFg)
+        .sheet(isPresented: $showingVCS) {
+            if let id = connection.activeProjectID {
+                VCSView(projectID: id)
+                    .environment(connection)
             }
+        }
     }
 
     private var vcsButton: some View {

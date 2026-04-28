@@ -2,8 +2,10 @@ import SwiftUI
 
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(ConnectionManager.self) private var connection
     @State private var useNerdFont = TerminalFont.useNerdFont
     @State private var fontSize = TerminalFont.fontSize
+    @State private var demoMode = false
 
     var body: some View {
         NavigationStack {
@@ -34,6 +36,16 @@ struct SettingsSheet: View {
                 }
 
                 Section {
+                    Toggle("Demo Mode", isOn: $demoMode)
+                        .onChange(of: demoMode) { _, newValue in
+                            guard newValue != connection.isDemoMode else { return }
+                            connection.setDemoMode(newValue)
+                        }
+                } footer: {
+                    Text("Loads sample data so you can try the app without a Mac. Switching it off restores your real devices.")
+                }
+
+                Section {
                     NavigationLink {
                         aboutView
                     } label: {
@@ -41,6 +53,7 @@ struct SettingsSheet: View {
                     }
                 }
             }
+            .onAppear { demoMode = connection.isDemoMode }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
