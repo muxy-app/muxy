@@ -380,7 +380,7 @@ enum MarkdownRenderer {
         let fontFamilyCSS = palette.fontFamilyCSS
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "'", with: "\\'")
-        let fontSizePixels = max(6, 14 * palette.fontScale)
+        let fontSizePixels = max(6, EditorSettings.markdownPreviewBaseFontSize * palette.fontScale)
         let isDarkPreview = isDarkColor(palette.background)
         let mermaidBaseTheme = isDarkPreview ? "dark" : "default"
         let colorScheme = isDarkPreview ? "dark" : "light"

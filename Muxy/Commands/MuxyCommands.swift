@@ -70,11 +70,7 @@ struct MuxyCommands: Commands {
     }
 
     private func adjustMarkdownPreviewZoom(by delta: CGFloat) {
-        let next = EditorSettings.shared.markdownPreviewFontScale + delta
-        EditorSettings.shared.markdownPreviewFontScale = min(
-            EditorSettings.maxMarkdownPreviewFontScale,
-            max(EditorSettings.minMarkdownPreviewFontScale, next)
-        )
+        EditorSettings.shared.adjustMarkdownPreviewFontScale(by: delta)
     }
 
     private func performCommandShortcut(_ shortcut: CommandShortcut) {
@@ -295,14 +291,14 @@ struct MuxyCommands: Commands {
         CommandGroup(after: .toolbar) {
             Button("Zoom In Markdown Preview") {
                 guard isMainWindowFocused, isMarkdownPreviewActive else { return }
-                adjustMarkdownPreviewZoom(by: 0.1)
+                adjustMarkdownPreviewZoom(by: EditorSettings.markdownPreviewZoomStep)
             }
-            .keyboardShortcut("+", modifiers: .command)
+            .keyboardShortcut("=", modifiers: .command)
             .disabled(!isMarkdownPreviewActive)
 
             Button("Zoom Out Markdown Preview") {
                 guard isMainWindowFocused, isMarkdownPreviewActive else { return }
-                adjustMarkdownPreviewZoom(by: -0.1)
+                adjustMarkdownPreviewZoom(by: -EditorSettings.markdownPreviewZoomStep)
             }
             .keyboardShortcut("-", modifiers: .command)
             .disabled(!isMarkdownPreviewActive)

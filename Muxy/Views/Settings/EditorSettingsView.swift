@@ -60,9 +60,7 @@ struct EditorSettingsView: View {
                 SettingsRow("Zoom") {
                     HStack(spacing: 8) {
                         Button {
-                            let next = settings.markdownPreviewFontScale - 0.1
-                            guard next >= EditorSettings.minMarkdownPreviewFontScale - 0.0001 else { return }
-                            settings.markdownPreviewFontScale = max(EditorSettings.minMarkdownPreviewFontScale, next)
+                            settings.adjustMarkdownPreviewFontScale(by: -EditorSettings.markdownPreviewZoomStep)
                         } label: {
                             Image(systemName: "minus")
                                 .font(.system(size: 10, weight: .medium))
@@ -75,9 +73,7 @@ struct EditorSettingsView: View {
                             .frame(width: 44)
 
                         Button {
-                            let next = settings.markdownPreviewFontScale + 0.1
-                            guard next <= EditorSettings.maxMarkdownPreviewFontScale + 0.0001 else { return }
-                            settings.markdownPreviewFontScale = min(EditorSettings.maxMarkdownPreviewFontScale, next)
+                            settings.adjustMarkdownPreviewFontScale(by: EditorSettings.markdownPreviewZoomStep)
                         } label: {
                             Image(systemName: "plus")
                                 .font(.system(size: 10, weight: .medium))

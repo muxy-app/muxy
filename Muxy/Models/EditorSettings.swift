@@ -29,6 +29,8 @@ final class EditorSettings {
     static let defaultMarkdownPreviewFontScale: CGFloat = 1.0
     static let minMarkdownPreviewFontScale: CGFloat = 0.6
     static let maxMarkdownPreviewFontScale: CGFloat = 2.5
+    static let markdownPreviewBaseFontSize: CGFloat = 14
+    static let markdownPreviewZoomStep: CGFloat = 0.1
 
     var fontSize: CGFloat = 13 { didSet { save() } }
     var fontFamily: String = "SF Mono" { didSet { save() } }
@@ -51,8 +53,18 @@ final class EditorSettings {
         if markdownPreviewFontFamily == Self.systemFontFamilyToken {
             return Self.systemFontFamilyCSSStack
         }
-        let escaped = markdownPreviewFontFamily.replacingOccurrences(of: "\"", with: "\\\"")
+        let escaped = markdownPreviewFontFamily
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
         return "\"\(escaped)\", \(Self.systemFontFamilyCSSStack)"
+    }
+
+    func adjustMarkdownPreviewFontScale(by delta: CGFloat) {
+        let next = markdownPreviewFontScale + delta
+        markdownPreviewFontScale = min(
+            Self.maxMarkdownPreviewFontScale,
+            max(Self.minMarkdownPreviewFontScale, next)
+        )
     }
 
     static let systemFontFamilyCSSStack =
