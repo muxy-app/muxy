@@ -107,14 +107,12 @@ private struct DebugMetrics {
         return "\(seconds)s"
     }
 
-    static let launchDate = Date()
-
     static func current() -> DebugMetrics {
         DebugMetrics(
             memoryBytes: residentMemory(),
             cpuPercent: cpuUsage(),
             threadCount: threadCount(),
-            uptimeSeconds: Date().timeIntervalSince(launchDate)
+            uptimeSeconds: Date().timeIntervalSince(MuxyApp.launchDate)
         )
     }
 

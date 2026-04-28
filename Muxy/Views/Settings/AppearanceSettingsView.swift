@@ -5,8 +5,8 @@ struct AppearanceSettingsView: View {
     @State private var showThemePicker = false
     @State private var currentTheme: String?
     @AppStorage("muxy.vcsDisplayMode") private var vcsDisplayMode = VCSDisplayMode.attached.rawValue
-    @AppStorage("muxy.sidebarCollapsedStyle") private var sidebarCollapsedStyle = SidebarCollapsedStyle.icons.rawValue
-    @AppStorage("muxy.sidebarExpandedStyle") private var sidebarExpandedStyle = SidebarExpandedStyle.wide.rawValue
+    @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyle = SidebarCollapsedStyle.defaultValue.rawValue
+    @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyle = SidebarExpandedStyle.defaultValue.rawValue
 
     var body: some View {
         SettingsContainer {

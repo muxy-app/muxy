@@ -58,8 +58,8 @@ struct MainWindow: View {
     @State private var showWorktreeSwitcher = false
     @State private var isFullScreen = false
     @State private var sidebarExpanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
-    @AppStorage("muxy.sidebarCollapsedStyle") private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.icons.rawValue
-    @AppStorage("muxy.sidebarExpandedStyle") private var sidebarExpandedStyleRaw = SidebarExpandedStyle.wide.rawValue
+    @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
+    @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
     private let trafficLightWidth: CGFloat = 75
 
@@ -89,7 +89,7 @@ struct MainWindow: View {
             HStack(spacing: 0) {
                 HStack(spacing: 0) {
                     Sidebar()
-                    if !SidebarLayout.isHidden(expanded: sidebarExpanded) {
+                    if !SidebarLayout.isHidden(expanded: sidebarExpanded, collapsedStyle: sidebarCollapsedStyle) {
                         Rectangle().fill(MuxyTheme.border).frame(width: 1)
                             .accessibilityHidden(true)
                     }
@@ -470,8 +470,20 @@ struct MainWindow: View {
         }
     }
 
+    private var sidebarCollapsedStyle: SidebarCollapsedStyle {
+        SidebarCollapsedStyle(rawValue: sidebarCollapsedStyleRaw) ?? .defaultValue
+    }
+
+    private var sidebarExpandedStyle: SidebarExpandedStyle {
+        SidebarExpandedStyle(rawValue: sidebarExpandedStyleRaw) ?? .defaultValue
+    }
+
     private var topBarLeadingWidth: CGFloat {
-        let sidebarWidth = SidebarLayout.resolvedWidth(expanded: sidebarExpanded) + 1
+        let sidebarWidth = SidebarLayout.resolvedWidth(
+            expanded: sidebarExpanded,
+            collapsedStyle: sidebarCollapsedStyle,
+            expandedStyle: sidebarExpandedStyle
+        ) + 1
         let navigationMinimum = trafficLightWidth + navigationArrowsWidth
         return max(navigationMinimum, sidebarWidth)
     }

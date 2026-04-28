@@ -100,6 +100,7 @@ struct PaneTabStrip: View {
                     .help(shortcutTooltip("File Tree", for: .toggleFileTree))
                 }
             }
+            .padding(.leading, 8)
             .padding(.trailing, 4)
             .fixedSize(horizontal: true, vertical: false)
             .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))

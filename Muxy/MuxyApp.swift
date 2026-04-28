@@ -3,6 +3,8 @@ import SwiftUI
 
 @main
 struct MuxyApp: App {
+    static let launchDate = Date()
+
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState: AppState
     @State private var projectStore: ProjectStore
@@ -10,6 +12,7 @@ struct MuxyApp: App {
     private let updateService = UpdateService.shared
 
     init() {
+        _ = MuxyApp.launchDate
         let environment = AppEnvironment.live
         let projectStore = ProjectStore(persistence: environment.projectPersistence)
         let worktreeStore = WorktreeStore(

@@ -13,12 +13,13 @@ enum SidebarCollapsedStyle: String, CaseIterable, Identifiable {
         }
     }
 
-    private static let key = "muxy.sidebarCollapsedStyle"
+    static let storageKey = "muxy.sidebarCollapsedStyle"
+    static let defaultValue: SidebarCollapsedStyle = .icons
 
     static var current: SidebarCollapsedStyle {
-        guard let raw = UserDefaults.standard.string(forKey: key),
+        guard let raw = UserDefaults.standard.string(forKey: storageKey),
               let mode = SidebarCollapsedStyle(rawValue: raw)
-        else { return .icons }
+        else { return defaultValue }
         return mode
     }
 }
@@ -36,12 +37,13 @@ enum SidebarExpandedStyle: String, CaseIterable, Identifiable {
         }
     }
 
-    private static let key = "muxy.sidebarExpandedStyle"
+    static let storageKey = "muxy.sidebarExpandedStyle"
+    static let defaultValue: SidebarExpandedStyle = .wide
 
     static var current: SidebarExpandedStyle {
-        guard let raw = UserDefaults.standard.string(forKey: key),
+        guard let raw = UserDefaults.standard.string(forKey: storageKey),
               let mode = SidebarExpandedStyle(rawValue: raw)
-        else { return .wide }
+        else { return defaultValue }
         return mode
     }
 }

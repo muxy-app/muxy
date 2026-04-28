@@ -5,19 +5,23 @@ enum SidebarLayout {
     static let expandedWidth: CGFloat = 220
     static let width: CGFloat = 44
 
-    static func resolvedWidth(expanded: Bool) -> CGFloat {
+    static func resolvedWidth(
+        expanded: Bool,
+        collapsedStyle: SidebarCollapsedStyle,
+        expandedStyle: SidebarExpandedStyle
+    ) -> CGFloat {
         if expanded {
-            return SidebarExpandedStyle.current == .wide ? expandedWidth : collapsedWidth
+            return expandedStyle == .wide ? expandedWidth : collapsedWidth
         }
-        return SidebarCollapsedStyle.current == .hidden ? 0 : collapsedWidth
+        return collapsedStyle == .hidden ? 0 : collapsedWidth
     }
 
-    static func isWide(expanded: Bool) -> Bool {
-        expanded && SidebarExpandedStyle.current == .wide
+    static func isWide(expanded: Bool, expandedStyle: SidebarExpandedStyle) -> Bool {
+        expanded && expandedStyle == .wide
     }
 
-    static func isHidden(expanded: Bool) -> Bool {
-        !expanded && SidebarCollapsedStyle.current == .hidden
+    static func isHidden(expanded: Bool, collapsedStyle: SidebarCollapsedStyle) -> Bool {
+        !expanded && collapsedStyle == .hidden
     }
 }
 
@@ -27,15 +31,23 @@ struct Sidebar: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
     @State private var expanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
-    @AppStorage("muxy.sidebarCollapsedStyle") private var collapsedStyleRaw = SidebarCollapsedStyle.icons.rawValue
-    @AppStorage("muxy.sidebarExpandedStyle") private var expandedStyleRaw = SidebarExpandedStyle.wide.rawValue
+    @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
+    @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
+
+    private var collapsedStyle: SidebarCollapsedStyle {
+        SidebarCollapsedStyle(rawValue: collapsedStyleRaw) ?? .defaultValue
+    }
+
+    private var expandedStyle: SidebarExpandedStyle {
+        SidebarExpandedStyle(rawValue: expandedStyleRaw) ?? .defaultValue
+    }
 
     private var isWide: Bool {
-        expanded && (SidebarExpandedStyle(rawValue: expandedStyleRaw) ?? .wide) == .wide
+        SidebarLayout.isWide(expanded: expanded, expandedStyle: expandedStyle)
     }
 
     private var isHidden: Bool {
-        !expanded && (SidebarCollapsedStyle(rawValue: collapsedStyleRaw) ?? .icons) == .hidden
+        SidebarLayout.isHidden(expanded: expanded, collapsedStyle: collapsedStyle)
     }
 
     var body: some View {
