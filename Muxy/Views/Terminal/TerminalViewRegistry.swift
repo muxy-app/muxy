@@ -53,6 +53,12 @@ final class TerminalViewRegistry {
     func paneID(for view: GhosttyTerminalNSView) -> UUID? {
         paneIDs[ObjectIdentifier(view)]
     }
+
+    func applyColorSchemeToAllViews(isDark: Bool) {
+        for view in views.values {
+            view.applyColorScheme(isDark: isDark)
+        }
+    }
 }
 
 extension TerminalViewRegistry: TerminalViewRemoving {}

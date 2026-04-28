@@ -134,8 +134,7 @@ final class GhosttyTerminalNSView: NSView {
 
         ghostty_surface_set_size(surface, backingSize.width, backingSize.height)
 
-        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        ghostty_surface_set_color_scheme(surface, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+        applyColorScheme(isDark: ThemeService.isCurrentAppearanceDark())
 
         if let screen = window?.screen ?? NSScreen.main,
            let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
@@ -236,8 +235,11 @@ final class GhosttyTerminalNSView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        applyColorScheme(isDark: ThemeService.isCurrentAppearanceDark())
+    }
+
+    func applyColorScheme(isDark: Bool) {
         guard let surface else { return }
-        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         ghostty_surface_set_color_scheme(surface, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
     }
 

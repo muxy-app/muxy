@@ -132,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var openProjectFromPath: ((String) -> Void)?
 
     private var pendingOpenPaths: [String] = []
+    private var systemAppearanceObserver: NSObjectProtocol?
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -210,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setAppIcon()
         _ = GhosttyService.shared
         ThemeService.shared.applyDefaultThemeIfNeeded()
+        observeSystemAppearanceChanges()
         UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
         NotificationSocketServer.shared.start()
@@ -291,11 +293,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let observer = systemAppearanceObserver {
+            DistributedNotificationCenter.default().removeObserver(observer)
+            systemAppearanceObserver = nil
+        }
         onTerminate?()
         NotificationStore.shared.saveToDisk()
         NotificationSocketServer.shared.stop()
         MainActor.assumeIsolated {
             MobileServerService.shared.stopForTermination()
+        }
+    }
+
+    @MainActor
+    private func observeSystemAppearanceChanges() {
+        if let observer = systemAppearanceObserver {
+            DistributedNotificationCenter.default().removeObserver(observer)
+            systemAppearanceObserver = nil
+        }
+        systemAppearanceObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                GhosttyService.shared.appearanceDidChange()
+            }
         }
     }
 
@@ -346,8 +369,10 @@ struct WindowConfigurator: NSViewRepresentable {
     }
 
     private static func applyWindowBackground(_ window: NSWindow) {
-        window.isOpaque = true
-        window.backgroundColor = MuxyTheme.nsBg
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.contentView?.wantsLayer = true
+        window.contentView?.layer?.backgroundColor = MuxyTheme.nsBg.cgColor
     }
 
     static func neutralizeSafeAreaInsets(in window: NSWindow) {
