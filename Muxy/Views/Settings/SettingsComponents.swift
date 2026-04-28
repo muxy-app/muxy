@@ -18,9 +18,11 @@ struct SettingsContainer<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(spacing: 0) {
-            content
-            Spacer(minLength: 0)
+        ScrollView {
+            VStack(spacing: 0) {
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .top)
         }
     }
 }
