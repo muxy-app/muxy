@@ -171,7 +171,7 @@ struct PaneTabStrip: View {
     }
 
     private var developmentBadge: some View {
-        DevelopmentBadge()
+        DebugButton()
     }
 
     private static let dragActivationDistance: CGFloat = 4

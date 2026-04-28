@@ -58,6 +58,8 @@ struct MainWindow: View {
     @State private var showWorktreeSwitcher = false
     @State private var isFullScreen = false
     @State private var sidebarExpanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
+    @AppStorage("muxy.sidebarCollapsedStyle") private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.icons.rawValue
+    @AppStorage("muxy.sidebarExpandedStyle") private var sidebarExpandedStyleRaw = SidebarExpandedStyle.wide.rawValue
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
     private let trafficLightWidth: CGFloat = 75
 
@@ -69,11 +71,9 @@ struct MainWindow: View {
                         .frame(width: topBarLeadingWidth)
                         .fixedSize(horizontal: true, vertical: false)
                         .overlay(alignment: .trailing) {
-                            if sidebarExpanded {
-                                HStack(spacing: 0) {
-                                    navigationArrows
-                                    Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                                }
+                            HStack(spacing: 0) {
+                                navigationArrows
+                                Rectangle().fill(MuxyTheme.border).frame(width: 1)
                             }
                         }
                 }
@@ -89,8 +89,10 @@ struct MainWindow: View {
             HStack(spacing: 0) {
                 HStack(spacing: 0) {
                     Sidebar()
-                    Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                        .accessibilityHidden(true)
+                    if !SidebarLayout.isHidden(expanded: sidebarExpanded) {
+                        Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                            .accessibilityHidden(true)
+                    }
                 }
                 .fixedSize(horizontal: true, vertical: false)
                 .background(MuxyTheme.bg)
@@ -470,11 +472,14 @@ struct MainWindow: View {
 
     private var topBarLeadingWidth: CGFloat {
         let sidebarWidth = SidebarLayout.resolvedWidth(expanded: sidebarExpanded) + 1
-        return max(trafficLightWidth, sidebarWidth)
+        let navigationMinimum = trafficLightWidth + navigationArrowsWidth
+        return max(navigationMinimum, sidebarWidth)
     }
 
+    private var navigationArrowsWidth: CGFloat { 52 }
+
     private var devModeBadge: some View {
-        DevelopmentBadge()
+        DebugButton()
     }
 
     private var activeWorktreeKey: WorktreeKey? {

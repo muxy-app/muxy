@@ -146,22 +146,22 @@ struct ProjectRow: View {
         let logo = resolvedLogo
         let unread = NotificationStore.shared.unreadCount(for: project.id)
         return ZStack {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 6)
                 .fill(iconBackground(hasLogo: logo != nil))
 
             if let logo {
                 Image(nsImage: logo)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 32, height: 32)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .frame(width: 28, height: 28)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
                 Text(displayLetter)
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(letterForeground)
             }
         }
-        .frame(width: 32, height: 32)
+        .frame(width: 28, height: 28)
         .padding(3)
         .overlay(alignment: .topTrailing) {
             if unread > 0 {

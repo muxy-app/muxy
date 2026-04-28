@@ -5,6 +5,8 @@ struct AppearanceSettingsView: View {
     @State private var showThemePicker = false
     @State private var currentTheme: String?
     @AppStorage("muxy.vcsDisplayMode") private var vcsDisplayMode = VCSDisplayMode.attached.rawValue
+    @AppStorage("muxy.sidebarCollapsedStyle") private var sidebarCollapsedStyle = SidebarCollapsedStyle.icons.rawValue
+    @AppStorage("muxy.sidebarExpandedStyle") private var sidebarExpandedStyle = SidebarExpandedStyle.wide.rawValue
 
     var body: some View {
         SettingsContainer {
@@ -29,6 +31,38 @@ struct AppearanceSettingsView: View {
                         ThemePicker()
                             .environment(themeService)
                     }
+                }
+            }
+
+            SettingsSection("Sidebar") {
+                SettingsRow("Collapsed Style") {
+                    HStack {
+                        Spacer()
+                        Picker("", selection: $sidebarCollapsedStyle) {
+                            ForEach(SidebarCollapsedStyle.allCases) { style in
+                                Text(style.title).tag(style.rawValue)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                    }
+                    .frame(width: SettingsMetrics.controlWidth)
+                }
+
+                SettingsRow("Expanded Style") {
+                    HStack {
+                        Spacer()
+                        Picker("", selection: $sidebarExpandedStyle) {
+                            ForEach(SidebarExpandedStyle.allCases) { style in
+                                Text(style.title).tag(style.rawValue)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                    }
+                    .frame(width: SettingsMetrics.controlWidth)
                 }
             }
 

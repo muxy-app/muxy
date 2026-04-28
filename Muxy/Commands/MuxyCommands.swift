@@ -123,36 +123,6 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .openProject, store: keyBindings)
 
-            if let defaultIDE = ideService.defaultIDE {
-                Button {
-                    guard let activeProjectPath else { return }
-                    _ = ideService.openProject(
-                        at: activeProjectPath,
-                        highlightingFileAt: activeEditorFilePath,
-                        line: activeEditorCursorLine,
-                        column: activeEditorCursorColumn,
-                        in: defaultIDE
-                    )
-                } label: {
-                    HStack(spacing: 8) {
-                        AppBundleIconView(appURL: defaultIDE.appURL, fallbackSystemName: defaultIDE.symbolName, size: 20)
-                        Text("Open in \(defaultIDE.displayName)")
-                    }
-                }
-                .disabled(activeProjectPath == nil)
-            }
-
-            Button {
-                guard let activeProjectPath else { return }
-                _ = ideService.openProject(at: activeProjectPath, in: IDEIntegrationService.finderApplication)
-            } label: {
-                HStack(spacing: 8) {
-                    AppBundleIconView(appURL: IDEIntegrationService.finderAppURL, fallbackSystemName: "folder", size: 20)
-                    Text("Finder")
-                }
-            }
-            .disabled(activeProjectPath == nil)
-
             Menu("Open in IDE") {
                 Button {
                     guard let activeProjectPath else { return }

@@ -13,6 +13,7 @@ enum MuxyTheme {
 
     @MainActor static var accent: Color { snapshot.accent }
     @MainActor static var accentSoft: Color { snapshot.accentSoft }
+    @MainActor static var warning: Color { snapshot.warning }
 
     @MainActor static var diffAddFg: Color { snapshot.diffAddFg }
     @MainActor static var diffRemoveFg: Color { snapshot.diffRemoveFg }
@@ -57,6 +58,7 @@ extension MuxyTheme {
         let hover: Color
         let accent: Color
         let accentSoft: Color
+        let warning: Color
         let diffAddFg: Color
         let diffRemoveFg: Color
         let diffHunkFg: Color
@@ -87,6 +89,7 @@ extension MuxyTheme {
             hover = Color(nsColor: fgColor.withAlphaComponent(0.06))
             accent = Color(nsColor: accentColor)
             accentSoft = Color(nsColor: accentColor.withAlphaComponent(0.1))
+            warning = Color(nsColor: service.paletteColor(at: 3) ?? NSColor.systemYellow)
 
             let addColor = service.paletteColor(at: 2) ?? NSColor.systemGreen
             let removeColor = service.paletteColor(at: 1) ?? NSColor.systemRed

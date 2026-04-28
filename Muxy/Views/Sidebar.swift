@@ -6,7 +6,18 @@ enum SidebarLayout {
     static let width: CGFloat = 44
 
     static func resolvedWidth(expanded: Bool) -> CGFloat {
-        expanded ? expandedWidth : collapsedWidth
+        if expanded {
+            return SidebarExpandedStyle.current == .wide ? expandedWidth : collapsedWidth
+        }
+        return SidebarCollapsedStyle.current == .hidden ? 0 : collapsedWidth
+    }
+
+    static func isWide(expanded: Bool) -> Bool {
+        expanded && SidebarExpandedStyle.current == .wide
+    }
+
+    static func isHidden(expanded: Bool) -> Bool {
+        !expanded && SidebarCollapsedStyle.current == .hidden
     }
 }
 
@@ -16,6 +27,16 @@ struct Sidebar: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
     @State private var expanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
+    @AppStorage("muxy.sidebarCollapsedStyle") private var collapsedStyleRaw = SidebarCollapsedStyle.icons.rawValue
+    @AppStorage("muxy.sidebarExpandedStyle") private var expandedStyleRaw = SidebarExpandedStyle.wide.rawValue
+
+    private var isWide: Bool {
+        expanded && (SidebarExpandedStyle(rawValue: expandedStyleRaw) ?? .wide) == .wide
+    }
+
+    private var isHidden: Bool {
+        !expanded && (SidebarCollapsedStyle(rawValue: collapsedStyleRaw) ?? .icons) == .hidden
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,11 +44,12 @@ struct Sidebar: View {
                 .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
                 .clipped()
 
-            SidebarFooter(expanded: expanded)
+            SidebarFooter(expanded: isWide)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxHeight: .infinity, alignment: .bottom)
-        .frame(width: SidebarLayout.resolvedWidth(expanded: expanded))
+        .frame(width: isHidden ? 0 : (isWide ? SidebarLayout.expandedWidth : SidebarLayout.collapsedWidth))
+        .opacity(isHidden ? 0 : 1)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Sidebar")
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
@@ -43,7 +65,7 @@ struct Sidebar: View {
     }
 
     private var addButton: some View {
-        AddProjectButton(expanded: expanded) {
+        AddProjectButton(expanded: isWide) {
             ProjectOpenService.openProject(
                 appState: appState,
                 projectStore: projectStore,
@@ -55,10 +77,10 @@ struct Sidebar: View {
 
     private var projectList: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: expanded ? 2 : 4) {
+            LazyVStack(spacing: 4) {
                 ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) { index, project in
                     Group {
-                        if expanded {
+                        if isWide {
                             ExpandedProjectRow(
                                 project: project,
                                 shortcutIndex: index < 9 ? index + 1 : nil,
@@ -96,7 +118,7 @@ struct Sidebar: View {
                 }
                 addButton
             }
-            .padding(.horizontal, expanded ? 6 : 8)
+            .padding(.horizontal, isWide ? 6 : 8)
             .padding(.vertical, 4)
             .onPreferenceChange(UUIDFramePreferenceKey<SidebarFrameTag>.self) { frames in
                 guard dragState.draggedID != nil else { return }
@@ -204,13 +226,13 @@ private struct AddProjectButton: View {
 
     private var collapsedLayout: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 6)
                 .fill(MuxyTheme.hover)
             Image(systemName: "plus")
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
         }
-        .frame(width: 32, height: 32)
+        .frame(width: 28, height: 28)
         .padding(3)
     }
 
@@ -220,10 +242,10 @@ private struct AddProjectButton: View {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(MuxyTheme.surface)
                 Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
             }
-            .frame(width: 24, height: 24)
+            .frame(width: 28, height: 28)
 
             Text("Add Project")
                 .font(.system(size: 12, weight: .medium))
@@ -231,8 +253,7 @@ private struct AddProjectButton: View {
                 .lineLimit(1)
             Spacer()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(4)
         .background(hovered ? MuxyTheme.hover : Color.clear, in: RoundedRectangle(cornerRadius: 8))
     }
 }

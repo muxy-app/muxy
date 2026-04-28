@@ -147,8 +147,7 @@ struct ExpandedProjectRow: View {
                 worktreeChevron
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(4)
         .background(headerBackground, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
@@ -210,15 +209,15 @@ struct ExpandedProjectRow: View {
                 Image(nsImage: logo)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 24, height: 24)
+                    .frame(width: 28, height: 28)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
                 Text(displayLetter)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(letterForeground)
             }
         }
-        .frame(width: 24, height: 24)
+        .frame(width: 28, height: 28)
         .overlay(alignment: .topTrailing) {
             if unread > 0 {
                 NotificationBadge(count: unread)
@@ -480,13 +479,13 @@ private struct ExpandedWorktreeRow: View {
 
             worktreeUnreadBadge
 
-            if selected {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(MuxyTheme.accent)
-            }
+            Image(systemName: "checkmark")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(MuxyTheme.accent)
+                .frame(width: 18, height: 18)
+                .opacity(selected ? 1 : 0)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 4)
         .padding(.vertical, 5)
         .background(rowBackground, in: RoundedRectangle(cornerRadius: 6))
         .contentShape(RoundedRectangle(cornerRadius: 6))

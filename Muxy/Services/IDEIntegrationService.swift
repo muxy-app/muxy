@@ -68,6 +68,7 @@ final class IDEIntegrationService: ObservableObject {
     )
 
     @Published private(set) var installedApps: [IDEApplication] = []
+    @Published private(set) var selectedBundleIdentifier: String?
 
     private let workspace: NSWorkspace
     private let defaults: UserDefaults
@@ -81,11 +82,15 @@ final class IDEIntegrationService: ObservableObject {
         self.workspace = workspace
         self.defaults = defaults
         self.fileManager = fileManager
+        self.selectedBundleIdentifier = defaults.string(forKey: Self.selectedBundleIdentifierKey)
         refreshInstalledApps()
     }
 
-    var selectedBundleIdentifier: String? {
-        defaults.string(forKey: Self.selectedBundleIdentifierKey)
+    private func setSelectedBundleIdentifier(_ identifier: String) {
+        defaults.set(identifier, forKey: Self.selectedBundleIdentifierKey)
+        if selectedBundleIdentifier != identifier {
+            selectedBundleIdentifier = identifier
+        }
     }
 
     var defaultIDE: IDEApplication? {
@@ -118,7 +123,7 @@ final class IDEIntegrationService: ObservableObject {
 
         if app.bundleIdentifier == Self.finderBundleIdentifier {
             revealInFinder(at: path)
-            defaults.set(app.bundleIdentifier, forKey: Self.selectedBundleIdentifierKey)
+            setSelectedBundleIdentifier(app.bundleIdentifier)
             return true
         }
 
@@ -131,13 +136,18 @@ final class IDEIntegrationService: ObservableObject {
 
         let launched = Self.launch(commands: commands)
         if launched {
-            defaults.set(app.bundleIdentifier, forKey: Self.selectedBundleIdentifierKey)
+            setSelectedBundleIdentifier(app.bundleIdentifier)
         }
         return launched
     }
 
     func revealInFinder(at path: String) {
         let url = URL(fileURLWithPath: path)
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+            workspace.open(url)
+            return
+        }
         workspace.activateFileViewerSelecting([url])
     }
 
