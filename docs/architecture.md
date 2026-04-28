@@ -75,6 +75,7 @@ Muxy/
     NotificationStore.swift      @Observable notification store singleton (persisted to notifications.json)
     NotificationNavigator.swift  Pane context resolution + click-to-navigate dispatch
     NotificationSocketServer.swift  Unix domain socket IPC for external tool notifications
+    IDEIntegrationService.swift   Discovers installed IDE-like apps, remembers the selected target, and launches the active project or file in external editors
     AIProviderIntegration.swift  Protocol + AIProviderRegistry (notification-hook integrations, usage provider registry)
     AIUsageService.swift         @Observable @MainActor snapshot store, parallel fetch orchestration, refresh coalescing, row composition (Catalog, SnapshotComposer, RowPolicy)
     AIUsagePreferences.swift     UserDefaults-backed stores: provider tracking/enabled toggles, display mode, auto-refresh interval, global enabled flag, auto-tracking
@@ -158,6 +159,8 @@ Muxy/
       UUIDFramePreferenceKey.swift  Generic PreferenceKey for frame tracking
       NotificationBadge.swift Unread count badge for sidebar project icons
       QuickOpenOverlay.swift  Cmd+P file search overlay (name substring match via find)
+      AppBundleIconView.swift Renders and caches installed app bundle icons for menus and launcher controls
+      OpenInIDEControl.swift  Split button for opening the active project or editor file in the remembered or selected IDE
     Terminal/
       GhosttyTerminalNSView.swift       AppKit view wrapping ghostty_surface_t + NSTextInputClient
       TerminalPane.swift      SwiftUI wrapper for terminal, search, and quick-select overlays
@@ -234,6 +237,12 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
   `TextBackingStore` and render through `CodeEditorRepresentable`; terminal editor tabs create a normal
   terminal pane with the configured Ghostty startup command. The size thresholds in
   `EditorTabState` apply only to the built-in editor path.
+- **IDE Launching**: `MainWindow` and `MuxyCommands` surface project-level IDE launch actions through
+  `OpenInIDEControl` and the app menu. `IDEIntegrationService` scans installed applications, classifies
+  editor-like apps by bundle metadata, remembers the last launched bundle identifier in user defaults,
+  and prefers CLI-based launch commands for VS Code-like and Zed-like apps so the current file, line,
+  and column can be highlighted when available. The same launcher surface also provides a native Finder
+  reveal action for the active project path.
 - **Syntax Highlighting**: `EditorTabState` owns a `SyntaxHighlighter` created from the file
   extension via `SyntaxLanguageRegistry`. The highlighter keeps a per-line `LineEndState` cache
   so multiline constructs (block comments, multiline strings) are preserved across scroll without

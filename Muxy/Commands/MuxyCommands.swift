@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 
 struct MuxyCommands: Commands {
+    @ObservedObject private var ideService = IDEIntegrationService.shared
+
     let appState: AppState
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
@@ -17,6 +19,29 @@ struct MuxyCommands: Commands {
     private var activeProject: Project? {
         guard let projectID = appState.activeProjectID else { return nil }
         return projectStore.projects.first { $0.id == projectID }
+    }
+
+    private var activeProjectPath: String? {
+        guard let project = activeProject else { return nil }
+        return worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id])?.path
+            ?? project.path
+    }
+
+    private var activeEditorState: EditorTabState? {
+        guard let project = activeProject else { return nil }
+        return appState.activeTab(for: project.id)?.content.editorState
+    }
+
+    private var activeEditorFilePath: String? {
+        activeEditorState?.filePath
+    }
+
+    private var activeEditorCursorLine: Int? {
+        activeEditorState?.cursorLine
+    }
+
+    private var activeEditorCursorColumn: Int? {
+        activeEditorState?.cursorColumn
     }
 
     private var shortcutDispatcher: ShortcutActionDispatcher {
@@ -97,6 +122,74 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.openProject)
             }
             .shortcut(for: .openProject, store: keyBindings)
+
+            if let defaultIDE = ideService.defaultIDE {
+                Button {
+                    guard let activeProjectPath else { return }
+                    _ = ideService.openProject(
+                        at: activeProjectPath,
+                        highlightingFileAt: activeEditorFilePath,
+                        line: activeEditorCursorLine,
+                        column: activeEditorCursorColumn,
+                        in: defaultIDE
+                    )
+                } label: {
+                    HStack(spacing: 8) {
+                        AppBundleIconView(appURL: defaultIDE.appURL, fallbackSystemName: defaultIDE.symbolName, size: 20)
+                        Text("Open in \(defaultIDE.displayName)")
+                    }
+                }
+                .disabled(activeProjectPath == nil)
+            }
+
+            Button {
+                guard let activeProjectPath else { return }
+                _ = ideService.openProject(at: activeProjectPath, in: IDEIntegrationService.finderApplication)
+            } label: {
+                HStack(spacing: 8) {
+                    AppBundleIconView(appURL: IDEIntegrationService.finderAppURL, fallbackSystemName: "folder", size: 20)
+                    Text("Finder")
+                }
+            }
+            .disabled(activeProjectPath == nil)
+
+            Menu("Open in IDE") {
+                Button {
+                    guard let activeProjectPath else { return }
+                    _ = ideService.openProject(at: activeProjectPath, in: IDEIntegrationService.finderApplication)
+                } label: {
+                    HStack(spacing: 8) {
+                        AppBundleIconView(appURL: IDEIntegrationService.finderAppURL, fallbackSystemName: "folder", size: 20)
+                        Text("Finder")
+                    }
+                }
+
+                Divider()
+
+                if ideService.installedApps.isEmpty {
+                    Button("No supported IDEs found") {}
+                        .disabled(true)
+                } else {
+                    ForEach(ideService.installedApps) { ide in
+                        Button {
+                            guard let activeProjectPath else { return }
+                            _ = ideService.openProject(
+                                at: activeProjectPath,
+                                highlightingFileAt: activeEditorFilePath,
+                                line: activeEditorCursorLine,
+                                column: activeEditorCursorColumn,
+                                in: ide
+                            )
+                        } label: {
+                            HStack(spacing: 8) {
+                                AppBundleIconView(appURL: ide.appURL, fallbackSystemName: ide.symbolName, size: 20)
+                                Text(ide.displayName)
+                            }
+                        }
+                    }
+                }
+            }
+            .disabled(activeProjectPath == nil)
 
             Button("New Tab") {
                 guard isMainWindowFocused else { return }

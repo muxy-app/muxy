@@ -18,6 +18,10 @@ struct PaneTabStrip: View {
     var isWindowTitleBar: Bool = false
     var showVCSButton = true
     var showDevelopmentBadge = false
+    var openInIDEProjectPath: String?
+    var openInIDEFilePath: String?
+    var openInIDELine: Int?
+    var openInIDEColumn: Int?
     let projectID: UUID
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
@@ -62,6 +66,14 @@ struct PaneTabStrip: View {
                 if showDevelopmentBadge {
                     developmentBadge
                         .padding(.trailing, 6)
+                }
+                if isWindowTitleBar {
+                    OpenInIDEControl(
+                        projectPath: openInIDEProjectPath,
+                        filePath: openInIDEFilePath,
+                        line: openInIDELine,
+                        column: openInIDEColumn
+                    )
                 }
                 if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {
                     UpdateBadge(version: version) {
