@@ -14,7 +14,7 @@ final class FileWorktreePersistence: WorktreePersisting {
         try? FileManager.default.createDirectory(
             at: directory,
             withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
+            attributes: [.posixPermissions: FilePermissions.privateDirectory]
         )
     }
 

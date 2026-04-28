@@ -60,7 +60,7 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
 
-        chmod(path, 0o600)
+        chmod(path, mode_t(FilePermissions.privateFile))
 
         guard listen(serverFD, 5) == 0 else {
             logger.error("Failed to listen on socket: \(String(cString: strerror(errno)))")

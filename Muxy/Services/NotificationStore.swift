@@ -17,7 +17,9 @@ final class NotificationStore {
 
     private static let maxNotifications = 200
     private static let defaults = UserDefaults.standard
-    private static let fileURL = MuxyFileStorage.fileURL(filename: "notifications.json")
+    private static let store = CodableFileStore<[MuxyNotification]>(
+        fileURL: MuxyFileStorage.fileURL(filename: "notifications.json")
+    )
     private var saveTask: Task<Void, Never>?
 
     private init() {
@@ -205,18 +207,15 @@ final class NotificationStore {
 
     func saveToDisk() {
         do {
-            let data = try JSONEncoder().encode(notifications)
-            try data.write(to: Self.fileURL, options: .atomic)
+            try Self.store.save(notifications)
         } catch {
             logger.error("Failed to save notifications: \(error.localizedDescription)")
         }
     }
 
     private static func loadFromDisk() -> [MuxyNotification] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
         do {
-            let data = try Data(contentsOf: fileURL)
-            let loaded = try JSONDecoder().decode([MuxyNotification].self, from: data)
+            let loaded = try store.load() ?? []
             return Array(loaded.prefix(maxNotifications))
         } catch {
             logger.error("Failed to load notifications: \(error.localizedDescription)")

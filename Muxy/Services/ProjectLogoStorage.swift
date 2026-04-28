@@ -11,7 +11,7 @@ enum ProjectLogoStorage {
         try? FileManager.default.createDirectory(
             at: dir,
             withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
+            attributes: [.posixPermissions: FilePermissions.privateDirectory]
         )
         return dir
     }

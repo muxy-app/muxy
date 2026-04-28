@@ -137,7 +137,10 @@ struct ClaudeCodeProvider: AIProviderIntegration, AIUsageProvider {
 
         let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: settingsPath)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.privateFile],
+            ofItemAtPath: settingsPath
+        )
     }
 
     private static let credentialsKeychainService = "Claude Code-credentials"

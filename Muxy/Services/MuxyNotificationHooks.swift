@@ -42,7 +42,10 @@ enum MuxyNotificationHooks {
 
         if !FileManager.default.isExecutableFile(atPath: path) {
             do {
-                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: FilePermissions.executable],
+                    ofItemAtPath: path
+                )
             } catch {
                 logger.error("Failed to set executable permission on \(path): \(error.localizedDescription)")
                 return nil

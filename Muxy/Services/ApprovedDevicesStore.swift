@@ -17,14 +17,21 @@ struct ApprovedDevice: Codable, Identifiable, Equatable {
 final class ApprovedDevicesStore {
     static let shared = ApprovedDevicesStore()
 
-    private static let fileURL = MuxyFileStorage.fileURL(filename: "approved-devices.json")
+    private static let store = CodableFileStore<[ApprovedDevice]>(
+        fileURL: MuxyFileStorage.fileURL(filename: "approved-devices.json"),
+        options: CodableFileStoreOptions(filePermissions: FilePermissions.privateFile)
+    )
 
     private(set) var devices: [ApprovedDevice] = []
 
     var onRevoke: ((UUID) -> Void)?
 
     private init() {
-        load()
+        do {
+            devices = try Self.store.load() ?? []
+        } catch {
+            logger.error("Failed to load approved devices: \(error)")
+        }
     }
 
     func approve(deviceID: UUID, name: String, token: String) {
@@ -93,24 +100,9 @@ final class ApprovedDevicesStore {
 
     private func save() {
         do {
-            let data = try JSONEncoder().encode(devices)
-            try data.write(to: Self.fileURL, options: .atomic)
-            try? FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: Self.fileURL.path
-            )
+            try Self.store.save(devices)
         } catch {
             logger.error("Failed to save approved devices: \(error)")
-        }
-    }
-
-    private func load() {
-        guard FileManager.default.fileExists(atPath: Self.fileURL.path) else { return }
-        do {
-            let data = try Data(contentsOf: Self.fileURL)
-            devices = try JSONDecoder().decode([ApprovedDevice].self, from: data)
-        } catch {
-            logger.error("Failed to load approved devices: \(error)")
         }
     }
 }

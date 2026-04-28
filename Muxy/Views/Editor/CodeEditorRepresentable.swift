@@ -291,8 +291,6 @@ struct CodeEditorView: NSViewRepresentable {
         }
     }
 
-    // MARK: - updateNSView
-
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView else { return }
         let coordinator = context.coordinator
@@ -308,8 +306,6 @@ struct CodeEditorView: NSViewRepresentable {
 
         updateNSViewViewportMode(scrollView: scrollView, textView: textView, coordinator: coordinator)
     }
-
-    // MARK: - Viewport Mode
 
     private func updateNSViewViewportMode(scrollView: NSScrollView, textView: NSTextView, coordinator: Coordinator) {
         guard let viewport = coordinator.viewportState else { return }
@@ -375,8 +371,6 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.focusEditorPreservingSelection()
         }
     }
-
-    // MARK: - Shared helpers
 
     private func applyThemeAndFont(textView: NSTextView, font: NSFont) {
         let fgColor = GhosttyService.shared.foregroundColor
@@ -453,8 +447,6 @@ struct CodeEditorView: NSViewRepresentable {
             )
         }
     }
-
-    // MARK: - Coordinator
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -583,8 +575,6 @@ struct CodeEditorView: NSViewRepresentable {
                 )
             }
         }
-
-        // MARK: - Viewport Mode Setup
 
         func enterViewportMode(scrollView: NSScrollView) {
             guard let store = state.backingStore, let textView else { return }
@@ -897,8 +887,6 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
-        // MARK: - Editor Focus
-
         func focusEditorPreservingSelection() {
             guard let textView else { return }
             if let viewport = viewportState, !viewportSearchMatches.isEmpty {
@@ -923,8 +911,6 @@ struct CodeEditorView: NSViewRepresentable {
                 window.makeFirstResponder(textView)
             }
         }
-
-        // MARK: - Search Highlighting
 
         func clearSearchHighlights() {
             viewportSearchMatches = []
@@ -1015,8 +1001,6 @@ struct CodeEditorView: NSViewRepresentable {
             appliedCurrentSearchMatchRange = nextCurrentRange
             textView.needsDisplay = true
         }
-
-        // MARK: - Viewport Search
 
         private var viewportSearchMatches: [TextBackingStore.SearchMatch] = []
         private var appliedSearchHighlightRanges: [NSRange] = []
@@ -1227,8 +1211,6 @@ struct CodeEditorView: NSViewRepresentable {
             )
         }
 
-        // MARK: - Scroll Observer
-
         func setScrollObserver(for scrollView: NSScrollView) {
             guard observedContentView !== scrollView.contentView else { return }
             removeScrollObserver()
@@ -1415,8 +1397,6 @@ struct CodeEditorView: NSViewRepresentable {
             let scrollY = min(max(0, scrollView.contentView.bounds.origin.y), maxScrollY)
             return maxScrollY > 0 ? scrollY / maxScrollY : 0
         }
-
-        // MARK: - NSTextViewDelegate
 
         func textDidChange(_: Notification) {
             guard let textView, !isUpdating else { return }
@@ -1942,8 +1922,6 @@ struct CodeEditorView: NSViewRepresentable {
             }
             state.currentSelection = selected
         }
-
-        // MARK: - Line Start Offsets
 
         private func isValidEditRange(_ range: NSRange, textLength: Int) -> Bool {
             guard range.location != NSNotFound else { return false }

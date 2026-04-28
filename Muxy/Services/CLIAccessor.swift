@@ -93,7 +93,7 @@ enum CLIAccessor {
         do {
             try FileManager.default.copyItem(at: resourceURL, to: target)
             try FileManager.default.setAttributes(
-                [.posixPermissions: 0o755],
+                [.posixPermissions: FilePermissions.executable],
                 ofItemAtPath: target.path
             )
             return true

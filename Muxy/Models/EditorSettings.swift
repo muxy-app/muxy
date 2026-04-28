@@ -39,7 +39,7 @@ final class EditorSettings {
     var markdownPreviewFontFamily: String = EditorSettings.defaultMarkdownPreviewFontFamily { didSet { save() } }
     var markdownPreviewFontScale: CGFloat = EditorSettings.defaultMarkdownPreviewFontScale { didSet { save() } }
 
-    @ObservationIgnored private let fileURL: URL
+    @ObservationIgnored private let store: CodableFileStore<Snapshot>
     @ObservationIgnored private var isBatchLoading = false
 
     var resolvedFont: NSFont {
@@ -89,7 +89,14 @@ final class EditorSettings {
     }
 
     private init() {
-        fileURL = MuxyFileStorage.fileURL(filename: "editor-settings.json")
+        store = CodableFileStore(
+            fileURL: MuxyFileStorage.fileURL(filename: "editor-settings.json"),
+            options: CodableFileStoreOptions(
+                prettyPrinted: true,
+                sortedKeys: true,
+                filePermissions: FilePermissions.privateFile
+            )
+        )
         load()
     }
 
@@ -106,10 +113,8 @@ final class EditorSettings {
     }
 
     private func load() {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
         do {
-            let data = try Data(contentsOf: fileURL)
-            let snapshot = try JSONDecoder().decode(Snapshot.self, from: data)
+            guard let snapshot = try store.load() else { return }
             isBatchLoading = true
             fontSize = snapshot.fontSize ?? 13
             fontFamily = snapshot.fontFamily ?? "SF Mono"
@@ -130,7 +135,7 @@ final class EditorSettings {
     private func save() {
         guard !isBatchLoading else { return }
         do {
-            let snapshot = Snapshot(
+            try store.save(Snapshot(
                 fontSize: fontSize,
                 fontFamily: fontFamily,
                 defaultEditor: defaultEditor,
@@ -138,15 +143,7 @@ final class EditorSettings {
                 externalEditorCommand: externalEditorCommand,
                 markdownPreviewFontFamily: markdownPreviewFontFamily,
                 markdownPreviewFontScale: markdownPreviewFontScale
-            )
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: fileURL.path
-            )
+            ))
         } catch {
             logger.error("Failed to save editor settings: \(error.localizedDescription)")
         }

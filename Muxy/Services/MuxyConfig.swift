@@ -77,6 +77,9 @@ final class MuxyConfig {
     }
 
     private static func restrictFilePermissions(_ url: URL) {
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.privateFile],
+            ofItemAtPath: url.path
+        )
     }
 }

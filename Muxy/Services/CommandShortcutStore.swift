@@ -17,7 +17,7 @@ final class FileCommandShortcutPersistence: CommandShortcutPersisting {
             options: CodableFileStoreOptions(
                 prettyPrinted: true,
                 sortedKeys: true,
-                filePermissions: 0o600
+                filePermissions: FilePermissions.privateFile
             )
         )
     }
