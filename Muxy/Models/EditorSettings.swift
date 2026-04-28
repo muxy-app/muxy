@@ -24,10 +24,18 @@ final class EditorSettings {
         }
     }
 
+    static let systemFontFamilyToken = "System Default"
+    static let defaultMarkdownPreviewFontFamily = systemFontFamilyToken
+    static let defaultMarkdownPreviewFontScale: CGFloat = 1.0
+    static let minMarkdownPreviewFontScale: CGFloat = 0.6
+    static let maxMarkdownPreviewFontScale: CGFloat = 2.5
+
     var fontSize: CGFloat = 13 { didSet { save() } }
     var fontFamily: String = "SF Mono" { didSet { save() } }
     var defaultEditor: DefaultEditor = .builtIn { didSet { save() } }
     var externalEditorCommand: String = "vim" { didSet { save() } }
+    var markdownPreviewFontFamily: String = EditorSettings.defaultMarkdownPreviewFontFamily { didSet { save() } }
+    var markdownPreviewFontScale: CGFloat = EditorSettings.defaultMarkdownPreviewFontScale { didSet { save() } }
 
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private var isBatchLoading = false
@@ -37,6 +45,22 @@ final class EditorSettings {
             return font
         }
         return NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+    }
+
+    var resolvedMarkdownPreviewFontFamilyCSS: String {
+        if markdownPreviewFontFamily == Self.systemFontFamilyToken {
+            return Self.systemFontFamilyCSSStack
+        }
+        let escaped = markdownPreviewFontFamily.replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\", \(Self.systemFontFamilyCSSStack)"
+    }
+
+    static let systemFontFamilyCSSStack =
+        "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif"
+
+    static var availableMarkdownPreviewFonts: [String] {
+        let families = NSFontManager.shared.availableFontFamilies.sorted()
+        return [systemFontFamilyToken] + families
     }
 
     static var availableMonospacedFonts: [String] {
@@ -63,6 +87,8 @@ final class EditorSettings {
         fontFamily = "SF Mono"
         defaultEditor = .builtIn
         externalEditorCommand = "vim"
+        markdownPreviewFontFamily = Self.defaultMarkdownPreviewFontFamily
+        markdownPreviewFontScale = Self.defaultMarkdownPreviewFontScale
         isBatchLoading = false
         save()
     }
@@ -77,6 +103,12 @@ final class EditorSettings {
             fontFamily = snapshot.fontFamily ?? "SF Mono"
             defaultEditor = snapshot.defaultEditor ?? snapshot.quickOpenEditor ?? .builtIn
             externalEditorCommand = snapshot.externalEditorCommand ?? "vim"
+            markdownPreviewFontFamily = snapshot.markdownPreviewFontFamily ?? Self.defaultMarkdownPreviewFontFamily
+            let loadedScale = snapshot.markdownPreviewFontScale ?? Self.defaultMarkdownPreviewFontScale
+            markdownPreviewFontScale = min(
+                max(loadedScale, Self.minMarkdownPreviewFontScale),
+                Self.maxMarkdownPreviewFontScale
+            )
             isBatchLoading = false
         } catch {
             logger.error("Failed to load editor settings: \(error.localizedDescription)")
@@ -91,7 +123,9 @@ final class EditorSettings {
                 fontFamily: fontFamily,
                 defaultEditor: defaultEditor,
                 quickOpenEditor: nil,
-                externalEditorCommand: externalEditorCommand
+                externalEditorCommand: externalEditorCommand,
+                markdownPreviewFontFamily: markdownPreviewFontFamily,
+                markdownPreviewFontScale: markdownPreviewFontScale
             )
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -113,4 +147,6 @@ private struct Snapshot: Codable {
     let defaultEditor: EditorSettings.DefaultEditor?
     let quickOpenEditor: EditorSettings.DefaultEditor?
     let externalEditorCommand: String?
+    let markdownPreviewFontFamily: String?
+    let markdownPreviewFontScale: CGFloat?
 }

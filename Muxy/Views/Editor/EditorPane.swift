@@ -195,7 +195,9 @@ struct EditorPane: View {
         MarkdownRenderer.Palette(
             background: ghostty.backgroundColor,
             foreground: ghostty.foregroundColor,
-            accent: ghostty.accentColor
+            accent: ghostty.accentColor,
+            fontFamilyCSS: editorSettings.resolvedMarkdownPreviewFontFamilyCSS,
+            fontScale: editorSettings.markdownPreviewFontScale
         )
     }
 

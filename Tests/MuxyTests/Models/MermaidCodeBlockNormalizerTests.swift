@@ -90,7 +90,9 @@ struct MermaidCodeBlockNormalizerTests {
             palette: MarkdownRenderer.Palette(
                 background: NSColor.black,
                 foreground: NSColor.white,
-                accent: NSColor.systemBlue
+                accent: NSColor.systemBlue,
+                fontFamilyCSS: EditorSettings.systemFontFamilyCSSStack,
+                fontScale: 1.0
             )
         )
 

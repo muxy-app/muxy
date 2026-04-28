@@ -87,6 +87,8 @@ enum MarkdownRenderer {
         let background: NSColor
         let foreground: NSColor
         let accent: NSColor
+        let fontFamilyCSS: String
+        let fontScale: CGFloat
     }
 
     @MainActor
@@ -111,13 +113,15 @@ enum MarkdownRenderer {
                     --code-bg: #F6F8FA;
                     --blockquote-border: #D0D7DE;
                     --row-alt: #F6F8FA;
+                    --md-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+                    --md-font-size: 14px;
                 }
                 * { box-sizing: border-box; margin: 0; padding: 0; }
                 html, body {
                     background: transparent;
                     color: var(--fg);
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-                    font-size: 14px;
+                    font-family: var(--md-font-family);
+                    font-size: var(--md-font-size);
                     line-height: 1.6;
                     padding: 0;
                     margin: 0;
@@ -373,6 +377,10 @@ enum MarkdownRenderer {
             pie12: "#\(mermaidTertiaryHex)"
         )
         let mermaidThemeJSON = mermaidThemeVariables.jsObjectLiteral
+        let fontFamilyCSS = palette.fontFamilyCSS
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        let fontSizePixels = max(6, 14 * palette.fontScale)
         let isDarkPreview = isDarkColor(palette.background)
         let mermaidBaseTheme = isDarkPreview ? "dark" : "default"
         let colorScheme = isDarkPreview ? "dark" : "light"
@@ -395,6 +403,8 @@ enum MarkdownRenderer {
             root.style.setProperty('--code-bg', '#\(codeBgHex)');
             root.style.setProperty('--blockquote-border', '#\(borderHex)');
             root.style.setProperty('--row-alt', '#\(rowAltHex)');
+            root.style.setProperty('--md-font-family', '\(fontFamilyCSS)');
+            root.style.setProperty('--md-font-size', '\(String(format: "%.2f", fontSizePixels))px');
             const syntaxStyle = document.getElementById('muxy-syntax-style');
             if (syntaxStyle) {
                 syntaxStyle.textContent = `\(escapedSyntaxCSS)`;
