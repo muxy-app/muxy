@@ -63,6 +63,19 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(pane: TerminalPaneState(projectPath: directory)))
     }
 
+    func createCommandTab(name: String, command: String) {
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty else { return }
+        let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pane = TerminalPaneState(
+            projectPath: projectPath,
+            title: title.isEmpty ? Self.commandTitle(trimmedCommand) : title,
+            startupCommand: trimmedCommand,
+            startupCommandInteractive: true
+        )
+        insertTab(TerminalTab(pane: pane))
+    }
+
     func createVCSTab() {
         insertTab(TerminalTab(vcsState: VCSTabState(projectPath: projectPath)))
     }

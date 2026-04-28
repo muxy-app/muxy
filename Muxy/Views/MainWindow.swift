@@ -229,6 +229,7 @@ struct MainWindow: View {
         .environment(dragCoordinator)
         .background(MainWindowShortcutInterceptor(
             onShortcut: { action in handleShortcutAction(action) },
+            onCommandShortcut: { shortcut in handleCommandShortcut(shortcut) },
             onMouseBack: { appState.goBack() },
             onMouseForward: { appState.goForward() }
         ))
@@ -532,6 +533,15 @@ struct MainWindow: View {
         shortcutDispatcher.perform(action, activeProject: activeProject) { project in
             openVCS(for: project)
         }
+    }
+
+    private func handleCommandShortcut(_ shortcut: CommandShortcut) -> Bool {
+        guard let projectID = appState.activeProjectID,
+              appState.workspaceRoot(for: projectID) != nil,
+              !shortcut.trimmedCommand.isEmpty
+        else { return false }
+        appState.createCommandTab(projectID: projectID, shortcut: shortcut)
+        return true
     }
 
     private var activeProjectHasSplitWorkspace: Bool {
@@ -864,12 +874,14 @@ private struct NavigationArrowButton: View {
 
 private struct MainWindowShortcutInterceptor: NSViewRepresentable {
     let onShortcut: (ShortcutAction) -> Bool
+    let onCommandShortcut: (CommandShortcut) -> Bool
     let onMouseBack: () -> Void
     let onMouseForward: () -> Void
 
     func makeNSView(context: Context) -> ShortcutInterceptingView {
         let view = ShortcutInterceptingView()
         view.onShortcut = onShortcut
+        view.onCommandShortcut = onCommandShortcut
         view.onMouseBack = onMouseBack
         view.onMouseForward = onMouseForward
         return view
@@ -877,6 +889,7 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
 
     func updateNSView(_ nsView: ShortcutInterceptingView, context: Context) {
         nsView.onShortcut = onShortcut
+        nsView.onCommandShortcut = onCommandShortcut
         nsView.onMouseBack = onMouseBack
         nsView.onMouseForward = onMouseForward
     }
@@ -884,6 +897,7 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
 
 private final class ShortcutInterceptingView: NSView {
     var onShortcut: ((ShortcutAction) -> Bool)?
+    var onCommandShortcut: ((CommandShortcut) -> Bool)?
     var onMouseBack: (() -> Void)?
     var onMouseForward: (() -> Void)?
     private var mouseMonitor: Any?
@@ -903,12 +917,27 @@ private final class ShortcutInterceptingView: NSView {
         else { return super.performKeyEquivalent(with: event) }
 
         let scopes = ShortcutContext.activeScopes(for: window)
-        guard let action = KeyBindingStore.shared.action(for: event, scopes: scopes) else {
-            return super.performKeyEquivalent(with: event)
+        let layerWasActive = CommandShortcutStore.shared.isLayerActive
+        if let shortcut = CommandShortcutStore.shared.shortcut(for: event, scopes: scopes) {
+            CommandShortcutStore.shared.deactivateLayer()
+            _ = onCommandShortcut?(shortcut)
+            return true
         }
 
-        if onShortcut?(action) == true {
+        if layerWasActive {
+            CommandShortcutStore.shared.deactivateLayer()
             return true
+        }
+
+        if CommandShortcutStore.shared.matchesPrefix(event: event, scopes: scopes) {
+            CommandShortcutStore.shared.activateLayer()
+            return true
+        }
+
+        if let action = KeyBindingStore.shared.action(for: event, scopes: scopes) {
+            if onShortcut?(action) == true {
+                return true
+            }
         }
 
         return super.performKeyEquivalent(with: event)

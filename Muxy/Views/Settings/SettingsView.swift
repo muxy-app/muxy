@@ -19,5 +19,6 @@ struct SettingsView: View {
                 .tabItem { Label("AI Usage", systemImage: "chart.bar") }
         }
         .frame(width: 500, height: 500)
+        .resetsSettingsFocusOnOutsideClick()
     }
 }

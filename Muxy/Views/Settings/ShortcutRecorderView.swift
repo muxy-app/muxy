@@ -4,11 +4,13 @@ import SwiftUI
 struct ShortcutRecorderView: NSViewRepresentable {
     let onRecord: (KeyCombo) -> Void
     let onCancel: () -> Void
+    var requiresModifier = true
 
     func makeNSView(context: Context) -> ShortcutRecorderNSView {
         let view = ShortcutRecorderNSView()
         view.onRecord = onRecord
         view.onCancel = onCancel
+        view.requiresModifier = requiresModifier
         DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         return view
     }
@@ -16,14 +18,30 @@ struct ShortcutRecorderView: NSViewRepresentable {
     func updateNSView(_ nsView: ShortcutRecorderNSView, context: Context) {
         nsView.onRecord = onRecord
         nsView.onCancel = onCancel
+        nsView.requiresModifier = requiresModifier
     }
 }
 
 final class ShortcutRecorderNSView: NSView {
     var onRecord: ((KeyCombo) -> Void)?
     var onCancel: (() -> Void)?
+    var requiresModifier = true
+    private var completed = false
 
     override var acceptsFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        completed = false
+        return super.becomeFirstResponder()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        if result, !completed {
+            onCancel?()
+        }
+        return result
+    }
 
     override func accessibilityRole() -> NSAccessibility.Role? {
         .textField
@@ -55,17 +73,19 @@ final class ShortcutRecorderNSView: NSView {
     @discardableResult
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
         if event.keyCode == 53 {
+            completed = true
             onCancel?()
             return true
         }
 
         let flags = event.modifierFlags.intersection(KeyCombo.supportedModifierMask)
         let hasModifier = flags.contains(.command) || flags.contains(.control) || flags.contains(.option)
-        guard hasModifier else { return false }
+        guard hasModifier || !requiresModifier else { return false }
 
         let key = KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
         guard !key.isEmpty else { return false }
 
+        completed = true
         onRecord?(KeyCombo(key: key, modifiers: flags.rawValue))
         return true
     }

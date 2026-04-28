@@ -8,6 +8,7 @@ struct MuxyCommands: Commands {
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
     let keyBindings: KeyBindingStore
+    let commandShortcuts: CommandShortcutStore
     let config: MuxyConfig
     let ghostty: GhosttyService
     let updateService: UpdateService
@@ -61,6 +62,15 @@ struct MuxyCommands: Commands {
                 attached: { NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil) }
             )
         }
+    }
+
+    private func performCommandShortcut(_ shortcut: CommandShortcut) {
+        guard isMainWindowFocused,
+              let projectID = appState.activeProjectID,
+              appState.workspaceRoot(for: projectID) != nil,
+              !shortcut.trimmedCommand.isEmpty
+        else { return }
+        appState.createCommandTab(projectID: projectID, shortcut: shortcut)
     }
 
     var body: some Commands {
@@ -166,6 +176,20 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.newTab)
             }
             .shortcut(for: .newTab, store: keyBindings)
+
+            Menu("Custom Commands") {
+                if commandShortcuts.shortcuts.isEmpty {
+                    Button("No Custom Commands") {}
+                        .disabled(true)
+                } else {
+                    ForEach(commandShortcuts.shortcuts) { shortcut in
+                        Button(shortcut.displayName) {
+                            performCommandShortcut(shortcut)
+                        }
+                        .disabled(shortcut.trimmedCommand.isEmpty)
+                    }
+                }
+            }
 
             Button("Source Control") {
                 guard isMainWindowFocused else { return }

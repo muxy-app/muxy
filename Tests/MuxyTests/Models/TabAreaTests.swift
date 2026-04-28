@@ -36,6 +36,28 @@ struct TabAreaTests {
         #expect(area.activeTabID == area.tabs[1].id)
     }
 
+    @Test("createCommandTab adds terminal tab with startup command")
+    func createCommandTab() {
+        let area = TabArea(projectPath: testPath)
+        area.createCommandTab(name: "Server", command: " npm run dev ")
+
+        let pane = area.activeTab?.content.pane
+        #expect(area.tabs.count == 2)
+        #expect(area.activeTab?.kind == .terminal)
+        #expect(pane?.title == "Server")
+        #expect(pane?.startupCommand == "npm run dev")
+    }
+
+    @Test("createCommandTab ignores empty command")
+    func createCommandTabEmptyCommand() {
+        let area = TabArea(projectPath: testPath)
+        let activeTabID = area.activeTabID
+        area.createCommandTab(name: "Empty", command: " ")
+
+        #expect(area.tabs.count == 1)
+        #expect(area.activeTabID == activeTabID)
+    }
+
     @Test("createVCSTab adds tab with VCS content")
     func createVCSTab() {
         let area = TabArea(projectPath: testPath)
