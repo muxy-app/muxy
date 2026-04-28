@@ -2,7 +2,7 @@ import SwiftUI
 
 enum SidebarLayout {
     static let collapsedWidth: CGFloat = 44
-    static let expandedWidth: CGFloat = 220
+    static let expandedWidth: CGFloat = 290
     static let width: CGFloat = 44
 
     static func resolvedWidth(
