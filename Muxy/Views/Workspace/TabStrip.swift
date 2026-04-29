@@ -20,8 +20,7 @@ struct PaneTabStrip: View {
     var showDevelopmentBadge = false
     var openInIDEProjectPath: String?
     var openInIDEFilePath: String?
-    var openInIDELine: Int?
-    var openInIDEColumn: Int?
+    var openInIDECursorProvider: () -> (line: Int?, column: Int?) = { (nil, nil) }
     let projectID: UUID
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
@@ -71,8 +70,7 @@ struct PaneTabStrip: View {
                     OpenInIDEControl(
                         projectPath: openInIDEProjectPath,
                         filePath: openInIDEFilePath,
-                        line: openInIDELine,
-                        column: openInIDEColumn
+                        cursorProvider: openInIDECursorProvider
                     )
                 }
                 if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {

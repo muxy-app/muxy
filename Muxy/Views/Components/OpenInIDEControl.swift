@@ -4,8 +4,7 @@ import SwiftUI
 struct OpenInIDEControl: View {
     let projectPath: String?
     let filePath: String?
-    let line: Int?
-    let column: Int?
+    let cursorProvider: () -> (line: Int?, column: Int?)
     var compact = true
 
     @ObservedObject private var ideService = IDEIntegrationService.shared
@@ -223,11 +222,12 @@ struct OpenInIDEControl: View {
 
     private func open(_ ide: IDEIntegrationService.IDEApplication) {
         guard let projectPath else { return }
+        let cursor = cursorProvider()
         _ = ideService.openProject(
             at: projectPath,
             highlightingFileAt: filePath,
-            line: line,
-            column: column,
+            line: cursor.line,
+            column: cursor.column,
             in: ide
         )
     }

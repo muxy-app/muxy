@@ -331,8 +331,12 @@ struct MainWindow: View {
                 showDevelopmentBadge: AppEnvironment.isDevelopment,
                 openInIDEProjectPath: activeWorktreePath(for: project),
                 openInIDEFilePath: area.activeTab?.content.editorState?.filePath,
-                openInIDELine: area.activeTab?.content.editorState?.cursorLine,
-                openInIDEColumn: area.activeTab?.content.editorState?.cursorColumn,
+                openInIDECursorProvider: {
+                    guard let editorState = appState.activeTab(for: project.id)?.content.editorState else {
+                        return (nil, nil)
+                    }
+                    return (editorState.cursorLine, editorState.cursorColumn)
+                },
                 projectID: project.id,
                 onSelectTab: { tabID in
                     appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
@@ -399,8 +403,7 @@ struct MainWindow: View {
                             OpenInIDEControl(
                                 projectPath: activeWorktreePath(for: project),
                                 filePath: activeEditorFilePath,
-                                line: activeEditorCursorLine,
-                                column: activeEditorCursorColumn
+                                cursorProvider: activeEditorCursor
                             )
                         }
                         if let version = UpdateService.shared.availableUpdateVersion {
@@ -608,12 +611,9 @@ struct MainWindow: View {
         activeEditorState?.filePath
     }
 
-    private var activeEditorCursorLine: Int? {
-        activeEditorState?.cursorLine
-    }
-
-    private var activeEditorCursorColumn: Int? {
-        activeEditorState?.cursorColumn
+    private func activeEditorCursor() -> (line: Int?, column: Int?) {
+        guard let state = activeEditorState else { return (nil, nil) }
+        return (state.cursorLine, state.cursorColumn)
     }
 
     private func syncFileTreeSelection(filePath: String?) {
