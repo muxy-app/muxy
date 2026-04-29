@@ -100,8 +100,8 @@ def muxy_notify(title: str, body: str = "") -> None:
 
 The built-in integrations are good templates for writing your own:
 
-- **Shell hook (Claude Code):** [`scripts/muxy-claude-hook.sh`](../scripts/muxy-claude-hook.sh)
-- **Node plugin (OpenCode):** [`scripts/opencode-muxy-plugin.js`](../scripts/opencode-muxy-plugin.js)
+- **Shell hook (Claude Code):** [`Muxy/Resources/scripts/muxy-claude-hook.sh`](../Muxy/Resources/scripts/muxy-claude-hook.sh)
+- **Node plugin (OpenCode):** [`Muxy/Resources/scripts/opencode-muxy-plugin.js`](../Muxy/Resources/scripts/opencode-muxy-plugin.js)
 
 ## Tips
 
