@@ -5,12 +5,10 @@ final class MarkdownInlineExtension: EditorExtension {
     let identifier = "markdown-inline"
 
     func renderViewport(context: EditorRenderContext, lineRange: Range<Int>) {
-        guard context.state.isMarkdownFile else { return }
         applyDecorations(context: context, lineRange: lineRange)
     }
 
     func applyIncremental(context: EditorRenderContext, lineRange: Range<Int>, edit _: EditorTextEdit) {
-        guard context.state.isMarkdownFile else { return }
         applyDecorations(context: context, lineRange: lineRange)
     }
 

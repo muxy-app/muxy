@@ -1,15 +1,5 @@
 # Muxy
 
-
-## Build & Run
-
-```bash
-scripts/setup.sh         # First-time setup (downloads GhosttyKit.xcframework)
-swift build              # Debug build
-swift build -c release   # Release build
-swift run Muxy            # Run the app
-```
-
 Requires macOS 14+ and Swift 6.0+. No external dependency managers needed — everything is SPM-based.
 
 ## Linting & Formatting

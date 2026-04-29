@@ -506,10 +506,11 @@ struct CodeEditorView: NSViewRepresentable {
             self.state = state
             self.editorSettings = editorSettings
             super.init()
-            extensions = [
-                SyntaxHighlightExtension(coordinator: self),
-                MarkdownInlineExtension(),
-            ]
+            var loaded: [EditorExtension] = [SyntaxHighlightExtension(coordinator: self)]
+            if state.isMarkdownFile {
+                loaded.append(MarkdownInlineExtension())
+            }
+            extensions = loaded
         }
 
         private func makeRenderContext() -> EditorRenderContext? {
