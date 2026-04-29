@@ -44,6 +44,11 @@ final class SyntaxHighlighter {
         return cache[line].tokens
     }
 
+    func lineStartState(at line: Int) -> LineEndState {
+        guard line > 0, line - 1 < cache.count else { return .normal }
+        return cache[line - 1].endState
+    }
+
     func applyEdit(
         startLine: Int,
         oldLineCount: Int,

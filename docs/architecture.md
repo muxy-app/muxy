@@ -132,6 +132,7 @@ Muxy/
     SyntaxTokenizer.swift     Stateful per-line tokenizer emitting TokenSpans and end state
     SyntaxHighlighter.swift   Per-file line-end-state cache + viewport highlight API
     SyntaxLanguageRegistry.swift  File-extension → grammar lookup
+    MarkdownInlineHighlighter.swift  Pure decorator: scans a markdown line and emits MarkdownInlineDecoration values (heading, bold/italic/strike, code-span, blockquote, list marker). Consumed by MarkdownInlineExtension to apply font and attribute changes in the editor.
     Grammars/
       CFamilyGrammars.swift   Swift, JS, TS, Objective-C, C, C++, C#, Java, Kotlin, Scala, Go, Rust, Dart, PHP
       ScriptGrammars.swift    Python, Ruby, Lua, Shell, Perl, Elixir, Haskell
@@ -169,8 +170,19 @@ Muxy/
       TerminalSearchBar.swift Find-in-terminal UI
       TerminalViewRegistry.swift  Terminal view lifecycle management
     Editor/
-      CodeEditorRepresentable.swift  NSViewRepresentable bridge for code editor (viewport rendering path)
+      CodeEditorRepresentable.swift  NSViewRepresentable bridge for code editor (viewport rendering path); coordinator dispatches render and incremental events to a list of EditorExtensions
       EditorPane.swift        SwiftUI wrapper for editor tab (breadcrumb + editor)
+      Extensions/
+        EditorExtension.swift            Protocol with lifecycle hooks (didMount, willUnmount, renderViewport, applyIncremental, textDidChange) and default no-op implementations
+        EditorRenderContext.swift        Bundle of render-time dependencies (textView, storage, layoutManager, viewport, backingStore, line offsets, settings, state) handed to extensions
+        SyntaxHighlightExtension.swift   Owns .foregroundColor temporary attributes from SyntaxHighlighter spans; schedules cascade reapply via SyntaxHighlightCoordinator
+        MarkdownInlineExtension.swift    Markdown-only: heading sizes, bold/italic/strike font traits, code-span/blockquote/list muted markers; gates on EditorTabState.isMarkdownFile
+      Markdown/
+        MarkdownScrollSyncController.swift  Drives editor↔preview scroll sync for markdown split mode; owns the isApplyingScroll guard and pending-request version tracking
+      Search/
+        SearchController.swift              Owns find/replace state and viewport-anchored search highlights; communicates with the coordinator through SearchControllerHost
+      History/
+        ViewportEditHistory.swift           Owns viewport-mode undo/redo stacks, edit coalescing, and apply logic; ViewportCursor / ViewportEdit / ViewportEditGroup / PendingViewportEdit lifted to file scope; communicates with the coordinator through ViewportEditHistoryHost
     FileTree/
       FileTreeView.swift      Side panel rendering of the lightweight file tree
       FileTreeCommands.swift  Orchestrates create/rename/delete/cut/copy/paste/drop

@@ -65,6 +65,11 @@ struct EditorSearchBar: View {
                     .foregroundStyle(MuxyTheme.fg)
                     .focused($isFieldFocused)
                     .onSubmit { onNext() }
+                    .onKeyPress(.return, phases: .down) { press in
+                        guard press.modifiers.contains(.shift) else { return .ignored }
+                        onPrevious()
+                        return .handled
+                    }
 
                 if !displayText.isEmpty {
                     Text(displayText)
