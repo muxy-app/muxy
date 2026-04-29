@@ -19,6 +19,13 @@ final class VCSTabState {
         }
     }
 
+    enum FileListMode: String, CaseIterable, Identifiable {
+        case flat
+        case folders
+
+        var id: String { rawValue }
+    }
+
     typealias LoadedDiff = DiffCache.LoadedDiff
 
     enum PRLaunchState: Equatable {
@@ -51,7 +58,16 @@ final class VCSTabState {
     let projectPath: String
     var files: [GitStatusFile] = []
     var mode: ViewMode = .unified
+    var fileListMode: FileListMode = .flat {
+        didSet {
+            guard isLoaded, fileListMode != oldValue else { return }
+            VCSPersistedSettings.storeFileListMode(fileListMode, repoPath: projectPath)
+        }
+    }
+
     var expandedFilePaths: Set<String> = []
+    var expandedStagedFolderPaths: Set<String> = []
+    var expandedUnstagedFolderPaths: Set<String> = []
     var isLoadingFiles = false
     var errorMessage: String?
     let diffCache = DiffCache()
@@ -186,6 +202,7 @@ final class VCSTabState {
         changesCollapsed = collapse.changes
         historyCollapsed = collapse.history
         pullRequestsCollapsed = collapse.pullRequests
+        fileListMode = VCSPersistedSettings.loadFileListMode(repoPath: projectPath)
         let storedRatios = VCSPersistedSettings.loadSectionRatios(repoPath: projectPath)
         if storedRatios.count == sectionRatios.count {
             sectionRatios = storedRatios
@@ -329,6 +346,12 @@ final class VCSTabState {
 
                 if !removedPaths.isEmpty {
                     expandedFilePaths = expandedFilePaths.intersection(validPaths)
+                    expandedStagedFolderPaths = expandedStagedFolderPaths.filter { folderPath in
+                        validPaths.contains(where: { $0.hasPrefix(folderPath + "/") })
+                    }
+                    expandedUnstagedFolderPaths = expandedUnstagedFolderPaths.filter { folderPath in
+                        validPaths.contains(where: { $0.hasPrefix(folderPath + "/") })
+                    }
                     for path in removedPaths {
                         diffCache.evict(path)
                     }
@@ -360,6 +383,8 @@ final class VCSTabState {
                 guard !Task.isCancelled else { return }
                 files = []
                 expandedFilePaths = []
+                expandedStagedFolderPaths = []
+                expandedUnstagedFolderPaths = []
                 diffCache.clearAll()
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 isLoadingFiles = false
@@ -425,6 +450,35 @@ final class VCSTabState {
             diffCache.cancelLoad(for: file.path)
         }
         expandedFilePaths = updated
+    }
+
+    func toggleFolderExpanded(_ folderPath: String, isStaged: Bool) {
+        if isStaged {
+            if expandedStagedFolderPaths.contains(folderPath) {
+                expandedStagedFolderPaths.remove(folderPath)
+                return
+            }
+            expandedStagedFolderPaths.insert(folderPath)
+            return
+        }
+
+        if expandedUnstagedFolderPaths.contains(folderPath) {
+            expandedUnstagedFolderPaths.remove(folderPath)
+            return
+        }
+        expandedUnstagedFolderPaths.insert(folderPath)
+    }
+
+    func isFolderExpanded(_ folderPath: String, isStaged: Bool) -> Bool {
+        isStaged ? expandedStagedFolderPaths.contains(folderPath) : expandedUnstagedFolderPaths.contains(folderPath)
+    }
+
+    var stagedTreeRows: [VCSFileTree.Row] {
+        VCSFileTree.rows(files: stagedFiles, expandedFolders: expandedStagedFolderPaths)
+    }
+
+    var unstagedTreeRows: [VCSFileTree.Row] {
+        VCSFileTree.rows(files: unstagedFiles, expandedFolders: expandedUnstagedFolderPaths)
     }
 
     func loadFullDiff(filePath: String) {
@@ -1211,5 +1265,132 @@ final class VCSTabState {
             cache: diffCache,
             git: git
         )
+    }
+}
+
+enum VCSFileTree {
+    struct Folder: Equatable {
+        let path: String
+        let name: String
+        let depth: Int
+        let fileCount: Int
+    }
+
+    enum Row: Equatable, Identifiable {
+        case folder(Folder)
+        case file(GitStatusFile, depth: Int)
+
+        var id: String {
+            switch self {
+            case let .folder(folder):
+                "folder:\(folder.path)"
+            case let .file(file, _):
+                "file:\(file.path)"
+            }
+        }
+    }
+
+    static func rows(files: [GitStatusFile], expandedFolders: Set<String>) -> [Row] {
+        let root = buildTree(files: files)
+        return flattenRows(node: root, depth: 0, expandedFolders: expandedFolders)
+    }
+
+    private static func buildTree(files: [GitStatusFile]) -> VCSFileTreeNode {
+        let root = VCSFileTreeNode()
+
+        for file in files {
+            let components = file.path.split(separator: "/").map(String.init)
+            guard !components.isEmpty else { continue }
+
+            if components.count == 1 {
+                root.files.append(file)
+                continue
+            }
+
+            var node = root
+            var currentPath = ""
+
+            for component in components.dropLast() {
+                currentPath = currentPath.isEmpty ? component : currentPath + "/" + component
+                if let existing = node.folders[currentPath] {
+                    node = existing
+                } else {
+                    let created = VCSFileTreeNode()
+                    node.folders[currentPath] = created
+                    node = created
+                }
+            }
+
+            node.files.append(file)
+        }
+
+        return root
+    }
+
+    private struct CompactedFolder {
+        let path: String
+        let name: String
+        let node: VCSFileTreeNode
+    }
+
+    private static func compactedFolder(
+        startPath: String,
+        startName: String,
+        node: VCSFileTreeNode
+    ) -> CompactedFolder {
+        guard node.files.isEmpty, node.folders.count == 1, let (nextPath, nextNode) = node.folders.first else {
+            return CompactedFolder(path: startPath, name: startName, node: node)
+        }
+        let nextName = (nextPath as NSString).lastPathComponent
+        return compactedFolder(startPath: nextPath, startName: startName + "/" + nextName, node: nextNode)
+    }
+
+    private static func flattenRows(node: VCSFileTreeNode, depth: Int, expandedFolders: Set<String>) -> [Row] {
+        var result: [Row] = []
+
+        let sortedFolderPaths = node.folders.keys.sorted {
+            let lhs = ($0 as NSString).lastPathComponent
+            let rhs = ($1 as NSString).lastPathComponent
+            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+        }
+
+        for folderPath in sortedFolderPaths {
+            guard let child = node.folders[folderPath] else { continue }
+            let compacted = compactedFolder(
+                startPath: folderPath,
+                startName: (folderPath as NSString).lastPathComponent,
+                node: child
+            )
+            result.append(.folder(Folder(
+                path: compacted.path,
+                name: compacted.name,
+                depth: depth,
+                fileCount: compacted.node.totalFileCount
+            )))
+
+            guard expandedFolders.contains(compacted.path) else { continue }
+            result.append(contentsOf: flattenRows(node: compacted.node, depth: depth + 1, expandedFolders: expandedFolders))
+        }
+
+        let sortedFiles = node.files.sorted {
+            let lhs = ($0.path as NSString).lastPathComponent
+            let rhs = ($1.path as NSString).lastPathComponent
+            return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+        }
+
+        for file in sortedFiles {
+            result.append(.file(file, depth: depth))
+        }
+
+        return result
+    }
+}
+
+private final class VCSFileTreeNode {
+    var folders: [String: VCSFileTreeNode] = [:]
+    var files: [GitStatusFile] = []
+
+    var totalFileCount: Int {
+        files.count + folders.values.reduce(0) { $0 + $1.totalFileCount }
     }
 }

@@ -7,6 +7,7 @@ enum VCSPersistedSettings {
     private static let autoSyncPrefix = "vcs.prAutoSyncMinutes."
     private static let collapsePrefix = "vcs.sectionCollapsed."
     private static let ratiosPrefix = "vcs.sectionRatios."
+    private static let fileListModePrefix = "vcs.fileListMode."
 
     struct SectionCollapse: Equatable {
         var staged: Bool
@@ -73,8 +74,10 @@ enum VCSPersistedSettings {
         defaults.removeObject(forKey: autoSyncPrefix + token)
         defaults.removeObject(forKey: collapsePrefix + token)
         defaults.removeObject(forKey: ratiosPrefix + token)
+        defaults.removeObject(forKey: fileListModePrefix + token)
         defaults.removeObject(forKey: visibilityPrefix + repoPath)
         defaults.removeObject(forKey: autoSyncPrefix + repoPath)
+        defaults.removeObject(forKey: fileListModePrefix + repoPath)
     }
 
     static func loadSectionCollapse(repoPath: String) -> SectionCollapse {
@@ -111,6 +114,31 @@ enum VCSPersistedSettings {
     static func storeSectionRatios(_ ratios: [CGFloat], repoPath: String) {
         let raw = ratios.map { Double($0) }
         UserDefaults.standard.set(raw, forKey: ratiosPrefix + token(for: repoPath))
+    }
+
+    static func loadFileListMode(repoPath: String) -> VCSTabState.FileListMode {
+        let defaults = UserDefaults.standard
+        let key = fileListModePrefix + token(for: repoPath)
+        if let raw = defaults.string(forKey: key),
+           let mode = VCSTabState.FileListMode(rawValue: raw)
+        {
+            return mode
+        }
+
+        let legacyKey = fileListModePrefix + repoPath
+        if let legacyRaw = defaults.string(forKey: legacyKey),
+           let legacyMode = VCSTabState.FileListMode(rawValue: legacyRaw)
+        {
+            defaults.set(legacyRaw, forKey: key)
+            defaults.removeObject(forKey: legacyKey)
+            return legacyMode
+        }
+
+        return .flat
+    }
+
+    static func storeFileListMode(_ mode: VCSTabState.FileListMode, repoPath: String) {
+        UserDefaults.standard.set(mode.rawValue, forKey: fileListModePrefix + token(for: repoPath))
     }
 
     private static func migrateLegacy(prefix: String, repoPath: String) -> Any? {

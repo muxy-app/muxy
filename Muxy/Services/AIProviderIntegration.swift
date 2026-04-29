@@ -52,6 +52,7 @@ final class AIProviderRegistry {
         claudeCodeProvider,
         CodexUsageProvider(),
         CopilotUsageProvider(),
+        CursorUsageProvider(),
         AmpUsageProvider(),
         ZaiUsageProvider(),
         MiniMaxUsageProvider(),

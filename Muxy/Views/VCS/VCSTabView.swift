@@ -1341,9 +1341,7 @@ private struct SectionSplitLayout: View {
                 sectionHeader(for: .staged, collapsed: false)
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(state.stagedFiles) { file in
-                            fileSection(file, isStaged: true)
-                        }
+                        fileList(for: state.stagedFiles, isStaged: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -1361,9 +1359,7 @@ private struct SectionSplitLayout: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(state.unstagedFiles) { file in
-                                fileSection(file, isStaged: false)
-                            }
+                            fileList(for: state.unstagedFiles, isStaged: false)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -1439,6 +1435,7 @@ private struct SectionSplitLayout: View {
     private func sectionActions(for section: SectionKind) -> some View {
         switch section {
         case .staged:
+            fileListModeToggle
             diffModeToggle
             expandCollapseButton(for: state.stagedFiles)
             IconButton(symbol: "minus", size: 11, accessibilityLabel: "Unstage All") {
@@ -1447,6 +1444,7 @@ private struct SectionSplitLayout: View {
             .help("Unstage all")
 
         case .changes:
+            fileListModeToggle
             diffModeToggle
             expandCollapseButton(for: state.unstagedFiles)
             IconButton(symbol: "plus", size: 11, accessibilityLabel: "Stage All") {
@@ -1492,6 +1490,20 @@ private struct SectionSplitLayout: View {
         .help(state.mode == .unified ? "Switch to Split View" : "Switch to Unified View")
     }
 
+    private var fileListModeToggle: some View {
+        Button {
+            state.fileListMode = state.fileListMode == .flat ? .folders : .flat
+        } label: {
+            Image(systemName: state.fileListMode == .flat ? "folder" : "list.bullet")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(state.fileListMode == .flat ? "Switch to Folder View" : "Switch to Flat View")
+    }
+
     @ViewBuilder
     private func expandCollapseButton(for files: [GitStatusFile]) -> some View {
         let anyExpanded = files.contains { state.expandedFilePaths.contains($0.path) }
@@ -1508,7 +1520,54 @@ private struct SectionSplitLayout: View {
         .help(anyExpanded ? "Collapse all" : "Expand all")
     }
 
-    private func fileSection(_ file: GitStatusFile, isStaged: Bool) -> some View {
+    @ViewBuilder
+    private func fileList(for files: [GitStatusFile], isStaged: Bool) -> some View {
+        if state.fileListMode == .flat {
+            ForEach(files) { file in
+                fileSection(file, isStaged: isStaged)
+            }
+        } else {
+            let rows = isStaged ? state.stagedTreeRows : state.unstagedTreeRows
+            ForEach(rows) { row in
+                switch row {
+                case let .folder(folder):
+                    folderSection(folder, isStaged: isStaged)
+                case let .file(file, depth):
+                    fileSection(
+                        file,
+                        isStaged: isStaged,
+                        displayPath: (file.path as NSString).lastPathComponent,
+                        depth: depth
+                    )
+                }
+            }
+        }
+    }
+
+    private func folderSection(_ folder: VCSFileTree.Folder, isStaged: Bool) -> some View {
+        VStack(spacing: 0) {
+            FolderRow(
+                name: folder.name,
+                depth: folder.depth,
+                fileCount: folder.fileCount,
+                expanded: state.isFolderExpanded(folder.path, isStaged: isStaged),
+                onToggle: {
+                    onFocus()
+                    state.toggleFolderExpanded(folder.path, isStaged: isStaged)
+                }
+            )
+
+            Rectangle().fill(MuxyTheme.border).frame(height: 1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func fileSection(
+        _ file: GitStatusFile,
+        isStaged: Bool,
+        displayPath: String? = nil,
+        depth: Int = 0
+    ) -> some View {
         let expanded = state.expandedFilePaths.contains(file.path)
         let stats = state.displayedStats(for: file)
         let statusText = isStaged ? file.stagedStatusText : file.unstagedStatusText
@@ -1520,6 +1579,8 @@ private struct SectionSplitLayout: View {
                 expanded: expanded,
                 stats: stats,
                 isStaged: isStaged,
+                displayPath: displayPath ?? file.path,
+                depth: depth,
                 onToggle: {
                     onFocus()
                     state.toggleExpanded(filePath: file.path)
@@ -1580,6 +1641,8 @@ private struct FileRow: View {
     let expanded: Bool
     let stats: VCSTabState.FileStats
     let isStaged: Bool
+    let displayPath: String
+    let depth: Int
     let onToggle: () -> Void
     let onStage: () -> Void
     let onUnstage: () -> Void
@@ -1621,7 +1684,7 @@ private struct FileRow: View {
                 .stroke(statusColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                 .frame(width: 11, height: 11)
 
-            Text(file.path)
+            Text(displayPath)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(MuxyTheme.fg)
                 .lineLimit(1)
@@ -1649,7 +1712,8 @@ private struct FileRow: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, 10 + CGFloat(depth) * 14)
+        .padding(.trailing, 10)
         .frame(height: 34)
         .background(MuxyTheme.bg)
         .contentShape(Rectangle())
@@ -1673,5 +1737,46 @@ private struct FileRow: View {
                     .help("Discard changes")
             }
         }
+    }
+}
+
+private struct FolderRow: View {
+    let name: String
+    let depth: Int
+    let fileCount: Int
+    let expanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgDim)
+                .frame(width: 12)
+
+            Image(systemName: "folder")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: 11, height: 11)
+
+            Text(name)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(MuxyTheme.fg)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Text("\(fileCount) \(fileCount == 1 ? "file" : "files")")
+                .font(.system(size: 10, weight: .regular))
+                .foregroundStyle(MuxyTheme.fgDim)
+                .lineLimit(1)
+
+            Spacer()
+        }
+        .padding(.leading, 10 + CGFloat(depth) * 14)
+        .padding(.trailing, 10)
+        .frame(height: 30)
+        .background(MuxyTheme.bg)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onToggle)
     }
 }

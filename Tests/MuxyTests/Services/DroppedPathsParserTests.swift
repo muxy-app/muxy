@@ -103,3 +103,98 @@ struct DroppedPathsParserTests {
         #expect(result == ["/tmp/a.txt", "/tmp/b.txt"])
     }
 }
+
+@Suite("VCSFileTree")
+struct VCSFileTreeTests {
+    @Test("folders are collapsed by default")
+    func foldersCollapsedByDefault() {
+        let files = [
+            makeFile("App/Models/User.swift"),
+            makeFile("App/Views/UserView.swift"),
+            makeFile("README.md"),
+        ]
+
+        let rows = VCSFileTree.rows(files: files, expandedFolders: [])
+
+        #expect(rows.count == 2)
+        #expect(rows[0] == .folder(.init(path: "App", name: "App", depth: 0, fileCount: 2)))
+        #expect(rows[1] == .file(makeFile("README.md"), depth: 0))
+    }
+
+    @Test("expanding a folder reveals nested content")
+    func expandingFolderShowsChildren() {
+        let files = [
+            makeFile("Sources/Core/A.swift"),
+            makeFile("Sources/UI/B.swift"),
+        ]
+
+        let rows = VCSFileTree.rows(files: files, expandedFolders: ["Sources", "Sources/Core"])
+
+        #expect(rows.contains(.folder(.init(path: "Sources", name: "Sources", depth: 0, fileCount: 2))))
+        #expect(rows.contains(.folder(.init(path: "Sources/Core", name: "Core", depth: 1, fileCount: 1))))
+        #expect(rows.contains(.file(makeFile("Sources/Core/A.swift"), depth: 2)))
+        #expect(rows.contains(.folder(.init(path: "Sources/UI", name: "UI", depth: 1, fileCount: 1))))
+    }
+
+    @Test("single-child folder chains are compacted into one row")
+    func compactFolders() {
+        let files = [makeFile("Muxy/Views/VCS/VCSTabView.swift")]
+
+        let rows = VCSFileTree.rows(files: files, expandedFolders: [])
+
+        #expect(rows.count == 1)
+        #expect(rows[0] == .folder(.init(path: "Muxy/Views/VCS", name: "Muxy/Views/VCS", depth: 0, fileCount: 1)))
+    }
+
+    @Test("compact folder expands to show files at correct depth")
+    func compactFolderExpanded() {
+        let file = makeFile("Muxy/Views/VCS/VCSTabView.swift")
+        let rows = VCSFileTree.rows(files: [file], expandedFolders: ["Muxy/Views/VCS"])
+
+        #expect(rows.count == 2)
+        #expect(rows[0] == .folder(.init(path: "Muxy/Views/VCS", name: "Muxy/Views/VCS", depth: 0, fileCount: 1)))
+        #expect(rows[1] == .file(file, depth: 1))
+    }
+
+    @Test("compaction stops at branching point")
+    func compactionStopsAtBranch() {
+        let files = [
+            makeFile("Muxy/Views/VCS/VCSTabView.swift"),
+            makeFile("Muxy/Views/Editor/EditorView.swift"),
+        ]
+
+        let rows = VCSFileTree.rows(files: files, expandedFolders: [])
+
+        #expect(rows.count == 1)
+        #expect(rows[0] == .folder(.init(path: "Muxy/Views", name: "Muxy/Views", depth: 0, fileCount: 2)))
+    }
+
+    @Test("folders and files are sorted case-insensitively")
+    func sortedRows() {
+        let files = [
+            makeFile("zeta/file.swift"),
+            makeFile("Alpha/file.swift"),
+            makeFile("beta.swift"),
+        ]
+
+        let rows = VCSFileTree.rows(files: files, expandedFolders: [])
+
+        #expect(rows[0] == .folder(.init(path: "Alpha", name: "Alpha", depth: 0, fileCount: 1)))
+        #expect(rows[1] == .folder(.init(path: "zeta", name: "zeta", depth: 0, fileCount: 1)))
+        #expect(rows[2] == .file(makeFile("beta.swift"), depth: 0))
+    }
+
+    private func makeFile(_ path: String) -> GitStatusFile {
+        GitStatusFile(
+            path: path,
+            oldPath: nil,
+            xStatus: "M",
+            yStatus: " ",
+            additions: nil,
+            deletions: nil,
+            isBinary: false
+        )
+    }
+}
+
+
