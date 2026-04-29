@@ -91,6 +91,8 @@ Muxy/
     Providers/
       ClaudeCodeProvider.swift     Claude hook install + usage fetch (OAuth token from env/credentials/keychain)
       OpenCodeProvider.swift       OpenCode notification-hook integration
+      CodexProvider.swift          Codex CLI notification-hook integration (~/.codex/hooks.json)
+      CursorProvider.swift         Cursor CLI notification-hook integration (~/.cursor/hooks.json)
       {Amp,Codex,Copilot,Factory,Kimi,MiniMax,Zai}UsageProvider.swift  Per-provider usage fetchers (AIUsageProvider)
     Git/
       GitRepositoryService.swift  Git command execution (Sendable struct; dispatches via GitProcessRunner)

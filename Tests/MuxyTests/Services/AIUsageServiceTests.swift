@@ -207,8 +207,8 @@ struct AIUsageServiceTests {
     @MainActor
     @Test("bundled provider catalog metadata is exposed for usage-only providers")
     func bundledProviderCatalogMetadata() {
-        let entry = AIUsageProviderCatalog.entry(providerID: "codex")
-        #expect(entry?.displayName == "Codex")
+        let entry = AIUsageProviderCatalog.entry(providerID: "copilot")
+        #expect(entry?.displayName == "Copilot")
         #expect(entry?.hasNotificationIntegration == false)
         #expect(entry?.isBundled == true)
     }
