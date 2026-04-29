@@ -73,6 +73,7 @@ The xcframework is built via GitHub Actions on the [muxy-app/ghostty](https://gi
 - If the feature is testable, then you must write tests.
 - Avoid long PR descriptions. It is for humans and keep it in 3 lines maximum.
 - Upload screenshots or recordings for the PRs.
+- Never answer any question without a proper investigation and exploring the codebase.
 
 
 ## Code Review
