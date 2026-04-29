@@ -154,8 +154,14 @@ struct TerminalBridge: NSViewRepresentable {
         configureFileOpenCallback(view)
         context.coordinator.wasFocused = focused
         if focused, !overlayActive {
+            view.notifySurfaceFocused()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 view.window?.makeFirstResponder(view)
+            }
+        } else {
+            view.notifySurfaceUnfocused()
+            if view.window?.firstResponder === view {
+                view.window?.makeFirstResponder(nil)
             }
         }
         return view

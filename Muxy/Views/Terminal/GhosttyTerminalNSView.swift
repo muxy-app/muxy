@@ -326,8 +326,10 @@ final class GhosttyTerminalNSView: NSView {
         let result = super.becomeFirstResponder()
         if result {
             ghostty_surface_set_focus(surface, true)
-            DispatchQueue.main.async { [weak self] in
-                self?.onFocus?()
+            if !isFocused {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onFocus?()
+                }
             }
         }
         return result
