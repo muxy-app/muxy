@@ -9,6 +9,8 @@ DerivedData/
 .netrc
 GhosttyKit.xcframework
 GhosttyKit/ghostty.h
+Muxy/Resources/ghostty
+Muxy/Resources/terminfo
 /ghostty
 /build
 .agents/

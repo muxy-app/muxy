@@ -132,24 +132,19 @@ final class GhosttyService {
         ghostty_app_tick(app)
     }
 
-    private static let allowedResourceParents = [
-        "/Applications/Ghostty.app/Contents/Resources/ghostty",
-        NSHomeDirectory() + "/Applications/Ghostty.app/Contents/Resources/ghostty",
-    ]
-
     private func resolveGhosttyResources() {
-        if let existing = getenv("GHOSTTY_RESOURCES_DIR").map({ String(cString: $0) }) {
-            guard Self.allowedResourceParents.contains(where: { existing.hasPrefix($0) }) else {
-                unsetenv("GHOSTTY_RESOURCES_DIR")
-                return
-            }
+        guard let bundled = Self.bundledResourcesPath() else {
+            logger.error("bundled ghostty resources not found in app bundle")
+            unsetenv("GHOSTTY_RESOURCES_DIR")
             return
         }
+        setenv("GHOSTTY_RESOURCES_DIR", bundled, 1)
+    }
 
-        for path in Self.allowedResourceParents {
-            guard FileManager.default.fileExists(atPath: path + "/shell-integration") else { continue }
-            setenv("GHOSTTY_RESOURCES_DIR", path, 1)
-            return
-        }
+    static func bundledResourcesPath() -> String? {
+        guard let url = Bundle.appResources.resourceURL?.appendingPathComponent("ghostty"),
+              FileManager.default.fileExists(atPath: url.appendingPathComponent("shell-integration").path)
+        else { return nil }
+        return url.path
     }
 }

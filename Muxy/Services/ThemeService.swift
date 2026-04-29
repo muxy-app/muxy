@@ -109,24 +109,13 @@ final class ThemeService {
 
     nonisolated private static func themeDirectories() -> [String] {
         var dirs: [String] = []
-        if let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").map({ String(cString: $0) }) {
-            dirs.append(resourcesDir + "/themes")
+        if let bundled = Bundle.appResources.resourceURL?.appendingPathComponent("ghostty/themes").path {
+            dirs.append(bundled)
         }
-
-        let appBundlePaths = [
-            "/Applications/Ghostty.app/Contents/Resources/ghostty/themes",
-            NSHomeDirectory() + "/Applications/Ghostty.app/Contents/Resources/ghostty/themes",
-        ]
-        for path in appBundlePaths where !dirs.contains(path) {
-            dirs.append(path)
-        }
-
         dirs.append(NSHomeDirectory() + "/.config/ghostty/themes")
-
-        if let bundledThemes = Bundle.appResources.resourceURL?.appendingPathComponent("themes").path {
-            dirs.append(bundledThemes)
+        if let extraThemes = Bundle.appResources.resourceURL?.appendingPathComponent("themes").path {
+            dirs.append(extraThemes)
         }
-
         return dirs
     }
 

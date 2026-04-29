@@ -41,9 +41,11 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Muxy",
-            exclude: ["Info.plist", "Muxy.entitlements"],
+            exclude: ["Info.plist", "Muxy.entitlements", "Resources/ghostty", "Resources/terminfo"],
             resources: [
                 .process("Resources"),
+                .copy("Resources/ghostty"),
+                .copy("Resources/terminfo"),
             ],
             linkerSettings: [
                 .unsafeFlags([
