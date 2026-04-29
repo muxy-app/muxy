@@ -37,7 +37,13 @@ final class ThemeService {
     }
 
     func currentThemeName() -> String? {
-        config.configValue(for: "theme")?.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        guard let raw = config.configValue(for: "theme")?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        else { return nil }
+        if raw.hasPrefix("/") {
+            return (raw as NSString).lastPathComponent
+        }
+        return raw
     }
 
     func currentThemeColors() -> DeviceThemeEventDTO? {
@@ -81,10 +87,19 @@ final class ThemeService {
 
     func applyTheme(_ name: String) {
         let sanitized = name.filter { $0 != "\"" && $0 != "\n" && $0 != "\r" }
-        config.updateConfigValue("theme", value: "\"\(sanitized)\"")
+        let value = Self.resolveThemePath(named: sanitized) ?? sanitized
+        config.updateConfigValue("theme", value: "\"\(value)\"")
         cachedColors = nil
         ghostty.reloadConfig()
         NotificationCenter.default.post(name: .themeDidChange, object: nil)
+    }
+
+    nonisolated private static func resolveThemePath(named name: String) -> String? {
+        for dir in themeDirectories() {
+            let path = dir + "/" + name
+            if FileManager.default.fileExists(atPath: path) { return path }
+        }
+        return nil
     }
 
     nonisolated private static func discoverThemes() -> [ThemePreview] {
