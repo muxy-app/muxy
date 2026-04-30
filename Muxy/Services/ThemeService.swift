@@ -127,9 +127,8 @@ final class ThemeService {
     func migrateToPairedThemeIfNeeded() {
         guard let selection = currentThemeSelection() else { return }
         if selection.darkName != nil, selection.lightName != nil { return }
-        let dark = selection.darkName ?? selection.fallbackName ?? Self.defaultThemeName
-        let light = selection.lightName ?? selection.fallbackName ?? Self.defaultThemeName
-        applyTheme(dark: dark, light: light)
+        let unified = selection.darkName ?? selection.lightName ?? selection.fallbackName ?? Self.defaultThemeName
+        applyTheme(dark: selection.darkName ?? unified, light: selection.lightName ?? unified)
     }
 
     func applyLightTheme(_ name: String) {
