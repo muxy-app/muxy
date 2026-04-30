@@ -14,6 +14,7 @@ struct WorkspaceState {
 struct WorkspaceSideEffects {
     var paneIDsToRemove: [UUID] = []
     var projectIDsToRemove: [UUID] = []
+    var startupCommands: [StartupWorkspaceBuilder.PendingCommand] = []
 }
 
 @MainActor
@@ -28,7 +29,8 @@ enum WorkspaceReducer {
                 projectID: projectID,
                 worktreeID: worktreeID,
                 worktreePath: worktreePath,
-                state: &state
+                state: &state,
+                effects: &effects
             )
 
         case let .removeProject(projectID):
@@ -57,7 +59,8 @@ enum WorkspaceReducer {
                 projects: projects,
                 worktrees: worktrees,
                 forward: true,
-                state: &state
+                state: &state,
+                effects: &effects
             )
 
         case let .selectPreviousProject(projects, worktrees):
@@ -65,7 +68,8 @@ enum WorkspaceReducer {
                 projects: projects,
                 worktrees: worktrees,
                 forward: false,
-                state: &state
+                state: &state,
+                effects: &effects
             )
 
         case let .createTab(projectID, areaID):

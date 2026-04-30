@@ -102,10 +102,21 @@ final class AppState {
             projects: projects,
             worktrees: worktrees
         )
+        var pendingStartupCommands: [StartupWorkspaceBuilder.PendingCommand] = []
         for entry in restored {
+            let worktreePath = entry.root.allAreas().first?.projectPath
+            if let worktreePath,
+               let startup = StartupWorkspaceBuilder.build(projectPath: worktreePath)
+            {
+                workspaceRoots[entry.key] = startup.root
+                focusedAreaID[entry.key] = startup.focusedAreaID
+                pendingStartupCommands.append(contentsOf: startup.pendingCommands)
+                continue
+            }
             workspaceRoots[entry.key] = entry.root
             focusedAreaID[entry.key] = entry.focusedAreaID
         }
+        StartupCommandRunner.run(pendingStartupCommands)
 
         let savedWorktreeIDs = selectionStore.loadActiveWorktreeIDs()
         for project in projects {
@@ -499,6 +510,8 @@ final class AppState {
         if !effects.projectIDsToRemove.isEmpty {
             onProjectsEmptied?(effects.projectIDsToRemove)
         }
+
+        StartupCommandRunner.run(effects.startupCommands)
 
         pruneNavigationHistory()
         recordCurrentNavigationEntry()

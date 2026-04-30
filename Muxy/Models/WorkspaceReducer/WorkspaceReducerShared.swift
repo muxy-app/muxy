@@ -20,10 +20,17 @@ enum WorkspaceReducerShared {
         projectID: UUID,
         worktreeID: UUID,
         worktreePath: String,
-        state: inout WorkspaceState
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
     ) {
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         guard state.workspaceRoots[key] == nil else { return }
+        if let startup = StartupWorkspaceBuilder.build(projectPath: worktreePath) {
+            state.workspaceRoots[key] = startup.root
+            state.focusedAreaID[key] = startup.focusedAreaID
+            effects.startupCommands.append(contentsOf: startup.pendingCommands)
+            return
+        }
         let area = TabArea(projectPath: worktreePath)
         state.workspaceRoots[key] = .tabArea(area)
         state.focusedAreaID[key] = area.id
