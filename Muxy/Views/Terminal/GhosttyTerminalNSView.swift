@@ -233,11 +233,6 @@ final class GhosttyTerminalNSView: NSView {
         updateMetalLayerSize(deferred: true)
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColorScheme(isDark: ThemeService.isCurrentAppearanceDark())
-    }
-
     func applyColorScheme(isDark: Bool) {
         guard let surface else { return }
         ghostty_surface_set_color_scheme(surface, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
