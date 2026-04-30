@@ -118,13 +118,7 @@ final class GhosttyService {
     }
 
     private func refreshConfig(postThemeChangeNotification: Bool) {
-        guard let app, let newConfig = loadMuxyGhosttyConfig() else {
-            if postThemeChangeNotification {
-                configVersion += 1
-                NotificationCenter.default.post(name: .themeDidChange, object: nil)
-            }
-            return
-        }
+        guard let app, let newConfig = loadMuxyGhosttyConfig() else { return }
         ghostty_app_update_config(app, newConfig)
         let oldConfig = config
         config = newConfig
