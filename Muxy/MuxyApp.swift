@@ -210,6 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate()
         setAppIcon()
         _ = GhosttyService.shared
+        GhosttyService.shared.applyInitialColorScheme()
         ThemeService.shared.applyDefaultThemeIfNeeded()
         ThemeService.shared.migrateToPairedThemeIfNeeded()
         observeSystemAppearanceChanges()
