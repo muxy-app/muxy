@@ -16,6 +16,9 @@ struct TabAreaView: View {
     let onForceCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
+    var showMaximizeButton = false
+    var isMaximized = false
+    var onToggleMaximize: (() -> Void)?
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @Environment(AppState.self) private var appState
     @State private var isExternalDragHovering = false
@@ -57,6 +60,9 @@ struct TabAreaView: View {
                     },
                     onSplit: onSplit,
                     onDropAction: onDropAction,
+                    showMaximizeButton: showMaximizeButton,
+                    isMaximized: isMaximized,
+                    onToggleMaximize: onToggleMaximize,
                     onCreateTabAdjacent: { tabID, side in
                         area.createTabAdjacent(to: tabID, side: side)
                     },

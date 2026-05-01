@@ -17,6 +17,8 @@ struct PaneNode: View {
     let onSplit: (UUID, SplitDirection) -> Void
     let onCloseArea: (UUID) -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
+    var showMaximizeButton = false
+    var onToggleMaximize: ((UUID) -> Void)?
 
     var body: some View {
         switch node {
@@ -36,7 +38,9 @@ struct PaneNode: View {
                 onCloseTab: { tabID in onCloseTab(area.id, tabID) },
                 onForceCloseTab: { tabID in onForceCloseTab(area.id, tabID) },
                 onSplit: { dir in onSplit(area.id, dir) },
-                onDropAction: onDropAction
+                onDropAction: onDropAction,
+                showMaximizeButton: showMaximizeButton,
+                onToggleMaximize: onToggleMaximize.map { toggle in { toggle(area.id) } }
             )
         case let .split(branch):
             SplitContainer(
@@ -54,7 +58,9 @@ struct PaneNode: View {
                 onForceCloseTab: onForceCloseTab,
                 onSplit: onSplit,
                 onCloseArea: onCloseArea,
-                onDropAction: onDropAction
+                onDropAction: onDropAction,
+                showMaximizeButton: showMaximizeButton,
+                onToggleMaximize: onToggleMaximize
             )
         }
     }

@@ -34,6 +34,9 @@ struct PaneTabStrip: View {
     let onCloseTabsToRight: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
+    var showMaximizeButton = false
+    var isMaximized = false
+    var onToggleMaximize: (() -> Void)?
     let onCreateTabAdjacent: (UUID, TabArea.InsertSide) -> Void
     let onTogglePin: (UUID) -> Void
     let onSetCustomTitle: (UUID, String?) -> Void
@@ -86,6 +89,14 @@ struct PaneTabStrip: View {
                         cursorProvider: openInIDECursorProvider
                     )
                     LayoutPickerMenu(projectID: projectID)
+                }
+                if showMaximizeButton || isMaximized, let onToggleMaximize {
+                    let symbol = isMaximized
+                        ? "arrow.down.right.and.arrow.up.left"
+                        : "arrow.up.left.and.arrow.down.right"
+                    let label = isMaximized ? "Restore Pane" : "Maximize Pane"
+                    IconButton(symbol: symbol, accessibilityLabel: label, action: onToggleMaximize)
+                        .help(shortcutTooltip("Toggle Maximize Pane", for: .toggleMaximizePane))
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))

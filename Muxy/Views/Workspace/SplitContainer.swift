@@ -17,6 +17,8 @@ struct SplitContainer: View {
     let onSplit: (UUID, SplitDirection) -> Void
     let onCloseArea: (UUID) -> Void
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
+    var showMaximizeButton = false
+    var onToggleMaximize: ((UUID) -> Void)?
 
     var body: some View {
         GeometryReader { geo in
@@ -88,7 +90,9 @@ struct SplitContainer: View {
             onForceCloseTab: onForceCloseTab,
             onSplit: onSplit,
             onCloseArea: onCloseArea,
-            onDropAction: onDropAction
+            onDropAction: onDropAction,
+            showMaximizeButton: showMaximizeButton,
+            onToggleMaximize: onToggleMaximize
         )
     }
 }

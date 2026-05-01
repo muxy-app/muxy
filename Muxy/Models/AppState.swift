@@ -82,6 +82,7 @@ final class AppState {
     var workspaceRoots: [WorktreeKey: SplitNode] = [:]
     var focusedAreaID: [WorktreeKey: UUID] = [:]
     var pendingLayoutApply: PendingLayoutApply?
+    var maximizedAreaID: [WorktreeKey: UUID] = [:]
     var pendingLastTabClose: PendingTabClose?
     var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
@@ -213,6 +214,10 @@ final class AppState {
     }
 
     func shortcutOffsets(for projectID: UUID) -> [UUID: Int] {
+        guard let key = activeWorktreeKey(for: projectID) else { return [:] }
+        if let maximizedAreaID = maximizedAreaID[key] {
+            return [maximizedAreaID: 0]
+        }
         var offsets: [UUID: Int] = [:]
         var running = 0
         for area in allAreas(for: projectID) {
@@ -230,6 +235,22 @@ final class AppState {
             direction: direction,
             position: .second
         )))
+    }
+
+    func toggleMaximize(areaID: UUID, for projectID: UUID) {
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key]
+        else { return }
+        guard case .split = root else {
+            maximizedAreaID.removeValue(forKey: key)
+            return
+        }
+        if maximizedAreaID[key] == areaID {
+            maximizedAreaID.removeValue(forKey: key)
+        } else {
+            dispatch(.focusArea(projectID: projectID, areaID: areaID))
+            maximizedAreaID[key] = areaID
+        }
     }
 
     func closeArea(_ areaID: UUID, projectID: UUID) {
@@ -556,6 +577,15 @@ final class AppState {
     }
 
     func selectTabByIndex(_ index: Int, projectID: UUID) {
+        if let key = activeWorktreeKey(for: projectID),
+           let areaID = maximizedAreaID[key],
+           let root = workspaceRoots[key],
+           let area = root.findArea(id: areaID)
+        {
+            guard index >= 0, index < area.tabs.count else { return }
+            dispatch(.selectTab(projectID: projectID, areaID: areaID, tabID: area.tabs[index].id))
+            return
+        }
         dispatch(.selectTabByIndex(projectID: projectID, index: index))
     }
 
@@ -580,6 +610,20 @@ final class AppState {
     }
 
     func dispatch(_ action: Action) {
+        switch action {
+        case let .focusPaneLeft(projectID),
+             let .focusPaneRight(projectID),
+             let .focusPaneUp(projectID),
+             let .focusPaneDown(projectID):
+            if let key = activeWorktreeKey(for: projectID),
+               maximizedAreaID[key] != nil
+            {
+                return
+            }
+        default:
+            break
+        }
+
         if case let .focusArea(projectID, areaID) = action,
            let key = activeWorktreeKey(for: projectID),
            focusedAreaID[key] == areaID
@@ -622,6 +666,7 @@ final class AppState {
         if focusHistory != workspace.focusHistory {
             focusHistory = workspace.focusHistory
         }
+        invalidateMaximizedAreas(for: action)
         reconcilePendingClosures()
 
         for paneID in effects.paneIDsToRemove {
@@ -775,6 +820,38 @@ final class AppState {
               let area = root.findArea(id: areaID)
         else { return false }
         return area.tabs.contains(where: { $0.id == tabID })
+    }
+
+    private func invalidateMaximizedAreas(for action: Action) {
+        if case let .splitArea(req) = action,
+           let key = activeWorktreeKey(for: req.projectID),
+           maximizedAreaID[key] == req.areaID
+        {
+            maximizedAreaID.removeValue(forKey: key)
+        }
+
+        if case let .removeWorktree(projectID, worktreeID, _, _) = action {
+            maximizedAreaID.removeValue(forKey: WorktreeKey(projectID: projectID, worktreeID: worktreeID))
+        }
+
+        for key in Array(maximizedAreaID.keys) {
+            guard let areaID = maximizedAreaID[key] else { continue }
+            guard let root = workspaceRoots[key] else {
+                maximizedAreaID.removeValue(forKey: key)
+                continue
+            }
+            if case .tabArea = root {
+                maximizedAreaID.removeValue(forKey: key)
+                continue
+            }
+            if root.findArea(id: areaID) == nil {
+                maximizedAreaID.removeValue(forKey: key)
+                continue
+            }
+            if focusedAreaID[key] != areaID {
+                maximizedAreaID.removeValue(forKey: key)
+            }
+        }
     }
 
     func focusArea(_ areaID: UUID, projectID: UUID) {
