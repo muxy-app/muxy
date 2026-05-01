@@ -397,18 +397,20 @@ final class GhosttyTerminalNSView: NSView {
         currentKeyEvent = event
         keyTextAccumulator = []
         commandSelectorCalled = false
-        let interpretEvent = translatedOptionAsAlt(for: event) ? eventStrippingOption(event) : event
+        let optionAsAlt = translatedOptionAsAlt(for: event)
+        let interpretEvent = optionAsAlt ? eventStrippingOption(event) : event
         interpretKeyEvents([interpretEvent])
         currentKeyEvent = nil
 
         syncPreedit(clearIfNeeded: hadMarkedText)
 
         let commandWasCalled = commandSelectorCalled
+        let translationFlags = optionAsAlt ? flags.subtracting(.option) : flags
 
         if !keyTextAccumulator.isEmpty {
             for text in keyTextAccumulator {
                 var keyEvent = buildKeyEvent(from: event, action: action)
-                keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(flags)
+                keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(translationFlags)
                 text.withCString { ptr in
                     keyEvent.text = ptr
                     _ = ghostty_surface_key(surface, keyEvent)
@@ -416,7 +418,7 @@ final class GhosttyTerminalNSView: NSView {
             }
         } else {
             var keyEvent = buildKeyEvent(from: event, action: action)
-            keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(flags)
+            keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(translationFlags)
             keyEvent.composing = hasMarkedText() || hadMarkedText
 
             let text = filterSpecialCharacters(event.characters ?? "")
