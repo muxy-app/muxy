@@ -3,7 +3,8 @@
 Android companion app for Muxy. Mirrors the iOS app under `MuxyMobile/`:
 pair with the desktop app, browse projects, view a terminal pane, send
 keyboard input. Transport is the desktop app's `MuxyRemoteServer`
-WebSocket on port `4865`.
+WebSocket on port `4865`. Muxy debug builds listen on `4866` (the Connect
+screen lets you override the default port when adding a device).
 
 The Android binary and everything under `android/` is licensed under
 **GPL-3.0** because the terminal layer vendors Termux's `terminal-emulator`
@@ -104,8 +105,10 @@ encryption / forget-device flows (using a fake `CryptoBox`).
 ## Phase status
 
 Tracked in `docs/plans/android-companion.md` at the repo root. Phases
-1–3 are landed: scaffolding, protocol port, and the WebSocket
-connection manager. Phase 4 lands the on-device credential vault
-(Keystore-encrypted `deviceID` + token) and the awaiting-approval
-scaffolding. Connect/project list (Phase 5) and the terminal layer
-(Phase 6) come next.
+1–4 are landed: scaffolding, protocol port, the WebSocket connection
+manager, and the on-device credential vault (Keystore-encrypted
+`deviceID` + token) plus the awaiting-approval scaffolding. Phase 5
+lands the Connect screen (saved devices, add-device sheet,
+state-routed connecting / awaiting-approval / failed views) and the
+project list (logo + colored swatch icons, tap-to-open project
+session). Workspace UI is a placeholder until Phase 6/8.

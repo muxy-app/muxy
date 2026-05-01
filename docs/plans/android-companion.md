@@ -463,7 +463,7 @@ Mac+iOS session for use as test vectors during the protocol port.
 
 **Goal:** User can connect to their Mac and see the project list.
 
-- [ ] `ConnectScreen` (Compose): saved-devices list at top (rendered
+- [x] `ConnectScreen` (Compose): saved-devices list at top (rendered
       from the `SavedDevice` store from Phase 3), each row tap-to-
       connect, swipe-to-remove. Below the list: an "Add device" form
       with name + host text field + port field (default 4865; the Mac
@@ -475,14 +475,14 @@ Mac+iOS session for use as test vectors during the protocol port.
 - [ ] (Optional, behind feature flag) mDNS discovery via `NsdManager` for
       `_muxy._tcp.local` — only useful on LAN, not Tailscale. Show as
       suggestions, never required
-- [ ] `ProjectListScreen`: render `[ProjectDTO]` from `listProjects`,
+- [x] `ProjectListScreen`: render `[ProjectDTO]` from `listProjects`,
       show project color, and only call `getProjectLogo` for projects
       whose `logo` field is non-nil (iOS pattern in
       `ConnectionManager.fetchLogo` — `ProjectLogoDTO.pngData` is
       base64 PNG, decode and cache by `projectID`). Tap to navigate
-- [ ] ViewModel layer: `ConnectViewModel`, `ProjectListViewModel`,
+- [x] ViewModel layer: `ConnectViewModel`, `ProjectListViewModel`,
       observing `MuxyClient` flows
-- [ ] Settings entry stub (server address management)
+- [x] Settings entry stub (server address management)
 
 ---
 
