@@ -25,7 +25,7 @@ enum UpdateChannel: String, CaseIterable, Identifiable {
         case .stable:
             "https://github.com/muxy-app/muxy/releases/latest/download/appcast-\(Self.archSlug).xml"
         case .beta:
-            "https://github.com/muxy-app/muxy/releases/download/beta/appcast-beta-\(Self.archSlug).xml"
+            "https://github.com/muxy-app/muxy/releases/download/beta-channel/appcast-beta-\(Self.archSlug).xml"
         }
     }
 
@@ -42,9 +42,9 @@ enum UpdateChannel: String, CaseIterable, Identifiable {
 final class UpdateService: NSObject {
     static let shared = UpdateService()
 
-    @ObservationIgnored private var controller: SPUStandardUpdaterController!
+    @ObservationIgnored private let controller: SPUStandardUpdaterController
     @ObservationIgnored private var cancellables = Set<AnyCancellable>()
-    @ObservationIgnored private let feedDelegate = FeedDelegate()
+    @ObservationIgnored private let feedDelegate: FeedDelegate
 
     private(set) var canCheckForUpdates = false
     private(set) var availableUpdateVersion: String?
@@ -65,15 +65,16 @@ final class UpdateService: NSObject {
     }
 
     override private init() {
-        super.init()
         let stored = UserDefaults.standard.string(forKey: UpdateChannel.storageKey)
             .flatMap { UpdateChannel(rawValue: $0) } ?? .stable
-        feedDelegate.channel = stored
+        let delegate = FeedDelegate(channel: stored)
+        feedDelegate = delegate
         controller = SPUStandardUpdaterController(
             startingUpdater: false,
-            updaterDelegate: feedDelegate,
+            updaterDelegate: delegate,
             userDriverDelegate: nil
         )
+        super.init()
         controller.updater.publisher(for: \.canCheckForUpdates)
             .assign(to: \.canCheckForUpdates, on: self)
             .store(in: &cancellables)
@@ -120,7 +121,12 @@ final class UpdateService: NSObject {
 }
 
 private final class FeedDelegate: NSObject, SPUUpdaterDelegate {
-    var channel: UpdateChannel = .stable
+    var channel: UpdateChannel
+
+    init(channel: UpdateChannel) {
+        self.channel = channel
+        super.init()
+    }
 
     func feedURLString(for _: SPUUpdater) -> String? {
         channel.feedURL

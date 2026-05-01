@@ -36,7 +36,9 @@ SIZE=$(stat -f%z "$DMG")
 FILENAME=$(basename "$DMG")
 PUB_DATE=$(date -u "+%a, %d %b %Y %H:%M:%S %z")
 
-NEW_ITEM=$(cat <<EOF
+NEW_ITEM_FILE=$(mktemp)
+trap 'rm -f "$NEW_ITEM_FILE"' EXIT
+cat > "$NEW_ITEM_FILE" << EOF
     <item>
       <title>Version ${VERSION}</title>
       <pubDate>${PUB_DATE}</pubDate>
@@ -48,27 +50,33 @@ NEW_ITEM=$(cat <<EOF
       <enclosure url="${DOWNLOAD_URL_PREFIX}${FILENAME}" sparkle:edSignature="${SIG}" length="${SIZE}" type="application/octet-stream" />
     </item>
 EOF
-)
 
 if [[ -n "${EXISTING_APPCAST:-}" && -f "$EXISTING_APPCAST" ]]; then
   echo "==> Merging into existing appcast: $EXISTING_APPCAST"
-  python3 - "$EXISTING_APPCAST" "$OUT_PATH" <<PYEOF
-import sys
-src, dst = sys.argv[1], sys.argv[2]
+  VERSION="$VERSION" python3 - "$EXISTING_APPCAST" "$OUT_PATH" "$NEW_ITEM_FILE" <<'PYEOF'
+import os, sys
+src, dst, item_path = sys.argv[1], sys.argv[2], sys.argv[3]
+version = os.environ["VERSION"]
 with open(src, "r", encoding="utf-8") as f:
     data = f.read()
-new_item = """${NEW_ITEM}
-"""
-idx = data.find("<item>")
-if idx == -1:
-    idx = data.find("</channel>")
-    out = data[:idx] + new_item + data[idx:]
+with open(item_path, "r", encoding="utf-8") as f:
+    new_item = f.read()
+marker = f"<sparkle:shortVersionString>{version}</sparkle:shortVersionString>"
+if marker in data:
+    sys.stderr.write(f"==> Version {version} already in appcast, skipping insert\n")
+    out = data
 else:
-    out = data[:idx] + new_item.lstrip() + "    " + data[idx:]
+    idx = data.find("<item>")
+    if idx == -1:
+        idx = data.find("</channel>")
+        out = data[:idx] + new_item + data[idx:]
+    else:
+        out = data[:idx] + new_item.lstrip() + "    " + data[idx:]
 with open(dst, "w", encoding="utf-8") as f:
     f.write(out)
 PYEOF
 else
+  NEW_ITEM=$(cat "$NEW_ITEM_FILE")
   cat > "$OUT_PATH" << EOF
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">

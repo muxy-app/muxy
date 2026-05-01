@@ -209,12 +209,19 @@ jobs:
         env:
           NEXT: ${{ needs.validate.outputs.next_beta_version }}
         run: |
-          echo "$NEXT" > BETA_VERSION
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
+          git pull --rebase origin main
+          echo "$NEXT" > BETA_VERSION
           git add BETA_VERSION
-          git commit -m "Bump BETA_VERSION to $NEXT" || echo "No changes"
-          git push
+          if git diff --cached --quiet; then
+            echo "BETA_VERSION already at $NEXT, nothing to commit"
+            exit 0
+          fi
+          git commit -m "Bump BETA_VERSION to $NEXT"
+          git push origin main
 
   update-homebrew-tap:
     needs: [validate, release]
