@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let logger = Logger(subsystem: "app.muxy", category: "MuxyConfig")
 
 @MainActor @Observable
 final class MuxyConfig {
@@ -41,7 +44,11 @@ final class MuxyConfig {
         }
 
         content = lines.joined(separator: "\n")
-        try? writeGhosttyConfig(content)
+        do {
+            try writeGhosttyConfig(content)
+        } catch {
+            logger.error("Failed to write config: \(error)")
+        }
     }
 
     func configValue(for key: String) -> String? {
