@@ -1,0 +1,11 @@
+## Copy this file to local.properties and adjust paths to match your machine.
+## local.properties is git-ignored on purpose - never commit it.
+
+## macOS default Android SDK location:
+sdk.dir=/Users/YOUR_USERNAME/Library/Android/sdk
+
+## Linux default:
+# sdk.dir=/home/YOUR_USERNAME/Android/Sdk
+
+## Windows default (escape backslashes):
+# sdk.dir=C\:\\Users\\YOUR_USERNAME\\AppData\\Local\\Android\\Sdk
