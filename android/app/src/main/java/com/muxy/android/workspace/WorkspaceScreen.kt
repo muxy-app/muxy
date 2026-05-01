@@ -14,8 +14,11 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -57,6 +60,7 @@ import java.util.UUID
 fun WorkspaceScreen(
     projectID: UUID,
     onBack: () -> Unit,
+    onOpenNotifications: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val container = LocalAppContainer.current
@@ -67,6 +71,8 @@ fun WorkspaceScreen(
     val activeProjectID by client.activeProjectID.collectAsStateWithLifecycle()
     val projects by client.projects.collectAsStateWithLifecycle()
     val theme by client.deviceTheme.collectAsStateWithLifecycle()
+    val notifications by client.notifications.collectAsStateWithLifecycle()
+    val unreadCount = notifications.count { !it.isRead }
     val colors = muxyColors(theme)
 
     var showVCS by remember { mutableStateOf(false) }
@@ -106,6 +112,21 @@ fun WorkspaceScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onOpenNotifications) {
+                        BadgedBox(
+                            badge = {
+                                if (unreadCount > 0) {
+                                    Badge { Text(text = if (unreadCount > 99) "99+" else "$unreadCount") }
+                                }
+                            },
+                        ) {
+                            Icon(
+                                Icons.Outlined.Notifications,
+                                contentDescription = "Notifications",
+                                tint = colors.foreground,
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = { showVCS = true },
                     ) {

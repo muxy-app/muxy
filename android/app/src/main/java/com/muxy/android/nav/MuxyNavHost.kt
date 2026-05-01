@@ -12,6 +12,7 @@ import com.muxy.android.connect.ConnectScreen
 import com.muxy.android.connect.ConnectingView
 import com.muxy.android.connect.ConnectionFailedView
 import com.muxy.android.connect.PairingPendingView
+import com.muxy.android.notifications.NotificationsScreen
 import com.muxy.android.projects.ProjectListScreen
 import com.muxy.android.settings.SettingsScreen
 import com.muxy.android.workspace.WorkspaceScreen
@@ -24,6 +25,7 @@ internal object MuxyRoutes {
     const val PROJECTS = "projects"
     const val WORKSPACE = "workspace/{projectID}"
     const val WORKSPACE_ARG = "projectID"
+    const val NOTIFICATIONS = "notifications"
     fun workspace(projectID: UUID): String = "workspace/$projectID"
 }
 
@@ -104,6 +106,7 @@ private fun ConnectedFlow(modifier: Modifier = Modifier) {
         composable(MuxyRoutes.PROJECTS) {
             ProjectListScreen(
                 onProjectSelected = { id -> navController.navigate(MuxyRoutes.workspace(id)) },
+                onOpenNotifications = { navController.navigate(MuxyRoutes.NOTIFICATIONS) },
                 onDisconnect = container.muxyClient::disconnect,
             )
         }
@@ -117,6 +120,17 @@ private fun ConnectedFlow(modifier: Modifier = Modifier) {
             WorkspaceScreen(
                 projectID = projectID,
                 onBack = { navController.popBackStack() },
+                onOpenNotifications = { navController.navigate(MuxyRoutes.NOTIFICATIONS) },
+            )
+        }
+        composable(MuxyRoutes.NOTIFICATIONS) {
+            NotificationsScreen(
+                onBack = { navController.popBackStack() },
+                onNavigateToProject = { id ->
+                    navController.navigate(MuxyRoutes.workspace(id)) {
+                        popUpTo(MuxyRoutes.PROJECTS)
+                    }
+                },
             )
         }
     }

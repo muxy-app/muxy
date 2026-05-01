@@ -8,14 +8,21 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.muxy.net.MuxyClient
 import com.muxy.protocol.dto.ProjectDTO
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 
 class ProjectListViewModel(private val muxyClient: MuxyClient) : ViewModel() {
     val projects: StateFlow<List<ProjectDTO>> = muxyClient.projects
     val projectLogos: StateFlow<Map<UUID, ByteArray>> = muxyClient.projectLogos
+
+    val unreadNotificationCount: StateFlow<Int> = muxyClient.notifications
+        .map { list -> list.count { !it.isRead } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -34,6 +41,10 @@ class ProjectListViewModel(private val muxyClient: MuxyClient) : ViewModel() {
             if (!ok) _errorMessage.value = "Could not load projects"
             _isLoading.value = false
         }
+    }
+
+    fun refreshNotifications() {
+        viewModelScope.launch { muxyClient.refreshNotifications() }
     }
 
     fun selectProject(projectID: UUID) {

@@ -889,20 +889,25 @@ platform-ahead-of-iOS choice; flag in the planning notes that real
 live-push needs the Mac to start emitting `notificationReceived`
 events (separate Mac-side follow-up).
 
-- [ ] Notification list screen: call `listNotifications` on screen open
-      and on pull-to-refresh. Sort by timestamp desc. **Do NOT wire up
-      a "merge live events on top" path** — that event never fires
-- [ ] Unread badge on tab bar / project rows — driven by the snapshot
-      fetched on screen open; staleness is acceptable for v1
-- [ ] Tap notification → dispatch `selectProject` → `selectWorktree`
-      (if needed) → `focusArea` → `selectTab`, then call
-      `getWorkspace` through the wrapper layer. If any referenced
-      project/worktree/area/tab no longer exists, show "This notification
-      points to a closed tab" and leave the user on the notification list
-- [ ] Mark-read on tap by calling `markNotificationRead`. Do not ship
-      swipe-to-dismiss or "mark all read" in v1; the Mac has local
-      `NotificationStore.remove` / `markAllAsRead` helpers but exposes no
-      remote RPC for them today
+- [x] Notification list screen: calls `listNotifications` on screen open
+      and on the top-bar Refresh action. List is sorted by timestamp desc
+      inside `MuxyClient.refreshNotifications`. **No "merge live events
+      on top" path** — that event never fires
+- [x] Unread badge on the project list top bar and the workspace top bar
+      — driven by `client.notifications` snapshot (count where
+      `!isRead`), refreshed when the project list opens. Staleness is
+      acceptable for v1
+- [x] Tap notification → `selectProject` (only when not already active)
+      → `selectWorktree` (only when changed) → `focusArea` →
+      `selectTab`. Workspace refresh runs implicitly inside each of
+      those wrappers. If the referenced project/worktree/area/tab no
+      longer exists, surface "This notification points to a closed tab"
+      via a snackbar and stay on the notification list. The notification
+      is still marked read in the closed-tab path so it stops counting
+      against the unread badge
+- [x] Mark-read on tap by calling `markNotificationRead` after the
+      navigation handoff. No swipe-to-dismiss or "mark all read" in v1
+      (the Mac exposes neither RPC today)
 - [ ] FCM push deferred to a future phase (out of scope for v1).
       Live in-app push deferred too, since it requires Mac-side work
       to actually emit `notificationReceived` events first

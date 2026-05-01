@@ -9,6 +9,8 @@ import com.muxy.protocol.dto.FocusAreaParams
 import com.muxy.protocol.dto.GetProjectLogoParams
 import com.muxy.protocol.dto.GetWorkspaceParams
 import com.muxy.protocol.dto.ListWorktreesParams
+import com.muxy.protocol.dto.MarkNotificationReadParams
+import com.muxy.protocol.dto.NotificationDTO
 import com.muxy.protocol.dto.PairDeviceParams
 import com.muxy.protocol.dto.PaneOwnerDTO
 import com.muxy.protocol.dto.ProjectDTO
@@ -113,6 +115,9 @@ class MuxyClient(
     private val _workspace = MutableStateFlow<WorkspaceDTO?>(null)
     val workspace: StateFlow<WorkspaceDTO?> = _workspace.asStateFlow()
 
+    private val _notifications = MutableStateFlow<List<NotificationDTO>>(emptyList())
+    val notifications: StateFlow<List<NotificationDTO>> = _notifications.asStateFlow()
+
     val log: DiagnosticLog = DiagnosticLog()
 
     private val pendingMutex = Mutex()
@@ -166,6 +171,7 @@ class MuxyClient(
         _projectLogos.value = emptyMap()
         _projectWorktrees.value = emptyMap()
         _state.value = ConnectionState.Connecting(target)
+        _notifications.value = emptyList()
         connectJob = scope.launch {
             openSocket(target)
             authenticateOrPair(target)
@@ -191,6 +197,7 @@ class MuxyClient(
         _projects.value = emptyList()
         _projectLogos.value = emptyMap()
         _projectWorktrees.value = emptyMap()
+        _notifications.value = emptyList()
     }
 
     suspend fun send(
@@ -387,6 +394,26 @@ class MuxyClient(
             MuxyParams.CloseArea(CloseAreaParams(projectID = projectID, areaID = areaID)),
         )
         refreshWorkspace(projectID)
+    }
+
+    suspend fun refreshNotifications(): Boolean {
+        val response = send(MuxyMethod.LIST_NOTIFICATIONS) ?: return false
+        if (response.error != null) return false
+        val result = response.result as? MuxyResult.Notifications ?: return false
+        _notifications.value = result.value.sortedByDescending { it.timestamp }
+        return true
+    }
+
+    suspend fun markNotificationRead(notificationID: UUID): Boolean {
+        val response = send(
+            MuxyMethod.MARK_NOTIFICATION_READ,
+            MuxyParams.MarkNotificationRead(MarkNotificationReadParams(notificationID = notificationID)),
+        ) ?: return false
+        if (response.error != null) return false
+        _notifications.value = _notifications.value.map { existing ->
+            if (existing.id == notificationID) existing.copy(isRead = true) else existing
+        }
+        return true
     }
 
     fun verifyConnectionOrReconnect() {
