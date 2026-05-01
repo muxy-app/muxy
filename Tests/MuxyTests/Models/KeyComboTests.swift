@@ -66,6 +66,27 @@ struct KeyComboTests {
         #expect(KeyCombo.normalized(key: "", keyCode: 126) == "uparrow")
     }
 
+    @Test("normalized key with special keyCodes when charactersIgnoringModifiers is empty")
+    func normalizedSpecialKeyCodesWithEmptyCharacters() {
+        #expect(KeyCombo.normalized(key: "", keyCode: 48) == "tab")
+        #expect(KeyCombo.normalized(key: "", keyCode: 36) == "return")
+        #expect(KeyCombo.normalized(key: "", keyCode: 49) == "space")
+        #expect(KeyCombo.normalized(key: "", keyCode: 51) == "delete")
+    }
+
+    @Test("swiftUIKeyEquivalent for special keys")
+    func swiftUIKeyEquivalentSpecialKeys() {
+        #expect(KeyCombo(key: "tab", modifiers: 0).swiftUIKeyEquivalent == Optional(.tab))
+        #expect(KeyCombo(key: "return", modifiers: 0).swiftUIKeyEquivalent == Optional(.return))
+        #expect(KeyCombo(key: "space", modifiers: 0).swiftUIKeyEquivalent == Optional(.space))
+        #expect(KeyCombo(key: "delete", modifiers: 0).swiftUIKeyEquivalent == Optional(.delete))
+    }
+
+    @Test("swiftUIKeyEquivalent returns nil for empty key")
+    func swiftUIKeyEquivalentEmptyKey() {
+        #expect(KeyCombo(key: "", modifiers: 0).swiftUIKeyEquivalent == nil)
+    }
+
     @Test("normalized key with ANSI letter keyCodes")
     func normalizedLetterKeyCodes() {
         #expect(KeyCombo.normalized(key: "\u{043C}", keyCode: 9) == "v")

@@ -78,6 +78,10 @@ struct KeyCombo: Codable, Equatable, Hashable {
         case kVK_ANSI_Keypad7: "7"
         case kVK_ANSI_Keypad8: "8"
         case kVK_ANSI_Keypad9: "9"
+        case kVK_Return: "return"
+        case kVK_Tab: "tab"
+        case kVK_Space: "space"
+        case kVK_Delete: "delete"
         case kVK_LeftArrow: leftArrowKey
         case kVK_RightArrow: rightArrowKey
         case kVK_DownArrow: downArrowKey
@@ -119,16 +123,23 @@ struct KeyCombo: Codable, Equatable, Hashable {
         NSEvent.ModifierFlags(rawValue: modifiers).intersection(Self.supportedModifierMask)
     }
 
-    var swiftUIKeyEquivalent: KeyEquivalent {
+    var swiftUIKeyEquivalent: KeyEquivalent? {
+        guard !key.isEmpty else { return nil }
         switch key {
-        case "[": KeyEquivalent("[")
-        case "]": KeyEquivalent("]")
-        case ",": KeyEquivalent(",")
-        case Self.leftArrowKey: .leftArrow
-        case Self.rightArrowKey: .rightArrow
-        case Self.upArrowKey: .upArrow
-        case Self.downArrowKey: .downArrow
-        default: KeyEquivalent(Character(key))
+        case "[": return KeyEquivalent("[")
+        case "]": return KeyEquivalent("]")
+        case ",": return KeyEquivalent(",")
+        case Self.leftArrowKey: return KeyEquivalent.leftArrow
+        case Self.rightArrowKey: return KeyEquivalent.rightArrow
+        case Self.upArrowKey: return KeyEquivalent.upArrow
+        case Self.downArrowKey: return KeyEquivalent.downArrow
+        case "tab": return KeyEquivalent.tab
+        case "return": return KeyEquivalent.return
+        case "space": return KeyEquivalent.space
+        case "delete": return KeyEquivalent.delete
+        default:
+            guard let scalar = key.unicodeScalars.first, key.unicodeScalars.count == 1 else { return nil }
+            return KeyEquivalent(Character(scalar))
         }
     }
 
