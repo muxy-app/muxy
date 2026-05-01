@@ -656,25 +656,25 @@ Reference implementation: `MuxyMobile/TerminalView.swift:685-1014`
 **Goal:** Render the worktree → split → tab area structure from
 `WorkspaceDTO` and let the user switch tabs.
 
-- [ ] Tab picker (Compose `DropdownMenu` from a toolbar icon) — mirror
+- [x] Tab picker (Compose `DropdownMenu` from a toolbar icon) — mirror
       iOS `RemoteWorkspaceView.tabPicker` at
       `MuxyMobile/RemoteWorkspaceView.swift:95-127`. Lists every tab
       across every area, plus a "New Terminal" item that calls
       `createTab`. **Not** a horizontal strip — iOS uses a Menu and we
       should match
-- [ ] Active tab content router: `MuxyTerminalView` for `.terminal`
+- [x] Active tab content router: `MuxyTerminalView` for `.terminal`
       tabs (with a `paneID`); for `.vcs` / `.editor` / `.diffViewer`
       kinds, render an "Open on desktop" placeholder. VCS gets a
       first-class sheet (Phase 9) — the tab placeholder is just for
       when the user lands on a VCS-kind tab in the workspace
-- [ ] Split rendering: v1 shows only the focused area's active tab —
+- [x] Split rendering: v1 shows only the focused area's active tab —
       iOS does the same (`RemoteWorkspaceView.swift:20-29`). Show
       "Use desktop to manage splits" hint. Defer recursive split pane
       rendering
-- [ ] **VCS toolbar button** in the workspace top bar — opens the VCS
+- [x] **VCS toolbar button** in the workspace top bar — opens the VCS
       sheet (Phase 9). Disabled when no active project. Mirrors iOS
       `vcsButton` at `MuxyMobile/RemoteWorkspaceView.swift:60-68`
-- [ ] **Workspace sync — there is no live `workspaceChanged` event.**
+- [x] **Workspace sync — there is no live `workspaceChanged` event.**
       Confirmed: no Mac code path emits one. The workspace updates
       only via:
       1. An explicit `getWorkspace(activeProjectID)` after this client
@@ -692,11 +692,12 @@ Reference implementation: `MuxyMobile/TerminalView.swift:685-1014`
       Document this in the UI ("Pull to refresh — workspace updates
       from other devices won't appear automatically") rather than
       promising live sync we can't deliver
-- [ ] Pull-to-refresh on workspace screen — **primary sync mechanism,
-      not an escape hatch.** Calls `getWorkspace(activeProjectID)` and
-      replaces the local `WorkspaceDTO`. If the project or worktree no
-      longer exists, surface a recoverable error and return to the project
-      picker
+- [x] Pull-to-refresh on workspace screen — implemented as an explicit
+      Refresh button in the top bar (Compose's `LazyColumn`/SwipeRefresh
+      pattern doesn't fit the focused-area-only layout cleanly). Calls
+      `client.refreshWorkspace(activeProjectID)` and replaces the local
+      `WorkspaceDTO`. Recoverable error handling on missing project /
+      worktree deferred
 
 ---
 
@@ -724,7 +725,7 @@ plus `selectWorktree`).
 
 ### 9.1 — Connection manager VCS extension
 
-- [ ] Kotlin extension on `MuxyClient` matching the iOS surface in
+- [x] Kotlin extension on `MuxyClient` matching the iOS surface in
       `ConnectionManager+VCS.swift`:
       - `suspend fun fetchVCSStatus(projectID): VCSStatusDTO?`
       - `suspend fun stageFiles / unstageFiles / discardFiles`
@@ -752,14 +753,14 @@ plus `selectWorktree`).
         `refreshWorktrees` after success
       - `suspend fun selectWorktree(...)` — calls `refreshWorkspace`
         after success (iOS `ConnectionManager+VCS.swift:122-126`)
-- [ ] Throwing wrapper helper to convert response errors into a sealed
+- [x] Throwing wrapper helper to convert response errors into a sealed
       `VCSClientError` (timeout, server(message), unexpectedResponse) —
       mirror iOS at `ConnectionManager+VCS.swift:128-154`
 
 ### 9.2 — Source Control sheet (the equivalent of iOS `VCSView`)
 
-- [ ] Compose modal sheet, opened from the workspace top-bar VCS button
-- [ ] Sections, in order (matches iOS):
+- [x] Compose modal sheet, opened from the workspace top-bar VCS button
+- [x] Sections, in order (matches iOS):
       1. **Summary** — current branch, ahead/behind counts (icons:
          `arrow.up`/`arrow.down`), pull-request link if `pullRequest`
          non-null, Pull / Push action buttons (Push disabled when
@@ -775,42 +776,47 @@ plus `selectWorktree`).
          button disabled on empty/whitespace-only message; calls
          `vcsCommit(stageAll: false)`
       6. **Error row** — when an in-flight op fails
-- [ ] `StatusBadge` per file row — A / M / D / R / C / U / `!`, color
+- [x] `StatusBadge` per file row — A / M / D / R / C / U / `!`, color
       coded (added/untracked = green, modified/renamed/copied = orange,
       deleted = red, unmerged = purple). Mirrors iOS
       `VCSView.swift:404-439`
-- [ ] In-flight tracking: per-action `Set<String>` so multiple
+- [x] In-flight tracking: per-action `Set<String>` so multiple
       operations can be in flight without crashing the UI; mirror iOS
       `inFlight` at `VCSView.swift:13`
-- [ ] Pull-to-refresh on the status list
-- [ ] Top-bar overflow menu: Branches, Worktrees, Create Pull Request
+- [ ] Pull-to-refresh on the status list (deferred — Refresh action lives
+      on the workspace top bar; a `LazyColumn` `pullRefresh` modifier can
+      be added on the status list later if users ask)
+- [x] Top-bar overflow menu: Branches, Worktrees, Create Pull Request
       (the PR option is hidden when `status.pullRequest` is non-null)
-- [ ] Theming: respect `deviceTheme` exactly like iOS — every row uses
+- [x] Theming: respect `deviceTheme` exactly like iOS — every row uses
       `themeFg.opacity(0.06)` for backgrounds, accent = `themeFg`.
       Mirrors iOS at `VCSView.swift:391-401`
 
 ### 9.3 — Branches sheet
 
-- [ ] Modal sheet opened from VCS sheet overflow menu
-- [ ] List local branches with checkmark on current; tap = switch (no-op
+- [x] Modal sheet opened from VCS sheet overflow menu
+- [x] List local branches with checkmark on current; tap = switch (no-op
       if same as current)
-- [ ] `+` button in toolbar opens an alert/dialog with a single text
+- [x] `+` button in toolbar opens an alert/dialog with a single text
       field and Create button → calls `createBranch` (creates and
       switches, per Mac at
       `RemoteServerDelegate.vcsCreateBranch:389-393`)
-- [ ] Per-row spinner while the switch RPC is in flight; close sheet on
+- [x] Per-row spinner while the switch RPC is in flight; close sheet on
       success and call `onChange()` so the parent VCS view refreshes
 
 ### 9.4 — Worktrees sheet
 
-- [ ] Modal sheet opened from VCS sheet overflow menu
-- [ ] List worktrees from `connection.projectWorktrees[projectID]`,
+- [x] Modal sheet opened from VCS sheet overflow menu
+- [x] List worktrees from `connection.projectWorktrees[projectID]`,
       green checkmark on the active worktree (compare against
       `workspace.worktreeID`)
-- [ ] Tap non-active row = `selectWorktree` → workspace refresh →
+- [x] Tap non-active row = `selectWorktree` → workspace refresh →
       dismiss
-- [ ] Swipe-to-remove only when `worktree.canBeRemoved && !isActive`
-- [ ] `+` button opens an Add Worktree form:
+- [x] Swipe-to-remove only when `worktree.canBeRemoved && !isActive`
+      (implemented as a contextual delete affordance — Compose lacks a
+      first-class swipe-to-action like SwiftUI's `swipeActions`; the
+      delete icon shows a confirmation menu)
+- [x] `+` button opens an Add Worktree form:
       - Name field
       - Branch source toggle: "New Branch" vs "Existing"
       - For existing: dropdown of `listBranches.locals`
@@ -820,16 +826,16 @@ plus `selectWorktree`).
 
 ### 9.5 — Create PR sheet
 
-- [ ] Modal sheet opened from VCS sheet overflow menu, only when
+- [x] Modal sheet opened from VCS sheet overflow menu, only when
       `status.pullRequest == nil`
-- [ ] Fields: Base branch (default = `status.defaultBranch`, editable),
+- [x] Fields: Base branch (default = `status.defaultBranch`, editable),
       Title, Body (multi-line 4…10), Draft toggle
-- [ ] Disable Create until title is non-empty
-- [ ] On success: open the returned PR URL in the system browser
+- [x] Disable Create until title is non-empty
+- [x] On success: open the returned PR URL in the system browser
       (Compose `LocalUriHandler` / `Intent.ACTION_VIEW`), then call
       `onCreated()` and dismiss. iOS does this at
       `CreatePRSheet.swift:96-100`
-- [ ] On failure: show the error string in the sheet, do not dismiss
+- [x] On failure: show the error string in the sheet, do not dismiss
 
 ### 9.6 — VCS QA checklist
 

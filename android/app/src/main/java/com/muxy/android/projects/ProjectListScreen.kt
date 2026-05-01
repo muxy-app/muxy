@@ -58,15 +58,15 @@ fun ProjectListScreen(
     val logos by viewModel.projectLogos.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
-    val activeProjectID by viewModel.activeProjectID.collectAsStateWithLifecycle()
+    val pendingNavigationID by viewModel.pendingNavigationID.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.refresh() }
 
-    LaunchedEffect(activeProjectID) {
-        val id = activeProjectID
+    LaunchedEffect(pendingNavigationID) {
+        val id = pendingNavigationID
         if (id != null) {
             onProjectSelected(id)
-            viewModel.clearActiveProject()
+            viewModel.clearPendingNavigation()
         }
     }
 

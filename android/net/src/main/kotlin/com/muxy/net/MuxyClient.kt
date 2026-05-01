@@ -2,12 +2,28 @@ package com.muxy.net
 
 import com.muxy.protocol.codec.MuxyCodec
 import com.muxy.protocol.dto.AuthenticateDeviceParams
+import com.muxy.protocol.dto.CloseAreaParams
+import com.muxy.protocol.dto.CloseTabParams
+import com.muxy.protocol.dto.CreateTabParams
+import com.muxy.protocol.dto.FocusAreaParams
+import com.muxy.protocol.dto.GetProjectLogoParams
+import com.muxy.protocol.dto.GetWorkspaceParams
+import com.muxy.protocol.dto.ListWorktreesParams
 import com.muxy.protocol.dto.PairDeviceParams
 import com.muxy.protocol.dto.PaneOwnerDTO
+import com.muxy.protocol.dto.ProjectDTO
 import com.muxy.protocol.dto.ReleasePaneParams
+import com.muxy.protocol.dto.SelectProjectParams
+import com.muxy.protocol.dto.SelectTabParams
+import com.muxy.protocol.dto.SelectWorktreeParams
+import com.muxy.protocol.dto.SplitAreaParams
+import com.muxy.protocol.dto.SplitDirectionDTO
+import com.muxy.protocol.dto.SplitPositionDTO
 import com.muxy.protocol.dto.TakeOverPaneParams
 import com.muxy.protocol.dto.TerminalInputParams
 import com.muxy.protocol.dto.TerminalResizeParams
+import com.muxy.protocol.dto.WorkspaceDTO
+import com.muxy.protocol.dto.WorktreeDTO
 import com.muxy.protocol.envelope.MuxyError
 import com.muxy.protocol.envelope.MuxyEvent
 import com.muxy.protocol.envelope.MuxyEventData
@@ -45,6 +61,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import java.io.IOException
+import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlin.random.Random
@@ -80,6 +97,21 @@ class MuxyClient(
 
     private val _deviceTheme = MutableStateFlow<DeviceTheme?>(null)
     val deviceTheme: StateFlow<DeviceTheme?> = _deviceTheme.asStateFlow()
+
+    private val _activeProjectID = MutableStateFlow<UUID?>(null)
+    val activeProjectID: StateFlow<UUID?> = _activeProjectID.asStateFlow()
+
+    private val _projects = MutableStateFlow<List<ProjectDTO>>(emptyList())
+    val projects: StateFlow<List<ProjectDTO>> = _projects.asStateFlow()
+
+    private val _projectLogos = MutableStateFlow<Map<UUID, ByteArray>>(emptyMap())
+    val projectLogos: StateFlow<Map<UUID, ByteArray>> = _projectLogos.asStateFlow()
+
+    private val _projectWorktrees = MutableStateFlow<Map<UUID, List<WorktreeDTO>>>(emptyMap())
+    val projectWorktrees: StateFlow<Map<UUID, List<WorktreeDTO>>> = _projectWorktrees.asStateFlow()
+
+    private val _workspace = MutableStateFlow<WorkspaceDTO?>(null)
+    val workspace: StateFlow<WorkspaceDTO?> = _workspace.asStateFlow()
 
     val log: DiagnosticLog = DiagnosticLog()
 
@@ -128,6 +160,11 @@ class MuxyClient(
         currentTarget = target
         log.append("Connect requested for ${target.deviceName} at ${target.host}:${target.port}")
         _paneOwners.value = emptyMap()
+        _activeProjectID.value = null
+        _workspace.value = null
+        _projects.value = emptyList()
+        _projectLogos.value = emptyMap()
+        _projectWorktrees.value = emptyMap()
         _state.value = ConnectionState.Connecting(target)
         connectJob = scope.launch {
             openSocket(target)
@@ -149,6 +186,11 @@ class MuxyClient(
         _paneOwners.value = emptyMap()
         _deviceTheme.value = null
         _myClientID.value = null
+        _activeProjectID.value = null
+        _workspace.value = null
+        _projects.value = emptyList()
+        _projectLogos.value = emptyMap()
+        _projectWorktrees.value = emptyMap()
     }
 
     suspend fun send(
@@ -224,6 +266,129 @@ class MuxyClient(
         )
     }
 
+    suspend fun refreshProjects(): Boolean {
+        val response = send(MuxyMethod.LIST_PROJECTS) ?: return false
+        if (response.error != null) return false
+        val result = response.result as? MuxyResult.Projects ?: return false
+        _projects.value = result.value
+        for (project in result.value) {
+            if (project.logo != null) fetchProjectLogo(project.id)
+            refreshWorktrees(project.id)
+        }
+        return true
+    }
+
+    suspend fun fetchProjectLogo(projectID: UUID): Boolean {
+        if (_projectLogos.value.containsKey(projectID)) return true
+        val response = send(
+            MuxyMethod.GET_PROJECT_LOGO,
+            MuxyParams.GetProjectLogo(GetProjectLogoParams(projectID = projectID)),
+        ) ?: return false
+        val result = response.result as? MuxyResult.ProjectLogo ?: return false
+        val data = runCatching { Base64.getDecoder().decode(result.value.pngData) }.getOrNull()
+            ?: return false
+        _projectLogos.value = _projectLogos.value + (projectID to data)
+        return true
+    }
+
+    suspend fun selectProject(projectID: UUID): Boolean {
+        _activeProjectID.value = projectID
+        _workspace.value = null
+        _paneOwners.value = emptyMap()
+        val response = send(
+            MuxyMethod.SELECT_PROJECT,
+            MuxyParams.SelectProject(SelectProjectParams(projectID = projectID)),
+        ) ?: return false
+        if (response.error != null) return false
+        return refreshWorkspace(projectID)
+    }
+
+    suspend fun refreshWorktrees(projectID: UUID): Boolean {
+        val response = send(
+            MuxyMethod.LIST_WORKTREES,
+            MuxyParams.ListWorktrees(ListWorktreesParams(projectID = projectID)),
+        ) ?: return false
+        if (response.error != null) return false
+        val result = response.result as? MuxyResult.Worktrees ?: return false
+        _projectWorktrees.value = _projectWorktrees.value + (projectID to result.value)
+        return true
+    }
+
+    suspend fun refreshWorkspace(projectID: UUID): Boolean {
+        val response = send(
+            MuxyMethod.GET_WORKSPACE,
+            MuxyParams.GetWorkspace(GetWorkspaceParams(projectID = projectID)),
+        ) ?: return false
+        if (response.error != null) return false
+        val result = response.result as? MuxyResult.Workspace ?: return false
+        _workspace.value = result.value
+        return true
+    }
+
+    suspend fun selectWorktree(projectID: UUID, worktreeID: UUID): Boolean {
+        val response = send(
+            MuxyMethod.SELECT_WORKTREE,
+            MuxyParams.SelectWorktree(SelectWorktreeParams(projectID = projectID, worktreeID = worktreeID)),
+        ) ?: return false
+        if (response.error != null) return false
+        return refreshWorkspace(projectID)
+    }
+
+    suspend fun createTab(projectID: UUID, areaID: UUID? = null) {
+        send(
+            MuxyMethod.CREATE_TAB,
+            MuxyParams.CreateTab(CreateTabParams(projectID = projectID, areaID = areaID)),
+        )
+        refreshWorkspace(projectID)
+    }
+
+    suspend fun closeTab(projectID: UUID, areaID: UUID, tabID: UUID) {
+        send(
+            MuxyMethod.CLOSE_TAB,
+            MuxyParams.CloseTab(CloseTabParams(projectID = projectID, areaID = areaID, tabID = tabID)),
+        )
+        refreshWorkspace(projectID)
+    }
+
+    suspend fun selectTab(projectID: UUID, areaID: UUID, tabID: UUID) {
+        send(
+            MuxyMethod.SELECT_TAB,
+            MuxyParams.SelectTab(SelectTabParams(projectID = projectID, areaID = areaID, tabID = tabID)),
+        )
+        refreshWorkspace(projectID)
+    }
+
+    suspend fun focusArea(projectID: UUID, areaID: UUID) {
+        send(
+            MuxyMethod.FOCUS_AREA,
+            MuxyParams.FocusArea(FocusAreaParams(projectID = projectID, areaID = areaID)),
+        )
+        refreshWorkspace(projectID)
+    }
+
+    suspend fun splitArea(
+        projectID: UUID,
+        areaID: UUID,
+        direction: SplitDirectionDTO,
+        position: SplitPositionDTO,
+    ) {
+        send(
+            MuxyMethod.SPLIT_AREA,
+            MuxyParams.SplitArea(
+                SplitAreaParams(projectID = projectID, areaID = areaID, direction = direction, position = position),
+            ),
+        )
+        refreshWorkspace(projectID)
+    }
+
+    suspend fun closeArea(projectID: UUID, areaID: UUID) {
+        send(
+            MuxyMethod.CLOSE_AREA,
+            MuxyParams.CloseArea(CloseAreaParams(projectID = projectID, areaID = areaID)),
+        )
+        refreshWorkspace(projectID)
+    }
+
     fun verifyConnectionOrReconnect() {
         val target = currentTarget ?: return
         scope.launch { reconnectSilently(target) }
@@ -240,6 +405,11 @@ class MuxyClient(
             webSocket?.cancel()
             openSocket(target, attemptCount = 1)
             authenticateOrPair(target, silent = true)
+            val activeID = _activeProjectID.value
+            if (activeID != null && _state.value is ConnectionState.Connected) {
+                send(MuxyMethod.SELECT_PROJECT, MuxyParams.SelectProject(SelectProjectParams(projectID = activeID)))
+                refreshWorkspace(activeID)
+            }
         } finally {
             reconnectMutex.withLock { isReconnecting = false }
         }

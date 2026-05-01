@@ -14,7 +14,7 @@ import com.muxy.android.connect.ConnectionFailedView
 import com.muxy.android.connect.PairingPendingView
 import com.muxy.android.projects.ProjectListScreen
 import com.muxy.android.settings.SettingsScreen
-import com.muxy.android.workspace.WorkspacePlaceholderScreen
+import com.muxy.android.workspace.WorkspaceScreen
 import com.muxy.net.ConnectionState
 import java.util.UUID
 
@@ -114,7 +114,7 @@ private fun ConnectedFlow(modifier: Modifier = Modifier) {
                 navController.popBackStack()
                 return@composable
             }
-            WorkspacePlaceholderScreen(
+            WorkspaceScreen(
                 projectID = projectID,
                 onBack = { navController.popBackStack() },
             )
