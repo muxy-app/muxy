@@ -112,6 +112,9 @@ struct TerminalBridge: NSViewRepresentable {
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
+    @Environment(AppState.self) private var appState
+    @Environment(ProjectStore.self) private var projectStore
+    @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(\.overlayActive) private var overlayActive
     @Environment(\.activeWorktreeKey) private var worktreeKey
 
@@ -148,6 +151,15 @@ struct TerminalBridge: NSViewRepresentable {
         view.onWorkingDirectoryChange = { [weak state] path in
             DispatchQueue.main.async {
                 state?.setWorkingDirectory(path)
+                guard let worktreeKey else { return }
+                ProjectPathSyncService.syncFromTerminalWorkingDirectory(
+                    projectID: worktreeKey.projectID,
+                    worktreeID: worktreeKey.worktreeID,
+                    path: path,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore
+                )
             }
         }
         configureSearchCallbacks(view)
@@ -183,6 +195,15 @@ struct TerminalBridge: NSViewRepresentable {
         nsView.onWorkingDirectoryChange = { [weak state] path in
             DispatchQueue.main.async {
                 state?.setWorkingDirectory(path)
+                guard let worktreeKey else { return }
+                ProjectPathSyncService.syncFromTerminalWorkingDirectory(
+                    projectID: worktreeKey.projectID,
+                    worktreeID: worktreeKey.worktreeID,
+                    path: path,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore
+                )
             }
         }
         configureSearchCallbacks(nsView)
@@ -247,7 +268,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
     }
 
-    static func resolveFilePath(_ token: String, projectPath: String) -> String? {
+    nonisolated static func resolveFilePath(_ token: String, projectPath: String) -> String? {
         let cleaned = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"' \t\n\r()[]<>"))
         guard !cleaned.isEmpty else { return nil }
         let expanded = (cleaned as NSString).expandingTildeInPath

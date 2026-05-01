@@ -7,6 +7,18 @@ import Testing
 @Suite("WorktreeStore")
 @MainActor
 struct WorktreeStoreTests {
+    @Test("primary worktree name follows folder name instead of project name")
+    func primaryWorktreeNameUsesFolderName() throws {
+        let project = Project(name: "Custom", path: "/tmp/repo-folder", isNameCustomized: true)
+        let store = WorktreeStore(
+            persistence: WorktreePersistenceStub(initial: [:]),
+            projects: [project]
+        )
+
+        let primary = try #require(store.primary(for: project.id))
+        #expect(primary.name == "repo-folder")
+    }
+
     @Test("Worktree decodes legacy records without source metadata")
     func worktreeLegacyDecodeDefaultsToMuxy() throws {
         let json = """

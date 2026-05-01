@@ -4,7 +4,7 @@ import Foundation
 @Observable
 final class TabArea: Identifiable {
     let id: UUID
-    let projectPath: String
+    var projectPath: String
     var tabs: [TerminalTab] = []
     var activeTabID: UUID?
     private var tabHistory: [UUID] = []
@@ -57,6 +57,13 @@ final class TabArea: Identifiable {
 
     func createTab() {
         insertTab(TerminalTab(pane: TerminalPaneState(projectPath: projectPath)))
+    }
+
+    func updateProjectPath(_ path: String) {
+        projectPath = path
+        for tab in tabs {
+            tab.updateProjectPath(path)
+        }
     }
 
     func createTab(inDirectory directory: String) {

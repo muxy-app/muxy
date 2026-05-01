@@ -189,6 +189,24 @@ final class AppState {
         return workspaceRoots[key]?.allAreas() ?? []
     }
 
+    func terminalCount(for projectID: UUID) -> Int {
+        workspaceRoots.reduce(0) { count, entry in
+            guard entry.key.projectID == projectID else { return count }
+            return count + entry.value.allAreas().reduce(0) { areaCount, area in
+                areaCount + area.tabs.count(where: { $0.kind == .terminal })
+            }
+        }
+    }
+
+    func updateWorkspacePath(projectID: UUID, worktreeID: UUID, to path: String) {
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        guard let root = workspaceRoots[key] else { return }
+        for area in root.allAreas() {
+            area.updateProjectPath(path)
+        }
+        saveWorkspaces()
+    }
+
     func splitFocusedArea(direction: SplitDirection, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
         dispatch(.splitArea(.init(

@@ -10,6 +10,7 @@ final class TerminalTab: Identifiable {
         case diffViewer
     }
 
+    @MainActor
     enum Content {
         case terminal(TerminalPaneState)
         case vcs(VCSTabState)
@@ -130,5 +131,9 @@ final class TerminalTab: Identifiable {
             filePath: content.editorState?.filePath,
             currentWorkingDirectory: content.pane?.currentWorkingDirectory
         )
+    }
+
+    func updateProjectPath(_ path: String) {
+        content.pane?.updateProjectPath(path)
     }
 }

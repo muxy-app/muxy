@@ -114,6 +114,7 @@ Muxy/
     CommandShortcutStore.swift  @Observable store + JSON persistence for custom command shortcuts and command-layer prefix state
     ProjectStore.swift        @Observable store for projects list
     ProjectPersistence.swift  JSON persistence for projects
+    ProjectPathSyncService.swift  Syncs single-terminal CWD changes into ProjectStore, primary WorktreeStore entry, and workspace path copies
     ApprovedDevicesStore.swift Approved mobile devices (deviceID, SHA-256 token hash), revocation
     PairingRequestCoordinator.swift Queues pending pairing requests for UI approval prompts
     MobileServerService.swift  Lifecycle wrapper around MuxyRemoteServer

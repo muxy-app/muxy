@@ -95,7 +95,7 @@ final class WorktreeStore {
 
         if let primaryIndex = list.firstIndex(where: \.isPrimary) {
             list[primaryIndex].path = project.path
-            list[primaryIndex].name = project.name
+            list[primaryIndex].name = Self.primaryName(for: project.path)
         } else {
             list.insert(makePrimary(for: project), at: 0)
         }
@@ -126,7 +126,7 @@ final class WorktreeStore {
             {
                 list[index].branch = record.branch
                 if list[index].isPrimary {
-                    list[index].name = project.name
+                    list[index].name = Self.primaryName(for: project.path)
                     list[index].path = project.path
                 }
                 continue
@@ -229,6 +229,18 @@ final class WorktreeStore {
         save(projectID: projectID)
     }
 
+    func updatePrimary(projectID: UUID, path: String) {
+        guard var list = worktrees[projectID],
+              let index = list.firstIndex(where: \.isPrimary)
+        else { return }
+        let name = Self.primaryName(for: path)
+        guard list[index].path != path || list[index].name != name else { return }
+        list[index].path = path
+        list[index].name = name
+        setWorktrees(list, for: projectID)
+        save(projectID: projectID)
+    }
+
     func removeProject(_ projectID: UUID) {
         if let existing = worktrees[projectID] {
             for worktree in existing where projectIDByPath[worktree.path] == projectID {
@@ -257,12 +269,17 @@ final class WorktreeStore {
 
     private func makePrimary(for project: Project) -> Worktree {
         Worktree(
-            name: project.name,
+            name: Self.primaryName(for: project.path),
             path: project.path,
             branch: nil,
             source: .muxy,
             isPrimary: true
         )
+    }
+
+    private static func primaryName(for path: String) -> String {
+        let folderName = URL(fileURLWithPath: path).lastPathComponent
+        return folderName.isEmpty ? path : folderName
     }
 
     private func sortPrimaryFirst(_ list: [Worktree]) -> [Worktree] {

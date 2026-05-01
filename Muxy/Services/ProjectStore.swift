@@ -48,7 +48,21 @@ final class ProjectStore {
     func rename(id: UUID, to newName: String) {
         guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
         projects[index].name = newName
+        projects[index].isNameCustomized = true
         save()
+    }
+
+    @discardableResult
+    func updatePath(id: UUID, to newPath: String) -> Project? {
+        guard let index = projects.firstIndex(where: { $0.id == id }) else { return nil }
+        let standardized = URL(fileURLWithPath: newPath).standardizedFileURL.path
+        guard projects[index].path != standardized else { return projects[index] }
+        projects[index].path = standardized
+        if !projects[index].isNameCustomized {
+            projects[index].name = URL(fileURLWithPath: standardized).lastPathComponent
+        }
+        save()
+        return projects[index]
     }
 
     func setLogo(id: UUID, to logo: String?) {

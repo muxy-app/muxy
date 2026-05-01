@@ -4,7 +4,7 @@ import Foundation
 @Observable
 final class TerminalPaneState: Identifiable {
     let id = UUID()
-    let projectPath: String
+    var projectPath: String
     var title: String
     var currentWorkingDirectory: String?
     let startupCommand: String?
@@ -40,5 +40,9 @@ final class TerminalPaneState: Identifiable {
 
     func setWorkingDirectory(_ path: String) {
         currentWorkingDirectory = path
+    }
+
+    func updateProjectPath(_ path: String) {
+        projectPath = path
     }
 }
