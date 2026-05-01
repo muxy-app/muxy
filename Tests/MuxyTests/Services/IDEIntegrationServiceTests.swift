@@ -292,6 +292,56 @@ struct IDEIntegrationServiceTests {
         #expect(IDEIntegrationService.ideApplication(from: metadata) == nil)
     }
 
+    @Test("classifies Emacs by curated bundle identifier")
+    func classifiesEmacsByCuratedBundleIdentifier() {
+        let metadata = IDEIntegrationService.AppMetadata(
+            bundleIdentifier: "org.gnu.Emacs",
+            displayName: "Emacs",
+            executableName: "Emacs",
+            category: nil,
+            appURL: URL(fileURLWithPath: "/Applications/Emacs.app")
+        )
+
+        let app = IDEIntegrationService.ideApplication(from: metadata)
+
+        #expect(app != nil)
+        #expect(app?.displayName == "Emacs")
+        #expect(app?.group == .editor)
+    }
+
+    @Test("classifies Emacs forks by keyword when bundle identifier is unknown")
+    func classifiesEmacsForksByKeywordWhenBundleIdentifierIsUnknown() {
+        let metadata = IDEIntegrationService.AppMetadata(
+            bundleIdentifier: "org.example.emacs-mac",
+            displayName: "Emacs",
+            executableName: "Emacs",
+            category: nil,
+            appURL: URL(fileURLWithPath: "/Applications/Emacs.app")
+        )
+
+        let app = IDEIntegrationService.ideApplication(from: metadata)
+
+        #expect(app != nil)
+        #expect(app?.group == .editor)
+    }
+
+    @Test("classifies Aquamacs by curated bundle identifier")
+    func classifiesAquamacsByCuratedBundleIdentifier() {
+        let metadata = IDEIntegrationService.AppMetadata(
+            bundleIdentifier: "org.aquamacs.Aquamacs",
+            displayName: "Aquamacs",
+            executableName: "Aquamacs",
+            category: nil,
+            appURL: URL(fileURLWithPath: "/Applications/Aquamacs.app")
+        )
+
+        let app = IDEIntegrationService.ideApplication(from: metadata)
+
+        #expect(app != nil)
+        #expect(app?.displayName == "Aquamacs")
+        #expect(app?.group == .editor)
+    }
+
     @Test("does not classify JetBrains Toolbox as an IDE target")
     func doesNotClassifyJetBrainsToolbox() {
         let metadata = IDEIntegrationService.AppMetadata(
