@@ -48,6 +48,12 @@ final class ProjectStore {
         save()
     }
 
+    func setPreferredWorktreeParentPath(id: UUID, to path: String?) {
+        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[index].preferredWorktreeParentPath = WorktreeLocationResolver.normalizedPath(path)
+        save()
+    }
+
     func reorder(fromOffsets source: IndexSet, toOffset destination: Int) {
         projects.move(fromOffsets: source, toOffset: destination)
         for index in projects.indices {

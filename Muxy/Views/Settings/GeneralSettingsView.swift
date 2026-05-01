@@ -1,12 +1,11 @@
+import AppKit
 import SwiftUI
-
-enum GeneralSettingsKeys {
-    static let autoExpandWorktreesOnProjectSwitch = "muxy.general.autoExpandWorktreesOnProjectSwitch"
-}
 
 struct GeneralSettingsView: View {
     @AppStorage(GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch)
     private var autoExpandWorktrees = false
+    @AppStorage(GeneralSettingsKeys.defaultWorktreeParentPath)
+    private var defaultWorktreeParentPath = ""
     @AppStorage(TabCloseConfirmationPreferences.confirmRunningProcessKey)
     private var confirmRunningProcess = true
     @AppStorage(ProjectLifecyclePreferences.keepOpenWhenNoTabsKey)
@@ -55,6 +54,14 @@ struct GeneralSettingsView: View {
                 )
             }
 
+            SettingsSection(
+                "Worktrees",
+                footer: "Muxy creates a project-named subfolder inside this folder. "
+                    + "Projects can still override this from the new worktree dialog."
+            ) {
+                worktreeLocationControl
+            }
+
             SettingsSection("Tabs") {
                 SettingsToggleRow(
                     label: "Confirm before closing a tab with a running process",
@@ -79,5 +86,73 @@ struct GeneralSettingsView: View {
                 UpdateService.shared.channel = newValue
             }
         )
+    }
+
+    private var defaultWorktreeLocationText: String {
+        defaultWorktreeParentPath.isEmpty ? "Muxy App Support" : defaultWorktreeParentPath
+    }
+
+    private var worktreeLocationControl: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Default path for new worktrees")
+                .font(.system(size: SettingsMetrics.labelFontSize))
+
+            HStack(alignment: .center, spacing: 8) {
+                pathDisplay
+                    .layoutPriority(1)
+
+                Button("Choose Folder...") {
+                    chooseDefaultWorktreeParentPath()
+                }
+                .controlSize(.small)
+                .fixedSize(horizontal: true, vertical: false)
+
+                Button("Use App Default") {
+                    defaultWorktreeParentPath = ""
+                }
+                .controlSize(.small)
+                .fixedSize(horizontal: true, vertical: false)
+                .disabled(defaultWorktreeParentPath.isEmpty)
+            }
+        }
+        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+    }
+
+    private var pathDisplay: some View {
+        HStack(spacing: 7) {
+            Image(systemName: defaultWorktreeParentPath.isEmpty ? "internaldrive" : "folder")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 15)
+
+            Text(defaultWorktreeLocationText)
+                .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
+                .foregroundStyle(defaultWorktreeParentPath.isEmpty ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 9)
+        .frame(minWidth: 170, maxWidth: .infinity, minHeight: 28, alignment: .leading)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(.quaternary.opacity(0.7), lineWidth: 1)
+        )
+    }
+
+    private func chooseDefaultWorktreeParentPath() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select the default folder for new worktrees"
+        if let path = WorktreeLocationResolver.normalizedPath(defaultWorktreeParentPath) {
+            panel.directoryURL = URL(fileURLWithPath: path, isDirectory: true)
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        defaultWorktreeParentPath = url.path
     }
 }

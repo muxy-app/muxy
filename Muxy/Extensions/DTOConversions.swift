@@ -11,7 +11,8 @@ extension Project {
             createdAt: createdAt,
             icon: icon,
             logo: logo,
-            iconColor: iconColor
+            iconColor: iconColor,
+            preferredWorktreeParentPath: preferredWorktreeParentPath
         )
     }
 }

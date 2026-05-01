@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum CreateWorktreeResult {
@@ -10,11 +11,16 @@ struct CreateWorktreeSheet: View {
     let onFinish: (CreateWorktreeResult) -> Void
 
     @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ProjectStore.self) private var projectStore
+    @AppStorage(GeneralSettingsKeys.defaultWorktreeParentPath)
+    private var defaultWorktreeParentPath = ""
     @State private var name: String = ""
     @State private var branchName: String = ""
     @State private var branchNameEdited = false
     @State private var createNewBranch = true
     @State private var selectedExistingBranch: String = ""
+    @State private var selectedParentPath: String?
+    @State private var usesProjectLocation = false
     @State private var availableBranches: [String] = []
     @State private var setupCommands: [String] = []
     @State private var runSetup = false
@@ -61,6 +67,8 @@ struct CreateWorktreeSheet: View {
                 }
             }
 
+            locationSection
+
             if setupCommands.isEmpty {
                 setupCommandsGuideSection
             } else {
@@ -86,6 +94,7 @@ struct CreateWorktreeSheet: View {
         .padding(20)
         .frame(width: 460)
         .task {
+            loadLocation()
             await loadBranches()
             loadSetupCommands()
         }
@@ -96,6 +105,35 @@ struct CreateWorktreeSheet: View {
         .onChange(of: createNewBranch) { _, isCreatingNewBranch in
             guard isCreatingNewBranch, !branchNameEdited else { return }
             branchName = name
+        }
+    }
+
+    private var locationSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Location").font(.system(size: 11)).foregroundStyle(MuxyTheme.fgMuted)
+            HStack(spacing: 8) {
+                Text(parentDirectoryPath)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(MuxyTheme.fg)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 4))
+
+                Button("Choose Folder...") {
+                    chooseParentDirectory()
+                }
+                .fixedSize(horizontal: true, vertical: false)
+
+                Button("Use Default") {
+                    selectedParentPath = nil
+                    usesProjectLocation = false
+                }
+                .fixedSize(horizontal: true, vertical: false)
+                .disabled(!usesProjectLocation)
+            }
         }
     }
 
@@ -169,6 +207,37 @@ struct CreateWorktreeSheet: View {
         setupCommands = config.setup.map(\.command).filter { !$0.isEmpty }
     }
 
+    private func loadLocation() {
+        guard selectedParentPath == nil, !usesProjectLocation else { return }
+        guard let path = WorktreeLocationResolver.normalizedPath(project.preferredWorktreeParentPath) else { return }
+        selectedParentPath = path
+        usesProjectLocation = true
+    }
+
+    private var resolvedProject: Project {
+        var resolved = project
+        resolved.preferredWorktreeParentPath = usesProjectLocation ? selectedParentPath : nil
+        return resolved
+    }
+
+    private var parentDirectoryPath: String {
+        WorktreeLocationResolver
+            .parentDirectory(for: resolvedProject, defaultParentPath: defaultWorktreeParentPath)
+            .path
+    }
+
+    private func chooseParentDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select where new worktrees for this project should be created"
+        panel.directoryURL = URL(fileURLWithPath: parentDirectoryPath, isDirectory: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        selectedParentPath = url.path
+        usesProjectLocation = true
+    }
+
     private var canCreate: Bool {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         if createNewBranch {
@@ -193,6 +262,7 @@ struct CreateWorktreeSheet: View {
         }
     }
 
+    @MainActor
     private func create() async {
         inProgress = true
         errorMessage = nil
@@ -202,15 +272,28 @@ struct CreateWorktreeSheet: View {
             : selectedExistingBranch
 
         let slug = Self.slug(from: trimmedName)
-        let worktreeDirectory = MuxyFileStorage
-            .worktreeDirectory(forProjectID: project.id, name: slug)
-            .path(percentEncoded: false)
+        let parentDirectory = parentDirectoryPath
+        let worktreeDirectory = URL(fileURLWithPath: parentDirectory, isDirectory: true)
+            .appendingPathComponent(slug, isDirectory: true)
+            .path
 
         if FileManager.default.fileExists(atPath: worktreeDirectory) {
-            await MainActor.run {
-                inProgress = false
-                errorMessage = "A worktree with this name already exists on disk."
+            inProgress = false
+            errorMessage = "A worktree with this name already exists on disk."
+            return
+        }
+
+        do {
+            try await GitProcessRunner.offMainThrowing {
+                try FileManager.default.createDirectory(
+                    atPath: parentDirectory,
+                    withIntermediateDirectories: true,
+                    attributes: nil
+                )
             }
+        } catch {
+            inProgress = false
+            errorMessage = error.localizedDescription
             return
         }
 
@@ -222,10 +305,8 @@ struct CreateWorktreeSheet: View {
                 createBranch: createNewBranch
             )
         } catch {
-            await MainActor.run {
-                inProgress = false
-                errorMessage = error.localizedDescription
-            }
+            inProgress = false
+            errorMessage = error.localizedDescription
             return
         }
 
@@ -236,11 +317,13 @@ struct CreateWorktreeSheet: View {
             ownsBranch: createNewBranch,
             isPrimary: false
         )
-        await MainActor.run {
-            worktreeStore.add(worktree, to: project.id)
-            inProgress = false
-            onFinish(.created(worktree, runSetup: runSetup))
-        }
+        projectStore.setPreferredWorktreeParentPath(
+            id: project.id,
+            to: usesProjectLocation ? selectedParentPath : nil
+        )
+        worktreeStore.add(worktree, to: project.id)
+        inProgress = false
+        onFinish(.created(worktree, runSetup: runSetup))
     }
 
     private static func slug(from name: String) -> String {

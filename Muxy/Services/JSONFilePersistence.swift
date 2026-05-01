@@ -6,7 +6,7 @@ enum MuxyFileStorage {
         return dir.appendingPathComponent(filename)
     }
 
-    static func appSupportDirectory() -> URL {
+    static func appSupportDirectory(create: Bool = true) -> URL {
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -15,6 +15,7 @@ enum MuxyFileStorage {
             fatalError("Application Support directory unavailable")
         }
         let dir = appSupport.appendingPathComponent("Muxy", isDirectory: true)
+        guard create else { return dir }
         try? FileManager.default.createDirectory(
             at: dir,
             withIntermediateDirectories: true,
@@ -23,10 +24,11 @@ enum MuxyFileStorage {
         return dir
     }
 
-    static func worktreeRoot(forProjectID projectID: UUID) -> URL {
-        let dir = appSupportDirectory()
+    static func worktreeRoot(forProjectID projectID: UUID, create: Bool = true) -> URL {
+        let dir = appSupportDirectory(create: create)
             .appendingPathComponent("worktree-checkouts", isDirectory: true)
             .appendingPathComponent(projectID.uuidString, isDirectory: true)
+        guard create else { return dir }
         try? FileManager.default.createDirectory(
             at: dir,
             withIntermediateDirectories: true,
