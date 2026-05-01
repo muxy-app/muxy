@@ -55,16 +55,24 @@ terminal output, send keyboard input. Transport is the existing
 **Goal:** Lock open decisions, capture protocol fixtures from a live
 Mac+iOS session for use as test vectors during the protocol port.
 
-- [ ] Capture JSON fixtures from a real iOS↔Mac session: pair, list
-      projects, open workspace, terminal output chunks, terminal input,
-      resize, notifications event. Save under
-      `docs/plans/android-fixtures/*.json`
+- [ ] Capture JSON fixtures from a real iOS↔Mac session: pair, auth
+      (success + 401 → pair flow), list projects, open workspace,
+      `takeOverPane` → `terminalSnapshot`, live `terminalOutput` chunks,
+      `terminalInput`, `terminalResize`, `terminalScroll`,
+      `paneOwnershipChanged`, `themeChanged`, `notificationReceived`
+      event, `getProjectLogo`. Save under
+      `docs/plans/android-fixtures/*.json`. Note: fixtures contain UUIDs
+      and dates — round-trip tests must use schema/shape equality or
+      pre-normalize those fields, not raw byte equality
 - [ ] Confirm Mac-side protocol exposes everything Android needs (audit
       `MuxyShared/MuxyProtocol.swift` and compare against MuxyMobile's
       `ConnectionManager.swift` request surface)
-- [ ] Identify any Mac-side gaps (e.g. mDNS advertisement, per-device
-      platform tag in `ApprovedDevicesStore`, device-name on pair so the
-      approval sheet shows a friendly name) — file as separate small tasks
+- [ ] Identify any Mac-side gaps — currently only one confirmed: no
+      `platform` field on `ApprovedDevice` / `pairDevice` params (so the
+      approval sheet can't say "Pixel 8 Pro (Android)"). `deviceName` is
+      already passed and shown today (`PairingRequestCoordinator.swift`
+      line 83). mDNS `_muxy._tcp.local` is not advertised — file as a
+      small follow-up if we want LAN discovery
 
 ---
 
@@ -95,19 +103,50 @@ Mac+iOS session for use as test vectors during the protocol port.
 **Goal:** Kotlin types that round-trip the same JSON as `MuxyShared/`.
 
 - [ ] Port envelope: `MuxyMessage`, `MuxyRequest`, `MuxyResponse`,
-      `MuxyEvent` → `:protocol`
-- [ ] Port enums: `MuxyMethod`, `MuxyEvent` event names, error codes
+      `MuxyEvent` → `:protocol`. Note `MuxyMessage` wraps payload as
+      `{type, payload}` — `MuxyParams`/`MuxyResult`/`MuxyEventData` use a
+      different shape: `{type, value}` (see
+      `MuxyShared/MuxyProtocol.swift`)
+- [ ] Port enums: `MuxyMethod`, `MuxyEventKind`, error codes. Error
+      codes used today: `400 invalidParams`, `401 unauthorized`
+      (semantically: "device unknown — try `pairDevice` next"),
+      `403 pairingDenied`, `404 notFound`, `408 pairingTimeout`,
+      `500 internalError`. Skip `registerDevice` from the wire — it is a
+      `MuxyMethod` value but iOS never sends it; the Mac calls its own
+      delegate's `registerDevice` internally inside `finalizeAuth`
+- [ ] **Event-kind ↔ data-case naming mismatches** — JSON has both an
+      outer event kind and an inner data type, and they are NOT the same
+      string. Decoder must handle: `workspaceChanged` → data
+      `workspace`; `projectsChanged` → data `projects`;
+      `notificationReceived` → data `notification`. Other pairs match
+      (`tabChanged`/`tab`, `terminalOutput`/`terminalOutput`,
+      `terminalSnapshot`/`terminalSnapshot`,
+      `paneOwnershipChanged`/`paneOwnership`, `themeChanged`/`deviceTheme`)
 - [ ] Port DTOs: `ProjectDTO`, `WorktreeDTO`, `WorkspaceDTO` (with
-      `SplitNodeDTO`, `TabAreaDTO`, `TabDTO`), `NotificationDTO`,
-      `VCSStatusDTO`, `TerminalOutputEventDTO`, `TerminalContentDTO`,
-      `ProjectIconColor`
+      `SplitNodeDTO`, `SplitBranchDTO`, `TabAreaDTO`, `TabDTO`,
+      `TabKindDTO`, `SplitDirectionDTO`, `SplitPositionDTO`),
+      `NotificationDTO`, `VCSStatusDTO`, `VCSBranchesDTO`,
+      `VCSCreatePRResultDTO`, `TerminalOutputEventDTO`,
+      `TerminalContentDTO`, `TerminalCellsDTO` (+ `TerminalCellDTO`,
+      `TerminalCellFlag`), `PaneOwnerDTO`, `PaneOwnershipEventDTO`,
+      `DeviceThemeEventDTO`, `PairingResultDTO`, `DeviceInfoDTO`,
+      `ProjectLogoDTO`, `TabChangeEventDTO`, `ProjectIconColor`. The
+      live wire uses `TerminalCellsDTO` for `getTerminalContent`
+      responses; `TerminalContentDTO` is unused on the wire today but
+      ships in the Swift module — port both for parity
 - [ ] Port `ProtocolParams.*` request/result types
 - [ ] Configure kotlinx.serialization with ISO 8601 date serializer
       matching `MuxyCodec` exactly (verify with fixtures)
 - [ ] JSON round-trip tests against captured fixtures (decode, re-encode,
-      assert byte-equality after key normalization)
-- [ ] Base64 helper for `Data` ↔ ByteArray (terminal bytes are
-      base64-encoded on the wire — confirm against fixtures)
+      assert shape/value equality after normalizing UUIDs and dates —
+      raw byte equality is unreliable because key order isn't guaranteed
+      and our fixtures contain randomized UUIDs/timestamps)
+- [ ] Base64 helper for `Data` ↔ ByteArray. `Data` Codable on Apple
+      defaults to base64 strings on the wire, so terminal bytes
+      (`TerminalInputParams.bytes`, `TerminalOutputEventDTO.bytes`,
+      `TerminalContentDTO.content`-as-base64-snapshot,
+      `ProjectLogoDTO.pngData`) and the device `token` (32 random bytes,
+      base64-encoded) are all base64 strings on Android too
 
 ---
 
@@ -115,20 +154,52 @@ Mac+iOS session for use as test vectors during the protocol port.
 
 **Goal:** Kotlin equivalent of iOS's `ConnectionManager.swift`.
 
-- [ ] `MuxyClient` in `:net`: OkHttp `WebSocket`, lifecycle (connect,
-      close, error), exponential-backoff reconnect with jitter
-- [ ] Request/response correlation via numeric ID, exposed as
-      `suspend fun send(method, params): Result`
-- [ ] Event bus: `MutableSharedFlow<MuxyEvent>` per event type, plus a
-      typed `terminalOutput(paneID)` `Flow<ByteArray>` accessor
+- [ ] `MuxyClient` in `:net`: OkHttp `WebSocket` over `ws://host:port`
+      (no TLS — see Phase 4 security note). Lifecycle (connect, close,
+      error), exponential-backoff reconnect with jitter. Send/receive
+      uses **text frames** (Mac uses `NWProtocolWebSocket` opcode
+      `.text`, iOS uses `URLSessionWebSocketTask.send(.string)`) — JSON
+      goes over text frames, not binary
+- [ ] Request/response correlation via string ID (iOS uses
+      `UUID().uuidString`, not numeric). Exposed as
+      `suspend fun send(method, params, timeout): MuxyResponse?`. Per-
+      request timeout (iOS defaults: 10s normal, 120s for `pairDevice`)
+- [ ] **Fire-and-forget path for `terminalInput`** — the Mac's
+      `voidMethods` set drops the response for `terminalInput`
+      (`MuxyServer/MuxyRemoteServer.swift:262`). Awaiting it leaks
+      pending-request entries on every keystroke. Mirror iOS's
+      `sendFireAndForget` (`ConnectionManager.swift:620`)
+- [ ] Event bus: `MutableSharedFlow<MuxyEvent>` per event kind, plus a
+      typed `terminalOutput(paneID)` `Flow<ByteArray>` accessor that
+      demuxes both `terminalOutput` AND `terminalSnapshot` events to the
+      same per-pane handler (iOS pattern in
+      `ConnectionManager.swift:820-823`)
+- [ ] **No `subscribe`/`unsubscribe` requests are sent** — the Mac's
+      handler is a no-op (`MuxyRemoteServer.swift:616-618`) and every
+      authenticated client receives every event. All filtering is
+      client-side via the per-pane handler map. Do NOT add per-pane
+      subscribe RPCs
 - [ ] Connection state machine: `Idle → Connecting → Authenticating →
-      Pairing → Ready → Reconnecting → Failed`. Modeled as a sealed class
-      exposed via `StateFlow`
+      AwaitingApproval → Connected → Reconnecting → Failed`. Modeled as
+      a sealed class exposed via `StateFlow`. `AwaitingApproval` is the
+      window between sending `pairDevice` and the Mac user tapping
+      Approve/Deny in the modal NSAlert (can take up to the 120s
+      pairing timeout)
 - [ ] Connection trace ring buffer (last N events, timestamped) — exposed
-      to UI for the error-report sheet
-- [ ] Subscribe / unsubscribe helpers per pane
-- [ ] Tests with OkHttp `MockWebServer`: handshake, authenticate flow,
-      RPC round-trip, event delivery, reconnect
+      to UI for the error-report sheet (mirror iOS
+      `diagnosticLog`/`recordDiagnostic`)
+- [ ] Reconnect strategy: ping-then-reconnect on foreground (iOS uses
+      `URLSessionWebSocketTask.sendPing` to verify a stale socket before
+      tearing it down — `ConnectionManager.swift:394`). On reconnect,
+      replay `selectProject(activeProjectID)` so the Mac re-emits
+      workspace state — pane ownership resets to Mac on disconnect
+      (`RemoteServerDelegate.clientDisconnected` calls
+      `releaseAll(clientID)`), so any taken-over panes will need
+      re-takeover after reconnect
+- [ ] Tests with OkHttp `MockWebServer`: handshake, authenticate flow
+      including 401-then-pair, fire-and-forget `terminalInput`, RPC
+      round-trip, event delivery (with the kind/data naming mismatch),
+      reconnect
 
 ---
 
@@ -137,14 +208,32 @@ Mac+iOS session for use as test vectors during the protocol port.
 **Goal:** Trust-on-first-use, matching the iOS handshake exactly.
 
 - [ ] `DeviceCredentialsStore` (Kotlin): generate `deviceID` (UUID) +
-      `token` (32 random bytes via `SecureRandom`) on first launch.
+      `token` (32 random bytes from `SecureRandom`, **base64-encoded
+      string** — match iOS `DeviceCredentialsStore.generateToken` which
+      returns `Data(bytes).base64EncodedString()`) on first launch.
       Persist in `EncryptedSharedPreferences` (Android Keystore-backed)
-- [ ] SHA-256(token) helper. Verify byte-for-byte equality with iOS
-      output for a fixed test vector
-- [ ] Connect flow: send `authenticateDevice` → on `401` send
-      `pairDevice` → poll/await approval result
+- [ ] **No client-side hashing.** The client sends the **raw** token in
+      both `authenticateDevice` and `pairDevice`. The Mac hashes
+      (SHA-256) for comparison inside `ApprovedDevicesStore`
+      (`Muxy/Services/ApprovedDevicesStore.swift:85`). Do not pre-hash
+      on Android
+- [ ] Connect flow: send `authenticateDevice(deviceID, deviceName,
+      token)` → on `401 unauthorized` send `pairDevice(deviceID,
+      deviceName, token)` and wait up to 120s for the Mac user to
+      approve in the modal NSAlert. Success result for both is
+      `MuxyResult.pairing(PairingResultDTO)` carrying `clientID`,
+      `deviceName`, and optional `themeFg/themeBg/themePalette`. On
+      `403 pairingDenied` surface "Approval denied on Mac"
+- [ ] **Security note (plaintext over `ws://`)** — there is no TLS;
+      device token + all traffic travel in the clear. Safe on Tailscale
+      / a trusted VPN, dangerous on open Wi-Fi. Surface this in connect
+      UX (e.g. a one-time "Use only on a trusted network" notice) and
+      document in the README
 - [ ] Pair pending state in UI: "Awaiting approval on Mac" with cancel
-      button
+      button. Note the UX constraint: pairing requires the Mac user to
+      be physically at their Mac to dismiss an `NSAlert`
+      (`Muxy/Services/PairingRequestCoordinator.swift:79-100`) — there
+      is no asynchronous push approval today
 - [ ] Forget-device action (settings) clears local credentials
 
 ---
@@ -154,22 +243,53 @@ Mac+iOS session for use as test vectors during the protocol port.
 **Goal:** User can connect to their Mac and see the project list.
 
 - [ ] `ConnectScreen` (Compose): host text field, port field
-      (default 4865), connect button. Persist last-used host/port in
-      DataStore
+      (default 4865; the Mac dev build listens on 4866 —
+      `MobileServerService.defaultPort = MuxyRemoteServer.defaultPort + 1`
+      when `AppEnvironment.isDevelopment`, so document this for anyone
+      pointing Android at a debug Mac), connect button. Persist
+      last-used host/port in DataStore
 - [ ] (Optional, behind feature flag) mDNS discovery via `NsdManager` for
       `_muxy._tcp.local` — only useful on LAN, not Tailscale. Show as
       suggestions, never required
 - [ ] `ProjectListScreen`: render `[ProjectDTO]` from `listProjects`,
-      show project logo (via `getProjectLogo`) and color, tap to navigate
+      show project color, and only call `getProjectLogo` for projects
+      whose `logo` field is non-nil (iOS pattern in
+      `ConnectionManager.fetchLogo` — `ProjectLogoDTO.pngData` is
+      base64 PNG, decode and cache by `projectID`). Tap to navigate
 - [ ] ViewModel layer: `ConnectViewModel`, `ProjectListViewModel`,
       observing `MuxyClient` flows
 - [ ] Settings entry stub (server address management)
 
 ---
 
-## Phase 6 — Terminal rendering (Termux libs)
+## Phase 6 — Terminal rendering + pane ownership (Termux libs)
 
 **Goal:** Open a tab, see live output, type into it. The big rock.
+
+**Protocol shape (correct mental model):**
+The Mac broadcasts `terminalOutput` events to all authenticated clients
+all the time, but it will **silently drop** `terminalInput`,
+`terminalResize`, and `terminalScroll` from any client that does not
+own the pane (`Muxy/Services/RemoteServerDelegate.swift:128-159`).
+Ownership is single-writer: at any moment a pane is owned by either the
+Mac or exactly one remote client. To interact:
+
+1. Client sends `takeOverPane(paneID, cols, rows)`.
+2. Mac assigns ownership, then sends a one-shot `terminalSnapshot`
+   event (a `TerminalOutputEventDTO` carrying VT bytes synthesized from
+   current cells via `RemoteTerminalSnapshotBuilder`) to that client
+   only — this is the initial scrollback.
+3. Mac broadcasts a `paneOwnershipChanged` event so all clients update
+   their owner map.
+4. Live updates continue as `terminalOutput` events.
+5. Client sends `releasePane(paneID)` when navigating away. On
+   disconnect, the Mac auto-releases all panes the client owned
+   (`RemoteServerDelegate.clientDisconnected`).
+
+`getTerminalContent` returns parsed cells (`TerminalCellsDTO`) and is
+NOT used by iOS for the live terminal path — skip it for v1 unless we
+later want a non-takeover read-only view. Do **not** send `subscribe` /
+`unsubscribe` requests; the Mac's handler is a no-op.
 
 - [ ] Vendor Termux libraries under `android/terminal/vendor/`:
       `terminal-emulator/` (the VT emulator core, pure Java) and
@@ -184,27 +304,71 @@ Mac+iOS session for use as test vectors during the protocol port.
 - [ ] Implement a `MuxyTerminalSession` that adapts Termux's
       `TerminalSession` to our transport: outgoing bytes from the
       session's PTY-write path are intercepted and routed to
-      `MuxyClient.terminalInput(paneID, bytes)` instead of writing to
-      a local FD; incoming bytes from `terminalOutput` events are fed
-      into the emulator via `TerminalEmulator.append(buf, len)` on the
-      session's thread
+      `MuxyClient.terminalInput(paneID, bytes)` (fire-and-forget)
+      instead of writing to a local FD; incoming bytes from
+      `terminalOutput` AND `terminalSnapshot` events (both carry
+      `TerminalOutputEventDTO.bytes`) are fed into the emulator via
+      `TerminalEmulator.append(buf, len)` on the session's thread
 - [ ] `MuxyTerminalView` Compose wrapper around Termux's
       `TerminalView` (AndroidView interop). Inputs: `paneID`, font
-      size, theme palette
-- [ ] Lifecycle: on attach send `subscribe(paneID)` +
-      `getTerminalContent(paneID)` and prime the emulator with the
-      scrollback bytes; on detach send `unsubscribe(paneID)` and
-      release the emulator + view
+      size, theme palette, `isOwnedBySelf` flag
+- [ ] **Pane ownership state in `MuxyClient`**: `paneOwners:
+      Map<UUID, PaneOwnerDTO>` plus `myClientID: UUID?` set from the
+      `PairingResultDTO` returned by `pairDevice`/`authenticateDevice`.
+      Update from the `paneOwnershipChanged` event. Helper:
+      `fun paneIsOwnedBySelf(paneID): Boolean` matching iOS
+      `ConnectionManager.paneIsOwnedBySelf`
+- [ ] **Take-over UX**: when the active terminal tab is not owned by
+      this client, render an overlay ("Controlled on <ownerName>",
+      Take Over button) over a hit-testing-disabled terminal view —
+      mirror `MobileTakeOverOverlay` in
+      `MuxyMobile/TerminalView.swift:111-160`. Owner name comes from
+      `PaneOwnerDTO.displayName` (either `.mac(name)` or
+      `.remote(deviceID, name)`)
+- [ ] **Lifecycle**:
+      - On view attach with known cols/rows, send
+        `takeOverPane(paneID, cols, rows)` automatically (matches
+        iOS `attemptAutoTakeOver`). Reset emulator first so the
+        `terminalSnapshot` reply lands on a clean grid
+      - The `terminalSnapshot` event will arrive as a normal
+        `terminalOutput`-shaped event (`MuxyEventKind.terminalSnapshot`,
+        data `terminalSnapshot(TerminalOutputEventDTO)`) — feed its
+        bytes through the same emulator path as live output
+      - On detach / paneID change / tab switch, send
+        `releasePane(paneID)` and unhook the per-pane byte handler
+      - On reconnect (after backgrounding or network drop), the
+        previously taken-over panes are no longer owned by this client
+        (server released on disconnect) — re-issue `takeOverPane` on
+        the active pane after the workspace is re-fetched
 - [ ] Resize: hook `TerminalView.onSizeChanged` → derive cols/rows
       from Termux's font metrics → send `terminalResize(paneID,
-      cols, rows)` to Mac
-- [ ] Theme: build a Termux `TerminalColors` palette from the active
-      project's Ghostty config (16 ANSI + foreground/background/cursor)
-      with a sane built-in dark default fallback
+      cols, rows)` to Mac. iOS additionally re-issues `takeOverPane`
+      with new cols/rows when geometry changes — match that pattern
+      so the Mac PTY stays in sync (`TerminalView.swift:80-81`)
+- [ ] **Scroll forwarding**: send `terminalScroll(paneID, deltaX,
+      deltaY, precise)` for trackpad/mouse-wheel-style gestures the
+      emulator should not consume locally (iOS uses this in
+      `ConnectionManager.scrollTerminal`). Termux's mouse reporting
+      handles the in-emulator case when the remote shell has mouse
+      mode enabled
+- [ ] **Theme comes from the Mac, not from local config**. Apply the
+      palette from `PairingResultDTO` (`themeFg`, `themeBg`,
+      `themePalette` — all optional UInt32 RGB values) to Termux's
+      `TerminalColors`. Re-apply when a `themeChanged` event arrives
+      (data `deviceTheme(DeviceThemeEventDTO)`) — iOS does this in
+      `ConnectionManager.handleEvent` `case .deviceTheme`. Fall back to
+      a built-in dark default when the Mac sends no theme
+- [ ] **Honor terminal mode flags from `TerminalCellsDTO`** if/when we
+      use `getTerminalContent`: `altScreen`, `cursorKeys` (DECCKM —
+      changes arrow-key encoding), `bracketedPaste`, `focusEvent`,
+      `mouseEvent` + `mouseFormat` (mouse mode + SGR/x10/etc format).
+      These also propagate naturally through the VT bytes stream from
+      `terminalSnapshot`/`terminalOutput`, so the emulator state should
+      track them automatically — but verify against fixtures
 - [ ] Native selection / clipboard: Termux's `TerminalView` provides
       Android selection handles + system toolbar — verify Copy and
       Paste hook into Android `ClipboardManager`; Paste pushes bytes
-      back through `terminalInput`
+      back through `terminalInput` (respect `bracketedPaste` mode)
 - [ ] Mouse mode: Termux already encodes touch as SGR mouse events
       when the remote enables mouse reporting — verify it works for
       panning in `vim` / `htop`, fix routing if needed
@@ -212,7 +376,9 @@ Mac+iOS session for use as test vectors during the protocol port.
       active so Gboard / Samsung keyboard don't double-commit
 - [ ] Manual QA: run `top`, `vim`, `htop`, `tmux`. Verify cursor
       movement, 256-color, mouse mode, bracketed paste, Unicode,
-      large-output throughput, native selection on phone + tablet
+      large-output throughput, native selection on phone + tablet,
+      take-over from Mac↔Android↔iOS handoff, ownership overlay
+      appears when another device grabs the pane
 
 ---
 
@@ -328,11 +494,12 @@ These may surface during Phase 0 audit or later phases:
 
 - [ ] (Maybe) Add Bonjour `_muxy._tcp.local` advertisement to
       `MuxyRemoteServer` so LAN discovery works on both iOS and Android
-- [ ] (Maybe) Extend `pairDevice` params to accept a `deviceName` and
-      `platform` so the approval sheet on Mac shows "Pixel 8 Pro
-      (Android)" instead of a UUID
-- [ ] (Maybe) Add a `platform` field to `ApprovedDevicesStore` entries
-      and a small UI tweak in `MobileSettingsView` to render it
+- [ ] (Maybe) Extend `PairDeviceParams` / `AuthenticateDeviceParams`
+      with an optional `platform` field (`deviceName` is already
+      passed and already shown in the approval alert today —
+      `PairingRequestCoordinator.swift:83`). Add a matching `platform`
+      field to `ApprovedDevice` so `MobileSettingsView` can render
+      "Pixel 8 Pro (Android)" vs "iPhone 16 Pro (iOS)"
 
 ---
 
