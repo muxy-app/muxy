@@ -137,6 +137,24 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(replacing: .newItem) {
+            Button("New Project") {
+                performShortcutAction(.newProject)
+            }
+            .shortcut(for: .newProject, store: keyBindings)
+
+            Button("New Window") {
+                performShortcutAction(.newWindow)
+            }
+            .shortcut(for: .newWindow, store: keyBindings)
+
+            Button("Rename Project") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.renameProject)
+            }
+            .shortcut(for: .renameProject, store: keyBindings)
+
+            Divider()
+
             Button("Open Project...") {
                 performShortcutAction(.openProject)
             }

@@ -19,6 +19,24 @@ final class ProjectStore {
         save()
     }
 
+    func insert(_ project: Project, afterProjectWithID projectID: UUID?) {
+        let index: Int
+        if let projectID,
+           let activeIndex = projects.firstIndex(where: { $0.id == projectID })
+        {
+            index = activeIndex + 1
+        } else {
+            index = projects.count
+        }
+        var mutable = project
+        mutable.sortOrder = index
+        projects.insert(mutable, at: min(index, projects.count))
+        for i in 0 ..< projects.count {
+            projects[i].sortOrder = i
+        }
+        save()
+    }
+
     func remove(id: UUID) {
         if let project = projects.first(where: { $0.id == id }) {
             VCSPersistedSettings.clearSettings(repoPath: project.path)

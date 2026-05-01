@@ -100,7 +100,18 @@ struct ShortcutActionDispatcher {
             notificationCenter.post(name: .toggleThemePicker, object: nil)
             return true
         case .newProject:
-            return false
+            _ = ProjectOpenService.duplicateActiveProject(
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
+            return true
+        case .newWindow:
+            notificationCenter.post(name: .openNewMainWindow, object: nil)
+            return true
+        case .renameProject:
+            notificationCenter.post(name: .renameActiveProject, object: nil)
+            return true
         case .openProject:
             ProjectOpenService.openProject(
                 appState: appState,
