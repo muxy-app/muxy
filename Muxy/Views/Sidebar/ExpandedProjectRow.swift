@@ -119,6 +119,10 @@ struct ExpandedProjectRow: View {
                 showColorPicker = false
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .renameActiveProject)) { _ in
+            guard appState.activeProjectID == project.id else { return }
+            startRename()
+        }
     }
 
     private var projectHeader: some View {
