@@ -39,7 +39,7 @@ struct ProjectRow: View {
 
     var body: some View {
         projectIcon
-            .help(project.name)
+            .quickTooltip(project.name)
             .contentShape(RoundedRectangle(cornerRadius: 8))
             .accessibilityElement(children: .combine)
             .accessibilityLabel(project.name)
@@ -134,6 +134,10 @@ struct ProjectRow: View {
                     onSetIconColor(id)
                     showColorPicker = false
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .renameActiveProject)) { _ in
+                guard appState.activeProjectID == project.id else { return }
+                startRename()
             }
     }
 

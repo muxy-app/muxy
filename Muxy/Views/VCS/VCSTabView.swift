@@ -120,7 +120,7 @@ struct VCSTabView: View {
                 IconButton(symbol: "globe", accessibilityLabel: "Open Repository on Web") {
                     NSWorkspace.shared.open(url)
                 }
-                .help("Open repository on web")
+                .quickTooltip("Open repository on web")
             }
 
             VCSSectionVisibilityMenu(state: state)
@@ -494,7 +494,7 @@ struct VCSTabView: View {
         }
         .buttonStyle(.plain)
         .disabled(!commitEnabled || state.isCommitting)
-        .help("Commit staged changes")
+        .quickTooltip("Commit staged changes")
     }
 
     private var pullButton: some View {
@@ -527,7 +527,7 @@ struct VCSTabView: View {
         }
         .buttonStyle(.plain)
         .disabled(state.isPulling)
-        .help(state.aheadBehind.behind > 0
+        .quickTooltip(state.aheadBehind.behind > 0
             ? "Pull \(state.aheadBehind.behind) commit\(state.aheadBehind.behind == 1 ? "" : "s") from origin"
             : "Pull from origin")
     }
@@ -562,7 +562,7 @@ struct VCSTabView: View {
         }
         .buttonStyle(.plain)
         .disabled(state.isPushing)
-        .help(state.aheadBehind.ahead > 0
+        .quickTooltip(state.aheadBehind.ahead > 0
             ? "Push \(state.aheadBehind.ahead) commit\(state.aheadBehind.ahead == 1 ? "" : "s") to origin"
             : "Push to origin")
     }
@@ -723,7 +723,7 @@ struct VCSSectionVisibilityMenu: View {
         .fixedSize()
         .onHover { hovered = $0 }
         .accessibilityLabel("Show/Hide Sections")
-        .help("Show/Hide sections")
+        .quickTooltip("Show/Hide sections")
     }
 }
 
@@ -759,7 +759,7 @@ struct PRPill: View {
             tint: MuxyTheme.fgMuted,
             disabled: true
         ) {}
-            .help("Install GitHub CLI to create pull requests: brew install gh")
+            .quickTooltip("Install GitHub CLI to create pull requests: brew install gh")
     }
 
     private var createPRPill: some View {
@@ -777,7 +777,7 @@ struct PRPill: View {
         }
         .buttonStyle(.plain)
         .disabled(state.isOpeningPullRequest)
-        .help("Create a pull request")
+        .quickTooltip("Create a pull request")
         .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(MuxyTheme.accent.opacity(0.35), lineWidth: 1))
     }
@@ -804,7 +804,7 @@ struct PRPill: View {
             .contentShape(RoundedRectangle(cornerRadius: 5))
         }
         .buttonStyle(.plain)
-        .help("Pull request #\(info.number)")
+        .quickTooltip("Pull request #\(info.number)")
         .popover(isPresented: $showPRPopover, arrowEdge: .top) {
             PRPopover(
                 state: state,
@@ -936,7 +936,7 @@ struct PRPopover: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(state.isRefreshingPullRequest)
-                .help("Refresh")
+                .quickTooltip("Refresh")
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -998,7 +998,7 @@ struct PRPopover: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(mergeDisabled)
-                .help(mergeHelp)
+                .quickTooltip(mergeHelp)
 
                 Button(action: onClose) {
                     HStack(spacing: 6) {
@@ -1441,7 +1441,7 @@ private struct SectionSplitLayout: View {
             IconButton(symbol: "minus", size: 11, accessibilityLabel: "Unstage All") {
                 state.unstageAll()
             }
-            .help("Unstage all")
+            .quickTooltip("Unstage all")
 
         case .changes:
             fileListModeToggle
@@ -1450,18 +1450,18 @@ private struct SectionSplitLayout: View {
             IconButton(symbol: "plus", size: 11, accessibilityLabel: "Stage All") {
                 state.stageAll()
             }
-            .help("Stage all")
+            .quickTooltip("Stage all")
 
             IconButton(symbol: "arrow.uturn.backward", size: 11, accessibilityLabel: "Discard All Changes") {
                 showDiscardAllConfirmation = true
             }
-            .help("Discard all changes")
+            .quickTooltip("Discard all changes")
 
         case .history:
             IconButton(symbol: "arrow.clockwise", size: 11, accessibilityLabel: "Refresh History") {
                 state.loadCommits()
             }
-            .help("Refresh history")
+            .quickTooltip("Refresh history")
 
         case .pullRequests:
             PullRequestsAutoSyncMenu(state: state)
@@ -1471,7 +1471,7 @@ private struct SectionSplitLayout: View {
                 IconButton(symbol: "arrow.clockwise", size: 11, accessibilityLabel: "Sync Pull Requests") {
                     state.loadPullRequests()
                 }
-                .help("Sync pull requests")
+                .quickTooltip("Sync pull requests")
             }
         }
     }
@@ -1487,7 +1487,7 @@ private struct SectionSplitLayout: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(state.mode == .unified ? "Switch to Split View" : "Switch to Unified View")
+        .quickTooltip(state.mode == .unified ? "Switch to Split View" : "Switch to Unified View")
     }
 
     private var fileListModeToggle: some View {
@@ -1501,7 +1501,7 @@ private struct SectionSplitLayout: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(state.fileListMode == .flat ? "Switch to Folder View" : "Switch to Flat View")
+        .quickTooltip(state.fileListMode == .flat ? "Switch to Folder View" : "Switch to Flat View")
     }
 
     @ViewBuilder
@@ -1517,7 +1517,7 @@ private struct SectionSplitLayout: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(anyExpanded ? "Collapse all" : "Expand all")
+        .quickTooltip(anyExpanded ? "Collapse all" : "Expand all")
     }
 
     @ViewBuilder
@@ -1724,17 +1724,17 @@ private struct FileRow: View {
     private var actionButtons: some View {
         HStack(spacing: 0) {
             IconButton(symbol: "doc.text", size: 11, accessibilityLabel: "Open in Editor", action: onOpenInEditor)
-                .help("Open in Editor")
+                .quickTooltip("Open in Editor")
             IconButton(symbol: "rectangle.split.2x1", size: 11, accessibilityLabel: "Open Diff in New Tab", action: onOpenDiff)
-                .help("Open Diff in New Tab")
+                .quickTooltip("Open Diff in New Tab")
             if isStaged {
                 IconButton(symbol: "minus", size: 11, accessibilityLabel: "Unstage", action: onUnstage)
-                    .help("Unstage")
+                    .quickTooltip("Unstage")
             } else {
                 IconButton(symbol: "plus", size: 11, accessibilityLabel: "Stage", action: onStage)
-                    .help("Stage")
+                    .quickTooltip("Stage")
                 IconButton(symbol: "arrow.uturn.backward", size: 11, accessibilityLabel: "Discard Changes", action: onDiscard)
-                    .help("Discard changes")
+                    .quickTooltip("Discard changes")
             }
         }
     }

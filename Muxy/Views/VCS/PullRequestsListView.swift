@@ -211,7 +211,7 @@ struct PullRequestRow: View {
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture(perform: onCheckout)
-        .help("Checkout PR #\(pr.number)")
+        .quickTooltip("Checkout PR #\(pr.number)")
     }
 
     @ViewBuilder
@@ -309,7 +309,7 @@ struct PullRequestsAutoSyncMenu: View {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help(autoSyncHelp)
+        .quickTooltip(autoSyncHelp)
     }
 
     private var autoSyncHelp: String {

@@ -20,6 +20,11 @@ struct MainWindow: View {
         static let maxWidth: CGFloat = 600
     }
 
+    private enum SidebarDragMode {
+        case collapsed
+        case expanded
+    }
+
     private enum CloseConfirmationKind {
         case lastTab
         case unsavedEditor
@@ -49,7 +54,7 @@ struct MainWindow: View {
     }
 
     @State private var vcsPanelVisible = false
-    @State private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
+    @AppStorage("muxy.vcsPanelWidth") private var vcsPanelWidth: Double = .init(AttachedVCSLayout.defaultWidth)
     @State private var vcsStates: [WorktreeKey: VCSTabState] = [:]
     @State private var fileTreePanelVisible = false
     @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
@@ -61,7 +66,13 @@ struct MainWindow: View {
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
+    @AppStorage("muxy.sidebarCustomWidth") private var sidebarCustomWidth: Double = SidebarLayout.expandedDefaultWidth
+    @AppStorage(GeneralSettingsKeys.showNavigationArrows) private var showNavigationArrows = true
+    @State private var sidebarDragMode: SidebarDragMode?
+    @State private var sidebarDragWidth: CGFloat?
+    @State private var sidebarDragStartWidth: CGFloat = 0
     private let trafficLightWidth: CGFloat = 75
+    private let sidebarResizeHandleWidth: CGFloat = 5
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,7 +83,9 @@ struct MainWindow: View {
                         .fixedSize(horizontal: true, vertical: false)
                         .overlay(alignment: .trailing) {
                             HStack(spacing: 0) {
-                                navigationArrows
+                                if showNavigationArrows {
+                                    navigationArrows
+                                }
                                 Rectangle().fill(MuxyTheme.border).frame(width: 1)
                             }
                         }
@@ -88,14 +101,19 @@ struct MainWindow: View {
 
             HStack(spacing: 0) {
                 HStack(spacing: 0) {
-                    Sidebar()
-                    if !SidebarLayout.isHidden(expanded: sidebarExpanded, collapsedStyle: sidebarCollapsedStyle) {
-                        Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                            .accessibilityHidden(true)
-                    }
+                    Sidebar(expanded: sidebarRenderedMode == .expanded, width: sidebarRenderedWidth)
                 }
-                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: sidebarRenderedWidth)
                 .background(MuxyTheme.bg)
+                .clipped()
+
+                if sidebarRenderedWidth > 0 {
+                    if isSidebarResizable {
+                        sidebarResizeHandle
+                    }
+                    Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                        .accessibilityHidden(true)
+                }
 
                 ZStack {
                     MuxyTheme.bg
@@ -127,15 +145,17 @@ struct MainWindow: View {
                 if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
                     HStack(spacing: 0) {
                         sidePanelResizeHandle { delta in
+                            let next = vcsPanelWidth - Double(delta)
                             vcsPanelWidth = max(
-                                AttachedVCSLayout.minWidth,
-                                min(AttachedVCSLayout.maxWidth, vcsPanelWidth - delta)
+                                Double(AttachedVCSLayout.minWidth),
+                                min(Double(AttachedVCSLayout.maxWidth), next)
                             )
                         }
                         VCSTabView(state: state, focused: false, onFocus: {})
-                            .frame(width: vcsPanelWidth)
+                            .frame(width: CGFloat(vcsPanelWidth))
                     }
-                } else if fileTreePanelVisible, let treeState = activeFileTreeState {
+                }
+                if fileTreePanelVisible, let treeState = activeFileTreeState {
                     HStack(spacing: 0) {
                         sidePanelResizeHandle { delta in
                             let next = fileTreePanelWidth - Double(delta)
@@ -167,6 +187,7 @@ struct MainWindow: View {
                     }
                 }
             }
+            .coordinateSpace(name: "sidebarResizeSpace")
         }
         .environment(\.overlayActive, showQuickOpen || showWorktreeSwitcher)
         .overlay(alignment: toastAlignment) {
@@ -246,12 +267,16 @@ struct MainWindow: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 sidebarExpanded.toggle()
             }
+            UserDefaults.standard.set(sidebarExpanded, forKey: "muxy.sidebarExpanded")
         }
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
         }
         .onReceive(NotificationCenter.default.publisher(for: .openVCSWindow)) { _ in
             openWindow(id: "vcs")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openNewMainWindow)) { _ in
+            openWindow(id: "main")
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleAttachedVCS)) { _ in
             toggleAttachedVCSPanel()
@@ -293,26 +318,10 @@ struct MainWindow: View {
             guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
             presentSaveErrorAlert(message: message)
         }
-    }
-
-    private var navigationArrows: some View {
-        HStack(spacing: 2) {
-            NavigationArrowButton(
-                symbol: "chevron.left",
-                isEnabled: appState.navigation.canGoBack,
-                label: "Back (\(KeyBindingStore.shared.combo(for: .navigateBack).displayString))"
-            ) {
-                appState.goBack()
-            }
-            NavigationArrowButton(
-                symbol: "chevron.right",
-                isEnabled: appState.navigation.canGoForward,
-                label: "Forward (\(KeyBindingStore.shared.combo(for: .navigateForward).displayString))"
-            ) {
-                appState.goForward()
-            }
+        .overlay(alignment: .topLeading) {
+            TooltipOverlay()
+                .allowsHitTesting(false)
         }
-        .padding(.trailing, 4)
     }
 
     @ViewBuilder
@@ -416,14 +425,14 @@ struct MainWindow: View {
                             IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
                                 NotificationCenter.default.post(name: .quickOpen, object: nil)
                             }
-                            .help("Quick Open (\(KeyBindingStore.shared.combo(for: .quickOpen).displayString))")
+                            .quickTooltip("Quick Open (\(KeyBindingStore.shared.combo(for: .quickOpen).displayString))")
                             FileDiffIconButton {
                                 openVCS(for: project)
                             }
                             FileTreeIconButton {
                                 NotificationCenter.default.post(name: .toggleFileTree, object: nil)
                             }
-                            .help("File Tree (\(KeyBindingStore.shared.combo(for: .toggleFileTree).displayString))")
+                            .quickTooltip("File Tree (\(KeyBindingStore.shared.combo(for: .toggleFileTree).displayString))")
                         }
                     }
                     .padding(.trailing, 4)
@@ -482,17 +491,140 @@ struct MainWindow: View {
         SidebarExpandedStyle(rawValue: sidebarExpandedStyleRaw) ?? .defaultValue
     }
 
-    private var topBarLeadingWidth: CGFloat {
-        let sidebarWidth = SidebarLayout.resolvedWidth(
-            expanded: sidebarExpanded,
-            collapsedStyle: sidebarCollapsedStyle,
-            expandedStyle: sidebarExpandedStyle
-        ) + 1
-        let navigationMinimum = trafficLightWidth + navigationArrowsWidth
-        return max(navigationMinimum, sidebarWidth)
+    private var sidebarRenderedMode: SidebarDragMode {
+        sidebarDragMode ?? (sidebarExpanded ? .expanded : .collapsed)
     }
 
-    private var navigationArrowsWidth: CGFloat { 52 }
+    private var sidebarRenderedWidth: CGFloat {
+        if let sidebarDragWidth {
+            return sidebarDragWidth
+        }
+        if sidebarRenderedMode == .expanded, sidebarExpandedStyle == .wide {
+            return sidebarClampedExpandedWidth
+        }
+        return sidebarCollapsedWidth
+    }
+
+    private var sidebarCollapsedWidth: CGFloat {
+        sidebarCollapsedStyle == .hidden ? 0 : SidebarLayout.collapsedWidth
+    }
+
+    private var sidebarClampedExpandedWidth: CGFloat {
+        max(SidebarLayout.minExpandedWidth, min(SidebarLayout.maxExpandedWidth, CGFloat(sidebarCustomWidth)))
+    }
+
+    private var isSidebarResizable: Bool {
+        guard sidebarExpandedStyle == .wide else { return false }
+        if sidebarExpanded { return true }
+        if sidebarCollapsedStyle == .icons { return true }
+        return false
+    }
+
+    private var sidebarResizeGesture: some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .named("sidebarResizeSpace"))
+            .onChanged { v in
+                beginSidebarDragIfNeeded()
+                let proposed = sidebarDragStartWidth + (v.location.x - v.startLocation.x)
+                updateSidebarDrag(proposedWidth: proposed)
+            }
+            .onEnded { _ in
+                finishSidebarDrag()
+            }
+    }
+
+    private func beginSidebarDragIfNeeded() {
+        guard sidebarDragMode == nil else { return }
+        sidebarDragStartWidth = sidebarRenderedWidth
+        sidebarDragMode = sidebarExpanded ? .expanded : .collapsed
+        sidebarDragWidth = sidebarRenderedWidth
+    }
+
+    private func updateSidebarDrag(proposedWidth: CGFloat) {
+        let width = clampedSidebarDragWidth(proposedWidth)
+        switch sidebarRenderedMode {
+        case .collapsed:
+            if width >= SidebarLayout.autoExpandThreshold {
+                applySidebarDrag(mode: .expanded, width: width)
+            } else {
+                applySidebarDrag(mode: .collapsed, width: width)
+            }
+        case .expanded:
+            if width < SidebarLayout.autoCollapseThreshold {
+                applySidebarDrag(mode: .collapsed, width: width)
+            } else {
+                applySidebarDrag(mode: .expanded, width: width)
+            }
+        }
+    }
+
+    private func applySidebarDrag(mode: SidebarDragMode, width: CGFloat) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            sidebarDragWidth = width
+        }
+        if sidebarDragMode == mode {
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.12)) {
+            sidebarDragMode = mode
+        }
+    }
+
+    private func finishSidebarDrag() {
+        guard let sidebarDragMode else { return }
+        switch sidebarDragMode {
+        case .collapsed:
+            sidebarExpanded = false
+            UserDefaults.standard.set(false, forKey: "muxy.sidebarExpanded")
+        case .expanded:
+            sidebarExpanded = true
+            sidebarCustomWidth = Double(clampedSidebarExpandedWidth(sidebarDragWidth ?? sidebarClampedExpandedWidth))
+            UserDefaults.standard.set(true, forKey: "muxy.sidebarExpanded")
+        }
+        self.sidebarDragMode = nil
+        sidebarDragWidth = nil
+    }
+
+    private func clampedSidebarDragWidth(_ width: CGFloat) -> CGFloat {
+        max(sidebarCollapsedWidth, min(SidebarLayout.maxExpandedWidth, width))
+    }
+
+    private func clampedSidebarExpandedWidth(_ width: CGFloat) -> CGFloat {
+        max(SidebarLayout.minExpandedWidth, min(SidebarLayout.maxExpandedWidth, width))
+    }
+
+    private var topBarLeadingWidth: CGFloat {
+        let actualSidebarWidth = sidebarRenderedWidth + sidebarChromeWidth
+        let navigationMinimum = trafficLightWidth + navigationArrowsWidth
+        return max(navigationMinimum, actualSidebarWidth)
+    }
+
+    private var sidebarChromeWidth: CGFloat {
+        (isSidebarResizable ? sidebarResizeHandleWidth : 0) + 1
+    }
+
+    private var navigationArrowsWidth: CGFloat { showNavigationArrows ? 52 : 0 }
+
+    private var navigationArrows: some View {
+        HStack(spacing: 2) {
+            NavigationArrowButton(
+                symbol: "chevron.left",
+                isEnabled: appState.navigation.canGoBack,
+                label: "Back (\(KeyBindingStore.shared.combo(for: .navigateBack).displayString))"
+            ) {
+                appState.goBack()
+            }
+            NavigationArrowButton(
+                symbol: "chevron.right",
+                isEnabled: appState.navigation.canGoForward,
+                label: "Forward (\(KeyBindingStore.shared.combo(for: .navigateForward).displayString))"
+            ) {
+                appState.goForward()
+            }
+        }
+        .padding(.trailing, 4)
+    }
 
     private var devModeBadge: some View {
         DebugButton()
@@ -588,6 +720,18 @@ struct MainWindow: View {
             }
     }
 
+    private var sidebarResizeHandle: some View {
+        Color.clear
+            .frame(width: sidebarResizeHandleWidth)
+            .contentShape(Rectangle())
+            .gesture(sidebarResizeGesture)
+            .onHover { on in
+                guard isSidebarResizable else { return }
+                if on { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .accessibilityHidden(true)
+    }
+
     private var activeFileTreeState: FileTreeState? {
         guard let project = activeProject,
               let key = appState.activeWorktreeKey(for: project.id)
@@ -643,11 +787,7 @@ struct MainWindow: View {
         }
 
         ensureVCSState(for: project)
-        let isShowing = !vcsPanelVisible
-        vcsPanelVisible = isShowing
-        if isShowing {
-            fileTreePanelVisible = false
-        }
+        vcsPanelVisible.toggle()
     }
 
     private func toggleFileTreePanel() {
@@ -660,11 +800,8 @@ struct MainWindow: View {
         }
 
         ensureFileTreeState(for: project)
-        let isShowing = !fileTreePanelVisible
-        fileTreePanelVisible = isShowing
-        if isShowing {
-            vcsPanelVisible = false
-        } else {
+        fileTreePanelVisible.toggle()
+        if !fileTreePanelVisible {
             NotificationCenter.default.post(name: .refocusActiveTerminal, object: nil)
         }
     }
@@ -874,7 +1011,7 @@ private struct NavigationArrowButton: View {
         .buttonStyle(.plain)
         .disabled(!isEnabled)
         .onHover { hovered = $0 }
-        .help(label)
+        .quickTooltip(label)
         .accessibilityLabel(label)
     }
 

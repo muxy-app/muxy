@@ -34,7 +34,7 @@ struct MuxyApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             MainWindow()
                 .environment(appState)
                 .environment(projectStore)
@@ -205,6 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UserDefaults.standard.set(200, forKey: "NSInitialToolTipDelay")
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         setAppIcon()

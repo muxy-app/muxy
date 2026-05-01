@@ -39,7 +39,7 @@ struct OpenInIDEControl: View {
             .buttonStyle(.plain)
             .disabled(projectPath == nil || defaultIDE == nil)
             .onHover { hoveredPrimary = $0 }
-            .help(helpText)
+            .quickTooltip(helpText)
             .accessibilityLabel(helpText)
 
             menuToggleButton(width: 14)
@@ -70,7 +70,7 @@ struct OpenInIDEControl: View {
             .buttonStyle(.plain)
             .disabled(projectPath == nil || defaultIDE == nil)
             .onHover { hoveredPrimary = $0 }
-            .help(helpText)
+            .quickTooltip(helpText)
             .accessibilityLabel(helpText)
 
             menuToggleButton(width: 18)
@@ -83,6 +83,7 @@ struct OpenInIDEControl: View {
     private func menuToggleButton(width: CGFloat) -> some View {
         Button {
             guard projectPath != nil else { return }
+            TooltipState.shared.hideAll()
             showingMenu.toggle()
         } label: {
             Image(systemName: "chevron.down")
@@ -94,7 +95,7 @@ struct OpenInIDEControl: View {
         .buttonStyle(.plain)
         .disabled(projectPath == nil)
         .onHover { hoveredMenu = $0 }
-        .help(menuHelpText)
+        .quickTooltip(menuHelpText)
     }
 
     private var menuPopoverContent: some View {
@@ -105,6 +106,7 @@ struct OpenInIDEControl: View {
                     fallbackSystemName: "folder",
                     title: "Finder"
                 ) {
+                    TooltipState.shared.hideAll()
                     showingMenu = false
                     _ = ideService.openProject(at: projectPath, in: IDEIntegrationService.finderApplication)
                 }
@@ -217,11 +219,13 @@ struct OpenInIDEControl: View {
 
     private func openDefaultIDE() {
         guard let defaultIDE else { return }
+        TooltipState.shared.hideAll()
         open(defaultIDE)
     }
 
     private func open(_ ide: IDEIntegrationService.IDEApplication) {
         guard let projectPath else { return }
+        TooltipState.shared.hideAll()
         let cursor = cursorProvider()
         _ = ideService.openProject(
             at: projectPath,

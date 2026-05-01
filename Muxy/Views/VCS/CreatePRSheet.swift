@@ -139,7 +139,7 @@ struct CreatePRForm: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Back to commit")
+            .quickTooltip("Back to commit")
 
             Image(systemName: "arrow.triangle.pull")
                 .font(.system(size: 12, weight: .semibold))
@@ -305,7 +305,7 @@ struct CreatePRForm: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Show target branch, include and draft options")
+        .quickTooltip("Show target branch, include and draft options")
     }
 
     private var draftToggle: some View {

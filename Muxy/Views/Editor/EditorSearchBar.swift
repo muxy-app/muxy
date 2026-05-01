@@ -27,7 +27,7 @@ struct EditorSearchBar: View {
                         .font(.system(size: 10, weight: .semibold))
                 }
                 .buttonStyle(EditorSearchButtonStyle())
-                .help(state.replaceVisible ? "Hide Replace" : "Show Replace")
+                .quickTooltip(state.replaceVisible ? "Hide Replace" : "Show Replace")
                 .accessibilityLabel(state.replaceVisible ? "Hide Replace" : "Show Replace")
                 .padding(.top, 1)
 
@@ -203,7 +203,7 @@ private struct EditorSearchOptionToggle: View {
                 .clipShape(RoundedRectangle(cornerRadius: 4))
         }
         .buttonStyle(.plain)
-        .help(help)
+        .quickTooltip(help)
         .accessibilityLabel(help)
         .accessibilityValue(isOn ? "Enabled" : "Disabled")
         .accessibilityAddTraits(.isToggle)

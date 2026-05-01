@@ -77,7 +77,7 @@ private struct DiffViewerBreadcrumb: View {
             IconButton(symbol: "arrow.clockwise", size: 11, accessibilityLabel: "Refresh Diff") {
                 state.refresh(forceFull: false)
             }
-            .help("Refresh")
+            .quickTooltip("Refresh")
         }
         .padding(.horizontal, 10)
         .frame(height: 32)
@@ -106,6 +106,6 @@ private struct DiffViewerBreadcrumb: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(tooltip)
+        .quickTooltip(tooltip)
     }
 }

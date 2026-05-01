@@ -96,7 +96,7 @@ struct AIUsagePanel: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .disabled(isRefreshing)
-                .help("Refresh usage")
+                .quickTooltip("Refresh usage")
                 if let lastRefreshDate {
                     Text(Self.relativeFormatter.localizedString(for: lastRefreshDate, relativeTo: Date()))
                         .font(.system(size: 11))
@@ -367,7 +367,7 @@ struct AIUsageMetricRowView: View {
                     }
                     .buttonStyle(.plain)
                     .onHover { pinHovered = $0 }
-                    .help(isPinned ? "Unpin from sidebar" : "Show this usage in the sidebar")
+                    .quickTooltip(isPinned ? "Unpin from sidebar" : "Show this usage in the sidebar")
                 }
 
                 Spacer()

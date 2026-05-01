@@ -301,7 +301,7 @@ private struct EditorMarkdownModePicker: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(scrollSyncEnabled ? "Disable Scroll Sync" : "Enable Scroll Sync")
+                .quickTooltip(scrollSyncEnabled ? "Disable Scroll Sync" : "Enable Scroll Sync")
                 .accessibilityLabel(scrollSyncEnabled ? "Disable Markdown Scroll Sync" : "Enable Markdown Scroll Sync")
 
                 Rectangle()
@@ -323,7 +323,7 @@ private struct EditorMarkdownModePicker: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(helpText(for: candidate, currentMode: mode))
+                .quickTooltip(helpText(for: candidate, currentMode: mode))
                 .accessibilityLabel("Markdown \(candidate.title) View")
             }
         }

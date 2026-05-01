@@ -75,7 +75,7 @@ struct ProjectIconColorPicker: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(swatch.name)
+        .quickTooltip(swatch.name)
         .accessibilityLabel(swatch.name)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

@@ -2,16 +2,25 @@ import SwiftUI
 
 enum SidebarLayout {
     static let collapsedWidth: CGFloat = 44
-    static let expandedWidth: CGFloat = 220
+    static let expandedDefaultWidth: CGFloat = 220
     static let width: CGFloat = 44
+    static let minExpandedWidth: CGFloat = 100
+    static let maxExpandedWidth: CGFloat = 500
+    static let autoCollapseThreshold: CGFloat = 80
+
+    static var expandedWidth: CGFloat { expandedDefaultWidth }
+    static var autoExpandThreshold: CGFloat { minExpandedWidth }
 
     static func resolvedWidth(
         expanded: Bool,
         collapsedStyle: SidebarCollapsedStyle,
-        expandedStyle: SidebarExpandedStyle
+        expandedStyle: SidebarExpandedStyle,
+        customWidth: CGFloat = expandedDefaultWidth
     ) -> CGFloat {
         if expanded {
-            return expandedStyle == .wide ? expandedWidth : collapsedWidth
+            return expandedStyle == .wide
+                ? max(minExpandedWidth, min(maxExpandedWidth, customWidth))
+                : collapsedWidth
         }
         return collapsedStyle == .hidden ? 0 : collapsedWidth
     }
@@ -30,9 +39,11 @@ struct Sidebar: View {
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
-    @State private var expanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
     @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
+
+    let expanded: Bool
+    let width: CGFloat
 
     private var collapsedStyle: SidebarCollapsedStyle {
         SidebarCollapsedStyle(rawValue: collapsedStyleRaw) ?? .defaultValue
@@ -60,20 +71,10 @@ struct Sidebar: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxHeight: .infinity, alignment: .bottom)
-        .frame(width: isHidden ? 0 : (isWide ? SidebarLayout.expandedWidth : SidebarLayout.collapsedWidth))
+        .frame(width: isHidden ? 0 : (isWide ? width : SidebarLayout.collapsedWidth))
         .opacity(isHidden ? 0 : 1)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Sidebar")
-        .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
-            toggleExpanded()
-        }
-    }
-
-    private func toggleExpanded() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            expanded.toggle()
-        }
-        UserDefaults.standard.set(expanded, forKey: "muxy.sidebarExpanded")
     }
 
     private var addButton: some View {
@@ -84,7 +85,7 @@ struct Sidebar: View {
                 worktreeStore: worktreeStore
             )
         }
-        .help(shortcutTooltip("Add Project", for: .openProject))
+        .quickTooltip(shortcutTooltip("Add Project", for: .openProject))
     }
 
     private var projectList: some View {
@@ -376,7 +377,7 @@ struct SidebarFooter: View {
                 onRefresh: refreshUsage
             )
         }
-        .help("AI Usage (\(KeyBindingStore.shared.combo(for: .toggleAIUsage).displayString))")
+        .quickTooltip("AI Usage (\(KeyBindingStore.shared.combo(for: .toggleAIUsage).displayString))")
     }
 
     private var collapsedFooter: some View {
@@ -385,15 +386,15 @@ struct SidebarFooter: View {
                 aiUsageButton
             }
             IconButton(symbol: notificationBellIcon, accessibilityLabel: "Notifications") { showNotifications.toggle() }
-                .help("Notifications")
+                .quickTooltip("Notifications")
                 .popover(isPresented: $showNotifications) {
                     NotificationPanel(onDismiss: { showNotifications = false })
                 }
             IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
-                .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
+                .quickTooltip("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker() }
             IconButton(symbol: sidebarToggleIcon, accessibilityLabel: sidebarToggleLabel) { postToggleSidebar() }
-                .help("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
+                .quickTooltip("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
         }
         .padding(.bottom, 8)
     }
@@ -401,7 +402,7 @@ struct SidebarFooter: View {
     private var expandedFooter: some View {
         HStack(spacing: 4) {
             IconButton(symbol: sidebarToggleIcon, accessibilityLabel: sidebarToggleLabel) { postToggleSidebar() }
-                .help("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
+                .quickTooltip("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
 
             Spacer()
 
@@ -409,12 +410,12 @@ struct SidebarFooter: View {
                 aiUsageButton
             }
             IconButton(symbol: notificationBellIcon, accessibilityLabel: "Notifications") { showNotifications.toggle() }
-                .help("Notifications")
+                .quickTooltip("Notifications")
                 .popover(isPresented: $showNotifications) {
                     NotificationPanel(onDismiss: { showNotifications = false })
                 }
             IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
-                .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
+                .quickTooltip("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker() }
         }
         .padding(.horizontal, 10)

@@ -80,22 +80,22 @@ struct PaneTabStrip: View {
                     .padding(.trailing, 4)
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
-                    .help(shortcutTooltip("Split Right", for: .splitRight))
+                    .quickTooltip(shortcutTooltip("Split Right", for: .splitRight))
                 IconButton(symbol: "square.split.1x2", accessibilityLabel: "Split Down") { onSplit(.vertical) }
-                    .help(shortcutTooltip("Split Down", for: .splitDown))
+                    .quickTooltip(shortcutTooltip("Split Down", for: .splitDown))
                 IconButton(symbol: "plus", accessibilityLabel: "New Tab") { onCreateTab() }
-                    .help(shortcutTooltip("New Tab", for: .newTab))
+                    .quickTooltip(shortcutTooltip("New Tab", for: .newTab))
                 if showVCSButton {
                     IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
                         NotificationCenter.default.post(name: .quickOpen, object: nil)
                     }
-                    .help(shortcutTooltip("Quick Open", for: .quickOpen))
+                    .quickTooltip(shortcutTooltip("Quick Open", for: .quickOpen))
                     FileDiffIconButton(action: onCreateVCSTab)
-                        .help(shortcutTooltip("Source Control", for: .openVCSTab))
+                        .quickTooltip(shortcutTooltip("Source Control", for: .openVCSTab))
                     FileTreeIconButton {
                         NotificationCenter.default.post(name: .toggleFileTree, object: nil)
                     }
-                    .help(shortcutTooltip("File Tree", for: .toggleFileTree))
+                    .quickTooltip(shortcutTooltip("File Tree", for: .toggleFileTree))
                 }
             }
             .padding(.leading, 8)

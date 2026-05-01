@@ -133,7 +133,7 @@ struct FileTreeView: View {
             ) {
                 state.showOnlyChanges.toggle()
             }
-            .help(state.showOnlyChanges ? "Show All Files" : "Show Only Changed Files")
+            .quickTooltip(state.showOnlyChanges ? "Show All Files" : "Show Only Changed Files")
         }
         .padding(.horizontal, 10)
         .frame(height: 32)

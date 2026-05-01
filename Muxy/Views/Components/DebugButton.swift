@@ -7,6 +7,7 @@ struct DebugButton: View {
 
     var body: some View {
         Button {
+            TooltipState.shared.hideAll()
             showingPopover.toggle()
         } label: {
             Image(systemName: "ladybug.fill")
@@ -18,7 +19,7 @@ struct DebugButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
-        .help("Debug Info")
+        .quickTooltip("Debug Info")
         .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
             DebugInfoPopover()
         }

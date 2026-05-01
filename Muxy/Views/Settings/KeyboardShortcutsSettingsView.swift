@@ -110,7 +110,7 @@ struct KeyboardShortcutsSettingsView: View {
                         .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .semibold))
                 }
                 .buttonStyle(.plain)
-                .help("Add Command Shortcut")
+                .quickTooltip("Add Command Shortcut")
                 .accessibilityLabel("Add Command Shortcut")
             }
         }

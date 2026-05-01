@@ -73,7 +73,7 @@ struct WorktreeBranchPicker: View {
             .contentShape(RoundedRectangle(cornerRadius: 5))
         }
         .buttonStyle(.plain)
-        .help("\(worktreeLabel) › \(branchLabel)")
+        .quickTooltip("\(worktreeLabel) › \(branchLabel)")
         .accessibilityLabel("Worktree \(worktreeLabel), Branch \(branchLabel)")
         .accessibilityHint("Opens worktree and branch picker")
         .popover(isPresented: $showPopover, arrowEdge: .top) {
