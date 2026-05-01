@@ -100,10 +100,11 @@ final class SearchController {
             return
         }
 
-        let matchBg = GhosttyService.shared.foregroundColor.withAlphaComponent(0.2)
-        let themeYellow = GhosttyService.shared.paletteColor(at: 3) ?? NSColor.systemYellow
+        let palette = EditorThemePalette.active
+        let matchBg = palette.foreground.withAlphaComponent(0.2)
+        let themeYellow = palette.paletteColor(at: 3) ?? NSColor.systemYellow
         let currentMatchBg = themeYellow.withAlphaComponent(0.85)
-        let currentMatchFg = GhosttyService.shared.backgroundColor
+        let currentMatchFg = palette.background
 
         for highlightRange in nextRanges {
             if highlightRange == nextCurrentRange {
