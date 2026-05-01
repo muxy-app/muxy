@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 
 @testable import Muxy
@@ -75,6 +76,29 @@ struct ThemeServiceTests {
         #expect(selection.lightName == nil)
         #expect(selection.resolvedName(isDark: true) == "")
         #expect(selection.resolvedName(isDark: false) == "")
+    }
+
+    @Test("isDarkAppearance uses user defaults before AppKit appearance")
+    func isDarkAppearanceUsesUserDefaults() throws {
+        let darkAppearance = try #require(NSAppearance(named: .darkAqua))
+        let lightAppearance = try #require(NSAppearance(named: .aqua))
+
+        #expect(ThemeService.isDarkAppearance(userInterfaceStyle: "dark", effectiveAppearance: lightAppearance))
+        #expect(!ThemeService.isDarkAppearance(userInterfaceStyle: "light", effectiveAppearance: darkAppearance))
+    }
+
+    @Test("isDarkAppearance uses effective appearance")
+    func isDarkAppearanceUsesEffectiveAppearance() throws {
+        let darkAppearance = try #require(NSAppearance(named: .darkAqua))
+        let lightAppearance = try #require(NSAppearance(named: .aqua))
+
+        #expect(ThemeService.isDarkAppearance(userInterfaceStyle: nil, effectiveAppearance: darkAppearance))
+        #expect(!ThemeService.isDarkAppearance(userInterfaceStyle: nil, effectiveAppearance: lightAppearance))
+    }
+
+    @Test("isDarkAppearance defaults to light when effective appearance is missing")
+    func isDarkAppearanceDefaultsToLightWhenAppearanceIsMissing() {
+        #expect(!ThemeService.isDarkAppearance(userInterfaceStyle: nil, effectiveAppearance: nil))
     }
 
     @Suite("Migration math")
