@@ -66,6 +66,16 @@ final class GhosttyService {
         self.config = cfg
     }
 
+    func applyInitialColorScheme() {
+        guard let app else { return }
+        ghostty_app_set_color_scheme(app, Self.currentColorScheme())
+        refreshConfig(postThemeChangeNotification: false)
+    }
+
+    private static func currentColorScheme() -> ghostty_color_scheme_e {
+        ThemeService.isCurrentAppearanceDark() ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT
+    }
+
     var backgroundColor: NSColor {
         configColor("background") ?? NSColor(srgbRed: 0.098, green: 0.090, blue: 0.122, alpha: 1)
     }
@@ -108,13 +118,28 @@ final class GhosttyService {
     }
 
     func reloadConfig() {
-        guard let app else { return }
-        guard let newConfig = loadMuxyGhosttyConfig() else { return }
+        refreshConfig(postThemeChangeNotification: false)
+    }
+
+    func appearanceDidChange() {
+        let isDark = ThemeService.isCurrentAppearanceDark()
+        if let app {
+            ghostty_app_set_color_scheme(app, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+        }
+        TerminalViewRegistry.shared.applyColorSchemeToAllViews(isDark: isDark)
+        refreshConfig(postThemeChangeNotification: true)
+    }
+
+    private func refreshConfig(postThemeChangeNotification: Bool) {
+        guard let app, let newConfig = loadMuxyGhosttyConfig() else { return }
         ghostty_app_update_config(app, newConfig)
-        let oldConfig = self.config
-        self.config = newConfig
+        let oldConfig = config
+        config = newConfig
         if let oldConfig { ghostty_config_free(oldConfig) }
         configVersion += 1
+        if postThemeChangeNotification {
+            NotificationCenter.default.post(name: .themeDidChange, object: nil)
+        }
     }
 
     private func loadMuxyGhosttyConfig() -> ghostty_config_t? {

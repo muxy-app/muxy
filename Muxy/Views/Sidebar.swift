@@ -391,7 +391,7 @@ struct SidebarFooter: View {
                 }
             IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
-                .popover(isPresented: $showThemePicker) { ThemePicker() }
+                .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }
             IconButton(symbol: sidebarToggleIcon, accessibilityLabel: sidebarToggleLabel) { postToggleSidebar() }
                 .help("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
         }
@@ -415,7 +415,7 @@ struct SidebarFooter: View {
                 }
             IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
-                .popover(isPresented: $showThemePicker) { ThemePicker() }
+                .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 8)

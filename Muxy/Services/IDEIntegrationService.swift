@@ -570,6 +570,8 @@ final class IDEIntegrationService: ObservableObject {
         "com.sublimetext.4": .init(symbolName: "text.cursor", rank: 28, group: .editor),
         "com.barebones.bbedit": .init(symbolName: "text.cursor", rank: 29, group: .editor),
         "com.macromates.TextMate": .init(symbolName: "text.cursor", rank: 30, group: .editor),
+        "org.gnu.Emacs": .init(symbolName: "text.cursor", rank: 31, group: .editor),
+        "org.aquamacs.Aquamacs": .init(symbolName: "text.cursor", rank: 32, group: .editor),
         "com.openai.codex": .init(symbolName: "sparkles.rectangle.stack", rank: 80, group: .otherTool),
         "ai.opencode.desktop": .init(symbolName: "chevron.left.forwardslash.chevron.right", rank: 81, group: .otherTool),
         "com.google.antigravity": .init(symbolName: "sparkles", rank: 82, group: .otherTool),
@@ -589,6 +591,8 @@ final class IDEIntegrationService: ObservableObject {
         "sublime",
         "bbedit",
         "textmate",
+        "emacs",
+        "aquamacs",
         "phpstorm",
         "webstorm",
         "pycharm",
@@ -626,6 +630,8 @@ final class IDEIntegrationService: ObservableObject {
         .init(keyword: "sublime text", symbolName: "text.cursor", rank: 30, group: .editor),
         .init(keyword: "bbedit", symbolName: "text.cursor", rank: 31, group: .editor),
         .init(keyword: "textmate", symbolName: "text.cursor", rank: 32, group: .editor),
+        .init(keyword: "emacs", symbolName: "text.cursor", rank: 33, group: .editor),
+        .init(keyword: "aquamacs", symbolName: "text.cursor", rank: 34, group: .editor),
     ]
 
     private enum LaunchStrategy {
