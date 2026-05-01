@@ -61,10 +61,28 @@ scope cleartext to a dynamic host list, so the choice is "all hosts"
 or "fixed allow-list", and we picked the former for now.
 
 **Auto-backup is disabled** (`android:allowBackup="false"`). The
-device pairing token is stored encrypted with an Android Keystore key.
-That key cannot survive a backup-and-restore, so re-installing from a
-backup would either leak stale ciphertext or break authentication.
-Disabling backup keeps things simple.
+device pairing token is stored encrypted with an Android Keystore key
+(AES/GCM/NoPadding, 256-bit, generated on first launch). The Keystore
+key is hardware-bound and cannot survive a backup-and-restore, so
+re-installing from a backup would either leak stale ciphertext or
+break authentication. Disabling backup keeps things simple.
+
+**Verifying backup exclusion.** To confirm the credential blob never
+leaves the device, after pairing, run:
+
+```
+adb shell bmgr backupnow com.muxy.android
+adb shell bmgr list transports
+```
+
+`bmgr backupnow` reports `Package com.muxy.android with result: Backup is not allowed`
+when `allowBackup="false"` is honored. Inspecting the backup transport
+output should show no entries for `com.muxy.android`.
+
+**Forget device** (Settings) deletes the encrypted credential blob and
+the Android Keystore key. The desktop side keeps the approved-device
+record until the user removes it from Mac settings, since there is no
+remote-revoke RPC today.
 
 ## Tests
 
@@ -79,12 +97,15 @@ associated-values shapes (`PaneOwnerDTO`, `NotificationDTO.SourceDTO`).
 `:net:test` drives `MuxyClient` against an OkHttp `MockWebServer` for
 authenticate-then-pair, RPC round-trip, fire-and-forget `terminalInput`,
 event delivery, silent reconnect, and pending-request cancellation, plus
-the diagnostic ring buffer, exponential backoff with jitter, and the
-DataStore-backed `SavedDevicesStore`.
+the diagnostic ring buffer, exponential backoff with jitter, the
+DataStore-backed `SavedDevicesStore`, and the `DeviceCredentialsStore`
+encryption / forget-device flows (using a fake `CryptoBox`).
 
 ## Phase status
 
 Tracked in `docs/plans/android-companion.md` at the repo root. Phases
 1–3 are landed: scaffolding, protocol port, and the WebSocket
-connection manager. Pairing UX (Phase 4), Connect/project list
-(Phase 5), and the terminal layer (Phase 6) come next.
+connection manager. Phase 4 lands the on-device credential vault
+(Keystore-encrypted `deviceID` + token) and the awaiting-approval
+scaffolding. Connect/project list (Phase 5) and the terminal layer
+(Phase 6) come next.

@@ -405,7 +405,7 @@ Mac+iOS session for use as test vectors during the protocol port.
 
 **Goal:** Trust-on-first-use, matching the iOS handshake exactly.
 
-- [ ] `DeviceCredentialsStore` (Kotlin): generate `deviceID` (UUID) +
+- [x] `DeviceCredentialsStore` (Kotlin): generate `deviceID` (UUID) +
       `token` (32 random bytes from `SecureRandom`, **base64-encoded
       string** — match iOS `DeviceCredentialsStore.generateToken` which
       returns `Data(bytes).base64EncodedString()`) on first launch.
@@ -414,12 +414,12 @@ Mac+iOS session for use as test vectors during the protocol port.
       and store ciphertext + IV in a private prefs/DataStore file that is
       excluded from backup. Do not use `EncryptedSharedPreferences`; it is
       deprecated
-- [ ] **No client-side hashing.** The client sends the **raw** token in
+- [x] **No client-side hashing.** The client sends the **raw** token in
       both `authenticateDevice` and `pairDevice`. The Mac hashes
       (SHA-256) for comparison inside `ApprovedDevicesStore`
       (`Muxy/Services/ApprovedDevicesStore.swift:85`). Do not pre-hash
       on Android
-- [ ] Connect flow: send `authenticateDevice(deviceID, deviceName,
+- [x] Connect flow: send `authenticateDevice(deviceID, deviceName,
       token)` → on `401 unauthorized` send `pairDevice(deviceID,
       deviceName, token)` and wait up to 120 s for the Mac user to
       approve in the modal NSAlert. **The 120 s is a client-side
@@ -432,12 +432,12 @@ Mac+iOS session for use as test vectors during the protocol port.
       `MuxyResult.pairing(PairingResultDTO)` carrying `clientID`,
       `deviceName`, and optional `themeFg/themeBg/themePalette`. On
       `403 pairingDenied` surface "Approval denied on Mac"
-- [ ] **Security note (plaintext over `ws://`)** — there is no TLS;
+- [x] **Security note (plaintext over `ws://`)** — there is no TLS;
       device token + all traffic travel in the clear. Safe on Tailscale
       / a trusted VPN, dangerous on open Wi-Fi. Surface this in connect
       UX (e.g. a one-time "Use only on a trusted network" notice) and
       document in the README
-- [ ] Pair pending state in UI: "Awaiting approval on Mac" with cancel
+- [x] Pair pending state in UI: "Awaiting approval on Mac" with cancel
       button. **The cancel button is local-only** — it stops the
       Android client from waiting on the response, but the Mac alert
       stays up until the user taps it. Document this in the UX so
@@ -446,13 +446,13 @@ Mac+iOS session for use as test vectors during the protocol port.
       their Mac to dismiss the `NSAlert`
       (`Muxy/Services/PairingRequestCoordinator.swift:79-100`) — there
       is no asynchronous push approval today
-- [ ] **Backup safety check.** Verify Phase 1's `allowBackup` /
+- [x] **Backup safety check.** Verify Phase 1's `allowBackup` /
       `data_extraction_rules.xml` decision actually excludes the
       credential ciphertext store holding `deviceID` + `token`.
       Manually run `adb shell bmgr backupnow` after pairing and
       inspect the resulting backup to confirm credentials are not
       included
-- [ ] Forget-device action (settings) clears local credentials and the
+- [x] Forget-device action (settings) clears local credentials and the
       Android Keystore key. There is no remote revoke RPC today, so the
       Mac's approved-device entry remains until the user removes it in
       Mac settings
