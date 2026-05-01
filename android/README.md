@@ -66,8 +66,25 @@ That key cannot survive a backup-and-restore, so re-installing from a
 backup would either leak stale ciphertext or break authentication.
 Disabling backup keeps things simple.
 
+## Tests
+
+```
+./gradlew :protocol:test :net:test
+```
+
+`:protocol:test` covers JSON round-trips for every DTO, the three
+custom envelope shapes (`MuxyMessage`, `MuxyParams`/`MuxyResult`/
+`MuxyEventData`, `SplitNodeDTO`), and the Swift-style enum-with-
+associated-values shapes (`PaneOwnerDTO`, `NotificationDTO.SourceDTO`).
+`:net:test` drives `MuxyClient` against an OkHttp `MockWebServer` for
+authenticate-then-pair, RPC round-trip, fire-and-forget `terminalInput`,
+event delivery, silent reconnect, and pending-request cancellation, plus
+the diagnostic ring buffer, exponential backoff with jitter, and the
+DataStore-backed `SavedDevicesStore`.
+
 ## Phase status
 
-Tracked in `docs/plans/android-companion.md` at the repo root. This
-README covers Phase 1 only: project scaffolding. The protocol port,
-networking, pairing, and terminal layers come in later phases.
+Tracked in `docs/plans/android-companion.md` at the repo root. Phases
+1–3 are landed: scaffolding, protocol port, and the WebSocket
+connection manager. Pairing UX (Phase 4), Connect/project list
+(Phase 5), and the terminal layer (Phase 6) come next.

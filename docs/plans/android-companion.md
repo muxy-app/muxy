@@ -211,7 +211,7 @@ Mac+iOS session for use as test vectors during the protocol port.
 
 **Goal:** Kotlin types that round-trip the same JSON as `MuxyShared/`.
 
-- [ ] Port envelope: `MuxyMessage`, `MuxyRequest`, `MuxyResponse`,
+- [x] Port envelope: `MuxyMessage`, `MuxyRequest`, `MuxyResponse`,
       `MuxyEvent` → `:protocol`. **There are three JSON shapes — get all
       three or workspace decoding will silently fail:**
       1. `MuxyMessage` (outer) → `{type: "request"|"response"|"event",
@@ -223,7 +223,7 @@ Mac+iOS session for use as test vectors during the protocol port.
          `{type: "tabArea", tabArea: TabAreaDTO}` or
          `{type: "split", split: SplitBranchDTO}` (see
          `MuxyShared/WorkspaceDTO.swift:27-64`)
-- [ ] Port enums: `MuxyMethod`, `MuxyEventKind`, error codes. Error
+- [x] Port enums: `MuxyMethod`, `MuxyEventKind`, error codes. Error
       codes actually returned by the Mac: `400 invalidParams`,
       `401 unauthorized` (semantically: "device unknown — try
       `pairDevice` next"), `403 pairingDenied`, `404 notFound`,
@@ -236,7 +236,7 @@ Mac+iOS session for use as test vectors during the protocol port.
       `PaneOwnershipStore` with the client name (which becomes the
       `displayName` on `PaneOwnerDTO.remote(deviceID, name)` in the
       take-over overlay)
-- [ ] **Event-kind ↔ data-case naming mismatches** — JSON has both an
+- [x] **Event-kind ↔ data-case naming mismatches** — JSON has both an
       outer event kind and an inner data type, and they are NOT the same
       string. Decoder must handle: `workspaceChanged` → data
       `workspace`; `projectsChanged` → data `projects`;
@@ -248,7 +248,7 @@ Mac+iOS session for use as test vectors during the protocol port.
       on the live wire — see Phase 0. Decoders must still handle the
       others for the unit tests / future use, but don't expect to see
       them at runtime
-- [ ] **Custom kotlinx.serialization serializers required** for the
+- [x] **Custom kotlinx.serialization serializers required** for the
       Swift enums-with-associated-values that don't match kotlinx's
       default polymorphic shape:
       1. `SplitNodeDTO` — wire is `{type, tabArea}` / `{type, split}`,
@@ -262,7 +262,7 @@ Mac+iOS session for use as test vectors during the protocol port.
          serializer if needed
       The default `@Serializable sealed class` with `JsonClassDiscriminator`
       will NOT produce the right JSON for these
-- [ ] Port DTOs: `ProjectDTO`, `WorktreeDTO`, `WorkspaceDTO` (with
+- [x] Port DTOs: `ProjectDTO`, `WorktreeDTO`, `WorkspaceDTO` (with
       `SplitNodeDTO`, `SplitBranchDTO`, `TabAreaDTO`, `TabDTO`,
       `TabKindDTO`, `SplitDirectionDTO`, `SplitPositionDTO`),
       `NotificationDTO`, `VCSStatusDTO`, `VCSBranchesDTO`,
@@ -274,8 +274,8 @@ Mac+iOS session for use as test vectors during the protocol port.
       live wire uses `TerminalCellsDTO` for `getTerminalContent`
       responses; `TerminalContentDTO` is unused on the wire today but
       ships in the Swift module — port both for parity
-- [ ] Port `ProtocolParams.*` request/result types
-- [ ] Configure kotlinx.serialization to match `MuxyCodec` exactly
+- [x] Port `ProtocolParams.*` request/result types
+- [x] Configure kotlinx.serialization to match `MuxyCodec` exactly
       (verify with fixtures):
       - ISO 8601 date serializer
       - UUID string serializer for every Swift `UUID`
@@ -283,11 +283,11 @@ Mac+iOS session for use as test vectors during the protocol port.
         optionals while kotlinx.serialization includes nulls by default
       - keep `encodeDefaults = false` unless a fixture proves Swift emits
         a default-valued field
-- [ ] JSON round-trip tests against captured fixtures (decode, re-encode,
+- [x] JSON round-trip tests against captured fixtures (decode, re-encode,
       assert shape/value equality after normalizing UUIDs and dates —
       raw byte equality is unreliable because key order isn't guaranteed
       and our fixtures contain randomized UUIDs/timestamps)
-- [ ] Base64 serializer for `Data` ↔ ByteArray. `Data` Codable on Apple
+- [x] Base64 serializer for `Data` ↔ ByteArray. `Data` Codable on Apple
       defaults to base64 strings on the wire, while kotlinx.serialization
       `ByteArraySerializer` encodes a JSON list of numbers by default.
       Do not use Kotlin's default `ByteArray` JSON shape. The actual
@@ -306,13 +306,13 @@ Mac+iOS session for use as test vectors during the protocol port.
 
 **Goal:** Kotlin equivalent of iOS's `ConnectionManager.swift`.
 
-- [ ] `MuxyClient` in `:net`: OkHttp `WebSocket` over `ws://host:port`
+- [x] `MuxyClient` in `:net`: OkHttp `WebSocket` over `ws://host:port`
       (no TLS — see Phase 4 security note). Lifecycle (connect, close,
       error), exponential-backoff reconnect with jitter. Send/receive
       uses **text frames** (Mac uses `NWProtocolWebSocket` opcode
       `.text`, iOS uses `URLSessionWebSocketTask.send(.string)`) — JSON
       goes over text frames, not binary
-- [ ] Request/response correlation via string ID (iOS uses
+- [x] Request/response correlation via string ID (iOS uses
       `UUID().uuidString`, not numeric). Exposed as
       `suspend fun send(method, params, timeout): MuxyResponse?`.
       Per-request timeouts from iOS, mirror them exactly:
@@ -322,13 +322,13 @@ Mac+iOS session for use as test vectors during the protocol port.
       - `vcsPush`, `vcsPull`, `vcsCreatePR`: 120 s
       - `vcsSwitchBranch`, `vcsCreateBranch`: 30 s
       - `vcsAddWorktree`, `vcsRemoveWorktree`: 60 s
-- [ ] **Fire-and-forget path for `terminalInput`** — the Mac's
+- [x] **Fire-and-forget path for `terminalInput`** — the Mac's
       `voidMethods` set drops the response for `terminalInput`
       (`MuxyServer/MuxyRemoteServer.swift:262`); confirmed
       `voidMethods` contains only `terminalInput`. Awaiting it leaks
       pending-request entries on every keystroke. Mirror iOS's
       `sendFireAndForget` (`ConnectionManager.swift:620`)
-- [ ] Event bus: `MutableSharedFlow<MuxyEvent>` per event kind, plus a
+- [x] Event bus: `MutableSharedFlow<MuxyEvent>` per event kind, plus a
       typed `terminalOutput(paneID)` `Flow<ByteArray>` accessor that
       demuxes both `terminalOutput` AND `terminalSnapshot` events to the
       same per-pane handler (iOS pattern in
@@ -338,29 +338,29 @@ Mac+iOS session for use as test vectors during the protocol port.
       `terminalSnapshot` is sent only to the client that just took
       over (`RemoteServerDelegate.swift:214-215`). A non-owner gets
       no live output at all
-- [ ] **No `subscribe`/`unsubscribe` requests are sent** — the Mac's
+- [x] **No `subscribe`/`unsubscribe` requests are sent** — the Mac's
       handler is a no-op (`MuxyRemoteServer.swift:616-618`). The Mac
       decides for itself which client receives what (broadcast for
       ownership/theme; unicast-to-owner for terminal bytes). Filtering
       on the client is per-pane handler dispatch, not subscription
       management. Do NOT add per-pane subscribe RPCs
-- [ ] **Suppress error surfacing while backgrounded.** When a send
+- [x] **Suppress error surfacing while backgrounded.** When a send
       fails AND `isBackgrounded`, swallow the error and don't
       transition to `.error` state — iOS does this at
       `ConnectionManager.swift:719-727`. Without this, every
       foreground/background cycle that catches an in-flight request
       flashes a spurious error banner
-- [ ] Connection state machine: `Idle → Connecting → Authenticating →
+- [x] Connection state machine: `Idle → Connecting → Authenticating →
       AwaitingApproval → Connected → Reconnecting → Failed`. Modeled as
       a sealed class exposed via `StateFlow`. `AwaitingApproval` is the
       window between sending `pairDevice` and the Mac user tapping
       Approve/Deny in the modal NSAlert (can take up to the 120s
       pairing timeout)
-- [ ] Connection trace ring buffer — **120 entries** (matches iOS
+- [x] Connection trace ring buffer — **120 entries** (matches iOS
       `diagnosticLog`), timestamped with ISO 8601 (fractional seconds)
       via a single shared formatter. Exposed to UI for the error-report
       sheet (mirror iOS `recordDiagnostic`)
-- [ ] Reconnect strategy: ping-then-reconnect on foreground. iOS calls
+- [x] Reconnect strategy: ping-then-reconnect on foreground. iOS calls
       `URLSessionWebSocketTask.sendPing` first; if it errors, it
       tears the socket down and runs `reconnectSilently()`
       (`ConnectionManager.swift:374-394`). On Android, OkHttp's
@@ -379,20 +379,22 @@ Mac+iOS session for use as test vectors during the protocol port.
          `ConnectionManager.swift:424-426` and `:489-534`). Raw
          `selectProject` returns only `ok`; it does not carry workspace.
          **There is no `workspaceChanged` event from the server** —
-         without `getWorkspace`, the workspace is stale
+         without `getWorkspace`, the workspace is stale (deferred to
+         the workspace UI layer in Phase 8 — `:net` exposes the
+         primitives `selectProject` + `getWorkspace`)
       4. Any active terminal view will need to re-issue `takeOverPane`
          after reconnect (server released ownership on disconnect)
-- [ ] **Pane ownership reset points** — clear `paneOwners` on:
+- [x] **Pane ownership reset points** — clear `paneOwners` on:
       project select (iOS `:493`), reconnect (iOS `:407`), disconnect
       (iOS `:166`). Plan only mentions disconnect originally; the
       other two matter because stale owner data renders a wrong
       "Controlled by X" overlay on the next pane mount
-- [ ] **Saved devices CRUD.** iOS persists `[SavedDevice]`
+- [x] **Saved devices CRUD.** iOS persists `[SavedDevice]`
       (`name + host + port`, Codable list) and exposes add / remove on
       the Connect screen — not just "last-used host/port". Port the
       full list, with `add(SavedDevice)`, `remove(SavedDevice)`, and
       ordered iteration. Persist as JSON in DataStore
-- [ ] Tests with OkHttp `MockWebServer`: handshake, authenticate flow
+- [x] Tests with OkHttp `MockWebServer`: handshake, authenticate flow
       including 401-then-pair, fire-and-forget `terminalInput`, RPC
       round-trip, event delivery (with the kind/data naming mismatch),
       reconnect
