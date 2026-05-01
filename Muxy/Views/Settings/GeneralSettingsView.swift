@@ -2,6 +2,7 @@ import SwiftUI
 
 enum GeneralSettingsKeys {
     static let autoExpandWorktreesOnProjectSwitch = "muxy.general.autoExpandWorktreesOnProjectSwitch"
+    static let showNavigationArrows = "muxy.general.showNavigationArrows"
 }
 
 struct GeneralSettingsView: View {
@@ -11,6 +12,8 @@ struct GeneralSettingsView: View {
     private var confirmRunningProcess = true
     @AppStorage(ProjectLifecyclePreferences.keepOpenWhenNoTabsKey)
     private var keepProjectsOpenWhenNoTabs = false
+    @AppStorage(GeneralSettingsKeys.showNavigationArrows)
+    private var showNavigationArrows = true
 
     var body: some View {
         SettingsContainer {
@@ -21,6 +24,16 @@ struct GeneralSettingsView: View {
                 SettingsToggleRow(
                     label: "Auto-expand worktrees on project switch",
                     isOn: $autoExpandWorktrees
+                )
+            }
+
+            SettingsSection(
+                "Navigation",
+                footer: "Show or hide the back and forward arrow buttons in the top bar."
+            ) {
+                SettingsToggleRow(
+                    label: "Show navigation arrows",
+                    isOn: $showNavigationArrows
                 )
             }
 
