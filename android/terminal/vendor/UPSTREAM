@@ -1,0 +1,27 @@
+Source: https://github.com/termux/termux-app
+Pinned commit: 30ebb2dee381d292ade0f2868cfde0f9f20b89fe (master, 2026-04-06)
+Vendored modules:
+  - terminal-emulator/src/main/java/com/termux/terminal/  (excluding JNI.java)
+  - terminal-view/src/main/java/com/termux/view/
+  - terminal-view/src/main/res/
+
+Per termux-app's LICENSE.md, the `terminal-emulator` and `terminal-view`
+libraries are derivative works of Jack Palevich's Android-Terminal-Emulator
+(https://github.com/jackpal/Android-Terminal-Emulator) and are released
+under the Apache 2.0 license; the rest of the termux-app repository is
+GPL-3.0. Only the two libraries above are vendored here.
+
+Local modifications applied after copy (see git history under
+android/terminal/vendor/ for diffs):
+  - TerminalSession: removed `final` modifier; removed JNI/PTY dependency;
+    added a remote-mode constructor and `feedRemoteOutput` API so output
+    bytes from the Mac drive `TerminalEmulator.append`. The original
+    local-PTY code path is removed because we never spawn a local shell.
+  - JNI.java is not included.
+
+Update procedure:
+  1. Pick a new Termux commit, update the SHA above.
+  2. Re-copy files from the upstream tarball.
+  3. Re-apply the modifications. Diff against the previous vendor snapshot
+     to spot upstream changes that touch our patch points.
+  4. Re-run :terminal tests.

@@ -4,6 +4,10 @@ import com.muxy.protocol.codec.MuxyCodec
 import com.muxy.protocol.dto.AuthenticateDeviceParams
 import com.muxy.protocol.dto.PairDeviceParams
 import com.muxy.protocol.dto.PaneOwnerDTO
+import com.muxy.protocol.dto.ReleasePaneParams
+import com.muxy.protocol.dto.TakeOverPaneParams
+import com.muxy.protocol.dto.TerminalInputParams
+import com.muxy.protocol.dto.TerminalResizeParams
 import com.muxy.protocol.envelope.MuxyError
 import com.muxy.protocol.envelope.MuxyEvent
 import com.muxy.protocol.envelope.MuxyEventData
@@ -74,6 +78,9 @@ class MuxyClient(
     private val _myClientID = MutableStateFlow<UUID?>(null)
     val myClientID: StateFlow<UUID?> = _myClientID.asStateFlow()
 
+    private val _deviceTheme = MutableStateFlow<DeviceTheme?>(null)
+    val deviceTheme: StateFlow<DeviceTheme?> = _deviceTheme.asStateFlow()
+
     val log: DiagnosticLog = DiagnosticLog()
 
     private val pendingMutex = Mutex()
@@ -140,6 +147,8 @@ class MuxyClient(
             cancelAllPending(MuxyError(code = 499, message = "Cancelled"))
         }
         _paneOwners.value = emptyMap()
+        _deviceTheme.value = null
+        _myClientID.value = null
     }
 
     suspend fun send(
@@ -187,6 +196,32 @@ class MuxyClient(
         val socket = webSocket ?: return
         val request = MuxyRequest(id = UUID.randomUUID().toString(), method = method, params = params)
         socket.send(MuxyCodec.encode(MuxyMessage.Request(request)))
+    }
+
+    fun sendTerminalInput(paneID: UUID, bytes: ByteArray) {
+        if (bytes.isEmpty()) return
+        sendFireAndForget(
+            MuxyMethod.TERMINAL_INPUT,
+            MuxyParams.TerminalInput(TerminalInputParams(paneID = paneID, bytes = bytes)),
+        )
+    }
+
+    suspend fun takeOverPane(paneID: UUID, cols: UInt, rows: UInt) {
+        send(
+            MuxyMethod.TAKE_OVER_PANE,
+            MuxyParams.TakeOverPane(TakeOverPaneParams(paneID = paneID, cols = cols, rows = rows)),
+        )
+    }
+
+    suspend fun releasePane(paneID: UUID) {
+        send(MuxyMethod.RELEASE_PANE, MuxyParams.ReleasePane(ReleasePaneParams(paneID = paneID)))
+    }
+
+    suspend fun resizeTerminal(paneID: UUID, cols: UInt, rows: UInt) {
+        send(
+            MuxyMethod.TERMINAL_RESIZE,
+            MuxyParams.TerminalResize(TerminalResizeParams(paneID = paneID, cols = cols, rows = rows)),
+        )
     }
 
     fun verifyConnectionOrReconnect() {
@@ -285,6 +320,15 @@ class MuxyClient(
     private fun applyPairing(result: MuxyResult?, target: ConnectionTarget) {
         if (result is MuxyResult.Pairing) {
             _myClientID.value = result.value.clientID
+            val fg = result.value.themeFg
+            val bg = result.value.themeBg
+            if (fg != null && bg != null) {
+                _deviceTheme.value = DeviceTheme(
+                    fg = fg,
+                    bg = bg,
+                    palette = result.value.themePalette ?: emptyList(),
+                )
+            }
             log.append("Authenticated as client ${result.value.clientID}")
             _state.value = ConnectionState.Connected(target)
             return
@@ -355,6 +399,13 @@ class MuxyClient(
         when (val data = event.data) {
             is MuxyEventData.PaneOwnership -> {
                 _paneOwners.value = _paneOwners.value + (data.value.paneID to data.value.owner)
+            }
+            is MuxyEventData.DeviceTheme -> {
+                _deviceTheme.value = DeviceTheme(
+                    fg = data.value.fg,
+                    bg = data.value.bg,
+                    palette = data.value.palette ?: emptyList(),
+                )
             }
             else -> Unit
         }

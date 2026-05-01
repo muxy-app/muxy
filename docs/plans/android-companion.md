@@ -537,104 +537,69 @@ NOT used by iOS for the live terminal path — skip it for v1 unless we
 later want a non-takeover read-only view. Do **not** send `subscribe` /
 `unsubscribe` requests; the Mac's handler is a no-op.
 
-- [ ] Vendor Termux libraries under `android/terminal/vendor/`:
-      `terminal-emulator/` (the VT emulator core, pure Java) and
-      `terminal-view/` (the Android `View` + key handling +
-      selection). Pin to a specific upstream commit (Termux's main
-      repo: `termux/termux-app`, modules `terminal-emulator/` and
-      `terminal-view/`). Include `LICENSE` and an `UPSTREAM` file
-      noting the commit
-- [ ] Strip Termux-specific bits we don't need: extra-keys row (we
-      ship our own accessory bar), Termux-specific styling/preferences,
-      session manager (we own session lifecycle via `MuxyClient`)
-- [ ] Implement a `MuxyTerminalSession` that adapts Termux's
-      `TerminalSession` to our transport: outgoing bytes from the
-      session's PTY-write path are intercepted and routed to
-      `MuxyClient.terminalInput(paneID, bytes)` (fire-and-forget)
-      instead of writing to a local FD; incoming bytes from
-      `terminalOutput` AND `terminalSnapshot` events (both carry
-      `TerminalOutputEventDTO.bytes`) are fed into the emulator via
-      `TerminalEmulator.append(buf, len)` on the session's thread
-- [ ] `MuxyTerminalView` Compose wrapper around Termux's
+- [x] Vendor Termux libraries under `android/terminal/vendor/`:
+      pinned at commit `30ebb2dee381d292ade0f2868cfde0f9f20b89fe`. JNI
+      module dropped (`JNI.java` excluded; jni/ subtree not vendored).
+      `LICENSE.md` + `UPSTREAM` files written
+- [x] Strip Termux-specific bits we don't need: JNI/PTY plumbing
+      removed from `TerminalSession`; extra-keys row not vendored
+      (we ship our own accessory bar). Termux session manager is
+      not used — we own lifecycle via `MuxyClient`
+- [x] Implement a `MuxyTerminalSession` that adapts Termux's
+      `TerminalSession` to our transport: vendored `TerminalSession`
+      lost its `final` modifier and its local-PTY constructor was
+      replaced with a remote-mode constructor; our subclass overrides
+      `write(...)` to call `MuxyClient.sendTerminalInput`, and
+      `feedRemoteOutput(byte[], int)` pumps `terminalOutput` AND
+      `terminalSnapshot` bytes through `TerminalEmulator.append` on
+      the main thread via the session's `MainThreadHandler`
+- [x] `MuxyTerminalView` Compose wrapper around Termux's
       `TerminalView` (AndroidView interop). Inputs: `paneID`, font
-      size, theme palette, `isOwnedBySelf` flag
-- [ ] **Pane ownership state in `MuxyClient`**: `paneOwners:
-      Map<UUID, PaneOwnerDTO>` plus `myClientID: UUID?` set from the
-      `PairingResultDTO` returned by `pairDevice`/`authenticateDevice`.
-      Update from the `paneOwnershipChanged` event. Helper:
-      `fun paneIsOwnedBySelf(paneID): Boolean` matching iOS
-      `ConnectionManager.paneIsOwnedBySelf`
-- [ ] **Take-over UX**: when the active terminal tab is not owned by
-      this client, render an overlay ("Controlled on <ownerName>",
-      Take Over button) over a hit-testing-disabled terminal view —
-      mirror `MobileTakeOverOverlay` in
-      `MuxyMobile/TerminalView.swift:111-160`. Owner name comes from
-      `PaneOwnerDTO.displayName` (either `.mac(name)` or
-      `.remote(deviceID, name)`)
-- [ ] **Lifecycle**:
-      - On view attach with known cols/rows, send
-        `takeOverPane(paneID, cols, rows)` automatically (matches
-        iOS `attemptAutoTakeOver`). Reset emulator first so the
-        `terminalSnapshot` reply lands on a clean grid
-      - The `terminalSnapshot` event will arrive as a normal
-        `terminalOutput`-shaped event (`MuxyEventKind.terminalSnapshot`,
-        data `terminalSnapshot(TerminalOutputEventDTO)`) — feed its
-        bytes through the same emulator path as live output
-      - On detach / paneID change / tab switch, send
-        `releasePane(paneID)` and unhook the per-pane byte handler
-      - On reconnect (after backgrounding or network drop), the
-        previously taken-over panes are no longer owned by this client
-        (server released on disconnect) — re-issue `takeOverPane` on
-        the active pane after the workspace is re-fetched
-- [ ] Resize: hook `TerminalView.onSizeChanged` → derive cols/rows
-      from Termux's font metrics → send `terminalResize(paneID,
-      cols, rows)` to Mac. **Do NOT re-issue `takeOverPane` on resize
-      — iOS doesn't.** iOS only auto-takes-over once per `paneID`
-      (guarded by `autoTakenPaneID == paneID` at
-      `MuxyMobile/TerminalView.swift:99-108`); subsequent geometry
-      changes only send `terminalResize`. Replicate the once-per-paneID
-      guard exactly — set `autoTakenPaneID = paneID` BEFORE the take-
-      over coroutine launches so concurrent triggers (first size
-      report racing onAppear) only fire the RPC once
-- [ ] **Scroll forwarding — `terminalScroll` is currently unused on
-      iOS.** The function exists at
-      `MuxyMobile/ConnectionManager.swift:641` but has zero callers in
-      `MuxyMobile/`. iOS handles wheel/pan gestures by injecting SGR
-      mouse-button-4/5 bytes through `terminalInput` when
-      `mouseMode != .off` (see `MuxyMobile/TerminalView.swift:462-499`).
-      **For v1, mirror iOS exactly: do not call `terminalScroll`. Use
-      Termux's existing mouse reporting (it encodes touch as SGR mouse
-      events when the remote enables mouse mode), and skip the RPC.**
-      Revisit only if Android needs scroll behavior beyond what iOS does
-      today
-- [ ] **Theme comes from the Mac, not from local config**. Apply the
-      palette from `PairingResultDTO` (`themeFg`, `themeBg`,
-      `themePalette` — all optional UInt32 RGB values) to Termux's
-      `TerminalColors`. Re-apply when a `themeChanged` event arrives
-      (data `deviceTheme(DeviceThemeEventDTO)`) — iOS does this in
-      `ConnectionManager.handleEvent` `case .deviceTheme`. Fall back to
-      a built-in dark default when the Mac sends no theme
-- [ ] **Honor terminal mode flags from `TerminalCellsDTO`** if/when we
-      use `getTerminalContent`: `altScreen`, `cursorKeys` (DECCKM —
-      changes arrow-key encoding), `bracketedPaste`, `focusEvent`,
-      `mouseEvent` + `mouseFormat` (mouse mode + SGR/x10/etc format).
-      These also propagate naturally through the VT bytes stream from
-      `terminalSnapshot`/`terminalOutput`, so the emulator state should
-      track them automatically — but verify against fixtures
-- [ ] Native selection / clipboard: Termux's `TerminalView` provides
-      Android selection handles + system toolbar — verify Copy and
-      Paste hook into Android `ClipboardManager`; Paste pushes bytes
-      back through `terminalInput` (respect `bracketedPaste` mode)
-- [ ] Mouse mode: Termux already encodes touch as SGR mouse events
-      when the remote enables mouse reporting — verify it works for
-      panning in `vim` / `htop`, fix routing if needed
-- [ ] IME: confirm Termux's prediction-disabling `InputConnection` is
-      active so Gboard / Samsung keyboard don't double-commit
-- [ ] Manual QA: run `top`, `vim`, `htop`, `tmux`. Verify cursor
-      movement, 256-color, mouse mode, bracketed paste, Unicode,
-      large-output throughput, native selection on phone + tablet,
-      take-over from Mac↔Android↔iOS handoff, ownership overlay
-      appears when another device grabs the pane
+      size sp, theme palette via `MuxyClient.deviceTheme`, derived
+      `isOwnedBySelf` flag from owners map
+- [x] **Pane ownership state in `MuxyClient`**: `paneOwners`,
+      `myClientID`, `paneIsOwnedBySelf` were already wired in Phase 3
+- [x] **Take-over UX**: `TakeOverOverlay` Composable rendered with
+      `View.alpha = 0` and focus disabled on the underlying
+      `TerminalView` when not owned. Owner name comes from
+      `PaneOwnerDTO.displayName`
+- [x] **Lifecycle**:
+      - Auto-take-over once per paneID via a `LaunchedEffect` keyed on
+        `paneID/cols/rows` with an `autoTakenPaneID` guard set BEFORE
+        the take-over launches; emulator screen reset before take-over
+        so the snapshot lands on a clean grid
+      - `terminalSnapshot` and `terminalOutput` flow through the
+        single `client.terminalBytes(paneID)` flow demuxed in `:net`
+      - `DisposableEffect.onDispose` calls `client.releasePane(paneID)`
+        and `session.finishIfRunning()`
+      - On reconnect, owners are cleared in `:net`; the next
+        composition cycle sees `isOwnedBySelf = false` and triggers
+        the auto-take-over guard freshly when the size is re-reported
+- [x] Resize: `View.OnLayoutChangeListener` reads
+      `emulator.mColumns/mRows` after layout and fires
+      `client.resizeTerminal` only when (cols, rows) actually changes.
+      Take-over guard not reset on resize, matching iOS's behavior
+- [x] **Scroll forwarding — skipped, mirrors iOS exactly.** Termux
+      `TerminalView` already encodes touch as SGR mouse events when
+      mouse reporting is on. No `terminalScroll` calls
+- [x] **Theme comes from the Mac**. `MuxyClient.deviceTheme` is now
+      populated from `PairingResultDTO` and updated on `themeChanged`
+      events; `MuxyTerminalView.applyTheme` writes
+      fg/bg/cursor/palette into `emulator.mColors.mCurrentColors`.
+      Falls back to white on black when no theme is sent
+- [ ] **Honor terminal mode flags from `TerminalCellsDTO`** —
+      deferred. We don't call `getTerminalContent`; the emulator
+      tracks mode flags from VT bytes naturally
+- [x] Native selection / clipboard: Termux's `TerminalView` selection
+      handles + system toolbar are kept; Paste from the accessory bar
+      reads Android `ClipboardManager` and writes to the session
+- [x] Mouse mode: Termux encodes SGR mouse events on touch when the
+      remote enables reporting — preserved by the vendored view
+- [x] IME: Termux's `onCreateInputConnection` (prediction-disabling
+      `InputType.TYPE_NULL`) is preserved by our `TerminalViewClient`
+      adapter (`shouldEnforceCharBasedInput = true`)
+- [ ] Manual QA: deferred — requires a connected Mac + Android device
+      to run `top`, `vim`, `htop`, `tmux` end-to-end
 
 ---
 
@@ -648,48 +613,41 @@ Reference implementation: `MuxyMobile/TerminalView.swift:685-1014`
 (`TerminalAccessoryView`, `ModifierKeyButton`, `ModifierPickerView`,
 `DPadControl`).
 
-- [ ] `TerminalAccessoryBar` Compose row pinned above IME via
-      `WindowInsets.ime`
-- [ ] **Key set (full iOS parity)**:
+- [x] `TerminalAccessoryBar` Compose row sitting above IME via
+      `Modifier.imePadding()` on the parent column (the bar is
+      pinned at the bottom of the terminal column; the column also
+      hosts the `TerminalView`, so IME insets push everything up
+      together)
+- [x] **Key set (full iOS parity)**:
       - `Esc`, `Tab`
-      - **Paste** button — reads Android `ClipboardManager` and sends
-        bytes through `terminalInput` (must respect `bracketedPaste`
-        mode when active). iOS at `TerminalView.swift:709`
-      - **Copy** button — copies current selection to system clipboard;
-        disabled when no selection. iOS at `TerminalView.swift:710`
+      - **Paste** button — reads Android `ClipboardManager` and writes
+        bytes via `MuxyTerminalSession.write`
+      - **Copy** button — wires through `AccessoryActions.copySelectionToClipboard`;
+        Termux's selection toolbar handles the actual copy
       - `~`, `|`, `/`, `-`
-      - **Modifier key** (Ctrl/Shift/Alt/Cmd-as-Meta) with two gestures:
-        - **Tap** = arm/disarm the active modifier for the next
-          keystroke (one-shot, then auto-clears)
-        - **Long-press** = open a small popover picker that lets the
-          user *change* which modifier is the active one (Ctrl ↔ Shift
-          ↔ Alt ↔ Cmd). NOT "sticky" — the picker just changes which
-          modifier the tap arms. iOS at `TerminalView.swift:885-998`
-          (`handleLongPress` + `ModifierPickerView`)
-      - **Keyboard hide/show toggle** — `keyboard.chevron.compact.down`
-        when visible, `keyboard` when hidden. Swaps the IME for an
-        empty placeholder view to dismiss. iOS at
-        `TerminalView.swift:765-776` and `MuxySwiftTermView.toggleKeyboard`
-        at `TerminalView.swift:410-416`
-      - **D-pad** — analog thumb stick (not 4 buttons), with deadzone
-        and **auto-repeat: 300 ms initial delay, then 60 ms cadence**.
-        iOS at `TerminalView.swift:1207-1315` (`DPadControl`,
-        `startRepeating`)
-- [ ] Modifier transform table — match iOS `MuxySwiftTermView.transform`
-      at `TerminalView.swift:501-523` exactly:
-      - Ctrl + `a..z`/`A..Z` → control byte (`a` → 0x01, etc.)
-      - Ctrl + space → 0x00
-      - Shift + letter → uppercase
-      - Alt + text → ESC prefix (`\u{1B}` + text)
-      - Cmd + text → text passthrough (Cmd-as-Meta is decorative on
-        mobile)
-- [ ] Map armed-modifier + key to the same byte sequences MuxyMobile
-      emits — capture iOS bytes for a known set of chords (Ctrl+C,
-      Ctrl+D, Alt+B, arrows, etc.) and assert equality
-- [ ] Hardware keyboard: rely on Termux's `TerminalView` key handling
-      for the standard chords; intercept only what Muxy needs to
-      override. Test pass against hardware keyboard before signing off
-      Phase 7 (real Bluetooth keyboard, DeX desktop mode if available)
+      - **Modifier key** with tap = arm/disarm and long-press =
+        `ModifierPicker` Compose popover that changes which modifier
+        the next tap will arm (Ctrl ↔ Shift ↔ Alt ↔ Cmd)
+      - **Keyboard hide/show toggle** — Material `KeyboardHide` /
+        `Keyboard` icons; calls `InputMethodManager.showSoftInput`
+        / `hideSoftInputFromWindow`
+      - **D-pad** — analog Compose `Box` with `detectDragGestures`,
+        5px deadzone, **300 ms initial delay then 60 ms cadence**
+        coroutine-driven repeat
+- [x] Modifier transform table — `ModifierTransform.kt` matches iOS
+      exactly. Verified by `ModifierTransformTest`:
+      - Ctrl + `a..z`/`A..Z` → control byte
+      - Ctrl + space → ` `
+      - Shift + text → uppercase
+      - Alt + text → `` prefix
+      - Cmd + text → passthrough
+- [x] Map armed-modifier + key to byte sequences — UTF-8 encoding of
+      transformed strings matches iOS's `Data(transformed.utf8)` path;
+      unit tests assert specific control byte values for all 26
+      letters and the NUL/ESC special cases
+- [ ] Hardware keyboard: deferred to manual QA. Termux's
+      `TerminalView` key handling is preserved through our
+      `MuxyTerminalViewClient` (no overrides on key events)
 
 ---
 

@@ -22,6 +22,38 @@ android {
     buildFeatures {
         compose = true
     }
+
+    sourceSets {
+        named("main") {
+            java.srcDirs(
+                "src/main/java",
+                "vendor/terminal-emulator/src/main/java",
+                "vendor/terminal-view/src/main/java",
+            )
+            res.srcDirs(
+                "src/main/res",
+                "vendor/terminal-view/src/main/res",
+            )
+        }
+        named("test") {
+            java.srcDirs("src/test/kotlin")
+        }
+    }
+
+    lint {
+        disable += setOf(
+            "DefaultLocale",
+            "ObsoleteSdkInt",
+            "WrongConstant",
+            "ClickableViewAccessibility",
+            "RtlHardcoded",
+            "InflateParams",
+            "UseCompatLoadingForDrawables",
+            "Recycle",
+            "UseCompatTextViewDrawableXml",
+            "PrivateApi",
+        )
+    }
 }
 
 kotlin {
@@ -35,11 +67,16 @@ dependencies {
     api(project(":net"))
 
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.annotation)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
+    implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
 
     testImplementation(libs.junit)
+
+    testImplementation(libs.kotlinx.coroutines.test)
 }

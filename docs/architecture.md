@@ -28,6 +28,13 @@ MuxyMobile/                    iOS companion app
   RemoteWorkspaceView.swift    Project list + workspace detail
   ConnectionManager.swift      WebSocket client, state sync, request/response handling
   DeviceCredentialsStore.swift Persistent deviceID + token stored in iOS Keychain
+
+android/                       Android companion app (Gradle Kotlin DSL, multi-module)
+  protocol/                    DTOs, envelope, JSON codec mirroring MuxyShared
+  net/                         OkHttp WebSocket client (MuxyClient), credentials store, saved devices
+  terminal/                    Compose terminal UI; vendors Termux's terminal-emulator + terminal-view
+    vendor/                    Pinned-commit copy of Termux libraries (GPL-3.0; libtermux JNI removed)
+  app/                         Compose app: Connect, Project list, Settings, Workspace nav
 ```
 
 ## Desktop App Directory Map
@@ -718,3 +725,45 @@ Until the handshake succeeds the server rejects every other RPC with
 in that set. The `Mobile` tab in Settings lists approved devices with a Revoke
 action, which removes the device from storage and terminates any active
 connection for that `deviceID` via `MuxyRemoteServer.disconnect(deviceID:)`.
+
+### Android Companion App
+
+`android/` is a Kotlin/Compose client mirroring MuxyMobile's scope (remote
+view + input). Layout:
+
+- **`:protocol`** — Kotlin port of `MuxyShared`. DTOs, envelope, kotlinx.serialization
+  codec configured to round-trip the Mac's JSON byte-for-byte (custom serializers
+  for `SplitNodeDTO`, `PaneOwnerDTO`, ISO-8601 dates, base64 `ByteArray`, UUIDs).
+- **`:net`** — `MuxyClient`, OkHttp WebSocket. State machine
+  (`Idle → Connecting → Authenticating → AwaitingApproval → Connected → Reconnecting → Failed`),
+  `terminalInput` fire-and-forget, `terminalOutput`+`terminalSnapshot` demuxing per
+  paneID, ping-then-reconnect on foreground, 120-entry diagnostic ring buffer,
+  `DeviceCredentialsStore` (Android Keystore AES-GCM encrypted DataStore),
+  `SavedDevicesStore`, `DeviceTheme` tracked from `PairingResultDTO` +
+  `themeChanged` events.
+- **`:terminal`** — Compose terminal UI. Vendors Termux's `terminal-emulator`
+  (pure-Java VT core) and `terminal-view` (Android `View` with native selection,
+  IME hardening, mouse reporting) under `vendor/` at a pinned commit. The
+  vendored `TerminalSession` is patched to drop libtermux JNI and the local-PTY
+  threads; instead `MuxyTerminalSession.write` forwards user input to
+  `MuxyClient.terminalInput`, and `feedRemoteOutput` pumps incoming
+  `terminalOutput` / `terminalSnapshot` bytes into `TerminalEmulator.append` on
+  the main thread. The Compose wrapper `MuxyTerminalView` tracks pane ownership,
+  auto-takes-over once per `paneID`, sends `terminalResize` on layout changes,
+  releases the pane on disposal, and renders `TakeOverOverlay` when another
+  client owns the pane. `TerminalAccessoryBar` provides the IME-pinned key row
+  (Esc, Tab, Paste, Copy, `~|/-`, modifier picker, kbd toggle, analog D-pad with
+  300 ms initial / 60 ms repeat). `ModifierTransform` matches iOS's chord table
+  exactly (Ctrl+a..z → control byte, Ctrl+space → NUL, Shift → uppercase, Alt →
+  ESC prefix, Cmd → passthrough).
+- **`:app`** — Compose entry point. `MuxyNavHost` routes the `MuxyClient.state`
+  flow into Connect / Connecting / Pairing / Connected / Failed. Connected flow
+  shows `ProjectListScreen` and (Phase 8 onwards) workspace tabs hosting
+  `MuxyTerminalView`.
+
+The Android binary is GPL-3.0 because it links the vendored Termux libraries
+(per Termux's repository LICENSE.md these specific libraries are Apache 2.0
+derivatives of jackpal/Android-Terminal-Emulator, but the Termux app itself is
+GPL-3.0; we treat the whole APK conservatively as GPL-3.0). Swift targets
+remain under the existing repository license. `android/terminal/vendor/UPSTREAM`
+records the pinned commit and our local modifications.
