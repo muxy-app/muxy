@@ -14,9 +14,11 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
@@ -29,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -83,6 +86,7 @@ fun WorkspaceScreen(
 
     var showVCS by remember { mutableStateOf(false) }
     var showTabPicker by remember { mutableStateOf(false) }
+    var pendingClose by remember { mutableStateOf<AreaTab?>(null) }
 
     LaunchedEffect(projectID, activeProjectID) {
         if (activeProjectID != projectID) {
@@ -174,6 +178,10 @@ fun WorkspaceScreen(
                                     )
                                 }
                             },
+                            onTabClose = { entry ->
+                                showTabPicker = false
+                                pendingClose = entry
+                            },
                             onNewTerminal = {
                                 showTabPicker = false
                                 scope.launch { client.createTab(projectID = projectID) }
@@ -217,6 +225,33 @@ fun WorkspaceScreen(
             onDismiss = { showVCS = false },
         )
     }
+
+    pendingClose?.let { entry ->
+        val labels = remember(tabsList) { disambiguateLabels(tabsList) }
+        val label = remember(tabsList, entry) {
+            tabsList.indexOf(entry).takeIf { it >= 0 }?.let { labels[it] } ?: shortTitle(entry.tab.title)
+        }
+        AlertDialog(
+            onDismissRequest = { pendingClose = null },
+            title = { Text("Close \"$label\"?") },
+            text = { Text("This ends any running process in the tab.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingClose = null
+                    scope.launch {
+                        client.closeTab(
+                            projectID = projectID,
+                            areaID = entry.area.id,
+                            tabID = entry.tab.id,
+                        )
+                    }
+                }) { Text("Close") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingClose = null }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 private data class AreaTab(val area: TabAreaDTO, val tab: TabDTO)
@@ -247,6 +282,7 @@ private fun TabPickerMenu(
     entries: List<AreaTab>,
     activeTabID: UUID?,
     onTabSelected: (AreaTab) -> Unit,
+    onTabClose: (AreaTab) -> Unit,
     onNewTerminal: () -> Unit,
 ) {
     val labels = remember(entries) { disambiguateLabels(entries) }
@@ -259,6 +295,14 @@ private fun TabPickerMenu(
                         Icon(Icons.Outlined.Check, contentDescription = null)
                     } else {
                         Spacer(Modifier.size(24.dp))
+                    }
+                },
+                trailingIcon = {
+                    IconButton(onClick = { onTabClose(entry) }) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Close ${labels[index]}",
+                        )
                     }
                 },
                 onClick = { onTabSelected(entry) },
