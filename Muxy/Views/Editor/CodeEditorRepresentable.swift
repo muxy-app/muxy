@@ -633,6 +633,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         func updateContainerHeight() {
             guard let viewport = viewportState, let container = containerView, let scrollView else { return }
+            recomputeMarkdownExtraDocumentHeight(viewport: viewport)
             let height = max(viewport.totalDocumentHeight, scrollView.contentView.bounds.height)
             let width = max(scrollView.contentSize.width, textView?.frame.width ?? scrollView.contentSize.width)
             container.frame = NSRect(x: 0, y: 0, width: width, height: height)
@@ -922,7 +923,10 @@ struct CodeEditorView: NSViewRepresentable {
             }
 
             if let container = containerView {
-                let containerHeight = max(viewport.totalDocumentHeight, scrollView.contentView.bounds.height)
+                let containerHeight = max(
+                    viewport.totalDocumentHeight,
+                    scrollView.contentView.bounds.height
+                )
                 let newContainerFrame = NSRect(
                     x: 0,
                     y: 0,
@@ -1033,6 +1037,39 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
+        func recomputeMarkdownExtraDocumentHeight(viewport: ViewportState) {
+            guard state.isMarkdownFile, let backingStore = state.backingStore else {
+                viewport.updateExtraDocumentHeight(0)
+                return
+            }
+            let baseSize = editorSettings.resolvedFont.pointSize
+            let baseLineHeight = viewport.estimatedLineHeight
+            var extra: CGFloat = 0
+            for index in 0 ..< backingStore.lineCount {
+                let level = headingLevel(in: backingStore.line(at: index))
+                guard level > 0 else { continue }
+                let scaledSize = MarkdownInlineStyle.headingFontSize(baseSize: baseSize, level: level)
+                let scaledLineHeight = ceil(scaledSize * baseLineHeight / max(1, baseSize))
+                extra += max(0, scaledLineHeight - baseLineHeight)
+            }
+            viewport.updateExtraDocumentHeight(extra)
+        }
+
+        private func headingLevel(in line: String) -> Int {
+            var level = 0
+            for char in line {
+                if char == "#" {
+                    level += 1
+                    if level > 6 { return 0 }
+                } else if char == " ", level >= 1 {
+                    return level
+                } else {
+                    return 0
+                }
+            }
+            return 0
+        }
+
         func updateMarkdownEditorScrollMetrics() {
             markdownScrollSync.attach(scrollView: scrollView, viewport: viewportState)
             markdownScrollSync.updateEditorScrollMetrics()
@@ -1136,7 +1173,7 @@ struct CodeEditorView: NSViewRepresentable {
                 clearViewportHistory()
             }
 
-            if lineDelta != 0 {
+            if lineDelta != 0 || state.isMarkdownFile {
                 updateContainerHeight()
                 updateViewportFrames(
                     viewport: viewport,
