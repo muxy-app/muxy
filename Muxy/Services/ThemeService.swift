@@ -225,10 +225,21 @@ final class ThemeService {
     }
 
     static func isCurrentAppearanceDark() -> Bool {
-        if let style = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") {
-            return style.localizedCaseInsensitiveCompare("dark") == .orderedSame
+        isDarkAppearance(
+            userInterfaceStyle: UserDefaults.standard.string(forKey: "AppleInterfaceStyle"),
+            effectiveAppearance: NSApp?.effectiveAppearance
+        )
+    }
+
+    nonisolated static func isDarkAppearance(
+        userInterfaceStyle: String?,
+        effectiveAppearance: NSAppearance?
+    ) -> Bool {
+        if let userInterfaceStyle {
+            return userInterfaceStyle.localizedCaseInsensitiveCompare("dark") == .orderedSame
         }
-        return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        guard let effectiveAppearance else { return false }
+        return effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
     nonisolated private static func themePreview(named name: String) -> ThemePreview? {

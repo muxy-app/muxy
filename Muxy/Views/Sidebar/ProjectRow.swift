@@ -188,8 +188,8 @@ struct ProjectRow: View {
         if let tint = ProjectIconColor.color(for: project.iconColor) {
             return AnyShapeStyle(hovered ? tint.opacity(0.85) : tint)
         }
-        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
-        return AnyShapeStyle(MuxyTheme.surface)
+        if hovered { return AnyShapeStyle(MuxyTheme.fg.opacity(0.22)) }
+        return AnyShapeStyle(MuxyTheme.fg.opacity(0.18))
     }
 
     private var letterForeground: Color {

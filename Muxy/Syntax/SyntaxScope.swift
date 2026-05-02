@@ -47,7 +47,7 @@ enum SyntaxTheme {
         if let cached = cachedDefaultForeground {
             return cached
         }
-        let color = GhosttyService.shared.foregroundColor
+        let color = EditorThemePalette.active.foreground
         cachedDefaultForeground = color
         return color
     }
@@ -61,54 +61,54 @@ enum SyntaxTheme {
     }
 
     private static func resolve(scope: SyntaxScope) -> NSColor {
-        let service = GhosttyService.shared
-        let fg = service.foregroundColor
+        let palette = EditorThemePalette.active
+        let fg = palette.foreground
 
         switch scope {
         case .keyword,
              .storage:
-            return service.paletteColor(at: 5) ?? fg
+            return palette.paletteColor(at: 5) ?? fg
         case .type:
-            return service.paletteColor(at: 6) ?? fg
+            return palette.paletteColor(at: 6) ?? fg
         case .builtin:
-            return service.paletteColor(at: 14) ?? service.paletteColor(at: 6) ?? fg
+            return palette.paletteColor(at: 14) ?? palette.paletteColor(at: 6) ?? fg
         case .constant:
-            return service.paletteColor(at: 3) ?? fg
+            return palette.paletteColor(at: 3) ?? fg
         case .string:
-            return service.paletteColor(at: 2) ?? fg
+            return palette.paletteColor(at: 2) ?? fg
         case .stringEscape:
-            return service.paletteColor(at: 13) ?? service.paletteColor(at: 5) ?? fg
+            return palette.paletteColor(at: 13) ?? palette.paletteColor(at: 5) ?? fg
         case .number:
-            return service.paletteColor(at: 3) ?? fg
+            return palette.paletteColor(at: 3) ?? fg
         case .comment,
              .docComment:
-            return service.paletteColor(at: 8) ?? fg.withAlphaComponent(0.55)
+            return palette.paletteColor(at: 8) ?? fg.withAlphaComponent(0.55)
         case .function:
-            return service.paletteColor(at: 4) ?? fg
+            return palette.paletteColor(at: 4) ?? fg
         case .variable:
-            return service.paletteColor(at: 6) ?? fg
+            return palette.paletteColor(at: 6) ?? fg
         case .attribute:
-            return service.paletteColor(at: 11) ?? service.paletteColor(at: 3) ?? fg
+            return palette.paletteColor(at: 11) ?? palette.paletteColor(at: 3) ?? fg
         case .preprocessor:
-            return service.paletteColor(at: 13) ?? service.paletteColor(at: 5) ?? fg
+            return palette.paletteColor(at: 13) ?? palette.paletteColor(at: 5) ?? fg
         case .op:
             return fg
         case .punctuation:
             return fg.withAlphaComponent(0.75)
         case .tag:
-            return service.paletteColor(at: 1) ?? fg
+            return palette.paletteColor(at: 1) ?? fg
         case .attributeName:
-            return service.paletteColor(at: 3) ?? fg
+            return palette.paletteColor(at: 3) ?? fg
         case .attributeValue:
-            return service.paletteColor(at: 2) ?? fg
+            return palette.paletteColor(at: 2) ?? fg
         case .regex:
-            return service.paletteColor(at: 1) ?? fg
+            return palette.paletteColor(at: 1) ?? fg
         case .heading:
-            return service.paletteColor(at: 4) ?? fg
+            return palette.paletteColor(at: 4) ?? fg
         case .link:
-            return service.paletteColor(at: 6) ?? fg
+            return palette.paletteColor(at: 6) ?? fg
         case .emphasis:
-            return service.paletteColor(at: 3) ?? fg
+            return palette.paletteColor(at: 3) ?? fg
         }
     }
 }

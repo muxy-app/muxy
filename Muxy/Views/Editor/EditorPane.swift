@@ -192,10 +192,11 @@ struct EditorPane: View {
     }
 
     private var markdownPalette: MarkdownRenderer.Palette {
-        MarkdownRenderer.Palette(
-            background: ghostty.backgroundColor,
-            foreground: ghostty.foregroundColor,
-            accent: ghostty.accentColor,
+        let palette = EditorThemePalette.active
+        return MarkdownRenderer.Palette(
+            background: palette.background,
+            foreground: palette.foreground,
+            accent: palette.accent,
             fontFamilyCSS: editorSettings.resolvedMarkdownPreviewFontFamilyCSS,
             fontScale: editorSettings.markdownPreviewFontScale
         )
