@@ -238,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let unsaved = hasUnsavedEditorTabs?() ?? []
-        guard !unsaved.isEmpty else { return .terminateNow }
+        guard !unsaved.isEmpty else { return confirmQuitIfNeeded() }
 
         let alert = NSAlert()
         alert.messageText = unsaved.count == 1
@@ -278,6 +278,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         default:
             return .terminateCancel
         }
+    }
+
+    @MainActor
+    private func confirmQuitIfNeeded() -> NSApplication.TerminateReply {
+        guard QuitConfirmationPreferences.confirmQuit else { return .terminateNow }
+
+        let alert = NSAlert()
+        alert.messageText = "Quit Muxy?"
+        alert.informativeText = "Are you sure you want to quit Muxy?"
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don't ask again"
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return .terminateCancel }
+        if alert.suppressionButton?.state == .on {
+            QuitConfirmationPreferences.confirmQuit = false
+        }
+        return .terminateNow
     }
 
     @MainActor
@@ -360,6 +384,7 @@ struct WindowConfigurator: NSViewRepresentable {
             Self.repositionTrafficLights(in: w)
             Self.hideTitlebarDecorationView(in: w)
             Self.neutralizeSafeAreaInsets(in: w)
+            Self.interceptCloseButton(in: w, coordinator: context.coordinator)
             context.coordinator.observe(window: w)
         }
         return v
@@ -416,6 +441,12 @@ struct WindowConfigurator: NSViewRepresentable {
         }
     }
 
+    static func interceptCloseButton(in window: NSWindow, coordinator: Coordinator) {
+        guard let button = window.standardWindowButton(.closeButton) else { return }
+        button.target = coordinator
+        button.action = #selector(Coordinator.handleCloseButton(_:))
+    }
+
     static let trafficLightY: CGFloat = 3.5
 
     static func repositionTrafficLights(in window: NSWindow) {
@@ -436,6 +467,13 @@ struct WindowConfigurator: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         private var observations: [NSObjectProtocol] = []
+
+        @objc
+        func handleCloseButton(_: Any?) {
+            MainActor.assumeIsolated {
+                NSApp.terminate(nil)
+            }
+        }
 
         func observe(window: NSWindow) {
             guard observations.isEmpty else { return }
