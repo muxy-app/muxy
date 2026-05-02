@@ -20,8 +20,7 @@ struct SplitNodeTests {
     func splitNodeID() {
         let branch = SplitBranch(
             direction: .horizontal,
-            first: .tabArea(TabArea(projectPath: testPath)),
-            second: .tabArea(TabArea(projectPath: testPath))
+            children: [.tabArea(TabArea(projectPath: testPath)), .tabArea(TabArea(projectPath: testPath))]
         )
         let node = SplitNode.split(branch)
         #expect(node.id == branch.id)
@@ -41,11 +40,10 @@ struct SplitNodeTests {
         let a1 = TabArea(projectPath: testPath)
         let a2 = TabArea(projectPath: testPath)
         let a3 = TabArea(projectPath: testPath)
-        let inner = SplitBranch(direction: .vertical, first: .tabArea(a2), second: .tabArea(a3))
+        let inner = SplitBranch(direction: .vertical, children: [.tabArea(a2), .tabArea(a3)])
         let root = SplitNode.split(SplitBranch(
             direction: .horizontal,
-            first: .tabArea(a1),
-            second: .split(inner)
+            children: [.tabArea(a1), .split(inner)]
         ))
         let areas = root.allAreas()
         #expect(areas.count == 3)
@@ -60,8 +58,7 @@ struct SplitNodeTests {
         let a2 = TabArea(projectPath: testPath)
         let node = SplitNode.split(SplitBranch(
             direction: .horizontal,
-            first: .tabArea(a1),
-            second: .tabArea(a2)
+            children: [.tabArea(a1), .tabArea(a2)]
         ))
         #expect(node.containsArea(id: a2.id))
     }
@@ -79,8 +76,7 @@ struct SplitNodeTests {
         let a2 = TabArea(projectPath: testPath)
         let node = SplitNode.split(SplitBranch(
             direction: .horizontal,
-            first: .tabArea(a1),
-            second: .tabArea(a2)
+            children: [.tabArea(a1), .tabArea(a2)]
         ))
         let found = node.findArea(id: a2.id)
         #expect(found?.id == a2.id)
@@ -106,12 +102,13 @@ struct SplitNodeTests {
         #expect(newAreaID != area.id)
         if case let .split(branch) = result {
             #expect(branch.direction == .horizontal)
-            if case let .tabArea(first) = branch.first {
+            #expect(branch.children.count == 2)
+            if case let .tabArea(first) = branch.children[0] {
                 #expect(first.id == area.id)
             } else {
                 Issue.record("First child should be original area")
             }
-            if case let .tabArea(second) = branch.second {
+            if case let .tabArea(second) = branch.children[1] {
                 #expect(second.id == newAreaID)
             } else {
                 Issue.record("Second child should be new area")
@@ -132,7 +129,8 @@ struct SplitNodeTests {
         )
         #expect(newAreaID != nil)
         if case let .split(branch) = result {
-            if case let .tabArea(first) = branch.first {
+            #expect(branch.children.count == 2)
+            if case let .tabArea(first) = branch.children[0] {
                 #expect(first.id == newAreaID)
             } else {
                 Issue.record("First child should be new area")
@@ -155,22 +153,83 @@ struct SplitNodeTests {
         #expect(result.id == area.id)
     }
 
-    @Test("splitting in nested tree finds target area")
-    func splittingNested() {
+    @Test("splitting same direction flattens into parent branch")
+    func splittingSameDirectionFlattens() {
         let a1 = TabArea(projectPath: testPath)
         let a2 = TabArea(projectPath: testPath)
         let root = SplitNode.split(SplitBranch(
             direction: .horizontal,
-            first: .tabArea(a1),
-            second: .tabArea(a2)
+            children: [.tabArea(a1), .tabArea(a2)]
         ))
-        let (_, newAreaID) = root.splitting(
+        let (result, newAreaID) = root.splitting(
+            areaID: a2.id,
+            direction: .horizontal,
+            position: .second
+        )
+        #expect(newAreaID != nil)
+        if case let .split(branch) = result {
+            #expect(branch.children.count == 3)
+            #expect(branch.ratios.count == 3)
+            for ratio in branch.ratios {
+                #expect(abs(ratio - 1.0 / 3.0) < 0.001)
+            }
+        } else {
+            Issue.record("Result should be a split")
+        }
+    }
+
+    @Test("splitting different direction creates nested branch")
+    func splittingDifferentDirectionNested() {
+        let a1 = TabArea(projectPath: testPath)
+        let a2 = TabArea(projectPath: testPath)
+        let root = SplitNode.split(SplitBranch(
+            direction: .horizontal,
+            children: [.tabArea(a1), .tabArea(a2)]
+        ))
+        let (result, newAreaID) = root.splitting(
             areaID: a2.id,
             direction: .vertical,
             position: .second
         )
         #expect(newAreaID != nil)
-        #expect(root.allAreas().count == 3)
+        if case let .split(branch) = result {
+            #expect(branch.children.count == 2)
+            if case let .split(inner) = branch.children[1] {
+                #expect(inner.direction == .vertical)
+                #expect(inner.children.count == 2)
+            } else {
+                Issue.record("Second child should be a nested split")
+            }
+        } else {
+            Issue.record("Result should be a split")
+        }
+    }
+
+    @Test("splitting same direction three times creates equal thirds")
+    func splittingThreeEqual() {
+        let a1 = TabArea(projectPath: testPath)
+        var root = SplitNode.split(SplitBranch(
+            direction: .horizontal,
+            children: [.tabArea(a1), .tabArea(TabArea(projectPath: testPath))]
+        ))
+        let areas = root.allAreas()
+        let a2ID = areas.first { $0.id != a1.id }!.id
+
+        let (result2, _) = root.splitting(
+            areaID: a2ID,
+            direction: .horizontal,
+            position: .second
+        )
+        root = result2
+
+        if case let .split(branch) = root {
+            #expect(branch.children.count == 3)
+            for ratio in branch.ratios {
+                #expect(abs(ratio - 1.0 / 3.0) < 0.001)
+            }
+        } else {
+            Issue.record("Root should be a split")
+        }
     }
 
     @Test("splittingWithTab creates area with the provided tab")
@@ -186,7 +245,8 @@ struct SplitNodeTests {
         )
         #expect(newAreaID != nil)
         if case let .split(branch) = result {
-            if case let .tabArea(newArea) = branch.second {
+            #expect(branch.children.count == 2)
+            if case let .tabArea(newArea) = branch.children[1] {
                 #expect(newArea.tabs.count == 1)
                 #expect(newArea.tabs[0].id == tab.id)
             } else {
@@ -205,14 +265,13 @@ struct SplitNodeTests {
         #expect(result == nil)
     }
 
-    @Test("removing left child from split returns right child")
-    func removingLeftChild() {
+    @Test("removing one child from two-child split returns remaining")
+    func removingOneChild() {
         let a1 = TabArea(projectPath: testPath)
         let a2 = TabArea(projectPath: testPath)
         let node = SplitNode.split(SplitBranch(
             direction: .horizontal,
-            first: .tabArea(a1),
-            second: .tabArea(a2)
+            children: [.tabArea(a1), .tabArea(a2)]
         ))
         let result = node.removing(areaID: a1.id)
         #expect(result != nil)
@@ -223,21 +282,25 @@ struct SplitNodeTests {
         }
     }
 
-    @Test("removing right child from split returns left child")
-    func removingRightChild() {
+    @Test("removing one child from three-child split keeps branch with two")
+    func removingFromThreeChildren() {
         let a1 = TabArea(projectPath: testPath)
         let a2 = TabArea(projectPath: testPath)
+        let a3 = TabArea(projectPath: testPath)
         let node = SplitNode.split(SplitBranch(
             direction: .horizontal,
-            first: .tabArea(a1),
-            second: .tabArea(a2)
+            children: [.tabArea(a1), .tabArea(a2), .tabArea(a3)]
         ))
         let result = node.removing(areaID: a2.id)
         #expect(result != nil)
-        if case let .tabArea(remaining) = result {
-            #expect(remaining.id == a1.id)
+        if case let .split(branch) = result {
+            #expect(branch.children.count == 2)
+            #expect(branch.ratios.count == 2)
+            for ratio in branch.ratios {
+                #expect(abs(ratio - 0.5) < 0.001)
+            }
         } else {
-            Issue.record("Should collapse to remaining area")
+            Issue.record("Should keep branch with two children")
         }
     }
 
@@ -246,11 +309,10 @@ struct SplitNodeTests {
         let a1 = TabArea(projectPath: testPath)
         let a2 = TabArea(projectPath: testPath)
         let a3 = TabArea(projectPath: testPath)
-        let inner = SplitBranch(direction: .vertical, first: .tabArea(a2), second: .tabArea(a3))
+        let inner = SplitBranch(direction: .vertical, children: [.tabArea(a2), .tabArea(a3)])
         let root = SplitNode.split(SplitBranch(
             direction: .horizontal,
-            first: .tabArea(a1),
-            second: .split(inner)
+            children: [.tabArea(a1), .split(inner)]
         ))
         let result = root.removing(areaID: a2.id)
         #expect(result != nil)
@@ -277,15 +339,13 @@ struct SplitNodeTests {
         #expect(frames[area.id] == CGRect(x: 0, y: 0, width: 1, height: 1))
     }
 
-    @Test("areaFrames horizontal split divides width")
+    @Test("areaFrames horizontal split divides width equally")
     func areaFramesHorizontal() {
         let a1 = TabArea(projectPath: testPath)
         let a2 = TabArea(projectPath: testPath)
         let node = SplitNode.split(SplitBranch(
             direction: .horizontal,
-            ratio: 0.5,
-            first: .tabArea(a1),
-            second: .tabArea(a2)
+            children: [.tabArea(a1), .tabArea(a2)]
         ))
         let frames = node.areaFrames()
         #expect(frames[a1.id]?.width == 0.5)
@@ -296,15 +356,13 @@ struct SplitNodeTests {
         #expect(frames[a2.id]?.height == 1)
     }
 
-    @Test("areaFrames vertical split divides height")
+    @Test("areaFrames vertical split divides height equally")
     func areaFramesVertical() {
         let a1 = TabArea(projectPath: testPath)
         let a2 = TabArea(projectPath: testPath)
         let node = SplitNode.split(SplitBranch(
             direction: .vertical,
-            ratio: 0.5,
-            first: .tabArea(a1),
-            second: .tabArea(a2)
+            children: [.tabArea(a1), .tabArea(a2)]
         ))
         let frames = node.areaFrames()
         #expect(frames[a1.id]?.height == 0.5)
@@ -314,15 +372,14 @@ struct SplitNodeTests {
         #expect(frames[a1.id]?.width == 1)
     }
 
-    @Test("areaFrames respects custom ratio")
+    @Test("areaFrames respects custom ratios")
     func areaFramesCustomRatio() {
         let a1 = TabArea(projectPath: testPath)
         let a2 = TabArea(projectPath: testPath)
         let node = SplitNode.split(SplitBranch(
             direction: .horizontal,
-            ratio: 0.3,
-            first: .tabArea(a1),
-            second: .tabArea(a2)
+            children: [.tabArea(a1), .tabArea(a2)],
+            ratios: [0.3, 0.7]
         ))
         let frames = node.areaFrames()
         let a1Width = frames[a1.id]!.width
@@ -331,17 +388,34 @@ struct SplitNodeTests {
         #expect(abs(a2Width - 0.7) < 0.001)
     }
 
+    @Test("areaFrames three children split equally")
+    func areaFramesThreeEqual() {
+        let a1 = TabArea(projectPath: testPath)
+        let a2 = TabArea(projectPath: testPath)
+        let a3 = TabArea(projectPath: testPath)
+        let node = SplitNode.split(SplitBranch(
+            direction: .horizontal,
+            children: [.tabArea(a1), .tabArea(a2), .tabArea(a3)]
+        ))
+        let frames = node.areaFrames()
+        #expect(frames.count == 3)
+        #expect(abs(frames[a1.id]!.width - 1.0 / 3.0) < 0.001)
+        #expect(abs(frames[a2.id]!.width - 1.0 / 3.0) < 0.001)
+        #expect(abs(frames[a3.id]!.width - 1.0 / 3.0) < 0.001)
+        #expect(frames[a1.id]?.minX == 0)
+        #expect(abs(frames[a2.id]!.minX - 1.0 / 3.0) < 0.001)
+        #expect(abs(frames[a3.id]!.minX - 2.0 / 3.0) < 0.001)
+    }
+
     @Test("areaFrames nested splits calculate correctly")
     func areaFramesNested() {
         let a1 = TabArea(projectPath: testPath)
         let a2 = TabArea(projectPath: testPath)
         let a3 = TabArea(projectPath: testPath)
-        let inner = SplitBranch(direction: .vertical, ratio: 0.5, first: .tabArea(a2), second: .tabArea(a3))
+        let inner = SplitBranch(direction: .vertical, children: [.tabArea(a2), .tabArea(a3)])
         let root = SplitNode.split(SplitBranch(
             direction: .horizontal,
-            ratio: 0.5,
-            first: .tabArea(a1),
-            second: .split(inner)
+            children: [.tabArea(a1), .split(inner)]
         ))
         let frames = root.areaFrames()
         #expect(frames.count == 3)
@@ -350,5 +424,46 @@ struct SplitNodeTests {
         #expect(frames[a2.id]?.height == 0.5)
         #expect(frames[a3.id]?.height == 0.5)
         #expect(frames[a3.id]?.minY == 0.5)
+    }
+
+    @Test("splitting same direction four times creates equal quarters")
+    func splittingFourEqual() {
+        let a1 = TabArea(projectPath: testPath)
+        let a2 = TabArea(projectPath: testPath)
+        let a3 = TabArea(projectPath: testPath)
+        let a4 = TabArea(projectPath: testPath)
+        let root = SplitNode.split(SplitBranch(
+            direction: .horizontal,
+            children: [.tabArea(a1), .tabArea(a2), .tabArea(a3), .tabArea(a4)]
+        ))
+        if case let .split(branch) = root {
+            #expect(branch.children.count == 4)
+            for ratio in branch.ratios {
+                #expect(abs(ratio - 0.25) < 0.001)
+            }
+        } else {
+            Issue.record("Root should be a split")
+        }
+    }
+
+    @Test("removing from four children keeps three equal")
+    func removingFromFourChildren() {
+        let a1 = TabArea(projectPath: testPath)
+        let a2 = TabArea(projectPath: testPath)
+        let a3 = TabArea(projectPath: testPath)
+        let a4 = TabArea(projectPath: testPath)
+        let node = SplitNode.split(SplitBranch(
+            direction: .horizontal,
+            children: [.tabArea(a1), .tabArea(a2), .tabArea(a3), .tabArea(a4)]
+        ))
+        let result = node.removing(areaID: a3.id)
+        if case let .split(branch) = result {
+            #expect(branch.children.count == 3)
+            for ratio in branch.ratios {
+                #expect(abs(ratio - 1.0 / 3.0) < 0.001)
+            }
+        } else {
+            Issue.record("Should keep branch with three children")
+        }
     }
 }

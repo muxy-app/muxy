@@ -138,7 +138,7 @@ struct WorkspaceContentWrapper: View {
         case let .tabArea(area):
             [area]
         case let .split(branch):
-            collectAreas(from: branch.first) + collectAreas(from: branch.second)
+            branch.children.flatMap { collectAreas(from: $0) }
         }
     }
 

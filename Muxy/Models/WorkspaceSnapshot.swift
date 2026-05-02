@@ -80,9 +80,8 @@ indirect enum SplitNodeSnapshot: Codable {
 
 struct SplitBranchSnapshot: Codable {
     let direction: SplitDirectionSnapshot
-    let ratio: Double
-    let first: SplitNodeSnapshot
-    let second: SplitNodeSnapshot
+    let ratios: [Double]
+    let children: [SplitNodeSnapshot]
 }
 
 enum SplitDirectionSnapshot: String, Codable {
@@ -224,17 +223,15 @@ enum WorkspaceRestorer {
         case let .tabArea(areaSnapshot):
             return .tabArea(TabArea(restoring: areaSnapshot))
         case let .split(branchSnapshot):
-            let first = restoreSplitNode(from: branchSnapshot.first)
-            let second = restoreSplitNode(from: branchSnapshot.second)
+            let children = branchSnapshot.children.map { restoreSplitNode(from: $0) }
             let direction: SplitDirection = switch branchSnapshot.direction {
             case .horizontal: .horizontal
             case .vertical: .vertical
             }
             return .split(SplitBranch(
                 direction: direction,
-                ratio: CGFloat(branchSnapshot.ratio),
-                first: first,
-                second: second
+                children: children,
+                ratios: branchSnapshot.ratios.map { CGFloat($0) }
             ))
         }
     }
@@ -250,9 +247,8 @@ enum WorkspaceRestorer {
             }
             return .split(SplitBranchSnapshot(
                 direction: direction,
-                ratio: Double(branch.ratio),
-                first: snapshotSplitNode(branch.first),
-                second: snapshotSplitNode(branch.second)
+                ratios: branch.ratios.map { Double($0) },
+                children: branch.children.map { snapshotSplitNode($0) }
             ))
         }
     }

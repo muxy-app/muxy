@@ -66,22 +66,19 @@ public indirect enum SplitNodeDTO: Codable, Sendable {
 public struct SplitBranchDTO: Codable, Sendable {
     public let id: UUID
     public let direction: SplitDirectionDTO
-    public let ratio: Double
-    public let first: SplitNodeDTO
-    public let second: SplitNodeDTO
+    public let ratios: [Double]
+    public let children: [SplitNodeDTO]
 
     public init(
         id: UUID,
         direction: SplitDirectionDTO,
-        ratio: Double,
-        first: SplitNodeDTO,
-        second: SplitNodeDTO
+        ratios: [Double],
+        children: [SplitNodeDTO]
     ) {
         self.id = id
         self.direction = direction
-        self.ratio = ratio
-        self.first = first
-        self.second = second
+        self.ratios = ratios
+        self.children = children
     }
 }
 
