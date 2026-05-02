@@ -27,20 +27,17 @@ enum SplitNode: Identifiable {
 final class SplitBranch: Identifiable {
     let id = UUID()
     var direction: SplitDirection
-    var ratio: CGFloat
-    var first: SplitNode
-    var second: SplitNode
+    var children: [SplitNode]
+    var ratios: [CGFloat]
 
     init(
         direction: SplitDirection,
-        ratio: CGFloat = 0.5,
-        first: SplitNode,
-        second: SplitNode
+        children: [SplitNode],
+        ratios: [CGFloat]? = nil
     ) {
         self.direction = direction
-        self.ratio = ratio
-        self.first = first
-        self.second = second
+        self.children = children
+        self.ratios = ratios ?? Array(repeating: 1.0 / CGFloat(children.count), count: children.count)
     }
 }
 
@@ -58,27 +55,33 @@ extension SplitNode {
             let second: SplitNode = position == .first ? .tabArea(area) : .tabArea(newArea)
             let node = SplitNode.split(SplitBranch(
                 direction: direction,
-                first: first,
-                second: second
+                children: [first, second]
             ))
             return (node, newArea.id)
         case .tabArea:
             return (self, nil)
         case let .split(branch):
-            let (newFirst, id1) = branch.first.splitting(
-                areaID: areaID,
-                direction: direction,
-                position: position
-            )
-            branch.first = newFirst
-            if id1 != nil { return (.split(branch), id1) }
-            let (newSecond, id2) = branch.second.splitting(
-                areaID: areaID,
-                direction: direction,
-                position: position
-            )
-            branch.second = newSecond
-            return (.split(branch), id2)
+            for (index, child) in branch.children.enumerated() {
+                let (newChild, newID) = child.splitting(
+                    areaID: areaID,
+                    direction: direction,
+                    position: position
+                )
+                if let newID {
+                    if case let .split(newBranch) = newChild, newBranch.direction == branch.direction {
+                        branch.children.remove(at: index)
+                        for (i, grandchild) in newBranch.children.enumerated() {
+                            branch.children.insert(grandchild, at: index + i)
+                        }
+                    } else {
+                        branch.children[index] = newChild
+                    }
+                    let count = branch.children.count
+                    branch.ratios = Array(repeating: 1.0 / CGFloat(count), count: count)
+                    return (.split(branch), newID)
+                }
+            }
+            return (self, nil)
         }
     }
 
@@ -93,21 +96,36 @@ extension SplitNode {
             let newArea = TabArea(projectPath: area.projectPath, existingTab: tab)
             let first: SplitNode = position == .first ? .tabArea(newArea) : .tabArea(area)
             let second: SplitNode = position == .first ? .tabArea(area) : .tabArea(newArea)
-            let node = SplitNode.split(SplitBranch(direction: direction, first: first, second: second))
+            let node = SplitNode.split(SplitBranch(
+                direction: direction,
+                children: [first, second]
+            ))
             return (node, newArea.id)
         case .tabArea:
             return (self, nil)
         case let .split(branch):
-            let (newFirst, id1) = branch.first.splittingWithTab(
-                areaID: areaID, direction: direction, position: position, tab: tab
-            )
-            branch.first = newFirst
-            if id1 != nil { return (.split(branch), id1) }
-            let (newSecond, id2) = branch.second.splittingWithTab(
-                areaID: areaID, direction: direction, position: position, tab: tab
-            )
-            branch.second = newSecond
-            return (.split(branch), id2)
+            for (index, child) in branch.children.enumerated() {
+                let (newChild, newID) = child.splittingWithTab(
+                    areaID: areaID,
+                    direction: direction,
+                    position: position,
+                    tab: tab
+                )
+                if let newID {
+                    if case let .split(newBranch) = newChild, newBranch.direction == branch.direction {
+                        branch.children.remove(at: index)
+                        for (i, grandchild) in newBranch.children.enumerated() {
+                            branch.children.insert(grandchild, at: index + i)
+                        }
+                    } else {
+                        branch.children[index] = newChild
+                    }
+                    let count = branch.children.count
+                    branch.ratios = Array(repeating: 1.0 / CGFloat(count), count: count)
+                    return (.split(branch), newID)
+                }
+            }
+            return (self, nil)
         }
     }
 
@@ -118,49 +136,53 @@ extension SplitNode {
         case .tabArea:
             return self
         case let .split(branch):
-            if case let .tabArea(a) = branch.first, a.id == areaID {
-                return branch.second
+            var newChildren: [SplitNode] = []
+            for child in branch.children {
+                if child.containsArea(id: areaID) {
+                    if let result = child.removing(areaID: areaID) {
+                        if case let .split(childBranch) = result, childBranch.direction == branch.direction {
+                            newChildren.append(contentsOf: childBranch.children)
+                        } else {
+                            newChildren.append(result)
+                        }
+                    }
+                } else {
+                    newChildren.append(child)
+                }
             }
-            if case let .tabArea(a) = branch.second, a.id == areaID {
-                return branch.first
+
+            if newChildren.isEmpty {
+                return nil
             }
-            if branch.first.containsArea(id: areaID),
-               let newFirst = branch.first.removing(areaID: areaID)
-            {
-                branch.first = newFirst
-                return .split(branch)
+            if newChildren.count == 1 {
+                return newChildren[0]
             }
-            if branch.second.containsArea(id: areaID),
-               let newSecond = branch.second.removing(areaID: areaID)
-            {
-                branch.second = newSecond
-                return .split(branch)
-            }
-            return self
+
+            branch.children = newChildren
+            let count = newChildren.count
+            branch.ratios = Array(repeating: 1.0 / CGFloat(count), count: count)
+            return .split(branch)
         }
     }
 
     func containsArea(id: UUID) -> Bool {
         switch self {
         case let .tabArea(area): area.id == id
-        case let .split(branch):
-            branch.first.containsArea(id: id) || branch.second.containsArea(id: id)
+        case let .split(branch): branch.children.contains { $0.containsArea(id: id) }
         }
     }
 
     func allAreas() -> [TabArea] {
         switch self {
         case let .tabArea(area): [area]
-        case let .split(branch):
-            branch.first.allAreas() + branch.second.allAreas()
+        case let .split(branch): branch.children.flatMap { $0.allAreas() }
         }
     }
 
     func findArea(id: UUID) -> TabArea? {
         switch self {
         case let .tabArea(area): area.id == id ? area : nil
-        case let .split(branch):
-            branch.first.findArea(id: id) ?? branch.second.findArea(id: id)
+        case let .split(branch): branch.children.compactMap { $0.findArea(id: id) }.first
         }
     }
 
@@ -169,18 +191,23 @@ extension SplitNode {
         case let .tabArea(area):
             return [area.id: rect]
         case let .split(branch):
-            let ratio = min(max(branch.ratio, 0), 1)
-            if branch.direction == .horizontal {
-                let firstWidth = rect.width * ratio
-                let firstRect = CGRect(x: rect.minX, y: rect.minY, width: firstWidth, height: rect.height)
-                let secondRect = CGRect(x: rect.minX + firstWidth, y: rect.minY, width: rect.width - firstWidth, height: rect.height)
-                return branch.first.areaFrames(in: firstRect).merging(branch.second.areaFrames(in: secondRect)) { current, _ in current }
+            let isHorizontal = branch.direction == .horizontal
+            var offset: CGFloat = 0
+            var frames: [UUID: CGRect] = [:]
+
+            for (index, child) in branch.children.enumerated() {
+                let ratio = branch.ratios[index]
+                let size = isHorizontal ? rect.width * ratio : rect.height * ratio
+                let childRect = if isHorizontal {
+                    CGRect(x: rect.minX + offset, y: rect.minY, width: size, height: rect.height)
+                } else {
+                    CGRect(x: rect.minX, y: rect.minY + offset, width: rect.width, height: size)
+                }
+                frames.merge(child.areaFrames(in: childRect)) { current, _ in current }
+                offset += size
             }
 
-            let firstHeight = rect.height * ratio
-            let firstRect = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: firstHeight)
-            let secondRect = CGRect(x: rect.minX, y: rect.minY + firstHeight, width: rect.width, height: rect.height - firstHeight)
-            return branch.first.areaFrames(in: firstRect).merging(branch.second.areaFrames(in: secondRect)) { current, _ in current }
+            return frames
         }
     }
 }

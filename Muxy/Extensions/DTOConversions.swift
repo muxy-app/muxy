@@ -48,9 +48,8 @@ extension SplitBranch {
         SplitBranchDTO(
             id: id,
             direction: direction == .horizontal ? .horizontal : .vertical,
-            ratio: Double(ratio),
-            first: first.toDTO(),
-            second: second.toDTO()
+            ratios: ratios.map { Double($0) },
+            children: children.map { $0.toDTO() }
         )
     }
 }
