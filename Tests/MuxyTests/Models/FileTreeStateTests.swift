@@ -290,6 +290,28 @@ struct FileTreeStateTests {
         }
         throw FileTreeStateTestError.timeout("FileTreeState children of \(path) never loaded")
     }
+
+    @Test("git statuses are scoped to rootPath, not parent repo root")
+    func gitStatusesScopedToTreeRoot() async throws {
+        let fixture = try GitRepoFixture()
+        defer { fixture.cleanup() }
+
+        let result = await FileTreeState.loadStatuses(repoRoot: fixture.subPath)
+
+        let insideFile = fixture.subPath + "/inside.txt"
+        let nestedFile = fixture.subPath + "/nested/deep.txt"
+        let nestedDir = fixture.subPath + "/nested"
+        let outsideFile = fixture.rootPath + "/outside.txt"
+
+        #expect(result.fileStatuses[insideFile] != nil,
+                "Expected status for file inside subfolder")
+        #expect(result.fileStatuses[nestedFile] != nil,
+                "Expected status for file nested in subfolder")
+        #expect(result.fileStatuses[outsideFile] == nil,
+                "Expected no status for file outside subfolder")
+        #expect(result.dirtyDirs.contains(nestedDir),
+                "Expected nested directory inside subfolder to be marked dirty")
+    }
 }
 
 private enum FileTreeStateTestError: Error {
@@ -331,5 +353,60 @@ private final class TreeFixture {
 
     func cleanup() {
         try? FileManager.default.removeItem(at: rootURL)
+    }
+}
+
+@MainActor
+private final class GitRepoFixture {
+    let rootURL: URL
+    let subURL: URL
+
+    var rootPath: String { realpath(rootURL.path) }
+    var subPath: String { realpath(subURL.path) }
+
+    init() throws {
+        let fm = FileManager.default
+        let parent = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: parent, withIntermediateDirectories: true)
+
+        rootURL = parent.appendingPathComponent("repo")
+        subURL = rootURL.appendingPathComponent("sub")
+
+        try fm.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try fm.createDirectory(at: subURL, withIntermediateDirectories: true)
+        try fm.createDirectory(at: subURL.appendingPathComponent("nested"), withIntermediateDirectories: true)
+
+        try runGit(arguments: ["-C", rootURL.path, "init"])
+        try "outside".write(to: rootURL.appendingPathComponent("outside.txt"), atomically: true, encoding: .utf8)
+        try "inside".write(to: rootURL.appendingPathComponent("sub/inside.txt"), atomically: true, encoding: .utf8)
+        try "deep".write(to: rootURL.appendingPathComponent("sub/nested/deep.txt"), atomically: true, encoding: .utf8)
+        try runGit(arguments: ["-C", rootURL.path, "add", "."])
+    }
+
+    func cleanup() {
+        try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent())
+    }
+
+    private func runGit(arguments: [String]) throws {
+        guard let gitPath = GitProcessRunner.resolveExecutable("git") else {
+            struct GitNotFound: Error {}
+            throw GitNotFound()
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: gitPath)
+        process.arguments = arguments
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_OPTIONAL_LOCKS"] = "0"
+        process.environment = environment
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    private func realpath(_ path: String) -> String {
+        guard let resolvedPtr = path.withCString({ Darwin.realpath($0, nil) }) else {
+            return path
+        }
+        defer { free(resolvedPtr) }
+        return String(cString: resolvedPtr)
     }
 }

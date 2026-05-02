@@ -351,25 +351,31 @@ final class FileTreeState {
         }
     }
 
-    private struct StatusResult {
+    struct StatusResult {
         let fileStatuses: [String: FileStatus]
         let dirtyDirs: Set<String>
     }
 
-    nonisolated private static func loadStatuses(repoRoot: String) async -> StatusResult {
+    nonisolated static func loadStatuses(repoRoot: String) async -> StatusResult {
         await GitProcessRunner.offMain {
             loadStatusesSync(repoRoot: repoRoot)
         }
     }
 
-    nonisolated private static func loadStatusesSync(repoRoot: String) -> StatusResult {
+    nonisolated static func loadStatusesSync(repoRoot: String) -> StatusResult {
         guard let gitPath = GitProcessRunner.resolveExecutable("git") else {
+            return StatusResult(fileStatuses: [:], dirtyDirs: [])
+        }
+
+        let resolvedRoot = canonicalize(path: repoRoot)
+
+        guard let gitRoot = resolveGitRoot(gitPath: gitPath, path: resolvedRoot) else {
             return StatusResult(fileStatuses: [:], dirtyDirs: [])
         }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: gitPath)
-        process.arguments = ["-C", repoRoot, "-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "--untracked-files=normal"]
+        process.arguments = ["-C", resolvedRoot, "-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "--untracked-files=normal"]
 
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_OPTIONAL_LOCKS"] = "0"
@@ -390,17 +396,22 @@ final class FileTreeState {
         _ = try? stderrPipe.fileHandleForReading.readToEnd()
         process.waitUntilExit()
 
-        let normalizedRoot = repoRoot.hasSuffix("/") ? String(repoRoot.dropLast()) : repoRoot
+        let resolvedGitRoot = canonicalize(path: gitRoot)
         var fileStatuses: [String: FileStatus] = [:]
         var dirtyDirs: Set<String> = []
 
         for file in GitStatusParser.parseStatusPorcelain(outData, stats: [:]) {
-            let absolute = normalizedRoot + "/" + file.path
+            let absolute = resolvedGitRoot + "/" + file.path
             let trimmed = absolute.hasSuffix("/") ? String(absolute.dropLast()) : absolute
+
+            guard trimmed.hasPrefix(resolvedRoot + "/") || trimmed == resolvedRoot else {
+                continue
+            }
+
             fileStatuses[trimmed] = mapStatus(file)
 
             var current = (trimmed as NSString).deletingLastPathComponent
-            while current.count > normalizedRoot.count {
+            while current.count > resolvedRoot.count {
                 if dirtyDirs.contains(current) { break }
                 dirtyDirs.insert(current)
                 current = (current as NSString).deletingLastPathComponent
@@ -408,6 +419,47 @@ final class FileTreeState {
         }
 
         return StatusResult(fileStatuses: fileStatuses, dirtyDirs: dirtyDirs)
+    }
+
+    nonisolated private static func canonicalize(path: String) -> String {
+        let trimmed = path.hasSuffix("/") ? String(path.dropLast()) : path
+        guard let resolvedPtr = trimmed.withCString({ realpath($0, nil) }) else {
+            return trimmed
+        }
+        defer { free(resolvedPtr) }
+        let resolved = String(cString: resolvedPtr)
+        return resolved.hasSuffix("/") ? String(resolved.dropLast()) : resolved
+    }
+
+    nonisolated static func resolveGitRoot(gitPath: String, path: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: gitPath)
+        process.arguments = ["-C", path, "rev-parse", "--show-toplevel"]
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["GIT_OPTIONAL_LOCKS"] = "0"
+        process.environment = environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        let outData = (try? stdoutPipe.fileHandleForReading.readToEnd()) ?? Data()
+        _ = try? stderrPipe.fileHandleForReading.readToEnd()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else { return nil }
+
+        let result = String(data: outData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return result.isEmpty ? nil : result
     }
 
     private func mergedEntries(in directoryPath: String, realEntries: [FileTreeEntry]) -> [FileTreeEntry] {
