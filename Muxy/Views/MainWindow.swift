@@ -53,7 +53,9 @@ struct MainWindow: View {
     @State private var vcsStates: [WorktreeKey: VCSTabState] = [:]
     @State private var fileTreePanelVisible = false
     @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
+    @AppStorage(SidebarPanelPreferences.rememberPerProjectKey) private var rememberSidebarsPerProject = false
     @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
+    @State private var lastRestoredProjectID: UUID?
     @State private var showQuickOpen = false
     @State private var showWorktreeSwitcher = false
     @State private var isFullScreen = false
@@ -272,6 +274,13 @@ struct MainWindow: View {
                 ensureFileTreeState(for: project)
             }
         }
+        .modifier(SidebarVisibilityMemorySync(
+            activeProjectID: appState.activeProjectID,
+            rememberPerProject: rememberSidebarsPerProject,
+            restore: restoreSidebarVisibilityForActiveProject,
+            persist: persistSidebarVisibilityForActiveProject,
+            clearLastRestored: { lastRestoredProjectID = nil }
+        ))
         .modifier(FileTreeSelectionSync(
             filePath: activeEditorFilePath,
             panelVisible: fileTreePanelVisible,
@@ -648,6 +657,7 @@ struct MainWindow: View {
         if isShowing {
             fileTreePanelVisible = false
         }
+        persistSidebarVisibility(for: project)
     }
 
     private func toggleFileTreePanel() {
@@ -667,6 +677,49 @@ struct MainWindow: View {
         } else {
             NotificationCenter.default.post(name: .refocusActiveTerminal, object: nil)
         }
+        persistSidebarVisibility(for: project)
+    }
+
+    private func persistSidebarVisibility(for project: Project) {
+        guard rememberSidebarsPerProject else { return }
+        SidebarPanelPreferences.setFileTreeVisible(fileTreePanelVisible, for: project.id)
+        SidebarPanelPreferences.setVCSVisible(vcsPanelVisible, for: project.id)
+    }
+
+    private func restoreSidebarVisibility(for project: Project) {
+        guard rememberSidebarsPerProject else {
+            lastRestoredProjectID = project.id
+            return
+        }
+        let wantsVCS = SidebarPanelPreferences.vcsVisible(for: project.id)
+            && VCSDisplayMode.current == .attached
+        let wantsFileTree = SidebarPanelPreferences.fileTreeVisible(for: project.id)
+
+        if wantsVCS {
+            ensureVCSState(for: project)
+            vcsPanelVisible = true
+            fileTreePanelVisible = false
+        } else if wantsFileTree {
+            ensureFileTreeState(for: project)
+            fileTreePanelVisible = true
+            vcsPanelVisible = false
+        } else {
+            vcsPanelVisible = false
+            fileTreePanelVisible = false
+        }
+        lastRestoredProjectID = project.id
+    }
+
+    private func restoreSidebarVisibilityForActiveProject() {
+        guard let project = activeProject,
+              project.id != lastRestoredProjectID
+        else { return }
+        restoreSidebarVisibility(for: project)
+    }
+
+    private func persistSidebarVisibilityForActiveProject() {
+        guard let project = activeProject else { return }
+        persistSidebarVisibility(for: project)
     }
 
     private var activeVCSState: VCSTabState? {
@@ -852,6 +905,30 @@ private struct FileTreeSelectionSync: ViewModifier {
             .onChange(of: panelVisible) { _, visible in
                 guard visible else { return }
                 sync(filePath)
+            }
+    }
+}
+
+private struct SidebarVisibilityMemorySync: ViewModifier {
+    let activeProjectID: UUID?
+    let rememberPerProject: Bool
+    let restore: () -> Void
+    let persist: () -> Void
+    let clearLastRestored: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { restore() }
+            .onChange(of: activeProjectID) { _, newValue in
+                if newValue == nil {
+                    clearLastRestored()
+                } else {
+                    restore()
+                }
+            }
+            .onChange(of: rememberPerProject) { _, enabled in
+                guard enabled else { return }
+                persist()
             }
     }
 }
