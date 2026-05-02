@@ -56,7 +56,7 @@ fun MuxyTerminalView(
 
     var armed by remember { mutableStateOf<ArmedModifier?>(null) }
     var activeModifier by remember { mutableStateOf(ArmedModifier.CTRL) }
-    var keyboardVisible by remember { mutableStateOf(true) }
+    var keyboardVisible by remember { mutableStateOf(false) }
     var canCopySelection by remember { mutableStateOf(false) }
     var reportedCols by remember { mutableStateOf<UInt?>(null) }
     var reportedRows by remember { mutableStateOf<UInt?>(null) }
@@ -133,15 +133,18 @@ fun MuxyTerminalView(
                 }
 
                 override fun toggleKeyboard() {
+                    val view = terminalViewRef.value ?: return
+                    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager ?: return
                     keyboardVisible = !keyboardVisible
-                    terminalViewRef.value?.let { view ->
-                        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-                        if (keyboardVisible) {
-                            view.requestFocus()
-                            imm?.showSoftInput(view, 0)
-                        } else {
-                            imm?.hideSoftInputFromWindow(view.windowToken, 0)
+                    if (keyboardVisible) {
+                        view.isFocusable = true
+                        view.isFocusableInTouchMode = true
+                        view.requestFocus()
+                        view.post {
+                            imm.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
                         }
+                    } else {
+                        imm.hideSoftInputFromWindow(view.windowToken, 0)
                     }
                 }
             }

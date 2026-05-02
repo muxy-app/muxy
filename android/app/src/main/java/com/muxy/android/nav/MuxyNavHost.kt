@@ -1,5 +1,8 @@
 package com.muxy.android.nav
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -35,6 +38,7 @@ fun MuxyNavHost(modifier: Modifier = Modifier) {
     val container = LocalAppContainer.current
     val state by container.muxyClient.state.collectAsStateWithLifecycle()
 
+    val safeModifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing)
     when (val current = state) {
         is ConnectionState.Idle -> ConnectFlow(modifier = modifier)
         is ConnectionState.Connecting ->
@@ -43,7 +47,7 @@ fun MuxyNavHost(modifier: Modifier = Modifier) {
                 host = current.target.host,
                 port = current.target.port,
                 onCancel = container.muxyClient::disconnect,
-                modifier = modifier,
+                modifier = safeModifier,
             )
         is ConnectionState.Authenticating ->
             ConnectingView(
@@ -51,13 +55,13 @@ fun MuxyNavHost(modifier: Modifier = Modifier) {
                 host = current.target.host,
                 port = current.target.port,
                 onCancel = container.muxyClient::disconnect,
-                modifier = modifier,
+                modifier = safeModifier,
             )
         is ConnectionState.AwaitingApproval ->
             PairingPendingView(
                 deviceName = current.target.deviceName,
                 onCancel = container.muxyClient::disconnect,
-                modifier = modifier,
+                modifier = safeModifier,
             )
         is ConnectionState.Connected, is ConnectionState.Reconnecting -> ConnectedFlow(modifier = modifier)
         is ConnectionState.Failed ->
@@ -68,7 +72,7 @@ fun MuxyNavHost(modifier: Modifier = Modifier) {
                     if (target != null) container.muxyClient.connect(target)
                 },
                 onDisconnect = container.muxyClient::disconnect,
-                modifier = modifier,
+                modifier = safeModifier,
             )
     }
 }

@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -50,8 +51,11 @@ private fun MuxyRoot() {
     val container = (LocalContext.current.applicationContext as MuxyApp).container
     CompositionLocalProvider(LocalAppContainer provides container) {
         MuxyTheme {
-            Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
-                MuxyNavHost(modifier = Modifier.padding(padding))
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                contentWindowInsets = WindowInsets(0),
+            ) { padding ->
+                MuxyNavHost(modifier = Modifier.padding(padding).fillMaxSize())
             }
         }
     }
