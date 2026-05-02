@@ -343,8 +343,8 @@ Pushed only to the client that currently owns the pane. Payload:
 ```
 
 The bytes are the exact sequence Ghostty read from the PTY on the Mac, before
-any terminal emulation. A client should feed them into its own VT emulator
-(e.g. SwiftTerm's `feed(byteArray:)`) to render the pane. There is no guarantee
+any terminal emulation. A client should feed them into its own VT emulator to
+render the pane. There is no guarantee
 that a chunk ends on a UTF-8 boundary or an escape-sequence boundary; the
 emulator is expected to buffer partial sequences across chunks.
 
