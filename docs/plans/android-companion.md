@@ -150,26 +150,26 @@ Mac+iOS session for use as test vectors during the protocol port.
 
 **Goal:** Empty Android app builds, runs, and lives at `android/`.
 
-- [ ] Create `android/` directory with Gradle Kotlin DSL multi-module setup
-- [ ] Modules: `:app` (UI), `:protocol` (DTOs + envelope + codec),
+- [x] Create `android/` directory with Gradle Kotlin DSL multi-module setup
+- [x] Modules: `:app` (UI), `:protocol` (DTOs + envelope + codec),
       `:net` (WebSocket client + connection manager), `:terminal`
       (Termux libs vendor + Compose wrapper)
-- [ ] Base deps: Compose BOM, kotlinx.serialization-json,
+- [x] Base deps: Compose BOM, kotlinx.serialization-json,
       kotlinx.coroutines, OkHttp (WebSocket), AndroidX lifecycle,
       AndroidX datastore-preferences. Do **not** use AndroidX
       security-crypto for new credential code; `EncryptedSharedPreferences`
       is deprecated. Use Android Keystore directly in Phase 4
-- [ ] Min SDK 31, target SDK = latest stable, compile SDK = latest stable
-- [ ] App scaffolding: `MainActivity`, theme, navigation host (Navigation
+- [x] Min SDK 31, target SDK = latest stable, compile SDK = latest stable
+- [x] App scaffolding: `MainActivity`, theme, navigation host (Navigation
       Compose)
-- [ ] Manifest permissions:
+- [x] Manifest permissions:
       - `android.permission.INTERNET` for the WebSocket itself
       - `android.permission.ACCESS_NETWORK_STATE` because Phase 11 uses
         `ConnectivityManager.NetworkCallback`
       - `android.permission.ACCESS_LOCAL_NETWORK` on API 37+ if v1 allows
         direct LAN hosts or mDNS discovery. Tailscale/VPN paths are not
         local network paths, but manual LAN IPs are local network paths
-- [ ] **Cleartext traffic config (REQUIRED).** Android 9+ blocks
+- [x] **Cleartext traffic config (REQUIRED).** Android 9+ blocks
       plaintext sockets by default. Since transport is `ws://` (no
       TLS — see Phase 4), the app will fail to connect unless cleartext
       is explicitly allowed. Because users type arbitrary hosts/IPs,
@@ -180,7 +180,7 @@ Mac+iOS session for use as test vectors during the protocol port.
       trusted-network warning, or (b) ship only a fixed allowlist of known
       domains and reject arbitrary manual hosts. For current Tailscale /
       manual-host scope, choose (a)
-- [ ] **`android:allowBackup="false"` (REQUIRED for credential safety).**
+- [x] **`android:allowBackup="false"` (REQUIRED for credential safety).**
       Default Android auto-backup can upload the stored credential
       ciphertext. The Android Keystore key will not restore with it, so
       restore can either leak stale blobs or create unrecoverable
@@ -188,20 +188,20 @@ Mac+iOS session for use as test vectors during the protocol port.
       or add `data_extraction_rules.xml` + `full_backup_content.xml` that
       exclude the credential store. Document the choice in the README's
       security section
-- [ ] **R8 / ProGuard rules for kotlinx.serialization.** Add or verify the
+- [x] **R8 / ProGuard rules for kotlinx.serialization.** Add or verify the
       kotlinx-serialization-recommended rules in modules that define
       `@Serializable` types, then prove release mode with Phase 13's
       installed release APK test. Do not rely on debug builds for codec
       confidence
-- [ ] **OkHttp config.** `OkHttpClient.Builder().pingInterval(20, SECONDS)`
+- [x] **OkHttp config.** `OkHttpClient.Builder().pingInterval(20, SECONDS)`
       so OkHttp self-detects dead sockets — required for the
       reconnect-on-foreground path in Phase 11 to work. Default is 0
       (disabled). Also: explicit `readTimeout(0, MILLISECONDS)` for the
       WebSocket (no read timeout on a long-lived stream)
-- [ ] `.gitignore` for Android artifacts (`build/`, `.gradle/`,
+- [x] `.gitignore` for Android artifacts (`build/`, `.gradle/`,
       `local.properties`, IDE files)
-- [ ] Sample `local.properties.example`
-- [ ] README in `android/` with build instructions (Android Studio version,
+- [x] Sample `local.properties.example`
+- [x] README in `android/` with build instructions (Android Studio version,
       JDK version, target/min SDK), the cleartext-traffic note, and the
       "trusted network only" caveat from Phase 4
 
