@@ -1,13 +1,13 @@
 # Architecture
 
 Muxy is a macOS terminal multiplexer built with SwiftUI that uses libghostty for terminal emulation.
-It is structured as a monorepo with a companion iOS app (MuxyMobile) that connects to the
-desktop app over the local network.
+It exposes a local-network WebSocket API that companion clients (such as the separate MuxyMobile iOS
+app) can use to drive the desktop app remotely.
 
-## Monorepo Structure
+## Package Structure
 
 ```
-MuxyShared/                    Shared types (macOS + iOS): protocol DTOs, messages, codec
+MuxyShared/                    Shared protocol types: DTOs, messages, codec
   ProjectDTO.swift             Project data transfer object
   WorktreeDTO.swift            Worktree data transfer object
   WorkspaceDTO.swift           Workspace layout DTOs (SplitNodeDTO, TabAreaDTO, TabDTO)
@@ -17,17 +17,9 @@ MuxyShared/                    Shared types (macOS + iOS): protocol DTOs, messag
   ProtocolParams.swift         Request parameter types for each method
   MuxyMessage.swift            Message envelope (request/response/event) + JSON codec
 
-MuxyServer/                    WebSocket server library (macOS only, embedded in Muxy.app)
+MuxyServer/                    WebSocket server library (embedded in Muxy.app)
   MuxyRemoteServer.swift       NWListener-based WebSocket server + delegate protocol + request routing
   ClientConnection.swift       Per-client NWConnection wrapper, WebSocket framing
-
-MuxyMobile/                    iOS companion app
-  MuxyMobileApp.swift          App entry point
-  ContentView.swift            Root view (connection state router)
-  ConnectView.swift            Host/port connection form
-  RemoteWorkspaceView.swift    Project list + workspace detail
-  ConnectionManager.swift      WebSocket client, state sync, request/response handling
-  DeviceCredentialsStore.swift Persistent deviceID + token stored in iOS Keychain
 ```
 
 ## Desktop App Directory Map
@@ -601,17 +593,18 @@ are filtered out so the sidebar stays focused on usage quotas.
 ## Remote Server (MuxyServer)
 
 The desktop app embeds a WebSocket server (`MuxyRemoteServer`) that exposes
-workspace state and terminal operations to the iOS companion app over the local
-network (LAN, Tailscale, etc.).
+workspace state and terminal operations to remote clients (e.g. the MuxyMobile
+companion app) over the local network (LAN, Tailscale, etc.). The wire protocol
+is documented in [remote-server.md](remote-server.md).
 
 ### Architecture
 
 ```
-MuxyMobile (iOS)  ◄── WebSocket (JSON) ──►  MuxyRemoteServer (inside Muxy.app)
-                                                    │
-                                                    ▼
-                                             MuxyRemoteServerDelegate
-                                             (AppState, ProjectStore, etc.)
+Remote client  ◄── WebSocket (JSON) ──►  MuxyRemoteServer (inside Muxy.app)
+                                                 │
+                                                 ▼
+                                          MuxyRemoteServerDelegate
+                                          (AppState, ProjectStore, etc.)
 ```
 
 The server listens on a user-configurable port (default 4865) when enabled in
@@ -634,8 +627,9 @@ Request-response with server-pushed events:
 
 ### Shared Types (MuxyShared)
 
-Platform-agnostic DTOs used by both apps. All types are `Codable` and `Sendable`.
-The `MuxyCodec` handles JSON encoding/decoding with ISO 8601 dates.
+Platform-agnostic DTOs that define the wire protocol. All types are `Codable`
+and `Sendable`. The `MuxyCodec` handles JSON encoding/decoding with ISO 8601
+dates.
 
 ### Terminal I/O Streaming
 
@@ -657,58 +651,29 @@ at the owning client via `MuxyRemoteServer.send(_:to:)`. The event payload is
 a `TerminalOutputEventDTO` containing the paneID and a `Data` of raw bytes
 (base64-encoded on the JSON wire).
 
-Input from mobile flows as raw bytes (`TerminalInputParams.bytes: Data`,
+Input from a remote client flows as raw bytes (`TerminalInputParams.bytes: Data`,
 base64-encoded on the JSON wire) through `terminalInput → sendRemoteBytes →
 ghostty_surface_send_input_raw`, so every byte — including escape sequences,
 mouse reports, arrow keys, and control codes — is delivered to the child
 process verbatim.
 
-### iOS App (MuxyMobile)
-
-`ConnectionManager` manages the WebSocket lifecycle and maintains a local mirror
-of the remote state (projects, workspace layout, notifications). It also keeps a
-rolling connection trace so mobile failures can surface a user-shareable
-technical report from the phone's error sheet.
-
-`TerminalView` hosts a full VT emulator on-device via [SwiftTerm]
-(https://github.com/migueldeicaza/SwiftTerm), wrapped in a `UIViewRepresentable`
-as `SwiftTermRepresentable` / `MuxySwiftTermView`. The Mac streams raw PTY
-bytes to the owning client via `terminalOutput` events; `ConnectionManager`
-routes them via `subscribeTerminalBytes(paneID:handler:)` into
-`SwiftTerm.TerminalView.feed(byteArray:)`. User input from the on-screen
-keyboard flows out through `TerminalViewDelegate.send(source:data:)` back to
-`sendTerminalInput`. Text selection (double-tap for word, triple-tap for line),
-scrollback, tap-to-position, hardware-keyboard chords, accessibility, and
-predictive text all come from SwiftTerm's native implementation.
-
-Mobile scroll gestures are translated to escape sequences based on the remote
-TUI's state. When the remote program has enabled mouse reporting
-(`terminal.mouseMode != .off`), a custom `UIPanGestureRecognizer` on
-`MuxySwiftTermView` emits SGR mouse-wheel events
-(`ESC[<64;x;yM` / `ESC[<65;x;yM`) via `terminal.encodeButton` + `sendEvent`.
-When mouse reporting is off, SwiftTerm's built-in gesture converts panning into
-cursor-key sequences (`ESC[A/B`), which scrolls pagers and arrow-key-driven
-TUIs. The custom Muxy accessory bar (`TerminalAccessoryBar` +
-`TerminalAccessoryView`) is wired as `inputAccessoryView` and provides the
-D-pad, esc / tab / `~` / `|` / `/` / `-` keys, a long-press modifier arm-next
-key for Ctrl/Shift/Alt/Cmd chords, and Copy / Paste actions.
-
 ### Device Pairing
 
-Connections are gated by a trust-on-first-use pairing handshake. Each mobile
-device generates a persistent `deviceID` (UUID) and a random `token` on first
-launch; both are stored in the iOS Keychain (`DeviceCredentialsStore`).
+Connections are gated by a trust-on-first-use pairing handshake. Each client is
+expected to generate a persistent `deviceID` (UUID) and a random `token` on
+first launch and persist them securely.
 
-On every connect, the mobile app sends `authenticateDevice` first. The Mac
+On every connect, the client sends `authenticateDevice` first. The Mac
 (`ApprovedDevicesStore`) compares the device's SHA-256 token hash against the
 stored hash for that `deviceID`:
 
 - **Known device with matching token** → immediately authorized.
-- **Unknown device** → server returns `401 Unauthorized`. Mobile falls back to
-  `pairDevice`, and `PairingRequestCoordinator` on the Mac queues the request
-  and surfaces an approval sheet on `MainWindow`. Approval stores the token
-  hash in `~/Library/Application Support/Muxy/approved-devices.json`; denial
-  returns `403`.
+- **Unknown device** → server returns `401 Unauthorized`. The client is
+  expected to fall back to `pairDevice`, and `PairingRequestCoordinator` on the
+  Mac queues the request and surfaces an approval sheet on `MainWindow`.
+  Approval stores the token hash in
+  `~/Library/Application Support/Muxy/approved-devices.json`; denial returns
+  `403`.
 - **Token mismatch** → treated the same as unknown; server returns `401` so a
   stolen but outdated credential can't resume authentication.
 

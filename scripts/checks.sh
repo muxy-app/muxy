@@ -147,10 +147,6 @@ if [ "$failed" -eq 0 ]; then
 fi
 
 if [ "$failed" -eq 0 ]; then
-  run_step "Build (iOS)" xcodebuild -project MuxyMobile.xcodeproj -scheme MuxyMobile -destination "generic/platform=iOS Simulator" -quiet build || failed=1
-fi
-
-if [ "$failed" -eq 0 ]; then
   run_step "Test" swift test || failed=1
 fi
 

@@ -6,7 +6,6 @@ let package = Package(
     name: "Muxy",
     platforms: [
         .macOS(.v14),
-        .iOS(.v17),
     ],
     products: [
         .library(name: "MuxyShared", targets: ["MuxyShared"]),
