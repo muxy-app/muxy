@@ -2,6 +2,11 @@ import AppKit
 import Foundation
 import MuxyShared
 
+enum ThemeAppearance: Hashable {
+    case light
+    case dark
+}
+
 struct ThemePreview: Identifiable {
     let name: String
     let background: NSColor
@@ -84,8 +89,12 @@ final class ThemeService {
         return Self.themePreview(named: name)
     }
 
-    func activeThemePreview(isDark: Bool) -> ThemePreview? {
-        guard let name = currentThemeSelection()?.resolvedName(isDark: isDark) else { return nil }
+    func activeAppearance() -> ThemeAppearance {
+        Self.isCurrentAppearanceDark() ? .dark : .light
+    }
+
+    func activeThemePreview(for appearance: ThemeAppearance) -> ThemePreview? {
+        guard let name = currentThemeSelection()?.resolvedName(isDark: appearance == .dark) else { return nil }
         return Self.themePreview(named: name)
     }
 

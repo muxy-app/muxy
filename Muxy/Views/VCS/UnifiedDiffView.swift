@@ -4,6 +4,7 @@ struct UnifiedDiffView: View {
     let rows: [DiffDisplayRow]
     let filePath: String
     var suppressLeadingTopBorder: Bool = false
+    @State private var themeRevision = 0
 
     private var chunks: [DiffChunk] {
         buildDiffChunks(from: rows)
@@ -14,7 +15,8 @@ struct UnifiedDiffView: View {
     }
 
     var body: some View {
-        LazyVStack(spacing: 0) {
+        _ = themeRevision
+        return LazyVStack(spacing: 0) {
             ForEach(Array(chunks.enumerated()), id: \.offset) { index, chunk in
                 switch chunk {
                 case let .divider(text):
@@ -30,6 +32,9 @@ struct UnifiedDiffView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Unified diff, \(filePath)")
+        .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in
+            themeRevision &+= 1
+        }
     }
 
     private var gutterWidth: CGFloat {
