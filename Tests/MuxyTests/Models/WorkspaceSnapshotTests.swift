@@ -153,9 +153,8 @@ struct WorkspaceSnapshotTests {
         )
         let branchSnapshot = SplitBranchSnapshot(
             direction: .horizontal,
-            ratio: 0.6,
-            first: .tabArea(area1),
-            second: .tabArea(area2)
+            ratios: [0.4, 0.6],
+            children: [.tabArea(area1), .tabArea(area2)]
         )
         let snapshot = SplitNodeSnapshot.split(branchSnapshot)
         let data = try JSONEncoder().encode(snapshot)
@@ -163,7 +162,9 @@ struct WorkspaceSnapshotTests {
 
         if case let .split(decodedBranch) = decoded {
             #expect(decodedBranch.direction == .horizontal)
-            #expect(abs(decodedBranch.ratio - 0.6) < 0.001)
+            #expect(decodedBranch.ratios.count == 2)
+            #expect(abs(decodedBranch.ratios[0] - 0.4) < 0.001)
+            #expect(abs(decodedBranch.ratios[1] - 0.6) < 0.001)
         } else {
             Issue.record("Expected split snapshot")
         }

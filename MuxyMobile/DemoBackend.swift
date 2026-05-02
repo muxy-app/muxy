@@ -517,9 +517,8 @@ final class DemoBackend {
             return .split(SplitBranchDTO(
                 id: branch.id,
                 direction: branch.direction,
-                ratio: branch.ratio,
-                first: appendTab(in: branch.first, focusedAreaID: focusedAreaID),
-                second: appendTab(in: branch.second, focusedAreaID: focusedAreaID)
+                ratios: branch.ratios,
+                children: branch.children.map { appendTab(in: $0, focusedAreaID: focusedAreaID) }
             ))
         }
     }
@@ -550,9 +549,8 @@ final class DemoBackend {
             return .split(SplitBranchDTO(
                 id: branch.id,
                 direction: branch.direction,
-                ratio: branch.ratio,
-                first: removeTab(in: branch.first, areaID: areaID, tabID: tabID) ?? branch.first,
-                second: removeTab(in: branch.second, areaID: areaID, tabID: tabID) ?? branch.second
+                ratios: branch.ratios,
+                children: branch.children.map { removeTab(in: $0, areaID: areaID, tabID: tabID) ?? $0 }
             ))
         }
     }
@@ -581,9 +579,8 @@ final class DemoBackend {
             return .split(SplitBranchDTO(
                 id: branch.id,
                 direction: branch.direction,
-                ratio: branch.ratio,
-                first: selectTab(in: branch.first, areaID: areaID, tabID: tabID),
-                second: selectTab(in: branch.second, areaID: areaID, tabID: tabID)
+                ratios: branch.ratios,
+                children: branch.children.map { selectTab(in: $0, areaID: areaID, tabID: tabID) }
             ))
         }
     }
