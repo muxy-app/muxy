@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$ARCH" || -z "$VERSION" ]]; then
-    echo "Usage: $0 --arch <arm64|x86_64> --version <X.Y.Z> [--sign-identity <identity>] [--sparkle-public-key <key>] [--sparkle-feed-url <url>]"
+    echo "Usage: $0 --arch <arm64|x86_64> --version <X.Y.Z[-beta.N]> [--sign-identity <identity>] [--sparkle-public-key <key>] [--sparkle-feed-url <url>]"
     exit 1
 fi
 
@@ -50,8 +50,8 @@ if [[ "$ARCH" != "arm64" && "$ARCH" != "x86_64" ]]; then
     exit 1
 fi
 
-if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "Error: version must be in X.Y.Z format"
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+    echo "Error: version must be X.Y.Z or X.Y.Z-beta.N"
     exit 1
 fi
 

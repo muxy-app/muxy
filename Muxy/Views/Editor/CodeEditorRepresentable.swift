@@ -223,20 +223,24 @@ struct CodeEditorView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 0, height: 4)
 
         let font = editorSettings.resolvedFont
+        let palette = EditorThemePalette.active
         textView.font = font
-        textView.backgroundColor = GhosttyService.shared.backgroundColor
-        textView.insertionPointColor = GhosttyService.shared.foregroundColor
-        textView.textColor = GhosttyService.shared.foregroundColor
+        textView.backgroundColor = palette.background
+        textView.insertionPointColor = palette.foreground
+        textView.textColor = palette.foreground
         textView.typingAttributes = [
             .font: font,
-            .foregroundColor: GhosttyService.shared.foregroundColor,
+            .foregroundColor: palette.foreground,
         ]
         textView.selectedTextAttributes = [
-            .backgroundColor: GhosttyService.shared.foregroundColor.withAlphaComponent(0.15),
+            .backgroundColor: palette.foreground.withAlphaComponent(0.15),
         ]
 
         scrollView.autohidesScrollers = showsVerticalScroller
-        scrollView.drawsBackground = false
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = palette.background
+        scrollView.contentView.drawsBackground = true
+        scrollView.contentView.backgroundColor = palette.background
         scrollView.borderType = .noBorder
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.contentView.postsFrameChangedNotifications = true
@@ -340,7 +344,7 @@ struct CodeEditorView: NSViewRepresentable {
         let font = editorSettings.resolvedFont
         let fontChanged = textView.font != font
 
-        applyThemeAndFont(textView: textView, font: font)
+        applyThemeAndFont(scrollView: scrollView, textView: textView, font: font)
 
         if fontChanged {
             viewport.updateEstimatedLineHeight(font: font)
@@ -372,10 +376,27 @@ struct CodeEditorView: NSViewRepresentable {
         }
     }
 
-    private func applyThemeAndFont(textView: NSTextView, font: NSFont) {
-        let fgColor = GhosttyService.shared.foregroundColor
-        let bgColor = GhosttyService.shared.backgroundColor
+    private func applyThemeAndFont(scrollView: NSScrollView, textView: NSTextView, font: NSFont) {
+        let palette = EditorThemePalette.active
+        let fgColor = palette.foreground
+        let bgColor = palette.background
 
+        if !scrollView.drawsBackground {
+            scrollView.drawsBackground = true
+        }
+        if scrollView.backgroundColor != bgColor {
+            scrollView.backgroundColor = bgColor
+        }
+        if !scrollView.contentView.drawsBackground {
+            scrollView.contentView.drawsBackground = true
+        }
+        if scrollView.contentView.backgroundColor != bgColor {
+            scrollView.contentView.backgroundColor = bgColor
+        }
+        if let documentView = scrollView.documentView, documentView !== textView {
+            documentView.wantsLayer = true
+            documentView.layer?.backgroundColor = bgColor.cgColor
+        }
         if textView.backgroundColor != bgColor {
             textView.backgroundColor = bgColor
         }
@@ -592,6 +613,7 @@ struct CodeEditorView: NSViewRepresentable {
 
             let container = ViewportContainerView()
             container.wantsLayer = true
+            container.layer?.backgroundColor = EditorThemePalette.active.background.cgColor
             let height = max(viewport.totalDocumentHeight, scrollView.contentView.bounds.height)
             let width = max(scrollView.contentSize.width, textView.frame.width)
             container.frame = NSRect(x: 0, y: 0, width: width, height: height)
@@ -674,6 +696,7 @@ struct CodeEditorView: NSViewRepresentable {
                 let fullRange = NSRange(location: 0, length: storage.length)
                 storage.beginEditing()
                 storage.addAttribute(.font, value: font, range: fullRange)
+                storage.addAttribute(.foregroundColor, value: EditorThemePalette.active.foreground, range: fullRange)
                 storage.endEditing()
                 applySyntaxHighlights(storage: storage, viewport: viewport)
             }
