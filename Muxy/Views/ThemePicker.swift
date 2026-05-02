@@ -44,7 +44,7 @@ struct ThemePicker: View {
         switch mode {
         case .light: false
         case .dark: true
-        case .currentAppearance: ThemeService.isCurrentAppearanceDark()
+        case .currentAppearance: themeService.activeAppearance() == .dark
         }
     }
 

@@ -76,11 +76,12 @@ struct DiffRenderTheme: @unchecked Sendable {
 
     @MainActor
     static func current() -> DiffRenderTheme {
-        DiffRenderTheme(
+        let palette = EditorThemePalette.active
+        return DiffRenderTheme(
             rules: Self.buildRules(),
             additionColor: MuxyTheme.nsDiffAdd,
             deletionColor: MuxyTheme.nsDiffRemove,
-            defaultColor: GhosttyService.shared.foregroundColor,
+            defaultColor: palette.foreground,
             additionBackground: MuxyTheme.nsDiffAdd.withAlphaComponent(0.16),
             deletionBackground: MuxyTheme.nsDiffRemove.withAlphaComponent(0.16),
             hunkBackground: MuxyTheme.nsDiffHunk.withAlphaComponent(0.1),

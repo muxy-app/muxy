@@ -42,6 +42,7 @@ enum SyntaxLanguageRegistry {
         .yaml,
         .toml,
         .ini,
+        .dotenv,
         .sql,
         .dockerfile,
         .makefile,
@@ -59,11 +60,14 @@ enum SyntaxLanguageRegistry {
 
     static func grammar(forFile filename: String) -> SyntaxGrammar? {
         let url = URL(fileURLWithPath: filename)
+        let name = url.lastPathComponent.lowercased()
+        if name == ".env" || name.hasPrefix(".env.") {
+            return extensionMap["env"]
+        }
         let ext = url.pathExtension.lowercased()
         if !ext.isEmpty, let grammar = extensionMap[ext] {
             return grammar
         }
-        let name = url.lastPathComponent.lowercased()
         if let grammar = extensionMap[name] {
             return grammar
         }
@@ -123,6 +127,8 @@ enum SyntaxLanguageRegistry {
         "json": "json",
         "toml": "toml",
         "ini": "ini",
+        "env": "env",
+        "dotenv": "env",
         "sql": "sql",
         "lua": "lua",
         "perl": "pl",

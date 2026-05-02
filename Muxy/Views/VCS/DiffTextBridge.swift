@@ -187,9 +187,12 @@ struct DiffContentBridge: NSViewRepresentable {
         return maxColumns
     }
 
+    @MainActor
     private var contentSignature: Int {
         var hasher = Hasher()
         hasher.combine(backgroundSideHash(backgroundSide))
+        hasher.combine(GhosttyService.shared.configVersion)
+        hasher.combine(ThemeService.shared.activeAppearance())
         hasher.combine(rows.count)
         for row in rows {
             hasher.combine(diffRowKindHash(row.kind))
@@ -229,11 +232,14 @@ struct DiffGutterBridge: NSViewRepresentable {
         configureView(nsView, context: context)
     }
 
+    @MainActor
     private var gutterSignature: Int {
         var hasher = Hasher()
         hasher.combine(filePath)
         hasher.combine(gutterModeHash(mode))
         hasher.combine(columnWidth)
+        hasher.combine(GhosttyService.shared.configVersion)
+        hasher.combine(ThemeService.shared.activeAppearance())
         hasher.combine(metadata.count)
         for line in metadata {
             hasher.combine(diffRowKindHash(line.kind))
@@ -244,6 +250,7 @@ struct DiffGutterBridge: NSViewRepresentable {
     }
 
     private func configureView(_ view: DiffGutterNSView, context: Context) {
+        let foreground = EditorThemePalette.active.foreground
         view.lineMetadata = metadata
         view.filePath = filePath
         view.mode = mode
@@ -251,10 +258,10 @@ struct DiffGutterBridge: NSViewRepresentable {
         view.lineHeight = diffLineHeight
         view.cachedBorderColor = MuxyTheme.nsBg.blended(
             withFraction: 0.12,
-            of: GhosttyService.shared.foregroundColor
+            of: foreground
         ) ?? .separatorColor
-        view.cachedNumberColor = GhosttyService.shared.foregroundColor.withAlphaComponent(0.4)
-        view.cachedNumberHoverColor = GhosttyService.shared.foregroundColor.withAlphaComponent(0.85)
+        view.cachedNumberColor = foreground.withAlphaComponent(0.4)
+        view.cachedNumberHoverColor = foreground.withAlphaComponent(0.85)
         view.cachedAddColor = MuxyTheme.nsDiffAdd
         view.cachedRemoveColor = MuxyTheme.nsDiffRemove
         view.invalidateIntrinsicContentSize()

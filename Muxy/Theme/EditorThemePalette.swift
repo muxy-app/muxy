@@ -9,7 +9,7 @@ struct EditorThemePalette {
     @MainActor
     static var active: EditorThemePalette {
         let service = GhosttyService.shared
-        let preview = ThemeService.shared.activeThemePreview(isDark: ThemeService.isCurrentAppearanceDark())
+        let preview = ThemeService.shared.activeThemePreview(for: ThemeService.shared.activeAppearance())
         return resolve(
             preview: preview,
             fallbackBackground: service.backgroundColor,

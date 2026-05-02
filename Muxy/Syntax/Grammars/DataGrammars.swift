@@ -123,6 +123,33 @@ extension SyntaxGrammar {
         }()
     )
 
+    static let dotenv = SyntaxGrammar(
+        name: "DotEnv",
+        extensions: ["env"],
+        caseSensitiveKeywords: true,
+        lineComments: ["#"],
+        lineCommentScope: .comment,
+        blockComments: [],
+        strings: [
+            StringRule(id: 1, open: "\"", close: "\"", escape: "\\", multiline: false, scope: .string),
+            StringRule(id: 2, open: "'", close: "'", escape: nil, multiline: false, scope: .string),
+            StringRule(id: 3, open: "`", close: "`", escape: "\\", multiline: false, scope: .string),
+        ],
+        keywordGroups: [
+            KeywordGroup(words: ["export"], scope: .keyword),
+            KeywordGroup(words: ["true", "false", "null"], scope: .builtin),
+        ],
+        supportsNumbers: true,
+        supportsHashDirectives: false,
+        hashDirectiveScope: .preprocessor,
+        supportsAtAttributes: false,
+        atAttributeScope: .attribute,
+        highlightFunctionCalls: false,
+        highlightAllCapsAsConstant: true,
+        identifierStart: SyntaxGrammar.defaultIdentifierStart,
+        identifierBody: SyntaxGrammar.defaultIdentifierBody
+    )
+
     static let sql = SyntaxGrammar(
         name: "SQL",
         extensions: ["sql"],

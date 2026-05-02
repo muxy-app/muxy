@@ -91,6 +91,17 @@ struct SyntaxLanguageRegistryTests {
         #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "JSON")?.name == "JSON")
     }
 
+    @Test("recognizes .env and prefixed env files as INI")
+    func envFiles() {
+        #expect(SyntaxLanguageRegistry.grammar(forFile: ".env")?.name == "DotEnv")
+        #expect(SyntaxLanguageRegistry.grammar(forFile: ".env.example")?.name == "DotEnv")
+        #expect(SyntaxLanguageRegistry.grammar(forFile: ".env.local")?.name == "DotEnv")
+        #expect(SyntaxLanguageRegistry.grammar(forFile: ".env.dist")?.name == "DotEnv")
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "/a/b/.env.production")?.name == "DotEnv")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "env")?.name == "DotEnv")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "dotenv")?.name == "DotEnv")
+    }
+
     @Test("unknown language hint returns nil")
     func hintUnknown() {
         #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "brainfuck") == nil)

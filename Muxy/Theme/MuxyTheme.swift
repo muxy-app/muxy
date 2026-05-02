@@ -32,18 +32,18 @@ enum MuxyTheme {
     @MainActor static var colorScheme: ColorScheme { snapshot.colorScheme }
 
     @MainActor private static var cachedVersion: Int = -1
-    @MainActor private static var cachedIsDark = false
+    @MainActor private static var cachedAppearance: ThemeAppearance = .light
     @MainActor private static var cachedSnapshot: Snapshot?
 
     @MainActor private static var snapshot: Snapshot {
         let version = GhosttyService.shared.configVersion
-        let isDark = ThemeService.isCurrentAppearanceDark()
-        if let cachedSnapshot, cachedVersion == version, cachedIsDark == isDark {
+        let appearance = ThemeService.shared.activeAppearance()
+        if let cachedSnapshot, cachedVersion == version, cachedAppearance == appearance {
             return cachedSnapshot
         }
-        let newSnapshot = Snapshot(from: GhosttyService.shared, isDark: isDark)
+        let newSnapshot = Snapshot(from: GhosttyService.shared, appearance: appearance)
         cachedVersion = version
-        cachedIsDark = isDark
+        cachedAppearance = appearance
         cachedSnapshot = newSnapshot
         return newSnapshot
     }
@@ -78,9 +78,9 @@ extension MuxyTheme {
         let colorScheme: ColorScheme
 
         @MainActor
-        init(from service: GhosttyService, isDark: Bool) {
+        init(from service: GhosttyService, appearance: ThemeAppearance) {
             let resolvedPalette = EditorThemePalette.resolve(
-                preview: ThemeService.shared.activeThemePreview(isDark: isDark),
+                preview: ThemeService.shared.activeThemePreview(for: appearance),
                 fallbackBackground: service.backgroundColor,
                 fallbackForeground: service.foregroundColor,
                 fallbackAccent: service.accentColor,

@@ -18,6 +18,12 @@ struct TabAreaView: View {
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @Environment(AppState.self) private var appState
 
+    private func closeTabs(_ tabIDs: [UUID]) {
+        for tabID in tabIDs {
+            onCloseTab(tabID)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if showTabStrip {
@@ -32,6 +38,17 @@ struct TabAreaView: View {
                     onCreateTab: onCreateTab,
                     onCreateVCSTab: onCreateVCSTab,
                     onCloseTab: onCloseTab,
+                    onCloseOtherTabs: { tabID in
+                        closeTabs(area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id))
+                    },
+                    onCloseTabsToLeft: { tabID in
+                        guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
+                        closeTabs(area.tabs.prefix(index).filter { !$0.isPinned }.map(\.id))
+                    },
+                    onCloseTabsToRight: { tabID in
+                        guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
+                        closeTabs(area.tabs.suffix(from: index + 1).filter { !$0.isPinned }.map(\.id))
+                    },
                     onSplit: onSplit,
                     onDropAction: onDropAction,
                     onCreateTabAdjacent: { tabID, side in

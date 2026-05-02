@@ -1,15 +1,6 @@
 name: Release (Beta)
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**.md"
-      - ".github/ISSUE_TEMPLATE/**"
-      - ".github/PULL_REQUEST_TEMPLATE.md"
-      - ".gitignore"
-      - "LICENSE"
   workflow_dispatch:
 
 concurrency:
