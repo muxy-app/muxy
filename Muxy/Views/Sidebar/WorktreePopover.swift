@@ -201,11 +201,6 @@ private struct WorktreePopoverRow: View {
                 }
             }
             Spacer(minLength: 4)
-            if selected {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(MuxyTheme.accent)
-            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)

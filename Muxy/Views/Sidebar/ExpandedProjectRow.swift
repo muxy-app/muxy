@@ -127,15 +127,15 @@ struct ExpandedProjectRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(project.name)
-                    .font(.system(size: 12, weight: isActive ? .semibold : .medium))
-                    .foregroundStyle(isActive ? MuxyTheme.fg : MuxyTheme.fgMuted)
+                    .font(.system(size: 13, weight: isActive ? .semibold : .medium))
+                    .foregroundStyle(MuxyTheme.fg)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 if isGitRepo, let worktree = activeWorktree {
                     Text(worktree.isPrimary ? "primary" : worktree.name)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(MuxyTheme.fgDim)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(MuxyTheme.fg)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -188,7 +188,7 @@ struct ExpandedProjectRow: View {
         } label: {
             Image(systemName: "chevron.right")
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fgDim)
+                .foregroundStyle(MuxyTheme.fg)
                 .rotationEffect(.degrees(worktreesExpanded ? 90 : 0))
                 .animation(.easeInOut(duration: 0.15), value: worktreesExpanded)
                 .frame(width: 18, height: 18)
@@ -233,6 +233,7 @@ struct ExpandedProjectRow: View {
                     projectID: project.id,
                     worktree: worktree,
                     selected: worktree.id == activeWorktreeID,
+                    projectActive: isActive,
                     onSelect: {
                         appState.selectWorktree(projectID: project.id, worktree: worktree)
                     },
@@ -275,8 +276,8 @@ struct ExpandedProjectRow: View {
         if let tint = ProjectIconColor.color(for: project.iconColor) {
             return AnyShapeStyle(hovered ? tint.opacity(0.85) : tint)
         }
-        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
-        return AnyShapeStyle(MuxyTheme.surface)
+        if hovered { return AnyShapeStyle(MuxyTheme.fg.opacity(0.22)) }
+        return AnyShapeStyle(MuxyTheme.fg.opacity(0.18))
     }
 
     private var letterForeground: Color {
@@ -417,6 +418,7 @@ private struct ExpandedWorktreeRow: View {
     let projectID: UUID
     let worktree: Worktree
     let selected: Bool
+    let projectActive: Bool
     let onSelect: () -> Void
     let onRename: (String) -> Void
     let onRemove: (() -> Void)?
@@ -432,6 +434,7 @@ private struct ExpandedWorktreeRow: View {
     }
 
     private var branchLabel: String? {
+        guard !worktree.isPrimary else { return nil }
         guard let branch = worktree.branch, !branch.isEmpty else { return nil }
         guard branch.caseInsensitiveCompare(displayName) != .orderedSame else { return nil }
         return branch
@@ -439,9 +442,7 @@ private struct ExpandedWorktreeRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle()
-                .fill(selected ? MuxyTheme.accent : MuxyTheme.fgDim.opacity(0.35))
-                .frame(width: 5, height: 5)
+            leadingIndicator
 
             if isRenaming {
                 TextField("", text: $renameText)
@@ -455,8 +456,8 @@ private struct ExpandedWorktreeRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 4) {
                         Text(displayName)
-                            .font(.system(size: 11, weight: selected ? .semibold : .regular))
-                            .foregroundStyle(selected ? MuxyTheme.fg : MuxyTheme.fgMuted)
+                            .font(.system(size: 12, weight: activeStyle ? .semibold : .regular))
+                            .foregroundStyle(MuxyTheme.fg)
                             .lineLimit(1)
                             .truncationMode(.tail)
 
@@ -467,8 +468,8 @@ private struct ExpandedWorktreeRow: View {
 
                     if let branch = branchLabel {
                         Text(branch)
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(MuxyTheme.fgDim)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(MuxyTheme.fg)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -476,17 +477,9 @@ private struct ExpandedWorktreeRow: View {
             }
 
             Spacer(minLength: 2)
-
-            worktreeUnreadBadge
-
-            Image(systemName: "checkmark")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(MuxyTheme.accent)
-                .frame(width: 18, height: 18)
-                .opacity(selected ? 1 : 0)
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
         .background(rowBackground, in: RoundedRectangle(cornerRadius: 6))
         .contentShape(RoundedRectangle(cornerRadius: 6))
         .onHover { hovered = $0 }
@@ -521,15 +514,22 @@ private struct ExpandedWorktreeRow: View {
     }
 
     @ViewBuilder
-    private var worktreeUnreadBadge: some View {
+    private var leadingIndicator: some View {
         let unread = NotificationStore.shared.unreadCount(for: projectID, worktreeID: worktree.id)
-        if unread > 0 {
-            NotificationBadge(count: unread)
+        ZStack {
+            if unread > 0 {
+                Circle().fill(MuxyTheme.accent).frame(width: 8, height: 8)
+            } else if selected {
+                Circle().fill(MuxyTheme.accent.opacity(0.4)).frame(width: 5, height: 5)
+            }
         }
+        .frame(width: 8, height: 8)
     }
 
+    private var activeStyle: Bool { selected && projectActive }
+
     private var rowBackground: AnyShapeStyle {
-        if selected { return AnyShapeStyle(MuxyTheme.accentSoft) }
+        if activeStyle { return AnyShapeStyle(MuxyTheme.accentSoft) }
         if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(Color.clear)
     }
@@ -559,15 +559,16 @@ private struct ExpandedNewWorktreeButton: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: "plus")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgDim)
-                Text("New Worktree")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgDim)
+                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
+                    .frame(width: 8, height: 8)
+                Text("New Worktree")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
                 Spacer()
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            .padding(.vertical, 5)
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
@@ -580,7 +581,7 @@ private struct PrimaryBadge: View {
         Text("PRIMARY")
             .font(.system(size: 8, weight: .bold))
             .tracking(0.4)
-            .foregroundStyle(MuxyTheme.fgDim)
+            .foregroundStyle(MuxyTheme.fg)
             .padding(.horizontal, 4)
             .padding(.vertical, 1)
             .background(MuxyTheme.surface, in: Capsule())
