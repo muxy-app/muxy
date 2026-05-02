@@ -5,7 +5,5 @@ interface AccessoryActions {
 
     fun pasteFromClipboard()
 
-    fun copySelectionToClipboard()
-
     fun toggleKeyboard()
 }

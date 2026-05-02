@@ -22,7 +22,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.KeyboardHide
@@ -44,7 +43,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -72,7 +70,6 @@ fun TerminalAccessoryBar(
     onSelectModifier: (ArmedModifier) -> Unit,
     foreground: Color,
     background: Color,
-    canCopySelection: Boolean,
     keyboardVisible: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -100,11 +97,8 @@ fun TerminalAccessoryBar(
                     onSelect = onSelectModifier,
                 )
                 AccessoryKey("tab", foreground) { actions.sendText(TAB_PAYLOAD) }
-                AccessoryIcon(Icons.Outlined.ContentPaste, "Paste", enabled = true, foreground = foreground) {
+                AccessoryIcon(Icons.Outlined.ContentPaste, "Paste", foreground = foreground) {
                     actions.pasteFromClipboard()
-                }
-                AccessoryIcon(Icons.Outlined.ContentCopy, "Copy", enabled = canCopySelection, foreground = foreground) {
-                    actions.copySelectionToClipboard()
                 }
                 AccessoryKey("~", foreground) { actions.sendText("~") }
                 AccessoryKey("|", foreground) { actions.sendText("|") }
@@ -153,11 +147,9 @@ private fun AccessoryKey(
 private fun AccessoryIcon(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
-    enabled: Boolean,
     foreground: Color,
     onClick: () -> Unit,
 ) {
-    val tint = if (enabled) foreground else foreground.copy(alpha = 0.4f)
     Box(
         contentAlignment = Alignment.Center,
         modifier =
@@ -166,19 +158,16 @@ private fun AccessoryIcon(
                 .semantics {
                     contentDescription = description
                     role = Role.Button
-                    if (!enabled) disabled()
-                    if (enabled) {
-                        this.onClick(label = description) {
-                            onClick()
-                            true
-                        }
+                    this.onClick(label = description) {
+                        onClick()
+                        true
                     }
                 }
-                .pointerInput(description, enabled) {
-                    if (enabled) detectTapGestures(onTap = { onClick() })
+                .pointerInput(description) {
+                    detectTapGestures(onTap = { onClick() })
                 },
     ) {
-        Icon(icon, contentDescription = null, tint = tint)
+        Icon(icon, contentDescription = null, tint = foreground)
     }
 }
 

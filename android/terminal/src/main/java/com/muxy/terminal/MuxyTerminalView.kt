@@ -57,7 +57,6 @@ fun MuxyTerminalView(
     var armed by remember { mutableStateOf<ArmedModifier?>(null) }
     var activeModifier by remember { mutableStateOf(ArmedModifier.CTRL) }
     var keyboardVisible by remember { mutableStateOf(false) }
-    var canCopySelection by remember { mutableStateOf(false) }
     var reportedCols by remember { mutableStateOf<UInt?>(null) }
     var reportedRows by remember { mutableStateOf<UInt?>(null) }
     var autoTakenPaneID by remember { mutableStateOf<UUID?>(null) }
@@ -124,12 +123,6 @@ fun MuxyTerminalView(
 
                 override fun pasteFromClipboard() {
                     pasteClipboardThrough(context, session)
-                }
-
-                override fun copySelectionToClipboard() {
-                    terminalViewRef.value?.let { view ->
-                        if (view.isSelectingText) view.stopTextSelectionMode()
-                    }
                 }
 
                 override fun toggleKeyboard() {
@@ -232,7 +225,6 @@ fun MuxyTerminalView(
             },
             foreground = foreground,
             background = background,
-            canCopySelection = canCopySelection,
             keyboardVisible = keyboardVisible,
         )
     }
