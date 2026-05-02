@@ -3,7 +3,7 @@ import SwiftUI
 
 @main
 struct MuxyApp: App {
-    static let launchDate = Date()
+    nonisolated static let launchDate = Date()
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState: AppState

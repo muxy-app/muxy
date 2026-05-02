@@ -133,7 +133,9 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
             String(bytes: UnsafeBufferPointer(start: rawPtr, count: Int(openURL.len)), encoding: .utf8)
         }
         guard let urlString, let url = URL(string: urlString) else { return false }
-        return view.onOpenURL?(url) ?? false
+        return MainActor.assumeIsolated {
+            view.onOpenURL?(url) ?? false
+        }
     }
 
     private func handleMouseOverLink(target: ghostty_target_s, link: ghostty_action_mouse_over_link_s) {
