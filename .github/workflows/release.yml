@@ -3,8 +3,12 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
+      from_beta_tag:
+        description: "Beta tag to promote to stable (e.g. v0.26.0-beta.42)"
+        required: true
+        type: string
       version:
-        description: "Version to release (X.Y.Z)"
+        description: "Stable version to release (X.Y.Z)"
         required: true
         type: string
       next_beta_version:
@@ -29,6 +33,7 @@ jobs:
         run: |
           VERSION="${{ inputs.version }}"
           NEXT="${{ inputs.next_beta_version }}"
+          BETA_TAG="${{ inputs.from_beta_tag }}"
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Error: version must be in X.Y.Z format"
             exit 1
@@ -37,7 +42,15 @@ jobs:
             echo "Error: next_beta_version must be in X.Y.Z format"
             exit 1
           fi
-          BUILD_NUMBER=$(git rev-list --count HEAD)
+          if ! [[ "$BETA_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
+            echo "Error: from_beta_tag must look like vX.Y.Z-beta.N"
+            exit 1
+          fi
+          if ! git rev-parse "$BETA_TAG" >/dev/null 2>&1; then
+            echo "Error: tag $BETA_TAG not found"
+            exit 1
+          fi
+          BUILD_NUMBER=$(git rev-list --count "$BETA_TAG")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "next_beta_version=$NEXT" >> "$GITHUB_OUTPUT"
           echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
@@ -53,6 +66,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.from_beta_tag }}
 
       - name: Setup GhosttyKit
         env:
@@ -146,6 +160,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.from_beta_tag }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Resolve Sparkle dependency
