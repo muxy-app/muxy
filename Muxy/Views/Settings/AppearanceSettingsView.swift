@@ -2,8 +2,10 @@ import SwiftUI
 
 struct AppearanceSettingsView: View {
     @State private var themeService = ThemeService.shared
-    @State private var showThemePicker = false
-    @State private var currentTheme: String?
+    @State private var showLightThemePicker = false
+    @State private var showDarkThemePicker = false
+    @State private var currentLightTheme: String?
+    @State private var currentDarkTheme: String?
     @AppStorage("muxy.vcsDisplayMode") private var vcsDisplayMode = VCSDisplayMode.attached.rawValue
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyle = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyle = SidebarExpandedStyle.defaultValue.rawValue
@@ -11,26 +13,19 @@ struct AppearanceSettingsView: View {
     var body: some View {
         SettingsContainer {
             SettingsSection("Terminal") {
-                SettingsRow("Theme") {
-                    Button {
-                        showThemePicker.toggle()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(currentTheme ?? "Default")
-                                .font(.system(size: SettingsMetrics.labelFontSize))
-                                .lineLimit(1)
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 10))
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                    }
-                    .buttonStyle(.plain)
-                    .popover(isPresented: $showThemePicker) {
-                        ThemePicker()
-                            .environment(themeService)
-                    }
+                SettingsRow("Light Theme") {
+                    themeButton(
+                        title: currentLightTheme ?? "Default",
+                        isPresented: $showLightThemePicker,
+                        mode: .light
+                    )
+                }
+                SettingsRow("Dark Theme") {
+                    themeButton(
+                        title: currentDarkTheme ?? "Default",
+                        isPresented: $showDarkThemePicker,
+                        mode: .dark
+                    )
                 }
             }
 
@@ -80,10 +75,41 @@ struct AppearanceSettingsView: View {
             }
         }
         .task {
-            currentTheme = themeService.currentThemeName()
+            refreshThemeNames()
         }
         .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in
-            currentTheme = themeService.currentThemeName()
+            refreshThemeNames()
         }
+    }
+
+    private func themeButton(
+        title: String,
+        isPresented: Binding<Bool>,
+        mode: ThemePickerMode
+    ) -> some View {
+        Button {
+            isPresented.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.system(size: SettingsMetrics.labelFontSize))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: isPresented) {
+            ThemePicker(mode: mode)
+                .environment(themeService)
+        }
+    }
+
+    private func refreshThemeNames() {
+        currentLightTheme = themeService.currentLightThemeName()
+        currentDarkTheme = themeService.currentDarkThemeName()
     }
 }
