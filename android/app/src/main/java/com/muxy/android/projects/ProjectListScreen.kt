@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.muxy.android.LocalAppContainer
+import com.muxy.android.ui.layout.ResponsiveContent
 import com.muxy.protocol.dto.ProjectDTO
 import java.util.UUID
 
@@ -54,9 +55,10 @@ fun ProjectListScreen(
     modifier: Modifier = Modifier,
 ) {
     val container = LocalAppContainer.current
-    val viewModel: ProjectListViewModel = viewModel(
-        factory = ProjectListViewModel.factory(container.muxyClient),
-    )
+    val viewModel: ProjectListViewModel =
+        viewModel(
+            factory = ProjectListViewModel.factory(container.muxyClient),
+        )
 
     val projects by viewModel.projects.collectAsStateWithLifecycle()
     val logos by viewModel.projectLogos.collectAsStateWithLifecycle()
@@ -99,33 +101,31 @@ fun ProjectListScreen(
                         Icon(Icons.Outlined.Close, contentDescription = "Disconnect")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                colors =
+                    TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                    ),
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        when {
-            isLoading && projects.isEmpty() -> LoadingPlaceholder(modifier = Modifier.padding(padding))
-            errorMessage != null && projects.isEmpty() -> ErrorPlaceholder(
-                message = errorMessage!!,
-                onRetry = viewModel::refresh,
-                modifier = Modifier.padding(padding),
-            )
-            projects.isEmpty() -> EmptyProjectsState(
-                onRefresh = viewModel::refresh,
-                modifier = Modifier.padding(padding),
-            )
-            else -> ProjectsList(
-                projects = projects,
-                logos = logos,
-                onTap = viewModel::selectProject,
-                contentPadding = PaddingValues(
-                    top = padding.calculateTopPadding() + 8.dp,
-                    bottom = padding.calculateBottomPadding() + 8.dp,
-                ),
-            )
+        ResponsiveContent(modifier = Modifier.padding(padding)) {
+            when {
+                isLoading && projects.isEmpty() -> LoadingPlaceholder()
+                errorMessage != null && projects.isEmpty() ->
+                    ErrorPlaceholder(
+                        message = errorMessage!!,
+                        onRetry = viewModel::refresh,
+                    )
+                projects.isEmpty() -> EmptyProjectsState(onRefresh = viewModel::refresh)
+                else ->
+                    ProjectsList(
+                        projects = projects,
+                        logos = logos,
+                        onTap = viewModel::selectProject,
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                    )
+            }
         }
     }
 }
@@ -154,10 +154,11 @@ private fun ProjectsList(
                 leadingContent = {
                     ProjectIcon(project = project, logoBytes = logos[project.id])
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background)
-                    .clickable { onTap(project.id) },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background)
+                        .clickable { onTap(project.id) },
                 tonalElevation = 0.dp,
             )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

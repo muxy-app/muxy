@@ -27,54 +27,72 @@ data class WorkspaceDTO(
 
 @Serializable
 enum class SplitDirectionDTO {
-    @SerialName("horizontal") HORIZONTAL,
-    @SerialName("vertical") VERTICAL,
+    @SerialName("horizontal")
+    HORIZONTAL,
+
+    @SerialName("vertical")
+    VERTICAL,
 }
 
 @Serializable
 enum class SplitPositionDTO {
-    @SerialName("first") FIRST,
-    @SerialName("second") SECOND,
+    @SerialName("first")
+    FIRST,
+
+    @SerialName("second")
+    SECOND,
 }
 
 @Serializable(with = SplitNodeSerializer::class)
 sealed class SplitNodeDTO {
     data class TabArea(val tabArea: TabAreaDTO) : SplitNodeDTO()
+
     data class Split(val split: SplitBranchDTO) : SplitNodeDTO()
 }
 
 object SplitNodeSerializer : KSerializer<SplitNodeDTO> {
-    override val descriptor: SerialDescriptor = buildClassSerialDescriptor("SplitNodeDTO") {
-        element<String>("type")
-    }
-
-    override fun serialize(encoder: Encoder, value: SplitNodeDTO) {
-        val output = (encoder as? JsonEncoder)
-            ?: error("SplitNodeSerializer only supports JSON")
-        val element = when (value) {
-            is SplitNodeDTO.TabArea -> buildJsonObject {
-                put("type", "tabArea")
-                put("tabArea", output.json.encodeToJsonElement(TabAreaDTO.serializer(), value.tabArea))
-            }
-            is SplitNodeDTO.Split -> buildJsonObject {
-                put("type", "split")
-                put("split", output.json.encodeToJsonElement(SplitBranchDTO.serializer(), value.split))
-            }
+    override val descriptor: SerialDescriptor =
+        buildClassSerialDescriptor("SplitNodeDTO") {
+            element<String>("type")
         }
+
+    override fun serialize(
+        encoder: Encoder,
+        value: SplitNodeDTO,
+    ) {
+        val output =
+            (encoder as? JsonEncoder)
+                ?: error("SplitNodeSerializer only supports JSON")
+        val element =
+            when (value) {
+                is SplitNodeDTO.TabArea ->
+                    buildJsonObject {
+                        put("type", "tabArea")
+                        put("tabArea", output.json.encodeToJsonElement(TabAreaDTO.serializer(), value.tabArea))
+                    }
+                is SplitNodeDTO.Split ->
+                    buildJsonObject {
+                        put("type", "split")
+                        put("split", output.json.encodeToJsonElement(SplitBranchDTO.serializer(), value.split))
+                    }
+            }
         output.encodeJsonElement(element)
     }
 
     override fun deserialize(decoder: Decoder): SplitNodeDTO {
-        val input = (decoder as? JsonDecoder)
-            ?: error("SplitNodeSerializer only supports JSON")
+        val input =
+            (decoder as? JsonDecoder)
+                ?: error("SplitNodeSerializer only supports JSON")
         val obj = input.decodeJsonElement().jsonObject
         return when (val type = obj.getValue("type").jsonPrimitive.content) {
-            "tabArea" -> SplitNodeDTO.TabArea(
-                input.json.decodeFromJsonElement(TabAreaDTO.serializer(), obj.getValue("tabArea"))
-            )
-            "split" -> SplitNodeDTO.Split(
-                input.json.decodeFromJsonElement(SplitBranchDTO.serializer(), obj.getValue("split"))
-            )
+            "tabArea" ->
+                SplitNodeDTO.TabArea(
+                    input.json.decodeFromJsonElement(TabAreaDTO.serializer(), obj.getValue("tabArea")),
+                )
+            "split" ->
+                SplitNodeDTO.Split(
+                    input.json.decodeFromJsonElement(SplitBranchDTO.serializer(), obj.getValue("split")),
+                )
             else -> error("Unknown SplitNodeDTO type: $type")
         }
     }
@@ -108,8 +126,15 @@ data class TabDTO(
 
 @Serializable
 enum class TabKindDTO {
-    @SerialName("terminal") TERMINAL,
-    @SerialName("vcs") VCS,
-    @SerialName("editor") EDITOR,
-    @SerialName("diffViewer") DIFF_VIEWER,
+    @SerialName("terminal")
+    TERMINAL,
+
+    @SerialName("vcs")
+    VCS,
+
+    @SerialName("editor")
+    EDITOR,
+
+    @SerialName("diffViewer")
+    DIFF_VIEWER,
 }

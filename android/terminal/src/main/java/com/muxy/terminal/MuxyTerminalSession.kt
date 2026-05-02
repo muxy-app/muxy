@@ -11,14 +11,18 @@ class MuxyTerminalSession(
     sessionClient: TerminalSessionClient,
     transcriptRows: Int? = DEFAULT_TRANSCRIPT_ROWS,
 ) : TerminalSession(transcriptRows, sessionClient) {
-
-    override fun write(data: ByteArray, offset: Int, count: Int) {
+    override fun write(
+        data: ByteArray,
+        offset: Int,
+        count: Int,
+    ) {
         if (count <= 0) return
-        val payload = if (offset == 0 && count == data.size) {
-            data.copyOf()
-        } else {
-            data.copyOfRange(offset, offset + count)
-        }
+        val payload =
+            if (offset == 0 && count == data.size) {
+                data.copyOf()
+            } else {
+                data.copyOfRange(offset, offset + count)
+            }
         client.sendTerminalInput(paneID = paneID, bytes = payload)
     }
 

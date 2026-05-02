@@ -62,9 +62,10 @@ fun NotificationsScreen(
     modifier: Modifier = Modifier,
 ) {
     val container = LocalAppContainer.current
-    val viewModel: NotificationsViewModel = viewModel(
-        factory = NotificationsViewModel.factory(container.muxyClient),
-    )
+    val viewModel: NotificationsViewModel =
+        viewModel(
+            factory = NotificationsViewModel.factory(container.muxyClient),
+        )
 
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
@@ -107,9 +108,10 @@ fun NotificationsScreen(
                         Icon(Icons.Outlined.Refresh, contentDescription = "Refresh")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                colors =
+                    TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                    ),
             )
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -117,23 +119,27 @@ fun NotificationsScreen(
     ) { padding ->
         when {
             isLoading && notifications.isEmpty() -> LoadingPlaceholder(modifier = Modifier.padding(padding))
-            errorMessage != null && notifications.isEmpty() -> ErrorPlaceholder(
-                message = errorMessage!!,
-                onRetry = viewModel::refresh,
-                modifier = Modifier.padding(padding),
-            )
-            notifications.isEmpty() -> EmptyNotificationsState(
-                onRefresh = viewModel::refresh,
-                modifier = Modifier.padding(padding),
-            )
-            else -> NotificationList(
-                notifications = notifications,
-                onTap = viewModel::openNotification,
-                contentPadding = PaddingValues(
-                    top = padding.calculateTopPadding() + 8.dp,
-                    bottom = padding.calculateBottomPadding() + 8.dp,
-                ),
-            )
+            errorMessage != null && notifications.isEmpty() ->
+                ErrorPlaceholder(
+                    message = errorMessage!!,
+                    onRetry = viewModel::refresh,
+                    modifier = Modifier.padding(padding),
+                )
+            notifications.isEmpty() ->
+                EmptyNotificationsState(
+                    onRefresh = viewModel::refresh,
+                    modifier = Modifier.padding(padding),
+                )
+            else ->
+                NotificationList(
+                    notifications = notifications,
+                    onTap = viewModel::openNotification,
+                    contentPadding =
+                        PaddingValues(
+                            top = padding.calculateTopPadding() + 8.dp,
+                            bottom = padding.calculateBottomPadding() + 8.dp,
+                        ),
+                )
         }
     }
 }
@@ -158,10 +164,11 @@ private fun NotificationRow(
     onTap: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onTap)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onTap)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
     ) {
         UnreadDot(isUnread = !notification.isRead)
@@ -206,20 +213,22 @@ private fun NotificationRow(
 @Composable
 private fun UnreadDot(isUnread: Boolean) {
     Box(
-        modifier = Modifier
-            .size(8.dp)
-            .background(
-                color = if (isUnread) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
-                shape = CircleShape,
-            ),
+        modifier =
+            Modifier
+                .size(8.dp)
+                .background(
+                    color = if (isUnread) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
+                    shape = CircleShape,
+                ),
     )
 }
 
-private fun sourceLabel(source: NotificationSourceDTO): String = when (source) {
-    is NotificationSourceDTO.Osc -> "Terminal"
-    is NotificationSourceDTO.Socket -> "Socket"
-    is NotificationSourceDTO.AiProvider -> source.provider
-}
+private fun sourceLabel(source: NotificationSourceDTO): String =
+    when (source) {
+        is NotificationSourceDTO.Osc -> "Terminal"
+        is NotificationSourceDTO.Socket -> "Socket"
+        is NotificationSourceDTO.AiProvider -> source.provider
+    }
 
 private fun relativeTime(timestamp: Instant): String {
     val now = Instant.now()
@@ -235,12 +244,12 @@ private fun relativeTime(timestamp: Instant): String {
     }
 }
 
-private val absoluteFormatter: DateTimeFormatter = DateTimeFormatter
-    .ofPattern("MMM d")
-    .withZone(ZoneId.systemDefault())
+private val absoluteFormatter: DateTimeFormatter =
+    DateTimeFormatter
+        .ofPattern("MMM d")
+        .withZone(ZoneId.systemDefault())
 
-private fun absoluteShort(timestamp: Instant): String =
-    absoluteFormatter.format(timestamp.truncatedTo(ChronoUnit.MINUTES))
+private fun absoluteShort(timestamp: Instant): String = absoluteFormatter.format(timestamp.truncatedTo(ChronoUnit.MINUTES))
 
 @Composable
 private fun LoadingPlaceholder(modifier: Modifier = Modifier) {

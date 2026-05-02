@@ -52,14 +52,15 @@ internal class KeystoreCryptoBox(private val keyAlias: String) : CryptoBox {
     private fun getOrCreateKey(): SecretKey {
         loadKey()?.let { return it }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-        val spec = KeyGenParameterSpec.Builder(
-            keyAlias,
-            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-        )
-            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-            .setKeySize(AES_KEY_SIZE_BITS)
-            .build()
+        val spec =
+            KeyGenParameterSpec.Builder(
+                keyAlias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(AES_KEY_SIZE_BITS)
+                .build()
         generator.init(spec)
         return generator.generateKey()
     }
@@ -69,8 +70,7 @@ internal class KeystoreCryptoBox(private val keyAlias: String) : CryptoBox {
         return keystore.getKey(keyAlias, null) as? SecretKey
     }
 
-    private fun androidKeystore(): KeyStore =
-        KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+    private fun androidKeystore(): KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
 
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"

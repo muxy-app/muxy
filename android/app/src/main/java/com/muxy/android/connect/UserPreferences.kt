@@ -14,9 +14,10 @@ private val Context.userPreferencesDataStore: DataStore<Preferences> by preferen
 )
 
 class UserPreferences(private val dataStore: DataStore<Preferences>) {
-    val trustedNetworkNoticeAcknowledged: Flow<Boolean> = dataStore.data.map { prefs ->
-        prefs[KEY_TRUSTED_NETWORK_ACK] ?: false
-    }
+    val trustedNetworkNoticeAcknowledged: Flow<Boolean> =
+        dataStore.data.map { prefs ->
+            prefs[KEY_TRUSTED_NETWORK_ACK] ?: false
+        }
 
     suspend fun acknowledgeTrustedNetworkNotice() {
         dataStore.edit { it[KEY_TRUSTED_NETWORK_ACK] = true }
@@ -29,7 +30,6 @@ class UserPreferences(private val dataStore: DataStore<Preferences>) {
     companion object {
         private val KEY_TRUSTED_NETWORK_ACK = booleanPreferencesKey("trusted_network_ack_v1")
 
-        fun create(context: Context): UserPreferences =
-            UserPreferences(context.applicationContext.userPreferencesDataStore)
+        fun create(context: Context): UserPreferences = UserPreferences(context.applicationContext.userPreferencesDataStore)
     }
 }

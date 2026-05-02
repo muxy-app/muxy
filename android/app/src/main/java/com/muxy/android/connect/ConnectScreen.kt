@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.muxy.android.LocalAppContainer
+import com.muxy.android.ui.layout.ResponsiveContent
 import com.muxy.net.SavedDevice
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,13 +56,15 @@ fun ConnectScreen(
     onOpenSettings: () -> Unit,
 ) {
     val container = LocalAppContainer.current
-    val viewModel: ConnectViewModel = viewModel(
-        factory = ConnectViewModel.factory(
-            savedDevicesStore = container.savedDevicesStore,
-            muxyClient = container.muxyClient,
-            userPreferences = container.userPreferences,
-        ),
-    )
+    val viewModel: ConnectViewModel =
+        viewModel(
+            factory =
+                ConnectViewModel.factory(
+                    savedDevicesStore = container.savedDevicesStore,
+                    muxyClient = container.muxyClient,
+                    userPreferences = container.userPreferences,
+                ),
+        )
 
     val savedDevices by viewModel.savedDevices.collectAsStateWithLifecycle()
     val noticeAcknowledged by viewModel.trustedNetworkNoticeAcknowledged.collectAsStateWithLifecycle()
@@ -82,39 +85,42 @@ fun ConnectScreen(
                         Icon(Icons.Outlined.Add, contentDescription = "Add device")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                colors =
+                    TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                    ),
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        Column(modifier = Modifier
-            .fillMaxSize()
-            .padding(padding)) {
-            if (!noticeAcknowledged) {
-                TrustedNetworkNotice(
-                    onAcknowledge = viewModel::acknowledgeTrustedNetworkNotice,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                )
-            }
-            if (savedDevices.isEmpty()) {
-                EmptyDevicesState(
-                    onAdd = { showAddSheet = true },
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                )
-            } else {
-                SavedDevicesList(
-                    devices = savedDevices,
-                    onConnect = { viewModel.connect(it) },
-                    onRemove = { viewModel.remove(it) },
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                )
+        ResponsiveContent(modifier = Modifier.padding(padding)) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (!noticeAcknowledged) {
+                    TrustedNetworkNotice(
+                        onAcknowledge = viewModel::acknowledgeTrustedNetworkNotice,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    )
+                }
+                if (savedDevices.isEmpty()) {
+                    EmptyDevicesState(
+                        onAdd = { showAddSheet = true },
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                    )
+                } else {
+                    SavedDevicesList(
+                        devices = savedDevices,
+                        onConnect = { viewModel.connect(it) },
+                        onRemove = { viewModel.remove(it) },
+                        contentPadding = PaddingValues(vertical = 8.dp),
+                        modifier =
+                            Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                    )
+                }
             }
         }
     }
@@ -195,17 +201,18 @@ private fun SwipeableDeviceRow(
     onConnect: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onRemove()
-                true
-            } else {
-                false
-            }
-        },
-        positionalThreshold = { distance -> distance * 0.5f },
-    )
+    val dismissState =
+        rememberSwipeToDismissBoxState(
+            confirmValueChange = { value ->
+                if (value == SwipeToDismissBoxValue.EndToStart) {
+                    onRemove()
+                    true
+                } else {
+                    false
+                }
+            },
+            positionalThreshold = { distance -> distance * 0.5f },
+        )
 
     SwipeToDismissBox(
         state = dismissState,
@@ -226,12 +233,13 @@ private fun SwipeableDeviceRow(
             },
             leadingContent = {
                 Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(
-                            MaterialTheme.colorScheme.surfaceVariant,
-                            RoundedCornerShape(10.dp),
-                        ),
+                    modifier =
+                        Modifier
+                            .size(40.dp)
+                            .background(
+                                MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(10.dp),
+                            ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -241,10 +249,11 @@ private fun SwipeableDeviceRow(
                     )
                 }
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.background)
-                .clickable(onClick = onConnect),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.background)
+                    .clickable(onClick = onConnect),
             tonalElevation = 0.dp,
         )
     }
@@ -253,10 +262,11 @@ private fun SwipeableDeviceRow(
 @Composable
 private fun SwipeRemoveBackground() {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.errorContainer)
-            .padding(horizontal = 24.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.errorContainer)
+                .padding(horizontal = 24.dp),
         contentAlignment = Alignment.CenterEnd,
     ) {
         Icon(

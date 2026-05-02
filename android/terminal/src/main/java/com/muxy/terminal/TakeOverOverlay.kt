@@ -36,23 +36,26 @@ fun TakeOverOverlay(
     modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(background.copy(alpha = 0.92f)),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(background.copy(alpha = 0.92f)),
         contentAlignment = Alignment.Center,
     ) {
         Surface(
             color = foreground.copy(alpha = 0.08f),
             contentColor = foreground,
             shape = RoundedCornerShape(20.dp),
-            modifier = Modifier
-                .padding(horizontal = 24.dp)
-                .widthIn(max = 360.dp),
+            modifier =
+                Modifier
+                    .padding(horizontal = 24.dp)
+                    .widthIn(max = 360.dp),
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -72,10 +75,11 @@ fun TakeOverOverlay(
                 Spacer(Modifier.height(4.dp))
                 Button(
                     onClick = onTakeOver,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = foreground,
-                        contentColor = background,
-                    ),
+                    colors =
+                        ButtonDefaults.buttonColors(
+                            containerColor = foreground,
+                            contentColor = background,
+                        ),
                 ) {
                     Text("Take Over", fontWeight = FontWeight.SemiBold)
                 }

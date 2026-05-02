@@ -17,9 +17,10 @@ private val Context.savedDevicesDataStore: DataStore<Preferences> by preferences
 )
 
 class SavedDevicesStore(private val dataStore: DataStore<Preferences>) {
-    val flow: Flow<List<SavedDevice>> = dataStore.data.map { prefs ->
-        decode(prefs[KEY])
-    }
+    val flow: Flow<List<SavedDevice>> =
+        dataStore.data.map { prefs ->
+            decode(prefs[KEY])
+        }
 
     suspend fun list(): List<SavedDevice> = flow.first()
 
@@ -51,13 +52,11 @@ class SavedDevicesStore(private val dataStore: DataStore<Preferences>) {
         }.getOrDefault(emptyList())
     }
 
-    private fun encode(list: List<SavedDevice>): String =
-        MuxyCodec.json.encodeToString(ListSerializer(SavedDevice.serializer()), list)
+    private fun encode(list: List<SavedDevice>): String = MuxyCodec.json.encodeToString(ListSerializer(SavedDevice.serializer()), list)
 
     companion object {
         private val KEY = stringPreferencesKey("saved_devices_v1")
 
-        fun create(context: Context): SavedDevicesStore =
-            SavedDevicesStore(context.applicationContext.savedDevicesDataStore)
+        fun create(context: Context): SavedDevicesStore = SavedDevicesStore(context.applicationContext.savedDevicesDataStore)
     }
 }

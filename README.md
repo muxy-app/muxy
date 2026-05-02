@@ -5,7 +5,7 @@
 <h1 align="center">Muxy</h1>
 
 <p align="center">Lightweight and Memory efficient terminal for Mac built with SwiftUI and <a href="https://github.com/ghostty-org/ghostty">libghostty</a>.</p>
-<p align="center"><p align="center"><a href="#install">Mac</a> | <a href="#ios-app-testing">iOS</a> | <a href="https://discord.gg/4eMXAmJQ2n">Discord</a></p>
+<p align="center"><p align="center"><a href="#install">Mac</a> | <a href="#ios-app-testing">iOS</a> | <a href="#android-app-testing">Android</a> | <a href="https://discord.gg/4eMXAmJQ2n">Discord</a></p>
 
 <div align="center">
   <img src="https://img.shields.io/github/downloads/muxy-app/muxy/total" />
@@ -68,6 +68,31 @@ The iOS app is available for testers on TestFlight
 
 **The iOS app is also open-source and the source is in this repo**
 
+### Android app (Testing)
+
+The Android app is a remote-control client that mirrors the iOS app. It
+ships as a sideloadable APK from GitHub Releases — no Play Store / F-Droid
+yet.
+
+- Open Muxy on your Mac
+- Settings → Mobile → toggle **Allow mobile device connection**
+- Download `muxy-android-X.Y.Z.apk` from the
+  [releases page](https://github.com/muxy-app/muxy/releases)
+- On your phone, enable **Install unknown apps** for your browser or
+  file manager (Settings → Apps → your-browser → Install unknown apps),
+  then open the APK to install
+- Open the Android app, tap **Add Device**, enter the Mac's IP and port
+  (default `4865`), tap Connect
+- Approve the pairing alert on your Mac
+
+**Use only on Tailscale, a VPN, or a private network you control.** The
+desktop server speaks plain WebSocket — there is no TLS, so the pairing
+token and every keystroke travel in the clear.
+
+The Android app is GPL-3.0 because it vendors Termux's
+`terminal-emulator` and `terminal-view` libraries; the rest of this repo
+keeps its existing MIT license. Source is at `android/`.
+
 ## Local Development
 
 ```bash
@@ -76,6 +101,21 @@ swift build               # debug build
 swift run Muxy             # run
 ```
 
+For the Android app:
+
+```bash
+cd android
+./gradlew :app:assembleDebug   # debug APK at app/build/outputs/apk/debug/
+./gradlew test                 # unit tests
+../scripts/checks-android.sh   # detekt + ktlint + lint + tests + assemble
+```
+
+See `android/README.md` for full Android build, signing, and security
+notes.
+
 ## License
 
-[MIT](LICENSE)
+This repo is mixed-license. The macOS app (Swift sources at the repo
+root, plus `MuxyMobile/`) is [MIT](LICENSE). The Android app and
+everything under `android/` is GPL-3.0 because it vendors Termux's
+terminal core. See `android/LICENSE` and `android/UPSTREAM` for details.

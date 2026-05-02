@@ -85,10 +85,43 @@ the Android Keystore key. The desktop side keeps the approved-device
 record until the user removes it from Mac settings, since there is no
 remote-revoke RPC today.
 
-## Tests
+## Connection lifecycle
+
+The app cleanly closes its WebSocket when it goes to the background and
+auto-reconnects (silently) when it returns to the foreground or when the
+network changes. There is no foreground service in v1, so the device's
+battery optimizer can hold up reconnects on aggressive OEMs.
+
+**Aggressive OEMs (Samsung, Xiaomi, OnePlus, Huawei, etc.)** kill
+backgrounded apps faster than stock Android, and may delay the
+network-callback / foreground reconnect path by tens of seconds. If
+reconnect is slow on your phone, whitelist Muxy in
+**Settings → Battery → App optimization** (the exact path varies by
+manufacturer). This is a known limitation of the no-foreground-service
+design and is not fixed in v1.
+
+After a process restart (system kill / reboot), the app reads the last
+connected host/port from a small DataStore-backed `LastSession` record
+and re-runs the full connect → authenticate → select-project flow on
+launch. Pairing credentials are durable across process restarts as long
+as the app data and Android Keystore key remain intact.
+
+## Tests + checks
+
+Either run individual Gradle tasks:
 
 ```
-./gradlew :protocol:test :net:test
+./gradlew :protocol:test :net:test :terminal:test :app:test
+./gradlew detekt ktlintCheck lint
+./gradlew :app:assembleDebug
+./gradlew :app:assembleRelease   # exercises R8 rules
+```
+
+Or run the bundled script (the same set the CI uses):
+
+```
+../scripts/checks-android.sh        # detekt + ktlint + lint + tests + APK
+../scripts/checks-android.sh --fix  # auto-format with ktlint then run checks
 ```
 
 `:protocol:test` covers JSON round-trips for every DTO, the three
@@ -102,13 +135,38 @@ the diagnostic ring buffer, exponential backoff with jitter, the
 DataStore-backed `SavedDevicesStore`, and the `DeviceCredentialsStore`
 encryption / forget-device flows (using a fake `CryptoBox`).
 
+## Release builds + signing
+
+Debug builds use the default Android debug keystore. Release builds pick
+up a JKS keystore via four environment variables:
+
+```
+MUXY_ANDROID_KEYSTORE_PATH        # absolute path to .jks
+MUXY_ANDROID_KEYSTORE_PASSWORD
+MUXY_ANDROID_KEY_ALIAS
+MUXY_ANDROID_KEY_PASSWORD
+```
+
+If `MUXY_ANDROID_KEYSTORE_PATH` is unset, `:app:assembleRelease` still
+runs (R8 + signing with the debug key) so contributors can validate that
+release-mode obfuscation rules cover every kotlinx.serialization
+`@Serializable` shape locally. The CI release workflow
+(`.github/workflows/release-android.yml`) decodes a base64 keystore
+secret into the runner and exports those four variables before
+assembling the signed APK on `v*-android` tags. The same workflow
+attaches both the APK and the R8 `mapping.txt` to the GitHub release
+draft so user-supplied stack traces can be de-obfuscated later.
+
 ## Phase status
 
-Tracked in `docs/plans/android-companion.md` at the repo root. Phases
-1–4 are landed: scaffolding, protocol port, the WebSocket connection
-manager, and the on-device credential vault (Keystore-encrypted
-`deviceID` + token) plus the awaiting-approval scaffolding. Phase 5
-lands the Connect screen (saved devices, add-device sheet,
-state-routed connecting / awaiting-approval / failed views) and the
-project list (logo + colored swatch icons, tap-to-open project
-session). Workspace UI is a placeholder until Phase 6/8.
+Tracked in `docs/plans/android-companion.md` at the repo root. v1 is now
+feature-complete through Phase 13: scaffolding, protocol port, network
+client, pairing + credential vault, UI shell, terminal rendering with
+Termux core, accessory bar, workspace + tab picker, full VCS sheet stack
+(status / branches / worktrees / create PR), notifications, lifecycle
+hooks (foreground / background, network callback, silent reconnect,
+process-death recovery via `LastSessionStore`), Settings screen
+(font size 8…24, Use Nerd Font, About, Forget Device), error-report
+sheet, splash screen, responsive layouts, accessibility passes, CI
+(detekt + ktlint + lint + tests + APK), and a tag-driven release
+workflow.

@@ -41,18 +41,19 @@ android {
     }
 
     lint {
-        disable += setOf(
-            "DefaultLocale",
-            "ObsoleteSdkInt",
-            "WrongConstant",
-            "ClickableViewAccessibility",
-            "RtlHardcoded",
-            "InflateParams",
-            "UseCompatLoadingForDrawables",
-            "Recycle",
-            "UseCompatTextViewDrawableXml",
-            "PrivateApi",
-        )
+        disable +=
+            setOf(
+                "DefaultLocale",
+                "ObsoleteSdkInt",
+                "WrongConstant",
+                "ClickableViewAccessibility",
+                "RtlHardcoded",
+                "InflateParams",
+                "UseCompatLoadingForDrawables",
+                "Recycle",
+                "UseCompatTextViewDrawableXml",
+                "PrivateApi",
+            )
     }
 }
 

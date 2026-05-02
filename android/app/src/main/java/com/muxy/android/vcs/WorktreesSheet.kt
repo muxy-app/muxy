@@ -22,8 +22,6 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -94,9 +92,10 @@ fun WorktreesSheet(
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onDismiss) { Text("Close", color = colors.foreground) }
@@ -113,9 +112,10 @@ fun WorktreesSheet(
             }
             HorizontalDivider(color = colors.outline)
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(items = worktrees, key = { it.id }) { worktree ->
@@ -199,18 +199,20 @@ private fun WorktreeRow(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(cardBackground, shape = RoundedCornerShape(8.dp))
-            .clickable(enabled = !isActive, onClick = onTap)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(cardBackground, shape = RoundedCornerShape(8.dp))
+                .clickable(enabled = !isActive, onClick = onTap)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val icon = when {
-            isActive -> Icons.Outlined.CheckCircle
-            worktree.isPrimary -> Icons.Outlined.Home
-            else -> Icons.Outlined.Folder
-        }
+        val icon =
+            when {
+                isActive -> Icons.Outlined.CheckCircle
+                worktree.isPrimary -> Icons.Outlined.Home
+                else -> Icons.Outlined.Folder
+            }
         val tint = if (isActive) Color(0xFF2E7D32) else muted
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(10.dp))
@@ -279,8 +281,9 @@ private fun AddWorktreeSheet(
         }
     }
 
-    val canSubmit = name.isNotBlank() &&
-        if (useExistingBranch) selectedExisting.isNotEmpty() else branchName.isNotBlank()
+    val canSubmit =
+        name.isNotBlank() &&
+            if (useExistingBranch) selectedExisting.isNotEmpty() else branchName.isNotBlank()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -288,9 +291,10 @@ private fun AddWorktreeSheet(
         containerColor = colors.background,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -342,15 +346,16 @@ private fun AddWorktreeSheet(
                 placeholder = { Text("Name", color = colors.faintForeground) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                colors = TextFieldDefaults.colors(
-                    focusedTextColor = colors.foreground,
-                    unfocusedTextColor = colors.foreground,
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    cursorColor = colors.foreground,
-                    focusedIndicatorColor = colors.foreground,
-                    unfocusedIndicatorColor = colors.outline,
-                ),
+                colors =
+                    TextFieldDefaults.colors(
+                        focusedTextColor = colors.foreground,
+                        unfocusedTextColor = colors.foreground,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        cursorColor = colors.foreground,
+                        focusedIndicatorColor = colors.foreground,
+                        unfocusedIndicatorColor = colors.outline,
+                    ),
             )
 
             Text("Branch", color = colors.mutedForeground, style = MaterialTheme.typography.labelMedium)
@@ -373,18 +378,20 @@ private fun AddWorktreeSheet(
                         value = selectedExisting,
                         onValueChange = { },
                         readOnly = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { dropdownOpen = true },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { dropdownOpen = true },
                         placeholder = { Text("Select branch", color = colors.faintForeground) },
-                        colors = TextFieldDefaults.colors(
-                            focusedTextColor = colors.foreground,
-                            unfocusedTextColor = colors.foreground,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor = colors.foreground,
-                            unfocusedIndicatorColor = colors.outline,
-                        ),
+                        colors =
+                            TextFieldDefaults.colors(
+                                focusedTextColor = colors.foreground,
+                                unfocusedTextColor = colors.foreground,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = colors.foreground,
+                                unfocusedIndicatorColor = colors.outline,
+                            ),
                     )
                     DropdownMenu(
                         expanded = dropdownOpen,
@@ -408,15 +415,16 @@ private fun AddWorktreeSheet(
                     placeholder = { Text("new-branch-name", color = colors.faintForeground) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    colors = TextFieldDefaults.colors(
-                        focusedTextColor = colors.foreground,
-                        unfocusedTextColor = colors.foreground,
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        cursorColor = colors.foreground,
-                        focusedIndicatorColor = colors.foreground,
-                        unfocusedIndicatorColor = colors.outline,
-                    ),
+                    colors =
+                        TextFieldDefaults.colors(
+                            focusedTextColor = colors.foreground,
+                            unfocusedTextColor = colors.foreground,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            cursorColor = colors.foreground,
+                            focusedIndicatorColor = colors.foreground,
+                            unfocusedIndicatorColor = colors.outline,
+                        ),
                 )
             }
 

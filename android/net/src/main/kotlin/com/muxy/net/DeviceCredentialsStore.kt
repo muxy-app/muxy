@@ -26,20 +26,23 @@ class DeviceCredentialsStore internal constructor(
 ) : DeviceCredentialsProvider {
     private val mutex = Mutex()
 
-    override suspend fun load(): DeviceCredentials = mutex.withLock {
-        readDecrypted()?.let { return@withLock it.toDeviceCredentials() }
-        val fresh = StoredCredentials(
-            deviceID = UUID.randomUUID().toString(),
-            token = generateToken(),
-        )
-        write(fresh)
-        fresh.toDeviceCredentials()
-    }
+    override suspend fun load(): DeviceCredentials =
+        mutex.withLock {
+            readDecrypted()?.let { return@withLock it.toDeviceCredentials() }
+            val fresh =
+                StoredCredentials(
+                    deviceID = UUID.randomUUID().toString(),
+                    token = generateToken(),
+                )
+            write(fresh)
+            fresh.toDeviceCredentials()
+        }
 
-    suspend fun forget() = mutex.withLock {
-        dataStore.edit { it.remove(KEY) }
-        cryptoBox.deleteKey()
-    }
+    suspend fun forget() =
+        mutex.withLock {
+            dataStore.edit { it.remove(KEY) }
+            cryptoBox.deleteKey()
+        }
 
     private suspend fun readDecrypted(): StoredCredentials? {
         val raw = dataStore.data.first()[KEY] ?: return null
@@ -54,9 +57,10 @@ class DeviceCredentialsStore internal constructor(
     }
 
     private suspend fun write(stored: StoredCredentials) {
-        val plaintext = MuxyCodec.json
-            .encodeToString(StoredCredentials.serializer(), stored)
-            .toByteArray(Charsets.UTF_8)
+        val plaintext =
+            MuxyCodec.json
+                .encodeToString(StoredCredentials.serializer(), stored)
+                .toByteArray(Charsets.UTF_8)
         val payload = cryptoBox.encrypt(plaintext)
         val encoded = encodePayload(payload)
         dataStore.edit { it[KEY] = encoded }
@@ -70,10 +74,11 @@ class DeviceCredentialsStore internal constructor(
 
     @Serializable
     private data class StoredCredentials(val deviceID: String, val token: String) {
-        fun toDeviceCredentials() = DeviceCredentials(
-            deviceID = UUID.fromString(deviceID),
-            token = token,
-        )
+        fun toDeviceCredentials() =
+            DeviceCredentials(
+                deviceID = UUID.fromString(deviceID),
+                token = token,
+            )
     }
 
     companion object {
@@ -82,10 +87,11 @@ class DeviceCredentialsStore internal constructor(
         private const val TOKEN_BYTES = 32
         private const val MAX_IV_LENGTH = 255
 
-        fun create(context: Context): DeviceCredentialsStore = DeviceCredentialsStore(
-            dataStore = context.applicationContext.deviceCredentialsDataStore,
-            cryptoBox = KeystoreCryptoBox(DEFAULT_KEY_ALIAS),
-        )
+        fun create(context: Context): DeviceCredentialsStore =
+            DeviceCredentialsStore(
+                dataStore = context.applicationContext.deviceCredentialsDataStore,
+                cryptoBox = KeystoreCryptoBox(DEFAULT_KEY_ALIAS),
+            )
 
         internal fun encodePayload(payload: EncryptedPayload): String {
             val iv = payload.iv
@@ -98,15 +104,16 @@ class DeviceCredentialsStore internal constructor(
             return Base64.getEncoder().encodeToString(combined)
         }
 
-        internal fun decodePayload(encoded: String): EncryptedPayload? = runCatching {
-            val combined = Base64.getDecoder().decode(encoded)
-            if (combined.isEmpty()) return@runCatching null
-            val ivLength = combined[0].toInt() and 0xFF
-            if (ivLength == 0 || combined.size < 1 + ivLength) return@runCatching null
-            EncryptedPayload(
-                iv = combined.copyOfRange(1, 1 + ivLength),
-                ciphertext = combined.copyOfRange(1 + ivLength, combined.size),
-            )
-        }.getOrNull()
+        internal fun decodePayload(encoded: String): EncryptedPayload? =
+            runCatching {
+                val combined = Base64.getDecoder().decode(encoded)
+                if (combined.isEmpty()) return@runCatching null
+                val ivLength = combined[0].toInt() and 0xFF
+                if (ivLength == 0 || combined.size < 1 + ivLength) return@runCatching null
+                EncryptedPayload(
+                    iv = combined.copyOfRange(1, 1 + ivLength),
+                    ciphertext = combined.copyOfRange(1 + ivLength, combined.size),
+                )
+            }.getOrNull()
     }
 }

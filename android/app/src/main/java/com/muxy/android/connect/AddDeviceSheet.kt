@@ -46,9 +46,10 @@ fun AddDeviceSheet(
         sheetState = sheetState,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
         ) {
             Text(text = "Add device", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(16.dp))
@@ -69,10 +70,11 @@ fun AddDeviceSheet(
                 placeholder = { Text("100.x.x.x or 192.168.1.10") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Uri,
-                    imeAction = ImeAction.Next,
-                ),
+                keyboardOptions =
+                    KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Next,
+                    ),
             )
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(
@@ -81,10 +83,11 @@ fun AddDeviceSheet(
                 label = { Text("Port") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number,
-                    imeAction = ImeAction.Done,
-                ),
+                keyboardOptions =
+                    KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done,
+                    ),
             )
             Spacer(Modifier.height(8.dp))
             Text(

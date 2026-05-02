@@ -18,12 +18,13 @@ class ConnectViewModelInputTest {
 
     @Test
     fun `whitespace name and host are trimmed`() {
-        val device = normalizeConnectInput(
-            name = "  Pixel  ",
-            host = "  100.64.0.1  ",
-            port = 4865,
-            defaultPort = 4865,
-        )
+        val device =
+            normalizeConnectInput(
+                name = "  Pixel  ",
+                host = "  100.64.0.1  ",
+                port = 4865,
+                defaultPort = 4865,
+            )
         assertEquals("Pixel", device?.name)
         assertEquals("100.64.0.1", device?.host)
     }

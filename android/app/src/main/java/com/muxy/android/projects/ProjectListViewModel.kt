@@ -20,9 +20,10 @@ class ProjectListViewModel(private val muxyClient: MuxyClient) : ViewModel() {
     val projects: StateFlow<List<ProjectDTO>> = muxyClient.projects
     val projectLogos: StateFlow<Map<UUID, ByteArray>> = muxyClient.projectLogos
 
-    val unreadNotificationCount: StateFlow<Int> = muxyClient.notifications
-        .map { list -> list.count { !it.isRead } }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+    val unreadNotificationCount: StateFlow<Int> =
+        muxyClient.notifications
+            .map { list -> list.count { !it.isRead } }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -68,8 +69,9 @@ class ProjectListViewModel(private val muxyClient: MuxyClient) : ViewModel() {
     }
 
     companion object {
-        fun factory(muxyClient: MuxyClient): ViewModelProvider.Factory = viewModelFactory {
-            initializer { ProjectListViewModel(muxyClient = muxyClient) }
-        }
+        fun factory(muxyClient: MuxyClient): ViewModelProvider.Factory =
+            viewModelFactory {
+                initializer { ProjectListViewModel(muxyClient = muxyClient) }
+            }
     }
 }

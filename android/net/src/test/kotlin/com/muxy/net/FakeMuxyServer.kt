@@ -2,6 +2,7 @@ package com.muxy.net
 
 import com.muxy.protocol.codec.MuxyCodec
 import com.muxy.protocol.envelope.MuxyMessage
+import kotlinx.coroutines.flow.MutableSharedFlow
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -11,7 +12,6 @@ import okio.ByteString
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.flow.MutableSharedFlow
 
 class FakeMuxyServer : AutoCloseable {
     private val server = MockWebServer()
@@ -24,30 +24,46 @@ class FakeMuxyServer : AutoCloseable {
     val host: String get() = server.hostName
     val port: Int get() = server.port
 
-    fun start(maxConnections: Int = 4, responder: (MuxyMessage) -> Unit) {
+    fun start(
+        maxConnections: Int = 4,
+        responder: (MuxyMessage) -> Unit,
+    ) {
         this.responder = responder
         repeat(maxConnections) {
             server.enqueue(
                 MockResponse().withWebSocketUpgrade(
                     object : WebSocketListener() {
-                        override fun onOpen(webSocket: WebSocket, response: Response) {
+                        override fun onOpen(
+                            webSocket: WebSocket,
+                            response: Response,
+                        ) {
                             sockets.add(webSocket)
                             openLatch.countDown()
                         }
 
-                        override fun onMessage(webSocket: WebSocket, text: String) {
+                        override fun onMessage(
+                            webSocket: WebSocket,
+                            text: String,
+                        ) {
                             val message = MuxyCodec.decode(text)
                             received.add(message)
                             this@FakeMuxyServer.responder?.invoke(message)
                         }
 
-                        override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                        override fun onMessage(
+                            webSocket: WebSocket,
+                            bytes: ByteString,
+                        ) {
                             val message = MuxyCodec.decode(bytes.utf8())
                             received.add(message)
                             this@FakeMuxyServer.responder?.invoke(message)
                         }
 
-                        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                        override fun onClosed(
+                            webSocket: WebSocket,
+                            code: Int,
+                            reason: String,
+                        ) {
                             sockets.remove(webSocket)
                         }
                     },

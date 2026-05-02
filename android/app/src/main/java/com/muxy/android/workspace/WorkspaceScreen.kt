@@ -74,6 +74,12 @@ fun WorkspaceScreen(
     val notifications by client.notifications.collectAsStateWithLifecycle()
     val unreadCount = notifications.count { !it.isRead }
     val colors = muxyColors(theme)
+    val fontSize by container.terminalPreferences.fontSize.collectAsStateWithLifecycle(
+        initialValue = com.muxy.android.settings.TerminalPreferences.DEFAULT_FONT_SIZE,
+    )
+    val useNerdFont by container.terminalPreferences.useNerdFont.collectAsStateWithLifecycle(
+        initialValue = false,
+    )
 
     var showVCS by remember { mutableStateOf(false) }
     var showTabPicker by remember { mutableStateOf(false) }
@@ -180,22 +186,27 @@ fun WorkspaceScreen(
         },
     ) { padding ->
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(colors.background),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(colors.background),
         ) {
             when {
                 workspace == null -> WorkspaceLoading(modifier = Modifier.fillMaxSize())
-                active == null -> EmptyTabsState(
-                    foreground = colors.foreground,
-                    onCreate = { scope.launch { client.createTab(projectID = projectID) } },
-                )
-                else -> ActiveTabContent(
-                    tab = active.tab,
-                    foreground = colors.foreground,
-                    background = colors.background,
-                )
+                active == null ->
+                    EmptyTabsState(
+                        foreground = colors.foreground,
+                        onCreate = { scope.launch { client.createTab(projectID = projectID) } },
+                    )
+                else ->
+                    ActiveTabContent(
+                        tab = active.tab,
+                        foreground = colors.foreground,
+                        background = colors.background,
+                        fontSize = fontSize,
+                        useNerdFont = useNerdFont,
+                    )
             }
         }
     }
@@ -223,10 +234,11 @@ private fun activeAreaTab(workspace: WorkspaceDTO): AreaTab? {
     return AreaTab(area = focused, tab = tab)
 }
 
-private fun collectAreas(node: SplitNodeDTO): List<TabAreaDTO> = when (node) {
-    is SplitNodeDTO.TabArea -> listOf(node.tabArea)
-    is SplitNodeDTO.Split -> collectAreas(node.split.first) + collectAreas(node.split.second)
-}
+private fun collectAreas(node: SplitNodeDTO): List<TabAreaDTO> =
+    when (node) {
+        is SplitNodeDTO.TabArea -> listOf(node.tabArea)
+        is SplitNodeDTO.Split -> collectAreas(node.split.first) + collectAreas(node.split.second)
+    }
 
 @Composable
 private fun TabPickerMenu(
@@ -270,6 +282,8 @@ private fun ActiveTabContent(
     tab: TabDTO,
     foreground: androidx.compose.ui.graphics.Color,
     background: androidx.compose.ui.graphics.Color,
+    fontSize: Int,
+    useNerdFont: Boolean,
 ) {
     val container = LocalAppContainer.current
     when (tab.kind) {
@@ -281,25 +295,30 @@ private fun ActiveTabContent(
                 MuxyTerminalView(
                     client = container.muxyClient,
                     paneID = paneID,
+                    fontSizeSp = fontSize,
+                    useNerdFont = useNerdFont,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
         }
-        TabKindDTO.VCS -> NonTerminalPlaceholder(
-            title = "Source Control — open on desktop",
-            foreground = foreground,
-            background = background,
-        )
-        TabKindDTO.EDITOR -> NonTerminalPlaceholder(
-            title = tab.title.ifBlank { "Editor — open on desktop" },
-            foreground = foreground,
-            background = background,
-        )
-        TabKindDTO.DIFF_VIEWER -> NonTerminalPlaceholder(
-            title = tab.title.ifBlank { "Diff — open on desktop" },
-            foreground = foreground,
-            background = background,
-        )
+        TabKindDTO.VCS ->
+            NonTerminalPlaceholder(
+                title = "Source Control — open on desktop",
+                foreground = foreground,
+                background = background,
+            )
+        TabKindDTO.EDITOR ->
+            NonTerminalPlaceholder(
+                title = tab.title.ifBlank { "Editor — open on desktop" },
+                foreground = foreground,
+                background = background,
+            )
+        TabKindDTO.DIFF_VIEWER ->
+            NonTerminalPlaceholder(
+                title = tab.title.ifBlank { "Diff — open on desktop" },
+                foreground = foreground,
+                background = background,
+            )
     }
 }
 
@@ -310,9 +329,10 @@ private fun NonTerminalPlaceholder(
     background: androidx.compose.ui.graphics.Color,
 ) {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(background),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(background),
         contentAlignment = Alignment.Center,
     ) {
         Text(

@@ -313,20 +313,29 @@ Notes:
 
 ## Events
 
-The server can push these event names:
+The server can push these event names. **Only the four events marked
+"emitted" below actually fire from the live Mac server today** — the rest
+of the event kinds are defined in `MuxyShared` and decoded by the iOS
+and Android clients but no Mac code path emits them. Treat them as
+reserved future events for now and refresh state via explicit RPCs
+(`getWorkspace`, `listProjects`, `listNotifications`) plus reconnect.
 
-| Event | Data type | Description |
-| --- | --- | --- |
-| `workspaceChanged` | `workspace` | Full workspace layout update |
-| `tabChanged` | `tab` | Tab created, closed, selected, or retitled |
-| `terminalOutput` | `terminalOutput` | Raw PTY bytes for a pane the client owns. Pushed as the shell/TUI writes. |
-| `terminalSnapshot` | `terminalCells` | Full grid snapshot for a pane the client just took over. |
-| `notificationReceived` | `notification` | New notification emitted by Muxy |
-| `projectsChanged` | `projects` | Updated project list |
-| `paneOwnershipChanged` | `paneOwnership` | Pane control changed between Mac and remote clients |
-| `themeChanged` | `deviceTheme` | Updated terminal foreground/background colors |
+| Event | Data type | Status | Description |
+| --- | --- | --- | --- |
+| `paneOwnershipChanged` | `paneOwnership` | emitted (broadcast) | Pane control changed between Mac and remote clients |
+| `themeChanged` | `deviceTheme` | emitted (broadcast) | Updated terminal foreground/background colors |
+| `terminalOutput` | `terminalOutput` | emitted (unicast to owner) | Raw PTY bytes for a pane the client owns. Pushed as the shell/TUI writes. |
+| `terminalSnapshot` | `terminalSnapshot` | emitted (unicast to taker) | One-shot VT byte snapshot of the visible grid, sent on `takeOverPane`. Decoded as a `TerminalOutputEventDTO` (raw bytes), **not** a parsed `terminalCells` payload — the cells representation is only used by the `getTerminalContent` response. |
+| `workspaceChanged` | `workspace` | not emitted | Defined in shared types; Mac never fires it. |
+| `tabChanged` | `tab` | not emitted | Defined in shared types; Mac never fires it. |
+| `projectsChanged` | `projects` | not emitted | Defined in shared types; Mac never fires it. |
+| `notificationReceived` | `notification` | not emitted | Defined in shared types; Mac never fires it. |
 
-For most clients, `workspaceChanged` should be treated as the main source of truth for layout updates.
+Because `workspaceChanged` does not fire today, clients must call
+`getWorkspace(projectID)` after any workspace-changing RPC and on every
+reconnect to keep their local mirror current. Layout changes made by the
+Mac itself or by another remote device are invisible to a given client
+until the next refresh.
 
 ### `terminalOutput` Event
 
@@ -494,8 +503,14 @@ Project logos are returned as Base64-encoded PNG data.
 
 - Persist `deviceID` and `token` securely
 - Re-authenticate after reconnecting
-- Treat `workspaceChanged` as authoritative
+- Refresh workspace state by calling `getWorkspace(projectID)` after any
+  workspace-changing RPC and on every reconnect — `workspaceChanged` is
+  defined but never emitted by the Mac today
+- Refresh notifications via `listNotifications` rather than waiting for
+  `notificationReceived`, which is never emitted today
 - Cache project logos after decoding the Base64 payload
-- Call `takeOverPane` before interactive terminal control
+- Call `takeOverPane` before interactive terminal control. `terminalOutput`
+  is unicast to the current owner only; non-owners receive nothing until
+  they take over and the Mac unicasts a one-shot `terminalSnapshot`.
 - Handle `401` by retrying with pairing only when appropriate
 - Do not assume event filtering is enforced server-side

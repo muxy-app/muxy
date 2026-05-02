@@ -66,7 +66,9 @@ data class FocusAreaParams(
 @Serializable
 data class TerminalInputParams(
     val paneID: @Contextual UUID,
-    val bytes: @Serializable(with = Base64ByteArraySerializer::class) ByteArray,
+    val bytes:
+        @Serializable(with = Base64ByteArraySerializer::class)
+        ByteArray,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -148,10 +150,17 @@ data class TabChangeEventDTO(
 ) {
     @Serializable
     enum class TabChangeKind {
-        @SerialName("created") CREATED,
-        @SerialName("closed") CLOSED,
-        @SerialName("selected") SELECTED,
-        @SerialName("titleChanged") TITLE_CHANGED,
+        @SerialName("created")
+        CREATED,
+
+        @SerialName("closed")
+        CLOSED,
+
+        @SerialName("selected")
+        SELECTED,
+
+        @SerialName("titleChanged")
+        TITLE_CHANGED,
     }
 }
 

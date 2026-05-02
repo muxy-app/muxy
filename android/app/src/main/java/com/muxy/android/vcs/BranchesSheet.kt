@@ -96,9 +96,10 @@ fun BranchesSheet(
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onDismiss) { Text("Close", color = colors.foreground) }
@@ -115,78 +116,85 @@ fun BranchesSheet(
             }
             HorizontalDivider(color = colors.outline)
             when {
-                isLoading && branches == null -> Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(48.dp),
-                    contentAlignment = Alignment.Center,
-                ) { CircularProgressIndicator(color = colors.foreground) }
-                branches == null -> Text(
-                    text = errorMessage ?: "No branches",
-                    color = colors.mutedForeground,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                )
-                else -> LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(items = branches!!.locals, key = { it }) { branch ->
-                        val isCurrent = branch == branches!!.current
-                        Row(
-                            modifier = Modifier
+                isLoading && branches == null ->
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .padding(48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator(color = colors.foreground) }
+                branches == null ->
+                    Text(
+                        text = errorMessage ?: "No branches",
+                        color = colors.mutedForeground,
+                        modifier =
+                            Modifier
                                 .fillMaxWidth()
-                                .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
-                                .clickable(enabled = !isCurrent) {
-                                    if (isCurrent) return@clickable
-                                    busyBranch = branch
-                                    scope.launch {
-                                        try {
-                                            client.switchBranch(projectID, branch)
-                                            onChange()
-                                            onDismiss()
-                                        } catch (t: Throwable) {
-                                            errorMessage = errorMessageOf(t)
-                                        } finally {
-                                            busyBranch = null
+                                .padding(24.dp),
+                    )
+                else ->
+                    LazyColumn(
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(items = branches!!.locals, key = { it }) { branch ->
+                            val isCurrent = branch == branches!!.current
+                            Row(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
+                                        .clickable(enabled = !isCurrent) {
+                                            if (isCurrent) return@clickable
+                                            busyBranch = branch
+                                            scope.launch {
+                                                try {
+                                                    client.switchBranch(projectID, branch)
+                                                    onChange()
+                                                    onDismiss()
+                                                } catch (t: Throwable) {
+                                                    errorMessage = errorMessageOf(t)
+                                                } finally {
+                                                    busyBranch = null
+                                                }
+                                            }
                                         }
-                                    }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = if (isCurrent) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                                    contentDescription = null,
+                                    tint = if (isCurrent) Color(0xFF2E7D32) else colors.outline,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(branch, color = colors.foreground, modifier = Modifier.weight(1f))
+                                if (busyBranch == branch) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = colors.foreground,
+                                    )
                                 }
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                imageVector = if (isCurrent) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
-                                contentDescription = null,
-                                tint = if (isCurrent) Color(0xFF2E7D32) else colors.outline,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Text(branch, color = colors.foreground, modifier = Modifier.weight(1f))
-                            if (busyBranch == branch) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = colors.foreground,
+                            }
+                        }
+                        if (errorMessage != null) {
+                            item {
+                                Text(
+                                    errorMessage!!,
+                                    color = Color(0xFFE53935),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 8.dp),
                                 )
                             }
                         }
+                        item { Spacer(Modifier.height(8.dp)) }
                     }
-                    if (errorMessage != null) {
-                        item {
-                            Text(
-                                errorMessage!!,
-                                color = Color(0xFFE53935),
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(top = 8.dp),
-                            )
-                        }
-                    }
-                    item { Spacer(Modifier.height(8.dp)) }
-                }
             }
         }
     }

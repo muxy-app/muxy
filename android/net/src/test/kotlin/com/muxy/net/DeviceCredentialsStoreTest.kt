@@ -35,11 +35,12 @@ class DeviceCredentialsStoreTest {
     fun setUp() {
         prefsFile = File(tempFolder.newFolder(), "credentials.preferences_pb")
         cryptoBox = FakeCryptoBox()
-        store = DeviceCredentialsStore(
-            dataStore = PreferenceDataStoreFactory.create(scope = scope) { prefsFile },
-            cryptoBox = cryptoBox,
-            random = SecureRandom(),
-        )
+        store =
+            DeviceCredentialsStore(
+                dataStore = PreferenceDataStoreFactory.create(scope = scope) { prefsFile },
+                cryptoBox = cryptoBox,
+                random = SecureRandom(),
+            )
     }
 
     @After
@@ -48,50 +49,55 @@ class DeviceCredentialsStoreTest {
     }
 
     @Test
-    fun `first load generates persistent credentials`() = runBlocking {
-        val first = store.load()
-        val second = store.load()
+    fun `first load generates persistent credentials`() =
+        runBlocking {
+            val first = store.load()
+            val second = store.load()
 
-        assertEquals(first.deviceID, second.deviceID)
-        assertEquals(first.token, second.token)
-    }
-
-    @Test
-    fun `token is base64 of 32 random bytes`() = runBlocking {
-        val credentials = store.load()
-        val decoded = Base64.getDecoder().decode(credentials.token)
-        assertEquals(32, decoded.size)
-    }
+            assertEquals(first.deviceID, second.deviceID)
+            assertEquals(first.token, second.token)
+        }
 
     @Test
-    fun `forget wipes persisted credentials and keystore key`() = runBlocking {
-        val first = store.load()
-        store.forget()
-
-        assertNull(cryptoBox.exportKey())
-        val second = store.load()
-        assertNotEquals(first.deviceID, second.deviceID)
-        assertNotEquals(first.token, second.token)
-        assertNotNull(cryptoBox.exportKey())
-    }
+    fun `token is base64 of 32 random bytes`() =
+        runBlocking {
+            val credentials = store.load()
+            val decoded = Base64.getDecoder().decode(credentials.token)
+            assertEquals(32, decoded.size)
+        }
 
     @Test
-    fun `decrypt failure regenerates fresh credentials`() = runBlocking {
-        val first = store.load()
+    fun `forget wipes persisted credentials and keystore key`() =
+        runBlocking {
+            val first = store.load()
+            store.forget()
 
-        cryptoBox.tamperNextDecrypt = true
-        val second = store.load()
+            assertNull(cryptoBox.exportKey())
+            val second = store.load()
+            assertNotEquals(first.deviceID, second.deviceID)
+            assertNotEquals(first.token, second.token)
+            assertNotNull(cryptoBox.exportKey())
+        }
 
-        assertNotEquals(first.deviceID, second.deviceID)
-        assertNotEquals(first.token, second.token)
-    }
+    @Test
+    fun `decrypt failure regenerates fresh credentials`() =
+        runBlocking {
+            val first = store.load()
+
+            cryptoBox.tamperNextDecrypt = true
+            val second = store.load()
+
+            assertNotEquals(first.deviceID, second.deviceID)
+            assertNotEquals(first.token, second.token)
+        }
 
     @Test
     fun `payload encoding round-trips iv and ciphertext`() {
-        val payload = EncryptedPayload(
-            iv = ByteArray(12).also { SecureRandom().nextBytes(it) },
-            ciphertext = ByteArray(64).also { SecureRandom().nextBytes(it) },
-        )
+        val payload =
+            EncryptedPayload(
+                iv = ByteArray(12).also { SecureRandom().nextBytes(it) },
+                ciphertext = ByteArray(64).also { SecureRandom().nextBytes(it) },
+            )
         val encoded = DeviceCredentialsStore.encodePayload(payload)
         val decoded = DeviceCredentialsStore.decodePayload(encoded)
 
@@ -111,11 +117,13 @@ class DeviceCredentialsStoreTest {
     }
 
     @Test
-    fun `concurrent loads return identical credentials`() = runBlocking {
-        val results = coroutineScope {
-            (1..8).map { async { store.load() } }.map { it.await() }
+    fun `concurrent loads return identical credentials`() =
+        runBlocking {
+            val results =
+                coroutineScope {
+                    (1..8).map { async { store.load() } }.map { it.await() }
+                }
+            val first = results.first()
+            assertTrue(results.all { it.deviceID == first.deviceID && it.token == first.token })
         }
-        val first = results.first()
-        assertTrue(results.all { it.deviceID == first.deviceID && it.token == first.token })
-    }
 }

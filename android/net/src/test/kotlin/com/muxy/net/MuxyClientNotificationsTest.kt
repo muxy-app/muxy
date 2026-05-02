@@ -36,12 +36,14 @@ class MuxyClientNotificationsTest {
     @Before
     fun setUp() {
         server = FakeMuxyServer()
-        client = MuxyClient(
-            httpClient = OkHttpClient.Builder().readTimeout(0, TimeUnit.MILLISECONDS).build(),
-            credentialsProvider = object : DeviceCredentialsProvider {
-                override suspend fun load(): DeviceCredentials = DeviceCredentials(deviceID, token)
-            },
-        )
+        client =
+            MuxyClient(
+                httpClient = OkHttpClient.Builder().readTimeout(0, TimeUnit.MILLISECONDS).build(),
+                credentialsProvider =
+                    object : DeviceCredentialsProvider {
+                        override suspend fun load(): DeviceCredentials = DeviceCredentials(deviceID, token)
+                    },
+            )
     }
 
     @After
@@ -90,76 +92,80 @@ class MuxyClientNotificationsTest {
     }
 
     @Test
-    fun `refreshNotifications stores list sorted by timestamp desc`() = runBlocking {
-        val older = fakeNotification(timestamp = Instant.parse("2026-01-01T00:00:00Z"), title = "older")
-        val newer = fakeNotification(timestamp = Instant.parse("2026-02-01T00:00:00Z"), title = "newer")
-        startAndConnect { request ->
-            if (request.method == MuxyMethod.LIST_NOTIFICATIONS) {
-                server.broadcast(
-                    MuxyMessage.Response(
-                        MuxyResponse(
-                            id = request.id,
-                            result = MuxyResult.Notifications(listOf(older, newer)),
-                        ),
-                    ),
-                )
-            }
-        }
-        val ok = client.refreshNotifications()
-        assertTrue(ok)
-        val result = client.notifications.value
-        assertEquals(2, result.size)
-        assertEquals("newer", result.first().title)
-        assertEquals("older", result.last().title)
-    }
-
-    @Test
-    fun `refreshNotifications returns false on server error`() = runBlocking {
-        startAndConnect { request ->
-            if (request.method == MuxyMethod.LIST_NOTIFICATIONS) {
-                server.broadcast(
-                    MuxyMessage.Response(
-                        MuxyResponse(id = request.id, error = MuxyError(code = 500, message = "boom")),
-                    ),
-                )
-            }
-        }
-        assertFalse(client.refreshNotifications())
-        assertTrue(client.notifications.value.isEmpty())
-    }
-
-    @Test
-    fun `markNotificationRead flips isRead in cached list`() = runBlocking {
-        val target = fakeNotification(title = "target", isRead = false)
-        val other = fakeNotification(title = "other", isRead = false)
-        var seenMarkID: UUID? = null
-        startAndConnect { request ->
-            when (request.method) {
-                MuxyMethod.LIST_NOTIFICATIONS -> server.broadcast(
-                    MuxyMessage.Response(
-                        MuxyResponse(
-                            id = request.id,
-                            result = MuxyResult.Notifications(listOf(target, other)),
-                        ),
-                    ),
-                )
-                MuxyMethod.MARK_NOTIFICATION_READ -> {
-                    val params = (request.params as MuxyParams.MarkNotificationRead).value
-                    seenMarkID = (params as MarkNotificationReadParams).notificationID
+    fun `refreshNotifications stores list sorted by timestamp desc`() =
+        runBlocking {
+            val older = fakeNotification(timestamp = Instant.parse("2026-01-01T00:00:00Z"), title = "older")
+            val newer = fakeNotification(timestamp = Instant.parse("2026-02-01T00:00:00Z"), title = "newer")
+            startAndConnect { request ->
+                if (request.method == MuxyMethod.LIST_NOTIFICATIONS) {
                     server.broadcast(
-                        MuxyMessage.Response(MuxyResponse(id = request.id, result = MuxyResult.Ok)),
+                        MuxyMessage.Response(
+                            MuxyResponse(
+                                id = request.id,
+                                result = MuxyResult.Notifications(listOf(older, newer)),
+                            ),
+                        ),
                     )
                 }
-                else -> Unit
             }
+            val ok = client.refreshNotifications()
+            assertTrue(ok)
+            val result = client.notifications.value
+            assertEquals(2, result.size)
+            assertEquals("newer", result.first().title)
+            assertEquals("older", result.last().title)
         }
-        assertTrue(client.refreshNotifications())
-        assertTrue(client.markNotificationRead(target.id))
-        assertEquals(target.id, seenMarkID)
-        val updated = client.notifications.value
-        val updatedTarget = updated.first { it.id == target.id }
-        val updatedOther = updated.first { it.id == other.id }
-        assertTrue(updatedTarget.isRead)
-        assertFalse(updatedOther.isRead)
-    }
+
+    @Test
+    fun `refreshNotifications returns false on server error`() =
+        runBlocking {
+            startAndConnect { request ->
+                if (request.method == MuxyMethod.LIST_NOTIFICATIONS) {
+                    server.broadcast(
+                        MuxyMessage.Response(
+                            MuxyResponse(id = request.id, error = MuxyError(code = 500, message = "boom")),
+                        ),
+                    )
+                }
+            }
+            assertFalse(client.refreshNotifications())
+            assertTrue(client.notifications.value.isEmpty())
+        }
+
+    @Test
+    fun `markNotificationRead flips isRead in cached list`() =
+        runBlocking {
+            val target = fakeNotification(title = "target", isRead = false)
+            val other = fakeNotification(title = "other", isRead = false)
+            var seenMarkID: UUID? = null
+            startAndConnect { request ->
+                when (request.method) {
+                    MuxyMethod.LIST_NOTIFICATIONS ->
+                        server.broadcast(
+                            MuxyMessage.Response(
+                                MuxyResponse(
+                                    id = request.id,
+                                    result = MuxyResult.Notifications(listOf(target, other)),
+                                ),
+                            ),
+                        )
+                    MuxyMethod.MARK_NOTIFICATION_READ -> {
+                        val params = (request.params as MuxyParams.MarkNotificationRead).value
+                        seenMarkID = (params as MarkNotificationReadParams).notificationID
+                        server.broadcast(
+                            MuxyMessage.Response(MuxyResponse(id = request.id, result = MuxyResult.Ok)),
+                        )
+                    }
+                    else -> Unit
+                }
+            }
+            assertTrue(client.refreshNotifications())
+            assertTrue(client.markNotificationRead(target.id))
+            assertEquals(target.id, seenMarkID)
+            val updated = client.notifications.value
+            val updatedTarget = updated.first { it.id == target.id }
+            val updatedOther = updated.first { it.id == other.id }
+            assertTrue(updatedTarget.isRead)
+            assertFalse(updatedOther.isRead)
+        }
 }

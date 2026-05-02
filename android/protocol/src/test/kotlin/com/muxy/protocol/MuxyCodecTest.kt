@@ -2,15 +2,11 @@ package com.muxy.protocol
 
 import com.muxy.protocol.codec.MuxyCodec
 import com.muxy.protocol.dto.AuthenticateDeviceParams
-import com.muxy.protocol.dto.DeviceThemeEventDTO
-import com.muxy.protocol.dto.GitFileDTO
 import com.muxy.protocol.dto.GitFileStatusDTO
 import com.muxy.protocol.dto.NotificationDTO
 import com.muxy.protocol.dto.NotificationSourceDTO
-import com.muxy.protocol.dto.PairDeviceParams
 import com.muxy.protocol.dto.PairingResultDTO
 import com.muxy.protocol.dto.PaneOwnerDTO
-import com.muxy.protocol.dto.PaneOwnershipEventDTO
 import com.muxy.protocol.dto.ProjectDTO
 import com.muxy.protocol.dto.SelectProjectParams
 import com.muxy.protocol.dto.SplitBranchDTO
@@ -20,13 +16,10 @@ import com.muxy.protocol.dto.TabAreaDTO
 import com.muxy.protocol.dto.TabDTO
 import com.muxy.protocol.dto.TabKindDTO
 import com.muxy.protocol.dto.TerminalInputParams
-import com.muxy.protocol.dto.TerminalOutputEventDTO
-import com.muxy.protocol.dto.VCSPullRequestDTO
 import com.muxy.protocol.dto.VCSStatusDTO
 import com.muxy.protocol.dto.WorkspaceDTO
 import com.muxy.protocol.dto.WorktreeDTO
 import com.muxy.protocol.envelope.MuxyError
-import com.muxy.protocol.envelope.MuxyEvent
 import com.muxy.protocol.envelope.MuxyEventData
 import com.muxy.protocol.envelope.MuxyEventKind
 import com.muxy.protocol.envelope.MuxyMessage
@@ -36,12 +29,7 @@ import com.muxy.protocol.envelope.MuxyRequest
 import com.muxy.protocol.envelope.MuxyResponse
 import com.muxy.protocol.envelope.MuxyResult
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -51,11 +39,9 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
-import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 class MuxyCodecTest {
-
     private val timestamp: Instant = Instant.parse("2026-05-01T12:34:56Z")
     private val projectID = UUID.fromString("11111111-1111-1111-1111-111111111111")
     private val worktreeID = UUID.fromString("22222222-2222-2222-2222-222222222222")
@@ -67,11 +53,12 @@ class MuxyCodecTest {
 
     @Test
     fun `request envelope serializes type and payload`() {
-        val request = MuxyRequest(
-            id = "req-1",
-            method = MuxyMethod.LIST_PROJECTS,
-            params = null,
-        )
+        val request =
+            MuxyRequest(
+                id = "req-1",
+                method = MuxyMethod.LIST_PROJECTS,
+                params = null,
+            )
         val message = MuxyMessage.Request(request)
         val text = MuxyCodec.encode(message)
         val obj = Json.parseToJsonElement(text).jsonObject
@@ -96,9 +83,10 @@ class MuxyCodecTest {
 
     @Test
     fun `response envelope decodes ok shape`() {
-        val raw = """
+        val raw =
+            """
             {"type":"response","payload":{"id":"r-2","result":{"type":"ok"}}}
-        """.trimIndent()
+            """.trimIndent()
         val message = MuxyCodec.decode(raw)
         assertTrue(message is MuxyMessage.Response)
         val response = (message as MuxyMessage.Response).value
@@ -109,9 +97,10 @@ class MuxyCodecTest {
 
     @Test
     fun `error response decodes code and message`() {
-        val raw = """
+        val raw =
+            """
             {"type":"response","payload":{"id":"r-3","error":{"code":401,"message":"Authentication required"}}}
-        """.trimIndent()
+            """.trimIndent()
         val message = MuxyCodec.decode(raw)
         val response = (message as MuxyMessage.Response).value
         assertEquals(MuxyError(code = 401, message = "Authentication required"), response.error)
@@ -120,11 +109,12 @@ class MuxyCodecTest {
 
     @Test
     fun `params shape uses inner type and value keys`() {
-        val request = MuxyRequest(
-            id = "p-1",
-            method = MuxyMethod.SELECT_PROJECT,
-            params = MuxyParams.SelectProject(SelectProjectParams(projectID)),
-        )
+        val request =
+            MuxyRequest(
+                id = "p-1",
+                method = MuxyMethod.SELECT_PROJECT,
+                params = MuxyParams.SelectProject(SelectProjectParams(projectID)),
+            )
         val message = MuxyMessage.Request(request)
         val obj = Json.parseToJsonElement(MuxyCodec.encode(message)).jsonObject
         val params = obj.getValue("payload").jsonObject.getValue("params").jsonObject
@@ -140,9 +130,10 @@ class MuxyCodecTest {
         val request = MuxyRequest(id = "t-1", method = MuxyMethod.TERMINAL_INPUT, params = params)
         val text = MuxyCodec.encode(MuxyMessage.Request(request))
         val obj = Json.parseToJsonElement(text).jsonObject
-        val value = obj.getValue("payload").jsonObject
-            .getValue("params").jsonObject
-            .getValue("value").jsonObject
+        val value =
+            obj.getValue("payload").jsonObject
+                .getValue("params").jsonObject
+                .getValue("value").jsonObject
         val encoded = value.getValue("bytes").jsonPrimitive.content
         assertEquals("aGkK", encoded)
 
@@ -153,32 +144,35 @@ class MuxyCodecTest {
 
     @Test
     fun `auth params round-trip preserves uppercase UUID and string token`() {
-        val params = MuxyParams.AuthenticateDevice(
-            AuthenticateDeviceParams(
-                deviceID = deviceID,
-                deviceName = "Pixel 8",
-                token = "ZmFrZS10b2tlbg==",
-            ),
-        )
+        val params =
+            MuxyParams.AuthenticateDevice(
+                AuthenticateDeviceParams(
+                    deviceID = deviceID,
+                    deviceName = "Pixel 8",
+                    token = "ZmFrZS10b2tlbg==",
+                ),
+            )
         val request = MuxyRequest(id = "a-1", method = MuxyMethod.AUTHENTICATE_DEVICE, params = params)
         val text = MuxyCodec.encode(MuxyMessage.Request(request))
-        val value = Json.parseToJsonElement(text).jsonObject
-            .getValue("payload").jsonObject
-            .getValue("params").jsonObject
-            .getValue("value").jsonObject
+        val value =
+            Json.parseToJsonElement(text).jsonObject
+                .getValue("payload").jsonObject
+                .getValue("params").jsonObject
+                .getValue("value").jsonObject
         assertEquals(deviceID.toString().uppercase(), value.getValue("deviceID").jsonPrimitive.content)
         assertEquals("ZmFrZS10b2tlbg==", value.getValue("token").jsonPrimitive.content)
     }
 
     @Test
     fun `pairing result roundtrip preserves theme palette`() {
-        val pairing = PairingResultDTO(
-            clientID = clientID,
-            deviceName = "Mac",
-            themeFg = 0xFFEEDDu,
-            themeBg = 0x101010u,
-            themePalette = listOf(0u, 1u, 2u, 3u, 0xFFFFFFu),
-        )
+        val pairing =
+            PairingResultDTO(
+                clientID = clientID,
+                deviceName = "Mac",
+                themeFg = 0xFFEEDDu,
+                themeBg = 0x101010u,
+                themePalette = listOf(0u, 1u, 2u, 3u, 0xFFFFFFu),
+            )
         val response = MuxyResponse(id = "x-1", result = MuxyResult.Pairing(pairing))
         val text = MuxyCodec.encode(MuxyMessage.Response(response))
         val decoded = MuxyCodec.decode(text)
@@ -188,14 +182,16 @@ class MuxyCodecTest {
 
     @Test
     fun `splitNode tabArea wire shape uses keyed inner field`() {
-        val tabArea = TabAreaDTO(
-            id = areaID,
-            projectPath = "/p",
-            tabs = listOf(
-                TabDTO(id = tabID, kind = TabKindDTO.TERMINAL, title = "zsh", isPinned = false, paneID = paneID),
-            ),
-            activeTabID = tabID,
-        )
+        val tabArea =
+            TabAreaDTO(
+                id = areaID,
+                projectPath = "/p",
+                tabs =
+                    listOf(
+                        TabDTO(id = tabID, kind = TabKindDTO.TERMINAL, title = "zsh", isPinned = false, paneID = paneID),
+                    ),
+                activeTabID = tabID,
+            )
         val node: SplitNodeDTO = SplitNodeDTO.TabArea(tabArea)
         val text = MuxyCodec.json.encodeToString(SplitNodeDTO.serializer(), node)
         val obj = Json.parseToJsonElement(text).jsonObject
@@ -206,13 +202,14 @@ class MuxyCodecTest {
 
     @Test
     fun `splitNode split wire shape uses keyed inner field`() {
-        val branch = SplitBranchDTO(
-            id = areaID,
-            direction = SplitDirectionDTO.HORIZONTAL,
-            ratio = 0.5,
-            first = SplitNodeDTO.TabArea(emptyArea(areaID)),
-            second = SplitNodeDTO.TabArea(emptyArea(UUID.fromString("AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))),
-        )
+        val branch =
+            SplitBranchDTO(
+                id = areaID,
+                direction = SplitDirectionDTO.HORIZONTAL,
+                ratio = 0.5,
+                first = SplitNodeDTO.TabArea(emptyArea(areaID)),
+                second = SplitNodeDTO.TabArea(emptyArea(UUID.fromString("AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))),
+            )
         val node: SplitNodeDTO = SplitNodeDTO.Split(branch)
         val text = MuxyCodec.json.encodeToString(SplitNodeDTO.serializer(), node)
         val obj = Json.parseToJsonElement(text).jsonObject
@@ -222,20 +219,22 @@ class MuxyCodecTest {
 
     @Test
     fun `workspace round-trips through nested splits`() {
-        val ws = WorkspaceDTO(
-            projectID = projectID,
-            worktreeID = worktreeID,
-            focusedAreaID = areaID,
-            root = SplitNodeDTO.Split(
-                SplitBranchDTO(
-                    id = areaID,
-                    direction = SplitDirectionDTO.VERTICAL,
-                    ratio = 0.4,
-                    first = SplitNodeDTO.TabArea(emptyArea(areaID)),
-                    second = SplitNodeDTO.TabArea(emptyArea(tabID)),
-                ),
-            ),
-        )
+        val ws =
+            WorkspaceDTO(
+                projectID = projectID,
+                worktreeID = worktreeID,
+                focusedAreaID = areaID,
+                root =
+                    SplitNodeDTO.Split(
+                        SplitBranchDTO(
+                            id = areaID,
+                            direction = SplitDirectionDTO.VERTICAL,
+                            ratio = 0.4,
+                            first = SplitNodeDTO.TabArea(emptyArea(areaID)),
+                            second = SplitNodeDTO.TabArea(emptyArea(tabID)),
+                        ),
+                    ),
+            )
         val text = MuxyCodec.json.encodeToString(WorkspaceDTO.serializer(), ws)
         val parsed = MuxyCodec.json.decodeFromString(WorkspaceDTO.serializer(), text)
         assertEquals(ws, parsed)
@@ -266,9 +265,10 @@ class MuxyCodecTest {
 
     @Test
     fun `pane ownership event decodes from wire shape`() {
-        val raw = """
+        val raw =
+            """
             {"type":"event","payload":{"event":"paneOwnershipChanged","data":{"type":"paneOwnership","value":{"paneID":"55555555-5555-5555-5555-555555555555","owner":{"remote":{"deviceID":"66666666-6666-6666-6666-666666666666","deviceName":"Phone"}}}}}}
-        """.trimIndent()
+            """.trimIndent()
         val message = MuxyCodec.decode(raw)
         val event = (message as MuxyMessage.Event).value
         assertEquals(MuxyEventKind.PANE_OWNERSHIP_CHANGED, event.event)
@@ -279,9 +279,10 @@ class MuxyCodecTest {
 
     @Test
     fun `terminal output event decodes base64 bytes`() {
-        val raw = """
+        val raw =
+            """
             {"type":"event","payload":{"event":"terminalOutput","data":{"type":"terminalOutput","value":{"paneID":"55555555-5555-5555-5555-555555555555","bytes":"aGkK"}}}}
-        """.trimIndent()
+            """.trimIndent()
         val message = MuxyCodec.decode(raw)
         val data = (message as MuxyMessage.Event).value.data as MuxyEventData.TerminalOutput
         assertTrue(data.value.bytes.contentEquals(byteArrayOf(0x68, 0x69, 0x0A)))
@@ -289,9 +290,10 @@ class MuxyCodecTest {
 
     @Test
     fun `terminal snapshot event matches output event shape`() {
-        val raw = """
+        val raw =
+            """
             {"type":"event","payload":{"event":"terminalSnapshot","data":{"type":"terminalSnapshot","value":{"paneID":"55555555-5555-5555-5555-555555555555","bytes":"aGVsbG8="}}}}
-        """.trimIndent()
+            """.trimIndent()
         val event = (MuxyCodec.decode(raw) as MuxyMessage.Event).value
         assertEquals(MuxyEventKind.TERMINAL_SNAPSHOT, event.event)
         val data = event.data as MuxyEventData.TerminalSnapshot
@@ -300,9 +302,10 @@ class MuxyCodecTest {
 
     @Test
     fun `theme changed event maps to deviceTheme data case`() {
-        val raw = """
+        val raw =
+            """
             {"type":"event","payload":{"event":"themeChanged","data":{"type":"deviceTheme","value":{"fg":16777215,"bg":0,"palette":[0,1,2]}}}}
-        """.trimIndent()
+            """.trimIndent()
         val event = (MuxyCodec.decode(raw) as MuxyMessage.Event).value
         assertEquals(MuxyEventKind.THEME_CHANGED, event.event)
         val data = event.data as MuxyEventData.DeviceTheme
@@ -313,19 +316,20 @@ class MuxyCodecTest {
 
     @Test
     fun `notification source aiProvider uses _0 unlabeled key`() {
-        val notification = NotificationDTO(
-            id = UUID.randomUUID(),
-            paneID = paneID,
-            projectID = projectID,
-            worktreeID = worktreeID,
-            areaID = areaID,
-            tabID = tabID,
-            source = NotificationSourceDTO.AiProvider("openai"),
-            title = "Title",
-            body = "Body",
-            timestamp = timestamp,
-            isRead = false,
-        )
+        val notification =
+            NotificationDTO(
+                id = UUID.randomUUID(),
+                paneID = paneID,
+                projectID = projectID,
+                worktreeID = worktreeID,
+                areaID = areaID,
+                tabID = tabID,
+                source = NotificationSourceDTO.AiProvider("openai"),
+                title = "Title",
+                body = "Body",
+                timestamp = timestamp,
+                isRead = false,
+            )
         val text = MuxyCodec.json.encodeToString(NotificationDTO.serializer(), notification)
         val source = Json.parseToJsonElement(text).jsonObject.getValue("source").jsonObject
         val provider = source.getValue("aiProvider").jsonObject.getValue("_0").jsonPrimitive.content
@@ -349,9 +353,10 @@ class MuxyCodecTest {
 
     @Test
     fun `worktree without canBeRemoved field decodes to negation of isPrimary`() {
-        val raw = """
+        val raw =
+            """
             {"id":"22222222-2222-2222-2222-222222222222","name":"main","path":"/p","isPrimary":true,"createdAt":"2026-05-01T12:34:56Z"}
-        """.trimIndent()
+            """.trimIndent()
         val parsed = MuxyCodec.json.decodeFromString(WorktreeDTO.serializer(), raw)
         assertEquals(false, parsed.canBeRemoved)
         assertEquals(true, parsed.isPrimary)
@@ -360,15 +365,16 @@ class MuxyCodecTest {
 
     @Test
     fun `worktree always emits canBeRemoved on encode`() {
-        val tree = WorktreeDTO(
-            id = worktreeID,
-            name = "main",
-            path = "/p",
-            branch = "main",
-            isPrimary = true,
-            canBeRemoved = false,
-            createdAt = timestamp,
-        )
+        val tree =
+            WorktreeDTO(
+                id = worktreeID,
+                name = "main",
+                path = "/p",
+                branch = "main",
+                isPrimary = true,
+                canBeRemoved = false,
+                createdAt = timestamp,
+            )
         val text = MuxyCodec.json.encodeToString(WorktreeDTO.serializer(), tree)
         val obj = Json.parseToJsonElement(text).jsonObject
         assertEquals(false, obj.getValue("canBeRemoved").jsonPrimitive.boolean)
@@ -377,14 +383,15 @@ class MuxyCodecTest {
 
     @Test
     fun `worktree omits null branch on encode`() {
-        val tree = WorktreeDTO(
-            id = worktreeID,
-            name = "main",
-            path = "/p",
-            branch = null,
-            isPrimary = true,
-            createdAt = timestamp,
-        )
+        val tree =
+            WorktreeDTO(
+                id = worktreeID,
+                name = "main",
+                path = "/p",
+                branch = null,
+                isPrimary = true,
+                createdAt = timestamp,
+            )
         val text = MuxyCodec.json.encodeToString(WorktreeDTO.serializer(), tree)
         val obj = Json.parseToJsonElement(text).jsonObject
         assertNull(obj["branch"])
@@ -392,16 +399,17 @@ class MuxyCodecTest {
 
     @Test
     fun `project DTO round-trips with optional logo and color`() {
-        val project = ProjectDTO(
-            id = projectID,
-            name = "Muxy",
-            path = "/Users/me/dev/muxy",
-            sortOrder = 0,
-            createdAt = timestamp,
-            icon = "folder",
-            logo = "L",
-            iconColor = "blue",
-        )
+        val project =
+            ProjectDTO(
+                id = projectID,
+                name = "Muxy",
+                path = "/Users/me/dev/muxy",
+                sortOrder = 0,
+                createdAt = timestamp,
+                icon = "folder",
+                logo = "L",
+                iconColor = "blue",
+            )
         val text = MuxyCodec.json.encodeToString(ProjectDTO.serializer(), project)
         val parsed = MuxyCodec.json.decodeFromString(ProjectDTO.serializer(), text)
         assertEquals(project, parsed)
@@ -409,7 +417,8 @@ class MuxyCodecTest {
 
     @Test
     fun `vcs status with pull request decodes`() {
-        val raw = """
+        val raw =
+            """
             {
               "branch":"main",
               "aheadCount":1,
@@ -420,7 +429,7 @@ class MuxyCodecTest {
               "defaultBranch":"main",
               "pullRequest":{"url":"https://github.com/x/y/pull/1","number":1,"state":"open","isDraft":false,"baseBranch":"main"}
             }
-        """.trimIndent()
+            """.trimIndent()
         val parsed = MuxyCodec.json.decodeFromString(VCSStatusDTO.serializer(), raw)
         assertEquals(1, parsed.aheadCount)
         assertEquals(0, parsed.behindCount)
@@ -430,38 +439,43 @@ class MuxyCodecTest {
 
     @Test
     fun `subscribe params encodes events as method strings`() {
-        val request = MuxyRequest(
-            id = "s-1",
-            method = MuxyMethod.SUBSCRIBE,
-            params = MuxyParams.Subscribe(
-                com.muxy.protocol.dto.SubscribeParams(
-                    events = listOf(MuxyEventKind.WORKSPACE_CHANGED, MuxyEventKind.TERMINAL_OUTPUT),
-                ),
-            ),
-        )
+        val request =
+            MuxyRequest(
+                id = "s-1",
+                method = MuxyMethod.SUBSCRIBE,
+                params =
+                    MuxyParams.Subscribe(
+                        com.muxy.protocol.dto.SubscribeParams(
+                            events = listOf(MuxyEventKind.WORKSPACE_CHANGED, MuxyEventKind.TERMINAL_OUTPUT),
+                        ),
+                    ),
+            )
         val text = MuxyCodec.encode(MuxyMessage.Request(request))
-        val list = Json.parseToJsonElement(text).jsonObject
-            .getValue("payload").jsonObject
-            .getValue("params").jsonObject
-            .getValue("value").jsonObject
-            .getValue("events").jsonArray
+        val list =
+            Json.parseToJsonElement(text).jsonObject
+                .getValue("payload").jsonObject
+                .getValue("params").jsonObject
+                .getValue("value").jsonObject
+                .getValue("events").jsonArray
         assertEquals("workspaceChanged", list[0].jsonPrimitive.content)
         assertEquals("terminalOutput", list[1].jsonPrimitive.content)
     }
 
     @Test
     fun `unknown keys in incoming payloads are ignored`() {
-        val raw = """
+        val raw =
+            """
             {"type":"response","payload":{"id":"u-1","result":{"type":"ok"},"extraField":42}}
-        """.trimIndent()
+            """.trimIndent()
         val message = MuxyCodec.decode(raw)
         assertTrue((message as MuxyMessage.Response).value.result is MuxyResult.Ok)
     }
 
-    private fun emptyArea(id: UUID) = TabAreaDTO(
-        id = id,
-        projectPath = "/x",
-        tabs = emptyList(),
-        activeTabID = null,
-    )
+    private fun emptyArea(id: UUID) =
+        TabAreaDTO(
+            id = id,
+            projectPath = "/x",
+            tabs = emptyList(),
+            activeTabID = null,
+        )
 }

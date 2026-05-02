@@ -8,16 +8,19 @@ enum class ArmedModifier(val displayName: String, val glyph: String) {
 }
 
 object ModifierTransform {
-
     private const val ESC: String = "\u001B"
     private const val NUL: String = "\u0000"
 
-    fun transform(text: String, modifier: ArmedModifier): String? = when (modifier) {
-        ArmedModifier.CTRL -> ctrlTransform(text)
-        ArmedModifier.SHIFT -> text.uppercase()
-        ArmedModifier.ALT -> ESC + text
-        ArmedModifier.CMD -> text
-    }
+    fun transform(
+        text: String,
+        modifier: ArmedModifier,
+    ): String? =
+        when (modifier) {
+            ArmedModifier.CTRL -> ctrlTransform(text)
+            ArmedModifier.SHIFT -> text.uppercase()
+            ArmedModifier.ALT -> ESC + text
+            ArmedModifier.CMD -> text
+        }
 
     private fun ctrlTransform(text: String): String? {
         if (text.length != 1) return null

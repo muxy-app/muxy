@@ -37,6 +37,8 @@ dependencies {
     api(libs.okhttp)
 
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.lifecycle.common)
+    implementation(libs.androidx.annotation)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

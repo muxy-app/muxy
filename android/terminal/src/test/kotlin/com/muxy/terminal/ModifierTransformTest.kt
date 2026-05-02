@@ -5,7 +5,6 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ModifierTransformTest {
-
     @Test
     fun ctrlLowerLetterMapsToControlByte() {
         assertEquals("\u0001", ModifierTransform.transform("a", ArmedModifier.CTRL))

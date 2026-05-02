@@ -34,27 +34,29 @@ class SavedDevicesStoreTest {
     }
 
     @Test
-    fun `add prepends and dedupes by host port`() = runBlocking {
-        store.add(SavedDevice("Mac", "10.0.0.1", 4865))
-        store.add(SavedDevice("Mac2", "10.0.0.2", 4865))
-        store.add(SavedDevice("Mac-renamed", "10.0.0.1", 4865))
+    fun `add prepends and dedupes by host port`() =
+        runBlocking {
+            store.add(SavedDevice("Mac", "10.0.0.1", 4865))
+            store.add(SavedDevice("Mac2", "10.0.0.2", 4865))
+            store.add(SavedDevice("Mac-renamed", "10.0.0.1", 4865))
 
-        val list = store.list()
-        assertEquals(2, list.size)
-        assertEquals("Mac-renamed", list[0].name)
-        assertEquals("10.0.0.2", list[1].host)
-    }
+            val list = store.list()
+            assertEquals(2, list.size)
+            assertEquals("Mac-renamed", list[0].name)
+            assertEquals("10.0.0.2", list[1].host)
+        }
 
     @Test
-    fun `remove deletes matching device`() = runBlocking {
-        val a = SavedDevice("Mac", "10.0.0.1", 4865)
-        val b = SavedDevice("Linux", "10.0.0.2", 4865)
-        store.add(a)
-        store.add(b)
-        store.remove(a)
+    fun `remove deletes matching device`() =
+        runBlocking {
+            val a = SavedDevice("Mac", "10.0.0.1", 4865)
+            val b = SavedDevice("Linux", "10.0.0.2", 4865)
+            store.add(a)
+            store.add(b)
+            store.remove(a)
 
-        val list = store.list()
-        assertEquals(1, list.size)
-        assertEquals("Linux", list[0].name)
-    }
+            val list = store.list()
+            assertEquals(1, list.size)
+            assertEquals("Linux", list[0].name)
+        }
 }

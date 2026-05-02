@@ -53,67 +53,111 @@ import kotlinx.serialization.json.put
 @Serializable(with = MuxyParamsSerializer::class)
 sealed class MuxyParams {
     data class SelectProject(val value: SelectProjectParams) : MuxyParams()
+
     data class ListWorktrees(val value: ListWorktreesParams) : MuxyParams()
+
     data class SelectWorktree(val value: SelectWorktreeParams) : MuxyParams()
+
     data class GetWorkspace(val value: GetWorkspaceParams) : MuxyParams()
+
     data class CreateTab(val value: CreateTabParams) : MuxyParams()
+
     data class CloseTab(val value: CloseTabParams) : MuxyParams()
+
     data class SelectTab(val value: SelectTabParams) : MuxyParams()
+
     data class SplitArea(val value: SplitAreaParams) : MuxyParams()
+
     data class CloseArea(val value: CloseAreaParams) : MuxyParams()
+
     data class FocusArea(val value: FocusAreaParams) : MuxyParams()
+
     data class TerminalInput(val value: TerminalInputParams) : MuxyParams()
+
     data class TerminalResize(val value: TerminalResizeParams) : MuxyParams()
+
     data class TerminalScroll(val value: TerminalScrollParams) : MuxyParams()
+
     data class GetTerminalContent(val value: GetTerminalContentParams) : MuxyParams()
+
     data class RegisterDevice(val value: RegisterDeviceParams) : MuxyParams()
+
     data class PairDevice(val value: PairDeviceParams) : MuxyParams()
+
     data class AuthenticateDevice(val value: AuthenticateDeviceParams) : MuxyParams()
+
     data class TakeOverPane(val value: TakeOverPaneParams) : MuxyParams()
+
     data class ReleasePane(val value: ReleasePaneParams) : MuxyParams()
+
     data class GetVCSStatus(val value: GetVCSStatusParams) : MuxyParams()
+
     data class VCSCommit(val value: VCSCommitParams) : MuxyParams()
+
     data class VCSPush(val value: VCSPushParams) : MuxyParams()
+
     data class VCSPull(val value: VCSPullParams) : MuxyParams()
+
     data class VCSStageFiles(val value: VCSStageFilesParams) : MuxyParams()
+
     data class VCSUnstageFiles(val value: VCSUnstageFilesParams) : MuxyParams()
+
     data class VCSDiscardFiles(val value: VCSDiscardFilesParams) : MuxyParams()
+
     data class VCSListBranches(val value: VCSListBranchesParams) : MuxyParams()
+
     data class VCSSwitchBranch(val value: VCSSwitchBranchParams) : MuxyParams()
+
     data class VCSCreateBranch(val value: VCSCreateBranchParams) : MuxyParams()
+
     data class VCSCreatePR(val value: VCSCreatePRParams) : MuxyParams()
+
     data class VCSAddWorktree(val value: VCSAddWorktreeParams) : MuxyParams()
+
     data class VCSRemoveWorktree(val value: VCSRemoveWorktreeParams) : MuxyParams()
+
     data class GetProjectLogo(val value: GetProjectLogoParams) : MuxyParams()
+
     data class MarkNotificationRead(val value: MarkNotificationReadParams) : MuxyParams()
+
     data class Subscribe(val value: SubscribeParams) : MuxyParams()
+
     data class Unsubscribe(val value: UnsubscribeParams) : MuxyParams()
 }
 
 object MuxyParamsSerializer : KSerializer<MuxyParams> {
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor("MuxyParams")
 
-    override fun serialize(encoder: Encoder, value: MuxyParams) {
-        val output = (encoder as? JsonEncoder)
-            ?: error("MuxyParamsSerializer only supports JSON")
+    override fun serialize(
+        encoder: Encoder,
+        value: MuxyParams,
+    ) {
+        val output =
+            (encoder as? JsonEncoder)
+                ?: error("MuxyParamsSerializer only supports JSON")
         val (typeKey, jsonValue) = serializeBranch(output, value)
-        val element = buildJsonObject {
-            put("type", typeKey)
-            put("value", jsonValue)
-        }
+        val element =
+            buildJsonObject {
+                put("type", typeKey)
+                put("value", jsonValue)
+            }
         output.encodeJsonElement(element)
     }
 
     override fun deserialize(decoder: Decoder): MuxyParams {
-        val input = (decoder as? JsonDecoder)
-            ?: error("MuxyParamsSerializer only supports JSON")
+        val input =
+            (decoder as? JsonDecoder)
+                ?: error("MuxyParamsSerializer only supports JSON")
         val obj = input.decodeJsonElement().jsonObject
         val type = obj.getValue("type").jsonPrimitive.content
         val value = obj.getValue("value")
         return deserializeBranch(input, type, value)
     }
 
-    private fun serializeBranch(output: JsonEncoder, value: MuxyParams): Pair<String, JsonElement> {
+    private fun serializeBranch(
+        output: JsonEncoder,
+        value: MuxyParams,
+    ): Pair<String, JsonElement> {
         val json = output.json
         return when (value) {
             is MuxyParams.SelectProject -> "selectProject" to json.encodeToJsonElement(SelectProjectParams.serializer(), value.value)
@@ -155,7 +199,11 @@ object MuxyParamsSerializer : KSerializer<MuxyParams> {
         }
     }
 
-    private fun deserializeBranch(input: JsonDecoder, type: String, value: JsonElement): MuxyParams {
+    private fun deserializeBranch(
+        input: JsonDecoder,
+        type: String,
+        value: JsonElement,
+    ): MuxyParams {
         val json = input.json
         return when (type) {
             "selectProject" -> MuxyParams.SelectProject(json.decodeFromJsonElement(SelectProjectParams.serializer(), value))
@@ -191,7 +239,10 @@ object MuxyParamsSerializer : KSerializer<MuxyParams> {
             "vcsAddWorktree" -> MuxyParams.VCSAddWorktree(json.decodeFromJsonElement(VCSAddWorktreeParams.serializer(), value))
             "vcsRemoveWorktree" -> MuxyParams.VCSRemoveWorktree(json.decodeFromJsonElement(VCSRemoveWorktreeParams.serializer(), value))
             "getProjectLogo" -> MuxyParams.GetProjectLogo(json.decodeFromJsonElement(GetProjectLogoParams.serializer(), value))
-            "markNotificationRead" -> MuxyParams.MarkNotificationRead(json.decodeFromJsonElement(MarkNotificationReadParams.serializer(), value))
+            "markNotificationRead" ->
+                MuxyParams.MarkNotificationRead(
+                    json.decodeFromJsonElement(MarkNotificationReadParams.serializer(), value),
+                )
             "subscribe" -> MuxyParams.Subscribe(json.decodeFromJsonElement(SubscribeParams.serializer(), value))
             "unsubscribe" -> MuxyParams.Unsubscribe(json.decodeFromJsonElement(UnsubscribeParams.serializer(), value))
             else -> error("Unknown MuxyParams type: $type")

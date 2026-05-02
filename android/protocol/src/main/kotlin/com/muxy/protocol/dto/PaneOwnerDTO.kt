@@ -9,7 +9,6 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonEncoder
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -32,34 +31,42 @@ sealed class PaneOwnerDTO {
 object PaneOwnerSerializer : KSerializer<PaneOwnerDTO> {
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor("PaneOwnerDTO")
 
-    override fun serialize(encoder: Encoder, value: PaneOwnerDTO) {
-        val output = (encoder as? JsonEncoder)
-            ?: error("PaneOwnerSerializer only supports JSON")
-        val element = when (value) {
-            is PaneOwnerDTO.Mac -> buildJsonObject {
-                put(
-                    "mac",
+    override fun serialize(
+        encoder: Encoder,
+        value: PaneOwnerDTO,
+    ) {
+        val output =
+            (encoder as? JsonEncoder)
+                ?: error("PaneOwnerSerializer only supports JSON")
+        val element =
+            when (value) {
+                is PaneOwnerDTO.Mac ->
                     buildJsonObject {
-                        put("deviceName", value.deviceName)
-                    },
-                )
-            }
-            is PaneOwnerDTO.Remote -> buildJsonObject {
-                put(
-                    "remote",
+                        put(
+                            "mac",
+                            buildJsonObject {
+                                put("deviceName", value.deviceName)
+                            },
+                        )
+                    }
+                is PaneOwnerDTO.Remote ->
                     buildJsonObject {
-                        put("deviceID", output.json.encodeToJsonElement(UuidSerializer, value.deviceID))
-                        put("deviceName", value.deviceName)
-                    },
-                )
+                        put(
+                            "remote",
+                            buildJsonObject {
+                                put("deviceID", output.json.encodeToJsonElement(UuidSerializer, value.deviceID))
+                                put("deviceName", value.deviceName)
+                            },
+                        )
+                    }
             }
-        }
         output.encodeJsonElement(element)
     }
 
     override fun deserialize(decoder: Decoder): PaneOwnerDTO {
-        val input = (decoder as? JsonDecoder)
-            ?: error("PaneOwnerSerializer only supports JSON")
+        val input =
+            (decoder as? JsonDecoder)
+                ?: error("PaneOwnerSerializer only supports JSON")
         val obj = input.decodeJsonElement().jsonObject
         if (obj.containsKey("mac")) {
             val inner = obj.getValue("mac").jsonObject

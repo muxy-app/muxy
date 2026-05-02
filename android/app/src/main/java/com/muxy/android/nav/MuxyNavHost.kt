@@ -26,6 +26,7 @@ internal object MuxyRoutes {
     const val WORKSPACE = "workspace/{projectID}"
     const val WORKSPACE_ARG = "projectID"
     const val NOTIFICATIONS = "notifications"
+
     fun workspace(projectID: UUID): String = "workspace/$projectID"
 }
 
@@ -36,42 +37,39 @@ fun MuxyNavHost(modifier: Modifier = Modifier) {
 
     when (val current = state) {
         is ConnectionState.Idle -> ConnectFlow(modifier = modifier)
-        is ConnectionState.Connecting -> ConnectingView(
-            deviceName = current.target.deviceName,
-            host = current.target.host,
-            port = current.target.port,
-            onCancel = container.muxyClient::disconnect,
-            modifier = modifier,
-        )
-        is ConnectionState.Authenticating -> ConnectingView(
-            deviceName = current.target.deviceName,
-            host = current.target.host,
-            port = current.target.port,
-            onCancel = container.muxyClient::disconnect,
-            modifier = modifier,
-        )
-        is ConnectionState.Reconnecting -> ConnectingView(
-            deviceName = current.target.deviceName,
-            host = current.target.host,
-            port = current.target.port,
-            onCancel = container.muxyClient::disconnect,
-            modifier = modifier,
-        )
-        is ConnectionState.AwaitingApproval -> PairingPendingView(
-            deviceName = current.target.deviceName,
-            onCancel = container.muxyClient::disconnect,
-            modifier = modifier,
-        )
-        is ConnectionState.Connected -> ConnectedFlow(modifier = modifier)
-        is ConnectionState.Failed -> ConnectionFailedView(
-            issue = current.issue,
-            onRetry = {
-                val target = current.target
-                if (target != null) container.muxyClient.connect(target)
-            },
-            onDisconnect = container.muxyClient::disconnect,
-            modifier = modifier,
-        )
+        is ConnectionState.Connecting ->
+            ConnectingView(
+                deviceName = current.target.deviceName,
+                host = current.target.host,
+                port = current.target.port,
+                onCancel = container.muxyClient::disconnect,
+                modifier = modifier,
+            )
+        is ConnectionState.Authenticating ->
+            ConnectingView(
+                deviceName = current.target.deviceName,
+                host = current.target.host,
+                port = current.target.port,
+                onCancel = container.muxyClient::disconnect,
+                modifier = modifier,
+            )
+        is ConnectionState.AwaitingApproval ->
+            PairingPendingView(
+                deviceName = current.target.deviceName,
+                onCancel = container.muxyClient::disconnect,
+                modifier = modifier,
+            )
+        is ConnectionState.Connected, is ConnectionState.Reconnecting -> ConnectedFlow(modifier = modifier)
+        is ConnectionState.Failed ->
+            ConnectionFailedView(
+                issue = current.issue,
+                onRetry = {
+                    val target = current.target
+                    if (target != null) container.muxyClient.connect(target)
+                },
+                onDisconnect = container.muxyClient::disconnect,
+                modifier = modifier,
+            )
     }
 }
 

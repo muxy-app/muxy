@@ -68,9 +68,10 @@ fun CreatePRSheet(
         containerColor = colors.background,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -96,13 +97,14 @@ fun CreatePRSheet(
                             val baseTrim = baseBranch.trim().ifEmpty { null }
                             scope.launch {
                                 try {
-                                    val result = client.createPullRequest(
-                                        projectID = projectID,
-                                        title = title.trim(),
-                                        body = body,
-                                        baseBranch = baseTrim,
-                                        draft = draft,
-                                    )
+                                    val result =
+                                        client.createPullRequest(
+                                            projectID = projectID,
+                                            title = title.trim(),
+                                            body = body,
+                                            baseBranch = baseTrim,
+                                            draft = draft,
+                                        )
                                     onCreated()
                                     onDismiss()
                                     runCatching { uriHandler.openUri(result.url) }
@@ -167,13 +169,15 @@ fun CreatePRSheet(
 }
 
 @Composable
-private fun textFieldColors(foreground: Color, outline: Color) =
-    TextFieldDefaults.colors(
-        focusedTextColor = foreground,
-        unfocusedTextColor = foreground,
-        focusedContainerColor = Color.Transparent,
-        unfocusedContainerColor = Color.Transparent,
-        cursorColor = foreground,
-        focusedIndicatorColor = foreground,
-        unfocusedIndicatorColor = outline,
-    )
+private fun textFieldColors(
+    foreground: Color,
+    outline: Color,
+) = TextFieldDefaults.colors(
+    focusedTextColor = foreground,
+    unfocusedTextColor = foreground,
+    focusedContainerColor = Color.Transparent,
+    unfocusedContainerColor = Color.Transparent,
+    cursorColor = foreground,
+    focusedIndicatorColor = foreground,
+    unfocusedIndicatorColor = outline,
+)

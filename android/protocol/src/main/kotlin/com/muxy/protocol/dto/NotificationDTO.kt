@@ -34,38 +34,49 @@ data class NotificationDTO(
 @Serializable(with = NotificationSourceSerializer::class)
 sealed class NotificationSourceDTO {
     object Osc : NotificationSourceDTO()
+
     object Socket : NotificationSourceDTO()
+
     data class AiProvider(val provider: String) : NotificationSourceDTO()
 }
 
 object NotificationSourceSerializer : KSerializer<NotificationSourceDTO> {
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor("NotificationSourceDTO")
 
-    override fun serialize(encoder: Encoder, value: NotificationSourceDTO) {
-        val output = (encoder as? JsonEncoder)
-            ?: error("NotificationSourceSerializer only supports JSON")
-        val element = when (value) {
-            is NotificationSourceDTO.Osc -> buildJsonObject {
-                put("osc", buildJsonObject {})
-            }
-            is NotificationSourceDTO.Socket -> buildJsonObject {
-                put("socket", buildJsonObject {})
-            }
-            is NotificationSourceDTO.AiProvider -> buildJsonObject {
-                put(
-                    "aiProvider",
+    override fun serialize(
+        encoder: Encoder,
+        value: NotificationSourceDTO,
+    ) {
+        val output =
+            (encoder as? JsonEncoder)
+                ?: error("NotificationSourceSerializer only supports JSON")
+        val element =
+            when (value) {
+                is NotificationSourceDTO.Osc ->
                     buildJsonObject {
-                        put("_0", value.provider)
-                    },
-                )
+                        put("osc", buildJsonObject {})
+                    }
+                is NotificationSourceDTO.Socket ->
+                    buildJsonObject {
+                        put("socket", buildJsonObject {})
+                    }
+                is NotificationSourceDTO.AiProvider ->
+                    buildJsonObject {
+                        put(
+                            "aiProvider",
+                            buildJsonObject {
+                                put("_0", value.provider)
+                            },
+                        )
+                    }
             }
-        }
         output.encodeJsonElement(element)
     }
 
     override fun deserialize(decoder: Decoder): NotificationSourceDTO {
-        val input = (decoder as? JsonDecoder)
-            ?: error("NotificationSourceSerializer only supports JSON")
+        val input =
+            (decoder as? JsonDecoder)
+                ?: error("NotificationSourceSerializer only supports JSON")
         val obj = input.decodeJsonElement().jsonObject
         if (obj.containsKey("osc")) return NotificationSourceDTO.Osc
         if (obj.containsKey("socket")) return NotificationSourceDTO.Socket

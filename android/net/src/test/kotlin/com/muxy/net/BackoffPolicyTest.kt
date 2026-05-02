@@ -6,7 +6,6 @@ import org.junit.Test
 import kotlin.random.Random
 
 class BackoffPolicyTest {
-
     @Test
     fun `attempt 0 is zero`() {
         val policy = BackoffPolicy(baseMs = 100, maxMs = 5_000, jitterMs = 0, random = Random(0))

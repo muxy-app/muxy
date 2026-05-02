@@ -61,7 +61,9 @@ object TerminalCellFlag {
 @Serializable
 data class TerminalOutputEventDTO(
     val paneID: @Contextual UUID,
-    val bytes: @Serializable(with = Base64ByteArraySerializer::class) ByteArray,
+    val bytes:
+        @Serializable(with = Base64ByteArraySerializer::class)
+        ByteArray,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

@@ -1,0 +1,117 @@
+name: Release (Android)
+
+on:
+  push:
+    tags:
+      - 'v*-android'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (must already exist on the branch and end in -android, e.g. v0.1.0-android)"
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Build signed APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve ref
+        id: resolve
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${GITHUB_REF}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.ref }}
+          fetch-depth: 0
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/gradle/libs.versions.toml', 'android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x android/gradlew
+
+      - name: Decode signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p ${{ runner.temp }}/keystore
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > ${{ runner.temp }}/keystore/release.jks
+          echo "MUXY_ANDROID_KEYSTORE_PATH=${{ runner.temp }}/keystore/release.jks" >> "$GITHUB_ENV"
+
+      - name: Assemble release APK
+        env:
+          MUXY_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MUXY_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MUXY_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Locate artifacts
+        id: artifacts
+        run: |
+          APK=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+          MAPPING=android/app/build/outputs/mapping/release/mapping.txt
+          TAG="${{ steps.resolve.outputs.tag }}"
+          VERSION="${TAG%-android}"
+          VERSION="${VERSION#v}"
+          OUT="muxy-android-${VERSION}.apk"
+          MAPOUT="muxy-android-${VERSION}-mapping.txt"
+          cp "$APK" "$OUT"
+          if [ -f "$MAPPING" ]; then
+            cp "$MAPPING" "$MAPOUT"
+          fi
+          echo "apk=$OUT" >> "$GITHUB_OUTPUT"
+          echo "mapping=$MAPOUT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          {
+            echo "Muxy Android ${{ steps.artifacts.outputs.version }}"
+            echo
+            echo "Sideload the attached APK after enabling \"Install unknown apps\" for your browser or file manager."
+            echo
+            echo "**Source tag:** [\`${{ steps.resolve.outputs.tag }}\`](https://github.com/${{ github.repository }}/tree/${{ steps.resolve.outputs.tag }})"
+            echo
+            echo "Use only on Tailscale or a network you control — the desktop server speaks plain WebSocket without TLS."
+          } > release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ASSETS=("${{ steps.artifacts.outputs.apk }}")
+          if [ -f "${{ steps.artifacts.outputs.mapping }}" ]; then
+            ASSETS+=("${{ steps.artifacts.outputs.mapping }}")
+          fi
+          gh release create "${{ steps.resolve.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --title "Muxy Android ${{ steps.artifacts.outputs.version }}" \
+            --notes-file release-notes.md \
+            --draft \
+            "${ASSETS[@]}"

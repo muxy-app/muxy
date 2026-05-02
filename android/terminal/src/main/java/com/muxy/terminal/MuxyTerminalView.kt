@@ -20,10 +20,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.muxy.net.DeviceTheme
@@ -32,6 +30,7 @@ import com.muxy.protocol.dto.PaneOwnerDTO
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TextStyle
 import com.termux.view.TerminalView
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -41,6 +40,7 @@ fun MuxyTerminalView(
     client: MuxyClient,
     paneID: UUID,
     fontSizeSp: Int = 12,
+    useNerdFont: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -48,6 +48,8 @@ fun MuxyTerminalView(
     val theme by client.deviceTheme.collectAsStateOrNull()
     val owners by client.paneOwners.collectAsStateOrNull()
     val myClientID by client.myClientID.collectAsStateOrNull()
+    val sessionEpoch by client.sessionEpoch.collectAsStateOrNull()
+    val typeface = remember(useNerdFont) { resolveTypeface(context, useNerdFont) }
 
     val foreground = theme?.let { rgbColor(it.fg) } ?: Color.White
     val background = theme?.let { rgbColor(it.bg) } ?: Color.Black
@@ -62,16 +64,18 @@ fun MuxyTerminalView(
 
     val sessionClient = remember(context) { MuxyTerminalSessionClient(context) }
     val viewClient = remember { MuxyTerminalViewClient() }
-    val session = remember(client, paneID) {
-        MuxyTerminalSession(client = client, paneID = paneID, sessionClient = sessionClient)
-    }
-    val terminalViewRef = remember { mutableStateOf<TerminalView?>(null) }
-    val sizeReporter = remember(client, paneID) {
-        SizeReporter(client = client, paneID = paneID, scope = scope) { cols, rows ->
-            reportedCols = cols
-            reportedRows = rows
+    val session =
+        remember(client, paneID) {
+            MuxyTerminalSession(client = client, paneID = paneID, sessionClient = sessionClient)
         }
-    }
+    val terminalViewRef = remember { mutableStateOf<TerminalView?>(null) }
+    val sizeReporter =
+        remember(client, paneID) {
+            SizeReporter(client = client, paneID = paneID, scope = scope) { cols, rows ->
+                reportedCols = cols
+                reportedRows = rows
+            }
+        }
 
     viewClient.modifierProvider = { armed }
     sessionClient.onPasteRequested = {
@@ -85,7 +89,11 @@ fun MuxyTerminalView(
         }
     }
 
-    LaunchedEffect(paneID, reportedCols, reportedRows) {
+    LaunchedEffect(sessionEpoch) {
+        autoTakenPaneID = null
+    }
+
+    LaunchedEffect(paneID, reportedCols, reportedRows, sessionEpoch) {
         val cols = reportedCols ?: return@LaunchedEffect
         val rows = reportedRows ?: return@LaunchedEffect
         if (autoTakenPaneID == paneID) return@LaunchedEffect
@@ -101,61 +109,65 @@ fun MuxyTerminalView(
         }
     }
 
-    val actions = remember(session, terminalViewRef, context) {
-        object : AccessoryActions {
-            override fun sendText(text: String) {
-                if (text.isEmpty()) return
-                val transformed = armed?.let { ModifierTransform.transform(text, it) } ?: text
-                if (armed != null) armed = null
-                if (transformed.isNotEmpty()) {
-                    val bytes = transformed.toByteArray(Charsets.UTF_8)
-                    client.sendTerminalInput(paneID = paneID, bytes = bytes)
+    val actions =
+        remember(session, terminalViewRef, context) {
+            object : AccessoryActions {
+                override fun sendText(text: String) {
+                    if (text.isEmpty()) return
+                    val transformed = armed?.let { ModifierTransform.transform(text, it) } ?: text
+                    if (armed != null) armed = null
+                    if (transformed.isNotEmpty()) {
+                        val bytes = transformed.toByteArray(Charsets.UTF_8)
+                        client.sendTerminalInput(paneID = paneID, bytes = bytes)
+                    }
                 }
-            }
 
-            override fun pasteFromClipboard() {
-                pasteClipboardThrough(context, session)
-            }
-
-            override fun copySelectionToClipboard() {
-                terminalViewRef.value?.let { view ->
-                    if (view.isSelectingText) view.stopTextSelectionMode()
+                override fun pasteFromClipboard() {
+                    pasteClipboardThrough(context, session)
                 }
-            }
 
-            override fun toggleKeyboard() {
-                keyboardVisible = !keyboardVisible
-                terminalViewRef.value?.let { view ->
-                    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
-                    if (keyboardVisible) {
-                        view.requestFocus()
-                        imm?.showSoftInput(view, 0)
-                    } else {
-                        imm?.hideSoftInputFromWindow(view.windowToken, 0)
+                override fun copySelectionToClipboard() {
+                    terminalViewRef.value?.let { view ->
+                        if (view.isSelectingText) view.stopTextSelectionMode()
+                    }
+                }
+
+                override fun toggleKeyboard() {
+                    keyboardVisible = !keyboardVisible
+                    terminalViewRef.value?.let { view ->
+                        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+                        if (keyboardVisible) {
+                            view.requestFocus()
+                            imm?.showSoftInput(view, 0)
+                        } else {
+                            imm?.hideSoftInputFromWindow(view.windowToken, 0)
+                        }
                     }
                 }
             }
         }
-    }
 
-    val ownerName = remember(owners, paneID) {
-        when (val owner = owners?.get(paneID)) {
-            is PaneOwnerDTO.Mac -> owner.deviceName
-            is PaneOwnerDTO.Remote -> owner.deviceName
-            null -> "Mac"
+    val ownerName =
+        remember(owners, paneID) {
+            when (val owner = owners?.get(paneID)) {
+                is PaneOwnerDTO.Mac -> owner.deviceName
+                is PaneOwnerDTO.Remote -> owner.deviceName
+                null -> "Mac"
+            }
         }
-    }
-    val isOwnedBySelf = remember(owners, myClientID, paneID) {
-        val mine = myClientID ?: return@remember false
-        val owner = owners?.get(paneID) ?: return@remember false
-        owner is PaneOwnerDTO.Remote && owner.deviceID == mine
-    }
+    val isOwnedBySelf =
+        remember(owners, myClientID, paneID) {
+            val mine = myClientID ?: return@remember false
+            val owner = owners?.get(paneID) ?: return@remember false
+            owner is PaneOwnerDTO.Remote && owner.deviceID == mine
+        }
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(background)
-            .imePadding(),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .background(background)
+                .imePadding(),
     ) {
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             AndroidView(
@@ -164,7 +176,7 @@ fun MuxyTerminalView(
                     TerminalView(ctx, null).apply {
                         setTerminalViewClient(viewClient)
                         setTextSize(spToPx(ctx, fontSizeSp).toInt())
-                        setTypeface(Typeface.MONOSPACE)
+                        setTypeface(typeface)
                         attachSession(session)
                         applyTheme(theme, this)
                         sizeReporter.attach(this)
@@ -174,6 +186,10 @@ fun MuxyTerminalView(
                 update = { view ->
                     applyTheme(theme, view)
                     sizeReporter.attach(view)
+                    if (view.mEmulator != null) {
+                        view.setTextSize(spToPx(context, fontSizeSp).toInt())
+                        view.setTypeface(typeface)
+                    }
                     view.alpha = if (isOwnedBySelf) 1f else 0f
                     view.isFocusable = isOwnedBySelf
                     view.isFocusableInTouchMode = isOwnedBySelf
@@ -218,7 +234,10 @@ fun MuxyTerminalView(
     }
 }
 
-private fun pasteClipboardThrough(context: Context, session: MuxyTerminalSession) {
+private fun pasteClipboardThrough(
+    context: Context,
+    session: MuxyTerminalSession,
+) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
     val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString() ?: return
     if (text.isEmpty()) return
@@ -226,7 +245,10 @@ private fun pasteClipboardThrough(context: Context, session: MuxyTerminalSession
     session.write(bytes, 0, bytes.size)
 }
 
-private fun applyTheme(theme: DeviceTheme?, view: TerminalView) {
+private fun applyTheme(
+    theme: DeviceTheme?,
+    view: TerminalView,
+) {
     val emulator: TerminalEmulator = view.mEmulator ?: return
     val fg = (theme?.fg ?: 0xFFFFFFu).toInt() or 0xFF000000.toInt()
     val bg = (theme?.bg ?: 0x000000u).toInt() or 0xFF000000.toInt()
@@ -252,9 +274,10 @@ private class SizeReporter(
     private var lastCols: Int = 0
     private var lastRows: Int = 0
     private var attached: View? = null
-    private val listener = View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-        report(v as TerminalView)
-    }
+    private val listener =
+        View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            report(v as TerminalView)
+        }
 
     fun attach(view: TerminalView) {
         if (attached === view) {
@@ -295,5 +318,17 @@ private fun rgbColor(rgb: UInt): Color {
     return Color(red = r, green = g, blue = b)
 }
 
-private fun spToPx(context: Context, sp: Int): Float =
-    sp * context.resources.displayMetrics.scaledDensity
+private fun spToPx(
+    context: Context,
+    sp: Int,
+): Float = sp * context.resources.displayMetrics.scaledDensity
+
+private fun resolveTypeface(
+    context: Context,
+    useNerdFont: Boolean,
+): Typeface {
+    if (!useNerdFont) return Typeface.MONOSPACE
+    return runCatching {
+        Typeface.createFromAsset(context.assets, "fonts/JetBrainsMonoNerdFontMono-Regular.ttf")
+    }.getOrDefault(Typeface.MONOSPACE)
+}

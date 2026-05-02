@@ -758,8 +758,16 @@ view + input). Layout:
   ESC prefix, Cmd → passthrough).
 - **`:app`** — Compose entry point. `MuxyNavHost` routes the `MuxyClient.state`
   flow into Connect / Connecting / Pairing / Connected / Failed. Connected flow
-  shows `ProjectListScreen` and (Phase 8 onwards) workspace tabs hosting
-  `MuxyTerminalView`.
+  shows `ProjectListScreen` and workspace tabs hosting `MuxyTerminalView`. The
+  app also wires `MuxyLifecycleBinder` to `ProcessLifecycleOwner` (clean
+  socket close on background, silent reconnect on foreground / network change),
+  persists last-used `(host, port, deviceName)` and active project ID via
+  `LastSessionStore` so cold starts auto-resume into the previous workspace,
+  and ships a Settings screen (font size 8…24, Use Nerd Font toggle backed by a
+  bundled JetBrains Mono Nerd Font in `:terminal` assets, About, Forget Device
+  → wipes credentials + saved devices + last session). Connection failures
+  open a `ConnectionIssueDetailsSheet` that exports the recent diagnostic ring
+  buffer plus device / state / target info via clipboard or share intent.
 
 The Android binary is GPL-3.0 because it links the vendored Termux libraries
 (per Termux's repository LICENSE.md these specific libraries are Apache 2.0

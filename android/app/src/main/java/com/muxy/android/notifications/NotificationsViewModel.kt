@@ -72,8 +72,9 @@ class NotificationsViewModel(private val muxyClient: MuxyClient) : ViewModel() {
             }
 
             if (workspace.worktreeID != notification.worktreeID) {
-                val worktreeKnown = muxyClient.projectWorktrees.value[notification.projectID]
-                    ?.any { it.id == notification.worktreeID } == true
+                val worktreeKnown =
+                    muxyClient.projectWorktrees.value[notification.projectID]
+                        ?.any { it.id == notification.worktreeID } == true
                 if (!worktreeKnown) {
                     _staleNotificationMessage.value = "This notification points to a closed tab"
                     muxyClient.markNotificationRead(notification.id)
@@ -112,19 +113,28 @@ class NotificationsViewModel(private val muxyClient: MuxyClient) : ViewModel() {
         _staleNotificationMessage.value = null
     }
 
-    private fun areaContainsTab(workspace: WorkspaceDTO, areaID: UUID, tabID: UUID): Boolean {
+    private fun areaContainsTab(
+        workspace: WorkspaceDTO,
+        areaID: UUID,
+        tabID: UUID,
+    ): Boolean {
         val area = findArea(workspace.root, areaID) ?: return false
         return area.tabs.any { it.id == tabID }
     }
 
-    private fun findArea(node: SplitNodeDTO, areaID: UUID): TabAreaDTO? = when (node) {
-        is SplitNodeDTO.TabArea -> if (node.tabArea.id == areaID) node.tabArea else null
-        is SplitNodeDTO.Split -> findArea(node.split.first, areaID) ?: findArea(node.split.second, areaID)
-    }
+    private fun findArea(
+        node: SplitNodeDTO,
+        areaID: UUID,
+    ): TabAreaDTO? =
+        when (node) {
+            is SplitNodeDTO.TabArea -> if (node.tabArea.id == areaID) node.tabArea else null
+            is SplitNodeDTO.Split -> findArea(node.split.first, areaID) ?: findArea(node.split.second, areaID)
+        }
 
     companion object {
-        fun factory(muxyClient: MuxyClient): ViewModelProvider.Factory = viewModelFactory {
-            initializer { NotificationsViewModel(muxyClient = muxyClient) }
-        }
+        fun factory(muxyClient: MuxyClient): ViewModelProvider.Factory =
+            viewModelFactory {
+                initializer { NotificationsViewModel(muxyClient = muxyClient) }
+            }
     }
 }

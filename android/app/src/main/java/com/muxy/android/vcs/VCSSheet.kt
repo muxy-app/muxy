@@ -17,14 +17,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.AccountTree
-import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -111,7 +110,10 @@ fun VCSSheet(
 
     LaunchedEffect(projectID) { refresh() }
 
-    suspend fun run(key: String, op: suspend () -> Unit) {
+    suspend fun run(
+        key: String,
+        op: suspend () -> Unit,
+    ) {
         inFlight[key] = true
         try {
             op()
@@ -152,69 +154,73 @@ fun VCSSheet(
             )
             HorizontalDivider(color = colors.outline)
             when {
-                isLoading && status == null -> Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(48.dp),
-                    contentAlignment = Alignment.Center,
-                ) { CircularProgressIndicator(color = colors.foreground) }
-                status == null -> StatusUnavailable(
-                    colors = colors,
-                    errorMessage = errorMessage,
-                    onRetry = { scope.launch { refresh() } },
-                )
-                else -> StatusContent(
-                    status = status!!,
-                    colors = colors,
-                    commitMessage = commitMessage,
-                    onCommitMessageChange = { commitMessage = it },
-                    inFlight = inFlight,
-                    errorMessage = errorMessage,
-                    onPull = { scope.launch { run("pull") { client.vcsPull(projectID) } } },
-                    onPush = { scope.launch { run("push") { client.vcsPush(projectID) } } },
-                    onCommit = {
-                        scope.launch {
-                            run("commit") {
-                                client.vcsCommit(projectID, commitMessage, stageAll = false)
-                                commitMessage = ""
-                            }
-                        }
-                    },
-                    onStageAll = { paths ->
-                        scope.launch { run("stageAll") { client.stageFiles(projectID, paths) } }
-                    },
-                    onUnstageAll = { paths ->
-                        scope.launch { run("unstageAll") { client.unstageFiles(projectID, paths) } }
-                    },
-                    onStage = { file ->
-                        scope.launch { run("stage:${file.path}") { client.stageFiles(projectID, listOf(file.path)) } }
-                    },
-                    onUnstage = { file ->
-                        scope.launch {
-                            run("unstage:${file.path}") { client.unstageFiles(projectID, listOf(file.path)) }
-                        }
-                    },
-                    onDiscard = { file ->
-                        scope.launch {
-                            run("discard:${file.path}") {
-                                if (file.isUntracked) {
-                                    client.discardFiles(
-                                        projectID = projectID,
-                                        paths = emptyList(),
-                                        untrackedPaths = listOf(file.path),
-                                    )
-                                } else {
-                                    client.discardFiles(
-                                        projectID = projectID,
-                                        paths = listOf(file.path),
-                                        untrackedPaths = emptyList(),
-                                    )
+                isLoading && status == null ->
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .padding(48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator(color = colors.foreground) }
+                status == null ->
+                    StatusUnavailable(
+                        colors = colors,
+                        errorMessage = errorMessage,
+                        onRetry = { scope.launch { refresh() } },
+                    )
+                else ->
+                    StatusContent(
+                        status = status!!,
+                        colors = colors,
+                        commitMessage = commitMessage,
+                        onCommitMessageChange = { commitMessage = it },
+                        inFlight = inFlight,
+                        errorMessage = errorMessage,
+                        onPull = { scope.launch { run("pull") { client.vcsPull(projectID) } } },
+                        onPush = { scope.launch { run("push") { client.vcsPush(projectID) } } },
+                        onCommit = {
+                            scope.launch {
+                                run("commit") {
+                                    client.vcsCommit(projectID, commitMessage, stageAll = false)
+                                    commitMessage = ""
                                 }
                             }
-                        }
-                    },
-                    onPullRequestTap = status?.pullRequest?.url,
-                )
+                        },
+                        onStageAll = { paths ->
+                            scope.launch { run("stageAll") { client.stageFiles(projectID, paths) } }
+                        },
+                        onUnstageAll = { paths ->
+                            scope.launch { run("unstageAll") { client.unstageFiles(projectID, paths) } }
+                        },
+                        onStage = { file ->
+                            scope.launch { run("stage:${file.path}") { client.stageFiles(projectID, listOf(file.path)) } }
+                        },
+                        onUnstage = { file ->
+                            scope.launch {
+                                run("unstage:${file.path}") { client.unstageFiles(projectID, listOf(file.path)) }
+                            }
+                        },
+                        onDiscard = { file ->
+                            scope.launch {
+                                run("discard:${file.path}") {
+                                    if (file.isUntracked) {
+                                        client.discardFiles(
+                                            projectID = projectID,
+                                            paths = emptyList(),
+                                            untrackedPaths = listOf(file.path),
+                                        )
+                                    } else {
+                                        client.discardFiles(
+                                            projectID = projectID,
+                                            paths = listOf(file.path),
+                                            untrackedPaths = emptyList(),
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        onPullRequestTap = status?.pullRequest?.url,
+                    )
             }
         }
     }
@@ -257,9 +263,10 @@ private fun VCSHeader(
     onCreatePR: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TextButton(onClick = onDismiss) { Text("Done", color = colors.foreground) }
@@ -317,9 +324,10 @@ private fun StatusContent(
 ) {
     val uriHandler = LocalUriHandler.current
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -395,10 +403,11 @@ private fun StatusContent(
                     text = errorMessage,
                     color = Color(0xFFE53935),
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
-                        .padding(12.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
+                            .padding(12.dp),
                 )
             }
         }
@@ -416,10 +425,11 @@ private fun SummaryCard(
     onPullRequestTap: (() -> Unit)?,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
-            .padding(12.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
+                .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -463,9 +473,10 @@ private fun SummaryCard(
         val pr = status.pullRequest
         if (pr != null && onPullRequestTap != null) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onPullRequestTap() },
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onPullRequestTap() },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null, tint = colors.mutedForeground)
@@ -537,10 +548,11 @@ private fun FileRow(
     val key = if (staged) "unstage:${file.path}" else "stage:${file.path}"
     val rowInFlight = inFlight.containsKey(key) || inFlight.containsKey("discard:${file.path}")
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         StatusBadge(file.status)
@@ -582,25 +594,28 @@ private fun FileRow(
 
 @Composable
 private fun StatusBadge(status: GitFileStatusDTO) {
-    val label = when (status) {
-        GitFileStatusDTO.ADDED -> "A"
-        GitFileStatusDTO.MODIFIED -> "M"
-        GitFileStatusDTO.DELETED -> "D"
-        GitFileStatusDTO.RENAMED -> "R"
-        GitFileStatusDTO.COPIED -> "C"
-        GitFileStatusDTO.UNTRACKED -> "U"
-        GitFileStatusDTO.UNMERGED -> "!"
-    }
-    val color = when (status) {
-        GitFileStatusDTO.ADDED, GitFileStatusDTO.UNTRACKED -> Color(0xFF2E7D32)
-        GitFileStatusDTO.MODIFIED, GitFileStatusDTO.RENAMED, GitFileStatusDTO.COPIED -> Color(0xFFEF6C00)
-        GitFileStatusDTO.DELETED -> Color(0xFFC62828)
-        GitFileStatusDTO.UNMERGED -> Color(0xFF6A1B9A)
-    }
+    val label =
+        when (status) {
+            GitFileStatusDTO.ADDED -> "A"
+            GitFileStatusDTO.MODIFIED -> "M"
+            GitFileStatusDTO.DELETED -> "D"
+            GitFileStatusDTO.RENAMED -> "R"
+            GitFileStatusDTO.COPIED -> "C"
+            GitFileStatusDTO.UNTRACKED -> "U"
+            GitFileStatusDTO.UNMERGED -> "!"
+        }
+    val color =
+        when (status) {
+            GitFileStatusDTO.ADDED, GitFileStatusDTO.UNTRACKED -> Color(0xFF2E7D32)
+            GitFileStatusDTO.MODIFIED, GitFileStatusDTO.RENAMED, GitFileStatusDTO.COPIED -> Color(0xFFEF6C00)
+            GitFileStatusDTO.DELETED -> Color(0xFFC62828)
+            GitFileStatusDTO.UNMERGED -> Color(0xFF6A1B9A)
+        }
     Box(
-        modifier = Modifier
-            .size(20.dp)
-            .background(color.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)),
+        modifier =
+            Modifier
+                .size(20.dp)
+                .background(color.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -614,10 +629,11 @@ private fun StatusBadge(status: GitFileStatusDTO) {
 @Composable
 private fun CleanCard(colors: MuxyColors) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
-            .padding(12.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
+                .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32))
@@ -638,10 +654,11 @@ private fun CommitCard(
     onCommit: () -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
-            .padding(12.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(colors.cardBackground, shape = RoundedCornerShape(8.dp))
+                .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
@@ -656,24 +673,26 @@ private fun CommitCard(
             placeholder = { Text("Commit message", color = colors.faintForeground) },
             minLines = 2,
             maxLines = 5,
-            colors = TextFieldDefaults.colors(
-                focusedTextColor = colors.foreground,
-                unfocusedTextColor = colors.foreground,
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                cursorColor = colors.foreground,
-                focusedIndicatorColor = colors.foreground,
-                unfocusedIndicatorColor = colors.outline,
-            ),
+            colors =
+                TextFieldDefaults.colors(
+                    focusedTextColor = colors.foreground,
+                    unfocusedTextColor = colors.foreground,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    cursorColor = colors.foreground,
+                    focusedIndicatorColor = colors.foreground,
+                    unfocusedIndicatorColor = colors.outline,
+                ),
         )
         Button(
             onClick = onCommit,
             modifier = Modifier.fillMaxWidth(),
             enabled = message.isNotBlank() && !inFlight,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = colors.foreground,
-                contentColor = colors.background,
-            ),
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = colors.foreground,
+                    contentColor = colors.background,
+                ),
         ) {
             if (inFlight) {
                 CircularProgressIndicator(
@@ -697,9 +716,10 @@ private fun StatusUnavailable(
     onRetry: () -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -727,18 +747,19 @@ private fun StatusUnavailable(
         Spacer(Modifier.height(16.dp))
         Button(
             onClick = onRetry,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = colors.foreground,
-                contentColor = colors.background,
-            ),
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = colors.foreground,
+                    contentColor = colors.background,
+                ),
         ) { Text("Retry") }
     }
 }
 
-internal fun fileName(path: String): String =
-    path.substringAfterLast('/', missingDelimiterValue = path)
+internal fun fileName(path: String): String = path.substringAfterLast('/', missingDelimiterValue = path)
 
-internal fun errorMessageOf(t: Throwable): String = when (t) {
-    is VCSClientError -> t.message ?: "Unknown error"
-    else -> t.message ?: "Unknown error"
-}
+internal fun errorMessageOf(t: Throwable): String =
+    when (t) {
+        is VCSClientError -> t.message ?: "Unknown error"
+        else -> t.message ?: "Unknown error"
+    }

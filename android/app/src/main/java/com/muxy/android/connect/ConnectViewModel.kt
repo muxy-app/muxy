@@ -20,11 +20,12 @@ class ConnectViewModel(
     private val userPreferences: UserPreferences,
     private val defaultPort: Int = DEFAULT_PORT,
 ) : ViewModel() {
-    val savedDevices: StateFlow<List<SavedDevice>> = savedDevicesStore.flow.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
-        initialValue = emptyList(),
-    )
+    val savedDevices: StateFlow<List<SavedDevice>> =
+        savedDevicesStore.flow.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
+            initialValue = emptyList(),
+        )
 
     val trustedNetworkNoticeAcknowledged: StateFlow<Boolean> =
         userPreferences.trustedNetworkNoticeAcknowledged.stateIn(
@@ -33,9 +34,14 @@ class ConnectViewModel(
             initialValue = true,
         )
 
-    fun connect(name: String, host: String, port: Int) {
-        val device = normalizeConnectInput(name = name, host = host, port = port, defaultPort = defaultPort)
-            ?: return
+    fun connect(
+        name: String,
+        host: String,
+        port: Int,
+    ) {
+        val device =
+            normalizeConnectInput(name = name, host = host, port = port, defaultPort = defaultPort)
+                ?: return
         viewModelScope.launch {
             savedDevicesStore.add(device)
             muxyClient.connect(
@@ -69,15 +75,16 @@ class ConnectViewModel(
             savedDevicesStore: SavedDevicesStore,
             muxyClient: MuxyClient,
             userPreferences: UserPreferences,
-        ): ViewModelProvider.Factory = viewModelFactory {
-            initializer {
-                ConnectViewModel(
-                    savedDevicesStore = savedDevicesStore,
-                    muxyClient = muxyClient,
-                    userPreferences = userPreferences,
-                )
+        ): ViewModelProvider.Factory =
+            viewModelFactory {
+                initializer {
+                    ConnectViewModel(
+                        savedDevicesStore = savedDevicesStore,
+                        muxyClient = muxyClient,
+                        userPreferences = userPreferences,
+                    )
+                }
             }
-        }
     }
 }
 

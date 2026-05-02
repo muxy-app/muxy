@@ -15,7 +15,10 @@ object Base64ByteArraySerializer : KSerializer<ByteArray> {
     private val base64Encoder = Base64.getEncoder()
     private val base64Decoder = Base64.getDecoder()
 
-    override fun serialize(encoder: Encoder, value: ByteArray) {
+    override fun serialize(
+        encoder: Encoder,
+        value: ByteArray,
+    ) {
         encoder.encodeString(base64Encoder.encodeToString(value))
     }
 

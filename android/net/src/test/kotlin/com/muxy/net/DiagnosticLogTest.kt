@@ -6,7 +6,6 @@ import org.junit.Test
 import java.time.Instant
 
 class DiagnosticLogTest {
-
     @Test
     fun `ring buffer caps at 120 entries`() {
         val log = DiagnosticLog(capacity = 120)

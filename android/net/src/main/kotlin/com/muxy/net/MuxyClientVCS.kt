@@ -25,6 +25,7 @@ import java.util.UUID
 sealed class VCSClientError : Exception() {
     data object Timeout : VCSClientError() {
         override val message: String = "The request timed out."
+
         private fun readResolve(): Any = Timeout
     }
 
@@ -32,27 +33,35 @@ sealed class VCSClientError : Exception() {
 
     data object UnexpectedResponse : VCSClientError() {
         override val message: String = "Unexpected response from Mac."
+
         private fun readResolve(): Any = UnexpectedResponse
     }
 }
 
 suspend fun MuxyClient.fetchVCSStatus(projectID: UUID): VCSStatusDTO? {
-    val response = send(
-        MuxyMethod.GET_VCS_STATUS,
-        MuxyParams.GetVCSStatus(GetVCSStatusParams(projectID = projectID)),
-    ) ?: return null
+    val response =
+        send(
+            MuxyMethod.GET_VCS_STATUS,
+            MuxyParams.GetVCSStatus(GetVCSStatusParams(projectID = projectID)),
+        ) ?: return null
     if (response.error != null) return null
     return (response.result as? MuxyResult.VCSStatus)?.value
 }
 
-suspend fun MuxyClient.stageFiles(projectID: UUID, paths: List<String>) {
+suspend fun MuxyClient.stageFiles(
+    projectID: UUID,
+    paths: List<String>,
+) {
     sendThrowingVCS(
         MuxyMethod.VCS_STAGE_FILES,
         MuxyParams.VCSStageFiles(VCSStageFilesParams(projectID = projectID, paths = paths)),
     )
 }
 
-suspend fun MuxyClient.unstageFiles(projectID: UUID, paths: List<String>) {
+suspend fun MuxyClient.unstageFiles(
+    projectID: UUID,
+    paths: List<String>,
+) {
     sendThrowingVCS(
         MuxyMethod.VCS_UNSTAGE_FILES,
         MuxyParams.VCSUnstageFiles(VCSUnstageFilesParams(projectID = projectID, paths = paths)),
@@ -72,7 +81,11 @@ suspend fun MuxyClient.discardFiles(
     )
 }
 
-suspend fun MuxyClient.vcsCommit(projectID: UUID, message: String, stageAll: Boolean) {
+suspend fun MuxyClient.vcsCommit(
+    projectID: UUID,
+    message: String,
+    stageAll: Boolean,
+) {
     sendThrowingVCS(
         MuxyMethod.VCS_COMMIT,
         MuxyParams.VCSCommit(VCSCommitParams(projectID = projectID, message = message, stageAll = stageAll)),
@@ -94,23 +107,30 @@ suspend fun MuxyClient.vcsPull(projectID: UUID) {
 }
 
 suspend fun MuxyClient.listBranches(projectID: UUID): VCSBranchesDTO {
-    val response = send(
-        MuxyMethod.VCS_LIST_BRANCHES,
-        MuxyParams.VCSListBranches(VCSListBranchesParams(projectID = projectID)),
-    ) ?: throw VCSClientError.Timeout
+    val response =
+        send(
+            MuxyMethod.VCS_LIST_BRANCHES,
+            MuxyParams.VCSListBranches(VCSListBranchesParams(projectID = projectID)),
+        ) ?: throw VCSClientError.Timeout
     val error = response.error
     if (error != null) throw VCSClientError.Server(error.message)
     return (response.result as? MuxyResult.VCSBranches)?.value ?: throw VCSClientError.UnexpectedResponse
 }
 
-suspend fun MuxyClient.switchBranch(projectID: UUID, branch: String) {
+suspend fun MuxyClient.switchBranch(
+    projectID: UUID,
+    branch: String,
+) {
     sendThrowingVCS(
         MuxyMethod.VCS_SWITCH_BRANCH,
         MuxyParams.VCSSwitchBranch(VCSSwitchBranchParams(projectID = projectID, branch = branch)),
     )
 }
 
-suspend fun MuxyClient.createBranch(projectID: UUID, name: String) {
+suspend fun MuxyClient.createBranch(
+    projectID: UUID,
+    name: String,
+) {
     sendThrowingVCS(
         MuxyMethod.VCS_CREATE_BRANCH,
         MuxyParams.VCSCreateBranch(VCSCreateBranchParams(projectID = projectID, name = name)),
@@ -124,18 +144,19 @@ suspend fun MuxyClient.createPullRequest(
     baseBranch: String?,
     draft: Boolean,
 ): VCSCreatePRResultDTO {
-    val response = send(
-        MuxyMethod.VCS_CREATE_PR,
-        MuxyParams.VCSCreatePR(
-            VCSCreatePRParams(
-                projectID = projectID,
-                title = title,
-                body = body,
-                baseBranch = baseBranch,
-                draft = draft,
+    val response =
+        send(
+            MuxyMethod.VCS_CREATE_PR,
+            MuxyParams.VCSCreatePR(
+                VCSCreatePRParams(
+                    projectID = projectID,
+                    title = title,
+                    body = body,
+                    baseBranch = baseBranch,
+                    draft = draft,
+                ),
             ),
-        ),
-    ) ?: throw VCSClientError.Timeout
+        ) ?: throw VCSClientError.Timeout
     val error = response.error
     if (error != null) throw VCSClientError.Server(error.message)
     return (response.result as? MuxyResult.VCSPRCreated)?.value ?: throw VCSClientError.UnexpectedResponse
@@ -161,7 +182,10 @@ suspend fun MuxyClient.addWorktree(
     refreshWorktrees(projectID)
 }
 
-suspend fun MuxyClient.removeWorktree(projectID: UUID, worktreeID: UUID) {
+suspend fun MuxyClient.removeWorktree(
+    projectID: UUID,
+    worktreeID: UUID,
+) {
     sendThrowingVCS(
         MuxyMethod.VCS_REMOVE_WORKTREE,
         MuxyParams.VCSRemoveWorktree(VCSRemoveWorktreeParams(projectID = projectID, worktreeID = worktreeID)),

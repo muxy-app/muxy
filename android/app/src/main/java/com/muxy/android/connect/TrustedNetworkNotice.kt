@@ -50,9 +50,10 @@ fun TrustedNetworkNotice(
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "Muxy connects to your Mac over plain WebSocket (no TLS). Pairing tokens and " +
-                    "every keystroke travel in the clear. Stick to Tailscale, a private VPN, or a " +
-                    "home Wi-Fi network you control.",
+                text =
+                    "Muxy connects to your Mac over plain WebSocket (no TLS). Pairing tokens and " +
+                        "every keystroke travel in the clear. Stick to Tailscale, a private VPN, or a " +
+                        "home Wi-Fi network you control.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(16.dp))

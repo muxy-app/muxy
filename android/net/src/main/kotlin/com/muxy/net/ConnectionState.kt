@@ -10,11 +10,17 @@ data class ConnectionTarget(
 
 sealed class ConnectionState {
     data object Idle : ConnectionState()
+
     data class Connecting(val target: ConnectionTarget) : ConnectionState()
+
     data class Authenticating(val target: ConnectionTarget) : ConnectionState()
+
     data class AwaitingApproval(val target: ConnectionTarget) : ConnectionState()
+
     data class Connected(val target: ConnectionTarget) : ConnectionState()
+
     data class Reconnecting(val target: ConnectionTarget) : ConnectionState()
+
     data class Failed(val issue: ConnectionIssue, val target: ConnectionTarget?) : ConnectionState()
 }
 

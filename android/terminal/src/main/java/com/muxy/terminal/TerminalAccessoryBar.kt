@@ -30,13 +30,11 @@ import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material.icons.outlined.KeyboardHide
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +45,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Job
@@ -82,9 +86,10 @@ fun TerminalAccessoryBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .horizontalScroll(rememberScrollState()),
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -117,17 +122,30 @@ fun TerminalAccessoryBar(
 }
 
 @Composable
-private fun AccessoryKey(label: String, foreground: Color, onClick: () -> Unit) {
+private fun AccessoryKey(
+    label: String,
+    foreground: Color,
+    onClick: () -> Unit,
+) {
     Surface(
         color = Color.Transparent,
         contentColor = foreground,
         shape = RoundedCornerShape(8.dp),
-        modifier = Modifier
-            .height(36.dp)
-            .pointerInput(label) {
-                detectTapGestures(onTap = { onClick() })
-            }
-            .padding(horizontal = 10.dp),
+        modifier =
+            Modifier
+                .height(36.dp)
+                .semantics {
+                    contentDescription = "Send $label"
+                    role = Role.Button
+                    this.onClick(label = "Send $label") {
+                        onClick()
+                        true
+                    }
+                }
+                .pointerInput(label) {
+                    detectTapGestures(onTap = { onClick() })
+                }
+                .padding(horizontal = 10.dp),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().height(36.dp)) {
             Text(label, fontSize = 14.sp, color = foreground)
@@ -146,28 +164,54 @@ private fun AccessoryIcon(
     val tint = if (enabled) foreground else foreground.copy(alpha = 0.4f)
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .size(36.dp)
-            .pointerInput(description, enabled) {
-                if (enabled) detectTapGestures(onTap = { onClick() })
-            },
+        modifier =
+            Modifier
+                .size(36.dp)
+                .semantics {
+                    contentDescription = description
+                    role = Role.Button
+                    if (!enabled) disabled()
+                    if (enabled) {
+                        this.onClick(label = description) {
+                            onClick()
+                            true
+                        }
+                    }
+                }
+                .pointerInput(description, enabled) {
+                    if (enabled) detectTapGestures(onTap = { onClick() })
+                },
     ) {
-        Icon(icon, contentDescription = description, tint = tint)
+        Icon(icon, contentDescription = null, tint = tint)
     }
 }
 
 @Composable
-private fun KeyboardToggle(visible: Boolean, foreground: Color, onClick: () -> Unit) {
+private fun KeyboardToggle(
+    visible: Boolean,
+    foreground: Color,
+    onClick: () -> Unit,
+) {
+    val description = if (visible) "Hide keyboard" else "Show keyboard"
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .size(40.dp)
-            .pointerInput(visible) {
-                detectTapGestures(onTap = { onClick() })
-            },
+        modifier =
+            Modifier
+                .size(40.dp)
+                .semantics {
+                    contentDescription = description
+                    role = Role.Button
+                    this.onClick(label = description) {
+                        onClick()
+                        true
+                    }
+                }
+                .pointerInput(visible) {
+                    detectTapGestures(onTap = { onClick() })
+                },
     ) {
         val icon = if (visible) Icons.Outlined.KeyboardHide else Icons.Outlined.Keyboard
-        Icon(icon, contentDescription = "Toggle keyboard", tint = foreground)
+        Icon(icon, contentDescription = null, tint = foreground)
     }
 }
 
@@ -181,20 +225,30 @@ private fun ModifierKey(
     onSelect: (ArmedModifier) -> Unit,
 ) {
     var pickerVisible by remember { mutableStateOf(false) }
+    val armedLabel = if (armed) "armed" else "off"
     Box(contentAlignment = Alignment.Center) {
         Surface(
             color = if (armed) foreground else Color.Transparent,
             contentColor = if (armed) background else foreground,
             shape = RoundedCornerShape(18.dp),
-            modifier = Modifier
-                .height(36.dp)
-                .pointerInput(active, armed) {
-                    detectTapGestures(
-                        onTap = { onTap() },
-                        onLongPress = { pickerVisible = true },
-                    )
-                }
-                .padding(horizontal = 12.dp),
+            modifier =
+                Modifier
+                    .height(36.dp)
+                    .semantics {
+                        contentDescription = "${active.displayName} modifier $armedLabel. Long-press to choose modifier."
+                        role = Role.Button
+                        this.onClick(label = "Toggle ${active.displayName}") {
+                            onTap()
+                            true
+                        }
+                    }
+                    .pointerInput(active, armed) {
+                        detectTapGestures(
+                            onTap = { onTap() },
+                            onLongPress = { pickerVisible = true },
+                        )
+                    }
+                    .padding(horizontal = 12.dp),
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.height(36.dp)) {
                 Text(active.displayName, fontSize = 14.sp)
@@ -238,11 +292,12 @@ private fun ModifierPicker(
                 val disabled = modifier == active
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .pointerInput(modifier, disabled) {
-                            if (!disabled) detectTapGestures(onTap = { onPick(modifier) })
-                        },
+                    modifier =
+                        Modifier
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .pointerInput(modifier, disabled) {
+                                if (!disabled) detectTapGestures(onTap = { onPick(modifier) })
+                            },
                 ) {
                     Text(
                         modifier.glyph,
@@ -267,7 +322,10 @@ private fun ModifierPicker(
 }
 
 @Composable
-private fun DPad(foreground: Color, onDirection: (String) -> Unit) {
+private fun DPad(
+    foreground: Color,
+    onDirection: (String) -> Unit,
+) {
     val scope = rememberCoroutineScope()
     var thumbOffset by remember { mutableStateOf(Offset.Zero) }
     var activeDirection by remember { mutableStateOf<DPadDirection?>(null) }
@@ -282,13 +340,14 @@ private fun DPad(foreground: Color, onDirection: (String) -> Unit) {
     fun startRepeating(direction: DPadDirection) {
         repeatJob?.cancel()
         onDirection(direction.payload)
-        repeatJob = scope.launch {
-            delay(300)
-            while (true) {
-                onDirection(direction.payload)
-                delay(60)
+        repeatJob =
+            scope.launch {
+                delay(300)
+                while (true) {
+                    onDirection(direction.payload)
+                    delay(60)
+                }
             }
-        }
     }
 
     DisposableEffect(Unit) {
@@ -297,52 +356,61 @@ private fun DPad(foreground: Color, onDirection: (String) -> Unit) {
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .size(48.dp)
-            .background(Color.Black.copy(alpha = 0.35f), CircleShape)
-            .pointerInput(Unit) {
-                detectDragGestures(
-                    onDragStart = { thumbOffset = Offset.Zero },
-                    onDragEnd = {
-                        thumbOffset = Offset.Zero
-                        stopRepeating()
-                    },
-                    onDragCancel = {
-                        thumbOffset = Offset.Zero
-                        stopRepeating()
-                    },
-                ) { change, drag ->
-                    val next = thumbOffset + drag
-                    val mag = hypot(next.x.toDouble(), next.y.toDouble()).toFloat()
-                    val deadZone = 5f
-                    if (mag <= deadZone) {
-                        if (activeDirection != null) stopRepeating()
-                        thumbOffset = Offset.Zero
-                        change.consume()
-                        return@detectDragGestures
-                    }
-                    val direction = if (abs(next.x) > abs(next.y)) {
-                        if (next.x > 0) DPadDirection.RIGHT else DPadDirection.LEFT
-                    } else {
-                        if (next.y > 0) DPadDirection.DOWN else DPadDirection.UP
-                    }
-                    val maxReach = 12f
-                    thumbOffset = when (direction) {
-                        DPadDirection.UP -> Offset(0f, -maxReach)
-                        DPadDirection.DOWN -> Offset(0f, maxReach)
-                        DPadDirection.LEFT -> Offset(-maxReach, 0f)
-                        DPadDirection.RIGHT -> Offset(maxReach, 0f)
-                    }
-                    if (direction != activeDirection) {
-                        activeDirection = direction
-                        startRepeating(direction)
-                    }
-                    change.consume()
+        modifier =
+            Modifier
+                .size(48.dp)
+                .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                .semantics {
+                    contentDescription = "Arrow key D-pad. Drag in a direction to send arrow keys."
                 }
-            },
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { thumbOffset = Offset.Zero },
+                        onDragEnd = {
+                            thumbOffset = Offset.Zero
+                            stopRepeating()
+                        },
+                        onDragCancel = {
+                            thumbOffset = Offset.Zero
+                            stopRepeating()
+                        },
+                    ) { change, drag ->
+                        val next = thumbOffset + drag
+                        val mag = hypot(next.x.toDouble(), next.y.toDouble()).toFloat()
+                        val deadZone = 5f
+                        if (mag <= deadZone) {
+                            if (activeDirection != null) stopRepeating()
+                            thumbOffset = Offset.Zero
+                            change.consume()
+                            return@detectDragGestures
+                        }
+                        val direction =
+                            if (abs(next.x) > abs(next.y)) {
+                                if (next.x > 0) DPadDirection.RIGHT else DPadDirection.LEFT
+                            } else {
+                                if (next.y > 0) DPadDirection.DOWN else DPadDirection.UP
+                            }
+                        val maxReach = 12f
+                        thumbOffset =
+                            when (direction) {
+                                DPadDirection.UP -> Offset(0f, -maxReach)
+                                DPadDirection.DOWN -> Offset(0f, maxReach)
+                                DPadDirection.LEFT -> Offset(-maxReach, 0f)
+                                DPadDirection.RIGHT -> Offset(maxReach, 0f)
+                            }
+                        if (direction != activeDirection) {
+                            activeDirection = direction
+                            startRepeating(direction)
+                        }
+                        change.consume()
+                    }
+                },
     ) {
         Canvas(modifier = Modifier.size(16.dp)) {
-            drawCircle(color = foreground.copy(alpha = 0.55f), center = Offset(size.width / 2 + thumbOffset.x, size.height / 2 + thumbOffset.y))
+            drawCircle(
+                color = foreground.copy(alpha = 0.55f),
+                center = Offset(size.width / 2 + thumbOffset.x, size.height / 2 + thumbOffset.y),
+            )
         }
     }
 }

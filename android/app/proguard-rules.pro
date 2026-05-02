@@ -1,5 +1,3 @@
--dontobfuscate
-
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt
 
@@ -20,3 +18,7 @@
 -keep class kotlinx.serialization.** { *; }
 -keep class kotlinx.serialization.json.** { *; }
 -keep class kotlinx.serialization.internal.** { *; }
+
+-keep class com.termux.terminal.** { *; }
+-keep class com.termux.view.** { *; }
+-keep class com.muxy.terminal.MuxyTerminalSession { *; }

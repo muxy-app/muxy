@@ -33,16 +33,18 @@ fun ProjectIcon(
     val initial = project.name.firstOrNull()?.uppercaseChar()?.toString().orEmpty()
 
     if (logoBytes != null) {
-        val imageBitmap = remember(logoBytes) {
-            BitmapFactory.decodeByteArray(logoBytes, 0, logoBytes.size)?.asImageBitmap()
-        }
+        val imageBitmap =
+            remember(logoBytes) {
+                BitmapFactory.decodeByteArray(logoBytes, 0, logoBytes.size)?.asImageBitmap()
+            }
         if (imageBitmap != null) {
             Image(
                 bitmap = imageBitmap,
                 contentDescription = project.name,
-                modifier = modifier
-                    .size(size)
-                    .clip(RoundedCornerShape(cornerRadius)),
+                modifier =
+                    modifier
+                        .size(size)
+                        .clip(RoundedCornerShape(cornerRadius)),
             )
             return
         }
@@ -54,9 +56,10 @@ fun ProjectIcon(
         if (rgb != null) {
             val fill = Color(red = rgb.first.toFloat(), green = rgb.second.toFloat(), blue = rgb.third.toFloat())
             Box(
-                modifier = modifier
-                    .size(size)
-                    .background(fill, RoundedCornerShape(cornerRadius)),
+                modifier =
+                    modifier
+                        .size(size)
+                        .background(fill, RoundedCornerShape(cornerRadius)),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -71,12 +74,13 @@ fun ProjectIcon(
     }
 
     Box(
-        modifier = modifier
-            .size(size)
-            .background(
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                RoundedCornerShape(cornerRadius),
-            ),
+        modifier =
+            modifier
+                .size(size)
+                .background(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                    RoundedCornerShape(cornerRadius),
+                ),
         contentAlignment = Alignment.Center,
     ) {
         Text(

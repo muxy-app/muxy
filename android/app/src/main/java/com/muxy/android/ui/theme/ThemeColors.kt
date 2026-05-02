@@ -18,7 +18,10 @@ data class MuxyColors(
 }
 
 @Composable
-fun muxyColors(theme: DeviceTheme?, fallbackDark: Boolean = true): MuxyColors {
+fun muxyColors(
+    theme: DeviceTheme?,
+    fallbackDark: Boolean = true,
+): MuxyColors {
     if (theme == null) {
         return if (fallbackDark) {
             MuxyColors(foreground = Color.White, background = Color.Black, isDark = true)

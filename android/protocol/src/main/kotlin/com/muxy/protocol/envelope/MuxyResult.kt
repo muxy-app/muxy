@@ -32,96 +32,131 @@ import kotlinx.serialization.json.put
 @Serializable(with = MuxyResultSerializer::class)
 sealed class MuxyResult {
     data class Projects(val value: List<ProjectDTO>) : MuxyResult()
+
     data class Worktrees(val value: List<WorktreeDTO>) : MuxyResult()
+
     data class Workspace(val value: WorkspaceDTO) : MuxyResult()
+
     data class Tab(val value: TabDTO) : MuxyResult()
+
     data class TerminalContent(val value: TerminalContentDTO) : MuxyResult()
+
     data class TerminalCells(val value: TerminalCellsDTO) : MuxyResult()
+
     data class DeviceInfo(val value: DeviceInfoDTO) : MuxyResult()
+
     data class Pairing(val value: PairingResultDTO) : MuxyResult()
+
     data class PaneOwner(val value: PaneOwnerDTO) : MuxyResult()
+
     data class VCSStatus(val value: VCSStatusDTO) : MuxyResult()
+
     data class VCSBranches(val value: VCSBranchesDTO) : MuxyResult()
+
     data class VCSPRCreated(val value: VCSCreatePRResultDTO) : MuxyResult()
+
     data class ProjectLogo(val value: ProjectLogoDTO) : MuxyResult()
+
     data class Notifications(val value: List<NotificationDTO>) : MuxyResult()
+
     object Ok : MuxyResult()
 }
 
 object MuxyResultSerializer : KSerializer<MuxyResult> {
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor("MuxyResult")
 
-    override fun serialize(encoder: Encoder, value: MuxyResult) {
-        val output = (encoder as? JsonEncoder)
-            ?: error("MuxyResultSerializer only supports JSON")
+    override fun serialize(
+        encoder: Encoder,
+        value: MuxyResult,
+    ) {
+        val output =
+            (encoder as? JsonEncoder)
+                ?: error("MuxyResultSerializer only supports JSON")
         val json = output.json
-        val element = when (value) {
-            is MuxyResult.Projects -> buildJsonObject {
-                put("type", "projects")
-                put("value", json.encodeToJsonElement(ListSerializer(ProjectDTO.serializer()), value.value))
+        val element =
+            when (value) {
+                is MuxyResult.Projects ->
+                    buildJsonObject {
+                        put("type", "projects")
+                        put("value", json.encodeToJsonElement(ListSerializer(ProjectDTO.serializer()), value.value))
+                    }
+                is MuxyResult.Worktrees ->
+                    buildJsonObject {
+                        put("type", "worktrees")
+                        put("value", json.encodeToJsonElement(ListSerializer(WorktreeDTO.serializer()), value.value))
+                    }
+                is MuxyResult.Workspace ->
+                    buildJsonObject {
+                        put("type", "workspace")
+                        put("value", json.encodeToJsonElement(WorkspaceDTO.serializer(), value.value))
+                    }
+                is MuxyResult.Tab ->
+                    buildJsonObject {
+                        put("type", "tab")
+                        put("value", json.encodeToJsonElement(TabDTO.serializer(), value.value))
+                    }
+                is MuxyResult.TerminalContent ->
+                    buildJsonObject {
+                        put("type", "terminalContent")
+                        put("value", json.encodeToJsonElement(TerminalContentDTO.serializer(), value.value))
+                    }
+                is MuxyResult.TerminalCells ->
+                    buildJsonObject {
+                        put("type", "terminalCells")
+                        put("value", json.encodeToJsonElement(TerminalCellsDTO.serializer(), value.value))
+                    }
+                is MuxyResult.DeviceInfo ->
+                    buildJsonObject {
+                        put("type", "deviceInfo")
+                        put("value", json.encodeToJsonElement(DeviceInfoDTO.serializer(), value.value))
+                    }
+                is MuxyResult.Pairing ->
+                    buildJsonObject {
+                        put("type", "pairing")
+                        put("value", json.encodeToJsonElement(PairingResultDTO.serializer(), value.value))
+                    }
+                is MuxyResult.PaneOwner ->
+                    buildJsonObject {
+                        put("type", "paneOwner")
+                        put("value", json.encodeToJsonElement(PaneOwnerDTO.serializer(), value.value))
+                    }
+                is MuxyResult.VCSStatus ->
+                    buildJsonObject {
+                        put("type", "vcsStatus")
+                        put("value", json.encodeToJsonElement(VCSStatusDTO.serializer(), value.value))
+                    }
+                is MuxyResult.VCSBranches ->
+                    buildJsonObject {
+                        put("type", "vcsBranches")
+                        put("value", json.encodeToJsonElement(VCSBranchesDTO.serializer(), value.value))
+                    }
+                is MuxyResult.VCSPRCreated ->
+                    buildJsonObject {
+                        put("type", "vcsPRCreated")
+                        put("value", json.encodeToJsonElement(VCSCreatePRResultDTO.serializer(), value.value))
+                    }
+                is MuxyResult.ProjectLogo ->
+                    buildJsonObject {
+                        put("type", "projectLogo")
+                        put("value", json.encodeToJsonElement(ProjectLogoDTO.serializer(), value.value))
+                    }
+                is MuxyResult.Notifications ->
+                    buildJsonObject {
+                        put("type", "notifications")
+                        put("value", json.encodeToJsonElement(ListSerializer(NotificationDTO.serializer()), value.value))
+                    }
+                is MuxyResult.Ok ->
+                    buildJsonObject {
+                        put("type", "ok")
+                    }
             }
-            is MuxyResult.Worktrees -> buildJsonObject {
-                put("type", "worktrees")
-                put("value", json.encodeToJsonElement(ListSerializer(WorktreeDTO.serializer()), value.value))
-            }
-            is MuxyResult.Workspace -> buildJsonObject {
-                put("type", "workspace")
-                put("value", json.encodeToJsonElement(WorkspaceDTO.serializer(), value.value))
-            }
-            is MuxyResult.Tab -> buildJsonObject {
-                put("type", "tab")
-                put("value", json.encodeToJsonElement(TabDTO.serializer(), value.value))
-            }
-            is MuxyResult.TerminalContent -> buildJsonObject {
-                put("type", "terminalContent")
-                put("value", json.encodeToJsonElement(TerminalContentDTO.serializer(), value.value))
-            }
-            is MuxyResult.TerminalCells -> buildJsonObject {
-                put("type", "terminalCells")
-                put("value", json.encodeToJsonElement(TerminalCellsDTO.serializer(), value.value))
-            }
-            is MuxyResult.DeviceInfo -> buildJsonObject {
-                put("type", "deviceInfo")
-                put("value", json.encodeToJsonElement(DeviceInfoDTO.serializer(), value.value))
-            }
-            is MuxyResult.Pairing -> buildJsonObject {
-                put("type", "pairing")
-                put("value", json.encodeToJsonElement(PairingResultDTO.serializer(), value.value))
-            }
-            is MuxyResult.PaneOwner -> buildJsonObject {
-                put("type", "paneOwner")
-                put("value", json.encodeToJsonElement(PaneOwnerDTO.serializer(), value.value))
-            }
-            is MuxyResult.VCSStatus -> buildJsonObject {
-                put("type", "vcsStatus")
-                put("value", json.encodeToJsonElement(VCSStatusDTO.serializer(), value.value))
-            }
-            is MuxyResult.VCSBranches -> buildJsonObject {
-                put("type", "vcsBranches")
-                put("value", json.encodeToJsonElement(VCSBranchesDTO.serializer(), value.value))
-            }
-            is MuxyResult.VCSPRCreated -> buildJsonObject {
-                put("type", "vcsPRCreated")
-                put("value", json.encodeToJsonElement(VCSCreatePRResultDTO.serializer(), value.value))
-            }
-            is MuxyResult.ProjectLogo -> buildJsonObject {
-                put("type", "projectLogo")
-                put("value", json.encodeToJsonElement(ProjectLogoDTO.serializer(), value.value))
-            }
-            is MuxyResult.Notifications -> buildJsonObject {
-                put("type", "notifications")
-                put("value", json.encodeToJsonElement(ListSerializer(NotificationDTO.serializer()), value.value))
-            }
-            is MuxyResult.Ok -> buildJsonObject {
-                put("type", "ok")
-            }
-        }
         output.encodeJsonElement(element)
     }
 
     override fun deserialize(decoder: Decoder): MuxyResult {
-        val input = (decoder as? JsonDecoder)
-            ?: error("MuxyResultSerializer only supports JSON")
+        val input =
+            (decoder as? JsonDecoder)
+                ?: error("MuxyResultSerializer only supports JSON")
         val obj = input.decodeJsonElement().jsonObject
         val type = obj.getValue("type").jsonPrimitive.content
         if (type == "ok") return MuxyResult.Ok

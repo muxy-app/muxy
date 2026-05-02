@@ -1,0 +1,28 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{kt,kts}]
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true
+max_line_length = unset
+
+# ktlint: @Composable PascalCase is the standard JetBrains convention.
+ktlint_standard_function-naming = disabled
+ktlint_standard_property-naming = disabled
+ktlint_standard_no-wildcard-imports = disabled
+ktlint_standard_filename = disabled
+ktlint_standard_max-line-length = disabled
+
+# Vendored Termux + generated sources are not formatted by us.
+[**/vendor/**.{kt,kts,java}]
+ktlint_standard = disabled
+
+[**/build/generated/**.{kt,kts,java}]
+ktlint_standard = disabled

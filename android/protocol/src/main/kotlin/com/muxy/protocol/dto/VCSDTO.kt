@@ -24,13 +24,26 @@ data class GitFileDTO(
 
 @Serializable
 enum class GitFileStatusDTO {
-    @SerialName("added") ADDED,
-    @SerialName("modified") MODIFIED,
-    @SerialName("deleted") DELETED,
-    @SerialName("renamed") RENAMED,
-    @SerialName("copied") COPIED,
-    @SerialName("untracked") UNTRACKED,
-    @SerialName("unmerged") UNMERGED,
+    @SerialName("added")
+    ADDED,
+
+    @SerialName("modified")
+    MODIFIED,
+
+    @SerialName("deleted")
+    DELETED,
+
+    @SerialName("renamed")
+    RENAMED,
+
+    @SerialName("copied")
+    COPIED,
+
+    @SerialName("untracked")
+    UNTRACKED,
+
+    @SerialName("unmerged")
+    UNMERGED,
 }
 
 @Serializable
