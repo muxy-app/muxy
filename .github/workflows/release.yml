@@ -75,6 +75,16 @@ jobs:
           chmod +x scripts/setup.sh
           scripts/setup.sh
 
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-release-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            spm-release-${{ runner.os }}-${{ matrix.arch }}-
+
       - name: Resolve Sparkle dependency
         run: swift package resolve
 

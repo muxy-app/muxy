@@ -3,6 +3,13 @@ name: Release (Beta)
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/PULL_REQUEST_TEMPLATE.md"
+      - ".gitignore"
+      - "LICENSE"
   workflow_dispatch:
 
 concurrency:
@@ -73,6 +80,16 @@ jobs:
         run: |
           chmod +x scripts/setup.sh
           scripts/setup.sh
+
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-release-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            spm-release-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: Resolve Sparkle dependency
         run: swift package resolve

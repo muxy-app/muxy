@@ -9,7 +9,7 @@ on:
 jobs:
   checks:
     name: Checks
-    runs-on: macos-26
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,6 +54,16 @@ jobs:
         run: scripts/setup.sh
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: Cache SPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build
         run: swift build
