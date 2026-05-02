@@ -249,10 +249,11 @@ private fun TabPickerMenu(
     onTabSelected: (AreaTab) -> Unit,
     onNewTerminal: () -> Unit,
 ) {
+    val labels = remember(entries) { disambiguateLabels(entries) }
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        entries.forEach { entry ->
+        entries.forEachIndexed { index, entry ->
             DropdownMenuItem(
-                text = { Text(shortTitle(entry.tab.title)) },
+                text = { Text(labels[index]) },
                 leadingIcon = {
                     if (entry.tab.id == activeTabID) {
                         Icon(Icons.Outlined.Check, contentDescription = null)
@@ -275,6 +276,18 @@ private fun TabPickerMenu(
 private fun shortTitle(title: String): String {
     val parts = title.split('/').filter { it.isNotEmpty() }
     return parts.lastOrNull() ?: title
+}
+
+private fun disambiguateLabels(entries: List<AreaTab>): List<String> {
+    val shorts = entries.map { shortTitle(it.tab.title) }
+    val counts = shorts.groupingBy { it }.eachCount()
+    val seen = mutableMapOf<String, Int>()
+    return shorts.map { short ->
+        if ((counts[short] ?: 0) <= 1) return@map short
+        val n = (seen[short] ?: 0) + 1
+        seen[short] = n
+        "$short ($n)"
+    }
 }
 
 @Composable

@@ -164,6 +164,7 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             let params = NWParameters.tcp
             params.allowLocalEndpointReuse = true
             let ws = NWProtocolWebSocket.Options()
+            ws.autoReplyPing = true
             params.defaultProtocolStack.applicationProtocols.insert(ws, at: 0)
             listener = try NWListener(using: params, on: endpointPort)
         } catch {
@@ -237,7 +238,7 @@ public final class MuxyRemoteServer: @unchecked Sendable {
 
     func _testingMarkAuthenticated(_ id: UUID) {
         queue.sync {
-            authenticatedClients.insert(id)
+            _ = authenticatedClients.insert(id)
         }
     }
 

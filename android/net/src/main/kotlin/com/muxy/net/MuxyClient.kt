@@ -21,6 +21,7 @@ import com.muxy.protocol.dto.SelectWorktreeParams
 import com.muxy.protocol.dto.SplitAreaParams
 import com.muxy.protocol.dto.SplitDirectionDTO
 import com.muxy.protocol.dto.SplitPositionDTO
+import com.muxy.protocol.dto.TabKindDTO
 import com.muxy.protocol.dto.TakeOverPaneParams
 import com.muxy.protocol.dto.TerminalInputParams
 import com.muxy.protocol.dto.TerminalResizeParams
@@ -381,10 +382,11 @@ class MuxyClient(
     suspend fun createTab(
         projectID: UUID,
         areaID: UUID? = null,
+        kind: TabKindDTO = TabKindDTO.TERMINAL,
     ) {
         send(
             MuxyMethod.CREATE_TAB,
-            MuxyParams.CreateTab(CreateTabParams(projectID = projectID, areaID = areaID)),
+            MuxyParams.CreateTab(CreateTabParams(projectID = projectID, areaID = areaID, kind = kind)),
         )
         refreshWorkspace(projectID)
     }

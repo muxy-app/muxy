@@ -184,6 +184,7 @@ fun MuxyTerminalView(
                     }
                 },
                 update = { view ->
+                    view.attachSession(session)
                     applyTheme(theme, view)
                     sizeReporter.attach(view)
                     if (view.mEmulator != null) {

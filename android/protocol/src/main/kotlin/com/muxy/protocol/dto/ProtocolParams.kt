@@ -26,7 +26,7 @@ data class GetWorkspaceParams(val projectID: @Contextual UUID)
 data class CreateTabParams(
     val projectID: @Contextual UUID,
     val areaID: @Contextual UUID? = null,
-    val kind: TabKindDTO = TabKindDTO.TERMINAL,
+    val kind: TabKindDTO,
 )
 
 @Serializable
@@ -171,7 +171,7 @@ data class GetVCSStatusParams(val projectID: @Contextual UUID)
 data class VCSCommitParams(
     val projectID: @Contextual UUID,
     val message: String,
-    val stageAll: Boolean = false,
+    val stageAll: Boolean,
 )
 
 @Serializable
