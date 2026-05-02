@@ -434,6 +434,7 @@ private struct ExpandedWorktreeRow: View {
     }
 
     private var branchLabel: String? {
+        guard !worktree.isPrimary else { return nil }
         guard let branch = worktree.branch, !branch.isEmpty else { return nil }
         guard branch.caseInsensitiveCompare(displayName) != .orderedSame else { return nil }
         return branch
