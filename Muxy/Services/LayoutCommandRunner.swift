@@ -1,11 +1,11 @@
 import Foundation
 import os
 
-private let logger = Logger(subsystem: "app.muxy", category: "StartupCommandRunner")
+private let logger = Logger(subsystem: "app.muxy", category: "LayoutCommandRunner")
 
 @MainActor
-enum StartupCommandRunner {
-    static func run(_ pending: [StartupWorkspaceBuilder.PendingCommand]) {
+enum LayoutCommandRunner {
+    static func run(_ pending: [LayoutWorkspaceBuilder.PendingCommand]) {
         for entry in pending {
             Task { await send(paneID: entry.paneID, command: entry.command) }
         }
@@ -20,6 +20,6 @@ enum StartupCommandRunner {
                 return
             }
         }
-        logger.error("Timed out waiting for pane \(paneID.uuidString) to dispatch startup command")
+        logger.error("Timed out waiting for pane \(paneID.uuidString) to dispatch layout command")
     }
 }

@@ -1,7 +1,7 @@
 import Foundation
 
 @MainActor
-enum StartupWorkspaceBuilder {
+enum LayoutWorkspaceBuilder {
     struct PendingCommand {
         let paneID: UUID
         let command: String
@@ -13,12 +13,7 @@ enum StartupWorkspaceBuilder {
         let pendingCommands: [PendingCommand]
     }
 
-    static func build(projectPath: String) -> Result? {
-        guard let config = StartupConfig.load(fromProjectPath: projectPath) else { return nil }
-        return build(config: config, projectPath: projectPath)
-    }
-
-    static func build(config: StartupConfig, projectPath: String) -> Result? {
+    static func build(config: LayoutConfig, projectPath: String) -> Result? {
         var pending: [PendingCommand] = []
         guard let node = buildNode(from: config.root, projectPath: projectPath, pending: &pending) else {
             return nil
@@ -27,7 +22,7 @@ enum StartupWorkspaceBuilder {
     }
 
     private static func buildNode(
-        from pane: StartupConfig.Pane,
+        from pane: LayoutConfig.Pane,
         projectPath: String,
         pending: inout [PendingCommand]
     ) -> SplitNode? {
@@ -46,7 +41,7 @@ enum StartupWorkspaceBuilder {
     }
 
     private static func makeArea(
-        tabs: [StartupConfig.Tab],
+        tabs: [LayoutConfig.Tab],
         projectPath: String,
         pending: inout [PendingCommand]
     ) -> TabArea? {
@@ -61,7 +56,7 @@ enum StartupWorkspaceBuilder {
     }
 
     private static func makeTab(
-        from tab: StartupConfig.Tab,
+        from tab: LayoutConfig.Tab,
         projectPath: String,
         pending: inout [PendingCommand]
     ) -> TerminalTab {

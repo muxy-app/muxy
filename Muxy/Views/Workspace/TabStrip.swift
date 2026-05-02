@@ -75,6 +75,7 @@ struct PaneTabStrip: View {
                         filePath: openInIDEFilePath,
                         cursorProvider: openInIDECursorProvider
                     )
+                    LayoutPickerMenu(projectID: projectID)
                 }
                 if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {
                     UpdateBadge(version: version) {

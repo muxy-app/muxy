@@ -4,23 +4,23 @@ import Yams
 
 @testable import Muxy
 
-@Suite("StartupWorkspaceBuilder")
+@Suite("LayoutWorkspaceBuilder")
 @MainActor
-struct StartupWorkspaceBuilderTests {
+struct LayoutWorkspaceBuilderTests {
     private let testPath = "/tmp/test"
 
     @Test("returns nil for empty leaf")
     func emptyLeaf() {
-        let config = StartupConfig(root: .leaf(tabs: []))
-        #expect(StartupWorkspaceBuilder.build(config: config, projectPath: testPath) == nil)
+        let config = LayoutConfig(root: .leaf(tabs: []))
+        #expect(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath) == nil)
     }
 
     @Test("single tab leaf")
     func singleTabLeaf() throws {
-        let config = StartupConfig(root: .leaf(tabs: [
+        let config = LayoutConfig(root: .leaf(tabs: [
             .init(name: "dev", command: "npm run dev")
         ]))
-        let result = try #require(StartupWorkspaceBuilder.build(config: config, projectPath: testPath))
+        let result = try #require(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath))
         guard case let .tabArea(area) = result.root else {
             Issue.record("expected leaf")
             return
@@ -37,12 +37,12 @@ struct StartupWorkspaceBuilderTests {
 
     @Test("multiple tabs preserve order with first focused")
     func multipleTabs() throws {
-        let config = StartupConfig(root: .leaf(tabs: [
+        let config = LayoutConfig(root: .leaf(tabs: [
             .init(name: "one", command: nil),
             .init(name: nil, command: "echo hi"),
             .init(name: "three", command: nil)
         ]))
-        let result = try #require(StartupWorkspaceBuilder.build(config: config, projectPath: testPath))
+        let result = try #require(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath))
         guard case let .tabArea(area) = result.root else {
             Issue.record("expected leaf")
             return
@@ -56,11 +56,11 @@ struct StartupWorkspaceBuilderTests {
 
     @Test("two-pane horizontal split")
     func twoPaneHorizontal() throws {
-        let config = StartupConfig(root: .branch(layout: .horizontal, panes: [
+        let config = LayoutConfig(root: .branch(layout: .horizontal, panes: [
             .leaf(tabs: [.init(name: "left", command: nil)]),
             .leaf(tabs: [.init(name: "right", command: nil)])
         ]))
-        let result = try #require(StartupWorkspaceBuilder.build(config: config, projectPath: testPath))
+        let result = try #require(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath))
         guard case let .split(branch) = result.root else {
             Issue.record("expected split")
             return
@@ -79,12 +79,12 @@ struct StartupWorkspaceBuilderTests {
 
     @Test("three panes produce nested splits")
     func threePanes() throws {
-        let config = StartupConfig(root: .branch(layout: .vertical, panes: [
+        let config = LayoutConfig(root: .branch(layout: .vertical, panes: [
             .leaf(tabs: [.init(name: "a", command: nil)]),
             .leaf(tabs: [.init(name: "b", command: nil)]),
             .leaf(tabs: [.init(name: "c", command: nil)])
         ]))
-        let result = try #require(StartupWorkspaceBuilder.build(config: config, projectPath: testPath))
+        let result = try #require(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath))
         let areas = result.root.allAreas()
         #expect(areas.count == 3)
         #expect(areas.map { $0.tabs[0].content.pane?.title } == ["a", "b", "c"])
@@ -92,14 +92,14 @@ struct StartupWorkspaceBuilderTests {
 
     @Test("nested branch with mixed layouts")
     func nestedBranches() throws {
-        let config = StartupConfig(root: .branch(layout: .horizontal, panes: [
+        let config = LayoutConfig(root: .branch(layout: .horizontal, panes: [
             .leaf(tabs: [.init(name: "left", command: nil)]),
             .branch(layout: .vertical, panes: [
                 .leaf(tabs: [.init(name: "top", command: nil)]),
                 .leaf(tabs: [.init(name: "bottom", command: nil)])
             ])
         ]))
-        let result = try #require(StartupWorkspaceBuilder.build(config: config, projectPath: testPath))
+        let result = try #require(LayoutWorkspaceBuilder.build(config: config, projectPath: testPath))
         guard case let .split(outer) = result.root else {
             Issue.record("expected outer split")
             return
@@ -115,8 +115,8 @@ struct StartupWorkspaceBuilderTests {
     }
 }
 
-@Suite("StartupConfig")
-struct StartupConfigParsingTests {
+@Suite("LayoutConfig")
+struct LayoutConfigParsingTests {
     @Test("parses YAML with single tab leaf")
     func parsesSingleTab() throws {
         let yaml = """
@@ -125,7 +125,7 @@ struct StartupConfigParsingTests {
             command: npm run dev
         """
         let value = try Yams.load(yaml: yaml)
-        let config = try #require(StartupConfig.parse(value))
+        let config = try #require(LayoutConfig.parse(value))
         guard case let .leaf(tabs) = config.root else {
             Issue.record("expected leaf")
             return
@@ -150,7 +150,7 @@ struct StartupConfigParsingTests {
                   - btop
         """
         let value = try Yams.load(yaml: yaml)
-        let config = try #require(StartupConfig.parse(value))
+        let config = try #require(LayoutConfig.parse(value))
         guard case let .branch(layout, panes) = config.root else {
             Issue.record("expected branch")
             return
@@ -172,7 +172,7 @@ struct StartupConfigParsingTests {
           - htop
         """
         let value = try Yams.load(yaml: yaml)
-        let config = try #require(StartupConfig.parse(value))
+        let config = try #require(LayoutConfig.parse(value))
         guard case let .leaf(tabs) = config.root else {
             Issue.record("expected leaf")
             return
@@ -190,7 +190,7 @@ struct StartupConfigParsingTests {
               - npm install
         """
         let value = try Yams.load(yaml: yaml)
-        let config = try #require(StartupConfig.parse(value))
+        let config = try #require(LayoutConfig.parse(value))
         guard case let .leaf(tabs) = config.root else {
             Issue.record("expected leaf")
             return

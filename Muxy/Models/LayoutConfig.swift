@@ -1,7 +1,13 @@
 import Foundation
 import Yams
 
-struct StartupConfig: Equatable {
+struct LayoutDescriptor: Equatable, Identifiable {
+    let name: String
+    let url: URL
+    var id: String { url.path }
+}
+
+struct LayoutConfig: Equatable {
     enum Layout: String, Equatable {
         case horizontal
         case vertical
@@ -19,22 +25,41 @@ struct StartupConfig: Equatable {
 
     let root: Pane
 
-    static func load(fromProjectPath projectPath: String) -> StartupConfig? {
-        let directory = URL(fileURLWithPath: projectPath).appendingPathComponent(".muxy")
-        let candidates = ["startup.yaml", "startup.yml", "startup.json"]
-        for name in candidates {
-            let url = directory.appendingPathComponent(name)
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-            guard let value = try? Yams.load(yaml: text) else { return nil }
-            return parse(value)
-        }
-        return nil
+    static func directory(forProjectPath projectPath: String) -> URL {
+        URL(fileURLWithPath: projectPath)
+            .appendingPathComponent(".muxy")
+            .appendingPathComponent("layouts")
     }
 
-    static func parse(_ value: Any?) -> StartupConfig? {
+    static func discover(projectPath: String) -> [LayoutDescriptor] {
+        let directory = directory(forProjectPath: projectPath)
+        let allowed: Set = ["yaml", "yml", "json"]
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        else { return [] }
+        return entries
+            .filter { allowed.contains($0.pathExtension.lowercased()) }
+            .map { LayoutDescriptor(name: $0.deletingPathExtension().lastPathComponent, url: $0) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    static func load(descriptor: LayoutDescriptor) -> LayoutConfig? {
+        guard let text = try? String(contentsOf: descriptor.url, encoding: .utf8) else { return nil }
+        guard let value = try? Yams.load(yaml: text) else { return nil }
+        return parse(value)
+    }
+
+    static func load(projectPath: String, name: String) -> LayoutConfig? {
+        guard let descriptor = discover(projectPath: projectPath).first(where: { $0.name == name }) else { return nil }
+        return load(descriptor: descriptor)
+    }
+
+    static func parse(_ value: Any?) -> LayoutConfig? {
         guard let pane = parsePane(value) else { return nil }
-        return StartupConfig(root: pane)
+        return LayoutConfig(root: pane)
     }
 
     private static func parsePane(_ value: Any?) -> Pane? {

@@ -1,12 +1,24 @@
-# Declarative Startup Layout
+# Layouts
 
-Muxy can reproduce a fixed pane/tab layout every time a project is opened. The layout lives in-repo at `{Project.path}/.muxy/startup.yaml` (or `.yml`/`.json`), so it can be checked in alongside the project.
+Muxy can apply named pane/tab layouts to a worktree on demand. Layouts live in-repo under `{Project.path}/.muxy/layouts/` so they can be checked in alongside the project.
 
 ## Behavior
 
-When `startup.yaml` exists, it overrides any persisted workspace state for that worktree on every project open — the layout is the source of truth.
+- Each file in `.muxy/layouts/` defines one named layout. The file name (without extension) is the layout's name.
+- When at least one layout exists for the active worktree, a layout picker appears in the window's top bar.
+- Selecting a layout asks for confirmation; on accept, all current terminals and tabs in that worktree are closed and the layout is applied.
+- Layouts are not auto-applied on project open — the user picks one explicitly.
 
-If the file is absent, Muxy restores the previous workspace from disk as before.
+## File location
+
+```
+<project-root>/.muxy/layouts/
+  dev.yaml
+  release.yaml
+  scratch.json
+```
+
+Supported extensions: `.yaml`, `.yml`, `.json`.
 
 ## Model
 
@@ -80,7 +92,7 @@ panes:
 
 ## JSON
 
-The same schema works as JSON at `.muxy/startup.json`:
+The same schema works as JSON at `.muxy/layouts/<name>.json`:
 
 ```json
 {

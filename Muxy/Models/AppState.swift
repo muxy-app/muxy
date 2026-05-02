@@ -53,6 +53,7 @@ final class AppState {
         case selectNextProject(projects: [Project], worktrees: [UUID: [Worktree]])
         case selectPreviousProject(projects: [Project], worktrees: [UUID: [Worktree]])
         case navigate(projectID: UUID, worktreeID: UUID, areaID: UUID, tabID: UUID?)
+        case applyLayout(projectID: UUID, worktreePath: String, config: LayoutConfig)
     }
 
     private let selectionStore: any ActiveProjectSelectionStoring
@@ -70,8 +71,15 @@ final class AppState {
         let tabID: UUID
     }
 
+    struct PendingLayoutApply: Equatable {
+        let projectID: UUID
+        let worktreePath: String
+        let layoutName: String
+    }
+
     var workspaceRoots: [WorktreeKey: SplitNode] = [:]
     var focusedAreaID: [WorktreeKey: UUID] = [:]
+    var pendingLayoutApply: PendingLayoutApply?
     var pendingLastTabClose: PendingTabClose?
     var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
@@ -102,21 +110,10 @@ final class AppState {
             projects: projects,
             worktrees: worktrees
         )
-        var pendingStartupCommands: [StartupWorkspaceBuilder.PendingCommand] = []
         for entry in restored {
-            let worktreePath = entry.root.allAreas().first?.projectPath
-            if let worktreePath,
-               let startup = StartupWorkspaceBuilder.build(projectPath: worktreePath)
-            {
-                workspaceRoots[entry.key] = startup.root
-                focusedAreaID[entry.key] = startup.focusedAreaID
-                pendingStartupCommands.append(contentsOf: startup.pendingCommands)
-                continue
-            }
             workspaceRoots[entry.key] = entry.root
             focusedAreaID[entry.key] = entry.focusedAreaID
         }
-        StartupCommandRunner.run(pendingStartupCommands)
 
         let savedWorktreeIDs = selectionStore.loadActiveWorktreeIDs()
         for project in projects {
@@ -380,6 +377,45 @@ final class AppState {
         pendingLastTabClose = nil
     }
 
+    func availableLayouts(for projectID: UUID) -> [LayoutDescriptor] {
+        guard let path = activeWorktreePath(for: projectID) else { return [] }
+        return LayoutConfig.discover(projectPath: path)
+    }
+
+    func requestApplyLayout(projectID: UUID, layoutName: String) {
+        guard let path = activeWorktreePath(for: projectID) else { return }
+        pendingLayoutApply = PendingLayoutApply(
+            projectID: projectID,
+            worktreePath: path,
+            layoutName: layoutName
+        )
+    }
+
+    func confirmApplyLayout() {
+        guard let pending = pendingLayoutApply else { return }
+        pendingLayoutApply = nil
+        guard let config = LayoutConfig.load(projectPath: pending.worktreePath, name: pending.layoutName) else {
+            logger.error("Failed to load layout '\(pending.layoutName)' at \(pending.worktreePath)")
+            return
+        }
+        dispatch(.applyLayout(
+            projectID: pending.projectID,
+            worktreePath: pending.worktreePath,
+            config: config
+        ))
+    }
+
+    func cancelApplyLayout() {
+        pendingLayoutApply = nil
+    }
+
+    private func activeWorktreePath(for projectID: UUID) -> String? {
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key]
+        else { return nil }
+        return root.allAreas().first?.projectPath
+    }
+
     private func unpinTabIfNeeded(_ tabID: UUID, areaID: UUID, projectID: UUID) {
         guard let key = activeWorktreeKey(for: projectID),
               let root = workspaceRoots[key],
@@ -511,7 +547,7 @@ final class AppState {
             onProjectsEmptied?(effects.projectIDsToRemove)
         }
 
-        StartupCommandRunner.run(effects.startupCommands)
+        LayoutCommandRunner.run(effects.layoutCommands)
 
         pruneNavigationHistory()
         recordCurrentNavigationEntry()
