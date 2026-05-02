@@ -10,13 +10,13 @@ struct MainWindow: View {
     @State private var dragCoordinator = TabDragCoordinator()
     private enum AttachedVCSLayout {
         static let minWidth: CGFloat = 200
-        static let defaultWidth: CGFloat = 400
+        static let defaultWidth: CGFloat = 300
         static let maxWidth: CGFloat = 800
     }
 
     private enum FileTreeLayout {
         static let minWidth: CGFloat = 180
-        static let defaultWidth: CGFloat = 260
+        static let defaultWidth: CGFloat = 200
         static let maxWidth: CGFloat = 600
     }
 
