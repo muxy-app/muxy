@@ -80,17 +80,6 @@ Tool versions are pinned in `.tool-versions` and the script validates them on st
 - Ensure all checks pass before requesting review
 - Link any related issues
 
-### Commit & PR Titles
-
-For changes that affect the iOS app (`MuxyMobile/`), prefix the PR title (which becomes the squash commit subject) with `ios:`. Example:
-
-```
-ios: fix ctrl button dropdown
-ios: add git diff viewer tab
-```
-
-The iOS release workflow builds its changelog from commit subjects matching `ios: …` between iOS tags, so any iOS-facing change without this prefix will be missing from the release notes.
-
 ## Reporting Issues
 
 - Use the [Bug Report](.github/ISSUE_TEMPLATE/bug_report.yml) template for bugs

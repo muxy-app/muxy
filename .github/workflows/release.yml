@@ -230,6 +230,42 @@ jobs:
             appcast-x86_64.xml \
             appcast.xml
 
+      - name: Notify Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [[ -z "$DISCORD_WEBHOOK_URL" ]]; then
+            echo "DISCORD_WEBHOOK_URL not set, skipping Discord notification"
+            exit 0
+          fi
+          TAG="v${VERSION}"
+          NOTES=$(gh release view "$TAG" --repo "$REPO" --json body --jq .body)
+          if [[ ${#NOTES} -gt 3800 ]]; then
+            NOTES="${NOTES:0:3800}…"
+          fi
+          URL="https://github.com/${REPO}/releases/tag/${TAG}"
+          PAYLOAD=$(jq -n \
+            --arg title "Muxy ${TAG} released" \
+            --arg url "$URL" \
+            --arg notes "$NOTES" \
+            --arg footer "Stable channel" \
+            '{
+              username: "Muxy Releases",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $notes,
+                color: 3066993,
+                footer: { text: $footer },
+                timestamp: (now | todate)
+              }]
+            }')
+          curl -fsSL -H "Content-Type: application/json" \
+            -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
+
       - name: Bump BETA_VERSION
         env:
           NEXT: ${{ needs.validate.outputs.next_beta_version }}

@@ -6,15 +6,12 @@ let package = Package(
     name: "Muxy",
     platforms: [
         .macOS(.v14),
-        .iOS(.v17),
     ],
     products: [
         .library(name: "MuxyShared", targets: ["MuxyShared"]),
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.2.0"),
-        .package(url: "https://github.com/jpsim/Yams", from: "5.1.0"),
     ],
     targets: [
         .target(

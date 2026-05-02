@@ -229,6 +229,42 @@ jobs:
             artifacts/dmg-arm64/*.dmg \
             artifacts/dmg-x86_64/*.dmg
 
+      - name: Notify Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [[ -z "$DISCORD_WEBHOOK_URL" ]]; then
+            echo "DISCORD_WEBHOOK_URL not set, skipping Discord notification"
+            exit 0
+          fi
+          NOTES=$(gh release view "$TAG" --repo "$REPO" --json body --jq .body)
+          if [[ ${#NOTES} -gt 3800 ]]; then
+            NOTES="${NOTES:0:3800}…"
+          fi
+          URL="https://github.com/${REPO}/releases/tag/${TAG}"
+          PAYLOAD=$(jq -n \
+            --arg title "Muxy ${VERSION} (beta) released" \
+            --arg url "$URL" \
+            --arg notes "$NOTES" \
+            --arg footer "Beta channel" \
+            '{
+              username: "Muxy Releases",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $notes,
+                color: 15844367,
+                footer: { text: $footer },
+                timestamp: (now | todate)
+              }]
+            }')
+          curl -fsSL -H "Content-Type: application/json" \
+            -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
+
       - name: Publish rolling beta-channel appcast release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

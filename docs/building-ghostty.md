@@ -36,8 +36,7 @@ The fork auto-syncs from upstream ghostty daily via the "Sync Upstream" workflow
 
 ## Muxy-specific patches
 
-The fork carries two additive exports used by the mobile remote-server
-integration. Both live near `ghostty_surface_text` in the embedded apprt so
+The fork carries two additive exports used by the remote-server integration. Both live near `ghostty_surface_text` in the embedded apprt so
 they're easy to keep on top of upstream:
 
 - `ghostty_surface_set_data_callback(surface, cb, userdata)` — registers a
