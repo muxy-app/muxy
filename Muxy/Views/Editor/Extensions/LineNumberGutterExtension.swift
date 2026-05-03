@@ -60,6 +60,7 @@ final class LineNumberGutterExtension: EditorExtension {
         let view = LineNumberGutterView()
         view.wantsLayer = true
         view.autoresizingMask = []
+        view.clipView = scrollView.contentView
         applyAppearance(to: view, context: context)
         view.frame = NSRect(
             x: scrollView.contentView.bounds.origin.x,
@@ -170,6 +171,7 @@ private final class LineNumberGutterView: NSView {
     var foregroundColor: NSColor = .secondaryLabelColor
     var backgroundColor: NSColor = .clear
     var borderColor: NSColor = .separatorColor
+    weak var clipView: NSClipView?
 
     override var isFlipped: Bool { true }
 
@@ -207,10 +209,16 @@ private final class LineNumberGutterView: NSView {
             label.draw(at: NSPoint(x: originX, y: originY), withAttributes: attributes)
         }
 
+        guard let clipView else { return }
+        let visibleInGutter = clipView.convert(clipView.bounds, to: self)
+        let borderTop = max(bounds.minY, visibleInGutter.minY)
+        let borderBottom = min(bounds.maxY, visibleInGutter.maxY)
+        guard borderBottom > borderTop else { return }
+
         borderColor.setStroke()
         let path = NSBezierPath()
-        path.move(to: NSPoint(x: bounds.maxX - 0.5, y: bounds.minY))
-        path.line(to: NSPoint(x: bounds.maxX - 0.5, y: bounds.maxY))
+        path.move(to: NSPoint(x: bounds.maxX - 0.5, y: borderTop))
+        path.line(to: NSPoint(x: bounds.maxX - 0.5, y: borderBottom))
         path.lineWidth = 1
         path.stroke()
     }
