@@ -20,6 +20,8 @@ final class GhosttyTerminalNSView: NSView {
     var resolveCmdHoverFile: ((String) -> Bool)?
     var onOpenURL: ((URL) -> Bool)?
     private var isShowingHandCursor = false
+    private var fileHoverUnderlineLayer: CAShapeLayer?
+    private var lastMouseTopDownPoint: CGPoint?
     var hasOSC8LinkUnderCursor: Bool = false
     var isFocused: Bool = false
     var overlayActive: Bool = false
@@ -541,6 +543,7 @@ final class GhosttyTerminalNSView: NSView {
     override func mouseMoved(with event: NSEvent) {
         guard let surface else { return }
         let pt = mousePoint(from: event)
+        lastMouseTopDownPoint = pt
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
         updateCmdHoverCursor(modifierFlags: event.modifierFlags)
     }
@@ -548,18 +551,31 @@ final class GhosttyTerminalNSView: NSView {
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         setHandCursor(false)
+        hideFileHoverUnderline()
     }
 
     private func updateCmdHoverCursor(modifierFlags: NSEvent.ModifierFlags) {
-        guard modifierFlags.contains(.command), !hasOSC8LinkUnderCursor else {
+        guard modifierFlags.contains(.command) else {
             setHandCursor(false)
+            hideFileHoverUnderline()
             return
         }
-        guard let word = readWordUnderMouse(), resolveCmdHoverFile?(word) == true else {
-            setHandCursor(false)
+        if hasOSC8LinkUnderCursor {
+            setHandCursor(true)
+            hideFileHoverUnderline()
             return
         }
+        guard let word = readQuicklookWordUnderMouse(), resolveCmdHoverFile?(word.text) == true else {
+            setHandCursor(false)
+            hideFileHoverUnderline()
+            return
+        }
+        showFileHoverUnderline(for: word)
         setHandCursor(true)
+    }
+
+    func refreshCmdHoverCursor() {
+        updateCmdHoverCursor(modifierFlags: NSEvent.modifierFlags)
     }
 
     private func setHandCursor(_ on: Bool) {
@@ -570,6 +586,83 @@ final class GhosttyTerminalNSView: NSView {
         } else {
             NSCursor.pop()
         }
+    }
+
+    private struct QuicklookWord {
+        let text: String
+        let topLeftPoints: CGPoint
+    }
+
+    private func readQuicklookWordUnderMouse() -> QuicklookWord? {
+        guard let surface else { return nil }
+        var text = ghostty_text_s()
+        guard ghostty_surface_quicklook_word(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let value = extractString(from: text) else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return QuicklookWord(
+            text: trimmed,
+            topLeftPoints: CGPoint(x: text.tl_px_x, y: text.tl_px_y)
+        )
+    }
+
+    private func showFileHoverUnderline(for word: QuicklookWord) {
+        guard let layer else { return }
+        let underlineLayer = fileHoverUnderlineLayer ?? CAShapeLayer()
+        if fileHoverUnderlineLayer == nil {
+            underlineLayer.fillColor = nil
+            underlineLayer.isGeometryFlipped = true
+            layer.addSublayer(underlineLayer)
+            fileHoverUnderlineLayer = underlineLayer
+        }
+
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        let font = quicklookFont()
+        let textSize = (word.text as NSString).size(withAttributes: [.font: font])
+        let x = word.topLeftPoints.x
+        let rowHeight = terminalRowHeight() ?? max(textSize.height, font.ascender - font.descender + font.leading)
+        let mouseY = lastMouseTopDownPoint?.y ?? word.topLeftPoints.y
+        let rowTopY = floor(mouseY / rowHeight) * rowHeight
+        let y = rowTopY + rowHeight - max(2, font.underlineThickness)
+        let width = max(textSize.width, 1)
+        let thickness = max(font.underlineThickness, 1 / scale)
+
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: x, y: y))
+        path.addLine(to: CGPoint(x: x + width, y: y))
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        underlineLayer.frame = bounds
+        underlineLayer.contentsScale = scale
+        underlineLayer.path = path
+        underlineLayer.strokeColor = NSColor.controlAccentColor.cgColor
+        underlineLayer.lineWidth = thickness
+        underlineLayer.isHidden = false
+        CATransaction.commit()
+    }
+
+    private func hideFileHoverUnderline() {
+        fileHoverUnderlineLayer?.isHidden = true
+    }
+
+    private func quicklookFont() -> NSFont {
+        guard let surface,
+              let fontPtr = ghostty_surface_quicklook_font(surface)
+        else {
+            return .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        }
+        return Unmanaged<NSFont>.fromOpaque(fontPtr).takeUnretainedValue()
+    }
+
+    private func terminalRowHeight() -> CGFloat? {
+        guard let surface else { return nil }
+        var cells = ghostty_cells_s()
+        guard ghostty_surface_read_cells(surface, &cells) else { return nil }
+        defer { ghostty_surface_free_cells(surface, &cells) }
+        guard cells.rows > 0 else { return nil }
+        return bounds.height / CGFloat(cells.rows)
     }
 
     override func rightMouseDown(with event: NSEvent) {
