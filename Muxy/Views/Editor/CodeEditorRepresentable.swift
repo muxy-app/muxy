@@ -559,10 +559,12 @@ struct CodeEditorView: NSViewRepresentable {
             }
             if !editorSettings.showLineNumbers, hasGutter {
                 let context = makeRenderContext()
-                extensions.removeAll { ext in
-                    guard ext is LineNumberGutterExtension else { return false }
-                    if let context { ext.willUnmount(context: context) }
-                    return true
+                let removed = extensions.filter { $0 is LineNumberGutterExtension }
+                extensions.removeAll { $0 is LineNumberGutterExtension }
+                if let context {
+                    for ext in removed {
+                        ext.willUnmount(context: context)
+                    }
                 }
                 refreshViewport(force: true)
             }
@@ -580,10 +582,12 @@ struct CodeEditorView: NSViewRepresentable {
             }
             if !editorSettings.highlightCurrentLine, hasHighlight {
                 let context = makeRenderContext()
-                extensions.removeAll { ext in
-                    guard ext is CurrentLineHighlightExtension else { return false }
-                    if let context { ext.willUnmount(context: context) }
-                    return true
+                let removed = extensions.filter { $0 is CurrentLineHighlightExtension }
+                extensions.removeAll { $0 is CurrentLineHighlightExtension }
+                if let context {
+                    for ext in removed {
+                        ext.willUnmount(context: context)
+                    }
                 }
             }
         }
