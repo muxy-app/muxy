@@ -266,6 +266,9 @@ final class AppState {
     }
 
     private func requestEditorJump(state: EditorTabState, line: Int, column: Int) {
+        if state.isMarkdownFile, state.markdownViewMode != .code {
+            state.markdownViewMode = .code
+        }
         state.pendingJumpLine = line
         state.pendingJumpColumn = max(1, column)
         state.pendingJumpVersion &+= 1

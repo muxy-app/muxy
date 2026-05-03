@@ -1506,10 +1506,10 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func applyPendingJump(line: Int, column: Int) {
-            scrollToGlobalLine(max(0, line - 1), column: max(0, column - 1))
+            scrollToGlobalLine(max(0, line - 1), column: max(0, column - 1), placeNearTop: true)
         }
 
-        private func scrollToGlobalLine(_ globalLine: Int, column: Int) {
+        private func scrollToGlobalLine(_ globalLine: Int, column: Int, placeNearTop: Bool = false) {
             guard let viewport = viewportState, let scrollView, let textView else { return }
 
             let targetScrollY = viewport.scrollY(forLine: globalLine)
@@ -1520,7 +1520,9 @@ struct CodeEditorView: NSViewRepresentable {
             let lineBottom = targetScrollY + viewport.estimatedLineHeight
 
             var newScrollY = currentScrollY
-            if lineBottom > currentScrollY + visibleHeight {
+            if placeNearTop, lineTop < currentScrollY || lineBottom > currentScrollY + visibleHeight {
+                newScrollY = lineTop - visibleHeight / 3
+            } else if lineBottom > currentScrollY + visibleHeight {
                 newScrollY = lineBottom - visibleHeight
             } else if lineTop < currentScrollY {
                 newScrollY = lineTop
