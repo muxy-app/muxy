@@ -11,7 +11,6 @@ final class ViewportState {
     private(set) var viewportEndLine = 0
     private(set) var estimatedLineHeight: CGFloat = 16
     private(set) var documentVerticalPadding: CGFloat = 8
-    private(set) var extraDocumentHeight: CGFloat = 0
 
     static let viewportBuffer = 500
     static let scrollHysteresis = 200
@@ -19,11 +18,7 @@ final class ViewportState {
     var viewportLineCount: Int { viewportEndLine - viewportStartLine }
 
     var totalDocumentHeight: CGFloat {
-        CGFloat(backingStore.lineCount) * estimatedLineHeight + documentVerticalPadding + extraDocumentHeight
-    }
-
-    func updateExtraDocumentHeight(_ value: CGFloat) {
-        extraDocumentHeight = max(0, value)
+        CGFloat(backingStore.lineCount) * estimatedLineHeight + documentVerticalPadding
     }
 
     init(backingStore: TextBackingStore) {
