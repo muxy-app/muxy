@@ -21,6 +21,7 @@ final class GhosttyTerminalNSView: NSView {
     var onOpenURL: ((URL) -> Bool)?
     private var isShowingHandCursor = false
     private var fileHoverUnderlineLayer: CAShapeLayer?
+    private var lastMouseTopDownPoint: CGPoint?
     var hasOSC8LinkUnderCursor: Bool = false
     var isFocused: Bool = false
     var overlayActive: Bool = false
@@ -534,6 +535,7 @@ final class GhosttyTerminalNSView: NSView {
     override func mouseMoved(with event: NSEvent) {
         guard let surface else { return }
         let pt = mousePoint(from: event)
+        lastMouseTopDownPoint = pt
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
         updateCmdHoverCursor(modifierFlags: event.modifierFlags)
     }
@@ -580,7 +582,7 @@ final class GhosttyTerminalNSView: NSView {
 
     private struct QuicklookWord {
         let text: String
-        let topLeftPixels: CGPoint
+        let topLeftPoints: CGPoint
     }
 
     private func readQuicklookWordUnderMouse() -> QuicklookWord? {
@@ -593,7 +595,7 @@ final class GhosttyTerminalNSView: NSView {
         guard !trimmed.isEmpty else { return nil }
         return QuicklookWord(
             text: trimmed,
-            topLeftPixels: CGPoint(x: text.tl_px_x, y: text.tl_px_y)
+            topLeftPoints: CGPoint(x: text.tl_px_x, y: text.tl_px_y)
         )
     }
 
@@ -602,6 +604,7 @@ final class GhosttyTerminalNSView: NSView {
         let underlineLayer = fileHoverUnderlineLayer ?? CAShapeLayer()
         if fileHoverUnderlineLayer == nil {
             underlineLayer.fillColor = nil
+            underlineLayer.isGeometryFlipped = true
             layer.addSublayer(underlineLayer)
             fileHoverUnderlineLayer = underlineLayer
         }
@@ -609,12 +612,11 @@ final class GhosttyTerminalNSView: NSView {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
         let font = quicklookFont()
         let textSize = (word.text as NSString).size(withAttributes: [.font: font])
-        let lineHeight = max(font.ascender - font.descender + font.leading, textSize.height)
-        let x = word.topLeftPixels.x / scale
-        let topY = word.topLeftPixels.y / scale
-        let baselineY = bounds.height - topY - font.ascender
-        let underlineY = baselineY + font.underlinePosition
-        let y = underlineY.isFinite ? underlineY : bounds.height - topY - lineHeight + 2
+        let x = word.topLeftPoints.x
+        let rowHeight = terminalRowHeight() ?? max(textSize.height, font.ascender - font.descender + font.leading)
+        let mouseY = lastMouseTopDownPoint?.y ?? word.topLeftPoints.y
+        let rowTopY = floor(mouseY / rowHeight) * rowHeight
+        let y = rowTopY + rowHeight - max(2, font.underlineThickness)
         let width = max(textSize.width, 1)
         let thickness = max(font.underlineThickness, 1 / scale)
 
@@ -625,6 +627,7 @@ final class GhosttyTerminalNSView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         underlineLayer.frame = bounds
+        underlineLayer.contentsScale = scale
         underlineLayer.path = path
         underlineLayer.strokeColor = NSColor.controlAccentColor.cgColor
         underlineLayer.lineWidth = thickness
@@ -643,6 +646,15 @@ final class GhosttyTerminalNSView: NSView {
             return .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         }
         return Unmanaged<NSFont>.fromOpaque(fontPtr).takeUnretainedValue()
+    }
+
+    private func terminalRowHeight() -> CGFloat? {
+        guard let surface else { return nil }
+        var cells = ghostty_cells_s()
+        guard ghostty_surface_read_cells(surface, &cells) else { return nil }
+        defer { ghostty_surface_free_cells(surface, &cells) }
+        guard cells.rows > 0 else { return nil }
+        return bounds.height / CGFloat(cells.rows)
     }
 
     override func rightMouseDown(with event: NSEvent) {
