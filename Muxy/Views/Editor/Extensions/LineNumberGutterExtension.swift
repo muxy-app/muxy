@@ -7,6 +7,7 @@ protocol LineNumberGutterHost: AnyObject {
     var scrollView: NSScrollView? { get }
     var textView: NSTextView? { get }
     var leadingGutterWidth: CGFloat { get set }
+    var lineWrappingEnabled: Bool { get }
 
     func refreshViewport(force: Bool)
 }
@@ -102,6 +103,10 @@ final class LineNumberGutterExtension: EditorExtension {
         view.foregroundColor = palette.foreground.withAlphaComponent(0.45)
         view.backgroundColor = palette.background
         view.borderColor = palette.foreground.withAlphaComponent(0.08)
+        view.wrappingEnabled = host?.lineWrappingEnabled ?? false
+        view.textView = context.textView
+        view.viewportStartLine = context.viewport.viewportStartLine
+        view.viewportLineCount = context.viewport.viewportLineCount
     }
 
     private func layoutGutter() {
@@ -173,6 +178,11 @@ private final class LineNumberGutterView: NSView {
     var borderColor: NSColor = .separatorColor
     weak var clipView: NSClipView?
 
+    var wrappingEnabled: Bool = false
+    weak var textView: NSTextView?
+    var viewportStartLine: Int = 0
+    var viewportLineCount: Int = 0
+
     override var isFlipped: Bool { true }
 
     private let horizontalPadding: CGFloat = 8
@@ -188,25 +198,15 @@ private final class LineNumberGutterView: NSView {
         backgroundColor.setFill()
         dirtyRect.fill()
 
-        guard lineHeight > 0, totalLines > 0 else { return }
-
-        let firstLine = max(0, Int(floor((dirtyRect.minY - topInset) / lineHeight)))
-        let lastLine = min(totalLines - 1, Int(ceil((dirtyRect.maxY - topInset) / lineHeight)))
-        guard firstLine <= lastLine else { return }
-
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: foregroundColor,
         ]
 
-        let availableWidth = bounds.width - horizontalPadding * 2
-
-        for line in firstLine ... lastLine {
-            let label = String(line + 1) as NSString
-            let labelSize = label.size(withAttributes: attributes)
-            let originX = horizontalPadding + max(0, availableWidth - labelSize.width)
-            let originY = topInset + CGFloat(line) * lineHeight + (lineHeight - labelSize.height) / 2
-            label.draw(at: NSPoint(x: originX, y: originY), withAttributes: attributes)
+        if wrappingEnabled {
+            drawWrapped(dirtyRect: dirtyRect, attributes: attributes)
+        } else {
+            drawUniform(dirtyRect: dirtyRect, attributes: attributes)
         }
 
         guard let clipView else { return }
@@ -221,5 +221,65 @@ private final class LineNumberGutterView: NSView {
         path.line(to: NSPoint(x: bounds.maxX - 0.5, y: borderBottom))
         path.lineWidth = 1
         path.stroke()
+    }
+
+    private func drawUniform(dirtyRect: NSRect, attributes: [NSAttributedString.Key: Any]) {
+        guard lineHeight > 0, totalLines > 0 else { return }
+
+        let firstLine = max(0, Int(floor((dirtyRect.minY - topInset) / lineHeight)))
+        let lastLine = min(totalLines - 1, Int(ceil((dirtyRect.maxY - topInset) / lineHeight)))
+        guard firstLine <= lastLine else { return }
+
+        let availableWidth = bounds.width - horizontalPadding * 2
+
+        for line in firstLine ... lastLine {
+            let label = String(line + 1) as NSString
+            let labelSize = label.size(withAttributes: attributes)
+            let originX = horizontalPadding + max(0, availableWidth - labelSize.width)
+            let originY = topInset + CGFloat(line) * lineHeight + (lineHeight - labelSize.height) / 2
+            label.draw(at: NSPoint(x: originX, y: originY), withAttributes: attributes)
+        }
+    }
+
+    private func drawWrapped(dirtyRect: NSRect, attributes: [NSAttributedString.Key: Any]) {
+        guard viewportLineCount > 0,
+              let textView,
+              let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer,
+              let storage = textView.textStorage
+        else { return }
+
+        let nsString = storage.string as NSString
+        let storageLength = nsString.length
+        guard storageLength > 0 else { return }
+
+        let textFrameOriginY = textView.frame.origin.y
+        let availableWidth = bounds.width - horizontalPadding * 2
+
+        var location = 0
+        for localLine in 0 ..< viewportLineCount {
+            guard location <= storageLength else { break }
+            let lineRange = nsString.lineRange(for: NSRange(location: location, length: 0))
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+            guard glyphRange.length > 0 else {
+                location = NSMaxRange(lineRange)
+                continue
+            }
+            let fragmentRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+            let yInGutter = textFrameOriginY + textView.textContainerInset.height + fragmentRect.minY
+            let labelHeight = (String(viewportStartLine + localLine + 1) as NSString)
+                .size(withAttributes: attributes).height
+            let originY = yInGutter + (fragmentRect.height - labelHeight) / 2
+
+            if originY + labelHeight >= dirtyRect.minY, originY <= dirtyRect.maxY {
+                let label = String(viewportStartLine + localLine + 1) as NSString
+                let labelSize = label.size(withAttributes: attributes)
+                let originX = horizontalPadding + max(0, availableWidth - labelSize.width)
+                label.draw(at: NSPoint(x: originX, y: originY), withAttributes: attributes)
+            }
+
+            location = NSMaxRange(lineRange)
+            if yInGutter > dirtyRect.maxY { break }
+        }
     }
 }

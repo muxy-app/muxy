@@ -161,6 +161,7 @@ struct CodeEditorView: NSViewRepresentable {
     @Bindable var state: EditorTabState
     let editorSettings: EditorSettings
     let showLineNumbers: Bool
+    let lineWrapping: Bool
     let themeVersion: Int
     let showsVerticalScroller: Bool
     let focused: Bool
@@ -182,7 +183,7 @@ struct CodeEditorView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = showsVerticalScroller
-        scrollView.hasHorizontalScroller = true
+        scrollView.hasHorizontalScroller = !lineWrapping
         scrollView.autoresizingMask = [.width, .height]
 
         let textStorage = NSTextStorage()
@@ -265,6 +266,8 @@ struct CodeEditorView: NSViewRepresentable {
         coordinator.setScrollObserver(for: scrollView)
         textView.undoManager?.removeAllActions()
 
+        coordinator.applyLineWrapping(lineWrapping)
+
         return scrollView
     }
 
@@ -311,6 +314,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         coordinator.reconcileLineNumberGutter()
         coordinator.reconcileCurrentLineHighlight()
+        coordinator.reconcileLineWrapping(lineWrapping)
         updateNSViewViewportMode(scrollView: scrollView, textView: textView, coordinator: coordinator)
     }
 
@@ -334,6 +338,10 @@ struct CodeEditorView: NSViewRepresentable {
 
         if !coordinator.hasAppliedInitialContent, viewport.backingStore.lineCount > 1 || backingStoreChanged {
             coordinator.hasAppliedInitialContent = true
+            if lineWrapping {
+                coordinator.applyLineWrapping(true)
+                viewport.resetWrappedHeights()
+            }
             coordinator.refreshViewport(force: true)
             if focused, !state.suppressInitialFocus {
                 Self.claimFirstResponder(textView: textView, attemptsRemaining: 20)
@@ -500,6 +508,8 @@ struct CodeEditorView: NSViewRepresentable {
         var viewportState: ViewportState?
         var containerView: ViewportContainerView?
         var leadingGutterWidth: CGFloat = 0
+        private(set) var lineWrappingEnabled: Bool = false
+        private var pendingWrapResizeWorkItem: DispatchWorkItem?
 
         var isUpdating = false
         private var isEditingViewport = false
@@ -610,6 +620,54 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
+        func applyLineWrapping(_ enabled: Bool) {
+            lineWrappingEnabled = enabled
+            viewportState?.lineWrappingEnabled = enabled
+            if !enabled {
+                viewportState?.resetWrappedHeights()
+            }
+            guard let textView, let textContainer = textView.textContainer else { return }
+            scrollView?.hasHorizontalScroller = !enabled
+            if enabled {
+                let availableWidth = wrappingContentWidth()
+                textContainer.widthTracksTextView = true
+                textContainer.containerSize = NSSize(
+                    width: max(1, availableWidth),
+                    height: CGFloat.greatestFiniteMagnitude
+                )
+                textView.maxSize = NSSize(
+                    width: CGFloat.greatestFiniteMagnitude,
+                    height: CGFloat.greatestFiniteMagnitude
+                )
+                textView.isHorizontallyResizable = false
+            } else {
+                textContainer.widthTracksTextView = false
+                textContainer.containerSize = NSSize(
+                    width: CGFloat.greatestFiniteMagnitude,
+                    height: CGFloat.greatestFiniteMagnitude
+                )
+                textView.isHorizontallyResizable = true
+            }
+            textView.layoutManager?.invalidateLayout(
+                forCharacterRange: NSRange(location: 0, length: textView.textStorage?.length ?? 0),
+                actualCharacterRange: nil
+            )
+        }
+
+        func reconcileLineWrapping(_ enabled: Bool) {
+            guard lineWrappingEnabled != enabled else { return }
+            applyLineWrapping(enabled)
+            updateContainerHeight()
+            refreshViewport(force: true)
+        }
+
+        private func wrappingContentWidth() -> CGFloat {
+            guard let scrollView else { return 0 }
+            let total = scrollView.contentSize.width
+            let inset = textView?.textContainerInset.width ?? 0
+            return max(1, total - leadingGutterWidth - inset * 2)
+        }
+
         private func makeRenderContext() -> EditorRenderContext? {
             guard let textView,
                   let storage = textView.textStorage,
@@ -678,6 +736,7 @@ struct CodeEditorView: NSViewRepresentable {
 
             let viewport = ViewportState(backingStore: store)
             viewport.updateEstimatedLineHeight(font: editorSettings.resolvedFont)
+            viewport.lineWrappingEnabled = lineWrappingEnabled
             viewportState = viewport
             invalidateRenderedViewportText()
             lastRenderedViewportRange = nil
@@ -965,7 +1024,49 @@ struct CodeEditorView: NSViewRepresentable {
             return lineStartOffsets[localLine]
         }
 
+        private func measureWrappedFragments(textView: NSTextView, viewport: ViewportState) {
+            guard let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer,
+                  let storage = textView.textStorage,
+                  storage.length > 0
+            else { return }
+            layoutManager.ensureLayout(for: textContainer)
+            let nsString = storage.string as NSString
+            let storageLength = nsString.length
+            var location = 0
+            var localLine = 0
+            while location <= storageLength, localLine < viewport.viewportLineCount {
+                let lineRange = nsString.lineRange(for: NSRange(location: location, length: 0))
+                let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+                let fragmentCount: Int
+                if glyphRange.length == 0 {
+                    fragmentCount = 1
+                } else {
+                    var count = 0
+                    var glyphIndex = glyphRange.location
+                    let end = NSMaxRange(glyphRange)
+                    while glyphIndex < end {
+                        var effectiveRange = NSRange(location: 0, length: 0)
+                        _ = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &effectiveRange)
+                        count += 1
+                        if effectiveRange.length == 0 { break }
+                        glyphIndex = NSMaxRange(effectiveRange)
+                    }
+                    fragmentCount = max(1, count)
+                }
+                viewport.recordWrappedFragmentCount(
+                    fragmentCount,
+                    atLine: viewport.viewportStartLine + localLine
+                )
+                location = NSMaxRange(lineRange)
+                localLine += 1
+            }
+        }
+
         private func viewportContentWidth(for textView: NSTextView, scrollView: NSScrollView) -> CGFloat {
+            if lineWrappingEnabled {
+                return scrollView.contentSize.width
+            }
             guard let layoutManager = textView.layoutManager, let textContainer = textView.textContainer else {
                 return scrollView.contentSize.width
             }
@@ -985,6 +1086,27 @@ struct CodeEditorView: NSViewRepresentable {
             let estimatedHeight = viewport.estimatedLineHeight * CGFloat(max(1, visibleLineCount))
                 + textView.textContainerInset.height * 2
             let viewportWidth = viewportContentWidth(for: textView, scrollView: scrollView)
+            let targetTextWidth = max(0, viewportWidth - leadingGutterWidth)
+
+            if lineWrappingEnabled, textView.frame.width != targetTextWidth, targetTextWidth > 0 {
+                textView.frame = NSRect(
+                    x: leadingGutterWidth,
+                    y: textView.frame.origin.y,
+                    width: targetTextWidth,
+                    height: textView.frame.height
+                )
+                if let textContainer = textView.textContainer {
+                    textContainer.containerSize = NSSize(
+                        width: targetTextWidth,
+                        height: CGFloat.greatestFiniteMagnitude
+                    )
+                }
+                textView.layoutManager?.invalidateLayout(
+                    forCharacterRange: NSRange(location: 0, length: textView.textStorage?.length ?? 0),
+                    actualCharacterRange: nil
+                )
+            }
+
             if let layoutManager = textView.layoutManager, let textContainer = textView.textContainer {
                 layoutManager.ensureLayout(for: textContainer)
             }
@@ -993,10 +1115,13 @@ struct CodeEditorView: NSViewRepresentable {
             } else {
                 estimatedHeight
             }
+            if lineWrappingEnabled, targetTextWidth > 0 {
+                measureWrappedFragments(textView: textView, viewport: viewport)
+            }
             let newTextFrame = NSRect(
                 x: leadingGutterWidth,
                 y: yOffset,
-                width: max(0, viewportWidth - leadingGutterWidth),
+                width: targetTextWidth,
                 height: max(estimatedHeight, laidOutHeight, 100)
             )
             if textView.frame != newTextFrame {
@@ -1086,8 +1211,11 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         private func reconcileScrollBoundsChange(_ size: CGSize?) {
+            var widthChanged = false
             if let size {
                 if size.width != lastObservedClipSize.width {
+                    widthChanged = true
+                    handleWrappingWidthChange()
                     ensureViewportMinimumWidth()
                 }
                 if size.height != lastObservedClipSize.height {
@@ -1098,13 +1226,16 @@ struct CodeEditorView: NSViewRepresentable {
             markdownScrollSync.attach(scrollView: scrollView, viewport: viewportState)
             markdownScrollSync.reconcileScrollBoundsChange()
             if !isEditingViewport {
-                refreshViewport(force: false)
+                refreshViewport(force: lineWrappingEnabled && widthChanged && !isLiveResizing)
             }
         }
 
         private func reconcileClipFrameChange(_ size: CGSize?) {
+            var widthChanged = false
             if let size {
                 if size.width != lastObservedClipSize.width {
+                    widthChanged = true
+                    handleWrappingWidthChange()
                     ensureViewportMinimumWidth()
                 }
                 if size.height != lastObservedClipSize.height {
@@ -1114,8 +1245,42 @@ struct CodeEditorView: NSViewRepresentable {
             }
             updateMarkdownEditorScrollMetrics()
             if !isEditingViewport {
-                refreshViewport(force: false)
+                refreshViewport(force: lineWrappingEnabled && widthChanged && !isLiveResizing)
             }
+        }
+
+        private var isLiveResizing: Bool {
+            scrollView?.inLiveResize == true
+        }
+
+        private func handleWrappingWidthChange() {
+            guard lineWrappingEnabled else { return }
+            if isLiveResizing {
+                schedulePendingWrapResize()
+                return
+            }
+            viewportState?.resetWrappedHeights()
+            applyLineWrapping(true)
+        }
+
+        private func schedulePendingWrapResize() {
+            pendingWrapResizeWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.pendingWrapResizeWorkItem = nil
+                    if self.scrollView?.inLiveResize == true {
+                        self.schedulePendingWrapResize()
+                        return
+                    }
+                    guard self.lineWrappingEnabled else { return }
+                    self.viewportState?.resetWrappedHeights()
+                    self.applyLineWrapping(true)
+                    self.refreshViewport(force: true)
+                }
+            }
+            pendingWrapResizeWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
         }
 
         func updateMarkdownEditorScrollMetrics() {
@@ -1175,6 +1340,11 @@ struct CodeEditorView: NSViewRepresentable {
             if let pendingEdit {
                 let oldRange = pendingEdit.startLine ..< pendingEdit.startLine + pendingEdit.oldLines.count
                 _ = viewport.backingStore.replaceLines(in: oldRange, with: pendingEdit.newLines)
+                viewport.notifyLinesReplaced(
+                    start: pendingEdit.startLine,
+                    removingCount: pendingEdit.oldLines.count,
+                    insertingCount: pendingEdit.newLines.count
+                )
                 lineDelta = pendingEdit.newLines.count - pendingEdit.oldLines.count
                 let newViewportEnd = max(viewportStartLine, viewport.viewportEndLine + lineDelta)
                 viewport.applyViewport(viewportStartLine ..< newViewportEnd)
@@ -1186,6 +1356,11 @@ struct CodeEditorView: NSViewRepresentable {
                 let newLocalLines = newLocalText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
                 let oldRange = viewport.viewportStartLine ..< viewport.viewportEndLine
                 _ = viewport.backingStore.replaceLines(in: oldRange, with: newLocalLines)
+                viewport.notifyLinesReplaced(
+                    start: viewport.viewportStartLine,
+                    removingCount: oldRange.count,
+                    insertingCount: newLocalLines.count
+                )
                 lineDelta = newLocalLines.count - oldRange.count
                 viewport.applyViewport(viewport.viewportStartLine ..< viewport.viewportStartLine + newLocalLines.count)
                 invalidateSyntaxHighlightsFromLine(viewportStartLine)

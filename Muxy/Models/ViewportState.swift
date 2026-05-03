@@ -11,6 +11,8 @@ final class ViewportState {
     private(set) var viewportEndLine = 0
     private(set) var estimatedLineHeight: CGFloat = 16
     private(set) var documentVerticalPadding: CGFloat = 8
+    private(set) var wrappedHeights: WrappedLineHeights
+    var lineWrappingEnabled: Bool = false
 
     static let viewportBuffer = 500
     static let scrollHysteresis = 200
@@ -18,11 +20,16 @@ final class ViewportState {
     var viewportLineCount: Int { viewportEndLine - viewportStartLine }
 
     var totalDocumentHeight: CGFloat {
-        CGFloat(backingStore.lineCount) * estimatedLineHeight + documentVerticalPadding
+        if lineWrappingEnabled {
+            wrappedHeights.resize(to: backingStore.lineCount)
+            return CGFloat(wrappedHeights.totalFragments) * estimatedLineHeight + documentVerticalPadding
+        }
+        return CGFloat(backingStore.lineCount) * estimatedLineHeight + documentVerticalPadding
     }
 
     init(backingStore: TextBackingStore) {
         self.backingStore = backingStore
+        wrappedHeights = WrappedLineHeights(lineCount: backingStore.lineCount)
     }
 
     func updateEstimatedLineHeight(font: NSFont) {
@@ -36,11 +43,39 @@ final class ViewportState {
         documentVerticalPadding = topInset + bottomInset + safetyPadding
     }
 
+    func resetWrappedHeights() {
+        wrappedHeights.resize(to: backingStore.lineCount)
+        wrappedHeights.resetAllToBaseline()
+    }
+
+    func recordWrappedFragmentCount(_ count: Int, atLine line: Int) {
+        wrappedHeights.resize(to: backingStore.lineCount)
+        wrappedHeights.setFragmentCount(count, at: line)
+    }
+
+    func notifyLinesReplaced(start: Int, removingCount: Int, insertingCount: Int) {
+        guard lineWrappingEnabled else { return }
+        wrappedHeights.replaceLines(
+            start: start,
+            removingCount: removingCount,
+            insertingCount: insertingCount
+        )
+    }
+
     func visibleLineRange(scrollY: CGFloat, visibleHeight: CGFloat) -> Range<Int> {
-        let firstVisible = max(0, Int(floor(scrollY / estimatedLineHeight)))
+        let unit = estimatedLineHeight
+        if lineWrappingEnabled, unit > 0 {
+            wrappedHeights.resize(to: backingStore.lineCount)
+            let firstFragment = max(0, Int(floor(scrollY / unit)))
+            let lastFragment = max(firstFragment, Int(ceil((scrollY + visibleHeight) / unit)))
+            let firstLine = wrappedHeights.line(forFragmentOffset: firstFragment)
+            let lastLine = min(backingStore.lineCount, wrappedHeights.line(forFragmentOffset: lastFragment) + 1)
+            return firstLine ..< max(firstLine, lastLine)
+        }
+        let firstVisible = max(0, Int(floor(scrollY / unit)))
         let lastVisible = min(
             backingStore.lineCount,
-            Int(ceil((scrollY + visibleHeight) / estimatedLineHeight))
+            Int(ceil((scrollY + visibleHeight) / unit))
         )
         return firstVisible ..< max(firstVisible, lastVisible)
     }
@@ -71,7 +106,7 @@ final class ViewportState {
     }
 
     func viewportYOffset() -> CGFloat {
-        CGFloat(viewportStartLine) * estimatedLineHeight
+        scrollY(forLine: viewportStartLine)
     }
 
     func backingStoreLine(forViewportLine localLine: Int) -> Int {
@@ -88,6 +123,12 @@ final class ViewportState {
     }
 
     func scrollY(forLine globalLine: Int) -> CGFloat {
-        CGFloat(globalLine) * estimatedLineHeight
+        if lineWrappingEnabled {
+            wrappedHeights.resize(to: backingStore.lineCount)
+            guard globalLine > 0 else { return 0 }
+            let fragmentsBefore = wrappedHeights.prefixFragments(throughLine: globalLine - 1)
+            return CGFloat(fragmentsBefore) * estimatedLineHeight
+        }
+        return CGFloat(globalLine) * estimatedLineHeight
     }
 }
