@@ -88,6 +88,8 @@ struct EditorSettingsView: View {
                 SettingsSection("Appearance", showsDivider: false) {
                     SettingsToggleRow(label: "Show Line Numbers", isOn: $settings.showLineNumbers)
 
+                    SettingsToggleRow(label: "Highlight Current Line", isOn: $settings.highlightCurrentLine)
+
                     SettingsRow("Font Family") {
                         Picker("", selection: $settings.fontFamily) {
                             ForEach(monoFonts, id: \.self) { family in

@@ -13,6 +13,8 @@ protocol EditorExtension: AnyObject {
     func applyIncremental(context: EditorRenderContext, lineRange: Range<Int>, edit: EditorTextEdit)
 
     func textDidChange(context: EditorRenderContext)
+
+    func selectionDidChange(context: EditorRenderContext)
 }
 
 extension EditorExtension {
@@ -21,4 +23,5 @@ extension EditorExtension {
     func renderViewport(context _: EditorRenderContext, lineRange _: Range<Int>) {}
     func applyIncremental(context _: EditorRenderContext, lineRange _: Range<Int>, edit _: EditorTextEdit) {}
     func textDidChange(context _: EditorRenderContext) {}
+    func selectionDidChange(context _: EditorRenderContext) {}
 }

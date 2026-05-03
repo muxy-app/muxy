@@ -310,6 +310,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         coordinator.reconcileLineNumberGutter()
+        coordinator.reconcileCurrentLineHighlight()
         updateNSViewViewportMode(scrollView: scrollView, textView: textView, coordinator: coordinator)
     }
 
@@ -473,7 +474,7 @@ struct CodeEditorView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, SyntaxHighlightCoordinator, SearchControllerHost, ViewportEditHistoryHost,
-        LineNumberGutterHost
+        LineNumberGutterHost, CurrentLineHighlightHost
     {
         let state: EditorTabState
         let editorSettings: EditorSettings
@@ -539,6 +540,9 @@ struct CodeEditorView: NSViewRepresentable {
             if editorSettings.showLineNumbers {
                 loaded.append(LineNumberGutterExtension(host: self))
             }
+            if editorSettings.highlightCurrentLine {
+                loaded.append(CurrentLineHighlightExtension(host: self))
+            }
             extensions = loaded
         }
 
@@ -561,6 +565,26 @@ struct CodeEditorView: NSViewRepresentable {
                     return true
                 }
                 refreshViewport(force: true)
+            }
+        }
+
+        func reconcileCurrentLineHighlight() {
+            let hasHighlight = extensions.contains(where: { $0 is CurrentLineHighlightExtension })
+            if editorSettings.highlightCurrentLine, !hasHighlight {
+                let ext = CurrentLineHighlightExtension(host: self)
+                extensions.append(ext)
+                if let context = makeRenderContext() {
+                    ext.didMount(context: context)
+                }
+                return
+            }
+            if !editorSettings.highlightCurrentLine, hasHighlight {
+                let context = makeRenderContext()
+                extensions.removeAll { ext in
+                    guard ext is CurrentLineHighlightExtension else { return false }
+                    if let context { ext.willUnmount(context: context) }
+                    return true
+                }
             }
         }
 
@@ -1414,7 +1438,16 @@ struct CodeEditorView: NSViewRepresentable {
             let localLineStart = lineStartOffsets[max(0, min(localLineIndex, lineStartOffsets.count - 1))]
             state.cursorColumn = max(1, loc - localLineStart + 1)
 
+            notifySelectionDidChange()
+
             updateCurrentSelection(in: textView, range: range)
+        }
+
+        private func notifySelectionDidChange() {
+            guard let context = makeRenderContext() else { return }
+            for ext in extensions {
+                ext.selectionDidChange(context: context)
+            }
         }
 
         private func handleMoveAtViewportBoundary(direction: Int) -> Bool {
@@ -1495,6 +1528,7 @@ struct CodeEditorView: NSViewRepresentable {
             state.cursorLine = globalLine + 1
             let cursorLineStart = lineStartOffsets[max(0, min(newLocalLine, lineStartOffsets.count - 1))]
             state.cursorColumn = max(1, safeCursor - cursorLineStart + 1)
+            notifySelectionDidChange()
         }
 
         private func updateCurrentSelection(in textView: NSTextView, range: NSRange) {
