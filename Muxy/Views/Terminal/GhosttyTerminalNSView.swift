@@ -365,6 +365,7 @@ final class GhosttyTerminalNSView: NSView {
 
         let action: ghostty_input_action_e = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let optionAsAlt = translatedOptionAsAlt(for: event)
 
         if flags.contains(.control), !flags.contains(.command), !flags.contains(.option), !hasMarkedText() {
             if isAppShortcut(event) { return }
@@ -394,7 +395,7 @@ final class GhosttyTerminalNSView: NSView {
         currentKeyEvent = event
         keyTextAccumulator = []
         commandSelectorCalled = false
-        let interpretEvent = translatedOptionAsAlt(for: event) ? eventStrippingOption(event) : event
+        let interpretEvent = optionAsAlt ? eventStrippingOption(event) : event
         interpretKeyEvents([interpretEvent])
         currentKeyEvent = nil
 
@@ -405,7 +406,10 @@ final class GhosttyTerminalNSView: NSView {
         if !keyTextAccumulator.isEmpty {
             for text in keyTextAccumulator {
                 var keyEvent = buildKeyEvent(from: event, action: action)
-                keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(flags)
+                keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(
+                    flags,
+                    consumeOption: !optionAsAlt
+                )
                 text.withCString { ptr in
                     keyEvent.text = ptr
                     _ = ghostty_surface_key(surface, keyEvent)
@@ -413,7 +417,10 @@ final class GhosttyTerminalNSView: NSView {
             }
         } else {
             var keyEvent = buildKeyEvent(from: event, action: action)
-            keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(flags)
+            keyEvent.consumed_mods = commandWasCalled ? GHOSTTY_MODS_NONE : consumedModsFromFlags(
+                flags,
+                consumeOption: !optionAsAlt
+            )
             keyEvent.composing = hasMarkedText() || hadMarkedText
 
             let text = filterSpecialCharacters(event.characters ?? "")
@@ -448,7 +455,8 @@ final class GhosttyTerminalNSView: NSView {
     override func flagsChanged(with event: NSEvent) {
         guard let surface else { return }
         if hasMarkedText() { return }
-        var keyEvent = buildKeyEvent(from: event, action: isFlagPress(event) ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE)
+        let action: ghostty_input_action_e = isFlagPress(event) ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE
+        var keyEvent = buildKeyEvent(from: event, action: action)
         keyEvent.text = nil
         _ = ghostty_surface_key(surface, keyEvent)
         updateCmdHoverCursor(modifierFlags: event.modifierFlags)
@@ -678,10 +686,13 @@ final class GhosttyTerminalNSView: NSView {
         return keyEvent
     }
 
-    private func consumedModsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
+    private func consumedModsFromFlags(
+        _ flags: NSEvent.ModifierFlags,
+        consumeOption: Bool = true
+    ) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
         if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        if consumeOption, flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
     }
 
