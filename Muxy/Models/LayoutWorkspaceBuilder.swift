@@ -2,35 +2,24 @@ import Foundation
 
 @MainActor
 enum LayoutWorkspaceBuilder {
-    struct PendingCommand {
-        let paneID: UUID
-        let command: String
-    }
-
     struct Result {
         let root: SplitNode
         let focusedAreaID: UUID
-        let pendingCommands: [PendingCommand]
     }
 
     static func build(config: LayoutConfig, projectPath: String) -> Result? {
-        var pending: [PendingCommand] = []
-        guard let node = buildNode(from: config.root, projectPath: projectPath, pending: &pending) else {
+        guard let node = buildNode(from: config.root, projectPath: projectPath) else {
             return nil
         }
-        return Result(root: node, focusedAreaID: firstAreaID(in: node), pendingCommands: pending)
+        return Result(root: node, focusedAreaID: firstAreaID(in: node))
     }
 
-    private static func buildNode(
-        from pane: LayoutConfig.Pane,
-        projectPath: String,
-        pending: inout [PendingCommand]
-    ) -> SplitNode? {
+    private static func buildNode(from pane: LayoutConfig.Pane, projectPath: String) -> SplitNode? {
         switch pane {
         case let .leaf(tabs):
-            return makeArea(tabs: tabs, projectPath: projectPath, pending: &pending).map { .tabArea($0) }
+            return makeArea(tabs: tabs, projectPath: projectPath).map { .tabArea($0) }
         case let .branch(layout, panes):
-            let children = panes.compactMap { buildNode(from: $0, projectPath: projectPath, pending: &pending) }
+            let children = panes.compactMap { buildNode(from: $0, projectPath: projectPath) }
             guard let first = children.first else { return nil }
             if children.count == 1 { return first }
             let direction: SplitDirection = layout == .horizontal ? .horizontal : .vertical
@@ -40,12 +29,8 @@ enum LayoutWorkspaceBuilder {
         }
     }
 
-    private static func makeArea(
-        tabs: [LayoutConfig.Tab],
-        projectPath: String,
-        pending: inout [PendingCommand]
-    ) -> TabArea? {
-        let terminalTabs = tabs.map { makeTab(from: $0, projectPath: projectPath, pending: &pending) }
+    private static func makeArea(tabs: [LayoutConfig.Tab], projectPath: String) -> TabArea? {
+        let terminalTabs = tabs.map { makeTab(from: $0, projectPath: projectPath) }
         guard let firstTab = terminalTabs.first else { return nil }
         let area = TabArea(projectPath: projectPath, existingTab: firstTab)
         for tab in terminalTabs.dropFirst() {
@@ -55,11 +40,7 @@ enum LayoutWorkspaceBuilder {
         return area
     }
 
-    private static func makeTab(
-        from tab: LayoutConfig.Tab,
-        projectPath: String,
-        pending: inout [PendingCommand]
-    ) -> TerminalTab {
+    private static func makeTab(from tab: LayoutConfig.Tab, projectPath: String) -> TerminalTab {
         let trimmedCommand = tab.command?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedCommand = (trimmedCommand?.isEmpty ?? true) ? nil : trimmedCommand
         let trimmedName = tab.name?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -70,12 +51,13 @@ enum LayoutWorkspaceBuilder {
         } else {
             "Terminal"
         }
-        let pane = TerminalPaneState(projectPath: projectPath, title: resolvedTitle)
-        let terminalTab = TerminalTab(pane: pane)
-        if let resolvedCommand {
-            pending.append(PendingCommand(paneID: pane.id, command: resolvedCommand))
-        }
-        return terminalTab
+        let pane = TerminalPaneState(
+            projectPath: projectPath,
+            title: resolvedTitle,
+            startupCommand: resolvedCommand,
+            startupCommandInteractive: true
+        )
+        return TerminalTab(pane: pane)
     }
 
     private static func commandTitle(_ command: String) -> String {

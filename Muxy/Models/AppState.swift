@@ -547,8 +547,6 @@ final class AppState {
             onProjectsEmptied?(effects.projectIDsToRemove)
         }
 
-        LayoutCommandRunner.run(effects.layoutCommands)
-
         pruneNavigationHistory()
         recordCurrentNavigationEntry()
 

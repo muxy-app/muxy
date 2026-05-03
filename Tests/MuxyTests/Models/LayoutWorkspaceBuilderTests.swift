@@ -28,11 +28,9 @@ struct LayoutWorkspaceBuilderTests {
         #expect(area.tabs.count == 1)
         let pane = try #require(area.tabs[0].content.pane)
         #expect(pane.title == "dev")
-        #expect(pane.startupCommand == nil)
+        #expect(pane.startupCommand == "npm run dev")
+        #expect(pane.startupCommandInteractive == true)
         #expect(result.focusedAreaID == area.id)
-        #expect(result.pendingCommands.count == 1)
-        #expect(result.pendingCommands[0].paneID == pane.id)
-        #expect(result.pendingCommands[0].command == "npm run dev")
     }
 
     @Test("multiple tabs preserve order with first focused")

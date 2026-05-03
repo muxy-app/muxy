@@ -14,7 +14,6 @@ struct WorkspaceState {
 struct WorkspaceSideEffects {
     var paneIDsToRemove: [UUID] = []
     var projectIDsToRemove: [UUID] = []
-    var layoutCommands: [LayoutWorkspaceBuilder.PendingCommand] = []
 }
 
 @MainActor
@@ -203,6 +202,5 @@ enum WorkspaceReducer {
         state.workspaceRoots[key] = built.root
         state.focusedAreaID[key] = built.focusedAreaID
         state.focusHistory.removeValue(forKey: key)
-        effects.layoutCommands.append(contentsOf: built.pendingCommands)
     }
 }
