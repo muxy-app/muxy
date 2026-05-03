@@ -242,7 +242,8 @@ jobs:
             exit 0
           fi
           TAG="v${VERSION}"
-          NOTES=$(gh release view "$TAG" --repo "$REPO" --json body --jq .body)
+          NOTES=$(gh release view "$TAG" --repo "$REPO" --json body --jq .body \
+            | sed -E 's# in https://github\.com/[^ ]+/pull/[0-9]+##g')
           if [[ ${#NOTES} -gt 3800 ]]; then
             NOTES="${NOTES:0:3800}…"
           fi

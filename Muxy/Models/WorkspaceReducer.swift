@@ -28,7 +28,8 @@ enum WorkspaceReducer {
                 projectID: projectID,
                 worktreeID: worktreeID,
                 worktreePath: worktreePath,
-                state: &state
+                state: &state,
+                effects: &effects
             )
 
         case let .removeProject(projectID):
@@ -57,7 +58,8 @@ enum WorkspaceReducer {
                 projects: projects,
                 worktrees: worktrees,
                 forward: true,
-                state: &state
+                state: &state,
+                effects: &effects
             )
 
         case let .selectPreviousProject(projects, worktrees):
@@ -65,7 +67,8 @@ enum WorkspaceReducer {
                 projects: projects,
                 worktrees: worktrees,
                 forward: false,
-                state: &state
+                state: &state,
+                effects: &effects
             )
 
         case let .createTab(projectID, areaID):
@@ -159,6 +162,15 @@ enum WorkspaceReducer {
         case let .focusPaneDown(projectID):
             FocusReducer.focusPane(projectID: projectID, direction: .down, state: &state)
 
+        case let .applyLayout(projectID, worktreePath, config):
+            applyLayout(
+                projectID: projectID,
+                worktreePath: worktreePath,
+                config: config,
+                state: &state,
+                effects: &effects
+            )
+
         case let .navigate(projectID, worktreeID, areaID, tabID):
             let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
             guard state.workspaceRoots[key] != nil else { break }
@@ -172,5 +184,23 @@ enum WorkspaceReducer {
         }
 
         return effects
+    }
+
+    private static func applyLayout(
+        projectID: UUID,
+        worktreePath: String,
+        config: LayoutConfig,
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
+    ) {
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { return }
+        guard let built = LayoutWorkspaceBuilder.build(config: config, projectPath: worktreePath) else { return }
+        if let existingRoot = state.workspaceRoots[key] {
+            let paneIDs = existingRoot.allAreas().flatMap { area in area.tabs.compactMap { $0.content.pane?.id } }
+            effects.paneIDsToRemove.append(contentsOf: paneIDs)
+        }
+        state.workspaceRoots[key] = built.root
+        state.focusedAreaID[key] = built.focusedAreaID
+        state.focusHistory.removeValue(forKey: key)
     }
 }
