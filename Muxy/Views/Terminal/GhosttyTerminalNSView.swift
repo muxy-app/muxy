@@ -20,6 +20,7 @@ final class GhosttyTerminalNSView: NSView {
     var resolveCmdHoverFile: ((String) -> Bool)?
     var onOpenURL: ((URL) -> Bool)?
     private var isShowingHandCursor = false
+    private var fileHoverUnderlineLayer: CAShapeLayer?
     var hasOSC8LinkUnderCursor: Bool = false
     var isFocused: Bool = false
     var overlayActive: Bool = false
@@ -540,21 +541,26 @@ final class GhosttyTerminalNSView: NSView {
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         setHandCursor(false)
+        hideFileHoverUnderline()
     }
 
     private func updateCmdHoverCursor(modifierFlags: NSEvent.ModifierFlags) {
         guard modifierFlags.contains(.command) else {
             setHandCursor(false)
+            hideFileHoverUnderline()
             return
         }
         if hasOSC8LinkUnderCursor {
             setHandCursor(true)
+            hideFileHoverUnderline()
             return
         }
-        guard let word = readWordUnderMouse(), resolveCmdHoverFile?(word) == true else {
+        guard let word = readQuicklookWordUnderMouse(), resolveCmdHoverFile?(word.text) == true else {
             setHandCursor(false)
+            hideFileHoverUnderline()
             return
         }
+        showFileHoverUnderline(for: word)
         setHandCursor(true)
     }
 
@@ -570,6 +576,73 @@ final class GhosttyTerminalNSView: NSView {
         } else {
             NSCursor.pop()
         }
+    }
+
+    private struct QuicklookWord {
+        let text: String
+        let topLeftPixels: CGPoint
+    }
+
+    private func readQuicklookWordUnderMouse() -> QuicklookWord? {
+        guard let surface else { return nil }
+        var text = ghostty_text_s()
+        guard ghostty_surface_quicklook_word(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let value = extractString(from: text) else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return QuicklookWord(
+            text: trimmed,
+            topLeftPixels: CGPoint(x: text.tl_px_x, y: text.tl_px_y)
+        )
+    }
+
+    private func showFileHoverUnderline(for word: QuicklookWord) {
+        guard let layer else { return }
+        let underlineLayer = fileHoverUnderlineLayer ?? CAShapeLayer()
+        if fileHoverUnderlineLayer == nil {
+            underlineLayer.fillColor = nil
+            layer.addSublayer(underlineLayer)
+            fileHoverUnderlineLayer = underlineLayer
+        }
+
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2.0
+        let font = quicklookFont()
+        let textSize = (word.text as NSString).size(withAttributes: [.font: font])
+        let lineHeight = max(font.ascender - font.descender + font.leading, textSize.height)
+        let x = word.topLeftPixels.x / scale
+        let topY = word.topLeftPixels.y / scale
+        let baselineY = bounds.height - topY - font.ascender
+        let underlineY = baselineY + font.underlinePosition
+        let y = underlineY.isFinite ? underlineY : bounds.height - topY - lineHeight + 2
+        let width = max(textSize.width, 1)
+        let thickness = max(font.underlineThickness, 1 / scale)
+
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: x, y: y))
+        path.addLine(to: CGPoint(x: x + width, y: y))
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        underlineLayer.frame = bounds
+        underlineLayer.path = path
+        underlineLayer.strokeColor = NSColor.controlAccentColor.cgColor
+        underlineLayer.lineWidth = thickness
+        underlineLayer.isHidden = false
+        CATransaction.commit()
+    }
+
+    private func hideFileHoverUnderline() {
+        fileHoverUnderlineLayer?.isHidden = true
+    }
+
+    private func quicklookFont() -> NSFont {
+        guard let surface,
+              let fontPtr = ghostty_surface_quicklook_font(surface)
+        else {
+            return .monospacedSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        }
+        return Unmanaged<NSFont>.fromOpaque(fontPtr).takeUnretainedValue()
     }
 
     override func rightMouseDown(with event: NSEvent) {
