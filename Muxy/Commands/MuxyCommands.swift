@@ -292,6 +292,18 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.focusPaneDown)
             }
             .shortcut(for: .focusPaneDown, store: keyBindings)
+
+            Button("Cycle Next Pane") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.cycleNextPane)
+            }
+            .shortcut(for: .cycleNextPane, store: keyBindings)
+
+            Button("Cycle Previous Pane") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.cyclePreviousPane)
+            }
+            .shortcut(for: .cyclePreviousPane, store: keyBindings)
         }
 
         CommandGroup(after: .toolbar) {
