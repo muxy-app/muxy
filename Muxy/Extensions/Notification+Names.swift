@@ -6,6 +6,7 @@ extension Notification.Name {
     static let themeDidChange = Notification.Name("MuxyThemeDidChange")
     static let findInTerminal = Notification.Name("MuxyFindInTerminal")
     static let openVCSWindow = Notification.Name("MuxyOpenVCSWindow")
+    static let openHelpWindow = Notification.Name("MuxyOpenHelpWindow")
     static let toggleAttachedVCS = Notification.Name("MuxyToggleAttachedVCS")
     static let toggleFileTree = Notification.Name("MuxyToggleFileTree")
     static let refocusActiveTerminal = Notification.Name("MuxyRefocusActiveTerminal")

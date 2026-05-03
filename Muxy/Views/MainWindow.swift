@@ -250,9 +250,7 @@ struct MainWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openVCSWindow)) { _ in
-            openWindow(id: "vcs")
-        }
+        .background(WindowOpenReceiver(openWindow: openWindow))
         .onReceive(NotificationCenter.default.publisher(for: .toggleAttachedVCS)) { _ in
             toggleAttachedVCSPanel()
         }
@@ -292,6 +290,10 @@ struct MainWindow: View {
         .onChange(of: appState.pendingSaveErrorMessage != nil) { _, isPresented in
             guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
             presentSaveErrorAlert(message: message)
+        }
+        .onChange(of: appState.pendingLayoutApply != nil) { _, isPresented in
+            guard isPresented, let pending = appState.pendingLayoutApply else { return }
+            presentLayoutApplyConfirmation(pending: pending)
         }
     }
 
@@ -422,6 +424,7 @@ struct MainWindow: View {
                                 filePath: activeEditorFilePath,
                                 cursorProvider: activeEditorCursor
                             )
+                            LayoutPickerMenu(projectID: project.id)
                         }
                         if let version = UpdateService.shared.availableUpdateVersion {
                             UpdateBadge(version: version) {
@@ -837,6 +840,33 @@ struct MainWindow: View {
             appState.pendingSaveErrorMessage = nil
         }
     }
+
+    private func presentLayoutApplyConfirmation(pending: AppState.PendingLayoutApply) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else {
+            appState.cancelApplyLayout()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Apply Layout '\(pending.layoutName)'?"
+        alert.informativeText = "All terminals and tabs in this worktree will be closed and replaced with the layout."
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Apply")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertFirstButtonReturn {
+                appState.confirmApplyLayout()
+            } else {
+                appState.cancelApplyLayout()
+            }
+        }
+    }
 }
 
 private struct WindowTitleUpdater: NSViewRepresentable {
@@ -1016,5 +1046,20 @@ private final class ShortcutInterceptingView: NSView {
         guard let mouseMonitor else { return }
         NSEvent.removeMonitor(mouseMonitor)
         self.mouseMonitor = nil
+    }
+}
+
+private struct WindowOpenReceiver: View {
+    let openWindow: OpenWindowAction
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onReceive(NotificationCenter.default.publisher(for: .openVCSWindow)) { _ in
+                openWindow(id: "vcs")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openHelpWindow)) { _ in
+                openWindow(id: "help")
+            }
     }
 }
