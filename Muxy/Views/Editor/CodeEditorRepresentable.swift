@@ -123,7 +123,7 @@ final class ViewportContainerView: NSView {
     override var isFlipped: Bool { true }
 
     override func mouseDown(with event: NSEvent) {
-        guard let textView = subviews.first as? NSTextView else {
+        guard let textView = subviews.compactMap({ $0 as? NSTextView }).first else {
             super.mouseDown(with: event)
             return
         }
@@ -160,6 +160,7 @@ final class ViewportContainerView: NSView {
 struct CodeEditorView: NSViewRepresentable {
     @Bindable var state: EditorTabState
     let editorSettings: EditorSettings
+    let showLineNumbers: Bool
     let themeVersion: Int
     let showsVerticalScroller: Bool
     let focused: Bool
@@ -308,6 +309,7 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.enterViewportMode(scrollView: scrollView)
         }
 
+        coordinator.reconcileLineNumberGutter()
         updateNSViewViewportMode(scrollView: scrollView, textView: textView, coordinator: coordinator)
     }
 
@@ -470,7 +472,9 @@ struct CodeEditorView: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTextViewDelegate, SyntaxHighlightCoordinator, SearchControllerHost, ViewportEditHistoryHost {
+    final class Coordinator: NSObject, NSTextViewDelegate, SyntaxHighlightCoordinator, SearchControllerHost, ViewportEditHistoryHost,
+        LineNumberGutterHost
+    {
         let state: EditorTabState
         let editorSettings: EditorSettings
         weak var textView: NSTextView?
@@ -478,6 +482,7 @@ struct CodeEditorView: NSViewRepresentable {
         weak var scrollView: NSScrollView?
         var viewportState: ViewportState?
         var containerView: ViewportContainerView?
+        var leadingGutterWidth: CGFloat = 0
 
         var isUpdating = false
         private var isEditingViewport = false
@@ -531,7 +536,32 @@ struct CodeEditorView: NSViewRepresentable {
             if state.isMarkdownFile {
                 loaded.append(MarkdownInlineExtension())
             }
+            if editorSettings.showLineNumbers {
+                loaded.append(LineNumberGutterExtension(host: self))
+            }
             extensions = loaded
+        }
+
+        func reconcileLineNumberGutter() {
+            let hasGutter = extensions.contains(where: { $0 is LineNumberGutterExtension })
+            if editorSettings.showLineNumbers, !hasGutter {
+                let ext = LineNumberGutterExtension(host: self)
+                extensions.append(ext)
+                if let context = makeRenderContext() {
+                    ext.didMount(context: context)
+                    refreshViewport(force: true)
+                }
+                return
+            }
+            if !editorSettings.showLineNumbers, hasGutter {
+                let context = makeRenderContext()
+                extensions.removeAll { ext in
+                    guard ext is LineNumberGutterExtension else { return false }
+                    if let context { ext.willUnmount(context: context) }
+                    return true
+                }
+                refreshViewport(force: true)
+            }
         }
 
         private func makeRenderContext() -> EditorRenderContext? {
@@ -629,11 +659,16 @@ struct CodeEditorView: NSViewRepresentable {
                 width: width,
                 height: viewport.estimatedLineHeight * CGFloat(min(Self.initialViewportLineLimit, store.lineCount))
             )
+
+            if let context = makeRenderContext() {
+                for ext in extensions {
+                    ext.didMount(context: context)
+                }
+            }
         }
 
         func updateContainerHeight() {
             guard let viewport = viewportState, let container = containerView, let scrollView else { return }
-            recomputeMarkdownExtraDocumentHeight(viewport: viewport)
             let height = max(viewport.totalDocumentHeight, scrollView.contentView.bounds.height)
             let width = max(scrollView.contentSize.width, textView?.frame.width ?? scrollView.contentSize.width)
             container.frame = NSRect(x: 0, y: 0, width: width, height: height)
@@ -913,9 +948,9 @@ struct CodeEditorView: NSViewRepresentable {
                 estimatedHeight
             }
             let newTextFrame = NSRect(
-                x: 0,
+                x: leadingGutterWidth,
                 y: yOffset,
-                width: viewportWidth,
+                width: max(0, viewportWidth - leadingGutterWidth),
                 height: max(estimatedHeight, laidOutHeight, 100)
             )
             if textView.frame != newTextFrame {
@@ -1035,39 +1070,6 @@ struct CodeEditorView: NSViewRepresentable {
             if !isEditingViewport {
                 refreshViewport(force: false)
             }
-        }
-
-        func recomputeMarkdownExtraDocumentHeight(viewport: ViewportState) {
-            guard state.isMarkdownFile, let backingStore = state.backingStore else {
-                viewport.updateExtraDocumentHeight(0)
-                return
-            }
-            let baseSize = editorSettings.resolvedFont.pointSize
-            let baseLineHeight = viewport.estimatedLineHeight
-            var extra: CGFloat = 0
-            for index in 0 ..< backingStore.lineCount {
-                let level = headingLevel(in: backingStore.line(at: index))
-                guard level > 0 else { continue }
-                let scaledSize = MarkdownInlineStyle.headingFontSize(baseSize: baseSize, level: level)
-                let scaledLineHeight = ceil(scaledSize * baseLineHeight / max(1, baseSize))
-                extra += max(0, scaledLineHeight - baseLineHeight)
-            }
-            viewport.updateExtraDocumentHeight(extra)
-        }
-
-        private func headingLevel(in line: String) -> Int {
-            var level = 0
-            for char in line {
-                if char == "#" {
-                    level += 1
-                    if level > 6 { return 0 }
-                } else if char == " ", level >= 1 {
-                    return level
-                } else {
-                    return 0
-                }
-            }
-            return 0
         }
 
         func updateMarkdownEditorScrollMetrics() {

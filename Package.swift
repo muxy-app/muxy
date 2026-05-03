@@ -12,6 +12,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
+        .package(url: "https://github.com/jpsim/Yams", from: "5.1.0"),
     ],
     targets: [
         .target(
@@ -37,6 +38,7 @@ let package = Package(
                 "MuxyShared",
                 "MuxyServer",
                 .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "Yams", package: "Yams"),
             ],
             path: "Muxy",
             exclude: ["Info.plist", "Muxy.entitlements", "Resources/ghostty", "Resources/terminfo"],
@@ -67,6 +69,7 @@ let package = Package(
                 "Muxy",
                 "MuxyShared",
                 "MuxyServer",
+                .product(name: "Yams", package: "Yams"),
             ],
             path: "Tests/MuxyTests",
             linkerSettings: [

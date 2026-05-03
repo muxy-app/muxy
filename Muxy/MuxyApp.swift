@@ -118,6 +118,12 @@ struct MuxyApp: App {
         }
         .defaultSize(width: 700, height: 600)
 
+        Window("Muxy Help", id: "help") {
+            HelpView()
+                .preferredColorScheme(MuxyTheme.colorScheme)
+        }
+        .defaultSize(width: 820, height: 580)
+
         Settings {
             SettingsView()
                 .preferredColorScheme(MuxyTheme.colorScheme)
