@@ -22,6 +22,8 @@ Every shortcut listed here can be remapped in **Settings → Keyboard Shortcuts*
 | Focus Pane Right | `Cmd+Opt+→` |
 | Focus Pane Up | `Cmd+Opt+↑` |
 | Focus Pane Down | `Cmd+Opt+↓` |
+| Cycle Next Pane | `Ctrl+Tab` |
+| Cycle Previous Pane | `Ctrl+Shift+Tab` |
 
 ## Tab navigation
 
