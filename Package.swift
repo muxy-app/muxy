@@ -12,6 +12,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
+        .package(url: "https://github.com/jpsim/Yams", from: "5.1.0"),
     ],
     targets: [
         .target(
