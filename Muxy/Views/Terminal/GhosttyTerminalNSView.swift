@@ -543,8 +543,12 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func updateCmdHoverCursor(modifierFlags: NSEvent.ModifierFlags) {
-        guard modifierFlags.contains(.command), !hasOSC8LinkUnderCursor else {
+        guard modifierFlags.contains(.command) else {
             setHandCursor(false)
+            return
+        }
+        if hasOSC8LinkUnderCursor {
+            setHandCursor(true)
             return
         }
         guard let word = readWordUnderMouse(), resolveCmdHoverFile?(word) == true else {
@@ -552,6 +556,10 @@ final class GhosttyTerminalNSView: NSView {
             return
         }
         setHandCursor(true)
+    }
+
+    func refreshCmdHoverCursor() {
+        updateCmdHoverCursor(modifierFlags: NSEvent.modifierFlags)
     }
 
     private func setHandCursor(_ on: Bool) {

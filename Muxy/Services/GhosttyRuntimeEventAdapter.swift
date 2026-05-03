@@ -143,6 +143,7 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         let hasLink = link.len > 0 && link.url != nil
         DispatchQueue.main.async {
             view.hasOSC8LinkUnderCursor = hasLink
+            view.refreshCmdHoverCursor()
         }
     }
 
