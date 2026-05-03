@@ -11,7 +11,8 @@ enum ProjectLifecycleReducer {
         projectID: UUID,
         worktreeID: UUID,
         worktreePath: String,
-        state: inout WorkspaceState
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
     ) {
         state.activeProjectID = projectID
         state.activeWorktreeID[projectID] = worktreeID
@@ -19,7 +20,8 @@ enum ProjectLifecycleReducer {
             projectID: projectID,
             worktreeID: worktreeID,
             worktreePath: worktreePath,
-            state: &state
+            state: &state,
+            effects: &effects
         )
     }
 
@@ -67,7 +69,8 @@ enum ProjectLifecycleReducer {
                 projectID: projectID,
                 worktreeID: replacement.id,
                 worktreePath: replacement.path,
-                state: &state
+                state: &state,
+                effects: &effects
             )
             return
         }
@@ -92,7 +95,8 @@ enum ProjectLifecycleReducer {
         projects: [Project],
         worktrees: [UUID: [Worktree]],
         forward: Bool,
-        state: inout WorkspaceState
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
     ) {
         guard projects.count > 1,
               let currentID = state.activeProjectID,
@@ -112,7 +116,8 @@ enum ProjectLifecycleReducer {
             projectID: project.id,
             worktreeID: worktree.id,
             worktreePath: worktree.path,
-            state: &state
+            state: &state,
+            effects: &effects
         )
     }
 }

@@ -5,7 +5,7 @@
 <h1 align="center">Muxy</h1>
 
 <p align="center">Lightweight and Memory efficient terminal for Mac built with SwiftUI and <a href="https://github.com/ghostty-org/ghostty">libghostty</a>.</p>
-<p align="center"><p align="center"><a href="#install">Mac</a> | <a href="#ios-app-testing">iOS</a> | <a href="https://discord.gg/4eMXAmJQ2n">Discord</a></p>
+<p align="center"><p align="center"><a href="#install">Mac</a> | <a href="#ios">iOS</a> | <a href="#android">Android</a> | <a href="https://discord.gg/4eMXAmJQ2n">Discord</a></p>
 
 <div align="center">
   <img src="https://img.shields.io/github/downloads/muxy-app/muxy/total" />
@@ -52,7 +52,7 @@ brew install --cask muxy
 
 Download the latest release from the [releases page](https://github.com/muxy-app/muxy/releases)
 
-### iOS app (Testing)
+### iOS
 
 The iOS app is available for testers on TestFlight
 
@@ -66,7 +66,25 @@ The iOS app is available for testers on TestFlight
 - Approve the connection on your Mac
 - Test and open issues for the bugs
 
-**The iOS app is also open-source and the source is in this repo**
+**The iOS app's source is available in [this repo](https://github.com/muxy-app/mobile)**
+
+### Android
+
+The Android app is available for Closed Testing
+
+- Join the [Testers Google Groups](https://groups.google.com/g/muxy-testers)
+- Apply being a tester at this [Link](https://play.google.com/apps/testing/com.muxy.app)
+- Install the app from [Google Play Store](https://play.google.com/store/apps/details?id=com.muxy.app)
+- Open Muxy on your Mac
+- Go to Settings (Cmd + `,`)
+- Go to Mobile tab
+- Toggle the `Allow mobile device connection`
+- Open the Android app
+- Enter the IP and Port
+- Approve the connection on your Mac
+- Test and open issues for the bugs
+
+**The Android app's source is available in [this repo](https://github.com/muxy-app/mobile)**
 
 ## Local Development
 

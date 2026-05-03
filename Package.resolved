@@ -1,5 +1,5 @@
 {
-  "originHash" : "2e2e6066355e09376a6a1ef7ad836b5da6ca894fd85f8d2e734a008d9a56301a",
+  "originHash" : "990b88e655dec9cabee156c67691837b9010d69e9d6b2d27b971fa71e442434f",
   "pins" : [
     {
       "identity" : "sparkle",
@@ -11,21 +11,12 @@
       }
     },
     {
-      "identity" : "swift-argument-parser",
+      "identity" : "yams",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/apple/swift-argument-parser",
+      "location" : "https://github.com/jpsim/Yams",
       "state" : {
-        "revision" : "626b5b7b2f45e1b0b1c6f4a309296d1d21d7311b",
-        "version" : "1.7.1"
-      }
-    },
-    {
-      "identity" : "swiftterm",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/migueldeicaza/SwiftTerm",
-      "state" : {
-        "revision" : "8e7a1e154f470e19c709a00a8768df348ba5fc43",
-        "version" : "1.13.0"
+        "revision" : "3d6871d5b4a5cd519adf233fbb576e0a2af71c17",
+        "version" : "5.4.0"
       }
     }
   ],

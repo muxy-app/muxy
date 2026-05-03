@@ -75,6 +75,7 @@ struct PaneTabStrip: View {
                         filePath: openInIDEFilePath,
                         cursorProvider: openInIDECursorProvider
                     )
+                    LayoutPickerMenu(projectID: projectID)
                 }
                 if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {
                     UpdateBadge(version: version) {
@@ -437,7 +438,6 @@ private struct TabCell: View {
             }
             .background(tabBackground)
             .contentShape(Rectangle())
-            .simultaneousGesture(TapGesture(count: 2).onEnded { startRename() })
             .onHover { hovering in
                 guard !isAnyDragging else { return }
                 hovered = hovering
@@ -450,6 +450,10 @@ private struct TabCell: View {
                     MiddleClickView(action: onClose)
                         .accessibilityHidden(true)
                 }
+            }
+            .overlay {
+                DoubleClickView(action: startRename)
+                    .accessibilityHidden(true)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(tabAccessibilityLabel)

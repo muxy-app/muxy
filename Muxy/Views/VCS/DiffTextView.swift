@@ -181,27 +181,18 @@ final class DiffContentNSView: NSView {
         guard let container = textView.textContainer else { return }
         backgroundLayoutManager.ensureLayout(for: container)
 
-        let usedRect = backgroundLayoutManager.usedRect(for: container)
         let height = CGFloat(max(metadata.count, 1)) * lineHeight
-        let measuredWidth = usedRect.width + DiffMetrics.horizontalPadding
-        let width = max(measuredWidth, expectedWidth, 100)
-        expectedWidth = width
         expectedRowCount = metadata.count
 
-        textView.setFrameSize(NSSize(width: width, height: height))
-        container.size = NSSize(width: width, height: height)
+        textView.setFrameSize(NSSize(width: expectedWidth, height: height))
+        container.size = NSSize(width: expectedWidth, height: height)
         invalidateIntrinsicContentSize()
     }
 
     override var intrinsicContentSize: NSSize {
         let rowCount = max(lineMetadata.count, expectedRowCount, 1)
         let height = CGFloat(rowCount) * diffLineHeight
-        guard let container = textView.textContainer else {
-            return NSSize(width: max(expectedWidth, 100), height: height)
-        }
-        let usedRect = backgroundLayoutManager.usedRect(for: container)
-        let measuredWidth = usedRect.width + DiffMetrics.horizontalPadding
-        return NSSize(width: max(measuredWidth, expectedWidth, 100), height: height)
+        return NSSize(width: max(expectedWidth, 100), height: height)
     }
 
     override func layout() {

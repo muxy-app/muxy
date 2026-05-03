@@ -16,7 +16,7 @@ struct UnifiedDiffView: View {
 
     var body: some View {
         _ = themeRevision
-        return LazyVStack(spacing: 0) {
+        return VStack(spacing: 0) {
             ForEach(Array(chunks.enumerated()), id: \.offset) { index, chunk in
                 switch chunk {
                 case let .divider(text):

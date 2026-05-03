@@ -20,7 +20,8 @@ enum WorkspaceReducerShared {
         projectID: UUID,
         worktreeID: UUID,
         worktreePath: String,
-        state: inout WorkspaceState
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
     ) {
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         guard state.workspaceRoots[key] == nil else { return }
