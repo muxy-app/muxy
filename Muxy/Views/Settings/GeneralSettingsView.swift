@@ -104,13 +104,11 @@ struct GeneralSettingsView: View {
                 Button("Choose Folder...") {
                     chooseDefaultWorktreeParentPath()
                 }
-                .controlSize(.small)
                 .fixedSize(horizontal: true, vertical: false)
 
                 Button("Use App Default") {
                     defaultWorktreeParentPath = ""
                 }
-                .controlSize(.small)
                 .fixedSize(horizontal: true, vertical: false)
                 .disabled(defaultWorktreeParentPath.isEmpty)
             }
@@ -135,7 +133,8 @@ struct GeneralSettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 9)
-        .frame(minWidth: 170, maxWidth: .infinity, minHeight: 28, alignment: .leading)
+        .frame(minWidth: 170, maxWidth: .infinity, alignment: .leading)
+        .frame(height: 22)
         .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)

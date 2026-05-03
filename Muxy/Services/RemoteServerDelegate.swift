@@ -453,11 +453,13 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         let parentDirectory = URL(fileURLWithPath: worktreeDirectory)
             .deletingLastPathComponent()
             .path
-        try FileManager.default.createDirectory(
-            atPath: parentDirectory,
-            withIntermediateDirectories: true,
-            attributes: nil
-        )
+        try await GitProcessRunner.offMainThrowing {
+            try FileManager.default.createDirectory(
+                atPath: parentDirectory,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+        }
 
         try await GitWorktreeService.shared.addWorktree(
             repoPath: project.path,
