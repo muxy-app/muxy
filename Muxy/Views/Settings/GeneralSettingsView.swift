@@ -13,6 +13,8 @@ struct GeneralSettingsView: View {
     private var keepProjectsOpenWhenNoTabs = false
     @AppStorage(UpdateChannel.storageKey)
     private var updateChannelRaw = UpdateChannel.stable.rawValue
+    @AppStorage(QuitConfirmationPreferences.confirmQuitKey)
+    private var confirmQuit = true
 
     var body: some View {
         SettingsContainer {
@@ -53,10 +55,17 @@ struct GeneralSettingsView: View {
                 )
             }
 
-            SettingsSection("Tabs", showsDivider: false) {
+            SettingsSection("Tabs") {
                 SettingsToggleRow(
                     label: "Confirm before closing a tab with a running process",
                     isOn: $confirmRunningProcess
+                )
+            }
+
+            SettingsSection("Quit", showsDivider: false) {
+                SettingsToggleRow(
+                    label: "Confirm before quitting Muxy",
+                    isOn: $confirmQuit
                 )
             }
         }
