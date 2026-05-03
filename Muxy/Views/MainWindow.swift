@@ -250,9 +250,7 @@ struct MainWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
         }
-        .onReceive(NotificationCenter.default.publisher(for: .openVCSWindow)) { _ in
-            openWindow(id: "vcs")
-        }
+        .background(WindowOpenReceiver(openWindow: openWindow))
         .onReceive(NotificationCenter.default.publisher(for: .toggleAttachedVCS)) { _ in
             toggleAttachedVCSPanel()
         }
@@ -1048,5 +1046,20 @@ private final class ShortcutInterceptingView: NSView {
         guard let mouseMonitor else { return }
         NSEvent.removeMonitor(mouseMonitor)
         self.mouseMonitor = nil
+    }
+}
+
+private struct WindowOpenReceiver: View {
+    let openWindow: OpenWindowAction
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .onReceive(NotificationCenter.default.publisher(for: .openVCSWindow)) { _ in
+                openWindow(id: "vcs")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openHelpWindow)) { _ in
+                openWindow(id: "help")
+            }
     }
 }
