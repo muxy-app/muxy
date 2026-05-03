@@ -343,6 +343,8 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
+        applyPendingJumpIfNeeded(coordinator: coordinator)
+
         let themeChanged = coordinator.lastThemeVersion != themeVersion
         let font = editorSettings.resolvedFont
         let fontChanged = textView.font != font
@@ -427,6 +429,20 @@ struct CodeEditorView: NSViewRepresentable {
         }
     }
 
+    private func applyPendingJumpIfNeeded(coordinator: Coordinator) {
+        guard let line = state.pendingJumpLine else { return }
+        let version = state.pendingJumpVersion
+        if coordinator.lastPendingJumpVersion != version {
+            coordinator.lastPendingJumpVersion = version
+            coordinator.pendingJumpDeferred = true
+        }
+        guard coordinator.pendingJumpDeferred, coordinator.hasAppliedInitialContent else { return }
+        coordinator.pendingJumpDeferred = false
+        let column = state.pendingJumpColumn
+        coordinator.applyPendingJump(line: line, column: column)
+        state.pendingJumpLine = nil
+    }
+
     private func updateSearchViewport(coordinator: Coordinator) {
         if !state.searchVisible, coordinator.lastSearchVisible {
             coordinator.lastSearchVisible = false
@@ -492,6 +508,8 @@ struct CodeEditorView: NSViewRepresentable {
         var lastSearchVisible = false
         var lastSearchNeedle = ""
         var lastSearchNavigationVersion = -1
+        var lastPendingJumpVersion = 0
+        var pendingJumpDeferred = false
         var lastSearchCaseSensitive = false
         var lastSearchUseRegex = false
         var lastReplaceVersion = 0
@@ -1485,6 +1503,10 @@ struct CodeEditorView: NSViewRepresentable {
             }
 
             return false
+        }
+
+        func applyPendingJump(line: Int, column: Int) {
+            scrollToGlobalLine(max(0, line - 1), column: max(0, column - 1))
         }
 
         private func scrollToGlobalLine(_ globalLine: Int, column: Int) {

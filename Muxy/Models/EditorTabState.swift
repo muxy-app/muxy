@@ -52,6 +52,9 @@ final class EditorTabState: Identifiable {
     var isReadOnly = false
     var cursorLine: Int = 1
     var cursorColumn: Int = 1
+    var pendingJumpLine: Int?
+    var pendingJumpColumn: Int = 1
+    var pendingJumpVersion: Int = 0
     var searchVisible = false
     var searchFocusVersion = 0
     var editorFocusVersion = 0

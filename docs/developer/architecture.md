@@ -98,6 +98,7 @@ Muxy/
       GitModels.swift             GitStatusFile, DiffDisplayRow, NumstatEntry
     GitDirectoryWatcher.swift FSEvents watcher for .git changes
     FileSearchService.swift   Quick open file search via /usr/bin/find subprocess
+    TextSearchService.swift   Find-in-files text search via bundled ripgrep (--json), streaming match parser
     FileTreeService.swift     Lazy directory listing that respects .gitignore via git check-ignore
     FileSystemOperations.swift Off-main create / rename / move / copy / trash primitives
     FileClipboard.swift       NSPasteboard wrapper for file cut/copy/paste with cut-marker type
@@ -158,6 +159,7 @@ Muxy/
       UUIDFramePreferenceKey.swift  Generic PreferenceKey for frame tracking
       NotificationBadge.swift Unread count badge for sidebar project icons
       QuickOpenOverlay.swift  Cmd+P file search overlay (name substring match via find)
+      FindInFilesOverlay.swift  Cmd+Shift+F text-content search overlay backed by ripgrep; jumps to file/line
       AppBundleIconView.swift Renders and caches installed app bundle icons for menus and launcher controls
       OpenInIDEControl.swift  Split button for opening the active project or editor file in the remembered or selected IDE
     Terminal/

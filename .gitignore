@@ -11,6 +11,7 @@ GhosttyKit.xcframework
 GhosttyKit/ghostty.h
 Muxy/Resources/ghostty
 Muxy/Resources/terminfo
+Muxy/Resources/rg
 /ghostty
 /build
 .agents/
