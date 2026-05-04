@@ -228,7 +228,13 @@ final class AppState {
         dispatch(.createVCSTab(projectID: projectID, areaID: nil))
     }
 
-    func openFile(_ filePath: String, projectID: UUID, preserveFocus: Bool = false) {
+    func openFile(
+        _ filePath: String,
+        projectID: UUID,
+        preserveFocus: Bool = false,
+        line: Int? = nil,
+        column: Int = 1
+    ) {
         let settings = EditorSettings.shared
         if settings.defaultEditor == .terminalCommand {
             let command = settings.externalEditorCommand.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -240,10 +246,32 @@ final class AppState {
         for area in allAreas(for: projectID) {
             if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
                 dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                if let line, let editorState = tab.content.editorState {
+                    requestEditorJump(state: editorState, line: line, column: column)
+                }
                 return
             }
         }
         dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath, suppressInitialFocus: preserveFocus))
+        if let line {
+            for area in allAreas(for: projectID) {
+                if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }),
+                   let editorState = tab.content.editorState
+                {
+                    requestEditorJump(state: editorState, line: line, column: column)
+                    break
+                }
+            }
+        }
+    }
+
+    private func requestEditorJump(state: EditorTabState, line: Int, column: Int) {
+        if state.isMarkdownFile, state.markdownViewMode != .code {
+            state.markdownViewMode = .code
+        }
+        state.pendingJumpLine = line
+        state.pendingJumpColumn = max(1, column)
+        state.pendingJumpVersion &+= 1
     }
 
     func handleFileMoved(from oldPath: String, to newPath: String) {

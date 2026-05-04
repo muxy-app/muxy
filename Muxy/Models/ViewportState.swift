@@ -9,8 +9,21 @@ final class ViewportState {
 
     private(set) var viewportStartLine = 0
     private(set) var viewportEndLine = 0
-    private(set) var estimatedLineHeight: CGFloat = 16
     private(set) var documentVerticalPadding: CGFloat = 8
+
+    let oracle: HeightOracle
+    let heightMap: HeightMap
+
+    var lineWrappingEnabled: Bool {
+        get { oracle.lineWrapping }
+        set {
+            guard oracle.lineWrapping != newValue else { return }
+            oracle.lineWrapping = newValue
+            rebuildEstimates()
+        }
+    }
+
+    var estimatedLineHeight: CGFloat { oracle.lineHeight }
 
     static let viewportBuffer = 500
     static let scrollHysteresis = 200
@@ -18,31 +31,69 @@ final class ViewportState {
     var viewportLineCount: Int { viewportEndLine - viewportStartLine }
 
     var totalDocumentHeight: CGFloat {
-        CGFloat(backingStore.lineCount) * estimatedLineHeight + documentVerticalPadding
+        heightMap.totalHeight + documentVerticalPadding
     }
 
     init(backingStore: TextBackingStore) {
         self.backingStore = backingStore
+        oracle = HeightOracle()
+        heightMap = HeightMap(oracle: oracle)
+        rebuildEstimates()
     }
 
     func updateEstimatedLineHeight(font: NSFont) {
-        estimatedLineHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
-        if estimatedLineHeight < 1 {
-            estimatedLineHeight = 16
-        }
+        let lineHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
+        oracle.updateLineHeight(lineHeight > 0 ? lineHeight : 16)
+        oracle.updateCharWidth(estimatedCharWidth(for: font))
+        rebuildEstimates()
+    }
+
+    func updateContainerWidth(_ width: CGFloat) {
+        guard oracle.updateLineLength(containerWidth: width) else { return }
+        rebuildEstimates()
     }
 
     func updateDocumentPadding(topInset: CGFloat, bottomInset: CGFloat, safetyPadding: CGFloat = 24) {
         documentVerticalPadding = topInset + bottomInset + safetyPadding
     }
 
-    func visibleLineRange(scrollY: CGFloat, visibleHeight: CGFloat) -> Range<Int> {
-        let firstVisible = max(0, Int(floor(scrollY / estimatedLineHeight)))
-        let lastVisible = min(
-            backingStore.lineCount,
-            Int(ceil((scrollY + visibleHeight) / estimatedLineHeight))
+    func resetMeasurements() {
+        rebuildEstimates()
+    }
+
+    func recordMeasuredLineHeights(startLine: Int, lineHeights: [CGFloat]) {
+        guard !lineHeights.isEmpty else { return }
+        let endLine = min(backingStore.lineCount, startLine + lineHeights.count)
+        let safeStart = max(0, startLine)
+        guard safeStart < endLine else { return }
+        let charCounts = Array(backingStore.lineCharCounts[safeStart ..< endLine])
+        heightMap.applyMeasurements(
+            startLine: safeStart,
+            lineHeights: Array(lineHeights.prefix(charCounts.count)),
+            lineCharCounts: charCounts
         )
-        return firstVisible ..< max(firstVisible, lastVisible)
+    }
+
+    func notifyLinesReplaced(start: Int, removingCount: Int, insertingLineCharCounts: [Int]) {
+        heightMap.replaceLines(
+            startLine: start,
+            removingCount: removingCount,
+            insertingLineCharCounts: insertingLineCharCounts
+        )
+    }
+
+    func visibleLineRange(scrollY: CGFloat, visibleHeight: CGFloat) -> Range<Int> {
+        guard backingStore.lineCount > 0 else { return 0 ..< 0 }
+        let topY = max(0, scrollY)
+        let bottomY = max(topY, scrollY + visibleHeight)
+        let firstLocation = heightMap.lineAtY(topY)
+        let lastLocation = heightMap.lineAtY(bottomY)
+        let firstLine = max(0, min(firstLocation.line, backingStore.lineCount))
+        var lastLine = min(backingStore.lineCount, lastLocation.line + 1)
+        if lastLocation.topY >= bottomY, lastLine > firstLine {
+            lastLine -= 1
+        }
+        return firstLine ..< max(firstLine, lastLine)
     }
 
     func computeViewport(scrollY: CGFloat, visibleHeight: CGFloat) -> Range<Int> {
@@ -71,7 +122,7 @@ final class ViewportState {
     }
 
     func viewportYOffset() -> CGFloat {
-        CGFloat(viewportStartLine) * estimatedLineHeight
+        scrollY(forLine: viewportStartLine)
     }
 
     func backingStoreLine(forViewportLine localLine: Int) -> Int {
@@ -88,6 +139,16 @@ final class ViewportState {
     }
 
     func scrollY(forLine globalLine: Int) -> CGFloat {
-        CGFloat(globalLine) * estimatedLineHeight
+        heightMap.heightAbove(line: max(0, globalLine))
+    }
+
+    private func rebuildEstimates() {
+        heightMap.reset(lineCharCounts: backingStore.lineCharCounts)
+    }
+
+    private func estimatedCharWidth(for font: NSFont) -> CGFloat {
+        let attrs = [NSAttributedString.Key.font: font]
+        let measured = ("M" as NSString).size(withAttributes: attrs).width
+        return measured > 0 ? measured : 8
     }
 }

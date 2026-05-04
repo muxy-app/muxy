@@ -18,7 +18,7 @@ Run `scripts/checks.sh --fix` after every task.
 ## Architecture
 
 - Muxy is a macOS terminal multiplexer built with SwiftUI that uses [libghostty](https://github.com/ghostty-org/ghostty) for terminal emulation and rendering via Metal.
-- The architecture of the app is documented at `./docs/developer/architecture.md` and must always be up to date.
+- The architecture of the app is documented under `./docs/developer/architecture/` and must always be up to date.
 
 ### Core Components
 

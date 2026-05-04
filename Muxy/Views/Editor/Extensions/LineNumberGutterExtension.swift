@@ -7,6 +7,7 @@ protocol LineNumberGutterHost: AnyObject {
     var scrollView: NSScrollView? { get }
     var textView: NSTextView? { get }
     var leadingGutterWidth: CGFloat { get set }
+    var lineWrappingEnabled: Bool { get }
 
     func refreshViewport(force: Bool)
 }
@@ -102,6 +103,8 @@ final class LineNumberGutterExtension: EditorExtension {
         view.foregroundColor = palette.foreground.withAlphaComponent(0.45)
         view.backgroundColor = palette.background
         view.borderColor = palette.foreground.withAlphaComponent(0.08)
+        view.wrappingEnabled = host?.lineWrappingEnabled ?? false
+        view.heightMap = context.viewport.heightMap
     }
 
     private func layoutGutter() {
@@ -173,6 +176,9 @@ private final class LineNumberGutterView: NSView {
     var borderColor: NSColor = .separatorColor
     weak var clipView: NSClipView?
 
+    var wrappingEnabled: Bool = false
+    var heightMap: HeightMap?
+
     override var isFlipped: Bool { true }
 
     private let horizontalPadding: CGFloat = 8
@@ -188,25 +194,15 @@ private final class LineNumberGutterView: NSView {
         backgroundColor.setFill()
         dirtyRect.fill()
 
-        guard lineHeight > 0, totalLines > 0 else { return }
-
-        let firstLine = max(0, Int(floor((dirtyRect.minY - topInset) / lineHeight)))
-        let lastLine = min(totalLines - 1, Int(ceil((dirtyRect.maxY - topInset) / lineHeight)))
-        guard firstLine <= lastLine else { return }
-
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: foregroundColor,
         ]
 
-        let availableWidth = bounds.width - horizontalPadding * 2
-
-        for line in firstLine ... lastLine {
-            let label = String(line + 1) as NSString
-            let labelSize = label.size(withAttributes: attributes)
-            let originX = horizontalPadding + max(0, availableWidth - labelSize.width)
-            let originY = topInset + CGFloat(line) * lineHeight + (lineHeight - labelSize.height) / 2
-            label.draw(at: NSPoint(x: originX, y: originY), withAttributes: attributes)
+        if wrappingEnabled, heightMap != nil {
+            drawWrapped(dirtyRect: dirtyRect, attributes: attributes)
+        } else {
+            drawUniform(dirtyRect: dirtyRect, attributes: attributes)
         }
 
         guard let clipView else { return }
@@ -221,5 +217,47 @@ private final class LineNumberGutterView: NSView {
         path.line(to: NSPoint(x: bounds.maxX - 0.5, y: borderBottom))
         path.lineWidth = 1
         path.stroke()
+    }
+
+    private func drawUniform(dirtyRect: NSRect, attributes: [NSAttributedString.Key: Any]) {
+        guard lineHeight > 0, totalLines > 0 else { return }
+
+        let firstLine = max(0, Int(floor((dirtyRect.minY - topInset) / lineHeight)))
+        let lastLine = min(totalLines - 1, Int(ceil((dirtyRect.maxY - topInset) / lineHeight)))
+        guard firstLine <= lastLine else { return }
+
+        let availableWidth = bounds.width - horizontalPadding * 2
+
+        for line in firstLine ... lastLine {
+            let label = String(line + 1) as NSString
+            let labelSize = label.size(withAttributes: attributes)
+            let originX = horizontalPadding + max(0, availableWidth - labelSize.width)
+            let originY = topInset + CGFloat(line) * lineHeight + (lineHeight - labelSize.height) / 2
+            label.draw(at: NSPoint(x: originX, y: originY), withAttributes: attributes)
+        }
+    }
+
+    private func drawWrapped(dirtyRect: NSRect, attributes: [NSAttributedString.Key: Any]) {
+        guard let heightMap, totalLines > 0 else { return }
+
+        let topY = max(0, dirtyRect.minY - topInset)
+        let bottomY = max(topY, dirtyRect.maxY - topInset)
+        let firstLocation = heightMap.lineAtY(topY)
+        let lastLocation = heightMap.lineAtY(bottomY)
+        let firstLine = max(0, min(firstLocation.line, totalLines - 1))
+        let lastLine = max(firstLine, min(lastLocation.line, totalLines - 1))
+        let availableWidth = bounds.width - horizontalPadding * 2
+
+        for line in firstLine ... lastLine {
+            let lineTop = topInset + heightMap.heightAbove(line: line)
+            let lineHeightForLine = heightMap.heightOfLine(line)
+            let label = String(line + 1) as NSString
+            let labelSize = label.size(withAttributes: attributes)
+            let originX = horizontalPadding + max(0, availableWidth - labelSize.width)
+            let originY = lineTop + (lineHeightForLine - labelSize.height) / 2
+            if originY + labelSize.height >= dirtyRect.minY, originY <= dirtyRect.maxY {
+                label.draw(at: NSPoint(x: originX, y: originY), withAttributes: attributes)
+            }
+        }
     }
 }

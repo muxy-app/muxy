@@ -131,8 +131,17 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
         --sign "$SIGN_IDENTITY" \
         "$SPARKLE_DIR"
 
+    echo "==> Signing embedded resource binaries"
+    while IFS= read -r -d '' binary; do
+        if file "$binary" | grep -q "Mach-O"; then
+            /usr/bin/codesign --force --options runtime --timestamp \
+                --sign "$SIGN_IDENTITY" \
+                "$binary"
+        fi
+    done < <(find "$APP_BUNDLE/Contents/Resources" -type f -perm -u+x -print0)
+
     echo "==> Signing app bundle"
-    /usr/bin/codesign --force --options runtime \
+    /usr/bin/codesign --force --options runtime --timestamp \
         --entitlements "$PROJECT_ROOT/Muxy/Muxy.entitlements" \
         --sign "$SIGN_IDENTITY" \
         "$APP_BUNDLE"

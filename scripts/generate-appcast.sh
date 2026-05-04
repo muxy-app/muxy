@@ -36,13 +36,18 @@ SIZE=$(stat -f%z "$DMG")
 FILENAME=$(basename "$DMG")
 PUB_DATE=$(date -u "+%a, %d %b %Y %H:%M:%S %z")
 
+CHANNEL_ELEMENT=""
+if [[ "$CHANNEL" != "stable" ]]; then
+  CHANNEL_ELEMENT="
+      <sparkle:channel>${CHANNEL}</sparkle:channel>"
+fi
+
 NEW_ITEM_FILE=$(mktemp)
 trap 'rm -f "$NEW_ITEM_FILE"' EXIT
 cat > "$NEW_ITEM_FILE" << EOF
     <item>
       <title>Version ${VERSION}</title>
-      <pubDate>${PUB_DATE}</pubDate>
-      <sparkle:channel>${CHANNEL}</sparkle:channel>
+      <pubDate>${PUB_DATE}</pubDate>${CHANNEL_ELEMENT}
       <sparkle:version>${BUILD_NUMBER}</sparkle:version>
       <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>

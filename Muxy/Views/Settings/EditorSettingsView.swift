@@ -90,6 +90,8 @@ struct EditorSettingsView: View {
 
                     SettingsToggleRow(label: "Highlight Current Line", isOn: $settings.highlightCurrentLine)
 
+                    SettingsToggleRow(label: "Wrap Lines", isOn: $settings.lineWrapping)
+
                     SettingsRow("Font Family") {
                         Picker("", selection: $settings.fontFamily) {
                             ForEach(monoFonts, id: \.self) { family in

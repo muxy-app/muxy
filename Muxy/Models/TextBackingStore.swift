@@ -6,6 +6,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "TextBackingStore")
 @MainActor
 final class TextBackingStore {
     private(set) var lines: [String] = [""]
+    private(set) var lineCharCounts: [Int] = [0]
     private var pendingTrailingFragment = ""
 
     var lineCount: Int { lines.count }
@@ -13,6 +14,7 @@ final class TextBackingStore {
     func loadFromText(_ text: String) {
         let split = text.split(separator: "\n", omittingEmptySubsequences: false)
         lines = split.map(String.init)
+        lineCharCounts = lines.map { ($0 as NSString).length }
         pendingTrailingFragment = ""
     }
 
@@ -24,17 +26,23 @@ final class TextBackingStore {
 
         let mergeFragment = String(split[0])
         if !lines.isEmpty {
-            lines[lines.count - 1] += mergeFragment
+            let mergedIndex = lines.count - 1
+            lines[mergedIndex] += mergeFragment
+            lineCharCounts[mergedIndex] = (lines[mergedIndex] as NSString).length
         } else {
             lines.append(mergeFragment)
+            lineCharCounts.append((mergeFragment as NSString).length)
         }
 
         if split.count > 1 {
             for i in 1 ..< split.count - 1 {
-                lines.append(String(split[i]))
+                let line = String(split[i])
+                lines.append(line)
+                lineCharCounts.append((line as NSString).length)
             }
             pendingTrailingFragment = String(split[split.count - 1])
             lines.append(pendingTrailingFragment)
+            lineCharCounts.append((pendingTrailingFragment as NSString).length)
         } else {
             pendingTrailingFragment = lines.last ?? ""
         }
@@ -47,6 +55,11 @@ final class TextBackingStore {
     func line(at index: Int) -> String {
         guard index >= 0, index < lines.count else { return "" }
         return lines[index]
+    }
+
+    func charCount(forLine index: Int) -> Int {
+        guard index >= 0, index < lineCharCounts.count else { return 0 }
+        return lineCharCounts[index]
     }
 
     func textForRange(_ range: Range<Int>) -> String {
@@ -63,6 +76,7 @@ final class TextBackingStore {
         let clamped = max(0, range.lowerBound) ..< min(lines.count, range.upperBound)
         let old = Array(lines[clamped])
         lines.replaceSubrange(clamped, with: newLines)
+        lineCharCounts.replaceSubrange(clamped, with: newLines.map { ($0 as NSString).length })
         return old
     }
 

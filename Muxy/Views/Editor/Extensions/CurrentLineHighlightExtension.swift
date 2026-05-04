@@ -88,7 +88,7 @@ final class CurrentLineHighlightExtension: EditorExtension {
         else { return }
 
         let backingLine = max(0, context.state.cursorLine - 1)
-        guard let localLine = viewport.viewportLine(forBackingStoreLine: backingLine) else {
+        guard backingLine < viewport.backingStore.lineCount else {
             if !lastAppliedHidden {
                 view.isHidden = true
                 lastAppliedHidden = true
@@ -96,11 +96,15 @@ final class CurrentLineHighlightExtension: EditorExtension {
             return
         }
 
-        let lineHeight = viewport.estimatedLineHeight
         let topInset = context.textView.textContainerInset.height
-        let yOffset = viewport.viewportYOffset()
-        let originY = yOffset + topInset + CGFloat(localLine) * lineHeight
-        let frame = NSRect(x: 0, y: originY, width: container.frame.width, height: lineHeight)
+        let lineTopInDocument = viewport.heightMap.heightAbove(line: backingLine)
+        let lineHeight = max(viewport.estimatedLineHeight, viewport.heightMap.heightOfLine(backingLine))
+        let frame = NSRect(
+            x: 0,
+            y: lineTopInDocument + topInset,
+            width: container.frame.width,
+            height: lineHeight
+        )
 
         if frame != lastAppliedFrame {
             view.frame = frame

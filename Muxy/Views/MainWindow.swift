@@ -55,6 +55,7 @@ struct MainWindow: View {
     @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
     @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
     @State private var showQuickOpen = false
+    @State private var showFindInFiles = false
     @State private var showWorktreeSwitcher = false
     @State private var isFullScreen = false
     @State private var sidebarExpanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
@@ -169,7 +170,7 @@ struct MainWindow: View {
                 }
             }
         }
-        .environment(\.overlayActive, showQuickOpen || showWorktreeSwitcher)
+        .environment(\.overlayActive, showQuickOpen || showFindInFiles || showWorktreeSwitcher)
         .environment(\.iconScale, iconScale)
         .overlay(alignment: toastAlignment) {
             if let toast = ToastState.shared.message {
@@ -206,6 +207,24 @@ struct MainWindow: View {
             }
         }
         .overlay {
+            if showFindInFiles, let project = activeProject {
+                FindInFilesOverlay(
+                    projectPath: activeWorktreePath(for: project),
+                    onSelect: { match in
+                        showFindInFiles = false
+                        appState.openFile(
+                            match.absolutePath,
+                            projectID: project.id,
+                            line: match.lineNumber,
+                            column: match.column
+                        )
+                    },
+                    onDismiss: { showFindInFiles = false }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .overlay {
             if showWorktreeSwitcher {
                 WorktreeSwitcherOverlay(
                     items: worktreeSwitcherItems,
@@ -225,6 +244,7 @@ struct MainWindow: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
+        .animation(.easeInOut(duration: 0.15), value: showFindInFiles)
         .animation(.easeInOut(duration: 0.15), value: showWorktreeSwitcher)
         .animation(.easeInOut(duration: 0.2), value: ToastState.shared.message != nil)
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
@@ -240,6 +260,9 @@ struct MainWindow: View {
         .ignoresSafeArea(.container, edges: .top)
         .onReceive(NotificationCenter.default.publisher(for: .quickOpen)) { _ in
             showQuickOpen.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .findInFiles)) { _ in
+            showFindInFiles.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .switchWorktree)) { _ in
             showWorktreeSwitcher.toggle()

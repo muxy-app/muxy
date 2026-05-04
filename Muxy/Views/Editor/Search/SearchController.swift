@@ -10,7 +10,9 @@ protocol SearchControllerHost: AnyObject {
     var lastSyncedBackingStoreVersion: Int { get set }
 
     func charOffsetForLocalLine(_ localLine: Int) -> Int
+    func setScrollAnchor(_ anchor: ScrollAnchor)
     func refreshViewport(force: Bool)
+    func refreshViewportPinningAnchor()
     func reapplySyntaxHighlights()
     func invalidateSyntaxHighlightsFromLine(_ line: Int)
     func invalidateRenderedViewportText()
@@ -235,12 +237,15 @@ final class SearchController {
               let textView = host.textView
         else { return }
         let match = matches[index]
-        let targetScrollY = viewport.scrollY(forLine: match.lineIndex)
         let visibleHeight = scrollView.contentView.bounds.height
-        let centeredY = max(0, targetScrollY - visibleHeight / 2)
-        scrollView.contentView.setBoundsOrigin(NSPoint(x: 0, y: centeredY))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
-        host.refreshViewport(force: true)
+        host.setScrollAnchor(ScrollAnchor(line: match.lineIndex, deltaPixels: -visibleHeight / 2))
+
+        for _ in 0 ..< 5 {
+            let pixelBefore = scrollView.contentView.bounds.origin.y
+            host.refreshViewportPinningAnchor()
+            let pixelAfter = scrollView.contentView.bounds.origin.y
+            if abs(pixelAfter - pixelBefore) < 0.5 { break }
+        }
 
         guard let localLine = viewport.viewportLine(forBackingStoreLine: match.lineIndex) else { return }
         let localCharOffset = host.charOffsetForLocalLine(localLine)
