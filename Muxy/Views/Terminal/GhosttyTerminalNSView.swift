@@ -10,6 +10,7 @@ final class GhosttyTerminalNSView: NSView {
     var onTitleChange: ((String) -> Void)?
     var onWorkingDirectoryChange: ((String) -> Void)?
     var onFocus: (() -> Void)?
+    var onExternalDragHoverChange: ((Bool) -> Void)?
     var onProcessExit: (() -> Void)?
     var onSplitRequest: ((SplitDirection, SplitPosition) -> Void)?
     var onSearchStart: ((String?) -> Void)?
@@ -168,6 +169,7 @@ final class GhosttyTerminalNSView: NSView {
         resolveCmdHoverFile = nil
         onTitleChange = nil
         onFocus = nil
+        onExternalDragHoverChange = nil
         onProcessExit = nil
         onSplitRequest = nil
         onSearchStart = nil
@@ -991,19 +993,37 @@ final class GhosttyTerminalNSView: NSView {
 
 extension GhosttyTerminalNSView {
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        droppedPaths(from: sender).isEmpty ? [] : .copy
+        guard !droppedPaths(from: sender).isEmpty else { return [] }
+        onExternalDragHoverChange?(true)
+        return .copy
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
         droppedPaths(from: sender).isEmpty ? [] : .copy
     }
 
+    override func draggingExited(_: (any NSDraggingInfo)?) {
+        onExternalDragHoverChange?(false)
+    }
+
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        onExternalDragHoverChange?(false)
         let paths = droppedPaths(from: sender)
         guard !paths.isEmpty else { return false }
         let text = paths.map { ShellEscaper.escape($0) }.joined(separator: " ")
-        insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+        scheduleFocusAndInsertAfterDrop(text: text)
         return true
+    }
+
+    private func scheduleFocusAndInsertAfterDrop(text: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            NSApp.activate()
+            window?.makeKeyAndOrderFront(nil)
+            window?.makeFirstResponder(self)
+            notifySurfaceFocused()
+            insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
     }
 
     private func droppedPaths(from sender: any NSDraggingInfo) -> [String] {
