@@ -10,7 +10,6 @@ enum OpenerItem: Identifiable {
     struct ProjectItem {
         let projectID: UUID
         let projectName: String
-        let projectPath: String
     }
 
     struct WorktreeItem {
@@ -31,10 +30,8 @@ enum OpenerItem: Identifiable {
     struct BranchItem {
         let projectID: UUID
         let projectName: String
-        let projectPath: String
         let branch: String
         let matchingWorktreeID: UUID?
-        let isCurrent: Bool
     }
 
     struct OpenTabItem {

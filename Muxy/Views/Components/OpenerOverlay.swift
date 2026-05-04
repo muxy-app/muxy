@@ -66,6 +66,9 @@ struct OpenerOverlay: View {
             OpenerPreferences.enabledCategories = enabledCategories
             highlightedIndex = displayList.isEmpty ? nil : 0
         }
+        .onChange(of: items.count) {
+            highlightedIndex = displayList.isEmpty ? nil : 0
+        }
     }
 
     private var searchField: some View {
@@ -238,6 +241,15 @@ private struct OpenerRow: View {
                 .foregroundStyle(MuxyTheme.fg)
                 .lineLimit(1)
                 .truncationMode(.middle)
+            if case let .worktree(wt) = item, wt.isPrimary {
+                Text("PRIMARY")
+                    .font(.system(size: 8, weight: .bold))
+                    .tracking(0.5)
+                    .foregroundStyle(MuxyTheme.fgDim)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(MuxyTheme.surface, in: Capsule())
+            }
             if let subtitle = item.subtitle {
                 Text(subtitle)
                     .font(.system(size: 11))

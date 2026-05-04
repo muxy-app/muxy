@@ -476,8 +476,7 @@ struct MainWindow: View {
         for project in projectStore.projects {
             items.append(.project(.init(
                 projectID: project.id,
-                projectName: project.name,
-                projectPath: project.path
+                projectName: project.name
             )))
         }
 
@@ -504,17 +503,13 @@ struct MainWindow: View {
             }
 
             let worktrees = worktreeStore.list(for: active.id)
-            let cachedBranches = BranchCache.shared.branches(for: active.path)
-            let currentBranch = BranchCache.shared.currentBranch(for: active.path)
-            for branch in cachedBranches {
+            for branch in BranchCache.shared.branches(for: active.path) {
                 let matching = worktrees.first { $0.branch == branch }
                 items.append(.branch(.init(
                     projectID: active.id,
                     projectName: active.name,
-                    projectPath: active.path,
                     branch: branch,
-                    matchingWorktreeID: matching?.id,
-                    isCurrent: branch == currentBranch
+                    matchingWorktreeID: matching?.id
                 )))
             }
 

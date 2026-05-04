@@ -19,16 +19,6 @@ enum OpenerCategory: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    var badge: String {
-        switch self {
-        case .projects: "PRJ"
-        case .worktrees: "WT"
-        case .layouts: "LAY"
-        case .branches: "BR"
-        case .openTabs: "TAB"
-        }
-    }
-
     var symbol: String {
         switch self {
         case .projects: "folder"
@@ -63,16 +53,6 @@ enum OpenerPreferences {
         }
     }
 
-    static func toggle(_ category: OpenerCategory) {
-        var current = enabledCategories
-        if current.contains(category), current.count > 1 {
-            current.remove(category)
-        } else {
-            current.insert(category)
-        }
-        enabledCategories = current
-    }
-
     static var recents: [OpenerRecent] {
         guard let data = UserDefaults.standard.data(forKey: recentsKey) else { return [] }
         return (try? JSONDecoder().decode([OpenerRecent].self, from: data)) ?? []
@@ -84,12 +64,6 @@ enum OpenerPreferences {
         if list.count > maxRecents {
             list = Array(list.prefix(maxRecents))
         }
-        guard let data = try? JSONEncoder().encode(list) else { return }
-        UserDefaults.standard.set(data, forKey: recentsKey)
-    }
-
-    static func forget(_ key: String) {
-        let list = recents.filter { $0.key != key }
         guard let data = try? JSONEncoder().encode(list) else { return }
         UserDefaults.standard.set(data, forKey: recentsKey)
     }

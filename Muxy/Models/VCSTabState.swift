@@ -513,7 +513,7 @@ final class VCSTabState {
                 let result = try await git.listBranches(repoPath: projectPath)
                 guard !Task.isCancelled else { return }
                 branches = result
-                BranchCache.shared.update(projectPath: projectPath, branches: result, current: branchName)
+                BranchCache.shared.update(projectPath: projectPath, branches: result)
             } catch {
                 guard !Task.isCancelled else { return }
                 branches = []
