@@ -7,7 +7,6 @@ final class FileTreeState {
         case modified
         case added
         case untracked
-        case deleted
         case renamed
         case conflict
     }
@@ -41,7 +40,7 @@ final class FileTreeState {
     var cutPaths: Set<String> = []
     var dropHighlightPath: String?
 
-    @ObservationIgnored private var watcher: GitDirectoryWatcher?
+    @ObservationIgnored private var watcher: FileSystemWatcher?
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
@@ -115,15 +114,12 @@ final class FileTreeState {
     }
 
     func visibleRootEntries() -> [FileTreeEntry] {
-        let entries = mergedEntries(in: normalizedRootPath, realEntries: rootEntries)
-        guard showOnlyChanges else { return entries }
-        return entries.filter { entryHasChanges($0) }
+        guard showOnlyChanges else { return rootEntries }
+        return rootEntries.filter { entryHasChanges($0) }
     }
 
     func visibleChildren(of entry: FileTreeEntry) -> [FileTreeEntry]? {
-        let realEntries = children[entry.absolutePath] ?? []
-        let entries = mergedEntries(in: entry.absolutePath, realEntries: realEntries)
-        guard !entries.isEmpty || children[entry.absolutePath] != nil else { return nil }
+        guard let entries = children[entry.absolutePath] else { return nil }
         guard showOnlyChanges else { return entries }
         return entries.filter { entryHasChanges($0) }
     }
@@ -251,7 +247,6 @@ final class FileTreeState {
             toggle(entry)
             return
         }
-        guard status(for: path) != .deleted else { return }
         open(path)
     }
 
@@ -333,7 +328,7 @@ final class FileTreeState {
     }
 
     private func installWatcher() {
-        watcher = GitDirectoryWatcher(directoryPath: rootPath) { [weak self] in
+        watcher = FileSystemWatcher(directoryPath: rootPath) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refresh()
             }
@@ -395,9 +390,10 @@ final class FileTreeState {
         var dirtyDirs: Set<String> = []
 
         for file in GitStatusParser.parseStatusPorcelain(outData, stats: [:]) {
+            guard let status = mapStatus(file) else { continue }
             let absolute = normalizedRoot + "/" + file.path
             let trimmed = absolute.hasSuffix("/") ? String(absolute.dropLast()) : absolute
-            fileStatuses[trimmed] = mapStatus(file)
+            fileStatuses[trimmed] = status
 
             var current = (trimmed as NSString).deletingLastPathComponent
             while current.count > normalizedRoot.count {
@@ -410,52 +406,7 @@ final class FileTreeState {
         return StatusResult(fileStatuses: fileStatuses, dirtyDirs: dirtyDirs)
     }
 
-    private func mergedEntries(in directoryPath: String, realEntries: [FileTreeEntry]) -> [FileTreeEntry] {
-        let existingPaths = Set(realEntries.map(\.absolutePath))
-        var entries = realEntries
-        entries.append(contentsOf: syntheticEntries(in: directoryPath, excluding: existingPaths))
-        entries.sort { lhs, rhs in
-            if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory && !rhs.isDirectory }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
-        return entries
-    }
-
-    private func syntheticEntries(in directoryPath: String, excluding existingPaths: Set<String>) -> [FileTreeEntry] {
-        let prefix = directoryPath.hasSuffix("/") ? directoryPath : directoryPath + "/"
-        var entriesByPath: [String: FileTreeEntry] = [:]
-
-        for absolutePath in statuses.keys where absolutePath.hasPrefix(prefix) {
-            let remainder = String(absolutePath.dropFirst(prefix.count))
-            guard !remainder.isEmpty else { continue }
-
-            let components = remainder.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true)
-            guard let first = components.first else { continue }
-
-            let name = String(first)
-            let childPath = prefix + name
-            guard !existingPaths.contains(childPath), entriesByPath[childPath] == nil else { continue }
-
-            let isDirectory = components.count > 1
-            let relativePath: String = if childPath.hasPrefix(normalizedRootPath + "/") {
-                String(childPath.dropFirst(normalizedRootPath.count + 1))
-            } else {
-                name
-            }
-
-            entriesByPath[childPath] = FileTreeEntry(
-                name: name,
-                absolutePath: childPath,
-                relativePath: relativePath,
-                isDirectory: isDirectory,
-                isIgnored: false
-            )
-        }
-
-        return Array(entriesByPath.values)
-    }
-
-    nonisolated private static func mapStatus(_ file: GitStatusFile) -> FileStatus {
+    nonisolated private static func mapStatus(_ file: GitStatusFile) -> FileStatus? {
         let x = file.xStatus
         let y = file.yStatus
 
@@ -469,7 +420,7 @@ final class FileTreeState {
             return .added
         }
         if x == "D" || y == "D" {
-            return .deleted
+            return nil
         }
         if x == "R" || y == "R" || x == "C" || y == "C" {
             return .renamed

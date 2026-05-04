@@ -1,15 +1,14 @@
 import CoreServices
 import Foundation
 
-final class GitDirectoryWatcher: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "app.muxy.git-watcher", qos: .utility)
+final class FileSystemWatcher: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "app.muxy.fs-watcher", qos: .utility)
     private var stream: FSEventStreamRef?
     private var debounceWork: DispatchWorkItem?
     private var handler: (@Sendable () -> Void)?
 
     init?(directoryPath: String, handler: @escaping @Sendable () -> Void) {
-        let gitPath = (directoryPath as NSString).appendingPathComponent(".git")
-        guard FileManager.default.fileExists(atPath: gitPath) else { return nil }
+        guard FileManager.default.fileExists(atPath: directoryPath) else { return nil }
 
         self.handler = handler
 
@@ -21,7 +20,7 @@ final class GitDirectoryWatcher: @unchecked Sendable {
             nil,
             { _, clientInfo, numEvents, eventPaths, eventFlags, _ in
                 guard let clientInfo, numEvents > 0 else { return }
-                let watcher = Unmanaged<GitDirectoryWatcher>.fromOpaque(clientInfo).takeUnretainedValue()
+                let watcher = Unmanaged<FileSystemWatcher>.fromOpaque(clientInfo).takeUnretainedValue()
                 guard let paths = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue() as? [String]
                 else { return }
                 let flags = Array(UnsafeBufferPointer(start: eventFlags, count: numEvents))

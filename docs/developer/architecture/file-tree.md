@@ -10,7 +10,7 @@ flowchart TB
   State -->|load children| Service[FileTreeService]
   Service -->|git check-ignore| Git
   Service -->|fallback prune list| FS[Filesystem]
-  GitWatcher[GitDirectoryWatcher<br/>FSEvents] --> State
+  FSWatcher[FileSystemWatcher<br/>FSEvents] --> State
   Status[git status --porcelain=v1 -z] --> State
   State --> View[FileTreeView]
   View --> Commands[FileTreeCommands] --> Ops[FileSystemOperations<br/>off-main]
@@ -18,14 +18,13 @@ flowchart TB
 
 - `FileTreeState` is per `WorktreeKey`, held by `MainWindow`.
 - `FileTreeService.loadChildren` is lazy and respects `.gitignore` via `git check-ignore --stdin`. Non-git folders fall back to a hardcoded prune list shared with `FileSearchService`.
-- Per-file statuses come from `git status --porcelain=v1 -z`. Modified → diff hunk color; added/untracked → diff add color; deleted/conflict → diff remove color. Parent directories of changed files inherit the modified color.
-- The tree subscribes to `.vcsRepoDidChange` and uses `GitDirectoryWatcher` so external changes refresh without user action — there is no manual refresh button.
+- Per-file statuses come from `git status --porcelain=v1 -z`. Modified/renamed → diff hunk color; added/untracked → diff add color; conflict → diff remove color. Parent directories of changed files inherit the modified color. Deleted files are not shown — the tree mirrors the on-disk state.
+- The tree subscribes to `.vcsRepoDidChange` and uses `FileSystemWatcher` (FSEvents on the project root, regardless of git status) so external changes refresh without user action. A manual refresh button is also available in the panel header.
 
 ## Behaviors
 
 - **Active editor file** is auto-expanded and highlighted via `MuxyTheme.accentSoft`.
 - **Show only changes** filters to entries in the status set; directories without changed descendants are hidden.
-- **Deleted paths** become synthetic rows so removals show in both views.
 - **Panel width** persists in `UserDefaults` under `muxy.fileTreeWidth`; expansion state is in-memory only.
 
 ## File operations
