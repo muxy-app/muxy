@@ -49,7 +49,7 @@ final class ViewportState {
     }
 
     func updateContainerWidth(_ width: CGFloat) {
-        oracle.updateLineLength(containerWidth: width)
+        guard oracle.updateLineLength(containerWidth: width) else { return }
         rebuildEstimates()
     }
 
@@ -63,11 +63,15 @@ final class ViewportState {
 
     func recordMeasuredLineHeights(startLine: Int, lineHeights: [CGFloat]) {
         guard !lineHeights.isEmpty else { return }
-        let charCounts = (0 ..< lineHeights.count).map { offset -> Int in
-            let line = startLine + offset
-            return charCount(forLine: line)
-        }
-        heightMap.applyMeasurements(startLine: startLine, lineHeights: lineHeights, lineCharCounts: charCounts)
+        let endLine = min(backingStore.lineCount, startLine + lineHeights.count)
+        let safeStart = max(0, startLine)
+        guard safeStart < endLine else { return }
+        let charCounts = Array(backingStore.lineCharCounts[safeStart ..< endLine])
+        heightMap.applyMeasurements(
+            startLine: safeStart,
+            lineHeights: Array(lineHeights.prefix(charCounts.count)),
+            lineCharCounts: charCounts
+        )
     }
 
     func notifyLinesReplaced(start: Int, removingCount: Int, insertingLineCharCounts: [Int]) {
@@ -139,15 +143,7 @@ final class ViewportState {
     }
 
     private func rebuildEstimates() {
-        let charCounts = (0 ..< backingStore.lineCount).map { line in
-            charCount(forLine: line)
-        }
-        heightMap.reset(lineCharCounts: charCounts)
-    }
-
-    private func charCount(forLine line: Int) -> Int {
-        guard line >= 0, line < backingStore.lineCount else { return 0 }
-        return (backingStore.line(at: line) as NSString).length
+        heightMap.reset(lineCharCounts: backingStore.lineCharCounts)
     }
 
     private func estimatedCharWidth(for font: NSFont) -> CGFloat {

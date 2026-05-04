@@ -29,12 +29,6 @@ extension ScrollAnchor {
         return heightMap.heightAbove(line: clampedLine) + deltaPixels
     }
 
-    func normalized(in heightMap: HeightMap) -> ScrollAnchor {
-        guard heightMap.totalLineCount > 0 else { return ScrollAnchor() }
-        let pixel = pixelY(in: heightMap)
-        return ScrollAnchor.from(pixelY: pixel, in: heightMap)
-    }
-
     func clamped(toLineCount lineCount: Int) -> ScrollAnchor {
         guard lineCount > 0 else { return ScrollAnchor() }
         let safeLine = max(0, min(line, lineCount - 1))

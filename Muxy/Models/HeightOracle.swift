@@ -17,9 +17,13 @@ final class HeightOracle {
         charWidth = width
     }
 
-    func updateLineLength(containerWidth: CGFloat) {
-        guard containerWidth > 0, charWidth > 0 else { return }
-        lineLength = max(5, floor(containerWidth / charWidth))
+    @discardableResult
+    func updateLineLength(containerWidth: CGFloat) -> Bool {
+        guard containerWidth > 0, charWidth > 0 else { return false }
+        let newValue = max(5, floor(containerWidth / charWidth))
+        guard newValue != lineLength else { return false }
+        lineLength = newValue
+        return true
     }
 
     func heightForLine(charCount: Int) -> CGFloat {

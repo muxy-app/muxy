@@ -12,6 +12,7 @@ protocol SearchControllerHost: AnyObject {
     func charOffsetForLocalLine(_ localLine: Int) -> Int
     func setScrollAnchor(_ anchor: ScrollAnchor)
     func refreshViewport(force: Bool)
+    func refreshViewportPinningAnchor()
     func reapplySyntaxHighlights()
     func invalidateSyntaxHighlightsFromLine(_ line: Int)
     func invalidateRenderedViewportText()
@@ -241,7 +242,7 @@ final class SearchController {
 
         for _ in 0 ..< 5 {
             let pixelBefore = scrollView.contentView.bounds.origin.y
-            host.refreshViewport(force: true)
+            host.refreshViewportPinningAnchor()
             let pixelAfter = scrollView.contentView.bounds.origin.y
             if abs(pixelAfter - pixelBefore) < 0.5 { break }
         }

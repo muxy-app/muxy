@@ -73,28 +73,6 @@ struct ScrollAnchorTests {
         #expect(clamped == anchor)
     }
 
-    @Test("normalized pushes delta overflow into the next line")
-    func normalizedOverflow() {
-        let oracle = makeOracle()
-        let map = HeightMap(oracle: oracle)
-        map.reset(lineCharCounts: [10, 10, 10, 10])
-        let anchor = ScrollAnchor(line: 0, deltaPixels: 40)
-        let normalized = anchor.normalized(in: map)
-        #expect(normalized.line == 2)
-        #expect(normalized.deltaPixels == 8)
-    }
-
-    @Test("normalized clamps below zero to top")
-    func normalizedNegative() {
-        let oracle = makeOracle()
-        let map = HeightMap(oracle: oracle)
-        map.reset(lineCharCounts: [10, 10, 10])
-        let anchor = ScrollAnchor(line: 1, deltaPixels: -100)
-        let normalized = anchor.normalized(in: map)
-        #expect(normalized.line == 0)
-        #expect(normalized.deltaPixels == 0)
-    }
-
     @Test("from(pixelY:) with empty map returns zero anchor")
     func fromPixelYEmptyMap() {
         let oracle = makeOracle()

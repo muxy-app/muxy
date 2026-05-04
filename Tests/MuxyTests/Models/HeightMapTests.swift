@@ -67,7 +67,7 @@ struct HeightMapTests {
         #expect(map.totalLineCount == 5)
         #expect(map.blocks.count == 3)
         if case .estimated = map.blocks[0].kind { } else { Issue.record("first block should be estimated") }
-        if case let .measured(heights) = map.blocks[1].kind {
+        if case let .measured(heights, _) = map.blocks[1].kind {
             #expect(heights == [32, 48])
         } else {
             Issue.record("middle block should be measured")
@@ -140,16 +140,16 @@ struct HeightMapTests {
         if case .measured = map.blocks.last?.kind { } else { Issue.record("last block should remain measured") }
     }
 
-    @Test("invalidateAllToEstimates collapses to a single gap")
-    func invalidateAll() {
+    @Test("reset after measurements collapses back to a single gap")
+    func resetAfterMeasurements() {
         let oracle = makeOracle(wrapping: true)
         let map = HeightMap(oracle: oracle)
         map.reset(lineCharCounts: [10, 20, 30])
         map.applyMeasurements(startLine: 0, lineHeights: [16, 32, 48], lineCharCounts: [10, 20, 30])
-        map.invalidateAllToEstimates(lineCharCounts: [10, 20, 30, 40])
+        map.reset(lineCharCounts: [10, 20, 30, 40])
         #expect(map.totalLineCount == 4)
         #expect(map.blocks.count == 1)
-        if case .estimated = map.blocks[0].kind { } else { Issue.record("after invalidate should be estimated") }
+        if case .estimated = map.blocks[0].kind { } else { Issue.record("after reset should be estimated") }
     }
 
     @Test("heightAbove last line equals totalHeight minus last line height")

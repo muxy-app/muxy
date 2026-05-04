@@ -326,6 +326,9 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.lastSyncedBackingStoreVersion = state.backingStoreVersion
             coordinator.invalidateRenderedViewportText()
             coordinator.clearViewportHistory()
+            if viewport.heightMap.totalLineCount != viewport.backingStore.lineCount {
+                viewport.resetMeasurements()
+            }
         }
 
         let incrementalFinished = coordinator.wasIncrementalLoading && !state.isIncrementalLoading
@@ -815,6 +818,14 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func refreshViewport(force: Bool) {
+            refreshViewport(force: force, pinAnchor: false)
+        }
+
+        func refreshViewportPinningAnchor() {
+            refreshViewport(force: true, pinAnchor: true)
+        }
+
+        private func refreshViewport(force: Bool, pinAnchor: Bool) {
             guard let viewport = viewportState, let textView, let scrollView else { return }
             let scrollY = scrollView.contentView.bounds.origin.y
             let visibleHeight = scrollView.contentView.bounds.height
@@ -895,7 +906,11 @@ struct CodeEditorView: NSViewRepresentable {
 
             isUpdating = false
             applySearchHighlights()
-            writeAnchorToScrollView()
+            if pinAnchor {
+                writeAnchorToScrollView()
+            } else {
+                deriveAnchorFromScrollView()
+            }
         }
 
         func applySyntaxHighlights(storage _: NSTextStorage, viewport: ViewportState) {
@@ -1740,7 +1755,7 @@ struct CodeEditorView: NSViewRepresentable {
 
             for _ in 0 ..< 5 {
                 let pixelBefore = scrollAnchor.pixelY(in: viewport.heightMap)
-                refreshViewport(force: true)
+                refreshViewportPinningAnchor()
                 let pixelAfter = scrollAnchor.pixelY(in: viewport.heightMap)
                 if abs(pixelAfter - pixelBefore) < 0.5 { break }
             }
