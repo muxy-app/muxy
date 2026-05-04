@@ -1,24 +1,29 @@
 # AI Usage
 
-Muxy can read usage / quota data from common AI coding providers and surface it in a sidebar popover. Toggle the popover with `Cmd+L`, or from the **View → AI Usage** menu.
+Muxy reads usage / quota data from common AI coding providers and surfaces it in a sidebar popover. Toggle the popover with `⌘L` or **View → AI Usage**.
+
+```mermaid
+flowchart TB
+  Sidebar[Sidebar popover ⌘L]
+  Settings[Settings → AI Usage]
+  Sidebar --> Service[AIUsageService]
+  Settings --> Service
+  Service --> Tokens[Env vars / JSON files / Keychain]
+  Service -->|HTTPS| Vendors[Provider APIs]
+  Tokens --> Vendors
+```
+
+Tracking is **read-only** — Muxy reads tokens you've already configured for each tool and queries each vendor directly. Nothing is sent to Muxy's servers.
 
 ## Supported providers
 
-- Claude Code
-- GitHub Copilot
-- OpenAI Codex CLI
-- Cursor CLI
-- Amp
-- Z.ai
-- MiniMax
-- Kimi
-- Factory
+Claude Code · GitHub Copilot · OpenAI Codex CLI · Cursor CLI · Amp · Z.ai · MiniMax · Kimi · Factory.
 
-Enable / disable each one in **Settings → AI Usage**.
+Enable / disable each in **Settings → AI Usage**.
 
 ## What's shown
 
-Per provider, you see the metrics that provider exposes — typically some combination of:
+Per provider, you see what that provider exposes — typically some combination of:
 
 - Session / 5h / hourly windows
 - Premium request count
@@ -29,14 +34,18 @@ Toggle **Show Secondary Limits** in settings to keep the popover compact.
 
 ## Where the data comes from
 
-Muxy reads tokens / credentials from each provider's standard locations: environment variables, local credential JSON files in your home directory (e.g. `~/.claude`, `~/.cursor`), and the macOS Keychain. For providers that need OAuth refresh (Claude Code, Factory, Kimi), Muxy refreshes tokens silently before fetching usage.
+| Source | Used for |
+| --- | --- |
+| Environment variables | e.g. `CLAUDE_CODE_OAUTH_TOKEN`, `ZAI_API_KEY` |
+| Vendor JSON credential files | `~/.claude`, `~/.cursor`, `~/.codex`, … (overridable via `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, …) |
+| macOS Keychain | via `/usr/bin/security find-generic-password` |
 
-Nothing is sent to Muxy's servers — requests go directly from your Mac to each provider.
+For providers that need OAuth refresh (Claude Code, Factory, Kimi), Muxy refreshes tokens silently before fetching usage.
 
-## Auto‑refresh
+## Auto-refresh
 
 Choose an interval in **Settings → AI Usage**: Off / 5m / 15m / 30m / 1h. Manual refresh is always available from the popover.
 
 ## Hook integrations
 
-For Claude Code, OpenCode, Codex, and Cursor, Muxy can also receive real‑time usage and notification events through hook scripts that ship with the app. See [Notifications](notifications.md) for the shared hook setup.
+For Claude Code, OpenCode, Codex, and Cursor, Muxy can also receive real-time usage and notification events through hook scripts that ship with the app. See [Notifications](notifications.md) for the shared hook setup.

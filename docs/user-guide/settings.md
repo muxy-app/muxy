@@ -15,7 +15,7 @@ Open settings with `Cmd+,` (**Muxy → Settings…**). Settings are split into s
 - **Theme** — paired light / dark theme picker.
 - **Syntax highlighting theme** — applied to the built‑in editor.
 
-See [Themes](features/themes.md).
+See [Themes](../features/themes.md).
 
 ## Editor
 
@@ -37,7 +37,7 @@ See [Keyboard Shortcuts](keyboard-shortcuts.md).
 - **Sound** — play a system sound on arrival.
 - **Per‑source delivery** — separate toggles for Claude Code, OpenCode, OSC sequences, and the socket API.
 
-See [Notifications](features/notifications.md).
+See [Notifications](../features/notifications.md).
 
 ## Mobile
 
@@ -45,7 +45,7 @@ See [Notifications](features/notifications.md).
 - **Port** — defaults to 4865.
 - **Approved devices** — list of paired clients with revoke buttons.
 
-See [Remote Server](features/remote-server.md).
+See [Remote Server](../features/remote-server/README.md).
 
 ## AI Usage
 
@@ -55,4 +55,4 @@ See [Remote Server](features/remote-server.md).
 - **Show secondary limits** — keep / hide non‑primary metrics.
 - **Per‑provider toggles** — enable each provider individually.
 
-See [AI Usage](features/ai-usage.md).
+See [AI Usage](../features/ai-usage.md).
