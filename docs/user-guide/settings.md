@@ -20,7 +20,7 @@ See [Themes](../features/themes.md).
 ## Editor
 
 - **Default editor** — built‑in Muxy editor, or an external command.
-- **External editor command** — used when default is set to "external". `{file}`, `{line}`, `{column}` placeholders are substituted.
+- **External editor command** — used when default is set to "external". `{file}`, `{line}`, `{column}` placeholders are substituted. Terminal Command runs through your login interactive shell.
 - **Font** — font family and size for the built‑in editor.
 
 ## Keyboard Shortcuts

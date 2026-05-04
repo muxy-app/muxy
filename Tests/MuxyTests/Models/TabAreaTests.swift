@@ -99,6 +99,7 @@ struct TabAreaTests {
         #expect(area.activeTab?.kind == .terminal)
         #expect(pane?.externalEditorFilePath == filePath)
         #expect(pane?.startupCommand == "vim '/tmp/test/file name.swift'")
+        #expect(pane?.startupCommandInteractive == true)
     }
 
     @Test("createExternalEditorTab supports file placeholder")
