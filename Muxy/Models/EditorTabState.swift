@@ -156,6 +156,7 @@ final class EditorTabState: Identifiable {
             markdownViewMode = .preview
         }
         syntaxHighlighter = Self.makeSyntaxHighlighter(for: filePath)
+        installFileWatcher()
         loadFile()
     }
 
@@ -216,8 +217,7 @@ final class EditorTabState: Identifiable {
 
     private func installFileWatcher() {
         fileWatcher = nil
-        let path = filePath
-        fileWatcher = EditorFileWatcher(filePath: path) { [weak self] in
+        fileWatcher = EditorFileWatcher(filePath: filePath) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.handleFileWatcherFire()
             }
@@ -314,9 +314,6 @@ final class EditorTabState: Identifiable {
                         isIncrementalLoading = hasMore
                         if !hasMore {
                             lastDiskModificationDate = Self.modificationDate(at: path)
-                            if fileWatcher == nil {
-                                installFileWatcher()
-                            }
                         }
                     case let .appended(text):
                         if let backingStore {
@@ -342,9 +339,6 @@ final class EditorTabState: Identifiable {
                             isIncrementalLoading = false
                         }
                         lastDiskModificationDate = Self.modificationDate(at: path)
-                        if fileWatcher == nil {
-                            installFileWatcher()
-                        }
                     }
                 }
 

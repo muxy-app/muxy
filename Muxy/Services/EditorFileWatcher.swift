@@ -47,12 +47,13 @@ final class EditorFileWatcher: @unchecked Sendable {
     }
 
     deinit {
-        handler = nil
+        if let stream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+        }
         debounceWork?.cancel()
-        guard let stream else { return }
-        FSEventStreamStop(stream)
-        FSEventStreamInvalidate(stream)
-        FSEventStreamRelease(stream)
+        handler = nil
     }
 
     private func scheduleRefresh() {
