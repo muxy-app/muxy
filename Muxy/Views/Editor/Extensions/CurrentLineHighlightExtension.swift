@@ -6,7 +6,6 @@ protocol CurrentLineHighlightHost: AnyObject {
     var containerView: ViewportContainerView? { get }
     var scrollView: NSScrollView? { get }
     var textView: NSTextView? { get }
-    var lineWrappingEnabled: Bool { get }
 }
 
 @MainActor
@@ -89,7 +88,7 @@ final class CurrentLineHighlightExtension: EditorExtension {
         else { return }
 
         let backingLine = max(0, context.state.cursorLine - 1)
-        guard let localLine = viewport.viewportLine(forBackingStoreLine: backingLine) else {
+        guard backingLine < viewport.backingStore.lineCount else {
             if !lastAppliedHidden {
                 view.isHidden = true
                 lastAppliedHidden = true
@@ -97,11 +96,14 @@ final class CurrentLineHighlightExtension: EditorExtension {
             return
         }
 
-        let frame = computeHighlightFrame(
-            context: context,
-            container: container,
-            viewport: viewport,
-            localLine: localLine
+        let topInset = context.textView.textContainerInset.height
+        let lineTopInDocument = viewport.heightMap.heightAbove(line: backingLine)
+        let lineHeight = max(viewport.estimatedLineHeight, viewport.heightMap.heightOfLine(backingLine))
+        let frame = NSRect(
+            x: 0,
+            y: lineTopInDocument + topInset,
+            width: container.frame.width,
+            height: lineHeight
         )
 
         if frame != lastAppliedFrame {
@@ -112,52 +114,6 @@ final class CurrentLineHighlightExtension: EditorExtension {
             view.isHidden = false
             lastAppliedHidden = false
         }
-    }
-
-    private func computeHighlightFrame(
-        context: EditorRenderContext,
-        container: ViewportContainerView,
-        viewport: ViewportState,
-        localLine: Int
-    ) -> NSRect {
-        let topInset = context.textView.textContainerInset.height
-        let yOffset = viewport.viewportYOffset()
-        let lineHeight = viewport.estimatedLineHeight
-        let width = container.frame.width
-
-        guard host?.lineWrappingEnabled == true,
-              let layoutManager = context.textView.layoutManager,
-              let textContainer = context.textView.textContainer,
-              let storage = context.textView.textStorage,
-              storage.length > 0
-        else {
-            let originY = yOffset + topInset + CGFloat(localLine) * lineHeight
-            return NSRect(x: 0, y: originY, width: width, height: lineHeight)
-        }
-
-        let nsString = storage.string as NSString
-        var location = 0
-        var currentLine = 0
-        while currentLine < localLine, location < nsString.length {
-            let lineRange = nsString.lineRange(for: NSRange(location: location, length: 0))
-            location = NSMaxRange(lineRange)
-            currentLine += 1
-        }
-        guard location <= nsString.length else {
-            let originY = yOffset + topInset + CGFloat(localLine) * lineHeight
-            return NSRect(x: 0, y: originY, width: width, height: lineHeight)
-        }
-
-        let lineRange = nsString.lineRange(for: NSRange(location: location, length: 0))
-        let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-        guard glyphRange.length > 0 else {
-            let originY = yOffset + topInset + CGFloat(localLine) * lineHeight
-            return NSRect(x: 0, y: originY, width: width, height: lineHeight)
-        }
-
-        let bounding = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-        let originY = yOffset + topInset + bounding.minY
-        return NSRect(x: 0, y: originY, width: width, height: max(lineHeight, bounding.height))
     }
 
     private func applyAppearance(to view: CurrentLineHighlightView) {

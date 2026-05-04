@@ -104,9 +104,7 @@ final class LineNumberGutterExtension: EditorExtension {
         view.backgroundColor = palette.background
         view.borderColor = palette.foreground.withAlphaComponent(0.08)
         view.wrappingEnabled = host?.lineWrappingEnabled ?? false
-        view.textView = context.textView
-        view.viewportStartLine = context.viewport.viewportStartLine
-        view.viewportLineCount = context.viewport.viewportLineCount
+        view.heightMap = context.viewport.heightMap
     }
 
     private func layoutGutter() {
@@ -179,9 +177,7 @@ private final class LineNumberGutterView: NSView {
     weak var clipView: NSClipView?
 
     var wrappingEnabled: Bool = false
-    weak var textView: NSTextView?
-    var viewportStartLine: Int = 0
-    var viewportLineCount: Int = 0
+    var heightMap: HeightMap?
 
     override var isFlipped: Bool { true }
 
@@ -203,7 +199,7 @@ private final class LineNumberGutterView: NSView {
             .foregroundColor: foregroundColor,
         ]
 
-        if wrappingEnabled {
+        if wrappingEnabled, heightMap != nil {
             drawWrapped(dirtyRect: dirtyRect, attributes: attributes)
         } else {
             drawUniform(dirtyRect: dirtyRect, attributes: attributes)
@@ -242,44 +238,26 @@ private final class LineNumberGutterView: NSView {
     }
 
     private func drawWrapped(dirtyRect: NSRect, attributes: [NSAttributedString.Key: Any]) {
-        guard viewportLineCount > 0,
-              let textView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer,
-              let storage = textView.textStorage
-        else { return }
+        guard let heightMap, totalLines > 0 else { return }
 
-        let nsString = storage.string as NSString
-        let storageLength = nsString.length
-        guard storageLength > 0 else { return }
-
-        let textFrameOriginY = textView.frame.origin.y
+        let topY = max(0, dirtyRect.minY - topInset)
+        let bottomY = max(topY, dirtyRect.maxY - topInset)
+        let firstLocation = heightMap.lineAtY(topY)
+        let lastLocation = heightMap.lineAtY(bottomY)
+        let firstLine = max(0, min(firstLocation.line, totalLines - 1))
+        let lastLine = max(firstLine, min(lastLocation.line, totalLines - 1))
         let availableWidth = bounds.width - horizontalPadding * 2
 
-        var location = 0
-        for localLine in 0 ..< viewportLineCount {
-            guard location <= storageLength else { break }
-            let lineRange = nsString.lineRange(for: NSRange(location: location, length: 0))
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-            guard glyphRange.length > 0 else {
-                location = NSMaxRange(lineRange)
-                continue
-            }
-            let fragmentRect = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
-            let yInGutter = textFrameOriginY + textView.textContainerInset.height + fragmentRect.minY
-            let labelHeight = (String(viewportStartLine + localLine + 1) as NSString)
-                .size(withAttributes: attributes).height
-            let originY = yInGutter + (fragmentRect.height - labelHeight) / 2
-
-            if originY + labelHeight >= dirtyRect.minY, originY <= dirtyRect.maxY {
-                let label = String(viewportStartLine + localLine + 1) as NSString
-                let labelSize = label.size(withAttributes: attributes)
-                let originX = horizontalPadding + max(0, availableWidth - labelSize.width)
+        for line in firstLine ... lastLine {
+            let lineTop = topInset + heightMap.heightAbove(line: line)
+            let lineHeightForLine = heightMap.heightOfLine(line)
+            let label = String(line + 1) as NSString
+            let labelSize = label.size(withAttributes: attributes)
+            let originX = horizontalPadding + max(0, availableWidth - labelSize.width)
+            let originY = lineTop + (lineHeightForLine - labelSize.height) / 2
+            if originY + labelSize.height >= dirtyRect.minY, originY <= dirtyRect.maxY {
                 label.draw(at: NSPoint(x: originX, y: originY), withAttributes: attributes)
             }
-
-            location = NSMaxRange(lineRange)
-            if yInGutter > dirtyRect.maxY { break }
         }
     }
 }

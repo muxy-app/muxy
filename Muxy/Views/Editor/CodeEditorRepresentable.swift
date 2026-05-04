@@ -340,7 +340,7 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.hasAppliedInitialContent = true
             if lineWrapping {
                 coordinator.applyLineWrapping(true)
-                viewport.resetWrappedHeights()
+                viewport.resetMeasurements()
             }
             coordinator.refreshViewport(force: true)
             if focused, !state.suppressInitialFocus {
@@ -513,6 +513,8 @@ struct CodeEditorView: NSViewRepresentable {
 
         var isUpdating = false
         private var isEditingViewport = false
+        private(set) var scrollAnchor = ScrollAnchor()
+        private var isWritingScrollProgrammatically = false
         var hasAppliedInitialContent = false
         var lastThemeVersion = -1
         var lastSearchVisible = false
@@ -624,7 +626,7 @@ struct CodeEditorView: NSViewRepresentable {
             lineWrappingEnabled = enabled
             viewportState?.lineWrappingEnabled = enabled
             if !enabled {
-                viewportState?.resetWrappedHeights()
+                viewportState?.resetMeasurements()
             }
             guard let textView, let textContainer = textView.textContainer else { return }
             scrollView?.hasHorizontalScroller = !enabled
@@ -785,6 +787,33 @@ struct CodeEditorView: NSViewRepresentable {
             }
         }
 
+        func setScrollAnchor(_ anchor: ScrollAnchor) {
+            guard let viewport = viewportState else { return }
+            scrollAnchor = anchor.clamped(toLineCount: viewport.backingStore.lineCount)
+            writeAnchorToScrollView()
+        }
+
+        private func writeAnchorToScrollView() {
+            guard let viewport = viewportState, let scrollView else { return }
+            let visibleHeight = scrollView.contentView.bounds.height
+            let containerHeight = max(viewport.totalDocumentHeight, visibleHeight)
+            let maxScrollY = max(0, containerHeight - visibleHeight)
+            let target = scrollAnchor.pixelY(in: viewport.heightMap)
+            let clamped = min(maxScrollY, max(0, target))
+            let current = scrollView.contentView.bounds.origin.y
+            guard abs(clamped - current) >= 0.5 else { return }
+            isWritingScrollProgrammatically = true
+            scrollView.contentView.setBoundsOrigin(NSPoint(x: scrollView.contentView.bounds.origin.x, y: clamped))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            isWritingScrollProgrammatically = false
+        }
+
+        private func deriveAnchorFromScrollView() {
+            guard let viewport = viewportState, let scrollView else { return }
+            let pixel = scrollView.contentView.bounds.origin.y
+            scrollAnchor = ScrollAnchor.from(pixelY: pixel, in: viewport.heightMap)
+        }
+
         func refreshViewport(force: Bool) {
             guard let viewport = viewportState, let textView, let scrollView else { return }
             let scrollY = scrollView.contentView.bounds.origin.y
@@ -866,6 +895,7 @@ struct CodeEditorView: NSViewRepresentable {
 
             isUpdating = false
             applySearchHighlights()
+            writeAnchorToScrollView()
         }
 
         func applySyntaxHighlights(storage _: NSTextStorage, viewport: ViewportState) {
@@ -1033,34 +1063,43 @@ struct CodeEditorView: NSViewRepresentable {
             layoutManager.ensureLayout(for: textContainer)
             let nsString = storage.string as NSString
             let storageLength = nsString.length
+            let estimatedLineHeight = viewport.estimatedLineHeight
+            var lineHeights: [CGFloat] = []
+            lineHeights.reserveCapacity(viewport.viewportLineCount)
             var location = 0
             var localLine = 0
             while location <= storageLength, localLine < viewport.viewportLineCount {
                 let lineRange = nsString.lineRange(for: NSRange(location: location, length: 0))
-                let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
-                let fragmentCount: Int
+                let trimmedLength = lineRange.length - trailingNewlineLength(in: nsString, range: lineRange)
+                let contentRange = NSRange(location: lineRange.location, length: max(0, trimmedLength))
+                let glyphRange = layoutManager.glyphRange(forCharacterRange: contentRange, actualCharacterRange: nil)
+                let measuredHeight: CGFloat
                 if glyphRange.length == 0 {
-                    fragmentCount = 1
+                    measuredHeight = estimatedLineHeight
                 } else {
-                    var count = 0
-                    var glyphIndex = glyphRange.location
-                    let end = NSMaxRange(glyphRange)
-                    while glyphIndex < end {
-                        var effectiveRange = NSRange(location: 0, length: 0)
-                        _ = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: &effectiveRange)
-                        count += 1
-                        if effectiveRange.length == 0 { break }
-                        glyphIndex = NSMaxRange(effectiveRange)
-                    }
-                    fragmentCount = max(1, count)
+                    let bounding = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+                    measuredHeight = max(estimatedLineHeight, bounding.height)
                 }
-                viewport.recordWrappedFragmentCount(
-                    fragmentCount,
-                    atLine: viewport.viewportStartLine + localLine
-                )
+                lineHeights.append(measuredHeight)
                 location = NSMaxRange(lineRange)
                 localLine += 1
             }
+            guard !lineHeights.isEmpty else { return }
+            viewport.recordMeasuredLineHeights(startLine: viewport.viewportStartLine, lineHeights: lineHeights)
+        }
+
+        private func trailingNewlineLength(in string: NSString, range: NSRange) -> Int {
+            guard range.length > 0 else { return 0 }
+            let lastIndex = NSMaxRange(range) - 1
+            let lastChar = string.character(at: lastIndex)
+            if lastChar == 0x0A {
+                if range.length >= 2, string.character(at: lastIndex - 1) == 0x0D {
+                    return 2
+                }
+                return 1
+            }
+            if lastChar == 0x0D { return 1 }
+            return 0
         }
 
         private func viewportContentWidth(for textView: NSTextView, scrollView: NSScrollView) -> CGFloat {
@@ -1116,11 +1155,13 @@ struct CodeEditorView: NSViewRepresentable {
                 estimatedHeight
             }
             if lineWrappingEnabled, targetTextWidth > 0 {
+                viewport.updateContainerWidth(targetTextWidth)
                 measureWrappedFragments(textView: textView, viewport: viewport)
             }
+            let resolvedYOffset = viewport.viewportYOffset()
             let newTextFrame = NSRect(
                 x: leadingGutterWidth,
-                y: yOffset,
+                y: resolvedYOffset,
                 width: targetTextWidth,
                 height: max(estimatedHeight, laidOutHeight, 100)
             )
@@ -1223,6 +1264,9 @@ struct CodeEditorView: NSViewRepresentable {
                 }
                 lastObservedClipSize = size
             }
+            if !isWritingScrollProgrammatically {
+                deriveAnchorFromScrollView()
+            }
             markdownScrollSync.attach(scrollView: scrollView, viewport: viewportState)
             markdownScrollSync.reconcileScrollBoundsChange()
             if !isEditingViewport {
@@ -1259,7 +1303,7 @@ struct CodeEditorView: NSViewRepresentable {
                 schedulePendingWrapResize()
                 return
             }
-            viewportState?.resetWrappedHeights()
+            viewportState?.resetMeasurements()
             applyLineWrapping(true)
         }
 
@@ -1274,7 +1318,7 @@ struct CodeEditorView: NSViewRepresentable {
                         return
                     }
                     guard self.lineWrappingEnabled else { return }
-                    self.viewportState?.resetWrappedHeights()
+                    self.viewportState?.resetMeasurements()
                     self.applyLineWrapping(true)
                     self.refreshViewport(force: true)
                 }
@@ -1343,7 +1387,7 @@ struct CodeEditorView: NSViewRepresentable {
                 viewport.notifyLinesReplaced(
                     start: pendingEdit.startLine,
                     removingCount: pendingEdit.oldLines.count,
-                    insertingCount: pendingEdit.newLines.count
+                    insertingLineCharCounts: pendingEdit.newLines.map { ($0 as NSString).length }
                 )
                 lineDelta = pendingEdit.newLines.count - pendingEdit.oldLines.count
                 let newViewportEnd = max(viewportStartLine, viewport.viewportEndLine + lineDelta)
@@ -1359,7 +1403,7 @@ struct CodeEditorView: NSViewRepresentable {
                 viewport.notifyLinesReplaced(
                     start: viewport.viewportStartLine,
                     removingCount: oldRange.count,
-                    insertingCount: newLocalLines.count
+                    insertingLineCharCounts: newLocalLines.map { ($0 as NSString).length }
                 )
                 lineDelta = newLocalLines.count - oldRange.count
                 viewport.applyViewport(viewport.viewportStartLine ..< viewport.viewportStartLine + newLocalLines.count)
@@ -1681,42 +1725,29 @@ struct CodeEditorView: NSViewRepresentable {
         }
 
         func applyPendingJump(line: Int, column: Int) {
-            scrollToGlobalLine(max(0, line - 1), column: max(0, column - 1), placeNearTop: true)
+            scrollToGlobalLine(max(0, line - 1), column: max(0, column - 1))
         }
 
-        private func scrollToGlobalLine(_ globalLine: Int, column: Int, placeNearTop: Bool = false) {
+        private func scrollToGlobalLine(_ globalLine: Int, column: Int) {
             guard let viewport = viewportState, let scrollView, let textView else { return }
 
-            let targetScrollY = viewport.scrollY(forLine: globalLine)
             let visibleHeight = scrollView.contentView.bounds.height
-            let currentScrollY = scrollView.contentView.bounds.origin.y
+            let lineCount = viewport.backingStore.lineCount
+            guard lineCount > 0 else { return }
+            let targetLine = max(0, min(globalLine, lineCount - 1))
 
-            let lineTop = targetScrollY
-            let lineBottom = targetScrollY + viewport.estimatedLineHeight
+            setScrollAnchor(ScrollAnchor(line: targetLine, deltaPixels: -visibleHeight / 3))
 
-            var newScrollY = currentScrollY
-            if placeNearTop, lineTop < currentScrollY || lineBottom > currentScrollY + visibleHeight {
-                newScrollY = lineTop - visibleHeight / 3
-            } else if lineBottom > currentScrollY + visibleHeight {
-                newScrollY = lineBottom - visibleHeight
-            } else if lineTop < currentScrollY {
-                newScrollY = lineTop
+            for _ in 0 ..< 5 {
+                let pixelBefore = scrollAnchor.pixelY(in: viewport.heightMap)
+                refreshViewport(force: true)
+                let pixelAfter = scrollAnchor.pixelY(in: viewport.heightMap)
+                if abs(pixelAfter - pixelBefore) < 0.5 { break }
             }
 
-            let maxScrollY = max(0, viewport.totalDocumentHeight - visibleHeight)
-            if globalLine >= viewport.backingStore.lineCount - 1 {
-                newScrollY = maxScrollY
-            } else {
-                newScrollY = min(maxScrollY, max(0, newScrollY))
-            }
-
-            scrollView.contentView.setBoundsOrigin(NSPoint(x: scrollView.contentView.bounds.origin.x, y: newScrollY))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-
-            refreshViewport(force: true)
             rebuildLineStartOffsetsForViewport()
 
-            guard let newLocalLine = viewport.viewportLine(forBackingStoreLine: globalLine) else { return }
+            guard let newLocalLine = viewport.viewportLine(forBackingStoreLine: targetLine) else { return }
             let newCharOffset = charOffsetForLocalLine(newLocalLine)
             let newContent = textView.string as NSString
             let lineRange = newContent.lineRange(for: NSRange(location: min(newCharOffset, newContent.length), length: 0))
@@ -1728,8 +1759,9 @@ struct CodeEditorView: NSViewRepresentable {
             textView.setSelectedRange(NSRange(location: safeCursor, length: 0))
             isUpdating = false
 
-            state.cursorLine = globalLine + 1
-            let cursorLineStart = lineStartOffsets[max(0, min(newLocalLine, lineStartOffsets.count - 1))]
+            state.cursorLine = targetLine + 1
+            let safeLocalLine = max(0, min(newLocalLine, lineStartOffsets.count - 1))
+            let cursorLineStart = lineStartOffsets[safeLocalLine]
             state.cursorColumn = max(1, safeCursor - cursorLineStart + 1)
             notifySelectionDidChange()
         }

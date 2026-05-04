@@ -52,7 +52,10 @@ Muxy/
     FileTreeState.swift       Lightweight file tree state per worktree (lazy expansion, git statuses)
     EditorSettings.swift      @Observable editor preferences (default editor, font)
     TextBackingStore.swift    Line-array backing store for editor documents
-    ViewportState.swift       Viewport window computation and line mapping for editor documents (delegates fragment math to WrappedLineHeights when line wrapping is enabled)
+    ViewportState.swift       Viewport window computation and line mapping for editor documents (delegates per-line height math to HeightMap)
+    HeightOracle.swift        Calibrated estimator for line heights when wrapping is on (perLine + perChar formula, derived from font metrics + container width)
+    HeightMap.swift           Source of truth for per-line pixel heights. Sequence of measured/estimated blocks; supports heightAbove(line), lineAtY(y), applyMeasurements, replaceLines
+    ScrollAnchor.swift        (line, deltaPixels) scroll position. Decouples user view from raw pixel offsets so geometry updates don't move the visible content
     WrappedLineHeights.swift  Fenwick-tree mapping of source line → wrapped fragment count for O(log n) line/scroll conversions in the wrapping path
     TerminalSettings.swift    Terminal preference keys and quick-select label layout helpers
     ProjectLifecyclePreferences.swift  Project lifecycle preferences (keep-open-when-no-tabs)
@@ -280,6 +283,154 @@ User action → AppState.dispatch() → WorkspaceReducer.reduce()
   color accent via `TerminalTab.colorID` ("Set Tab Color…" context menu). Both fields persist
   to `workspaces.json` through `TerminalTabSnapshot`. Colors resolve through
   `ProjectIconColor.palette` (shared with project icon colors).
+
+## Editor Geometry & Scrolling
+
+The built-in editor is virtualized: only a window of lines (visible range ± a 500-line buffer) is loaded into the underlying `NSTextView` at any time. Every line outside the rendered window is still tracked by the geometry layer, so the scrollbar, gotoline, current-line highlight, and gutter all read from a single source of truth.
+
+This section documents the pipeline that replaced the older `WrappedLineHeights` lazy-fragment cache. The design follows CodeMirror 6's HeightMap + scroll-anchor reflow pattern.
+
+### Component overview
+
+```mermaid
+flowchart TB
+  subgraph Pure["Pure model (Muxy/Models)"]
+    Oracle["HeightOracle<br/>perLine + perChar formula<br/>calibrated from font + width"]
+    Map["HeightMap<br/>blocks: measured | estimated<br/>heightAbove(line) / lineAtY(y)"]
+    Anchor["ScrollAnchor<br/>(line, deltaPixels)"]
+  end
+
+  subgraph Editor["Editor coordinator (CodeEditorRepresentable)"]
+    Viewport["ViewportState<br/>window range, padding,<br/>delegates to HeightMap"]
+    Refresh["refreshViewport(force:)<br/>render + measure + reflow"]
+    Jump["scrollToGlobalLine<br/>setScrollAnchor + reflow loop"]
+    Write["writeAnchorToScrollView<br/>anchor → pixelY → scrollView"]
+    Derive["deriveAnchorFromScrollView<br/>user scroll → anchor"]
+  end
+
+  subgraph Render["Render-time consumers"]
+    Highlight["CurrentLineHighlightExtension<br/>y = heightAbove(cursorLine) + topInset"]
+    Gutter["LineNumberGutterExtension<br/>per-row y from HeightMap"]
+    Frame["textView.frame.y =<br/>viewport.viewportYOffset()"]
+    Search["SearchController.scrollToMatch<br/>setScrollAnchor + reflow loop"]
+  end
+
+  Oracle --> Map
+  Map --> Viewport
+  Viewport --> Refresh
+  Refresh --> Map
+  Anchor --> Write
+  Write --> Refresh
+  Derive --> Anchor
+  Jump --> Anchor
+  Search --> Anchor
+  Map --> Highlight
+  Map --> Gutter
+  Map --> Frame
+```
+
+### Reflow loop on jump / measurement
+
+When the user scrolls or jumps to a line that's far from the rendered window, the `HeightMap` only has *estimated* heights for lines outside the window. The first scroll lands at an approximate position; rendering measures the new window; the heightmap refines those line heights; the user's logical anchor (a line index) gets a new pixel position. The reflow loop bumps scroll silently to keep the same anchor on screen until the geometry settles.
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant J as scrollToGlobalLine
+  participant A as ScrollAnchor
+  participant M as HeightMap
+  participant R as refreshViewport
+  participant SV as NSScrollView
+
+  U->>J: jump to line N
+  J->>A: setScrollAnchor(line=N, delta=-h/3)
+  A->>M: heightAbove(N) [estimate]
+  J->>SV: setBoundsOrigin(estimatedY)
+
+  loop ≤5 iterations until pixel stable
+    J->>R: refreshViewport(force: true)
+    R->>R: render new window text
+    R->>M: applyMeasurements(measured heights)
+    Note over M: gap decomposes into<br/>measured + residual gap
+    R->>A: anchor.pixelY(in: M)<br/>recomputed against new map
+    R->>SV: writeAnchorToScrollView()<br/>(skipped if delta < 0.5px)
+  end
+
+  J->>SV: cursor placed on line N
+```
+
+### Write paths
+
+Every programmatic scroll write goes through `writeAnchorToScrollView`, which:
+1. Reads the current pixel scroll Y from the anchor.
+2. Clamps to `[0, totalDocumentHeight - visibleHeight]`.
+3. Sets `isWritingScrollProgrammatically = true` so the user-scroll observer doesn't re-derive the anchor from our own write.
+4. Writes `setBoundsOrigin` and clears the flag.
+
+When the user scrolls (mouse, trackpad, scrollbar), `reconcileScrollBoundsChange` calls `deriveAnchorFromScrollView` so the anchor tracks the user's view.
+
+```mermaid
+flowchart LR
+  subgraph Programmatic
+    Jump2[scrollToGlobalLine]
+    SearchJ[SearchController.scrollToMatch]
+    Reflow[refreshViewport reflow]
+  end
+  subgraph User
+    Mouse[Trackpad / scrollbar]
+  end
+
+  Jump2 --> SetA[setScrollAnchor]
+  SearchJ --> SetA
+  Reflow --> WAS[writeAnchorToScrollView]
+  SetA --> WAS
+  WAS -->|isWritingScrollProgrammatically=true| SVO[NSScrollView.contentView<br/>setBoundsOrigin]
+  Mouse --> Notif[boundsDidChangeNotification]
+  Notif --> Recon[reconcileScrollBoundsChange]
+  Recon -->|guard isWritingScrollProgrammatically| DAS[deriveAnchorFromScrollView]
+  DAS --> AnchorBox[(ScrollAnchor)]
+  WAS -.-> Notif
+```
+
+### HeightMap block lifecycle
+
+`HeightMap` keeps the document as a sequence of `Block`s, each either:
+- `.measured(lineHeights: [CGFloat])` — exact pixel heights from `layoutManager.boundingRect` for lines that have been laid out.
+- `.estimated(perLineCharCounts: [Int])` — estimated height for a contiguous run of lines, computed by the oracle from `(charCount, logicalLineCount)`.
+
+A new file starts as one big `.estimated` block. Each viewport render decomposes the relevant slice into `.measured`. Edits that insert/remove lines pass through `replaceLines`, which updates the underlying block sequence; consecutive `.estimated` blocks are merged so the gap distribution stays well-behaved.
+
+```mermaid
+flowchart LR
+  subgraph initial["File open"]
+    G0["estimated [0..N]<br/>perLineCharCounts"]
+  end
+  subgraph after_first_scroll["After first refresh near top"]
+    M1["measured [0..K]"]
+    G1["estimated [K..N]"]
+  end
+  subgraph after_jump["After jump to line J"]
+    M2a["measured [0..K]"]
+    G2a["estimated [K..J-W]"]
+    M2b["measured [J-W..J+W]"]
+    G2b["estimated [J+W..N]"]
+  end
+  subgraph after_edit["After insert at L (in measured)"]
+    M3a["measured [0..L]"]
+    G3a["estimated [L..L+lineCount]<br/>(newly inserted run)"]
+    M3b["measured [L+lineCount..K]"]
+    G3b["..."]
+  end
+
+  initial --> after_first_scroll --> after_jump --> after_edit
+```
+
+### Why this works
+
+- **Estimates are character-density-proportional.** A long minified line gets a tall estimate before measurement; a short comment line gets a short one. The cumulative `heightAbove(line)` is roughly correct from the first scroll, not "1 fragment per line" wrong by a factor of N.
+- **Scroll position is not pixel-anchored.** When measurements refine geometry, the anchor's pixel position changes — the reflow loop re-pins it before the user notices. CodeMirror calls this the "scroll anchor reflow" pattern.
+- **Single source of truth.** Highlight, gutter, scroll math, jump math, search-jump, current-line-highlight all derive Y values from the same `HeightMap`. They cannot disagree about where line N is.
+- **Measurement is pixel-exact.** `recordMeasuredLineHeights` feeds `layoutManager.boundingRect` heights (excluding trailing newline) directly — no fragment-count → estimate-multiplication step.
 
 ## File Tree
 
