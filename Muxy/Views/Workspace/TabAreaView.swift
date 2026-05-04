@@ -17,6 +17,10 @@ struct TabAreaView: View {
     let onDropAction: (TabDragCoordinator.DropResult) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @Environment(AppState.self) private var appState
+    @State private var isExternalDragHovering = false
+    @State private var externalDragHideTask: Task<Void, any Error>?
+
+    private static let externalDragHideDebounce: Duration = .milliseconds(80)
 
     private func closeTabs(_ tabIDs: [UUID]) {
         for tabID in tabIDs {
@@ -78,6 +82,7 @@ struct TabAreaView: View {
                         tab: tab,
                         focused: isActive && isFocused && isActiveProject,
                         visible: isActive,
+                        areaID: area.id,
                         onFocus: onFocus,
                         onProcessExit: { onForceCloseTab(tab.id) },
                         onSplitRequest: { direction, position in
@@ -101,6 +106,18 @@ struct TabAreaView: View {
                     DropZoneHighlight(zone: zone)
                 }
             }
+        }
+        .overlay {
+            if isExternalDragHovering {
+                ExternalDragHoverHighlight()
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: isExternalDragHovering)
+        .onReceive(NotificationCenter.default.publisher(for: .externalDragHoverChanged)) { note in
+            handleExternalDragHover(note: note)
+        }
+        .onDisappear {
+            externalDragHideTask?.cancel()
         }
         .background {
             if dragCoordinator.activeDrag != nil {
@@ -135,12 +152,42 @@ struct TabAreaView: View {
             }
         }
     }
+
+    private func handleExternalDragHover(note: Notification) {
+        guard let hovering = note.userInfo?[ExternalDragHoverUserInfoKey.isHovering] as? Bool,
+              let notedAreaID = note.userInfo?[ExternalDragHoverUserInfoKey.areaID] as? UUID,
+              notedAreaID == area.id
+        else { return }
+        externalDragHideTask?.cancel()
+        if hovering {
+            isExternalDragHovering = true
+            return
+        }
+        externalDragHideTask = Task { @MainActor in
+            try await Task.sleep(for: Self.externalDragHideDebounce)
+            isExternalDragHovering = false
+        }
+    }
+}
+
+private struct ExternalDragHoverHighlight: View {
+    var body: some View {
+        Rectangle()
+            .fill(MuxyTheme.accent.opacity(0.15))
+            .overlay(
+                Rectangle()
+                    .strokeBorder(MuxyTheme.accent.opacity(0.6), lineWidth: 2)
+            )
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
 }
 
 private struct TabContentView: View {
     let tab: TerminalTab
     let focused: Bool
     let visible: Bool
+    let areaID: UUID
     let onFocus: () -> Void
     let onProcessExit: () -> Void
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
@@ -152,6 +199,7 @@ private struct TabContentView: View {
                 state: pane,
                 focused: focused,
                 visible: visible,
+                areaID: areaID,
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest

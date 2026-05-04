@@ -1,5 +1,6 @@
 import MuxyShared
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct PaneTabStrip: View {
     struct TabSnapshot: Identifiable {
@@ -126,6 +127,7 @@ struct PaneTabStrip: View {
                     tab: tab,
                     active: tab.id == activeTabID,
                     paneFocused: isFocused,
+                    areaID: areaID,
                     hasUnread: NotificationStore.shared.hasUnread(tabID: tab.id),
                     isAnyDragging: dragState.draggedID != nil,
                     shortcutIndex: index < 9 ? index + 1 : nil,
@@ -306,6 +308,7 @@ private struct TabCell: View {
     let tab: PaneTabStrip.TabSnapshot
     let active: Bool
     let paneFocused: Bool
+    let areaID: UUID
     var hasUnread: Bool = false
     var isAnyDragging: Bool = false
     var shortcutIndex: Int?
@@ -327,7 +330,11 @@ private struct TabCell: View {
     @State private var renameText = ""
     @State private var showColorPicker = false
     @State private var measuredWidth: CGFloat = TabCell.maxWidth
+    @State private var externalDragOverCell = false
+    @State private var springLoadTask: Task<Void, any Error>?
     @FocusState private var renameFieldFocused: Bool
+
+    private static let springLoadDelay: Duration = .milliseconds(250)
 
     private var titleHidden: Bool {
         measuredWidth < Self.titleHideThreshold
@@ -498,6 +505,33 @@ private struct TabCell: View {
         .onReceive(NotificationCenter.default.publisher(for: .renameActiveTab)) { _ in
             guard active else { return }
             startRename()
+        }
+        .onDrop(of: [.fileURL], isTargeted: $externalDragOverCell) { _, _ in false }
+        .onChange(of: externalDragOverCell) { _, hovering in
+            handleExternalDragHover(hovering: hovering)
+        }
+        .onDisappear {
+            springLoadTask?.cancel()
+        }
+    }
+
+    private func handleExternalDragHover(hovering: Bool) {
+        NotificationCenter.default.post(
+            name: .externalDragHoverChanged,
+            object: nil,
+            userInfo: [
+                ExternalDragHoverUserInfoKey.isHovering: hovering,
+                ExternalDragHoverUserInfoKey.areaID: areaID,
+            ]
+        )
+        springLoadTask?.cancel()
+        guard hovering, !active else {
+            springLoadTask = nil
+            return
+        }
+        springLoadTask = Task { @MainActor in
+            try await Task.sleep(for: Self.springLoadDelay)
+            onSelect()
         }
     }
 

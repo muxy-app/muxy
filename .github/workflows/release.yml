@@ -270,9 +270,11 @@ jobs:
       - name: Bump BETA_VERSION
         env:
           NEXT: ${{ needs.validate.outputs.next_beta_version }}
+          GH_RELEASE_PAT: ${{ secrets.GH_RELEASE_PAT }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_RELEASE_PAT}@github.com/${{ github.repository }}.git"
           git fetch origin main
           git checkout main
           git pull --rebase origin main
