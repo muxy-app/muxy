@@ -133,6 +133,9 @@ private final class FeedDelegate: NSObject, SPUUpdaterDelegate {
     }
 
     func allowedChannels(for _: SPUUpdater) -> Set<String> {
-        [channel.rawValue]
+        switch channel {
+        case .stable: []
+        case .beta: [channel.rawValue]
+        }
     }
 }
