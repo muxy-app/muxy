@@ -52,7 +52,8 @@ Muxy/
     FileTreeState.swift       Lightweight file tree state per worktree (lazy expansion, git statuses)
     EditorSettings.swift      @Observable editor preferences (default editor, font)
     TextBackingStore.swift    Line-array backing store for editor documents
-    ViewportState.swift       Viewport window computation and line mapping for editor documents
+    ViewportState.swift       Viewport window computation and line mapping for editor documents (delegates fragment math to WrappedLineHeights when line wrapping is enabled)
+    WrappedLineHeights.swift  Fenwick-tree mapping of source line → wrapped fragment count for O(log n) line/scroll conversions in the wrapping path
     TerminalSettings.swift    Terminal preference keys and quick-select label layout helpers
     ProjectLifecyclePreferences.swift  Project lifecycle preferences (keep-open-when-no-tabs)
     Project.swift             Project folder metadata
