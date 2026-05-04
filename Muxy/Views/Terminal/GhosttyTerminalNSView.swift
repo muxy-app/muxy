@@ -1016,7 +1016,7 @@ extension GhosttyTerminalNSView {
     }
 
     private func scheduleFocusAndInsertAfterDrop(text: String) {
-        DispatchQueue.main.async { [weak self] in
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
             guard let self else { return }
             NSApp.activate()
             window?.makeKeyAndOrderFront(nil)
