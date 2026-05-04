@@ -1017,12 +1017,14 @@ extension GhosttyTerminalNSView {
 
     private func scheduleFocusAndInsertAfterDrop(text: String) {
         RunLoop.main.perform(inModes: [.default]) { [weak self] in
-            guard let self else { return }
-            NSApp.activate()
-            window?.makeKeyAndOrderFront(nil)
-            window?.makeFirstResponder(self)
-            notifySurfaceFocused()
-            insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                NSApp.activate()
+                self.window?.makeKeyAndOrderFront(nil)
+                self.window?.makeFirstResponder(self)
+                self.notifySurfaceFocused()
+                self.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
         }
     }
 

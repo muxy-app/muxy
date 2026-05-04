@@ -145,10 +145,18 @@ jobs:
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$APPLE_TEAM_ID"
-          xcrun notarytool submit \
+          set +e
+          submit_output=$(xcrun notarytool submit \
             "build/Muxy-${{ needs.validate.outputs.version }}-${{ matrix.arch }}.dmg" \
             --keychain-profile "notary-profile" \
-            --wait
+            --wait \
+            --output-format json)
+          submit_status=$?
+          echo "$submit_output"
+          submission_id=$(echo "$submit_output" | python3 -c 'import sys, json; print(json.load(sys.stdin)["id"])')
+          xcrun notarytool log "$submission_id" --keychain-profile "notary-profile" || true
+          set -e
+          if [ "$submit_status" -ne 0 ]; then exit "$submit_status"; fi
           xcrun stapler staple \
             "build/Muxy-${{ needs.validate.outputs.version }}-${{ matrix.arch }}.dmg"
 
