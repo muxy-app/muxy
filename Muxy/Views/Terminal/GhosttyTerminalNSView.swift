@@ -1011,6 +1011,11 @@ extension GhosttyTerminalNSView {
         let paths = droppedPaths(from: sender)
         guard !paths.isEmpty else { return false }
         let text = paths.map { ShellEscaper.escape($0) }.joined(separator: " ")
+        scheduleFocusAndInsertAfterDrop(text: text)
+        return true
+    }
+
+    private func scheduleFocusAndInsertAfterDrop(text: String) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             NSApp.activate()
@@ -1019,7 +1024,6 @@ extension GhosttyTerminalNSView {
             notifySurfaceFocused()
             insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
         }
-        return true
     }
 
     private func droppedPaths(from sender: any NSDraggingInfo) -> [String] {

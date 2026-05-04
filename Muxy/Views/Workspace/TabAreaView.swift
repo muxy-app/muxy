@@ -20,6 +20,8 @@ struct TabAreaView: View {
     @State private var isExternalDragHovering = false
     @State private var externalDragHideTask: Task<Void, any Error>?
 
+    private static let externalDragHideDebounce: Duration = .milliseconds(80)
+
     private func closeTabs(_ tabIDs: [UUID]) {
         for tabID in tabIDs {
             onCloseTab(tabID)
@@ -162,7 +164,7 @@ struct TabAreaView: View {
             return
         }
         externalDragHideTask = Task { @MainActor in
-            try await Task.sleep(for: .milliseconds(80))
+            try await Task.sleep(for: Self.externalDragHideDebounce)
             isExternalDragHovering = false
         }
     }
