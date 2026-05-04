@@ -14,6 +14,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Select Xcode
+        run: sudo xcode-select -s "/Applications/Xcode_$(grep '^xcode ' .tool-versions | awk '{print $2}').app"
+
       - name: Read tool versions
         run: |
           echo "SWIFTFORMAT_VERSION=$(grep '^swiftformat ' .tool-versions | awk '{print $2}')" >> "$GITHUB_ENV"
