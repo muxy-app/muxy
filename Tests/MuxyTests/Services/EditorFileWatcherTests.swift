@@ -5,12 +5,13 @@ import Testing
 
 @Suite("EditorFileWatcher")
 struct EditorFileWatcherTests {
-    private func makeTempFile(contents: String = "initial") -> URL {
+    private func makeTempFile(contents: String = "initial") async -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("EditorFileWatcherTests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("file.txt")
         try? contents.data(using: .utf8)?.write(to: url)
+        try? await Task.sleep(nanoseconds: 500_000_000)
         return url
     }
 
@@ -22,7 +23,7 @@ struct EditorFileWatcherTests {
 
     @Test("fires handler when watched file changes")
     func firesOnChange() async throws {
-        let url = makeTempFile()
+        let url = await makeTempFile()
         let counter = FireCounter()
         let watcher = EditorFileWatcher(filePath: url.path, debounceInterval: 0.1) {
             counter.increment()
@@ -39,7 +40,7 @@ struct EditorFileWatcherTests {
 
     @Test("ignores changes to sibling files in the same directory")
     func ignoresSiblingChanges() async throws {
-        let url = makeTempFile()
+        let url = await makeTempFile()
         let sibling = url.deletingLastPathComponent().appendingPathComponent("other.txt")
         let counter = FireCounter()
         let watcher = EditorFileWatcher(filePath: url.path, debounceInterval: 0.1) {
@@ -57,7 +58,7 @@ struct EditorFileWatcherTests {
 
     @Test("debounces rapid successive writes into a single fire")
     func debouncesRapidWrites() async throws {
-        let url = makeTempFile()
+        let url = await makeTempFile()
         let counter = FireCounter()
         let watcher = EditorFileWatcher(filePath: url.path, debounceInterval: 0.4) {
             counter.increment()
