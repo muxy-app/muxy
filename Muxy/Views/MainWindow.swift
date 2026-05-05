@@ -57,6 +57,7 @@ struct MainWindow: View {
     @State private var showQuickOpen = false
     @State private var showFindInFiles = false
     @State private var showWorktreeSwitcher = false
+    @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
     @State private var sidebarExpanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
@@ -169,7 +170,7 @@ struct MainWindow: View {
                 }
             }
         }
-        .environment(\.overlayActive, showQuickOpen || showFindInFiles || showWorktreeSwitcher)
+        .environment(\.overlayActive, showQuickOpen || showFindInFiles || showWorktreeSwitcher || overlayAnimatingOut)
         .overlay(alignment: toastAlignment) {
             if let toast = ToastState.shared.message {
                 HStack(spacing: 6) {
@@ -240,6 +241,12 @@ struct MainWindow: View {
         .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
         .animation(.easeInOut(duration: 0.15), value: showFindInFiles)
         .animation(.easeInOut(duration: 0.15), value: showWorktreeSwitcher)
+        .modifier(OverlayExitTracker(
+            showQuickOpen: showQuickOpen,
+            showFindInFiles: showFindInFiles,
+            showWorktreeSwitcher: showWorktreeSwitcher,
+            onAnimatingOut: { overlayAnimatingOut = $0 }
+        ))
         .animation(.easeInOut(duration: 0.2), value: ToastState.shared.message != nil)
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
@@ -1171,5 +1178,27 @@ private struct WindowOpenReceiver: View {
             .onReceive(NotificationCenter.default.publisher(for: .openHelpWindow)) { _ in
                 openWindow(id: "help")
             }
+    }
+}
+
+private struct OverlayExitTracker: ViewModifier {
+    let showQuickOpen: Bool
+    let showFindInFiles: Bool
+    let showWorktreeSwitcher: Bool
+    let onAnimatingOut: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: showQuickOpen) { _, visible in trackExit(visible) }
+            .onChange(of: showFindInFiles) { _, visible in trackExit(visible) }
+            .onChange(of: showWorktreeSwitcher) { _, visible in trackExit(visible) }
+    }
+
+    private func trackExit(_ visible: Bool) {
+        guard !visible else { return }
+        onAnimatingOut(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            onAnimatingOut(false)
+        }
     }
 }

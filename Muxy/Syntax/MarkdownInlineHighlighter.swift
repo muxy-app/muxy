@@ -246,25 +246,6 @@ enum MarkdownInlineHighlighter {
 
 @MainActor
 enum MarkdownInlineStyle {
-    static func font(for kind: MarkdownInlineDecoration.Kind, baseFont: NSFont) -> NSFont? {
-        switch kind {
-        case .heading:
-            applyTraits(.bold, to: baseFont)
-        case .bold:
-            applyTraits(.bold, to: baseFont)
-        case .italic:
-            applyTraits(.italic, to: baseFont)
-        case .boldItalic:
-            applyTraits([.bold, .italic], to: baseFont)
-        case .strikethrough,
-             .codeSpan,
-             .marker,
-             .blockquote,
-             .listMarker:
-            nil
-        }
-    }
-
     static func foregroundColor(for kind: MarkdownInlineDecoration.Kind) -> NSColor? {
         switch kind {
         case .heading:
@@ -285,10 +266,5 @@ enum MarkdownInlineStyle {
 
     static func strikethroughStyle(for kind: MarkdownInlineDecoration.Kind) -> NSUnderlineStyle? {
         kind == .strikethrough ? .single : nil
-    }
-
-    private static func applyTraits(_ traits: NSFontDescriptor.SymbolicTraits, to font: NSFont) -> NSFont {
-        let descriptor = font.fontDescriptor.withSymbolicTraits(traits)
-        return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
     }
 }

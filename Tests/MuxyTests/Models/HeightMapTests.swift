@@ -172,4 +172,21 @@ struct HeightMapTests {
         dense.reset(lineCharCounts: Array(repeating: 200, count: 100))
         #expect(dense.totalHeight > sparse.totalHeight)
     }
+
+    @Test("wrapped estimated lines keep exact per-line coordinates")
+    func wrappedEstimatedLinesUsePerLinePrefixes() {
+        let oracle = makeOracle(wrapping: true, lineHeight: 10)
+        let map = HeightMap(oracle: oracle)
+        map.reset(lineCharCounts: [5, 65, 10])
+
+        #expect(map.heightAbove(line: 0) == 0)
+        #expect(map.heightAbove(line: 1) == 10)
+        #expect(map.heightAbove(line: 2) == 40)
+        #expect(map.heightAbove(line: 3) == 50)
+
+        let location = map.lineAtY(35)
+        #expect(location.line == 1)
+        #expect(location.topY == 10)
+        #expect(location.height == 30)
+    }
 }

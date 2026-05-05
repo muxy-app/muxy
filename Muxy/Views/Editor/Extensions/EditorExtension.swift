@@ -15,6 +15,8 @@ protocol EditorExtension: AnyObject {
     func textDidChange(context: EditorRenderContext)
 
     func selectionDidChange(context: EditorRenderContext)
+
+    func geometryDidChange(context: EditorRenderContext)
 }
 
 extension EditorExtension {
@@ -24,4 +26,5 @@ extension EditorExtension {
     func applyIncremental(context _: EditorRenderContext, lineRange _: Range<Int>, edit _: EditorTextEdit) {}
     func textDidChange(context _: EditorRenderContext) {}
     func selectionDidChange(context _: EditorRenderContext) {}
+    func geometryDidChange(context _: EditorRenderContext) {}
 }

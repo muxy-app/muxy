@@ -516,6 +516,7 @@ struct CodeEditorView: NSViewRepresentable {
 
         var isUpdating = false
         private var isEditingViewport = false
+        private var isReconfiguringLineWrapping = false
         private(set) var scrollAnchor = ScrollAnchor()
         private var isWritingScrollProgrammatically = false
         var hasAppliedInitialContent = false
@@ -628,9 +629,6 @@ struct CodeEditorView: NSViewRepresentable {
         func applyLineWrapping(_ enabled: Bool) {
             lineWrappingEnabled = enabled
             viewportState?.lineWrappingEnabled = enabled
-            if !enabled {
-                viewportState?.resetMeasurements()
-            }
             guard let textView, let textContainer = textView.textContainer else { return }
             scrollView?.hasHorizontalScroller = !enabled
             if enabled {
@@ -661,9 +659,18 @@ struct CodeEditorView: NSViewRepresentable {
 
         func reconcileLineWrapping(_ enabled: Bool) {
             guard lineWrappingEnabled != enabled else { return }
+            reconfigureLineWrapping(enabled)
+        }
+
+        private func reconfigureLineWrapping(_ enabled: Bool) {
+            guard !isReconfiguringLineWrapping else { return }
+            isReconfiguringLineWrapping = true
+            defer { isReconfiguringLineWrapping = false }
+            deriveAnchorFromScrollView()
             applyLineWrapping(enabled)
+            viewportState?.resetMeasurements()
             updateContainerHeight()
-            refreshViewport(force: true)
+            refreshViewportPinningAnchor()
         }
 
         private func wrappingContentWidth() -> CGFloat {
@@ -891,6 +898,8 @@ struct CodeEditorView: NSViewRepresentable {
             )
 
             CATransaction.commit()
+
+            notifyGeometryDidChange()
 
             if let savedCursor,
                let newLocalLine = viewport.viewportLine(forBackingStoreLine: savedCursor.line)
@@ -1318,8 +1327,7 @@ struct CodeEditorView: NSViewRepresentable {
                 schedulePendingWrapResize()
                 return
             }
-            viewportState?.resetMeasurements()
-            applyLineWrapping(true)
+            reconfigureLineWrapping(true)
         }
 
         private func schedulePendingWrapResize() {
@@ -1333,9 +1341,7 @@ struct CodeEditorView: NSViewRepresentable {
                         return
                     }
                     guard self.lineWrappingEnabled else { return }
-                    self.viewportState?.resetMeasurements()
-                    self.applyLineWrapping(true)
-                    self.refreshViewport(force: true)
+                    self.reconfigureLineWrapping(true)
                 }
             }
             pendingWrapResizeWorkItem = work
@@ -1455,7 +1461,7 @@ struct CodeEditorView: NSViewRepresentable {
                 clearViewportHistory()
             }
 
-            if lineDelta != 0 || state.isMarkdownFile {
+            if lineDelta != 0 || lineWrappingEnabled || state.isMarkdownFile {
                 updateContainerHeight()
                 updateViewportFrames(
                     viewport: viewport,
@@ -1464,6 +1470,7 @@ struct CodeEditorView: NSViewRepresentable {
                     yOffset: viewport.viewportYOffset(),
                     visibleLineCount: max(1, viewport.viewportLineCount)
                 )
+                notifyGeometryDidChange()
             }
 
             publishMarkdownProgressIfEditorAutoScrolled {
@@ -1703,6 +1710,13 @@ struct CodeEditorView: NSViewRepresentable {
             guard let context = makeRenderContext() else { return }
             for ext in extensions {
                 ext.selectionDidChange(context: context)
+            }
+        }
+
+        private func notifyGeometryDidChange() {
+            guard let context = makeRenderContext() else { return }
+            for ext in extensions {
+                ext.geometryDidChange(context: context)
             }
         }
 
