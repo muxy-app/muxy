@@ -301,9 +301,9 @@ struct PullRequestsAutoSyncMenu: View {
             }
         } label: {
             Image(systemName: state.pullRequestAutoSyncMinutes > 0 ? "clock.fill" : "clock")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(state.pullRequestAutoSyncMinutes > 0 ? MuxyTheme.accent : MuxyTheme.fgMuted)
-                .frame(width: 18, height: 18)
+                .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -104,38 +104,42 @@ struct VCSTabView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 6) {
-            worktreeBranchPicker
+        HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                worktreeBranchPicker
 
-            PRPill(
-                state: state,
-                onRequestCreate: { requestOpenPR() },
-                onRequestMerge: { prInfo, method in performMerge(prInfo: prInfo, method: method) },
-                onRequestClose: { prInfo in pendingClosePR = prInfo }
-            )
+                PRPill(
+                    state: state,
+                    onRequestCreate: { requestOpenPR() },
+                    onRequestMerge: { prInfo, method in performMerge(prInfo: prInfo, method: method) },
+                    onRequestClose: { prInfo in pendingClosePR = prInfo }
+                )
+            }
+            .padding(.leading, 8)
 
             Spacer(minLength: 0)
 
-            if let url = state.remoteWebURL {
-                IconButton(symbol: "globe", accessibilityLabel: "Open Repository on Web") {
-                    NSWorkspace.shared.open(url)
+            ToolbarIconStrip {
+                if let url = state.remoteWebURL {
+                    IconButton(symbol: "globe", accessibilityLabel: "Open Repository on Web") {
+                        NSWorkspace.shared.open(url)
+                    }
+                    .help("Open repository on web")
                 }
-                .help("Open repository on web")
-            }
 
-            VCSSectionVisibilityMenu(state: state)
+                VCSSectionVisibilityMenu(state: state)
 
-            if state.isRefreshingPullRequest {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 24, height: 24)
-            } else {
-                IconButton(symbol: "arrow.clockwise", accessibilityLabel: "Refresh") {
-                    state.refresh()
+                if state.isRefreshingPullRequest {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 24, height: 24)
+                } else {
+                    IconButton(symbol: "arrow.clockwise", accessibilityLabel: "Refresh") {
+                        state.refresh()
+                    }
                 }
             }
         }
-        .padding(.horizontal, 8)
         .frame(height: 32)
         .background(MuxyTheme.bg)
         .sheet(isPresented: $showCreateWorktreeSheet) {
@@ -1389,35 +1393,39 @@ private struct SectionSplitLayout: View {
     private func sectionHeader(for section: SectionKind, collapsed: Bool) -> some View {
         let isCollapsedState = collapsed
 
-        return HStack(spacing: 6) {
-            Button {
-                toggleCollapsed(section)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isCollapsedState ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(MuxyTheme.fgDim)
-                        .frame(width: 10)
+        return HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Button {
+                    toggleCollapsed(section)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: isCollapsedState ? "chevron.right" : "chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(MuxyTheme.fgDim)
+                            .frame(width: 10)
 
-                    Text(section.title)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(MuxyTheme.fgMuted)
+                        Text(section.title)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(MuxyTheme.fgMuted)
+                    }
                 }
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
 
-            Text("\(sectionCount(for: section))")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(MuxyTheme.bg)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(MuxyTheme.fgMuted, in: Capsule())
+                Text("\(sectionCount(for: section))")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(MuxyTheme.bg)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(MuxyTheme.fgMuted, in: Capsule())
+            }
+            .padding(.leading, 8)
 
             Spacer(minLength: 0)
 
-            sectionActions(for: section)
+            ToolbarIconStrip {
+                sectionActions(for: section)
+            }
         }
-        .padding(.horizontal, 10)
         .frame(height: Self.sectionHeaderHeight)
         .background(MuxyTheme.bg)
     }
@@ -1438,7 +1446,7 @@ private struct SectionSplitLayout: View {
             fileListModeToggle
             diffModeToggle
             expandCollapseButton(for: state.stagedFiles)
-            IconButton(symbol: "minus", size: 11, accessibilityLabel: "Unstage All") {
+            IconButton(symbol: "minus", accessibilityLabel: "Unstage All") {
                 state.unstageAll()
             }
             .help("Unstage all")
@@ -1447,18 +1455,18 @@ private struct SectionSplitLayout: View {
             fileListModeToggle
             diffModeToggle
             expandCollapseButton(for: state.unstagedFiles)
-            IconButton(symbol: "plus", size: 11, accessibilityLabel: "Stage All") {
+            IconButton(symbol: "plus", accessibilityLabel: "Stage All") {
                 state.stageAll()
             }
             .help("Stage all")
 
-            IconButton(symbol: "arrow.uturn.backward", size: 11, accessibilityLabel: "Discard All Changes") {
+            IconButton(symbol: "arrow.uturn.backward", accessibilityLabel: "Discard All Changes") {
                 showDiscardAllConfirmation = true
             }
             .help("Discard all changes")
 
         case .history:
-            IconButton(symbol: "arrow.clockwise", size: 11, accessibilityLabel: "Refresh History") {
+            IconButton(symbol: "arrow.clockwise", accessibilityLabel: "Refresh History") {
                 state.loadCommits()
             }
             .help("Refresh history")
@@ -1468,7 +1476,7 @@ private struct SectionSplitLayout: View {
             if state.isLoadingPullRequests {
                 ProgressView().controlSize(.mini)
             } else {
-                IconButton(symbol: "arrow.clockwise", size: 11, accessibilityLabel: "Sync Pull Requests") {
+                IconButton(symbol: "arrow.clockwise", accessibilityLabel: "Sync Pull Requests") {
                     state.loadPullRequests()
                 }
                 .help("Sync pull requests")
@@ -1481,9 +1489,9 @@ private struct SectionSplitLayout: View {
             state.mode = state.mode == .unified ? .split : .unified
         } label: {
             Image(systemName: state.mode == .unified ? "rectangle.split.2x1" : "rectangle")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: 18, height: 18)
+                .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1495,9 +1503,9 @@ private struct SectionSplitLayout: View {
             state.fileListMode = state.fileListMode == .flat ? .folders : .flat
         } label: {
             Image(systemName: state.fileListMode == .flat ? "folder" : "list.bullet")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: 18, height: 18)
+                .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1511,9 +1519,9 @@ private struct SectionSplitLayout: View {
             state.setExpanded(files: files, expanded: !anyExpanded)
         } label: {
             Image(systemName: anyExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: 18, height: 18)
+                .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -29,6 +29,10 @@ final class GhosttyTerminalNSView: NSView {
 
     var processExitHandled = false
 
+    private var isPaneVisible = true
+    private var isWindowVisible = true
+    nonisolated(unsafe) private var occlusionObserver: NSObjectProtocol?
+
     var closesOnCommandExit: Bool {
         command != nil
     }
@@ -150,6 +154,8 @@ final class GhosttyTerminalNSView: NSView {
         if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
             RemoteTerminalStreamer.shared.attach(paneID: paneID, surface: surface)
         }
+
+        applyOcclusionState()
     }
 
     func destroySurface() {
@@ -180,6 +186,10 @@ final class GhosttyTerminalNSView: NSView {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil
         }
+        if let observer = occlusionObserver {
+            NotificationCenter.default.removeObserver(observer)
+            occlusionObserver = nil
+        }
         delayedResizeWorkItem?.cancel()
         delayedResizeWorkItem = nil
         destroySurface()
@@ -188,6 +198,7 @@ final class GhosttyTerminalNSView: NSView {
 
     deinit {
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
+        occlusionObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         delayedResizeWorkItem?.cancel()
         if let surface {
             ghostty_surface_free(surface)
@@ -202,6 +213,8 @@ final class GhosttyTerminalNSView: NSView {
 
         screenChangeObserver.flatMap { NotificationCenter.default.removeObserver($0) }
         screenChangeObserver = nil
+        occlusionObserver.flatMap { NotificationCenter.default.removeObserver($0) }
+        occlusionObserver = nil
         delayedResizeWorkItem?.cancel()
         delayedResizeWorkItem = nil
 
@@ -221,6 +234,17 @@ final class GhosttyTerminalNSView: NSView {
             }
         }
 
+        occlusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateWindowVisibility()
+            }
+        }
+
+        updateWindowVisibility()
         updateMetalLayerSize(deferred: true)
     }
 
@@ -235,6 +259,24 @@ final class GhosttyTerminalNSView: NSView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         updateMetalLayerSize(deferred: true)
+    }
+
+    func setVisible(_ visible: Bool) {
+        guard isPaneVisible != visible else { return }
+        isPaneVisible = visible
+        applyOcclusionState()
+    }
+
+    private func applyOcclusionState() {
+        guard let surface else { return }
+        ghostty_surface_set_occlusion(surface, isPaneVisible && isWindowVisible)
+    }
+
+    private func updateWindowVisibility() {
+        let visible = window?.occlusionState.contains(.visible) ?? true
+        guard isWindowVisible != visible else { return }
+        isWindowVisible = visible
+        applyOcclusionState()
     }
 
     func applyColorScheme(isDark: Bool) {
