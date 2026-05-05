@@ -224,17 +224,13 @@ struct MainWindow: View {
         }
         .overlay {
             if showWorktreeSwitcher {
-                WorktreeSwitcherOverlay(
-                    items: worktreeSwitcherItems,
-                    activeKey: activeWorktreeKey,
+                OpenerOverlay(
+                    items: openerItems,
+                    recents: openerRecentItems,
+                    activeWorktreeKey: activeWorktreeKey,
                     onSelect: { item in
                         showWorktreeSwitcher = false
-                        guard let project = projectStore.projects.first(where: { $0.id == item.projectID }) else { return }
-                        if appState.activeProjectID == item.projectID {
-                            appState.selectWorktree(projectID: item.projectID, worktree: item.worktree)
-                        } else {
-                            appState.selectProject(project, worktree: item.worktree)
-                        }
+                        handleOpenerSelection(item)
                     },
                     onDismiss: { showWorktreeSwitcher = false }
                 )
@@ -474,15 +470,106 @@ struct MainWindow: View {
         }
     }
 
-    private var worktreeSwitcherItems: [WorktreeSwitcherItem] {
-        projectStore.projects.flatMap { project in
-            worktreeStore.list(for: project.id).map { worktree in
-                WorktreeSwitcherItem(
+    private var openerItems: [OpenerItem] {
+        var items: [OpenerItem] = []
+
+        for project in projectStore.projects {
+            items.append(.project(.init(
+                projectID: project.id,
+                projectName: project.name
+            )))
+        }
+
+        for project in projectStore.projects {
+            for worktree in worktreeStore.list(for: project.id) {
+                items.append(.worktree(.init(
                     projectID: project.id,
                     projectName: project.name,
-                    worktree: worktree
-                )
+                    worktreeID: worktree.id,
+                    worktreeName: worktree.isPrimary && worktree.name.isEmpty ? "main" : worktree.name,
+                    branch: worktree.branch,
+                    isPrimary: worktree.isPrimary
+                )))
             }
+        }
+
+        if let active = activeProject {
+            for descriptor in appState.availableLayouts(for: active.id) {
+                items.append(.layout(.init(
+                    projectID: active.id,
+                    projectName: active.name,
+                    layoutName: descriptor.name
+                )))
+            }
+
+            let worktrees = worktreeStore.list(for: active.id)
+            for branch in BranchCache.shared.branches(for: active.path) {
+                let matching = worktrees.first { $0.branch == branch }
+                items.append(.branch(.init(
+                    projectID: active.id,
+                    projectName: active.name,
+                    branch: branch,
+                    matchingWorktreeID: matching?.id
+                )))
+            }
+
+            for area in appState.allAreas(for: active.id) {
+                for tab in area.tabs {
+                    items.append(.openTab(.init(
+                        projectID: active.id,
+                        projectName: active.name,
+                        areaID: area.id,
+                        tabID: tab.id,
+                        title: tab.title,
+                        kind: tab.kind.rawValue
+                    )))
+                }
+            }
+        }
+
+        return items
+    }
+
+    private var openerRecentItems: [OpenerItem] {
+        let allByID = Dictionary(uniqueKeysWithValues: openerItems.map { ($0.id, $0) })
+        return OpenerPreferences.recents.compactMap { allByID[$0.key] }
+    }
+
+    private func handleOpenerSelection(_ item: OpenerItem) {
+        OpenerPreferences.remember(.init(key: item.id, category: item.category))
+        switch item {
+        case let .project(project):
+            guard let target = projectStore.projects.first(where: { $0.id == project.projectID }) else { return }
+            let worktree = worktreeStore.preferred(for: target.id, matching: appState.activeWorktreeID[target.id])
+            if let worktree {
+                appState.selectProject(target, worktree: worktree)
+            }
+        case let .worktree(wt):
+            guard let target = projectStore.projects.first(where: { $0.id == wt.projectID }),
+                  let worktree = worktreeStore.list(for: wt.projectID).first(where: { $0.id == wt.worktreeID })
+            else { return }
+            if appState.activeProjectID == wt.projectID {
+                appState.selectWorktree(projectID: wt.projectID, worktree: worktree)
+            } else {
+                appState.selectProject(target, worktree: worktree)
+            }
+        case let .layout(layout):
+            appState.requestApplyLayout(projectID: layout.projectID, layoutName: layout.layoutName)
+        case let .branch(br):
+            if let worktreeID = br.matchingWorktreeID,
+               let worktree = worktreeStore.list(for: br.projectID).first(where: { $0.id == worktreeID }),
+               let project = projectStore.projects.first(where: { $0.id == br.projectID })
+            {
+                if appState.activeProjectID == br.projectID {
+                    appState.selectWorktree(projectID: br.projectID, worktree: worktree)
+                } else {
+                    appState.selectProject(project, worktree: worktree)
+                }
+            } else {
+                ToastState.shared.show("No worktree for '\(br.branch)'")
+            }
+        case let .openTab(tab):
+            appState.dispatch(.selectTab(projectID: tab.projectID, areaID: tab.areaID, tabID: tab.tabID))
         }
     }
 

@@ -118,24 +118,36 @@ struct FileTreeView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 0) {
             Text((state.rootPath as NSString).lastPathComponent)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
                 .lineLimit(1)
                 .truncationMode(.head)
+                .padding(.leading, 10)
             Spacer(minLength: 0)
-            IconButton(
-                symbol: state.showOnlyChanges ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
-                color: state.showOnlyChanges ? MuxyTheme.accent : MuxyTheme.fgMuted,
-                hoverColor: state.showOnlyChanges ? MuxyTheme.accent : MuxyTheme.fg,
-                accessibilityLabel: "Show Only Changes"
-            ) {
-                state.showOnlyChanges.toggle()
+            HStack(spacing: 0) {
+                IconButton(
+                    symbol: "arrow.clockwise",
+                    color: MuxyTheme.fgMuted,
+                    hoverColor: MuxyTheme.fg,
+                    accessibilityLabel: "Refresh"
+                ) {
+                    state.refresh()
+                }
+                .help("Refresh")
+                IconButton(
+                    symbol: state.showOnlyChanges ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
+                    color: state.showOnlyChanges ? MuxyTheme.accent : MuxyTheme.fgMuted,
+                    hoverColor: state.showOnlyChanges ? MuxyTheme.accent : MuxyTheme.fg,
+                    accessibilityLabel: "Show Only Changes"
+                ) {
+                    state.showOnlyChanges.toggle()
+                }
+                .help(state.showOnlyChanges ? "Show All Files" : "Show Only Changed Files")
             }
-            .help(state.showOnlyChanges ? "Show All Files" : "Show Only Changed Files")
+            .padding(.trailing, 4)
         }
-        .padding(.horizontal, 10)
         .frame(height: 32)
         .contextMenu {
             FileTreeContextMenuContents(
@@ -414,8 +426,7 @@ private struct FileTreeRow: View {
         case .added,
              .untracked:
             return MuxyTheme.diffAddFg
-        case .deleted,
-             .conflict:
+        case .conflict:
             return MuxyTheme.diffRemoveFg
         }
     }
@@ -434,7 +445,7 @@ private struct FileTreeRow: View {
         state.selectOnly(entry.absolutePath)
         if entry.isDirectory {
             state.toggle(entry)
-        } else if state.status(for: entry.absolutePath) != .deleted {
+        } else {
             onOpenFile(entry.absolutePath)
         }
     }
