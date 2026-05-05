@@ -126,7 +126,7 @@ struct FileTreeView: View {
                 .truncationMode(.head)
                 .padding(.leading, 10)
             Spacer(minLength: 0)
-            HStack(spacing: 0) {
+            ToolbarIconStrip {
                 IconButton(
                     symbol: "arrow.clockwise",
                     color: MuxyTheme.fgMuted,
@@ -146,7 +146,6 @@ struct FileTreeView: View {
                 }
                 .help(state.showOnlyChanges ? "Show All Files" : "Show Only Changed Files")
             }
-            .padding(.trailing, 4)
         }
         .frame(height: 32)
         .contextMenu {
