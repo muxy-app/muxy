@@ -238,9 +238,9 @@ struct MainWindow: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
         }
-        .animation(.easeInOut(duration: overlayAnimationDuration), value: showQuickOpen)
-        .animation(.easeInOut(duration: overlayAnimationDuration), value: showFindInFiles)
-        .animation(.easeInOut(duration: overlayAnimationDuration), value: showWorktreeSwitcher)
+        .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
+        .animation(.easeInOut(duration: 0.15), value: showFindInFiles)
+        .animation(.easeInOut(duration: 0.15), value: showWorktreeSwitcher)
         .modifier(OverlayExitTracker(
             showQuickOpen: showQuickOpen,
             showFindInFiles: showFindInFiles,
@@ -1181,8 +1181,6 @@ private struct WindowOpenReceiver: View {
     }
 }
 
-private let overlayAnimationDuration = 0.15
-
 private struct OverlayExitTracker: ViewModifier {
     let showQuickOpen: Bool
     let showFindInFiles: Bool
@@ -1199,7 +1197,7 @@ private struct OverlayExitTracker: ViewModifier {
     private func trackExit(_ visible: Bool) {
         guard !visible else { return }
         onAnimatingOut(true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + overlayAnimationDuration) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             onAnimatingOut(false)
         }
     }
