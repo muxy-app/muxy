@@ -21,6 +21,7 @@ struct TerminalPane: View {
             TerminalBridge(
                 state: state,
                 focused: focused,
+                visible: visible,
                 areaID: areaID,
                 onFocus: onFocus,
                 onProcessExit: onProcessExit,
@@ -111,6 +112,7 @@ struct RemoteControlledPlaceholder: View {
 struct TerminalBridge: NSViewRepresentable {
     let state: TerminalPaneState
     let focused: Bool
+    let visible: Bool
     let areaID: UUID
     let onFocus: () -> Void
     let onProcessExit: () -> Void
@@ -140,6 +142,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
         view.isFocused = focused
         view.overlayActive = overlayActive
+        view.setVisible(visible)
         view.onFocus = onFocus
         view.onProcessExit = onProcessExit
         view.onSplitRequest = onSplitRequest
@@ -176,6 +179,7 @@ struct TerminalBridge: NSViewRepresentable {
             nsView.envVars = Self.buildEnvVars(paneID: state.id, worktreeKey: key)
         }
         nsView.overlayActive = overlayActive
+        nsView.setVisible(visible)
         nsView.onFocus = onFocus
         nsView.onProcessExit = onProcessExit
         nsView.onSplitRequest = onSplitRequest

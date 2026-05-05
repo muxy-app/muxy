@@ -81,7 +81,7 @@ struct TabAreaView: View {
                     TabContentView(
                         tab: tab,
                         focused: isActive && isFocused && isActiveProject,
-                        visible: isActive,
+                        visible: isActive && isActiveProject,
                         areaID: area.id,
                         onFocus: onFocus,
                         onProcessExit: { onForceCloseTab(tab.id) },
