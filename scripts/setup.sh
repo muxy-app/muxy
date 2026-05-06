@@ -10,6 +10,15 @@ TERMINFO_DIR="$PROJECT_ROOT/Muxy/Resources/terminfo"
 RIPGREP_VERSION="15.1.0"
 RIPGREP_BINARY="$PROJECT_ROOT/Muxy/Resources/rg"
 
+LOCAL_XCFRAMEWORK_TAR="${1:-}"
+if [[ -n "$LOCAL_XCFRAMEWORK_TAR" ]]; then
+    if [[ ! -f "$LOCAL_XCFRAMEWORK_TAR" ]]; then
+        echo "Error: local xcframework tar not found: $LOCAL_XCFRAMEWORK_TAR"
+        exit 1
+    fi
+    LOCAL_XCFRAMEWORK_TAR="$(cd "$(dirname "$LOCAL_XCFRAMEWORK_TAR")" && pwd)/$(basename "$LOCAL_XCFRAMEWORK_TAR")"
+fi
+
 fetch_ripgrep() {
     if [[ -x "$RIPGREP_BINARY" ]]; then
         return 0
@@ -48,29 +57,47 @@ if [[ -d "$XCFRAMEWORK_DIR" && -d "$RESOURCES_DIR/shell-integration" && -d "$TER
     exit 0
 fi
 
-echo "==> Fetching latest GhosttyKit release from $FORK_REPO"
-LATEST_TAG=$(gh release list --repo "$FORK_REPO" --limit 1 --json tagName -q '.[0].tagName')
-if [[ -z "$LATEST_TAG" ]]; then
-    echo "Error: No releases found on $FORK_REPO"
-    exit 1
-fi
-echo "    Tag: $LATEST_TAG"
-
 cd "$PROJECT_ROOT"
 
+NEEDS_XCFRAMEWORK_DOWNLOAD=false
+if [[ ! -d "$XCFRAMEWORK_DIR" && -z "$LOCAL_XCFRAMEWORK_TAR" ]]; then
+    NEEDS_XCFRAMEWORK_DOWNLOAD=true
+fi
+
+NEEDS_RESOURCES_DOWNLOAD=false
+if [[ ! -d "$RESOURCES_DIR/shell-integration" || ! -d "$TERMINFO_DIR" ]]; then
+    NEEDS_RESOURCES_DOWNLOAD=true
+fi
+
+LATEST_TAG=""
+if [[ "$NEEDS_XCFRAMEWORK_DOWNLOAD" == "true" || "$NEEDS_RESOURCES_DOWNLOAD" == "true" ]]; then
+    echo "==> Fetching latest GhosttyKit release from $FORK_REPO"
+    LATEST_TAG=$(gh release list --repo "$FORK_REPO" --limit 1 --json tagName -q '.[0].tagName')
+    if [[ -z "$LATEST_TAG" ]]; then
+        echo "Error: No releases found on $FORK_REPO"
+        exit 1
+    fi
+    echo "    Tag: $LATEST_TAG"
+fi
+
 if [[ ! -d "$XCFRAMEWORK_DIR" ]]; then
-    echo "==> Downloading GhosttyKit.xcframework"
-    gh release download "$LATEST_TAG" \
-        --pattern "GhosttyKit.xcframework.tar.gz" \
-        --repo "$FORK_REPO"
-    tar xzf GhosttyKit.xcframework.tar.gz
-    rm GhosttyKit.xcframework.tar.gz
+    if [[ -n "$LOCAL_XCFRAMEWORK_TAR" ]]; then
+        echo "==> Extracting GhosttyKit.xcframework from $LOCAL_XCFRAMEWORK_TAR"
+        tar xzf "$LOCAL_XCFRAMEWORK_TAR"
+    else
+        echo "==> Downloading GhosttyKit.xcframework"
+        gh release download "$LATEST_TAG" \
+            --pattern "GhosttyKit.xcframework.tar.gz" \
+            --repo "$FORK_REPO"
+        tar xzf GhosttyKit.xcframework.tar.gz
+        rm GhosttyKit.xcframework.tar.gz
+    fi
 
     echo "==> Syncing ghostty.h from xcframework"
     cp "$XCFRAMEWORK_DIR/macos-arm64_x86_64/Headers/ghostty.h" "$PROJECT_ROOT/GhosttyKit/ghostty.h"
 fi
 
-if [[ ! -d "$RESOURCES_DIR/shell-integration" || ! -d "$TERMINFO_DIR" ]]; then
+if [[ "$NEEDS_RESOURCES_DOWNLOAD" == "true" ]]; then
     echo "==> Downloading GhosttyKit runtime resources"
     gh release download "$LATEST_TAG" \
         --pattern "GhosttyKit-resources.tar.gz" \
