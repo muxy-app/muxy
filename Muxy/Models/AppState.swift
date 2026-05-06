@@ -607,6 +607,17 @@ final class AppState {
             onProjectsEmptied?(effects.projectIDsToRemove)
         }
 
+        for collapse in effects.deferredAreaCollapses {
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      let root = self.workspaceRoots[collapse.key],
+                      let area = root.findArea(id: collapse.areaID),
+                      area.tabs.isEmpty
+                else { return }
+                self.dispatch(.closeArea(projectID: collapse.key.projectID, areaID: collapse.areaID))
+            }
+        }
+
         pruneNavigationHistory()
         recordCurrentNavigationEntry()
 

@@ -51,7 +51,7 @@ enum SplitReducer {
             FocusReducer.focusArea(destinationAreaID, key: key, state: &state)
 
             guard sourceArea.tabs.isEmpty else { return }
-            collapseEmptyArea(sourceAreaID, key: key, state: &state, effects: &effects)
+            effects.deferredAreaCollapses.append((key: key, areaID: sourceAreaID))
 
         case let .toNewSplit(tabID, sourceAreaID, targetAreaID, split):
             guard let root = state.workspaceRoots[key],

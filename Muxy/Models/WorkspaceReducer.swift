@@ -14,6 +14,7 @@ struct WorkspaceState {
 struct WorkspaceSideEffects {
     var paneIDsToRemove: [UUID] = []
     var projectIDsToRemove: [UUID] = []
+    var deferredAreaCollapses: [(key: WorktreeKey, areaID: UUID)] = []
 }
 
 @MainActor
