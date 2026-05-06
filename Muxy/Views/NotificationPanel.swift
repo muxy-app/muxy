@@ -149,7 +149,7 @@ private struct NotificationRow: View {
         HStack(alignment: .top, spacing: UIMetrics.spacing4) {
             Circle()
                 .fill(item.isRead ? Color.clear : MuxyTheme.accent)
-                .frame(width: UIMetrics.spacing3, height: UIMetrics.spacing3)
+                .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
                 .padding(.top, UIMetrics.scaled(5))
 
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {

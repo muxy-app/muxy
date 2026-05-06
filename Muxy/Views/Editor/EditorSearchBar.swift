@@ -164,7 +164,7 @@ private struct EditorSearchButtonStyle: ButtonStyle {
             .contentShape(Rectangle())
             .foregroundStyle(MuxyTheme.fgMuted)
             .background(configuration.isPressed ? MuxyTheme.surface : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.spacing2))
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
     }
 }
 
@@ -179,10 +179,10 @@ private struct EditorSearchTextButtonStyle: ButtonStyle {
             .frame(height: UIMetrics.scaled(22))
             .background(configuration.isPressed ? MuxyTheme.surface : MuxyTheme.bg)
             .overlay(
-                RoundedRectangle(cornerRadius: UIMetrics.spacing2)
+                RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                     .strokeBorder(MuxyTheme.border, lineWidth: 1)
             )
-            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.spacing2))
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
     }
 }
 
@@ -200,7 +200,7 @@ private struct EditorSearchOptionToggle: View {
                 .foregroundStyle(isOn ? MuxyTheme.fg : MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.controlSmall, height: UIMetrics.scaled(18))
                 .background(isOn ? MuxyTheme.border : .clear)
-                .clipShape(RoundedRectangle(cornerRadius: UIMetrics.spacing2))
+                .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
         }
         .buttonStyle(.plain)
         .help(help)

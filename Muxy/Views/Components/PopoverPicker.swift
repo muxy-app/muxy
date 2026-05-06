@@ -103,7 +103,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
                     .opacity(isBusy ? 1 : 0)
             }
             .foregroundStyle(MuxyTheme.fg)
-            .padding(.horizontal, UIMetrics.fontHeadline)
+            .padding(.horizontal, UIMetrics.scaled(14))
             .padding(.vertical, UIMetrics.spacing5)
             .contentShape(Rectangle())
         }

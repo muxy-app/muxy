@@ -14,7 +14,7 @@ struct DiffBodyView: View {
             if isLoading, diff == nil {
                 ProgressView()
                     .frame(maxWidth: .infinity)
-                    .padding(UIMetrics.fontHeadline)
+                    .padding(UIMetrics.scaled(14))
             } else if let error {
                 Text(error)
                     .font(.system(size: UIMetrics.fontBody))

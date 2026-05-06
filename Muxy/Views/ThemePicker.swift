@@ -95,7 +95,7 @@ private struct ThemeRow: View {
                     Rectangle().fill(Color(nsColor: color))
                 }
             }
-            .frame(height: UIMetrics.iconMD)
+            .frame(height: UIMetrics.scaled(14))
             .clipShape(RoundedRectangle(cornerRadius: UIMetrics.scaled(3)))
             .overlay(
                 RoundedRectangle(cornerRadius: UIMetrics.scaled(3))

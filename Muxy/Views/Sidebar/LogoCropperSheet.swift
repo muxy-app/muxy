@@ -92,10 +92,10 @@ struct LogoCropperSheet: View {
         ZStack {
             RoundedRectangle(cornerRadius: UIMetrics.radiusLG)
                 .fill(MuxyTheme.surface)
-                .frame(width: UIMetrics.spacing10, height: UIMetrics.spacing10)
+                .frame(width: UIMetrics.scaled(32), height: UIMetrics.scaled(32))
 
             croppedPreview
-                .frame(width: UIMetrics.spacing10, height: UIMetrics.spacing10)
+                .frame(width: UIMetrics.scaled(32), height: UIMetrics.scaled(32))
                 .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
         }
     }

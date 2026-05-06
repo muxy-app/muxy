@@ -359,7 +359,7 @@ private struct EditorMarkdownModePicker: View {
                         .foregroundStyle(scrollSyncEnabled ? MuxyTheme.accent : MuxyTheme.fg)
                         .frame(width: UIMetrics.scaled(22), height: UIMetrics.controlSmall)
                         .background(
-                            RoundedRectangle(cornerRadius: UIMetrics.spacing2)
+                            RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                                 .fill(scrollSyncEnabled ? MuxyTheme.surface : Color.clear)
                         )
                         .contentShape(Rectangle())
@@ -370,7 +370,7 @@ private struct EditorMarkdownModePicker: View {
 
                 Rectangle()
                     .fill(MuxyTheme.border)
-                    .frame(width: 1, height: UIMetrics.iconMD)
+                    .frame(width: 1, height: UIMetrics.scaled(14))
                     .padding(.horizontal, UIMetrics.spacing1)
             }
             ForEach(EditorMarkdownViewMode.allCases, id: \.self) { candidate in
@@ -381,7 +381,7 @@ private struct EditorMarkdownModePicker: View {
                         .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                         .frame(width: UIMetrics.scaled(22), height: UIMetrics.controlSmall)
                         .background(
-                            RoundedRectangle(cornerRadius: UIMetrics.spacing2)
+                            RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                                 .fill(mode == candidate ? MuxyTheme.surface : Color.clear)
                         )
                         .contentShape(Rectangle())
@@ -436,7 +436,7 @@ private struct EditorBreadcrumb: View {
             if state.isModified {
                 Circle()
                     .fill(MuxyTheme.fg)
-                    .frame(width: UIMetrics.spacing3, height: UIMetrics.spacing3)
+                    .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
             }
             if state.isReadOnly {
                 Label("Read-only", systemImage: "lock.fill")

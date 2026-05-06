@@ -8,7 +8,7 @@ The Settings window is intentionally excluded so it stays at the system-native p
 
 - **`Muxy/Theme/UIScale.swift`** — `@Observable @MainActor` singleton that stores the user's scale preset and persists to `~/Library/Application Support/Muxy/ui-scale.json`. Exposes `multiplier: CGFloat` derived from the preset.
 - **`Muxy/Theme/UIMetrics.swift`** — semantic design tokens (font sizes, spacings, icon sizes, control heights, radii, sidebar widths). Each token reads `UIScale.shared.multiplier` so SwiftUI's `@Observable` tracking re-renders dependent views automatically when the multiplier changes.
-- **Settings UI** — `AppearanceSettingsView` exposes a segmented picker under "Interface" → "Size" with four presets: `small (0.90×)`, `regular (1.00×)`, `large (1.12×)`, `extraLarge (1.24×)`.
+- **Settings UI** — `AppearanceSettingsView` exposes a segmented picker under "Interface" → "Size" with three presets: `regular (1.00×)`, `large (1.12×)`, `extraLarge (1.24×)`.
 
 ## Usage convention
 

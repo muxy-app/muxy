@@ -171,7 +171,7 @@ struct ProjectRow: View {
             } else if hasCompletion {
                 Circle()
                     .fill(MuxyTheme.accent)
-                    .frame(width: UIMetrics.spacing4, height: UIMetrics.spacing4)
+                    .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
                     .offset(x: UIMetrics.spacing1, y: -UIMetrics.spacing1)
             }
         }

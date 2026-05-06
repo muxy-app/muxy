@@ -201,7 +201,7 @@ private struct CommitRow: View {
         Circle()
             .fill(commit.isMerge ? .clear : dotColor)
             .stroke(dotColor, lineWidth: commit.isMerge ? 1.5 : 0)
-            .frame(width: UIMetrics.spacing4, height: UIMetrics.spacing4)
+            .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
     }
 
     private var refBadges: some View {

@@ -181,7 +181,7 @@ struct MainWindow: View {
                         .font(.system(size: UIMetrics.fontBody, weight: .medium))
                         .foregroundStyle(MuxyTheme.fg)
                 }
-                .padding(.horizontal, UIMetrics.fontHeadline)
+                .padding(.horizontal, UIMetrics.scaled(14))
                 .padding(.vertical, UIMetrics.spacing4)
                 .background(MuxyTheme.bg, in: Capsule())
                 .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))

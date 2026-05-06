@@ -232,7 +232,7 @@ private struct WorktreePopoverRow: View {
                 .fill(selected ? MuxyTheme.accent : MuxyTheme.fgDim.opacity(0.35))
                 .frame(width: UIMetrics.scaled(7), height: UIMetrics.scaled(7))
         }
-        .frame(width: UIMetrics.spacing5)
+        .frame(width: UIMetrics.scaled(10))
     }
 
     private var rowBackground: AnyShapeStyle {

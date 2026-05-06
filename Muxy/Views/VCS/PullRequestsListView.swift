@@ -36,8 +36,8 @@ struct PullRequestsListView: View {
             }
             .padding(.horizontal, UIMetrics.spacing3)
             .frame(height: UIMetrics.scaled(22))
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.spacing2))
-            .overlay(RoundedRectangle(cornerRadius: UIMetrics.spacing2).stroke(MuxyTheme.border, lineWidth: 1))
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
 
             Menu {
                 ForEach([
@@ -66,8 +66,8 @@ struct PullRequestsListView: View {
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .padding(.horizontal, UIMetrics.spacing3)
                 .frame(height: UIMetrics.scaled(22))
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.spacing2))
-                .overlay(RoundedRectangle(cornerRadius: UIMetrics.spacing2).stroke(MuxyTheme.border, lineWidth: 1))
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -267,8 +267,8 @@ struct PullRequestRow: View {
             .foregroundStyle(MuxyTheme.fg)
             .padding(.horizontal, UIMetrics.spacing4)
             .frame(height: UIMetrics.scaled(22))
-            .background(MuxyTheme.bg, in: RoundedRectangle(cornerRadius: UIMetrics.spacing2))
-            .overlay(RoundedRectangle(cornerRadius: UIMetrics.spacing2).stroke(MuxyTheme.border, lineWidth: 1))
+            .background(MuxyTheme.bg, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(isCheckingOut)

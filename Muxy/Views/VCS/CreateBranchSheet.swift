@@ -17,7 +17,7 @@ struct CreateBranchSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: UIMetrics.fontHeadline) {
+        VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
             Text("New Branch")
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
 

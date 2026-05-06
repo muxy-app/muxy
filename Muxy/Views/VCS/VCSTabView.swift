@@ -1402,7 +1402,7 @@ private struct SectionSplitLayout: View {
                         Image(systemName: isCollapsedState ? "chevron.right" : "chevron.down")
                             .font(.system(size: UIMetrics.fontXS, weight: .bold))
                             .foregroundStyle(MuxyTheme.fgDim)
-                            .frame(width: UIMetrics.spacing5)
+                            .frame(width: UIMetrics.scaled(10))
 
                         Text(section.title)
                             .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
@@ -1690,7 +1690,7 @@ private struct FileRow: View {
 
             FileDiffIcon()
                 .stroke(statusColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
+                .frame(width: UIMetrics.scaled(11), height: UIMetrics.scaled(11))
 
             Text(displayPath)
                 .font(.system(size: UIMetrics.fontBody, weight: .medium))
@@ -1765,7 +1765,7 @@ private struct FolderRow: View {
             Image(systemName: "folder")
                 .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
+                .frame(width: UIMetrics.scaled(11), height: UIMetrics.scaled(11))
 
             Text(name)
                 .font(.system(size: UIMetrics.fontBody, weight: .medium))

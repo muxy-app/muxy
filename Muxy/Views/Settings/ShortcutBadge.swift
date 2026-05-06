@@ -14,8 +14,8 @@ struct ShortcutBadge: View {
             .overlay(Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 0.5))
             .shadow(
                 color: .black.opacity(0.25),
-                radius: compact ? UIMetrics.scaled(2) : UIMetrics.spacing2,
-                y: compact ? UIMetrics.scaled(1) : UIMetrics.scaled(2)
+                radius: UIMetrics.scaled(compact ? 2 : 4),
+                y: UIMetrics.scaled(compact ? 1 : 2)
             )
             .accessibilityLabel("Keyboard shortcut: \(label)")
     }

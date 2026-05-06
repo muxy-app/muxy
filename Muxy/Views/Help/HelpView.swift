@@ -124,7 +124,7 @@ private struct HelpQuickStart: View {
                                     .foregroundStyle(MuxyTheme.fgMuted)
                                     .padding(.horizontal, UIMetrics.spacing3)
                                     .padding(.vertical, UIMetrics.spacing1)
-                                    .background(MuxyTheme.fgMuted.opacity(0.12), in: RoundedRectangle(cornerRadius: UIMetrics.spacing2))
+                                    .background(MuxyTheme.fgMuted.opacity(0.12), in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
                             }
                         }
                         Text(step.detail)
@@ -173,7 +173,7 @@ private struct HelpShortcutsView: View {
                                     .foregroundStyle(MuxyTheme.fgMuted)
                                     .padding(.horizontal, UIMetrics.spacing3)
                                     .padding(.vertical, UIMetrics.spacing1)
-                                    .background(MuxyTheme.fgMuted.opacity(0.12), in: RoundedRectangle(cornerRadius: UIMetrics.spacing2))
+                                    .background(MuxyTheme.fgMuted.opacity(0.12), in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
                             }
                             .padding(.vertical, UIMetrics.scaled(3))
                         }
@@ -306,7 +306,7 @@ private struct HelpFeaturesView: View {
 private struct HelpLinksView: View {
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: UIMetrics.fontHeadline) {
+            VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
                 Text("Links")
                     .font(.system(size: UIMetrics.scaled(22), weight: .bold))
                     .foregroundStyle(MuxyTheme.fg)

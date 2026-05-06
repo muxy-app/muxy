@@ -353,7 +353,7 @@ struct AIUsageMetricRowView: View {
                 if paceDetailText != nil {
                     Circle()
                         .fill(paceIndicatorColor)
-                        .frame(width: UIMetrics.spacing3, height: UIMetrics.spacing3)
+                        .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
                 }
 
                 if canPin {

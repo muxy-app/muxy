@@ -396,7 +396,7 @@ private struct TabCell: View {
                         if hasUnread || hasCompletionPending, !active {
                             Circle()
                                 .fill(MuxyTheme.accent)
-                                .frame(width: UIMetrics.spacing3, height: UIMetrics.spacing3)
+                                .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
                                 .offset(x: UIMetrics.scaled(3), y: -UIMetrics.scaled(3))
                         }
                     }

@@ -31,7 +31,7 @@ struct CreateWorktreeSheet: View {
     private let gitWorktree = GitWorktreeService.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: UIMetrics.fontHeadline) {
+        VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
             Text("New Worktree")
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
 
@@ -120,7 +120,7 @@ struct CreateWorktreeSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, UIMetrics.spacing4)
                     .padding(.vertical, UIMetrics.spacing3)
-                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.spacing2))
+                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
 
                 Button("Choose Folder...") {
                     chooseParentDirectory()
@@ -161,7 +161,7 @@ struct CreateWorktreeSheet: View {
                 }
             }
             .padding(UIMetrics.spacing4)
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.spacing2))
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             Toggle("Run these commands after creating the worktree", isOn: $runSetup)
                 .font(.system(size: UIMetrics.fontFootnote))
         }
@@ -193,7 +193,7 @@ struct CreateWorktreeSheet: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(UIMetrics.spacing4)
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.spacing2))
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
         }
         .padding(UIMetrics.spacing5)
         .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))

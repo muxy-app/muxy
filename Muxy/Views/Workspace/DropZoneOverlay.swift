@@ -6,10 +6,10 @@ struct DropZoneHighlight: View {
     var body: some View {
         GeometryReader { geo in
             let rect = highlightRect(in: geo.size)
-            RoundedRectangle(cornerRadius: UIMetrics.spacing2)
+            RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                 .fill(MuxyTheme.accent.opacity(0.15))
                 .overlay(
-                    RoundedRectangle(cornerRadius: UIMetrics.spacing2)
+                    RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                         .strokeBorder(MuxyTheme.accent.opacity(0.4), lineWidth: 2)
                 )
                 .frame(width: rect.width, height: rect.height)

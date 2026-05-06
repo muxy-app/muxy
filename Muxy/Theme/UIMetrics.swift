@@ -41,6 +41,7 @@ enum UIMetrics {
     static var radiusSM: CGFloat { scaled(4) }
     static var radiusMD: CGFloat { scaled(6) }
     static var radiusLG: CGFloat { scaled(8) }
+    static var radiusXL: CGFloat { scaled(10) }
 
     static var sidebarCollapsedWidth: CGFloat { scaled(44) }
     static var sidebarExpandedWidth: CGFloat { scaled(220) }

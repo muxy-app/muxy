@@ -226,7 +226,7 @@ struct ExpandedProjectRow: View {
             } else if hasCompletion {
                 Circle()
                     .fill(MuxyTheme.accent)
-                    .frame(width: UIMetrics.spacing4, height: UIMetrics.spacing4)
+                    .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
                     .offset(x: UIMetrics.spacing1, y: -UIMetrics.spacing1)
             }
         }
@@ -524,12 +524,12 @@ private struct ExpandedWorktreeRow: View {
         let unread = NotificationStore.shared.unreadCount(for: projectID, worktreeID: worktree.id)
         ZStack {
             if unread > 0 {
-                Circle().fill(MuxyTheme.accent).frame(width: UIMetrics.spacing4, height: UIMetrics.spacing4)
+                Circle().fill(MuxyTheme.accent).frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
             } else if selected {
                 Circle().fill(MuxyTheme.accent.opacity(0.4)).frame(width: UIMetrics.scaled(5), height: UIMetrics.scaled(5))
             }
         }
-        .frame(width: UIMetrics.spacing4, height: UIMetrics.spacing4)
+        .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
     }
 
     private var activeStyle: Bool { selected && projectActive }
@@ -567,7 +567,7 @@ private struct ExpandedNewWorktreeButton: View {
                 Image(systemName: "plus")
                     .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
-                    .frame(width: UIMetrics.spacing4, height: UIMetrics.spacing4)
+                    .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
                 Text("New Worktree")
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)

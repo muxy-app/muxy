@@ -550,8 +550,8 @@ struct WindowConfigurator: NSViewRepresentable {
             buttonFrameObservations.forEach { NotificationCenter.default.removeObserver($0) }
             buttonFrameObservations.removeAll()
             for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                guard let button = window.standardWindowButton(type) else { continue }
-                button.postsFrameChangedNotifications = true
+                guard let button = MainActor.assumeIsolated({ window.standardWindowButton(type) }) else { continue }
+                MainActor.assumeIsolated { button.postsFrameChangedNotifications = true }
                 let token = NotificationCenter.default.addObserver(
                     forName: NSView.frameDidChangeNotification,
                     object: button,

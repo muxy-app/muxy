@@ -39,7 +39,7 @@ private struct DiffViewerBreadcrumb: View {
         HStack(spacing: UIMetrics.spacing3) {
             FileDiffIcon()
                 .stroke(MuxyTheme.fgDim, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                .frame(width: UIMetrics.fontFootnote, height: UIMetrics.fontFootnote)
+                .frame(width: UIMetrics.scaled(11), height: UIMetrics.scaled(11))
 
             Text(state.filePath)
                 .font(.system(size: UIMetrics.fontFootnote))

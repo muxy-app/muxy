@@ -132,7 +132,7 @@ private struct BranchRow: View {
             Circle()
                 .fill(isActive ? MuxyTheme.accent : MuxyTheme.fgDim.opacity(0.35))
                 .frame(width: UIMetrics.scaled(7), height: UIMetrics.scaled(7))
-                .frame(width: UIMetrics.spacing5)
+                .frame(width: UIMetrics.scaled(10))
 
             Text(name)
                 .font(.system(size: UIMetrics.fontBody, weight: isActive ? .semibold : .medium, design: .monospaced))

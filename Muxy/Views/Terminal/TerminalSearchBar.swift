@@ -87,6 +87,6 @@ private struct SearchBarButtonStyle: ButtonStyle {
             .contentShape(Rectangle())
             .foregroundStyle(MuxyTheme.fgMuted)
             .background(configuration.isPressed ? MuxyTheme.surface : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.spacing2))
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
     }
 }

@@ -33,9 +33,6 @@ final class UIScale {
     }
 
     static let defaultPreset: Preset = .regular
-    static let minSliderValue: CGFloat = 0.85
-    static let maxSliderValue: CGFloat = 1.30
-    static let sliderStep: CGFloat = 0.02
 
     var preset: Preset = UIScale.defaultPreset {
         didSet { save() }
@@ -58,19 +55,11 @@ final class UIScale {
         load()
     }
 
-    func resetToDefaults() {
-        preset = Self.defaultPreset
-    }
-
-    func scaled(_ value: CGFloat) -> CGFloat {
-        value * multiplier
-    }
-
     private func load() {
         do {
             guard let snapshot = try store.load() else { return }
             isLoading = true
-            preset = snapshot.preset ?? Self.defaultPreset
+            preset = snapshot.preset
             isLoading = false
         } catch {
             logger.error("Failed to load UI scale settings: \(error.localizedDescription)")
@@ -88,5 +77,5 @@ final class UIScale {
 }
 
 private struct Snapshot: Codable {
-    let preset: UIScale.Preset?
+    let preset: UIScale.Preset
 }

@@ -19,7 +19,7 @@ struct SegmentedPicker<T: Hashable>: View {
                             selection == option.value
                                 ? MuxyTheme.surface
                                 : Color.clear,
-                            in: RoundedRectangle(cornerRadius: UIMetrics.spacing2)
+                            in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                         )
                 }
                 .buttonStyle(.plain)
@@ -28,7 +28,7 @@ struct SegmentedPicker<T: Hashable>: View {
                    selection != options[index + 1].value
                 {
                     Divider()
-                        .frame(height: UIMetrics.iconMD)
+                        .frame(height: UIMetrics.scaled(14))
                         .opacity(0.4)
                 }
             }

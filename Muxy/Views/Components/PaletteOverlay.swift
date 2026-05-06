@@ -33,9 +33,9 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             }
             .frame(width: UIMetrics.scaled(500), height: UIMetrics.scaled(380))
             .background(MuxyTheme.bg)
-            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.spacing5))
-            .overlay(RoundedRectangle(cornerRadius: UIMetrics.spacing5).stroke(MuxyTheme.border, lineWidth: 1))
-            .shadow(color: .black.opacity(0.4), radius: UIMetrics.spacing8, y: UIMetrics.spacing4)
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusXL))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusXL).stroke(MuxyTheme.border, lineWidth: 1))
+            .shadow(color: .black.opacity(0.4), radius: UIMetrics.scaled(20), y: UIMetrics.scaled(8))
             .padding(.top, UIMetrics.scaled(60))
             .frame(maxHeight: .infinity, alignment: .top)
             .accessibilityAddTraits(.isModal)
