@@ -643,6 +643,46 @@ struct WorkspaceReducerTests {
         #expect(root.allAreas().count == 2)
     }
 
+    @Test("moveTab toNewSplit defers collapse when source becomes empty")
+    func moveTabToNewSplitDefersCollapse() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let sourceAreaID = state.focusedAreaID[key]!
+
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(AppState.SplitAreaRequest(
+                projectID: projectID,
+                areaID: sourceAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+        let targetAreaID = state.focusedAreaID[key]!
+
+        let sourceArea = state.workspaceRoots[key]!.findArea(id: sourceAreaID)!
+        let tabToMove = sourceArea.tabs[0].id
+
+        let effects = WorkspaceReducer.reduce(
+            action: .moveTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: tabToMove,
+                    sourceAreaID: sourceAreaID,
+                    targetAreaID: targetAreaID,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+
+        #expect(state.workspaceRoots[key]!.findArea(id: sourceAreaID) != nil)
+        #expect(state.workspaceRoots[key]!.findArea(id: sourceAreaID)!.tabs.isEmpty)
+        #expect(effects.deferredAreaCollapses.contains(where: { $0.areaID == sourceAreaID }))
+    }
+
     @Test("selectNextProject cycles forward through projects")
     func selectNextProject() {
         let p1 = Project(name: "A", path: "/a")
