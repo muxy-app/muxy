@@ -7,6 +7,6 @@ struct ToolbarIconStrip<Content: View>: View {
         HStack(spacing: 0) {
             content()
         }
-        .padding(.trailing, 4)
+        .padding(.trailing, UIMetrics.spacing2)
     }
 }

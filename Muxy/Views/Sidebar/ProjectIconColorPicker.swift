@@ -21,15 +21,15 @@ struct ProjectIconColorPicker: View {
     let selectedID: String?
     let onSelect: (String?) -> Void
 
-    private let columns = Array(repeating: GridItem(.fixed(24), spacing: 8), count: 6)
+    private let columns = Array(repeating: GridItem(.fixed(24), spacing: UIMetrics.spacing4), count: 6)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing5) {
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
 
-            LazyVGrid(columns: columns, spacing: 8) {
+            LazyVGrid(columns: columns, spacing: UIMetrics.spacing4) {
                 ForEach(ProjectIconColor.palette) { swatch in
                     swatchButton(swatch)
                 }
@@ -40,11 +40,11 @@ struct ProjectIconColorPicker: View {
             Button {
                 onSelect(nil)
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: UIMetrics.spacing3) {
                     Image(systemName: "arrow.uturn.backward")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     Text("Reset to Default")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 }
                 .foregroundStyle(MuxyTheme.fgMuted)
             }
@@ -52,8 +52,8 @@ struct ProjectIconColorPicker: View {
             .disabled(selectedID == nil)
             .opacity(selectedID == nil ? 0.4 : 1)
         }
-        .padding(12)
-        .frame(width: 216)
+        .padding(UIMetrics.spacing6)
+        .frame(width: UIMetrics.scaled(216))
     }
 
     private func swatchButton(_ swatch: ProjectIconColor.Swatch) -> some View {
@@ -64,14 +64,14 @@ struct ProjectIconColorPicker: View {
             ZStack {
                 Circle()
                     .fill(swatch.color)
-                    .frame(width: 22, height: 22)
+                    .frame(width: UIMetrics.scaled(22), height: UIMetrics.scaled(22))
                 if isSelected {
                     Circle()
                         .strokeBorder(swatch.foreground, lineWidth: 2)
-                        .frame(width: 18, height: 18)
+                        .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
                 }
             }
-            .frame(width: 24, height: 24)
+            .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

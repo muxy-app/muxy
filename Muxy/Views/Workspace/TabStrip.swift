@@ -65,12 +65,12 @@ struct PaneTabStrip: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 32)
+            .frame(height: UIMetrics.scaled(32))
 
             HStack(spacing: 0) {
                 if showDevelopmentBadge {
                     developmentBadge
-                        .padding(.trailing, 6)
+                        .padding(.trailing, UIMetrics.spacing3)
                 }
                 if isWindowTitleBar {
                     OpenInIDEControl(
@@ -84,7 +84,7 @@ struct PaneTabStrip: View {
                     UpdateBadge(version: version) {
                         UpdateService.shared.checkForUpdates()
                     }
-                    .padding(.trailing, 4)
+                    .padding(.trailing, UIMetrics.spacing2)
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))
@@ -105,12 +105,12 @@ struct PaneTabStrip: View {
                     .help(shortcutTooltip("File Tree", for: .toggleFileTree))
                 }
             }
-            .padding(.leading, 8)
-            .padding(.trailing, 4)
+            .padding(.leading, UIMetrics.spacing4)
+            .padding(.trailing, UIMetrics.spacing2)
             .fixedSize(horizontal: true, vertical: false)
             .background(WindowDragRepresentable(alwaysEnabled: isWindowTitleBar))
         }
-        .frame(height: 32)
+        .frame(height: UIMetrics.scaled(32))
         .onPreferenceChange(TabFramePreferenceKey.self) { frames in
             guard dragState.draggedID != nil else { return }
             dragState.frames = frames
@@ -388,7 +388,7 @@ private struct TabCell: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 6) {
+            HStack(spacing: UIMetrics.spacing3) {
                 tabIconView
                     .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     .opacity(titleHidden && hovered && !tab.isPinned ? 0 : 1)
@@ -396,15 +396,15 @@ private struct TabCell: View {
                         if hasUnread || hasCompletionPending, !active {
                             Circle()
                                 .fill(MuxyTheme.accent)
-                                .frame(width: 6, height: 6)
-                                .offset(x: 3, y: -3)
+                                .frame(width: UIMetrics.spacing3, height: UIMetrics.spacing3)
+                                .offset(x: UIMetrics.scaled(3), y: -UIMetrics.scaled(3))
                         }
                     }
 
                 if isRenaming {
                     TextField("", text: $renameText)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 12))
+                        .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(MuxyTheme.fg)
                         .focused($renameFieldFocused)
                         .onSubmit { commitRename() }
@@ -414,16 +414,16 @@ private struct TabCell: View {
                         }
                 } else if !titleHidden {
                     Text(tab.title)
-                        .font(.system(size: 12))
+                        .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                         .lineLimit(1)
                         .truncationMode(.head)
                 }
             }
-            .padding(.leading, titleHidden ? 0 : 12)
-            .padding(.trailing, titleHidden ? 0 : 28)
+            .padding(.leading, titleHidden ? 0 : UIMetrics.spacing6)
+            .padding(.trailing, titleHidden ? 0 : UIMetrics.iconXXL)
             .frame(maxWidth: .infinity, alignment: titleHidden ? .center : .leading)
-            .frame(height: 32)
+            .frame(height: UIMetrics.scaled(32))
             .background {
                 GeometryReader { geo in
                     Color.clear.preference(key: TabWidthPreferenceKey.self, value: geo.size.width)
@@ -432,7 +432,7 @@ private struct TabCell: View {
             .onPreferenceChange(TabWidthPreferenceKey.self) { measuredWidth = $0 }
             .overlay(alignment: titleHidden ? .center : .trailing) {
                 trailingAccessory
-                    .padding(.trailing, titleHidden ? 0 : 10)
+                    .padding(.trailing, titleHidden ? 0 : UIMetrics.spacing5)
             }
             .overlay {
                 if showBadge, let shortcutIndex,
@@ -445,7 +445,7 @@ private struct TabCell: View {
                 if let accentColor = bottomAccentColor {
                     Rectangle()
                         .fill(accentColor)
-                        .frame(height: 2)
+                        .frame(height: UIMetrics.scaled(2))
                         .accessibilityHidden(true)
                 }
             }
@@ -563,7 +563,7 @@ private struct TabCell: View {
         ZStack {
             if !tab.isPinned {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                     .foregroundStyle(MuxyTheme.fgDim)
                     .opacity(closeButtonVisible ? 1 : 0)
                     .allowsHitTesting(closeButtonVisible)
@@ -576,7 +576,7 @@ private struct TabCell: View {
                     .transition(.opacity)
             }
         }
-        .frame(width: 14, height: 14)
+        .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
     }
 
     private func triggerCompletionFlash() {
@@ -628,20 +628,20 @@ private struct TabCell: View {
     private var tabIconView: some View {
         if tab.isPinned {
             Image(systemName: "pin.fill")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
         } else if tab.kind == .vcs {
             FileDiffIcon()
                 .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                .frame(width: 12, height: 12)
+                .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
         } else if tab.kind == .editor {
             Image(systemName: "pencil.line")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
         } else if tab.kind == .diffViewer {
             Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
         } else {
             Image(systemName: "terminal")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
         }
     }
 }

@@ -45,6 +45,7 @@ flowchart TB
 | [File Tree](file-tree.md) | Lazy tree, git-status colors, file ops |
 | [VCS](vcs.md) | Source Control tab, PR flow |
 | [Notifications](notifications.md) | Sources, routing, click-to-navigate |
+| [UI Scaling](ui-scaling.md) | Centralized chrome metrics with user-adjustable scale |
 | [AI Usage](ai-usage.md) | Provider registry, credentials, refresh lifecycle |
 | [Remote Server](remote-server.md) | WebSocket server, terminal streaming, pairing |
 | [CLI & URL Scheme](cli-and-url-scheme.md) | `muxy` wrapper, `muxy://` URL, socket entry |

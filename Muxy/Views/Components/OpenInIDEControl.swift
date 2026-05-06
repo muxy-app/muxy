@@ -25,16 +25,16 @@ struct OpenInIDEControl: View {
             Button(action: openDefaultIDE) {
                 Group {
                     if let defaultIDE {
-                        AppBundleIconView(appURL: defaultIDE.appURL, fallbackSystemName: defaultIDE.symbolName, size: 16)
+                        AppBundleIconView(appURL: defaultIDE.appURL, fallbackSystemName: defaultIDE.symbolName, size: UIMetrics.iconLG)
                     } else {
                         Image(systemName: "chevron.left.forwardslash.chevron.right")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                             .foregroundStyle(primaryForeground)
                     }
                 }
-                .frame(width: 22, height: 24)
+                .frame(width: UIMetrics.scaled(22), height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
-                .background(hoveredPrimary ? MuxyTheme.hover : .clear, in: RoundedRectangle(cornerRadius: 5))
+                .background(hoveredPrimary ? MuxyTheme.hover : .clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             }
             .buttonStyle(.plain)
             .disabled(projectPath == nil || defaultIDE == nil)
@@ -52,20 +52,20 @@ struct OpenInIDEControl: View {
     private var expandedSplitButton: some View {
         HStack(spacing: 0) {
             Button(action: openDefaultIDE) {
-                HStack(spacing: 6) {
+                HStack(spacing: UIMetrics.spacing3) {
                     if let defaultIDE {
-                        AppBundleIconView(appURL: defaultIDE.appURL, fallbackSystemName: defaultIDE.symbolName, size: 16)
+                        AppBundleIconView(appURL: defaultIDE.appURL, fallbackSystemName: defaultIDE.symbolName, size: UIMetrics.iconLG)
                     } else {
                         Image(systemName: "chevron.left.forwardslash.chevron.right")
                     }
                     Text(defaultIDE.map { "Open in \($0.displayName)" } ?? "Open in IDE")
                 }
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(primaryForeground)
-                .padding(.horizontal, 8)
-                .frame(height: 24)
+                .padding(.horizontal, UIMetrics.spacing4)
+                .frame(height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
-                .background(hoveredPrimary ? MuxyTheme.hover : .clear, in: RoundedRectangle(cornerRadius: 5))
+                .background(hoveredPrimary ? MuxyTheme.hover : .clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             }
             .buttonStyle(.plain)
             .disabled(projectPath == nil || defaultIDE == nil)
@@ -73,7 +73,7 @@ struct OpenInIDEControl: View {
             .help(helpText)
             .accessibilityLabel(helpText)
 
-            menuToggleButton(width: 18)
+            menuToggleButton(width: UIMetrics.scaled(18))
         }
         .popover(isPresented: $showingMenu, arrowEdge: .bottom) {
             menuPopoverContent
@@ -86,9 +86,9 @@ struct OpenInIDEControl: View {
             showingMenu.toggle()
         } label: {
             Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .semibold))
+                .font(.system(size: UIMetrics.fontMicro, weight: .semibold))
                 .foregroundStyle(menuForeground)
-                .frame(width: width, height: 24)
+                .frame(width: width, height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -110,17 +110,17 @@ struct OpenInIDEControl: View {
                 }
                 if !installedApps.isEmpty {
                     Divider()
-                        .padding(.vertical, 4)
+                        .padding(.vertical, UIMetrics.spacing2)
                 }
             }
 
             if installedApps.isEmpty {
                 Text("No supported IDEs found")
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
-                    .padding(.leading, 10)
-                    .padding(.trailing, 12)
-                    .padding(.vertical, 8)
+                    .padding(.leading, UIMetrics.spacing5)
+                    .padding(.trailing, UIMetrics.spacing6)
+                    .padding(.vertical, UIMetrics.spacing4)
             } else {
                 if !editorApps.isEmpty {
                     menuSection(title: "Editors & IDEs", apps: editorApps)
@@ -130,20 +130,20 @@ struct OpenInIDEControl: View {
                 }
             }
         }
-        .padding(8)
+        .padding(UIMetrics.spacing4)
         .fixedSize(horizontal: true, vertical: true)
         .background(MuxyTheme.bg)
     }
 
     private func menuSection(title: String, apps: [IDEIntegrationService.IDEApplication]) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: UIMetrics.scaled(1)) {
             Text(title)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .padding(.leading, 9)
-                .padding(.trailing, 12)
-                .padding(.top, 4)
-                .padding(.bottom, 1)
+                .padding(.leading, UIMetrics.scaled(9))
+                .padding(.trailing, UIMetrics.spacing6)
+                .padding(.top, UIMetrics.spacing2)
+                .padding(.bottom, UIMetrics.scaled(1))
 
             ForEach(apps) { ide in
                 menuButton(for: ide)
@@ -242,17 +242,17 @@ private struct IDEMenuRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) {
-                AppBundleIconView(appURL: ide.appURL, fallbackSystemName: ide.symbolName, size: 14)
+            HStack(spacing: UIMetrics.scaled(7)) {
+                AppBundleIconView(appURL: ide.appURL, fallbackSystemName: ide.symbolName, size: UIMetrics.iconMD)
                 Text(ide.displayName)
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
             }
             .foregroundStyle(MuxyTheme.fg)
-            .padding(.leading, 9)
-            .padding(.trailing, 12)
-            .padding(.vertical, 4)
+            .padding(.leading, UIMetrics.scaled(9))
+            .padding(.trailing, UIMetrics.spacing6)
+            .padding(.vertical, UIMetrics.spacing2)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(hovered ? MuxyTheme.hover : .clear, in: RoundedRectangle(cornerRadius: 5))
+            .background(hovered ? MuxyTheme.hover : .clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -271,17 +271,17 @@ private struct IDEMenuActionRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 7) {
-                AppBundleIconView(appURL: appURL, fallbackSystemName: fallbackSystemName, size: 14)
+            HStack(spacing: UIMetrics.scaled(7)) {
+                AppBundleIconView(appURL: appURL, fallbackSystemName: fallbackSystemName, size: UIMetrics.iconMD)
                 Text(title)
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
             }
             .foregroundStyle(MuxyTheme.fg)
-            .padding(.leading, 9)
-            .padding(.trailing, 12)
-            .padding(.vertical, 4)
+            .padding(.leading, UIMetrics.scaled(9))
+            .padding(.trailing, UIMetrics.spacing6)
+            .padding(.vertical, UIMetrics.spacing2)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(hovered ? MuxyTheme.hover : .clear, in: RoundedRectangle(cornerRadius: 5))
+            .background(hovered ? MuxyTheme.hover : .clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

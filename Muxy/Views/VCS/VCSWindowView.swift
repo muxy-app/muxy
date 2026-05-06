@@ -18,7 +18,7 @@ struct VCSWindowView: View {
                 VCSTabView(state: state, focused: true, onFocus: {})
             } else {
                 Text("No project selected")
-                    .font(.system(size: 13))
+                    .font(.system(size: UIMetrics.fontEmphasis))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
