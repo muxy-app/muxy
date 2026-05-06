@@ -40,6 +40,7 @@ final class EditorSettings {
     var markdownPreviewFontScale: CGFloat = EditorSettings.defaultMarkdownPreviewFontScale { didSet { save() } }
     var highlightCurrentLine: Bool = true { didSet { save() } }
     var lineWrapping: Bool = false { didSet { save() } }
+    var showLineNumbers: Bool = true { didSet { save() } }
 
     @ObservationIgnored private let store: CodableFileStore<Snapshot>
     @ObservationIgnored private var isBatchLoading = false
@@ -112,6 +113,7 @@ final class EditorSettings {
         markdownPreviewFontScale = Self.defaultMarkdownPreviewFontScale
         highlightCurrentLine = true
         lineWrapping = false
+        showLineNumbers = true
         isBatchLoading = false
         save()
     }
@@ -132,6 +134,7 @@ final class EditorSettings {
             )
             highlightCurrentLine = snapshot.highlightCurrentLine ?? true
             lineWrapping = snapshot.lineWrapping ?? false
+            showLineNumbers = snapshot.showLineNumbers ?? true
             isBatchLoading = false
         } catch {
             logger.error("Failed to load editor settings: \(error.localizedDescription)")
@@ -150,7 +153,8 @@ final class EditorSettings {
                 markdownPreviewFontFamily: markdownPreviewFontFamily,
                 markdownPreviewFontScale: markdownPreviewFontScale,
                 highlightCurrentLine: highlightCurrentLine,
-                lineWrapping: lineWrapping
+                lineWrapping: lineWrapping,
+                showLineNumbers: showLineNumbers
             ))
         } catch {
             logger.error("Failed to save editor settings: \(error.localizedDescription)")
@@ -168,4 +172,5 @@ private struct Snapshot: Codable {
     let markdownPreviewFontScale: CGFloat?
     let highlightCurrentLine: Bool?
     let lineWrapping: Bool?
+    let showLineNumbers: Bool?
 }

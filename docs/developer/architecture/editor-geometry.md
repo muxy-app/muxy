@@ -22,6 +22,7 @@ flowchart TB
 
   subgraph Render["Render-time consumers"]
     Highlight["CurrentLineHighlightExtension"]
+    Gutter["LineNumberGutterExtension<br/>(sibling NSView, sticky on hscroll)"]
     Frame["textView.frame.y"]
     Search["SearchController.scrollToMatch"]
   end
@@ -36,8 +37,13 @@ flowchart TB
   Jump --> Anchor
   Search --> Anchor
   Map --> Highlight
+  Map --> Gutter
   Map --> Frame
 ```
+
+## Line number gutter
+
+`CodeEditorView` returns an `EditorScrollContainer` (NSView), which lays out a `LineNumberGutterView` on the left and the editor's `NSScrollView` on the right. Because the gutter is a *sibling* of the scroll view rather than a subview of it, it is naturally pinned during horizontal scrolls — the user's horizontal motion only moves text inside the scroll view. Vertical sync is driven by the existing `boundsDidChangeNotification` from `scrollView.contentView`: `LineNumberGutterExtension` observes that notification and marks the gutter for redraw. The gutter's `draw(_:)` reads `scrollView.contentView.bounds.origin.y` and projects each logical line's document Y (from `viewport.heightMap.heightAbove(line:)` / `heightOfLine(_:)`) into its own coordinate space, so labels stay aligned with both wrapped and unwrapped layouts and remain correct as estimates are refined into measurements.
 
 ## Reflow loop on jump / measurement
 

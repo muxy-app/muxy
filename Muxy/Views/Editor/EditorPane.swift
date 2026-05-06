@@ -113,6 +113,7 @@ struct EditorPane: View {
             CodeEditorView(
                 state: state,
                 editorSettings: editorSettings,
+                showLineNumbers: editorSettings.showLineNumbers,
                 lineWrapping: editorSettings.lineWrapping,
                 themeVersion: ghostty.configVersion,
                 showsVerticalScroller: true,
