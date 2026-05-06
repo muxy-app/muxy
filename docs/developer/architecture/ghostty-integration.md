@@ -32,6 +32,10 @@ sequenceDiagram
 | `GhosttyRuntimeEventAdapter` | C callback bridge. Dispatches OSC/desktop-notification + `GHOSTTY_ACTION_PWD` events back to Swift. |
 | `TerminalViewRegistry` | Tracks live surfaces; performs `paneID(for:)` reverse lookup for notifications and remote routing. |
 
+## Progress reporting (OSC 9;4)
+
+`GHOSTTY_ACTION_PROGRESS_REPORT` events flow through `GhosttyRuntimeEventAdapter` into `TerminalProgressStore`, keyed by pane ID. The store tracks active progress, records completion-pending state when progress transitions back to `REMOVE`, and aggregates by project for the sidebar dot. Each tab renders a `TerminalProgressCircle` in its trailing slot (the close-button position); hover reveals the close button. Project icons surface a dot until the user opens the completed pane.
+
 ## Working-directory tracking
 
 When a user runs `cd` inside a terminal, libghostty emits `GHOSTTY_ACTION_PWD`. `GhosttyRuntimeEventAdapter` forwards that to `TerminalPane`, which updates `TerminalPaneState.currentWorkingDirectory`. The cwd is persisted via `TerminalTabSnapshot`, so reopening the workspace lands each pane in its last-used directory.

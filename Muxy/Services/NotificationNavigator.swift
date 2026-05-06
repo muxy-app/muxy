@@ -74,6 +74,17 @@ enum NotificationNavigator {
         return area.activeTabID
     }
 
+    static func activePaneID(appState: AppState) -> UUID? {
+        guard let projectID = appState.activeProjectID,
+              let key = appState.activeWorktreeKey(for: projectID),
+              let areaID = appState.focusedAreaID[key],
+              let area = appState.workspaceRoots[key]?.findArea(id: areaID),
+              let activeTabID = area.activeTabID,
+              let tab = area.tabs.first(where: { $0.id == activeTabID })
+        else { return nil }
+        return tab.content.pane?.id
+    }
+
     static func isActiveTab(_ tabID: UUID, appState: AppState) -> Bool {
         activeTabID(appState: appState) == tabID
     }

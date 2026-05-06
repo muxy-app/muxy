@@ -601,10 +601,22 @@ final class AppState {
 
         for paneID in effects.paneIDsToRemove {
             terminalViews.removeView(for: paneID)
+            TerminalProgressStore.shared.resetPane(paneID)
         }
 
         if !effects.projectIDsToRemove.isEmpty {
             onProjectsEmptied?(effects.projectIDsToRemove)
+        }
+
+        for collapse in effects.deferredAreaCollapses {
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      let root = self.workspaceRoots[collapse.key],
+                      let area = root.findArea(id: collapse.areaID),
+                      area.tabs.isEmpty
+                else { return }
+                self.dispatch(.closeArea(projectID: collapse.key.projectID, areaID: collapse.areaID))
+            }
         }
 
         pruneNavigationHistory()
@@ -612,6 +624,10 @@ final class AppState {
 
         if let activeTabID = NotificationNavigator.activeTabID(appState: self) {
             NotificationStore.shared.markAsRead(tabID: activeTabID)
+        }
+
+        if let activePaneID = NotificationNavigator.activePaneID(appState: self) {
+            TerminalProgressStore.shared.clearCompletion(for: activePaneID)
         }
 
         saveWorkspaces()

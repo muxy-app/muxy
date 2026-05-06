@@ -318,6 +318,7 @@ final class EditorTabState: Identifiable {
                         store.loadFromText(text)
                         backingStore = store
                         backingStoreVersion += 1
+                        previewRefreshVersion += 1
                         refreshReadOnlyStatus()
                         isModified = false
                         isLoading = false
@@ -329,6 +330,7 @@ final class EditorTabState: Identifiable {
                         if let backingStore {
                             backingStore.appendText(text)
                             backingStoreVersion += 1
+                            previewRefreshVersion += 1
                         }
                         if isLoading {
                             isLoading = false
@@ -340,6 +342,7 @@ final class EditorTabState: Identifiable {
                         if let backingStore {
                             backingStore.finishLoading()
                             backingStoreVersion += 1
+                            previewRefreshVersion += 1
                         }
                         refreshReadOnlyStatus()
                         if isLoading {

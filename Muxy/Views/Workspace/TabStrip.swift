@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct PaneTabStrip: View {
     struct TabSnapshot: Identifiable {
         let id: UUID
+        let paneID: UUID?
         let title: String
         let kind: TerminalTab.Kind
         let isPinned: Bool
@@ -44,6 +45,7 @@ struct PaneTabStrip: View {
         tabs.map { tab in
             TabSnapshot(
                 id: tab.id,
+                paneID: tab.content.pane?.id,
                 title: tab.title,
                 kind: tab.kind,
                 isPinned: tab.isPinned,
@@ -332,7 +334,10 @@ private struct TabCell: View {
     @State private var measuredWidth: CGFloat = TabCell.maxWidth
     @State private var externalDragOverCell = false
     @State private var springLoadTask: Task<Void, any Error>?
+    @State private var completionFlashOn = false
+    @State private var flashTask: Task<Void, any Error>?
     @FocusState private var renameFieldFocused: Bool
+    private let progressStore = TerminalProgressStore.shared
 
     private static let springLoadDelay: Duration = .milliseconds(250)
 
@@ -362,6 +367,16 @@ private struct TabCell: View {
         return nil
     }
 
+    private var paneProgress: TerminalProgress? {
+        guard let paneID = tab.paneID else { return nil }
+        return progressStore.progress(for: paneID)
+    }
+
+    private var hasCompletionPending: Bool {
+        guard let paneID = tab.paneID else { return false }
+        return progressStore.isCompletionPending(for: paneID)
+    }
+
     private var showBadge: Bool {
         guard let shortcutIndex,
               let action = ShortcutAction.tabAction(for: shortcutIndex)
@@ -378,7 +393,7 @@ private struct TabCell: View {
                     .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     .opacity(titleHidden && hovered && !tab.isPinned ? 0 : 1)
                     .overlay(alignment: .topTrailing) {
-                        if hasUnread, !active {
+                        if hasUnread || hasCompletionPending, !active {
                             Circle()
                                 .fill(MuxyTheme.accent)
                                 .frame(width: 6, height: 6)
@@ -416,17 +431,8 @@ private struct TabCell: View {
             }
             .onPreferenceChange(TabWidthPreferenceKey.self) { measuredWidth = $0 }
             .overlay(alignment: titleHidden ? .center : .trailing) {
-                if !tab.isPinned {
-                    let visible = titleHidden ? hovered : (active || hovered)
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(MuxyTheme.fgDim)
-                        .padding(.trailing, titleHidden ? 0 : 10)
-                        .opacity(visible ? 1 : 0)
-                        .onTapGesture(perform: onClose)
-                        .accessibilityLabel("Close Tab")
-                        .accessibilityAddTraits(.isButton)
-                }
+                trailingAccessory
+                    .padding(.trailing, titleHidden ? 0 : 10)
             }
             .overlay {
                 if showBadge, let shortcutIndex,
@@ -444,6 +450,13 @@ private struct TabCell: View {
                 }
             }
             .background(tabBackground)
+            .overlay {
+                Rectangle()
+                    .fill(MuxyTheme.accent)
+                    .opacity(completionFlashOn ? 0.18 : 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             .contentShape(Rectangle())
             .onHover { hovering in
                 guard !isAnyDragging else { return }
@@ -510,8 +523,13 @@ private struct TabCell: View {
         .onChange(of: externalDragOverCell) { _, hovering in
             handleExternalDragHover(hovering: hovering)
         }
+        .onChange(of: hasCompletionPending) { _, pending in
+            guard pending else { return }
+            triggerCompletionFlash()
+        }
         .onDisappear {
             springLoadTask?.cancel()
+            flashTask?.cancel()
         }
     }
 
@@ -532,6 +550,48 @@ private struct TabCell: View {
         springLoadTask = Task { @MainActor in
             try await Task.sleep(for: Self.springLoadDelay)
             onSelect()
+        }
+    }
+
+    private var closeButtonVisible: Bool {
+        guard !tab.isPinned else { return false }
+        if paneProgress != nil { return hovered }
+        return titleHidden ? hovered : (active || hovered)
+    }
+
+    private var trailingAccessory: some View {
+        ZStack {
+            if !tab.isPinned {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(MuxyTheme.fgDim)
+                    .opacity(closeButtonVisible ? 1 : 0)
+                    .allowsHitTesting(closeButtonVisible)
+                    .onTapGesture(perform: onClose)
+                    .accessibilityLabel("Close Tab")
+                    .accessibilityAddTraits(.isButton)
+            }
+            if let progress = paneProgress, !closeButtonVisible {
+                TerminalProgressCircle(progress: progress)
+                    .transition(.opacity)
+            }
+        }
+        .frame(width: 14, height: 14)
+    }
+
+    private func triggerCompletionFlash() {
+        flashTask?.cancel()
+        withAnimation(.easeIn(duration: 0.15)) {
+            completionFlashOn = true
+        }
+        if active, let paneID = tab.paneID {
+            progressStore.clearCompletion(for: paneID)
+        }
+        flashTask = Task { @MainActor in
+            try await Task.sleep(for: .milliseconds(450))
+            withAnimation(.easeOut(duration: 0.4)) {
+                completionFlashOn = false
+            }
         }
     }
 

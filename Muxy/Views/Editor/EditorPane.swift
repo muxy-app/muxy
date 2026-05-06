@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct EditorPane: View {
@@ -167,7 +168,8 @@ struct EditorPane: View {
                     onOpenInternalLink: { path, fragment in
                         guard let projectID = appState.activeProjectID else { return }
                         appState.openMarkdownLinkTarget(path, projectID: projectID, fragment: fragment)
-                    }
+                    },
+                    onReloadFromDisk: { reloadMarkdownFromDisk() }
                 )
             }
         }
@@ -185,6 +187,30 @@ struct EditorPane: View {
         .onAppear { acquireMarkdownPreviewFocusIfNeeded() }
         .onChange(of: focused) { _, _ in acquireMarkdownPreviewFocusIfNeeded() }
         .onChange(of: state.markdownViewMode) { _, _ in acquireMarkdownPreviewFocusIfNeeded() }
+    }
+
+    private func reloadMarkdownFromDisk() {
+        guard state.isModified, !state.hasExternalChange else {
+            state.reloadFromDisk()
+            return
+        }
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+            state.reloadFromDisk()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Discard Unsaved Changes?"
+        alert.informativeText = "Reloading \(state.fileName) from disk will discard your unsaved changes."
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Reload from Disk")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            state.reloadFromDisk()
+        }
     }
 
     private func acquireMarkdownPreviewFocusIfNeeded() {
