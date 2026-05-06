@@ -160,7 +160,6 @@ final class ViewportContainerView: NSView {
 struct CodeEditorView: NSViewRepresentable {
     @Bindable var state: EditorTabState
     let editorSettings: EditorSettings
-    let showLineNumbers: Bool
     let lineWrapping: Bool
     let themeVersion: Int
     let showsVerticalScroller: Bool
@@ -312,7 +311,6 @@ struct CodeEditorView: NSViewRepresentable {
             coordinator.enterViewportMode(scrollView: scrollView)
         }
 
-        coordinator.reconcileLineNumberGutter()
         coordinator.reconcileCurrentLineHighlight()
         coordinator.reconcileLineWrapping(lineWrapping)
         updateNSViewViewportMode(scrollView: scrollView, textView: textView, coordinator: coordinator)
@@ -501,7 +499,7 @@ struct CodeEditorView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate, SyntaxHighlightCoordinator, SearchControllerHost, ViewportEditHistoryHost,
-        LineNumberGutterHost, CurrentLineHighlightHost
+        CurrentLineHighlightHost
     {
         let state: EditorTabState
         let editorSettings: EditorSettings
@@ -510,7 +508,6 @@ struct CodeEditorView: NSViewRepresentable {
         weak var scrollView: NSScrollView?
         var viewportState: ViewportState?
         var containerView: ViewportContainerView?
-        var leadingGutterWidth: CGFloat = 0
         private(set) var lineWrappingEnabled: Bool = false
         private var pendingWrapResizeWorkItem: DispatchWorkItem?
 
@@ -571,37 +568,10 @@ struct CodeEditorView: NSViewRepresentable {
             if state.isMarkdownFile {
                 loaded.append(MarkdownInlineExtension())
             }
-            if editorSettings.showLineNumbers {
-                loaded.append(LineNumberGutterExtension(host: self))
-            }
             if editorSettings.highlightCurrentLine {
                 loaded.append(CurrentLineHighlightExtension(host: self))
             }
             extensions = loaded
-        }
-
-        func reconcileLineNumberGutter() {
-            let hasGutter = extensions.contains(where: { $0 is LineNumberGutterExtension })
-            if editorSettings.showLineNumbers, !hasGutter {
-                let ext = LineNumberGutterExtension(host: self)
-                extensions.append(ext)
-                if let context = makeRenderContext() {
-                    ext.didMount(context: context)
-                    refreshViewport(force: true)
-                }
-                return
-            }
-            if !editorSettings.showLineNumbers, hasGutter {
-                let context = makeRenderContext()
-                let removed = extensions.filter { $0 is LineNumberGutterExtension }
-                extensions.removeAll { $0 is LineNumberGutterExtension }
-                if let context {
-                    for ext in removed {
-                        ext.willUnmount(context: context)
-                    }
-                }
-                refreshViewport(force: true)
-            }
         }
 
         func reconcileCurrentLineHighlight() {
@@ -677,7 +647,7 @@ struct CodeEditorView: NSViewRepresentable {
             guard let scrollView else { return 0 }
             let total = scrollView.contentSize.width
             let inset = textView?.textContainerInset.width ?? 0
-            return max(1, total - leadingGutterWidth - inset * 2)
+            return max(1, total - inset * 2)
         }
 
         private func makeRenderContext() -> EditorRenderContext? {
@@ -1149,11 +1119,11 @@ struct CodeEditorView: NSViewRepresentable {
             let estimatedHeight = viewport.estimatedLineHeight * CGFloat(max(1, visibleLineCount))
                 + textView.textContainerInset.height * 2
             let viewportWidth = viewportContentWidth(for: textView, scrollView: scrollView)
-            let targetTextWidth = max(0, viewportWidth - leadingGutterWidth)
+            let targetTextWidth = max(0, viewportWidth)
 
             if lineWrappingEnabled, textView.frame.width != targetTextWidth, targetTextWidth > 0 {
                 textView.frame = NSRect(
-                    x: leadingGutterWidth,
+                    x: 0,
                     y: textView.frame.origin.y,
                     width: targetTextWidth,
                     height: textView.frame.height
@@ -1184,7 +1154,7 @@ struct CodeEditorView: NSViewRepresentable {
             }
             let resolvedYOffset = viewport.viewportYOffset()
             let newTextFrame = NSRect(
-                x: leadingGutterWidth,
+                x: 0,
                 y: resolvedYOffset,
                 width: targetTextWidth,
                 height: max(estimatedHeight, laidOutHeight, 100)
