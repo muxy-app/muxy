@@ -115,6 +115,7 @@ final class TabArea: Identifiable {
             projectPath: projectPath,
             title: title,
             startupCommand: Self.editorLaunchCommand(command: command, filePath: filePath),
+            startupCommandInteractive: true,
             externalEditorFilePath: filePath
         )
         insertTab(TerminalTab(pane: pane))
