@@ -19,6 +19,15 @@ if [[ -n "$LOCAL_XCFRAMEWORK_TAR" ]]; then
     LOCAL_XCFRAMEWORK_TAR="$(cd "$(dirname "$LOCAL_XCFRAMEWORK_TAR")" && pwd)/$(basename "$LOCAL_XCFRAMEWORK_TAR")"
 fi
 
+LOCAL_RIPGREP_TAR="${2:-}"
+if [[ -n "$LOCAL_RIPGREP_TAR" ]]; then
+    if [[ ! -f "$LOCAL_RIPGREP_TAR" ]]; then
+        echo "Error: local ripgrep tar not found: $LOCAL_RIPGREP_TAR"
+        exit 1
+    fi
+    LOCAL_RIPGREP_TAR="$(cd "$(dirname "$LOCAL_RIPGREP_TAR")" && pwd)/$(basename "$LOCAL_RIPGREP_TAR")"
+fi
+
 fetch_ripgrep() {
     if [[ -x "$RIPGREP_BINARY" ]]; then
         return 0
@@ -30,13 +39,18 @@ fetch_ripgrep() {
         *) echo "Error: unsupported architecture $(uname -m)"; return 1 ;;
     esac
     local archive="ripgrep-${RIPGREP_VERSION}-${arch}.tar.gz"
-    local url="https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/${archive}"
-    echo "==> Downloading ripgrep ${RIPGREP_VERSION} (${arch})"
     local tmp
     tmp="$(mktemp -d)"
     trap 'rm -rf "$tmp"' RETURN
-    curl -fsSL "$url" -o "$tmp/$archive"
-    tar xzf "$tmp/$archive" -C "$tmp"
+    if [[ -n "$LOCAL_RIPGREP_TAR" ]]; then
+        echo "==> Extracting ripgrep from $LOCAL_RIPGREP_TAR"
+        tar xzf "$LOCAL_RIPGREP_TAR" -C "$tmp"
+    else
+        local url="https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/${archive}"
+        echo "==> Downloading ripgrep ${RIPGREP_VERSION} (${arch})"
+        curl -fsSL "$url" -o "$tmp/$archive"
+        tar xzf "$tmp/$archive" -C "$tmp"
+    fi
     mkdir -p "$(dirname "$RIPGREP_BINARY")"
     cp "$tmp/ripgrep-${RIPGREP_VERSION}-${arch}/rg" "$RIPGREP_BINARY"
     chmod +x "$RIPGREP_BINARY"
