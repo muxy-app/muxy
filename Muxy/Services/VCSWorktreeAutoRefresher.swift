@@ -6,6 +6,8 @@ final class VCSWorktreeAutoRefresher {
     private let projectStore: ProjectStore
     private let worktreeStore: WorktreeStore
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+    private var inFlight: Set<UUID> = []
+    private var pending: Set<UUID> = []
 
     init(appState: AppState, projectStore: ProjectStore, worktreeStore: WorktreeStore) {
         self.appState = appState
@@ -38,7 +40,16 @@ final class VCSWorktreeAutoRefresher {
     private func handleRefresh(repoPath: String) {
         guard let projectID = worktreeStore.projectID(forWorktreePath: repoPath) else { return }
         guard let project = projectStore.projects.first(where: { $0.id == projectID }) else { return }
-        Task { [appState, worktreeStore] in
+        guard !inFlight.contains(projectID) else {
+            pending.insert(projectID)
+            return
+        }
+        runRefresh(project: project)
+    }
+
+    private func runRefresh(project: Project) {
+        inFlight.insert(project.id)
+        Task { [appState, worktreeStore, projectStore] in
             await WorktreeRefreshHelper.refresh(
                 project: project,
                 appState: appState,
@@ -46,6 +57,10 @@ final class VCSWorktreeAutoRefresher {
                 isRefreshing: nil,
                 presentErrors: false
             )
+            inFlight.remove(project.id)
+            guard pending.remove(project.id) != nil else { return }
+            guard let updated = projectStore.projects.first(where: { $0.id == project.id }) else { return }
+            runRefresh(project: updated)
         }
     }
 }

@@ -1,5 +1,8 @@
 import AppKit
+import os
 import SwiftUI
+
+private let logger = Logger(subsystem: "app.muxy", category: "WorktreeRefreshHelper")
 
 @MainActor
 enum WorktreeRefreshHelper {
@@ -26,7 +29,11 @@ enum WorktreeRefreshHelper {
                 appState.removeWorktree(projectID: project.id, worktree: worktree, replacement: replacement)
             }
         } catch {
-            guard presentErrors else { return }
+            guard presentErrors else {
+                logger
+                    .error("Worktree refresh failed for \(project.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                return
+            }
             presentError(error.localizedDescription)
         }
     }
