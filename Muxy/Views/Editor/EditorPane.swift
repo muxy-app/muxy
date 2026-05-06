@@ -167,7 +167,8 @@ struct EditorPane: View {
                     onOpenInternalLink: { path, fragment in
                         guard let projectID = appState.activeProjectID else { return }
                         appState.openMarkdownLinkTarget(path, projectID: projectID, fragment: fragment)
-                    }
+                    },
+                    onReloadFromDisk: { state.reloadFromDisk() }
                 )
             }
         }
