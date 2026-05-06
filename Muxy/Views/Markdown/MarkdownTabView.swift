@@ -14,6 +14,41 @@ struct MarkdownPreviewScrollReport: Equatable {
     var maxScrollTop: CGFloat { max(0, scrollHeight - clientHeight) }
 }
 
+final class MarkdownPreviewWebView: WKWebView {
+    var onReloadFromDisk: (() -> Void)?
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        for item in menu.items where item.identifier?.rawValue == "WKMenuItemIdentifierReload" {
+            menu.removeItem(item)
+        }
+        let reloadItem = NSMenuItem(
+            title: "Reload",
+            action: #selector(triggerReloadFromDisk),
+            keyEquivalent: "r"
+        )
+        reloadItem.keyEquivalentModifierMask = [.command]
+        reloadItem.target = self
+        menu.insertItem(reloadItem, at: 0)
+        menu.insertItem(NSMenuItem.separator(), at: 1)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "r"
+        {
+            onReloadFromDisk?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    @objc
+    private func triggerReloadFromDisk() {
+        onReloadFromDisk?()
+    }
+}
+
 struct MarkdownWebView: NSViewRepresentable {
     struct ContentUpdateRequest {
         let html: String
@@ -53,6 +88,7 @@ struct MarkdownWebView: NSViewRepresentable {
     var onLayoutChanged: (() -> Void)?
     var onAnchorGeometryChanged: (([MarkdownPreviewAnchorGeometry]) -> Void)?
     var onOpenInternalLink: ((String, String?) -> Void)?
+    var onReloadFromDisk: (() -> Void)?
 
     private var configuration: Configuration {
         Configuration(
@@ -86,7 +122,7 @@ struct MarkdownWebView: NSViewRepresentable {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> MarkdownPreviewWebView {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(
             MarkdownAssetSchemeHandler(),
@@ -102,12 +138,13 @@ struct MarkdownWebView: NSViewRepresentable {
         )
         context.coordinator.installBridge(into: config)
 
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webView = MarkdownPreviewWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.wantsLayer = true
         webView.layer?.backgroundColor = palette.background.cgColor
         webView.setValue(false, forKey: "drawsBackground")
         webView.underPageBackgroundColor = palette.background
+        webView.onReloadFromDisk = onReloadFromDisk
         context.coordinator.configure(with: configuration)
         if scrollSyncEnabled {
             context.coordinator.applyPreferredScroll(
@@ -121,7 +158,8 @@ struct MarkdownWebView: NSViewRepresentable {
         return webView
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
+    func updateNSView(_ webView: MarkdownPreviewWebView, context: Context) {
+        webView.onReloadFromDisk = onReloadFromDisk
         context.coordinator.configure(with: configuration)
         context.coordinator.updateHTML(
             contentUpdateRequest,
@@ -129,8 +167,9 @@ struct MarkdownWebView: NSViewRepresentable {
         )
     }
 
-    static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+    static func dismantleNSView(_ webView: MarkdownPreviewWebView, coordinator: Coordinator) {
         webView.navigationDelegate = nil
+        webView.onReloadFromDisk = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: MarkdownWebBridge.scrollHandlerName)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: MarkdownWebBridge.linkHandlerName)
         webView.configuration.userContentController
