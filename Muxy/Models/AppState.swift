@@ -265,6 +265,38 @@ final class AppState {
         }
     }
 
+    func openMarkdownLinkTarget(_ filePath: String, projectID: UUID, fragment: String?) {
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
+                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                if let editorState = tab.content.editorState {
+                    prepareMarkdownLinkTarget(editorState, fragment: fragment)
+                }
+                return
+            }
+        }
+
+        dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath, suppressInitialFocus: false))
+        if let editorState = editorState(for: filePath, projectID: projectID) {
+            prepareMarkdownLinkTarget(editorState, fragment: fragment)
+        }
+    }
+
+    private func editorState(for filePath: String, projectID: UUID) -> EditorTabState? {
+        for area in allAreas(for: projectID) {
+            if let editorState = area.tabs.compactMap(\.content.editorState).first(where: { $0.filePath == filePath }) {
+                return editorState
+            }
+        }
+        return nil
+    }
+
+    private func prepareMarkdownLinkTarget(_ editorState: EditorTabState, fragment: String?) {
+        guard editorState.isMarkdownFile else { return }
+        editorState.markdownViewMode = .preview
+        editorState.requestMarkdownFragment(fragment)
+    }
+
     private func requestEditorJump(state: EditorTabState, line: Int, column: Int) {
         if state.isMarkdownFile, state.markdownViewMode != .code {
             state.markdownViewMode = .code

@@ -22,36 +22,63 @@ struct MarkdownWebView: NSViewRepresentable {
         let syncScrollRequest: CGFloat?
         let syncScrollRequestVersion: Int
         let filePath: String?
+        let projectPath: String?
+        let fragmentTarget: String?
+        let fragmentRequestVersion: Int
     }
 
     struct Configuration {
         let scrollSyncEnabled: Bool
         let syncScrollRequestVersion: Int
         let syncScrollRequest: CGFloat?
+        let fragmentTarget: String?
+        let fragmentRequestVersion: Int
         let onScrollReport: ((MarkdownPreviewScrollReport) -> Void)?
         let onLayoutChanged: (() -> Void)?
         let onAnchorGeometryChanged: (([MarkdownPreviewAnchorGeometry]) -> Void)?
+        let onOpenInternalLink: ((String, String?) -> Void)?
     }
 
     let html: String
     let content: String
     let filePath: String?
+    let projectPath: String?
     let palette: MarkdownRenderer.Palette
     @Binding var syncScrollRequest: CGFloat?
     let syncScrollRequestVersion: Int
+    let fragmentTarget: String?
+    let fragmentRequestVersion: Int
     var scrollSyncEnabled = true
     var onScrollReport: ((MarkdownPreviewScrollReport) -> Void)?
     var onLayoutChanged: (() -> Void)?
     var onAnchorGeometryChanged: (([MarkdownPreviewAnchorGeometry]) -> Void)?
+    var onOpenInternalLink: ((String, String?) -> Void)?
 
     private var configuration: Configuration {
         Configuration(
             scrollSyncEnabled: scrollSyncEnabled,
             syncScrollRequestVersion: syncScrollRequestVersion,
             syncScrollRequest: syncScrollRequest,
+            fragmentTarget: fragmentTarget,
+            fragmentRequestVersion: fragmentRequestVersion,
             onScrollReport: onScrollReport,
             onLayoutChanged: onLayoutChanged,
-            onAnchorGeometryChanged: onAnchorGeometryChanged
+            onAnchorGeometryChanged: onAnchorGeometryChanged,
+            onOpenInternalLink: onOpenInternalLink
+        )
+    }
+
+    private var contentUpdateRequest: ContentUpdateRequest {
+        ContentUpdateRequest(
+            html: html,
+            content: content,
+            palette: palette,
+            syncScrollRequest: syncScrollRequest,
+            syncScrollRequestVersion: syncScrollRequestVersion,
+            filePath: filePath,
+            projectPath: projectPath,
+            fragmentTarget: fragmentTarget,
+            fragmentRequestVersion: fragmentRequestVersion
         )
     }
 
@@ -90,21 +117,14 @@ struct MarkdownWebView: NSViewRepresentable {
             )
         }
 
-        context.coordinator.loadHTML(html, content: content, palette: palette, filePath: filePath, into: webView)
+        context.coordinator.loadHTML(contentUpdateRequest, into: webView)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.configure(with: configuration)
         context.coordinator.updateHTML(
-            ContentUpdateRequest(
-                html: html,
-                content: content,
-                palette: palette,
-                syncScrollRequest: syncScrollRequest,
-                syncScrollRequestVersion: syncScrollRequestVersion,
-                filePath: filePath
-            ),
+            contentUpdateRequest,
             webView: webView
         )
     }
@@ -112,6 +132,7 @@ struct MarkdownWebView: NSViewRepresentable {
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.navigationDelegate = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: MarkdownWebBridge.scrollHandlerName)
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: MarkdownWebBridge.linkHandlerName)
         webView.configuration.userContentController
             .removeScriptMessageHandler(forName: MarkdownPreviewAnchorGeometryBridge.geometryHandlerName)
         coordinator.removeScrollObserver()
@@ -130,13 +151,18 @@ struct MarkdownWebView: NSViewRepresentable {
         private var activeNavigation: WKNavigation?
         private var loadCount: Int = 0
         private var currentFilePath: String?
+        private var currentProjectPath: String?
         private var lastRenderedContent: String = ""
         private var pendingContent: String?
         private var scrollSyncEnabled = true
         private var lastConfiguredScrollSyncEnabled = true
+        private var pendingFragmentTarget: String?
+        private var pendingFragmentRequestVersion: Int = -1
+        private var lastAppliedFragmentRequestVersion: Int = -1
         private var onScrollReport: ((MarkdownPreviewScrollReport) -> Void)?
         private var onLayoutChanged: (() -> Void)?
         private var onAnchorGeometryChanged: (([MarkdownPreviewAnchorGeometry]) -> Void)?
+        private var onOpenInternalLink: ((String, String?) -> Void)?
         private var isApplyingProgrammaticScroll = false
         private var isNavigationInFlight = false
         private var programmaticScrollSuppressionUntil: Date?
@@ -147,17 +173,27 @@ struct MarkdownWebView: NSViewRepresentable {
             onScrollReport = configuration.onScrollReport
             onLayoutChanged = configuration.onLayoutChanged
             onAnchorGeometryChanged = configuration.onAnchorGeometryChanged
+            onOpenInternalLink = configuration.onOpenInternalLink
         }
 
         func installBridge(into configuration: WKWebViewConfiguration) {
             configuration.userContentController.removeScriptMessageHandler(forName: MarkdownWebBridge.scrollHandlerName)
+            configuration.userContentController.removeScriptMessageHandler(forName: MarkdownWebBridge.linkHandlerName)
             configuration.userContentController.removeScriptMessageHandler(forName: MarkdownPreviewAnchorGeometryBridge.geometryHandlerName)
             configuration.userContentController.removeAllUserScripts()
             configuration.userContentController.add(self, name: MarkdownWebBridge.scrollHandlerName)
+            configuration.userContentController.add(self, name: MarkdownWebBridge.linkHandlerName)
             configuration.userContentController.add(self, name: MarkdownPreviewAnchorGeometryBridge.geometryHandlerName)
             configuration.userContentController.addUserScript(
                 WKUserScript(
                     source: MarkdownWebBridge.scrollObserverScript,
+                    injectionTime: .atDocumentEnd,
+                    forMainFrameOnly: true
+                )
+            )
+            configuration.userContentController.addUserScript(
+                WKUserScript(
+                    source: MarkdownWebBridge.linkObserverScript,
                     injectionTime: .atDocumentEnd,
                     forMainFrameOnly: true
                 )
@@ -176,36 +212,50 @@ struct MarkdownWebView: NSViewRepresentable {
             programmaticScrollSuppressionUntil = nil
         }
 
-        func loadHTML(_ html: String, content: String, palette: MarkdownRenderer.Palette, filePath: String?, into webView: WKWebView) {
-            lastHTML = html
-            currentFilePath = filePath
-            pendingContent = content
-            pendingPalette = palette
+        func loadHTML(_ request: ContentUpdateRequest, into webView: WKWebView) {
+            lastHTML = request.html
+            currentFilePath = request.filePath
+            currentProjectPath = request.projectPath
+            pendingContent = request.content
+            pendingPalette = request.palette
+            pendingFragmentTarget = request.fragmentTarget
+            pendingFragmentRequestVersion = request.fragmentTarget == nil ? -1 : request.fragmentRequestVersion
             lastAppliedPalette = nil
             lastRenderedContent = ""
             lastAppliedSyncRequestVersion = -1
+            lastAppliedFragmentRequestVersion = -1
             lastReportedScrollTop = -1
             loadCount += 1
             isNavigationInFlight = true
             markdownWebLogger.debug(
-                "Markdown web load seq=\(self.loadCount) path=\(filePath ?? "<nil>", privacy: .public) htmlLength=\(html.utf8.count)"
+                """
+                Markdown web load seq=\(self.loadCount)
+                path=\(request.filePath ?? "<nil>", privacy: .public)
+                htmlLength=\(request.html.utf8.count)
+                """
             )
-            activeNavigation = webView.loadHTMLString(html, baseURL: nil)
+            activeNavigation = webView.loadHTMLString(request.html, baseURL: nil)
         }
 
         func updateHTML(_ request: ContentUpdateRequest, webView: WKWebView) {
             let syncWasJustEnabled = scrollSyncEnabled && !lastConfiguredScrollSyncEnabled
             lastConfiguredScrollSyncEnabled = scrollSyncEnabled
             currentFilePath = request.filePath
+            currentProjectPath = request.projectPath
+            let fragmentRequestIsNew = request.fragmentTarget != nil
+                && request.fragmentRequestVersion != lastAppliedFragmentRequestVersion
             if request.html != lastHTML {
                 lastHTML = request.html
                 pendingContent = request.content
                 pendingPalette = request.palette
+                pendingFragmentTarget = request.fragmentTarget
+                pendingFragmentRequestVersion = request.fragmentTarget == nil ? -1 : request.fragmentRequestVersion
                 lastAppliedPalette = nil
                 lastRenderedContent = ""
                 pendingSyncScrollTop = scrollSyncEnabled ? request.syncScrollRequest : nil
                 pendingSyncRequestVersion = scrollSyncEnabled ? request.syncScrollRequestVersion : -1
                 lastAppliedSyncRequestVersion = -1
+                lastAppliedFragmentRequestVersion = -1
                 loadCount += 1
                 isNavigationInFlight = true
                 markdownWebLogger.debug(
@@ -221,6 +271,10 @@ struct MarkdownWebView: NSViewRepresentable {
             if isNavigationInFlight {
                 pendingContent = request.content
                 pendingPalette = request.palette
+                if fragmentRequestIsNew {
+                    pendingFragmentTarget = request.fragmentTarget
+                    pendingFragmentRequestVersion = request.fragmentRequestVersion
+                }
                 if scrollSyncEnabled {
                     pendingSyncScrollTop = request.syncScrollRequest
                     pendingSyncRequestVersion = request.syncScrollRequestVersion
@@ -231,6 +285,10 @@ struct MarkdownWebView: NSViewRepresentable {
             applyPaletteIfNeeded(request.palette, to: webView)
 
             if request.content != lastRenderedContent {
+                if fragmentRequestIsNew {
+                    pendingFragmentTarget = request.fragmentTarget
+                    pendingFragmentRequestVersion = request.fragmentRequestVersion
+                }
                 applyContentUpdate(
                     request.content,
                     to: webView,
@@ -240,12 +298,20 @@ struct MarkdownWebView: NSViewRepresentable {
                     pendingSyncScrollTop = request.syncScrollRequest
                     pendingSyncRequestVersion = request.syncScrollRequestVersion
                 }
+                return
             } else if scrollSyncEnabled,
                       syncWasJustEnabled || request.syncScrollRequestVersion != lastAppliedSyncRequestVersion
             {
                 applyPreferredScroll(
                     requestVersion: request.syncScrollRequestVersion,
                     scrollTop: request.syncScrollRequest,
+                    to: webView
+                )
+            }
+            if fragmentRequestIsNew {
+                applyFragmentTarget(
+                    request.fragmentTarget,
+                    requestVersion: request.fragmentRequestVersion,
                     to: webView
                 )
             }
@@ -272,11 +338,9 @@ struct MarkdownWebView: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
         ) {
-            if navigationAction.navigationType == .linkActivated,
-               let url = navigationAction.request.url
-            {
-                if let scheme = url.scheme?.lowercased(), ["http", "https", "mailto"].contains(scheme) {
-                    NSWorkspace.shared.open(url)
+            if navigationAction.navigationType == .linkActivated {
+                if let url = navigationAction.request.url {
+                    handleLinkActivation(url.absoluteString, webView: webView)
                 }
                 decisionHandler(.cancel)
                 return
@@ -298,6 +362,28 @@ struct MarkdownWebView: NSViewRepresentable {
             }
 
             decisionHandler(.cancel)
+        }
+
+        private func handleLinkActivation(_ href: String, webView: WKWebView?) {
+            switch MarkdownLinkResolver.resolve(
+                href: href,
+                currentFilePath: currentFilePath,
+                projectPath: currentProjectPath
+            ) {
+            case let .external(url):
+                NSWorkspace.shared.open(url)
+            case let .internalFile(path, fragment):
+                onOpenInternalLink?(path, fragment)
+            case let .sameDocumentFragment(fragment):
+                guard let webView else { return }
+                applyFragmentTarget(
+                    fragment,
+                    requestVersion: lastAppliedFragmentRequestVersion + 1,
+                    to: webView
+                )
+            case .unsupported:
+                markdownWebLogger.debug("Ignored markdown link href=\(href, privacy: .private)")
+            }
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -327,6 +413,7 @@ struct MarkdownWebView: NSViewRepresentable {
                 guard let self else { return }
                 self.lastRenderedContent = content
                 self.collectJavaScriptErrors(from: webView)
+                self.applyPendingFragmentTargetIfNeeded(to: webView)
                 if self.scrollSyncEnabled,
                    let pendingSyncScrollTop = self.pendingSyncScrollTop,
                    self.pendingSyncRequestVersion >= 0
@@ -339,6 +426,38 @@ struct MarkdownWebView: NSViewRepresentable {
                         scrollTop: pendingSyncScrollTop,
                         to: webView
                     )
+                }
+            }
+        }
+
+        private func applyPendingFragmentTargetIfNeeded(to webView: WKWebView) {
+            guard let pendingFragmentTarget, pendingFragmentRequestVersion >= 0 else { return }
+            let pendingRequestVersion = pendingFragmentRequestVersion
+            self.pendingFragmentTarget = nil
+            pendingFragmentRequestVersion = -1
+            applyFragmentTarget(
+                pendingFragmentTarget,
+                requestVersion: pendingRequestVersion,
+                to: webView
+            )
+        }
+
+        private func applyFragmentTarget(_ fragment: String?, requestVersion: Int, to webView: WKWebView) {
+            guard let fragment, !fragment.isEmpty else { return }
+            guard requestVersion != lastAppliedFragmentRequestVersion else { return }
+
+            let script = MarkdownWebBridge.scrollToFragmentScript(fragment)
+            webView.evaluateJavaScript(script) { [weak self] result, error in
+                if let error {
+                    markdownWebLogger.error(
+                        "Failed scrolling markdown fragment: \(error.localizedDescription, privacy: .public)"
+                    )
+                    return
+                }
+
+                self?.lastAppliedFragmentRequestVersion = requestVersion
+                if let didScroll = result as? Bool, !didScroll {
+                    markdownWebLogger.debug("Markdown fragment target not found fragment=\(fragment, privacy: .private)")
                 }
             }
         }
@@ -368,15 +487,18 @@ struct MarkdownWebView: NSViewRepresentable {
                     to: webView,
                     reason: "swift-didFinish"
                 )
-            } else if let pendingSyncScrollTop {
-                let pendingRequestVersion = pendingSyncRequestVersion
-                self.pendingSyncScrollTop = nil
-                pendingSyncRequestVersion = -1
-                applyPreferredScroll(
-                    requestVersion: pendingRequestVersion,
-                    scrollTop: pendingSyncScrollTop,
-                    to: webView
-                )
+            } else {
+                applyPendingFragmentTargetIfNeeded(to: webView)
+                if let pendingSyncScrollTop {
+                    let pendingRequestVersion = pendingSyncRequestVersion
+                    self.pendingSyncScrollTop = nil
+                    pendingSyncRequestVersion = -1
+                    applyPreferredScroll(
+                        requestVersion: pendingRequestVersion,
+                        scrollTop: pendingSyncScrollTop,
+                        to: webView
+                    )
+                }
             }
 
             webView.evaluateJavaScript(
@@ -419,6 +541,16 @@ struct MarkdownWebView: NSViewRepresentable {
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            if message.name == MarkdownWebBridge.linkHandlerName {
+                guard let payload = message.body as? [String: Any],
+                      let href = payload["href"] as? String
+                else { return }
+                DispatchQueue.main.async {
+                    self.handleLinkActivation(href, webView: nil)
+                }
+                return
+            }
+
             if message.name == MarkdownPreviewAnchorGeometryBridge.geometryHandlerName {
                 guard !isNavigationInFlight else { return }
                 handleAnchorGeometryMessage(message.body)

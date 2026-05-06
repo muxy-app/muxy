@@ -4,6 +4,7 @@ struct EditorPane: View {
     @Bindable var state: EditorTabState
     let focused: Bool
     let onFocus: () -> Void
+    @Environment(AppState.self) private var appState
     @Environment(GhosttyService.self) private var ghostty
     @State private var editorSettings = EditorSettings.shared
     @FocusState private var markdownPreviewFocused: Bool
@@ -141,9 +142,12 @@ struct EditorPane: View {
                     html: renderedMarkdownHTML,
                     content: renderedMarkdownContent,
                     filePath: state.filePath,
+                    projectPath: state.projectPath,
                     palette: markdownPalette,
                     syncScrollRequest: $state.markdownPreviewScrollRequest,
                     syncScrollRequestVersion: state.markdownPreviewScrollRequestVersion,
+                    fragmentTarget: state.markdownFragmentTarget,
+                    fragmentRequestVersion: state.markdownFragmentRequestVersion,
                     scrollSyncEnabled: usesMarkdownAnchorSync,
                     onScrollReport: { report in
                         state.markdownPreviewMaxScrollTop = report.maxScrollTop
@@ -159,6 +163,10 @@ struct EditorPane: View {
                     },
                     onAnchorGeometryChanged: { geometries in
                         state.markdownPreviewGeometries = geometries
+                    },
+                    onOpenInternalLink: { path, fragment in
+                        guard let projectID = appState.activeProjectID else { return }
+                        appState.openMarkdownLinkTarget(path, projectID: projectID, fragment: fragment)
                     }
                 )
             }

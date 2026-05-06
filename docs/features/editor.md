@@ -40,7 +40,7 @@ flowchart TB
   Preview --> Edit
 ```
 
-Preview features: GitHub-flavoured Markdown, Mermaid diagrams, local + remote images, clickable heading anchors.
+Preview features: GitHub-flavoured Markdown, Mermaid diagrams, local + remote images, clickable heading anchors, internal file links that open in markdown preview tabs, and external links that open in the browser.
 
 Zoom: `⌘=`, `⌘-`, `⌘0`.
 

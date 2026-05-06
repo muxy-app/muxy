@@ -495,6 +495,32 @@
         });
     }
 
+    function slugifyHeading(value) {
+        return String(value || '')
+            .trim()
+            .toLowerCase()
+            .replace(/[^\w\s-]/g, '')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+    }
+
+    function assignHeadingIDs(markdownRoot) {
+        if (!markdownRoot) {
+            return;
+        }
+        var counts = Object.create(null);
+        markdownRoot.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(function (heading) {
+            if (heading.id) {
+                return;
+            }
+            var base = slugifyHeading(heading.textContent) || 'heading';
+            var count = counts[base] || 0;
+            counts[base] = count + 1;
+            heading.id = count === 0 ? base : base + '-' + String(count);
+        });
+    }
+
     function encodeRemoteURL(rawUrl) {
         try {
             var binary = '';
@@ -695,6 +721,7 @@
         }
         markdownRoot.replaceChildren(fragment);
 
+        assignHeadingIDs(markdownRoot);
         assignAnchorMetadata(markdownRoot, anchors);
         initializeMermaidControls();
 

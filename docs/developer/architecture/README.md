@@ -41,6 +41,7 @@ flowchart TB
 | [State Management](state-management.md) | AppState, reducer, persistence, navigation history |
 | [Ghostty Integration](ghostty-integration.md) | GhosttyService, surface lifecycle, runtime events |
 | [Editor Geometry](editor-geometry.md) | HeightMap + scroll-anchor reflow |
+| [Markdown Preview](markdown-preview.md) | WKWebView rendering, link routing, image schemes |
 | [File Tree](file-tree.md) | Lazy tree, git-status colors, file ops |
 | [VCS](vcs.md) | Source Control tab, PR flow |
 | [Notifications](notifications.md) | Sources, routing, click-to-navigate |
