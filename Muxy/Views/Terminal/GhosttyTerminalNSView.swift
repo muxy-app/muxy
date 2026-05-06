@@ -17,6 +17,7 @@ final class GhosttyTerminalNSView: NSView {
     var onSearchEnd: (() -> Void)?
     var onSearchTotal: ((Int?) -> Void)?
     var onSearchSelected: ((Int?) -> Void)?
+    var onProgressReport: ((TerminalProgress?) -> Void)?
     var onCmdClickFile: ((String) -> Void)?
     var resolveCmdHoverFile: ((String) -> Bool)?
     var onOpenURL: ((URL) -> Bool)?
@@ -182,6 +183,7 @@ final class GhosttyTerminalNSView: NSView {
         onSearchEnd = nil
         onSearchTotal = nil
         onSearchSelected = nil
+        onProgressReport = nil
         if let observer = screenChangeObserver {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil

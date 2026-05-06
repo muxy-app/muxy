@@ -47,6 +47,7 @@ struct MuxyApp: App {
                     NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore
                     NotificationStore.shared.markAllAsRead()
+                    TerminalProgressStore.shared.appState = appState
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
                     }

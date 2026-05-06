@@ -601,6 +601,7 @@ final class AppState {
 
         for paneID in effects.paneIDsToRemove {
             terminalViews.removeView(for: paneID)
+            TerminalProgressStore.shared.resetPane(paneID)
         }
 
         if !effects.projectIDsToRemove.isEmpty {
@@ -612,6 +613,10 @@ final class AppState {
 
         if let activeTabID = NotificationNavigator.activeTabID(appState: self) {
             NotificationStore.shared.markAsRead(tabID: activeTabID)
+        }
+
+        if let activePaneID = NotificationNavigator.activePaneID(appState: self) {
+            TerminalProgressStore.shared.clearCompletion(for: activePaneID)
         }
 
         saveWorkspaces()

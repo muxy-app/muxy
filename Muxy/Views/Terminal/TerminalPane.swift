@@ -159,6 +159,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
         configureSearchCallbacks(view)
         configureFileOpenCallback(view)
+        configureProgressCallback(view)
         context.coordinator.wasFocused = focused
         if focused, !overlayActive {
             view.notifySurfaceFocused()
@@ -196,6 +197,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
         configureSearchCallbacks(nsView)
         configureFileOpenCallback(nsView)
+        configureProgressCallback(nsView)
         let wasFocused = context.coordinator.wasFocused
         let wasOverlayActive = context.coordinator.wasOverlayActive
         context.coordinator.wasFocused = focused
@@ -284,6 +286,16 @@ struct TerminalBridge: NSViewRepresentable {
         guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory) else { return nil }
         guard !isDirectory.boolValue else { return nil }
         return candidate
+    }
+
+    private func configureProgressCallback(_ view: GhosttyTerminalNSView) {
+        let paneID = state.id
+        let projectID = worktreeKey?.projectID
+        view.onProgressReport = { progress in
+            Task { @MainActor in
+                TerminalProgressStore.shared.setProgress(progress, for: paneID, projectID: projectID)
+            }
+        }
     }
 
     private func configureSearchCallbacks(_ view: GhosttyTerminalNSView) {

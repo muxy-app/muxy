@@ -201,6 +201,7 @@ struct ExpandedProjectRow: View {
     private var projectIcon: some View {
         let logo = resolvedLogo
         let unread = NotificationStore.shared.unreadCount(for: project.id)
+        let hasCompletion = TerminalProgressStore.shared.hasCompletionPending(for: project.id)
         return ZStack {
             RoundedRectangle(cornerRadius: 6)
                 .fill(iconBackground(hasLogo: logo != nil))
@@ -222,6 +223,11 @@ struct ExpandedProjectRow: View {
             if unread > 0 {
                 NotificationBadge(count: unread)
                     .offset(x: 4, y: -4)
+            } else if hasCompletion {
+                Circle()
+                    .fill(MuxyTheme.accent)
+                    .frame(width: 8, height: 8)
+                    .offset(x: 2, y: -2)
             }
         }
     }
