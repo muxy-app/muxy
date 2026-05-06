@@ -337,7 +337,7 @@ private struct TabCell: View {
     @State private var completionFlashOn = false
     @State private var flashTask: Task<Void, any Error>?
     @FocusState private var renameFieldFocused: Bool
-    @Bindable private var progressStore = TerminalProgressStore.shared
+    private let progressStore = TerminalProgressStore.shared
 
     private static let springLoadDelay: Duration = .milliseconds(250)
 
@@ -583,6 +583,9 @@ private struct TabCell: View {
         flashTask?.cancel()
         withAnimation(.easeIn(duration: 0.15)) {
             completionFlashOn = true
+        }
+        if active, let paneID = tab.paneID {
+            progressStore.clearCompletion(for: paneID)
         }
         flashTask = Task { @MainActor in
             try await Task.sleep(for: .milliseconds(450))

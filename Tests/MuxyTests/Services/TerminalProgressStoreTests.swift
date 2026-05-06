@@ -90,7 +90,6 @@ struct TerminalProgressStoreTests {
     func scopesByProject() {
         let store = TerminalProgressStore()
         let paneA = UUID()
-        let paneB = UUID()
         let projectA = UUID()
         let projectB = UUID()
 
@@ -99,7 +98,5 @@ struct TerminalProgressStoreTests {
 
         #expect(store.hasCompletionPending(for: projectA))
         #expect(!store.hasCompletionPending(for: projectB))
-
-        _ = paneB
     }
 }

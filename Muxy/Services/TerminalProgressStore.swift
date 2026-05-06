@@ -11,10 +11,10 @@ final class TerminalProgressStore {
     private(set) var progresses: [UUID: TerminalProgress] = [:]
     private(set) var completionPending: Set<UUID> = []
     private var paneToProject: [UUID: UUID] = [:]
-    private(set) var lastCompletionAt: [UUID: Date] = [:]
+    nonisolated(unsafe) private var didBecomeActiveObserver: NSObjectProtocol?
 
     init() {
-        NotificationCenter.default.addObserver(
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
@@ -22,6 +22,12 @@ final class TerminalProgressStore {
             Task { @MainActor in
                 self?.clearActivePaneCompletion()
             }
+        }
+    }
+
+    deinit {
+        if let didBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(didBecomeActiveObserver)
         }
     }
 
@@ -45,19 +51,16 @@ final class TerminalProgressStore {
         progresses.removeValue(forKey: paneID)
         guard existing != nil else { return }
         completionPending.insert(paneID)
-        lastCompletionAt[paneID] = Date()
     }
 
     func clearCompletion(for paneID: UUID) {
         completionPending.remove(paneID)
-        lastCompletionAt.removeValue(forKey: paneID)
     }
 
     func resetPane(_ paneID: UUID) {
         progresses.removeValue(forKey: paneID)
         completionPending.remove(paneID)
         paneToProject.removeValue(forKey: paneID)
-        lastCompletionAt.removeValue(forKey: paneID)
     }
 
     func progress(for paneID: UUID) -> TerminalProgress? {
