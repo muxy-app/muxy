@@ -65,6 +65,8 @@ struct MainWindow: View {
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
     private let trafficLightWidth: CGFloat = 75
 
+    // MARK: View body
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
@@ -323,6 +325,8 @@ struct MainWindow: View {
         }
     }
 
+    // MARK: Top bar
+
     private var navigationArrows: some View {
         HStack(spacing: 2) {
             NavigationArrowButton(
@@ -542,6 +546,8 @@ struct MainWindow: View {
         return OpenerPreferences.recents.compactMap { allByID[$0.key] }
     }
 
+    // MARK: Opener (worktree switcher)
+
     private func handleOpenerSelection(_ item: OpenerItem) {
         OpenerPreferences.remember(.init(key: item.id, category: item.category))
         switch item {
@@ -579,6 +585,8 @@ struct MainWindow: View {
             appState.dispatch(.selectTab(projectID: tab.projectID, areaID: tab.areaID, tabID: tab.tabID))
         }
     }
+
+    // MARK: Toast & sidebar layout
 
     private var toastPosition: ToastPosition {
         ToastPosition(rawValue: toastPositionRaw) ?? .topCenter
@@ -681,6 +689,8 @@ struct MainWindow: View {
             .sorted { $0.worktreeID.uuidString < $1.worktreeID.uuidString }
     }
 
+    // MARK: Shortcut handling
+
     private func handleShortcutAction(_ action: ShortcutAction) -> Bool {
         shortcutDispatcher.perform(action, activeProject: activeProject) { project in
             openVCS(for: project)
@@ -731,6 +741,8 @@ struct MainWindow: View {
         else { return nil }
         return fileTreeStates[key]
     }
+
+    // MARK: VCS & file-tree side panels
 
     private func ensureFileTreeState(for project: Project) {
         guard let key = appState.activeWorktreeKey(for: project.id) else { return }
@@ -873,6 +885,8 @@ struct MainWindow: View {
         let worktreeID = appState.activeProjectID.flatMap { appState.activeWorktreeID[$0] }?.uuidString ?? ""
         return "\(projectID):\(worktreeID)"
     }
+
+    // MARK: Close confirmations & alerts
 
     private func presentCloseConfirmation(_ kind: CloseConfirmationKind) {
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow,

@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "refactor": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/refactor/SKILL.md",
+      "computedHash": "87789a786b96f99ba0680e89345a975106e10e7db1071c7cdc2e76d507c449d6"
+    },
     "swiftui-expert-skill": {
       "source": "avdlee/swiftui-agent-skill",
       "sourceType": "github",

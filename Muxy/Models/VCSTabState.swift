@@ -190,6 +190,8 @@ final class VCSTabState {
     private(set) var hasCompletedInitialLoad = false
     @ObservationIgnored private static let commitsPerPage = 100
 
+    // MARK: Lifecycle
+
     init(projectPath: String) {
         self.projectPath = projectPath
         pullRequestAutoSyncMinutes = VCSPersistedSettings.loadAutoSyncMinutes(repoPath: projectPath)
@@ -226,6 +228,8 @@ final class VCSTabState {
             NotificationCenter.default.removeObserver(remoteChangeObserver)
         }
     }
+
+    // MARK: Refresh & watching
 
     private func startWatching() {
         let gitPath = (projectPath as NSString).appendingPathComponent(".git")
@@ -403,6 +407,8 @@ final class VCSTabState {
             || old.deletions != new.deletions
     }
 
+    // MARK: File expansion
+
     func toggleExpanded(filePath: String) {
         if expandedFilePaths.contains(filePath) {
             expandedFilePaths.remove(filePath)
@@ -500,6 +506,8 @@ final class VCSTabState {
         return FileStats(additions: file.additions, deletions: file.deletions, binary: file.isBinary)
     }
 
+    // MARK: Branches
+
     func loadBranches() {
         loadBranchesTask?.cancel()
         isLoadingBranches = true
@@ -563,6 +571,8 @@ final class VCSTabState {
         }
     }
 
+    // MARK: Staging
+
     func stageFile(_ path: String) {
         performGitOperation {
             try await self.git.stageFiles(repoPath: self.projectPath, paths: [path])
@@ -604,6 +614,8 @@ final class VCSTabState {
             try await self.git.discardAll(repoPath: self.projectPath)
         }
     }
+
+    // MARK: Commit, push, pull
 
     func commit() {
         let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -687,6 +699,8 @@ final class VCSTabState {
             }
         }
     }
+
+    // MARK: History
 
     func loadCommits() {
         commitLogTask?.cancel()
@@ -807,6 +821,8 @@ final class VCSTabState {
         }
     }
 
+    // MARK: Helpers
+
     private func performGitOperation(_ operation: @escaping () async throws -> Void) {
         Task { [weak self] in
             guard let self else { return }
@@ -820,6 +836,8 @@ final class VCSTabState {
             }
         }
     }
+
+    // MARK: Pull requests
 
     private func fetchPRInfo(branch: String, headSha: String?, forceFresh: Bool) {
         prInfoTask?.cancel()
@@ -1092,6 +1110,8 @@ final class VCSTabState {
         (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
 
+    // MARK: Diff loading
+
     private func diffHints(for filePath: String) -> GitRepositoryService.DiffHints {
         guard let file = files.first(where: { $0.path == filePath }) else {
             return .unknown
@@ -1208,6 +1228,8 @@ final class VCSTabState {
             }
         }
     }
+
+    // MARK: Section visibility & collapse
 
     func setChangesVisible(_ visible: Bool) {
         guard changesVisible != visible else { return }

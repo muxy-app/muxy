@@ -65,6 +65,8 @@ final class GhosttyTerminalNSView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    // MARK: Accessibility & selection
+
     override func accessibilitySelectedText() -> String? {
         readSelectionText()
     }
@@ -86,6 +88,8 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private var pendingSurfaceCreation = false
+
+    // MARK: Surface lifecycle
 
     func createSurface() {
         guard surface == nil, let app = GhosttyService.shared.app else { return }
@@ -388,6 +392,8 @@ final class GhosttyTerminalNSView: NSView {
 
     private var currentTrackingArea: NSTrackingArea?
 
+    // MARK: Keyboard
+
     private func setupTrackingArea() {
         if let existing = currentTrackingArea { removeTrackingArea(existing) }
         let area = NSTrackingArea(
@@ -530,6 +536,8 @@ final class GhosttyTerminalNSView: NSView {
         }
         return false
     }
+
+    // MARK: Mouse & hover
 
     private func mousePoint(from event: NSEvent) -> NSPoint {
         let local = convert(event.locationInWindow, from: nil)
@@ -797,6 +805,8 @@ final class GhosttyTerminalNSView: NSView {
         }
     }
 
+    // MARK: Scroll & input encoding
+
     override func scrollWheel(with event: NSEvent) {
         guard let surface else { return }
         var mods: ghostty_input_scroll_mods_t = 0
@@ -949,6 +959,8 @@ final class GhosttyTerminalNSView: NSView {
         return scalar.value
     }
 
+    // MARK: Search
+
     func sendSearchQuery(_ needle: String) {
         guard let surface else { return }
         let action = "search:\(needle)"
@@ -972,6 +984,8 @@ final class GhosttyTerminalNSView: NSView {
         let action = "start_search"
         ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
     }
+
+    // MARK: Text & key injection
 
     func sendText(_ text: String) {
         guard let surface else { return }

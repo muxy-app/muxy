@@ -97,6 +97,8 @@ final class AppState {
         self.workspacePersistence = workspacePersistence
     }
 
+    // MARK: Persistence & restoration
+
     func restoreSelection(projects: [Project], worktrees: [UUID: [Worktree]]) {
         let snapshots: [WorkspaceSnapshot]
         do {
@@ -168,6 +170,8 @@ final class AppState {
         return focusedAreaID[key]
     }
 
+    // MARK: Project & worktree selection
+
     func selectProject(_ project: Project, worktree: Worktree) {
         dispatch(.selectProject(
             projectID: project.id,
@@ -197,6 +201,8 @@ final class AppState {
         return workspaceRoots[key]?.allAreas() ?? []
     }
 
+    // MARK: Splits & areas
+
     func splitFocusedArea(direction: SplitDirection, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
         dispatch(.splitArea(.init(
@@ -210,6 +216,8 @@ final class AppState {
     func closeArea(_ areaID: UUID, projectID: UUID) {
         dispatch(.closeArea(projectID: projectID, areaID: areaID))
     }
+
+    // MARK: Tab creation & file open
 
     func createTab(projectID: UUID) {
         dispatch(.createTab(projectID: projectID, areaID: nil))
@@ -275,21 +283,7 @@ final class AppState {
     }
 
     func handleFileMoved(from oldPath: String, to newPath: String) {
-        guard oldPath != newPath else { return }
-        let oldPrefix = oldPath + "/"
-        for (_, root) in workspaceRoots {
-            for area in root.allAreas() {
-                for tab in area.tabs {
-                    guard let editorState = tab.content.editorState else { continue }
-                    let currentPath = editorState.filePath
-                    if currentPath == oldPath {
-                        editorState.updateFilePath(newPath)
-                    } else if currentPath.hasPrefix(oldPrefix) {
-                        editorState.updateFilePath(newPath + "/" + String(currentPath.dropFirst(oldPrefix.count)))
-                    }
-                }
-            }
-        }
+        EditorTabPathMigrator.applyFileMove(from: oldPath, to: newPath, in: workspaceRoots)
     }
 
     func openDiffViewer(vcs: VCSTabState, filePath: String, isStaged: Bool, projectID: UUID) {
@@ -318,6 +312,8 @@ final class AppState {
         }
         dispatch(.createExternalEditorTab(projectID: projectID, areaID: nil, filePath: filePath, command: command))
     }
+
+    // MARK: Tab close & confirmation
 
     func closeTab(_ tabID: UUID, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
@@ -404,6 +400,8 @@ final class AppState {
     func cancelCloseLastTab() {
         pendingLastTabClose = nil
     }
+
+    // MARK: Layouts
 
     func availableLayouts(for projectID: UUID) -> [LayoutDescriptor] {
         guard let path = activeWorktreePath(for: projectID) else { return [] }
@@ -498,6 +496,8 @@ final class AppState {
         return terminalViews.needsConfirmQuit(for: paneID)
     }
 
+    // MARK: Tab selection
+
     func selectTabByIndex(_ index: Int, projectID: UUID) {
         dispatch(.selectTabByIndex(projectID: projectID, areaID: nil, index: index))
     }
@@ -521,6 +521,8 @@ final class AppState {
         area.togglePin(tabID)
         saveWorkspaces()
     }
+
+    // MARK: Dispatch
 
     func dispatch(_ action: Action) {
         if case let .focusArea(projectID, areaID) = action,
@@ -585,6 +587,8 @@ final class AppState {
         saveWorkspaces()
         saveSelection()
     }
+
+    // MARK: Navigation history
 
     func goBack() {
         step(delta: -1)
@@ -704,6 +708,8 @@ final class AppState {
         return area.tabs.contains(where: { $0.id == tabID })
     }
 
+    // MARK: Focus & pane navigation
+
     func focusArea(_ areaID: UUID, projectID: UUID) {
         dispatch(.focusArea(projectID: projectID, areaID: areaID))
     }
@@ -723,6 +729,8 @@ final class AppState {
     func focusPaneDown(projectID: UUID) {
         dispatch(.focusPaneDown(projectID: projectID))
     }
+
+    // MARK: Project lifecycle
 
     func selectProjectByIndex(_ index: Int, projects: [Project], worktrees: [UUID: [Worktree]]) {
         guard index >= 0, index < projects.count else { return }
