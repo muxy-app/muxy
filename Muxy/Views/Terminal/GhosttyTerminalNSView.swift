@@ -808,7 +808,9 @@ final class GhosttyTerminalNSView: NSView {
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = action
 
-        let normalized = KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
+        let normalized = event.type == .keyDown || event.type == .keyUp
+            ? KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
+            : KeyCombo.normalized(key: "", keyCode: event.keyCode)
         if let mappedCode = KeyCombo.keyCode(for: normalized) {
             keyEvent.keycode = UInt32(mappedCode)
         } else {
@@ -933,6 +935,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func unshiftedCodepoint(from event: NSEvent) -> UInt32 {
+        guard event.type == .keyDown || event.type == .keyUp else { return 0 }
         let normalized = KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
         if let scalar = normalized.unicodeScalars.first, normalized.unicodeScalars.count == 1 {
             return scalar.value

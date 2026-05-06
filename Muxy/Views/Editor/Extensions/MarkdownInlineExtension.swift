@@ -23,7 +23,6 @@ final class MarkdownInlineExtension: EditorExtension {
         let localEnd = min(lineRange.upperBound - viewportStart, context.viewport.viewportLineCount)
         guard localStart < localEnd, localStart < context.lineStartOffsets.count else { return }
 
-        let baseFont = context.editorSettings.resolvedFont
         let charStart = context.lineStartOffsets[localStart]
         let charEnd: Int = localEnd < context.lineStartOffsets.count
             ? context.lineStartOffsets[localEnd]
@@ -33,8 +32,6 @@ final class MarkdownInlineExtension: EditorExtension {
         let editedRange = NSRange(location: charStart, length: charEnd - charStart)
         context.layoutManager.removeTemporaryAttribute(.strikethroughStyle, forCharacterRange: editedRange)
 
-        storage.beginEditing()
-        storage.addAttribute(.font, value: baseFont, range: editedRange)
         for localIndex in localStart ..< localEnd {
             let globalLine = viewportStart + localIndex
             guard globalLine < context.backingStore.lineCount else { break }
@@ -55,9 +52,6 @@ final class MarkdownInlineExtension: EditorExtension {
                 let length = decoration.range.length
                 guard location >= 0, length > 0, location + length <= storageLength else { continue }
                 let nsRange = NSRange(location: location, length: length)
-                if let font = MarkdownInlineStyle.font(for: decoration.kind, baseFont: baseFont) {
-                    storage.addAttribute(.font, value: font, range: nsRange)
-                }
                 if let color = MarkdownInlineStyle.foregroundColor(for: decoration.kind) {
                     context.layoutManager.addTemporaryAttribute(
                         .foregroundColor,
@@ -74,6 +68,5 @@ final class MarkdownInlineExtension: EditorExtension {
                 }
             }
         }
-        storage.endEditing()
     }
 }

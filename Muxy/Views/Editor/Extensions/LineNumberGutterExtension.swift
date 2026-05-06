@@ -46,6 +46,10 @@ final class LineNumberGutterExtension: EditorExtension {
         applyMetrics(context: context)
     }
 
+    func geometryDidChange(context: EditorRenderContext) {
+        applyMetrics(context: context)
+    }
+
     private func ensureInstalled(context: EditorRenderContext) {
         guard gutter == nil else { return }
         installGutter(context: context)

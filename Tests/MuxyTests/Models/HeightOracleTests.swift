@@ -12,15 +12,6 @@ struct HeightOracleTests {
         oracle.lineWrapping = false
         #expect(oracle.heightForLine(charCount: 0) == 20)
         #expect(oracle.heightForLine(charCount: 5_000) == 20)
-        #expect(oracle.heightForGap(charCount: 0, logicalLineCount: 10) == 200)
-        #expect(oracle.heightForGap(charCount: 100_000, logicalLineCount: 10) == 200)
-    }
-
-    @Test("non-wrapping gap with zero lines is zero")
-    func nonWrappingEmptyGap() {
-        let oracle = HeightOracle()
-        oracle.lineWrapping = false
-        #expect(oracle.heightForGap(charCount: 0, logicalLineCount: 0) == 0)
     }
 
     @Test("wrapping short line returns single row height")
@@ -46,19 +37,6 @@ struct HeightOracleTests {
         let height500 = oracle.heightForLine(charCount: 500)
         #expect(height120 > 16)
         #expect(height500 > height120)
-    }
-
-    @Test("wrapping gap scales with total characters across lines")
-    func wrappingGapScalesWithChars() {
-        let oracle = HeightOracle()
-        oracle.updateLineHeight(16)
-        oracle.updateCharWidth(8)
-        oracle.updateLineLength(containerWidth: 240)
-        oracle.lineWrapping = true
-        let denseGap = oracle.heightForGap(charCount: 10_000, logicalLineCount: 100)
-        let sparseGap = oracle.heightForGap(charCount: 1_000, logicalLineCount: 100)
-        #expect(denseGap > sparseGap)
-        #expect(sparseGap >= 100 * 16)
     }
 
     @Test("updateLineLength clamps to reasonable minimum")

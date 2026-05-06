@@ -32,20 +32,8 @@ final class HeightOracle {
         return CGFloat(visualRows) * lineHeight
     }
 
-    func heightForGap(charCount: Int, logicalLineCount: Int) -> CGFloat {
-        guard logicalLineCount > 0 else { return 0 }
-        guard lineWrapping else { return CGFloat(logicalLineCount) * lineHeight }
-        let lineCountValue = CGFloat(logicalLineCount)
-        let chars = CGFloat(max(0, charCount))
-        let baseLines = lineCountValue * lineLength * 0.5
-        let extraRows = max(0, ceil((chars - baseLines) / lineLength))
-        let totalRows = lineCountValue + extraRows
-        return totalRows * lineHeight
-    }
-
     private func visualRowsForLine(charCount: Int) -> Int {
         let chars = CGFloat(max(0, charCount))
-        let extra = ceil((chars - lineLength) / max(1, lineLength - 5))
-        return 1 + max(0, Int(extra))
+        return max(1, Int(ceil(chars / max(1, lineLength))))
     }
 }

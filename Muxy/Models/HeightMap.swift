@@ -4,7 +4,7 @@ import Foundation
 final class HeightMap {
     enum BlockKind: Equatable {
         case measured(lineHeights: [CGFloat], heightPrefix: [CGFloat])
-        case estimated(perLineCharCounts: [Int], charPrefix: [Int])
+        case estimated(perLineCharCounts: [Int], heightPrefix: [CGFloat])
     }
 
     struct Block: Equatable {
@@ -43,13 +43,13 @@ final class HeightMap {
     }
 
     private func makeEstimatedBlock(perLineCharCounts: [Int]) -> Block {
-        let prefix = prefixSums(perLineCharCounts)
-        let chars = prefix.last ?? 0
-        let height = oracle.heightForGap(charCount: chars, logicalLineCount: perLineCharCounts.count)
+        let lineHeights = perLineCharCounts.map { oracle.heightForLine(charCount: $0) }
+        let prefix = prefixSums(lineHeights)
+        let height = prefix.last ?? 0
         return Block(
-            kind: .estimated(perLineCharCounts: perLineCharCounts, charPrefix: prefix),
+            kind: .estimated(perLineCharCounts: perLineCharCounts, heightPrefix: prefix),
             lineCount: perLineCharCounts.count,
-            charCount: chars,
+            charCount: perLineCharCounts.reduce(0, +),
             height: height
         )
     }
@@ -279,9 +279,8 @@ final class HeightMap {
         switch block.kind {
         case let .measured(_, heightPrefix):
             return heightPrefix[lineCount]
-        case let .estimated(_, charPrefix):
-            let charsBefore = charPrefix[lineCount]
-            return oracle.heightForGap(charCount: charsBefore, logicalLineCount: lineCount)
+        case let .estimated(_, heightPrefix):
+            return heightPrefix[lineCount]
         }
     }
 
@@ -305,13 +304,22 @@ final class HeightMap {
                 topY: baseY + heightPrefix[offset],
                 height: lineHeights[offset]
             )
-        case let .estimated(perLineCharCounts, _):
+        case let .estimated(perLineCharCounts, heightPrefix):
             guard block.lineCount > 0 else {
                 return LineLocation(line: baseLine, topY: baseY, height: oracle.lineHeight)
             }
-            let perLine = block.height / CGFloat(block.lineCount)
-            let approxOffset = max(0, min(block.lineCount - 1, Int(relativeY / max(1, perLine))))
-            let topY = baseY + CGFloat(approxOffset) * perLine
+            var low = 0
+            var high = perLineCharCounts.count - 1
+            while low < high {
+                let mid = (low + high) / 2
+                if heightPrefix[mid + 1] <= relativeY {
+                    low = mid + 1
+                } else {
+                    high = mid
+                }
+            }
+            let approxOffset = max(0, min(low, perLineCharCounts.count - 1))
+            let topY = baseY + heightPrefix[approxOffset]
             let charCount = perLineCharCounts[approxOffset]
             return LineLocation(
                 line: baseLine + approxOffset,

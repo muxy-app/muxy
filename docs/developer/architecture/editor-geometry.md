@@ -69,7 +69,7 @@ sequenceDiagram
   J->>SV: cursor placed on line N
 ```
 
-`HeightMap` only has *estimated* heights for lines outside the window. The first scroll lands at an approximate position; rendering measures the new window; the heightmap refines those line heights; the user's logical anchor (a line index) gets a new pixel position. The reflow loop bumps scroll silently until the geometry settles.
+`HeightMap` only has *estimated* heights for lines outside the window. Wrapped estimates are still line-addressable: every estimated logical line has its own height and prefix coordinate derived from that line's character count. The first scroll lands at a deterministic line position; rendering measures the new window; the heightmap refines those line heights; the user's logical anchor gets a new pixel position. The reflow loop bumps scroll silently until the geometry settles.
 
 ## Write paths
 
@@ -104,7 +104,7 @@ flowchart TB
 
 ## HeightMap block lifecycle
 
-`HeightMap` keeps the document as a sequence of `Block`s, each either `.measured(lineHeights:)` (exact pixel heights from `layoutManager.boundingRect`) or `.estimated(perLineCharCounts:)` (oracle estimate from `(charCount, logicalLineCount)`).
+`HeightMap` keeps the document as a sequence of `Block`s, each either `.measured(lineHeights:)` (exact pixel heights from `layoutManager.boundingRect`) or `.estimated(perLineCharCounts:)` (per-line oracle estimates with a height prefix table).
 
 ```mermaid
 flowchart TB
@@ -114,11 +114,12 @@ flowchart TB
   Jump --> Edit["edit at L:<br/>splits, re-estimates inserted run"]
 ```
 
-Edits that insert/remove lines pass through `replaceLines`, which updates the underlying block sequence; consecutive `.estimated` blocks are merged so the gap distribution stays well-behaved.
+Edits pass through `replaceLines`, which updates the underlying block sequence and re-estimates inserted lines. Consecutive `.estimated` blocks are merged without losing per-line prefixes.
 
 ## Why this works
 
-- **Estimates are character-density-proportional.** A long minified line gets a tall estimate before measurement; a short comment line gets a short one. `heightAbove(line)` is roughly correct from the first scroll.
+- **Estimates are per logical line.** A long minified line gets a tall estimate before measurement; a short comment line gets a short one. `heightAbove(line)` and `lineAtY(y)` remain inverse operations for unmeasured wrapped content.
 - **Scroll position is not pixel-anchored.** When measurements refine geometry, the anchor's pixel position changes — the reflow loop re-pins it before the user notices.
+- **Wrap changes preserve logical anchors.** Toggling wrap or changing the editor width derives the current `ScrollAnchor` before geometry is rebuilt, then re-pins that anchor after TextKit and `HeightMap` are reconfigured.
 - **Single source of truth.** Highlight, gutter, scroll math, jump math, search-jump, current-line-highlight all derive Y values from the same `HeightMap`.
 - **Measurement is pixel-exact.** `recordMeasuredLineHeights` feeds `layoutManager.boundingRect` heights (excluding trailing newline) directly.

@@ -45,6 +45,10 @@ final class CurrentLineHighlightExtension: EditorExtension {
         repositionHighlight(context: context)
     }
 
+    func geometryDidChange(context: EditorRenderContext) {
+        repositionHighlight(context: context)
+    }
+
     private func ensureInstalled() {
         guard highlightView == nil else { return }
         installHighlight()
