@@ -1833,7 +1833,9 @@ struct CodeEditorView: NSViewRepresentable {
             guard lineCount > 0 else { return }
             let targetLine = max(0, min(globalLine, lineCount - 1))
 
-            setScrollAnchor(ScrollAnchor(line: targetLine, deltaPixels: -visibleHeight / 3))
+            if !isGlobalLineFullyVisible(targetLine, viewport: viewport, scrollView: scrollView) {
+                setScrollAnchor(ScrollAnchor(line: targetLine, deltaPixels: -visibleHeight / 3))
+            }
 
             for _ in 0 ..< 5 {
                 let pixelBefore = scrollAnchor.pixelY(in: viewport.heightMap)
@@ -1861,6 +1863,14 @@ struct CodeEditorView: NSViewRepresentable {
             let cursorLineStart = lineStartOffsets[safeLocalLine]
             state.cursorColumn = max(1, safeCursor - cursorLineStart + 1)
             notifySelectionDidChange()
+        }
+
+        private func isGlobalLineFullyVisible(_ line: Int, viewport: ViewportState, scrollView: NSScrollView) -> Bool {
+            let lineTop = viewport.heightMap.heightAbove(line: line)
+            let lineHeight = viewport.heightMap.heightOfLine(line)
+            let visibleTop = scrollView.contentView.bounds.origin.y
+            let visibleBottom = visibleTop + scrollView.contentView.bounds.height
+            return lineTop >= visibleTop && lineTop + lineHeight <= visibleBottom
         }
 
         private func updateCurrentSelection(in textView: NSTextView, range: NSRange) {
