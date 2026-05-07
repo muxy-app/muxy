@@ -31,12 +31,12 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                 Divider().overlay(MuxyTheme.border)
                 resultsList
             }
-            .frame(width: 500, height: 380)
+            .frame(width: UIMetrics.scaled(500), height: UIMetrics.scaled(380))
             .background(MuxyTheme.bg)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(MuxyTheme.border, lineWidth: 1))
-            .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
-            .padding(.top, 60)
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusXL))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusXL).stroke(MuxyTheme.border, lineWidth: 1))
+            .shadow(color: .black.opacity(0.4), radius: UIMetrics.scaled(20), y: UIMetrics.scaled(8))
+            .padding(.top, UIMetrics.scaled(60))
             .frame(maxHeight: .infinity, alignment: .top)
             .accessibilityAddTraits(.isModal)
         }
@@ -49,10 +49,10 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: UIMetrics.spacing4) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .font(.system(size: 13))
+                .font(.system(size: UIMetrics.fontEmphasis))
                 .accessibilityHidden(true)
             PaletteSearchField(
                 text: $query,
@@ -63,8 +63,8 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                 onArrowDown: { moveHighlight(1) }
             )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, UIMetrics.spacing6)
+        .padding(.vertical, UIMetrics.spacing5)
         .onChange(of: query) {
             performSearch()
         }
@@ -76,7 +76,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                 VStack {
                     Spacer()
                     Text(query.isEmpty ? emptyLabel : noMatchLabel)
-                        .font(.system(size: 12))
+                        .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(MuxyTheme.fgMuted)
                     Spacer()
                 }
@@ -143,7 +143,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 struct PaletteSearchField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
-    var fontSize: CGFloat = 13
+    var fontSize: CGFloat = UIMetrics.fontEmphasis
     let onSubmit: () -> Void
     let onEscape: () -> Void
     let onArrowUp: () -> Void

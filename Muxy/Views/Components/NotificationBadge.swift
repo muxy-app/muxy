@@ -6,7 +6,7 @@ struct NotificationBadge: View {
     var body: some View {
         Circle()
             .fill(MuxyTheme.accent)
-            .frame(width: 8, height: 8)
+            .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
             .accessibilityLabel("\(count) unread notification\(count == 1 ? "" : "s")")
     }
 }

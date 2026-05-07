@@ -56,9 +56,9 @@ struct HelpView: View {
 private struct HelpWelcomeView: View {
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: UIMetrics.spacing7) {
                 Text("Welcome to Muxy")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: UIMetrics.scaled(22), weight: .bold))
                     .foregroundStyle(MuxyTheme.fg)
                 Text(
                     "Muxy is a native macOS terminal multiplexer organised around projects, "
@@ -70,16 +70,16 @@ private struct HelpWelcomeView: View {
                 HelpQuickStart()
 
                 Text("Where to next")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
-                    .padding(.top, 8)
+                    .padding(.top, UIMetrics.spacing4)
                 Text(
                     "Use the sidebar to browse keyboard shortcuts, an overview of features, "
                         + "and links to the docs, repository, mobile app, and Discord."
                 )
                 .foregroundStyle(MuxyTheme.fgMuted)
             }
-            .padding(24)
+            .padding(UIMetrics.spacing9)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -102,33 +102,33 @@ private struct HelpQuickStart: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing5) {
             Text("Quick start")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
             ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: UIMetrics.spacing6) {
                     Text("\(index + 1)")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .frame(width: 22, height: 22)
+                        .font(.system(size: UIMetrics.fontBody, weight: .semibold, design: .rounded))
+                        .frame(width: UIMetrics.scaled(22), height: UIMetrics.scaled(22))
                         .background(MuxyTheme.fgMuted.opacity(0.15), in: Circle())
                         .foregroundStyle(MuxyTheme.fg)
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
+                        HStack(spacing: UIMetrics.spacing4) {
                             Text(step.title)
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
                                 .foregroundStyle(MuxyTheme.fg)
                             if let shortcut = step.shortcut {
                                 Text(shortcut)
-                                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .rounded))
                                     .foregroundStyle(MuxyTheme.fgMuted)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(MuxyTheme.fgMuted.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                                    .padding(.horizontal, UIMetrics.spacing3)
+                                    .padding(.vertical, UIMetrics.spacing1)
+                                    .background(MuxyTheme.fgMuted.opacity(0.12), in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
                             }
                         }
                         Text(step.detail)
-                            .font(.system(size: 12))
+                            .font(.system(size: UIMetrics.fontBody))
                             .foregroundStyle(MuxyTheme.fgMuted)
                     }
                 }
@@ -149,38 +149,38 @@ private struct HelpShortcutsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: UIMetrics.spacing8) {
                 Text("Keyboard Shortcuts")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: UIMetrics.scaled(22), weight: .bold))
                     .foregroundStyle(MuxyTheme.fg)
                 Text("Defaults shown. All shortcuts can be remapped in Settings → Shortcuts.")
                     .foregroundStyle(MuxyTheme.fgMuted)
 
                 ForEach(groups, id: \.category) { group in
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
                         Text(group.category)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
                             .foregroundStyle(MuxyTheme.fg)
-                            .padding(.bottom, 2)
+                            .padding(.bottom, UIMetrics.spacing1)
                         ForEach(group.actions) { action in
                             HStack {
                                 Text(action.displayName)
-                                    .font(.system(size: 12))
+                                    .font(.system(size: UIMetrics.fontBody))
                                     .foregroundStyle(MuxyTheme.fg)
                                 Spacer()
                                 Text(KeyBindingStore.shared.combo(for: action).displayString)
-                                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .rounded))
                                     .foregroundStyle(MuxyTheme.fgMuted)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(MuxyTheme.fgMuted.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                                    .padding(.horizontal, UIMetrics.spacing3)
+                                    .padding(.vertical, UIMetrics.spacing1)
+                                    .background(MuxyTheme.fgMuted.opacity(0.12), in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
                             }
-                            .padding(.vertical, 3)
+                            .padding(.vertical, UIMetrics.scaled(3))
                         }
                     }
                 }
             }
-            .padding(24)
+            .padding(UIMetrics.spacing9)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -259,20 +259,20 @@ private struct HelpFeaturesView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: UIMetrics.spacing7) {
                 Text("Features")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: UIMetrics.scaled(22), weight: .bold))
                     .foregroundStyle(MuxyTheme.fg)
                 Text("Every feature has a short overview here and a full page in the documentation.")
                     .foregroundStyle(MuxyTheme.fgMuted)
 
-                VStack(spacing: 8) {
+                VStack(spacing: UIMetrics.spacing4) {
                     ForEach(features) { feature in
                         FeatureRow(feature: feature)
                     }
                 }
             }
-            .padding(24)
+            .padding(UIMetrics.spacing9)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -281,13 +281,13 @@ private struct HelpFeaturesView: View {
         let feature: Feature
 
         var body: some View {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: UIMetrics.spacing6) {
+                VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
                     Text(feature.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
                         .foregroundStyle(MuxyTheme.fg)
                     Text(feature.summary)
-                        .font(.system(size: 12))
+                        .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(MuxyTheme.fgMuted)
                 }
                 Spacer()
@@ -296,9 +296,9 @@ private struct HelpFeaturesView: View {
                 }
                 .buttonStyle(.link)
             }
-            .padding(12)
+            .padding(UIMetrics.spacing6)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MuxyTheme.fgMuted.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .background(MuxyTheme.fgMuted.opacity(0.06), in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
         }
     }
 }
@@ -306,9 +306,9 @@ private struct HelpFeaturesView: View {
 private struct HelpLinksView: View {
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
                 Text("Links")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: UIMetrics.scaled(22), weight: .bold))
                     .foregroundStyle(MuxyTheme.fg)
                 Text("Find more information, file an issue, or join the community.")
                     .foregroundStyle(MuxyTheme.fgMuted)
@@ -339,7 +339,7 @@ private struct HelpLinksView: View {
                     action: HelpLinks.openIssues
                 )
             }
-            .padding(24)
+            .padding(UIMetrics.spacing9)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -352,28 +352,28 @@ private struct HelpLinksView: View {
 
         var body: some View {
             Button(action: action) {
-                HStack(spacing: 12) {
+                HStack(spacing: UIMetrics.spacing6) {
                     Image(systemName: systemImage)
-                        .font(.system(size: 14))
+                        .font(.system(size: UIMetrics.fontHeadline))
                         .foregroundStyle(MuxyTheme.fg)
-                        .frame(width: 24, height: 24)
-                        .background(MuxyTheme.fgMuted.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-                    VStack(alignment: .leading, spacing: 2) {
+                        .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+                        .background(MuxyTheme.fgMuted.opacity(0.12), in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+                    VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                         Text(title)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
                             .foregroundStyle(MuxyTheme.fg)
                         Text(subtitle)
-                            .font(.system(size: 11))
+                            .font(.system(size: UIMetrics.fontFootnote))
                             .foregroundStyle(MuxyTheme.fgMuted)
                     }
                     Spacer()
                     Image(systemName: "arrow.up.right.square")
-                        .font(.system(size: 12))
+                        .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(MuxyTheme.fgMuted)
                 }
-                .padding(12)
+                .padding(UIMetrics.spacing6)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(MuxyTheme.fgMuted.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                .background(MuxyTheme.fgMuted.opacity(0.06), in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

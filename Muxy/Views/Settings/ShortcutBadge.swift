@@ -6,13 +6,17 @@ struct ShortcutBadge: View {
 
     var body: some View {
         Text(label)
-            .font(.system(size: compact ? 9 : 11, weight: .medium, design: .rounded))
+            .font(.system(size: compact ? UIMetrics.fontXS : UIMetrics.fontFootnote, weight: .medium, design: .rounded))
             .foregroundStyle(.white)
-            .padding(.horizontal, compact ? 4 : 6)
-            .padding(.vertical, compact ? 1 : 3)
+            .padding(.horizontal, compact ? UIMetrics.spacing2 : UIMetrics.spacing3)
+            .padding(.vertical, compact ? UIMetrics.scaled(1) : UIMetrics.scaled(3))
             .background(.ultraThinMaterial, in: Capsule())
             .overlay(Capsule().strokeBorder(.white.opacity(0.15), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.25), radius: compact ? 2 : 4, y: compact ? 1 : 2)
+            .shadow(
+                color: .black.opacity(0.25),
+                radius: UIMetrics.scaled(compact ? 2 : 4),
+                y: UIMetrics.scaled(compact ? 1 : 2)
+            )
             .accessibilityLabel("Keyboard shortcut: \(label)")
     }
 }

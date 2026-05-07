@@ -574,6 +574,43 @@ struct WorkspaceReducerTests {
         #expect(destArea.tabs.contains(where: { $0.id == tabToMove }))
     }
 
+    @Test("moveTab toArea defers collapse of empty source area")
+    func moveTabToAreaDefersCollapse() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let firstAreaID = state.focusedAreaID[key]!
+
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(AppState.SplitAreaRequest(
+                projectID: projectID,
+                areaID: firstAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+        let secondAreaID = state.focusedAreaID[key]!
+
+        let sourceArea = state.workspaceRoots[key]!.findArea(id: firstAreaID)!
+        let tabToMove = sourceArea.tabs[0].id
+
+        let effects = WorkspaceReducer.reduce(
+            action: .moveTab(
+                projectID: projectID,
+                request: .toArea(tabID: tabToMove, sourceAreaID: firstAreaID, destinationAreaID: secondAreaID)
+            ),
+            state: &state
+        )
+
+        let destArea = state.workspaceRoots[key]!.findArea(id: secondAreaID)!
+        #expect(destArea.tabs.contains(where: { $0.id == tabToMove }))
+        #expect(state.workspaceRoots[key]!.findArea(id: firstAreaID) != nil)
+        #expect(state.workspaceRoots[key]!.findArea(id: firstAreaID)!.tabs.isEmpty)
+        #expect(effects.deferredAreaCollapses.contains(where: { $0.areaID == firstAreaID }))
+    }
+
     @Test("moveTab toNewSplit creates new split with tab")
     func moveTabToNewSplit() {
         let projectID = UUID()
@@ -604,6 +641,46 @@ struct WorkspaceReducerTests {
 
         let root = state.workspaceRoots[key]!
         #expect(root.allAreas().count == 2)
+    }
+
+    @Test("moveTab toNewSplit defers collapse when source becomes empty")
+    func moveTabToNewSplitDefersCollapse() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let sourceAreaID = state.focusedAreaID[key]!
+
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(AppState.SplitAreaRequest(
+                projectID: projectID,
+                areaID: sourceAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+        let targetAreaID = state.focusedAreaID[key]!
+
+        let sourceArea = state.workspaceRoots[key]!.findArea(id: sourceAreaID)!
+        let tabToMove = sourceArea.tabs[0].id
+
+        let effects = WorkspaceReducer.reduce(
+            action: .moveTab(
+                projectID: projectID,
+                request: .toNewSplit(
+                    tabID: tabToMove,
+                    sourceAreaID: sourceAreaID,
+                    targetAreaID: targetAreaID,
+                    split: SplitPlacement(direction: .horizontal, position: .second)
+                )
+            ),
+            state: &state
+        )
+
+        #expect(state.workspaceRoots[key]!.findArea(id: sourceAreaID) != nil)
+        #expect(state.workspaceRoots[key]!.findArea(id: sourceAreaID)!.tabs.isEmpty)
+        #expect(effects.deferredAreaCollapses.contains(where: { $0.areaID == sourceAreaID }))
     }
 
     @Test("selectNextProject cycles forward through projects")

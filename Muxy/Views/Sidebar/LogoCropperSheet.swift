@@ -25,9 +25,9 @@ struct LogoCropperSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: UIMetrics.spacing7) {
             Text("Crop Logo")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
 
             ZStack {
@@ -52,7 +52,7 @@ struct LogoCropperSheet: View {
                 cropMask
             }
             .frame(width: cropSize + 40, height: cropSize + 40)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
             .overlay {
                 ScrollWheelView { delta in
                     let zoomFactor: CGFloat = 1.0 + delta * 0.03
@@ -62,20 +62,20 @@ struct LogoCropperSheet: View {
                 .allowsHitTesting(false)
             }
 
-            HStack(spacing: 12) {
+            HStack(spacing: UIMetrics.spacing6) {
                 previewIcon
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                     Text("Preview")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                         .foregroundStyle(MuxyTheme.fgMuted)
                     Text("Drag to reposition, scroll to zoom")
-                        .font(.system(size: 10))
+                        .font(.system(size: UIMetrics.fontCaption))
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
                 Spacer()
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: UIMetrics.spacing4) {
                 Button("Cancel") { onCancel() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
@@ -83,20 +83,20 @@ struct LogoCropperSheet: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(20)
-        .frame(width: 300)
+        .padding(UIMetrics.spacing8)
+        .frame(width: UIMetrics.scaled(300))
         .onAppear { fitImageInitially() }
     }
 
     private var previewIcon: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: UIMetrics.radiusLG)
                 .fill(MuxyTheme.surface)
-                .frame(width: 32, height: 32)
+                .frame(width: UIMetrics.scaled(32), height: UIMetrics.scaled(32))
 
             croppedPreview
-                .frame(width: 32, height: 32)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .frame(width: UIMetrics.scaled(32), height: UIMetrics.scaled(32))
+                .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
         }
     }
 

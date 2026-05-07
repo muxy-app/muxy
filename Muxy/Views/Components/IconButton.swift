@@ -12,9 +12,9 @@ struct IconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: size, weight: .semibold))
+                .font(.system(size: UIMetrics.scaled(size), weight: .semibold))
                 .foregroundStyle(hovered ? hoverColor : color)
-                .frame(width: 24, height: 24)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

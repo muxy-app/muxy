@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AppearanceSettingsView: View {
     @State private var themeService = ThemeService.shared
+    @State private var uiScale = UIScale.shared
     @State private var showLightThemePicker = false
     @State private var showDarkThemePicker = false
     @State private var currentLightTheme: String?
@@ -12,6 +13,19 @@ struct AppearanceSettingsView: View {
 
     var body: some View {
         SettingsContainer {
+            SettingsSection("Interface") {
+                SettingsRow("Size") {
+                    Picker("", selection: $uiScale.preset) {
+                        ForEach(UIScale.Preset.allCases) { preset in
+                            Text(preset.title).tag(preset)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: SettingsMetrics.controlWidth)
+                }
+            }
+
             SettingsSection("Terminal") {
                 SettingsRow("Light Theme") {
                     themeButton(

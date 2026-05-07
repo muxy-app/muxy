@@ -17,13 +17,13 @@ struct CreateBranchSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
             Text("New Branch")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
                 Text("Branch Name")
-                    .font(.system(size: 11))
+                    .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 TextField("feature-x", text: $name)
                     .textFieldStyle(.roundedBorder)
@@ -33,7 +33,7 @@ struct CreateBranchSheet: View {
 
             if let currentBranch {
                 Text("Created from \(currentBranch)")
-                    .font(.system(size: 11))
+                    .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
 
@@ -46,8 +46,8 @@ struct CreateBranchSheet: View {
                     .disabled(!canCreate)
             }
         }
-        .padding(20)
-        .frame(width: 360)
+        .padding(UIMetrics.spacing8)
+        .frame(width: UIMetrics.scaled(360))
         .onAppear { nameFocused = true }
     }
 }

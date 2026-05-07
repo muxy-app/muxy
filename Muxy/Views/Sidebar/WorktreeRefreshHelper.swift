@@ -1,5 +1,8 @@
 import AppKit
+import os
 import SwiftUI
+
+private let logger = Logger(subsystem: "app.muxy", category: "WorktreeRefreshHelper")
 
 @MainActor
 enum WorktreeRefreshHelper {
@@ -7,12 +10,13 @@ enum WorktreeRefreshHelper {
         project: Project,
         appState: AppState,
         worktreeStore: WorktreeStore,
-        isRefreshing: Binding<Bool>
+        isRefreshing: Binding<Bool>? = nil,
+        presentErrors: Bool = true
     ) async {
-        guard !isRefreshing.wrappedValue else { return }
+        if isRefreshing?.wrappedValue == true { return }
         let previous = worktreeStore.list(for: project.id)
-        isRefreshing.wrappedValue = true
-        defer { isRefreshing.wrappedValue = false }
+        isRefreshing?.wrappedValue = true
+        defer { isRefreshing?.wrappedValue = false }
 
         do {
             let refreshed = try await worktreeStore.refreshFromGit(project: project)
@@ -25,6 +29,11 @@ enum WorktreeRefreshHelper {
                 appState.removeWorktree(projectID: project.id, worktree: worktree, replacement: replacement)
             }
         } catch {
+            guard presentErrors else {
+                logger
+                    .error("Worktree refresh failed for \(project.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                return
+            }
             presentError(error.localizedDescription)
         }
     }

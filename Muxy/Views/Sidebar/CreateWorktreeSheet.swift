@@ -31,12 +31,12 @@ struct CreateWorktreeSheet: View {
     private let gitWorktree = GitWorktreeService.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
             Text("New Worktree")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Name").font(.system(size: 11)).foregroundStyle(MuxyTheme.fgMuted)
+            VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
+                Text("Name").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
                 TextField("feature-x", text: $name)
                     .textFieldStyle(.roundedBorder)
             }
@@ -47,8 +47,8 @@ struct CreateWorktreeSheet: View {
             )
 
             if createNewBranch {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Branch Name").font(.system(size: 11)).foregroundStyle(MuxyTheme.fgMuted)
+                VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
+                    Text("Branch Name").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
                     TextField("feature-x", text: $branchName)
                         .textFieldStyle(.roundedBorder)
                         .onChange(of: branchName) { _, newValue in
@@ -56,8 +56,8 @@ struct CreateWorktreeSheet: View {
                         }
                 }
             } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Branch").font(.system(size: 11)).foregroundStyle(MuxyTheme.fgMuted)
+                VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
+                    Text("Branch").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
                     Picker("", selection: $selectedExistingBranch) {
                         ForEach(availableBranches, id: \.self) { branch in
                             Text(branch).tag(branch)
@@ -77,7 +77,7 @@ struct CreateWorktreeSheet: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.system(size: 11))
+                    .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -91,8 +91,8 @@ struct CreateWorktreeSheet: View {
                     .disabled(!canCreate || inProgress)
             }
         }
-        .padding(20)
-        .frame(width: 460)
+        .padding(UIMetrics.spacing8)
+        .frame(width: UIMetrics.scaled(460))
         .task {
             loadLocation()
             await loadBranches()
@@ -109,18 +109,18 @@ struct CreateWorktreeSheet: View {
     }
 
     private var locationSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Location").font(.system(size: 11)).foregroundStyle(MuxyTheme.fgMuted)
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
+            Text("Location").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
+            HStack(spacing: UIMetrics.spacing4) {
                 Text(parentDirectoryPath)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
                     .foregroundStyle(MuxyTheme.fg)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 4))
+                    .padding(.horizontal, UIMetrics.spacing4)
+                    .padding(.vertical, UIMetrics.spacing3)
+                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
 
                 Button("Choose Folder...") {
                     chooseParentDirectory()
@@ -138,65 +138,65 @@ struct CreateWorktreeSheet: View {
     }
 
     private var setupCommandsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing4) {
+            HStack(spacing: UIMetrics.spacing3) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10))
+                    .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
                 Text("Setup commands from .muxy/worktree.json")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
             }
             Text("These commands will run in the new worktree's terminal. Only enable this if you trust this repository.")
-                .font(.system(size: 10))
+                .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                 ForEach(setupCommands, id: \.self) { command in
                     Text(command)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fg)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(8)
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 4))
+            .padding(UIMetrics.spacing4)
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             Toggle("Run these commands after creating the worktree", isOn: $runSetup)
-                .font(.system(size: 11))
+                .font(.system(size: UIMetrics.fontFootnote))
         }
-        .padding(10)
-        .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: 6))
+        .padding(UIMetrics.spacing5)
+        .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
     }
 
     private var setupCommandsGuideSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing4) {
+            HStack(spacing: UIMetrics.spacing3) {
                 Image(systemName: "info.circle")
-                    .font(.system(size: 10))
+                    .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.fgDim)
                 Text("Optional setup commands")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
             }
             Text("To run setup commands after creating a worktree, add .muxy/worktree.json in this repository.")
-                .font(.system(size: 10))
+                .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
             Text("\(project.path)/.muxy/worktree.json")
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fg)
                 .textSelection(.enabled)
             Text("{\n  \"setup\": [\n    \"pnpm install\",\n    \"pnpm dev\"\n  ]\n}")
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fg)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 4))
+                .padding(UIMetrics.spacing4)
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
         }
-        .padding(10)
-        .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: 6))
+        .padding(UIMetrics.spacing5)
+        .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
     }
 
     private func loadSetupCommands() {

@@ -45,32 +45,32 @@ struct WorktreeBranchPicker: View {
 
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 4) {
+            HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: "square.stack.3d.up")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                 Text(worktreeLabel)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 7, weight: .bold))
+                    .font(.system(size: UIMetrics.scaled(7), weight: .bold))
                     .foregroundStyle(MuxyTheme.fgDim)
                 Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                 Text(branchLabel)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: UIMetrics.fontMicro, weight: .bold))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
             .frame(maxWidth: 160, alignment: .leading)
             .foregroundStyle(MuxyTheme.fg.opacity(0.85))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
-            .contentShape(RoundedRectangle(cornerRadius: 5))
+            .padding(.horizontal, UIMetrics.spacing3)
+            .padding(.vertical, UIMetrics.scaled(3))
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
         }
         .buttonStyle(.plain)
         .help("\(worktreeLabel) › \(branchLabel)")
@@ -94,7 +94,7 @@ struct WorktreeBranchPicker: View {
                 segmentButton(item)
             }
         }
-        .frame(height: 32)
+        .frame(height: UIMetrics.scaled(32))
     }
 
     private func segmentButton(_ item: Segment) -> some View {
@@ -106,13 +106,13 @@ struct WorktreeBranchPicker: View {
             }
         } label: {
             Text(item.title)
-                .font(.system(size: 11, weight: isActive ? .semibold : .medium))
+                .font(.system(size: UIMetrics.fontFootnote, weight: isActive ? .semibold : .medium))
                 .foregroundStyle(isActive ? MuxyTheme.fg : MuxyTheme.fgDim)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay(alignment: .bottom) {
                     Rectangle()
                         .fill(isActive ? MuxyTheme.accent : Color.clear)
-                        .frame(height: 2)
+                        .frame(height: UIMetrics.scaled(2))
                 }
                 .contentShape(Rectangle())
         }
@@ -159,7 +159,7 @@ struct WorktreeBranchPicker: View {
                 }
             }
         }
-        .frame(width: 320, height: 460)
+        .frame(width: UIMetrics.scaled(320), height: UIMetrics.scaled(460))
         .background(MuxyTheme.bg)
     }
 }

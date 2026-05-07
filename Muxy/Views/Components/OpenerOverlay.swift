@@ -47,12 +47,12 @@ struct OpenerOverlay: View {
                 Divider().overlay(MuxyTheme.border)
                 resultsList
             }
-            .frame(width: 560, height: 460)
+            .frame(width: UIMetrics.scaled(560), height: UIMetrics.scaled(460))
             .background(MuxyTheme.bg)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(MuxyTheme.border, lineWidth: 1))
-            .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
-            .padding(.top, 60)
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusXL))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusXL).stroke(MuxyTheme.border, lineWidth: 1))
+            .shadow(color: .black.opacity(0.4), radius: UIMetrics.scaled(20), y: UIMetrics.scaled(8))
+            .padding(.top, UIMetrics.scaled(60))
             .frame(maxHeight: .infinity, alignment: .top)
             .accessibilityAddTraits(.isModal)
         }
@@ -72,10 +72,10 @@ struct OpenerOverlay: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: UIMetrics.spacing4) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .font(.system(size: 13))
+                .font(.system(size: UIMetrics.fontEmphasis))
                 .accessibilityHidden(true)
             PaletteSearchField(
                 text: $query,
@@ -86,13 +86,13 @@ struct OpenerOverlay: View {
                 onArrowDown: { moveHighlight(1) }
             )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, UIMetrics.spacing6)
+        .padding(.vertical, UIMetrics.spacing5)
     }
 
     private var categoryChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+            HStack(spacing: UIMetrics.spacing3) {
                 ForEach(OpenerCategory.allCases) { category in
                     OpenerCategoryChip(
                         category: category,
@@ -101,8 +101,8 @@ struct OpenerOverlay: View {
                     )
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, UIMetrics.spacing5)
+            .padding(.vertical, UIMetrics.spacing3)
         }
     }
 
@@ -112,7 +112,7 @@ struct OpenerOverlay: View {
                 VStack {
                     Spacer()
                     Text(query.isEmpty ? "No items" : "No matches")
-                        .font(.system(size: 12))
+                        .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(MuxyTheme.fgMuted)
                     Spacer()
                 }
@@ -189,14 +189,14 @@ private struct OpenerCategoryChip: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
+            HStack(spacing: UIMetrics.scaled(5)) {
                 Image(systemName: category.symbol)
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                 Text(category.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
+            .padding(.horizontal, UIMetrics.scaled(9))
+            .padding(.vertical, UIMetrics.spacing2)
             .foregroundStyle(isOn ? MuxyTheme.fg : MuxyTheme.fgMuted)
             .background(isOn ? MuxyTheme.surface : (hovered ? MuxyTheme.hover : .clear), in: Capsule())
             .overlay(Capsule().stroke(isOn ? MuxyTheme.accent.opacity(0.6) : MuxyTheme.border, lineWidth: 1))
@@ -213,14 +213,14 @@ private struct OpenerSectionHeader: View {
     var body: some View {
         HStack {
             Text(title.uppercased())
-                .font(.system(size: 9, weight: .bold))
+                .font(.system(size: UIMetrics.fontXS, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(MuxyTheme.fgDim)
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 3)
+        .padding(.horizontal, UIMetrics.spacing6)
+        .padding(.top, UIMetrics.spacing4)
+        .padding(.bottom, UIMetrics.scaled(3))
     }
 }
 
@@ -231,41 +231,41 @@ private struct OpenerRow: View {
     @State private var hovered = false
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: UIMetrics.spacing5) {
             Image(systemName: item.category.symbol)
-                .font(.system(size: 11))
+                .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: 16, alignment: .center)
+                .frame(width: UIMetrics.iconLG, alignment: .center)
             Text(item.title)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: UIMetrics.fontBody, weight: .medium))
                 .foregroundStyle(MuxyTheme.fg)
                 .lineLimit(1)
                 .truncationMode(.middle)
             if case let .worktree(wt) = item, wt.isPrimary {
                 Text("PRIMARY")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: UIMetrics.fontMicro, weight: .bold))
                     .tracking(0.5)
                     .foregroundStyle(MuxyTheme.fgDim)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
+                    .padding(.horizontal, UIMetrics.spacing2)
+                    .padding(.vertical, UIMetrics.scaled(1))
                     .background(MuxyTheme.surface, in: Capsule())
             }
             if let subtitle = item.subtitle {
                 Text(subtitle)
-                    .font(.system(size: 11))
+                    .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgDim)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            Spacer(minLength: 4)
+            Spacer(minLength: UIMetrics.spacing2)
             if isActive {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                     .foregroundStyle(MuxyTheme.accent)
             }
         }
-        .frame(height: 28)
-        .padding(.horizontal, 12)
+        .frame(height: UIMetrics.scaled(28))
+        .padding(.horizontal, UIMetrics.spacing6)
         .background(isHighlighted ? MuxyTheme.surface : hovered ? MuxyTheme.hover : .clear)
         .onHover { hovered = $0 }
     }

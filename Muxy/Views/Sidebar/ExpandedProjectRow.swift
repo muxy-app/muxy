@@ -122,34 +122,34 @@ struct ExpandedProjectRow: View {
     }
 
     private var projectHeader: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: UIMetrics.spacing4) {
             projectIcon
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: UIMetrics.scaled(1)) {
                 Text(project.name)
-                    .font(.system(size: 13, weight: isActive ? .semibold : .medium))
+                    .font(.system(size: UIMetrics.fontEmphasis, weight: isActive ? .semibold : .medium))
                     .foregroundStyle(MuxyTheme.fg)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 if isGitRepo, let worktree = activeWorktree {
                     Text(worktree.isPrimary ? "primary" : worktree.name)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fg)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
             }
 
-            Spacer(minLength: 4)
+            Spacer(minLength: UIMetrics.spacing2)
 
             if isGitRepo {
                 worktreeChevron
             }
         }
-        .padding(4)
-        .background(headerBackground, in: RoundedRectangle(cornerRadius: 8))
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .padding(UIMetrics.spacing2)
+        .background(headerBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
+        .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(projectHeaderAccessibilityLabel)
         .accessibilityAddTraits(isActive ? .isSelected : [])
@@ -187,11 +187,11 @@ struct ExpandedProjectRow: View {
             }
         } label: {
             Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
                 .rotationEffect(.degrees(worktreesExpanded ? 90 : 0))
                 .animation(.easeInOut(duration: 0.15), value: worktreesExpanded)
-                .frame(width: 18, height: 18)
+                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -201,33 +201,39 @@ struct ExpandedProjectRow: View {
     private var projectIcon: some View {
         let logo = resolvedLogo
         let unread = NotificationStore.shared.unreadCount(for: project.id)
+        let hasCompletion = TerminalProgressStore.shared.hasCompletionPending(for: project.id)
         return ZStack {
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                 .fill(iconBackground(hasLogo: logo != nil))
 
             if let logo {
                 Image(nsImage: logo)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 28, height: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
+                    .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
             } else {
                 Text(displayLetter)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
                     .foregroundStyle(letterForeground)
             }
         }
-        .frame(width: 28, height: 28)
+        .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
         .overlay(alignment: .topTrailing) {
             if unread > 0 {
                 NotificationBadge(count: unread)
-                    .offset(x: 4, y: -4)
+                    .offset(x: UIMetrics.spacing2, y: -UIMetrics.spacing2)
+            } else if hasCompletion {
+                Circle()
+                    .fill(MuxyTheme.accent)
+                    .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
+                    .offset(x: UIMetrics.spacing1, y: -UIMetrics.spacing1)
             }
         }
     }
 
     private var worktreeList: some View {
-        VStack(spacing: 1) {
+        VStack(spacing: UIMetrics.scaled(1)) {
             ForEach(worktrees) { worktree in
                 ExpandedWorktreeRow(
                     projectID: project.id,
@@ -254,8 +260,8 @@ struct ExpandedProjectRow: View {
                 showCreateWorktreeSheet = true
             }
         }
-        .padding(.top, 2)
-        .padding(.bottom, 4)
+        .padding(.top, UIMetrics.spacing1)
+        .padding(.bottom, UIMetrics.spacing2)
     }
 
     private var projectHeaderAccessibilityLabel: String {
@@ -441,22 +447,22 @@ private struct ExpandedWorktreeRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: UIMetrics.spacing3) {
             leadingIndicator
 
             if isRenaming {
                 TextField("", text: $renameText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .foregroundStyle(MuxyTheme.fg)
                     .focused($renameFieldFocused)
                     .onSubmit { commitRename() }
                     .onExitCommand { cancelRename() }
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: UIMetrics.spacing2) {
                         Text(displayName)
-                            .font(.system(size: 12, weight: activeStyle ? .semibold : .regular))
+                            .font(.system(size: UIMetrics.fontBody, weight: activeStyle ? .semibold : .regular))
                             .foregroundStyle(MuxyTheme.fg)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -468,7 +474,7 @@ private struct ExpandedWorktreeRow: View {
 
                     if let branch = branchLabel {
                         Text(branch)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                             .foregroundStyle(MuxyTheme.fg)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -476,12 +482,12 @@ private struct ExpandedWorktreeRow: View {
                 }
             }
 
-            Spacer(minLength: 2)
+            Spacer(minLength: UIMetrics.spacing1)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 7)
-        .background(rowBackground, in: RoundedRectangle(cornerRadius: 6))
-        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .padding(.horizontal, UIMetrics.spacing4)
+        .padding(.vertical, UIMetrics.scaled(7))
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
         .onHover { hovered = $0 }
         .onTapGesture {
             guard !isRenaming else { return }
@@ -489,7 +495,7 @@ private struct ExpandedWorktreeRow: View {
         }
         .contextMenu {
             if worktree.isPrimary {
-                Text("Primary worktree").font(.system(size: 11))
+                Text("Primary worktree").font(.system(size: UIMetrics.fontFootnote))
             } else if let onRemove {
                 Button("Rename") { startRename() }
                 Divider()
@@ -497,7 +503,7 @@ private struct ExpandedWorktreeRow: View {
             } else {
                 Button("Rename") { startRename() }
                 Divider()
-                Text("External worktree").font(.system(size: 11))
+                Text("External worktree").font(.system(size: UIMetrics.fontFootnote))
             }
         }
         .accessibilityElement(children: .combine)
@@ -518,12 +524,12 @@ private struct ExpandedWorktreeRow: View {
         let unread = NotificationStore.shared.unreadCount(for: projectID, worktreeID: worktree.id)
         ZStack {
             if unread > 0 {
-                Circle().fill(MuxyTheme.accent).frame(width: 8, height: 8)
+                Circle().fill(MuxyTheme.accent).frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
             } else if selected {
-                Circle().fill(MuxyTheme.accent.opacity(0.4)).frame(width: 5, height: 5)
+                Circle().fill(MuxyTheme.accent.opacity(0.4)).frame(width: UIMetrics.scaled(5), height: UIMetrics.scaled(5))
             }
         }
-        .frame(width: 8, height: 8)
+        .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
     }
 
     private var activeStyle: Bool { selected && projectActive }
@@ -557,18 +563,18 @@ private struct ExpandedNewWorktreeButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: UIMetrics.spacing3) {
                 Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
-                    .frame(width: 8, height: 8)
+                    .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
                 Text("New Worktree")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
                 Spacer()
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.horizontal, UIMetrics.spacing4)
+            .padding(.vertical, UIMetrics.scaled(5))
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
@@ -579,11 +585,11 @@ private struct ExpandedNewWorktreeButton: View {
 private struct PrimaryBadge: View {
     var body: some View {
         Text("PRIMARY")
-            .font(.system(size: 8, weight: .bold))
+            .font(.system(size: UIMetrics.fontMicro, weight: .bold))
             .tracking(0.4)
             .foregroundStyle(MuxyTheme.fg)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 1)
+            .padding(.horizontal, UIMetrics.spacing2)
+            .padding(.vertical, UIMetrics.scaled(1))
             .background(MuxyTheme.surface, in: Capsule())
     }
 }
@@ -595,19 +601,19 @@ private struct ExpandedRenamePopover: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: UIMetrics.spacing4) {
             Text("Rename Project")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
             TextField("Project name", text: $text)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
+                .font(.system(size: UIMetrics.fontBody))
                 .focused($isFocused)
                 .onSubmit { onCommit() }
                 .onExitCommand { onCancel() }
         }
-        .padding(12)
-        .frame(width: 200)
+        .padding(UIMetrics.spacing6)
+        .frame(width: UIMetrics.scaled(200))
         .onAppear { isFocused = true }
     }
 }

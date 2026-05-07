@@ -80,6 +80,8 @@ final class EditorTabState: Identifiable {
     var markdownScrollPosition: CGFloat = 0
     var markdownScrollSyncEnabled = true
     var markdownScrollDriver: EditorMarkdownScrollDriver = .editor
+    var markdownFragmentTarget: String?
+    var markdownFragmentRequestVersion = 0
 
     var markdownPreviewScrollRequestVersion: Int = 0
     var markdownPreviewScrollRequest: CGFloat?
@@ -190,6 +192,14 @@ final class EditorTabState: Identifiable {
             markdownEditorScrollRequestY = scrollY
             markdownEditorScrollRequestVersion += 1
         }
+    }
+
+    func requestMarkdownFragment(_ fragment: String?) {
+        guard let fragment = fragment?.trimmingCharacters(in: .whitespacesAndNewlines), !fragment.isEmpty else {
+            return
+        }
+        markdownFragmentTarget = fragment
+        markdownFragmentRequestVersion += 1
     }
 
     func currentMarkdownSyncMap() -> MarkdownSyncMap {
@@ -308,6 +318,7 @@ final class EditorTabState: Identifiable {
                         store.loadFromText(text)
                         backingStore = store
                         backingStoreVersion += 1
+                        previewRefreshVersion += 1
                         refreshReadOnlyStatus()
                         isModified = false
                         isLoading = false
@@ -319,6 +330,7 @@ final class EditorTabState: Identifiable {
                         if let backingStore {
                             backingStore.appendText(text)
                             backingStoreVersion += 1
+                            previewRefreshVersion += 1
                         }
                         if isLoading {
                             isLoading = false
@@ -330,6 +342,7 @@ final class EditorTabState: Identifiable {
                         if let backingStore {
                             backingStore.finishLoading()
                             backingStoreVersion += 1
+                            previewRefreshVersion += 1
                         }
                         refreshReadOnlyStatus()
                         if isLoading {

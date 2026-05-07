@@ -40,7 +40,7 @@ struct ProjectRow: View {
     var body: some View {
         projectIcon
             .help(project.name)
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
             .accessibilityElement(children: .combine)
             .accessibilityLabel(project.name)
             .accessibilityValue(isActive ? "Active" : "")
@@ -145,32 +145,38 @@ struct ProjectRow: View {
     private var projectIcon: some View {
         let logo = resolvedLogo
         let unread = NotificationStore.shared.unreadCount(for: project.id)
+        let hasCompletion = TerminalProgressStore.shared.hasCompletionPending(for: project.id)
         return ZStack {
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                 .fill(iconBackground(hasLogo: logo != nil))
 
             if let logo {
                 Image(nsImage: logo)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 28, height: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
+                    .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
             } else {
                 Text(displayLetter)
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
                     .foregroundStyle(letterForeground)
             }
         }
-        .frame(width: 28, height: 28)
-        .padding(3)
+        .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
+        .padding(UIMetrics.scaled(3))
         .overlay(alignment: .topTrailing) {
             if unread > 0 {
                 NotificationBadge(count: unread)
-                    .offset(x: 4, y: -4)
+                    .offset(x: UIMetrics.spacing2, y: -UIMetrics.spacing2)
+            } else if hasCompletion {
+                Circle()
+                    .fill(MuxyTheme.accent)
+                    .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
+                    .offset(x: UIMetrics.spacing1, y: -UIMetrics.spacing1)
             }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 11)
+            RoundedRectangle(cornerRadius: UIMetrics.scaled(11))
                 .strokeBorder(isActive ? MuxyTheme.accent : .clear, lineWidth: 1.5)
                 .animation(.easeInOut(duration: 0.15), value: isActive)
         }
@@ -178,7 +184,7 @@ struct ProjectRow: View {
             if isRefreshingWorktrees {
                 ProgressView()
                     .controlSize(.mini)
-                    .padding(4)
+                    .padding(UIMetrics.spacing2)
             }
         }
     }
@@ -276,19 +282,19 @@ private struct RenamePopover: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: UIMetrics.spacing4) {
             Text("Rename Project")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
             TextField("Project name", text: $text)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
+                .font(.system(size: UIMetrics.fontBody))
                 .focused($isFocused)
                 .onSubmit { onCommit() }
                 .onExitCommand { onCancel() }
         }
-        .padding(12)
-        .frame(width: 200)
+        .padding(UIMetrics.spacing6)
+        .frame(width: UIMetrics.scaled(200))
         .onAppear { isFocused = true }
     }
 }

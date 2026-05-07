@@ -18,29 +18,29 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
+            HStack(spacing: UIMetrics.spacing3) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(MuxyTheme.fgMuted)
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .accessibilityHidden(true)
                 PaletteSearchField(
                     text: $searchText,
                     placeholder: placeholder,
-                    fontSize: 12,
+                    fontSize: UIMetrics.fontBody,
                     onSubmit: { confirmSelection() },
                     onEscape: {},
                     onArrowUp: { moveHighlight(-1) },
                     onArrowDown: { moveHighlight(1) }
                 )
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, UIMetrics.spacing5)
+            .padding(.vertical, UIMetrics.spacing4)
 
             Divider().overlay(MuxyTheme.border)
 
             if filteredItems.isEmpty {
                 Text(emptyLabel)
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -54,7 +54,7 @@ struct SearchableListPicker<Item: Identifiable, RowContent: View>: View {
                                     .id(item.id)
                             }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, UIMetrics.spacing2)
                     }
                     .onChange(of: highlightedIndex) { _, newIndex in
                         guard let newIndex, newIndex < filteredItems.count else { return }

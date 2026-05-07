@@ -8,15 +8,15 @@ struct PathBreadcrumb: View {
     }
 
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: UIMetrics.scaled(3)) {
             ForEach(Array(components.enumerated()), id: \.offset) { index, component in
                 if index > 0 {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 7, weight: .bold))
+                        .font(.system(size: UIMetrics.scaled(7), weight: .bold))
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
                 Text(component)
-                    .font(.system(size: 10))
+                    .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(index == components.count - 1 ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     .lineLimit(1)
             }

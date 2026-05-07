@@ -10,16 +10,16 @@ struct TerminalSearchBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                HStack(spacing: 4) {
+            HStack(spacing: UIMetrics.spacing3) {
+                HStack(spacing: UIMetrics.spacing2) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11))
+                        .font(.system(size: UIMetrics.fontFootnote))
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .accessibilityHidden(true)
 
                     TextField("Search", text: $searchState.needle)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 12))
+                        .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(MuxyTheme.fg)
                         .focused($isFieldFocused)
                         .onSubmit { onNavigateNext() }
@@ -29,45 +29,45 @@ struct TerminalSearchBar: View {
 
                     if !searchState.displayText.isEmpty {
                         Text(searchState.displayText)
-                            .font(.system(size: 10))
+                            .font(.system(size: UIMetrics.fontCaption))
                             .foregroundStyle(MuxyTheme.fgMuted)
                             .lineLimit(1)
                             .fixedSize()
                             .accessibilityLabel("Search results: \(searchState.displayText)")
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, UIMetrics.spacing4)
+                .padding(.vertical, UIMetrics.spacing2)
                 .background(MuxyTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                         .strokeBorder(MuxyTheme.border, lineWidth: 1)
                 )
 
                 Button(action: onNavigatePrevious) {
                     Image(systemName: "chevron.up")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 }
                 .buttonStyle(SearchBarButtonStyle())
                 .accessibilityLabel("Previous Match")
 
                 Button(action: onNavigateNext) {
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 }
                 .buttonStyle(SearchBarButtonStyle())
                 .accessibilityLabel("Next Match")
 
                 Button(action: onClose) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 }
                 .buttonStyle(SearchBarButtonStyle())
                 .accessibilityLabel("Close Search")
             }
-            .padding(.horizontal, 8)
-            .frame(height: 32)
+            .padding(.horizontal, UIMetrics.spacing4)
+            .frame(height: UIMetrics.scaled(32))
             .background(MuxyTheme.bg.opacity(0.95))
 
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
@@ -83,10 +83,10 @@ struct TerminalSearchBar: View {
 private struct SearchBarButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .frame(width: 22, height: 22)
+            .frame(width: UIMetrics.scaled(22), height: UIMetrics.scaled(22))
             .contentShape(Rectangle())
             .foregroundStyle(MuxyTheme.fgMuted)
             .background(configuration.isPressed ? MuxyTheme.surface : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
     }
 }

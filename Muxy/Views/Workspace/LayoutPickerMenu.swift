@@ -16,8 +16,8 @@ struct LayoutPickerMenu: View {
                 }
             } label: {
                 Image(systemName: "rectangle.split.2x2")
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 24, height: 24)
+                    .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
+                    .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                     .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)

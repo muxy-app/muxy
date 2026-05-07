@@ -29,22 +29,22 @@ struct AIUsagePreviewButton: View {
     }
 
     private var expandedLabel: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: UIMetrics.spacing2) {
             iconGlyph
             if let percentLabel {
                 Text(percentLabel)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(foreground)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
         }
-        .frame(height: 24)
+        .frame(height: UIMetrics.controlMedium)
     }
 
     private var compactLabel: some View {
         iconGlyph
-            .frame(width: 24, height: 24)
+            .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
     }
 
     @ViewBuilder
@@ -53,7 +53,7 @@ struct AIUsagePreviewButton: View {
             ProviderIconView(iconName: display.iconName, size: 14, style: .monochrome(foreground))
         } else {
             Image(systemName: "sparkles")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
                 .foregroundStyle(foreground)
         }
     }
@@ -72,13 +72,13 @@ struct AIUsagePanel: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing5) {
+            HStack(spacing: UIMetrics.spacing3) {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 Text("AI Usage")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 Spacer()
                 Button(action: onRefresh) {
@@ -88,10 +88,10 @@ struct AIUsagePanel: View {
                                 .controlSize(.small)
                         } else {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                         }
                     }
-                    .frame(width: 14, height: 14)
+                    .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -99,28 +99,28 @@ struct AIUsagePanel: View {
                 .help("Refresh usage")
                 if let lastRefreshDate {
                     Text(Self.relativeFormatter.localizedString(for: lastRefreshDate, relativeTo: Date()))
-                        .font(.system(size: 11))
+                        .font(.system(size: UIMetrics.fontFootnote))
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
             }
 
             if snapshots.isEmpty {
                 Text(isRefreshing ? "Refreshing usage data..." : "No usage data yet.")
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
 
             if !snapshots.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: UIMetrics.spacing5) {
                     ForEach(snapshots) { snapshot in
                         AIProviderUsageView(snapshot: snapshot)
                     }
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, UIMetrics.spacing6)
+        .padding(.vertical, UIMetrics.spacing5)
+        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
     }
 }
 
@@ -130,18 +130,18 @@ struct AIProviderUsageView: View {
     @AppStorage(AIUsageSettingsStore.sidebarPreviewProviderIDKey) private var pinnedRawValue: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
+            HStack(spacing: UIMetrics.spacing3) {
                 ProviderIconView(iconName: snapshot.providerIconName, size: 14, style: .monochrome(MuxyTheme.fg))
                 Text(snapshot.providerName)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
                     .foregroundStyle(MuxyTheme.fg)
-                Spacer(minLength: 4)
+                Spacer(minLength: UIMetrics.spacing2)
             }
 
             switch snapshot.state {
             case .available:
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
                     ForEach(snapshot.rows) { row in
                         AIUsageMetricRowView(
                             row: row,
@@ -158,7 +158,7 @@ struct AIProviderUsageView: View {
             case let .unavailable(message),
                  let .error(message):
                 Text(message)
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
         }
@@ -344,25 +344,25 @@ struct AIUsageMetricRowView: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 4) {
+        VStack(alignment: .leading, spacing: UIMetrics.scaled(3)) {
+            HStack(spacing: UIMetrics.spacing2) {
                 Text(row.label)
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
 
                 if paceDetailText != nil {
                     Circle()
                         .fill(paceIndicatorColor)
-                        .frame(width: 6, height: 6)
+                        .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
                 }
 
                 if canPin {
                     Button(action: togglePin) {
                         Image(systemName: isPinned ? "pin.fill" : "pin")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                             .foregroundStyle(isPinned ? MuxyTheme.accent : (pinHovered ? MuxyTheme.fg : MuxyTheme.fgMuted))
                             .rotationEffect(.degrees(45))
-                            .frame(width: 14, height: 14)
+                            .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -373,12 +373,12 @@ struct AIUsageMetricRowView: View {
                 Spacer()
                 if let percent = displayPercent {
                     Text("\(Int(percent.rounded()))%")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: UIMetrics.fontBody, weight: .medium))
                         .foregroundStyle(MuxyTheme.fg)
                 }
                 if let detail = displayDetail {
                     Text(detail)
-                        .font(.system(size: 11))
+                        .font(.system(size: UIMetrics.fontFootnote))
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
             }
@@ -390,16 +390,16 @@ struct AIUsageMetricRowView: View {
             }
 
             if let resetDate = row.resetDate {
-                HStack(spacing: 6) {
+                HStack(spacing: UIMetrics.spacing3) {
                     Text("Resets \(Self.resetFormatter.string(from: resetDate))")
-                        .font(.system(size: 11))
+                        .font(.system(size: UIMetrics.fontFootnote))
                         .foregroundStyle(MuxyTheme.fgDim)
 
                     Spacer(minLength: 0)
 
                     if let paceDetailText {
                         Text(paceDetailText)
-                            .font(.system(size: 11))
+                            .font(.system(size: UIMetrics.fontFootnote))
                             .foregroundStyle(MuxyTheme.fgDim)
                             .lineLimit(1)
                     }

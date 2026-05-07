@@ -10,11 +10,11 @@ struct DebugButton: View {
             showingPopover.toggle()
         } label: {
             Image(systemName: "ladybug.fill")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(hovered ? MuxyTheme.warning : MuxyTheme.warning.opacity(0.75))
-                .frame(width: 22, height: 22)
+                .frame(width: UIMetrics.scaled(22), height: UIMetrics.scaled(22))
                 .contentShape(Rectangle())
-                .background(hovered ? MuxyTheme.hover : .clear, in: RoundedRectangle(cornerRadius: 5))
+                .background(hovered ? MuxyTheme.hover : .clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
@@ -30,32 +30,32 @@ private struct DebugInfoPopover: View {
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing5) {
+            HStack(spacing: UIMetrics.spacing3) {
                 Image(systemName: "ladybug.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(MuxyTheme.warning)
                 Text("Debug")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
-                Spacer(minLength: 12)
+                Spacer(minLength: UIMetrics.spacing6)
                 Text("DEV")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: UIMetrics.fontXS, weight: .bold))
                     .foregroundStyle(MuxyTheme.bg)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
+                    .padding(.horizontal, UIMetrics.scaled(5))
+                    .padding(.vertical, UIMetrics.scaled(1))
                     .background(MuxyTheme.warning, in: Capsule())
             }
 
-            VStack(spacing: 6) {
+            VStack(spacing: UIMetrics.spacing3) {
                 metricRow("Memory", value: snapshot.memoryString, icon: "memorychip")
                 metricRow("CPU", value: snapshot.cpuString, icon: "cpu")
                 metricRow("Threads", value: "\(snapshot.threadCount)", icon: "rectangle.split.3x1")
                 metricRow("Uptime", value: snapshot.uptimeString, icon: "clock")
             }
         }
-        .padding(12)
-        .frame(width: 220)
+        .padding(UIMetrics.spacing6)
+        .frame(width: UIMetrics.scaled(220))
         .background(MuxyTheme.bg)
         .onReceive(timer) { _ in
             snapshot = DebugMetrics.current()
@@ -63,17 +63,17 @@ private struct DebugInfoPopover: View {
     }
 
     private func metricRow(_ label: String, value: String, icon: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: UIMetrics.spacing4) {
             Image(systemName: icon)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: 14)
+                .frame(width: UIMetrics.iconMD)
             Text(label)
-                .font(.system(size: 11))
+                .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            Spacer(minLength: 8)
+            Spacer(minLength: UIMetrics.spacing4)
             Text(value)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fg)
         }
     }

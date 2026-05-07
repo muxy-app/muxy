@@ -19,27 +19,27 @@ struct EditorSearchBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 4) {
+            HStack(alignment: .top, spacing: UIMetrics.spacing2) {
                 Button {
                     state.replaceVisible.toggle()
                 } label: {
                     Image(systemName: state.replaceVisible ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 }
                 .buttonStyle(EditorSearchButtonStyle())
                 .help(state.replaceVisible ? "Hide Replace" : "Show Replace")
                 .accessibilityLabel(state.replaceVisible ? "Hide Replace" : "Show Replace")
-                .padding(.top, 1)
+                .padding(.top, UIMetrics.scaled(1))
 
-                VStack(spacing: 4) {
+                VStack(spacing: UIMetrics.spacing2) {
                     searchRow
                     if state.replaceVisible {
                         replaceRow
                     }
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, UIMetrics.spacing4)
+            .padding(.vertical, UIMetrics.spacing3)
             .background(MuxyTheme.bg.opacity(0.95))
 
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
@@ -52,16 +52,16 @@ struct EditorSearchBar: View {
     }
 
     private var searchRow: some View {
-        HStack(spacing: 6) {
-            HStack(spacing: 4) {
+        HStack(spacing: UIMetrics.spacing3) {
+            HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11))
+                    .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .accessibilityHidden(true)
 
                 TextField("Search", text: $state.searchNeedle)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fg)
                     .focused($isFieldFocused)
                     .onSubmit { onNext() }
@@ -73,7 +73,7 @@ struct EditorSearchBar: View {
 
                 if !displayText.isEmpty {
                     Text(displayText)
-                        .font(.system(size: 10))
+                        .font(.system(size: UIMetrics.fontCaption))
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .lineLimit(1)
                         .fixedSize()
@@ -91,32 +91,32 @@ struct EditorSearchBar: View {
                     help: "Regular Expression"
                 )
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, UIMetrics.spacing4)
+            .padding(.vertical, UIMetrics.spacing2)
             .background(MuxyTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                     .strokeBorder(MuxyTheme.border, lineWidth: 1)
             )
 
             Button(action: onPrevious) {
                 Image(systemName: "chevron.up")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
             }
             .buttonStyle(EditorSearchButtonStyle())
             .accessibilityLabel("Previous Match")
 
             Button(action: onNext) {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
             }
             .buttonStyle(EditorSearchButtonStyle())
             .accessibilityLabel("Next Match")
 
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
             }
             .buttonStyle(EditorSearchButtonStyle())
             .accessibilityLabel("Close Search")
@@ -124,25 +124,25 @@ struct EditorSearchBar: View {
     }
 
     private var replaceRow: some View {
-        HStack(spacing: 6) {
-            HStack(spacing: 4) {
+        HStack(spacing: UIMetrics.spacing3) {
+            HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: "arrow.2.squarepath")
-                    .font(.system(size: 11))
+                    .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .accessibilityHidden(true)
 
                 TextField("Replace", text: $state.replaceText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fg)
                     .onSubmit(onReplace)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, UIMetrics.spacing4)
+            .padding(.vertical, UIMetrics.spacing2)
             .background(MuxyTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                     .strokeBorder(MuxyTheme.border, lineWidth: 1)
             )
 
@@ -160,11 +160,11 @@ struct EditorSearchBar: View {
 private struct EditorSearchButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .frame(width: 22, height: 22)
+            .frame(width: UIMetrics.scaled(22), height: UIMetrics.scaled(22))
             .contentShape(Rectangle())
             .foregroundStyle(MuxyTheme.fgMuted)
             .background(configuration.isPressed ? MuxyTheme.surface : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
     }
 }
 
@@ -173,16 +173,16 @@ private struct EditorSearchTextButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
             .foregroundStyle(isEnabled ? MuxyTheme.fg : MuxyTheme.fgDim)
-            .padding(.horizontal, 8)
-            .frame(height: 22)
+            .padding(.horizontal, UIMetrics.spacing4)
+            .frame(height: UIMetrics.scaled(22))
             .background(configuration.isPressed ? MuxyTheme.surface : MuxyTheme.bg)
             .overlay(
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                     .strokeBorder(MuxyTheme.border, lineWidth: 1)
             )
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
     }
 }
 
@@ -196,11 +196,11 @@ private struct EditorSearchOptionToggle: View {
             isOn.toggle()
         } label: {
             Text(label)
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
                 .foregroundStyle(isOn ? MuxyTheme.fg : MuxyTheme.fgMuted)
-                .frame(width: 20, height: 18)
+                .frame(width: UIMetrics.controlSmall, height: UIMetrics.scaled(18))
                 .background(isOn ? MuxyTheme.border : .clear)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
         }
         .buttonStyle(.plain)
         .help(help)

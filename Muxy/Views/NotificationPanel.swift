@@ -50,26 +50,26 @@ struct NotificationPanel: View {
                 notificationList(currentItems)
             }
         }
-        .frame(width: 320, height: 400)
+        .frame(width: UIMetrics.scaled(320), height: UIMetrics.scaled(400))
     }
 
     private var header: some View {
         HStack {
             Text("Notifications")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
             Spacer()
             Button {
                 NotificationStore.shared.clear()
             } label: {
                 Text("Clear All")
-                    .font(.system(size: 11))
+                    .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, UIMetrics.spacing5)
+        .padding(.vertical, UIMetrics.spacing4)
     }
 
     private func notificationList(_ currentItems: [NotificationPanelItem]) -> some View {
@@ -86,7 +86,7 @@ struct NotificationPanel: View {
                     .accessibilityAddTraits(.isButton)
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, UIMetrics.spacing2)
         }
         .background(MuxyTheme.bg)
     }
@@ -95,22 +95,22 @@ struct NotificationPanel: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Notifications")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
                 Spacer()
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, UIMetrics.spacing5)
+            .padding(.vertical, UIMetrics.spacing4)
 
             Divider().overlay(MuxyTheme.border)
 
-            VStack(spacing: 8) {
+            VStack(spacing: UIMetrics.spacing4) {
                 Spacer()
                 Image(systemName: "bell.slash")
-                    .font(.system(size: 24, weight: .light))
+                    .font(.system(size: UIMetrics.fontHero, weight: .light))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 Text("No notifications")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 Spacer()
             }
@@ -146,24 +146,24 @@ private struct NotificationRow: View {
     @State private var hovered = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: UIMetrics.spacing4) {
             Circle()
                 .fill(item.isRead ? Color.clear : MuxyTheme.accent)
-                .frame(width: 6, height: 6)
-                .padding(.top, 5)
+                .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
+                .padding(.top, UIMetrics.scaled(5))
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                 HStack {
                     Image(systemName: item.sourceIcon)
-                        .font(.system(size: 10))
+                        .font(.system(size: UIMetrics.fontCaption))
                         .foregroundStyle(MuxyTheme.fgMuted)
                     Text(item.title)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                         .foregroundStyle(MuxyTheme.fg)
                         .lineLimit(1)
                     Spacer()
                     Text(item.relativeTimestamp)
-                        .font(.system(size: 10))
+                        .font(.system(size: UIMetrics.fontCaption))
                         .foregroundStyle(MuxyTheme.fgMuted)
                     if hovered {
                         dismissButton
@@ -172,14 +172,14 @@ private struct NotificationRow: View {
 
                 if !item.body.isEmpty {
                     Text(item.body)
-                        .font(.system(size: 11))
+                        .font(.system(size: UIMetrics.fontFootnote))
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .lineLimit(2)
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, UIMetrics.spacing5)
+        .padding(.vertical, UIMetrics.spacing3)
         .background(isHighlighted ? MuxyTheme.surface : (hovered ? MuxyTheme.hover : .clear))
         .onHover { hovered = $0 }
     }
@@ -189,9 +189,9 @@ private struct NotificationRow: View {
             onRemove()
         } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 8, weight: .bold))
+                .font(.system(size: UIMetrics.fontMicro, weight: .bold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: 14, height: 14)
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
                 .background(MuxyTheme.surface, in: Circle())
         }
         .buttonStyle(.plain)

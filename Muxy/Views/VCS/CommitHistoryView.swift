@@ -19,13 +19,13 @@ struct CommitHistoryView: View {
         if state.isLoadingCommits, state.commits.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity)
-                .padding(20)
+                .padding(UIMetrics.spacing8)
         } else if state.commits.isEmpty {
             Text("No commits")
-                .font(.system(size: 12))
+                .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
+                .padding(.vertical, UIMetrics.spacing8)
         } else {
             commitList
         }
@@ -54,13 +54,13 @@ struct CommitHistoryView: View {
                         ProgressView()
                             .controlSize(.small)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, UIMetrics.spacing5)
                     } else {
                         Text("Load more")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                             .foregroundStyle(MuxyTheme.accent)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, UIMetrics.spacing5)
                     }
                 }
                 .buttonStyle(.plain)
@@ -141,28 +141,28 @@ private struct CommitRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: UIMetrics.spacing4) {
             commitDot
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
                 Text(commit.subject)
-                    .font(.system(size: 12, weight: .regular))
+                    .font(.system(size: UIMetrics.fontBody, weight: .regular))
                     .foregroundStyle(MuxyTheme.fg)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                HStack(spacing: 6) {
+                HStack(spacing: UIMetrics.spacing3) {
                     if !commit.refs.isEmpty {
                         refBadges
                     }
 
                     Text(commit.authorName)
-                        .font(.system(size: 10))
+                        .font(.system(size: UIMetrics.fontCaption))
                         .foregroundStyle(MuxyTheme.fgDim)
                         .lineLimit(1)
 
                     Text(relativeDate(commit.authorDate))
-                        .font(.system(size: 10))
+                        .font(.system(size: UIMetrics.fontCaption))
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
             }
@@ -171,13 +171,13 @@ private struct CommitRow: View {
 
             if hovered {
                 Text(commit.shortHash)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                     .foregroundStyle(MuxyTheme.fgDim)
-                    .padding(.trailing, 2)
+                    .padding(.trailing, UIMetrics.spacing1)
             }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 40)
+        .padding(.horizontal, UIMetrics.spacing5)
+        .frame(height: UIMetrics.scaled(40))
         .background(hovered ? MuxyTheme.hover : .clear)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
@@ -201,7 +201,7 @@ private struct CommitRow: View {
         Circle()
             .fill(commit.isMerge ? .clear : dotColor)
             .stroke(dotColor, lineWidth: commit.isMerge ? 1.5 : 0)
-            .frame(width: 8, height: 8)
+            .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
     }
 
     private var refBadges: some View {
@@ -231,17 +231,17 @@ private struct CommitRow: View {
             "tag"
         }
 
-        return HStack(spacing: 2) {
+        return HStack(spacing: UIMetrics.spacing1) {
             Image(systemName: icon)
-                .font(.system(size: 8, weight: .semibold))
+                .font(.system(size: UIMetrics.fontMicro, weight: .semibold))
             Text(ref.name)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                 .lineLimit(1)
         }
         .foregroundStyle(color)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 1)
-        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+        .padding(.horizontal, UIMetrics.scaled(5))
+        .padding(.vertical, UIMetrics.scaled(1))
+        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: UIMetrics.scaled(3)))
     }
 
     @ViewBuilder
@@ -341,9 +341,9 @@ private struct NameInputSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: UIMetrics.spacing7) {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
 
             TextField(placeholder, text: $name)
@@ -353,7 +353,7 @@ private struct NameInputSheet: View {
                     onSubmit()
                 }
 
-            HStack(spacing: 8) {
+            HStack(spacing: UIMetrics.spacing4) {
                 Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
 
@@ -364,7 +364,7 @@ private struct NameInputSheet: View {
                 .disabled(!isValid)
             }
         }
-        .padding(20)
-        .frame(width: 300)
+        .padding(UIMetrics.spacing8)
+        .frame(width: UIMetrics.scaled(300))
     }
 }

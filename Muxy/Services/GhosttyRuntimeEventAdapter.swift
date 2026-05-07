@@ -54,6 +54,9 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
             return true
         case GHOSTTY_ACTION_OPEN_URL:
             return handleOpenURL(target: target, openURL: action.action.open_url)
+        case GHOSTTY_ACTION_PROGRESS_REPORT:
+            handleProgressReport(target: target, report: action.action.progress_report)
+            return true
         default:
             return false
         }
@@ -177,6 +180,32 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         let value = total.total >= 0 ? Int(total.total) : nil
         DispatchQueue.main.async {
             view.onSearchTotal?(value)
+        }
+    }
+
+    private func handleProgressReport(target: ghostty_target_s, report: ghostty_action_progress_report_s) {
+        guard let view = surfaceView(from: target) else { return }
+        let progress = Self.makeProgress(from: report)
+        DispatchQueue.main.async {
+            view.onProgressReport?(progress)
+        }
+    }
+
+    private static func makeProgress(from report: ghostty_action_progress_report_s) -> TerminalProgress? {
+        let percent: Int? = report.progress >= 0 ? Int(report.progress) : nil
+        switch report.state {
+        case GHOSTTY_PROGRESS_STATE_REMOVE:
+            return nil
+        case GHOSTTY_PROGRESS_STATE_SET:
+            return TerminalProgress.clamping(kind: .set, percent: percent)
+        case GHOSTTY_PROGRESS_STATE_ERROR:
+            return TerminalProgress.clamping(kind: .error, percent: percent)
+        case GHOSTTY_PROGRESS_STATE_INDETERMINATE:
+            return TerminalProgress(kind: .indeterminate, percent: nil)
+        case GHOSTTY_PROGRESS_STATE_PAUSE:
+            return TerminalProgress.clamping(kind: .paused, percent: percent)
+        default:
+            return nil
         }
     }
 

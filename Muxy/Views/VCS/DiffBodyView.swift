@@ -14,13 +14,13 @@ struct DiffBodyView: View {
             if isLoading, diff == nil {
                 ProgressView()
                     .frame(maxWidth: .infinity)
-                    .padding(14)
+                    .padding(UIMetrics.scaled(14))
             } else if let error {
                 Text(error)
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                    .padding(UIMetrics.spacing6)
             } else if let diff {
                 VStack(spacing: 0) {
                     if diff.truncated, let onLoadFull {
@@ -46,10 +46,10 @@ struct DiffBodyView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text("No diff output")
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                    .padding(UIMetrics.spacing6)
             }
         }
         .background(MuxyTheme.bg)
@@ -58,15 +58,15 @@ struct DiffBodyView: View {
     private func truncatedBanner(onLoadFull: @escaping () -> Void) -> some View {
         HStack {
             Text("Large diff preview")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
             Spacer(minLength: 0)
             Button("Load full diff", action: onLoadFull)
                 .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.accent)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, UIMetrics.spacing5)
+        .padding(.vertical, UIMetrics.spacing4)
     }
 }

@@ -1,9 +1,10 @@
 import SwiftUI
 
+@MainActor
 enum SidebarLayout {
-    static let collapsedWidth: CGFloat = 44
-    static let expandedWidth: CGFloat = 220
-    static let width: CGFloat = 44
+    static var collapsedWidth: CGFloat { UIMetrics.sidebarCollapsedWidth }
+    static var expandedWidth: CGFloat { UIMetrics.sidebarExpandedWidth }
+    static var width: CGFloat { UIMetrics.sidebarCollapsedWidth }
 
     static func resolvedWidth(
         expanded: Bool,
@@ -89,7 +90,7 @@ struct Sidebar: View {
 
     private var projectList: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: 4) {
+            LazyVStack(spacing: UIMetrics.spacing2) {
                 ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) { index, project in
                     Group {
                         if isWide {
@@ -130,8 +131,8 @@ struct Sidebar: View {
                 }
                 addButton
             }
-            .padding(.horizontal, isWide ? 6 : 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, isWide ? UIMetrics.spacing3 : UIMetrics.spacing4)
+            .padding(.vertical, UIMetrics.spacing2)
             .onPreferenceChange(UUIDFramePreferenceKey<SidebarFrameTag>.self) { frames in
                 guard dragState.draggedID != nil else { return }
                 dragState.frames = frames
@@ -238,35 +239,35 @@ private struct AddProjectButton: View {
 
     private var collapsedLayout: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                 .fill(MuxyTheme.hover)
             Image(systemName: "plus")
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
                 .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
         }
-        .frame(width: 28, height: 28)
-        .padding(3)
+        .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
+        .padding(UIMetrics.scaled(3))
     }
 
     private var expandedLayout: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: UIMetrics.spacing4) {
             ZStack {
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                     .fill(MuxyTheme.surface)
                 Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
             }
-            .frame(width: 28, height: 28)
+            .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
 
             Text("Add Project")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: UIMetrics.fontBody, weight: .medium))
                 .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 .lineLimit(1)
             Spacer()
         }
-        .padding(4)
-        .background(hovered ? MuxyTheme.hover : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+        .padding(UIMetrics.spacing2)
+        .background(hovered ? MuxyTheme.hover : Color.clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
     }
 }
 
@@ -380,7 +381,7 @@ struct SidebarFooter: View {
     }
 
     private var collapsedFooter: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: UIMetrics.spacing2) {
             if usageEnabled {
                 aiUsageButton
             }
@@ -395,11 +396,11 @@ struct SidebarFooter: View {
             IconButton(symbol: sidebarToggleIcon, accessibilityLabel: sidebarToggleLabel) { postToggleSidebar() }
                 .help("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
         }
-        .padding(.bottom, 8)
+        .padding(.bottom, UIMetrics.spacing4)
     }
 
     private var expandedFooter: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: UIMetrics.spacing2) {
             IconButton(symbol: sidebarToggleIcon, accessibilityLabel: sidebarToggleLabel) { postToggleSidebar() }
                 .help("\(sidebarToggleLabel) (\(KeyBindingStore.shared.combo(for: .toggleSidebar).displayString))")
 
@@ -417,8 +418,8 @@ struct SidebarFooter: View {
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }
         }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 8)
+        .padding(.horizontal, UIMetrics.spacing5)
+        .padding(.bottom, UIMetrics.spacing4)
     }
 
     private func refreshUsage() {

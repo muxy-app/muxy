@@ -22,12 +22,12 @@ struct FindInFilesOverlay: View {
                 Divider().overlay(MuxyTheme.border)
                 resultsList
             }
-            .frame(width: 640, height: 460)
+            .frame(width: UIMetrics.scaled(640), height: UIMetrics.scaled(460))
             .background(MuxyTheme.bg)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(MuxyTheme.border, lineWidth: 1))
-            .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
-            .padding(.top, 60)
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusXL))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusXL).stroke(MuxyTheme.border, lineWidth: 1))
+            .shadow(color: .black.opacity(0.4), radius: UIMetrics.scaled(20), y: UIMetrics.scaled(8))
+            .padding(.top, UIMetrics.scaled(60))
             .frame(maxHeight: .infinity, alignment: .top)
             .accessibilityAddTraits(.isModal)
         }
@@ -36,10 +36,10 @@ struct FindInFilesOverlay: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: UIMetrics.spacing4) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .font(.system(size: 13))
+                .font(.system(size: UIMetrics.fontEmphasis))
                 .accessibilityHidden(true)
             PaletteSearchField(
                 text: $query,
@@ -50,8 +50,8 @@ struct FindInFilesOverlay: View {
                 onArrowDown: { moveHighlight(1) }
             )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, UIMetrics.spacing6)
+        .padding(.vertical, UIMetrics.spacing5)
         .onChange(of: query) { performSearch() }
     }
 
@@ -63,7 +63,7 @@ struct FindInFilesOverlay: View {
                 Text(query.trimmingCharacters(in: .whitespaces).count < TextSearchService.minQueryLength
                     ? "Type at least \(TextSearchService.minQueryLength) characters"
                     : "No matches found")
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 Spacer()
             }
@@ -85,7 +85,7 @@ struct FindInFilesOverlay: View {
                             }
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, UIMetrics.spacing2)
                 }
                 .onChange(of: highlightedMatchID) { _, newID in
                     guard let newID else { return }
@@ -180,28 +180,28 @@ private struct FileGroupHeader: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: UIMetrics.spacing3) {
             Text(fileName)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
                 .lineLimit(1)
             if !directory.isEmpty {
                 Text(directory)
-                    .font(.system(size: 11))
+                    .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fgDim)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: UIMetrics.spacing4)
             Text("\(group.matches.count)")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
                 .foregroundStyle(MuxyTheme.bg)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
+                .padding(.horizontal, UIMetrics.scaled(7))
+                .padding(.vertical, UIMetrics.spacing1)
                 .background(Capsule().fill(MuxyTheme.fgMuted))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, UIMetrics.spacing6)
+        .padding(.vertical, UIMetrics.spacing3)
     }
 }
 
@@ -212,12 +212,12 @@ private struct MatchRow: View {
 
     var body: some View {
         highlightedSnippet
-            .font(.system(size: 12, design: .monospaced))
+            .font(.system(size: UIMetrics.fontBody, design: .monospaced))
             .lineLimit(1)
             .truncationMode(.tail)
-            .padding(.leading, 24)
-            .padding(.trailing, 12)
-            .padding(.vertical, 3)
+            .padding(.leading, UIMetrics.spacing9)
+            .padding(.trailing, UIMetrics.spacing6)
+            .padding(.vertical, UIMetrics.scaled(3))
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(isHighlighted ? MuxyTheme.surface : hovered ? MuxyTheme.hover : .clear)
             .onHover { hovered = $0 }

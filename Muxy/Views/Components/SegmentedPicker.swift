@@ -11,15 +11,15 @@ struct SegmentedPicker<T: Hashable>: View {
                     selection = option.value
                 } label: {
                     Text(option.label)
-                        .font(.system(size: 11, weight: selection == option.value ? .semibold : .regular))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: selection == option.value ? .semibold : .regular))
                         .foregroundStyle(selection == option.value ? MuxyTheme.fg : MuxyTheme.fgMuted)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 5)
+                        .padding(.vertical, UIMetrics.scaled(5))
                         .background(
                             selection == option.value
                                 ? MuxyTheme.surface
                                 : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 4)
+                            in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                         )
                 }
                 .buttonStyle(.plain)
@@ -28,13 +28,13 @@ struct SegmentedPicker<T: Hashable>: View {
                    selection != options[index + 1].value
                 {
                     Divider()
-                        .frame(height: 14)
+                        .frame(height: UIMetrics.scaled(14))
                         .opacity(0.4)
                 }
             }
         }
-        .padding(2)
-        .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: 6))
+        .padding(UIMetrics.spacing1)
+        .background(MuxyTheme.hover, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
         .accessibilityRepresentation {
             Picker(selection: $selection, label: EmptyView()) {
                 ForEach(Array(options.enumerated()), id: \.offset) { _, option in

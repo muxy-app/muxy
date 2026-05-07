@@ -1,6 +1,6 @@
 # Editor Geometry & Scrolling
 
-The built-in editor is virtualized: only the visible window of lines (± a 500-line buffer) is loaded into the underlying `NSTextView`. Every line outside the rendered window is still tracked by the geometry layer, so the scrollbar, gotoline, current-line highlight, and gutter all read from a single source of truth — modelled on CodeMirror 6's HeightMap + scroll-anchor reflow.
+The built-in editor is virtualized: only the visible window of lines (± a 500-line buffer) is loaded into the underlying `NSTextView`. Every line outside the rendered window is still tracked by the geometry layer, so the scrollbar, gotoline, and current-line highlight all read from a single source of truth — modelled on CodeMirror 6's HeightMap + scroll-anchor reflow.
 
 ## Component overview
 
@@ -22,7 +22,7 @@ flowchart TB
 
   subgraph Render["Render-time consumers"]
     Highlight["CurrentLineHighlightExtension"]
-    Gutter["LineNumberGutterExtension"]
+    Gutter["LineNumberGutterExtension<br/>(sibling NSView, sticky on hscroll)"]
     Frame["textView.frame.y"]
     Search["SearchController.scrollToMatch"]
   end
@@ -40,6 +40,10 @@ flowchart TB
   Map --> Gutter
   Map --> Frame
 ```
+
+## Line number gutter
+
+`CodeEditorView` returns an `EditorScrollContainer` (NSView), which lays out a `LineNumberGutterView` on the left and the editor's `NSScrollView` on the right. Because the gutter is a *sibling* of the scroll view rather than a subview of it, it is naturally pinned during horizontal scrolls — the user's horizontal motion only moves text inside the scroll view. Vertical sync is driven by the existing `boundsDidChangeNotification` from `scrollView.contentView`: `LineNumberGutterExtension` observes that notification and marks the gutter for redraw. The gutter's `draw(_:)` reads `scrollView.contentView.bounds.origin.y` and projects each logical line's document Y (from `viewport.heightMap.heightAbove(line:)` / `heightOfLine(_:)`) into its own coordinate space, so labels stay aligned with both wrapped and unwrapped layouts and remain correct as estimates are refined into measurements.
 
 ## Reflow loop on jump / measurement
 
@@ -121,5 +125,5 @@ Edits pass through `replaceLines`, which updates the underlying block sequence a
 - **Estimates are per logical line.** A long minified line gets a tall estimate before measurement; a short comment line gets a short one. `heightAbove(line)` and `lineAtY(y)` remain inverse operations for unmeasured wrapped content.
 - **Scroll position is not pixel-anchored.** When measurements refine geometry, the anchor's pixel position changes — the reflow loop re-pins it before the user notices.
 - **Wrap changes preserve logical anchors.** Toggling wrap or changing the editor width derives the current `ScrollAnchor` before geometry is rebuilt, then re-pins that anchor after TextKit and `HeightMap` are reconfigured.
-- **Single source of truth.** Highlight, gutter, scroll math, jump math, search-jump, current-line-highlight all derive Y values from the same `HeightMap`.
+- **Single source of truth.** Scroll math, jump math, search-jump, and current-line-highlight all derive Y values from the same `HeightMap`.
 - **Measurement is pixel-exact.** `recordMeasuredLineHeights` feeds `layoutManager.boundingRect` heights (excluding trailing newline) directly.

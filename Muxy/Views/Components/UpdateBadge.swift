@@ -7,22 +7,22 @@ struct UpdateBadge: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: UIMetrics.fontXS, weight: .bold))
                 Text("Update \(version)")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
                     .lineLimit(1)
             }
             .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, UIMetrics.spacing3)
+            .padding(.vertical, UIMetrics.scaled(3))
             .background(
-                RoundedRectangle(cornerRadius: 5)
+                RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                     .fill(MuxyTheme.surface)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 5)
+                RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                     .stroke(MuxyTheme.border, lineWidth: 1)
             )
         }

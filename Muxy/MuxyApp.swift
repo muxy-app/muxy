@@ -9,6 +9,7 @@ struct MuxyApp: App {
     @State private var appState: AppState
     @State private var projectStore: ProjectStore
     @State private var worktreeStore: WorktreeStore
+    @State private var vcsWorktreeAutoRefresher: VCSWorktreeAutoRefresher
     private let updateService = UpdateService.shared
 
     init() {
@@ -28,9 +29,15 @@ struct MuxyApp: App {
             projects: projectStore.projects,
             worktrees: worktreeStore.worktrees
         )
+        let vcsWorktreeAutoRefresher = VCSWorktreeAutoRefresher(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
+        )
         _appState = State(initialValue: appState)
         _projectStore = State(initialValue: projectStore)
         _worktreeStore = State(initialValue: worktreeStore)
+        _vcsWorktreeAutoRefresher = State(initialValue: vcsWorktreeAutoRefresher)
     }
 
     var body: some Scene {
@@ -47,6 +54,7 @@ struct MuxyApp: App {
                     NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore
                     NotificationStore.shared.markAllAsRead()
+                    TerminalProgressStore.shared.appState = appState
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
                     }
@@ -371,6 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct WindowConfigurator: NSViewRepresentable {
     let configVersion: Int
+    let uiScalePreset: UIScale.Preset
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -399,6 +408,7 @@ struct WindowConfigurator: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let w = nsView.window else { return }
         Self.applyWindowBackground(w)
+        Self.repositionTrafficLights(in: w)
     }
 
     private static func applyWindowBackground(_ window: NSWindow) {
@@ -454,17 +464,23 @@ struct WindowConfigurator: NSViewRepresentable {
     }
 
     static let trafficLightY: CGFloat = 3.5
+    static let baselineTitleBarHeight: CGFloat = 32
 
-    static func repositionTrafficLights(in window: NSWindow) {
-        let y: CGFloat
+    static func desiredTrafficLightY() -> CGFloat {
+        let scaledTitleBarHeight = UIMetrics.scaled(baselineTitleBarHeight)
+        let extraVerticalSpace = scaledTitleBarHeight - baselineTitleBarHeight
         if #available(macOS 26.0, *) {
             let buttonHeight: CGFloat = 14
-            y = (32 - buttonHeight) / 2
-        } else {
-            y = trafficLightY
+            return (baselineTitleBarHeight - buttonHeight - extraVerticalSpace) / 2
         }
+        return trafficLightY - extraVerticalSpace / 2
+    }
+
+    static func repositionTrafficLights(in window: NSWindow) {
+        let y = desiredTrafficLightY()
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             guard let btn = window.standardWindowButton(button) else { continue }
+            guard abs(btn.frame.origin.y - y) > 0.5 else { continue }
             var frame = btn.frame
             frame.origin.y = y
             btn.frame = frame
@@ -473,6 +489,7 @@ struct WindowConfigurator: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         private var observations: [NSObjectProtocol] = []
+        private var buttonFrameObservations: [NSObjectProtocol] = []
 
         @objc
         func handleCloseButton(_: Any?) {
@@ -491,6 +508,9 @@ struct WindowConfigurator: NSViewRepresentable {
                 NSWindow.didChangeBackingPropertiesNotification,
                 NSWindow.didExitFullScreenNotification,
                 NSWindow.didEnterFullScreenNotification,
+                NSWindow.didUpdateNotification,
+                NSWindow.didBecomeKeyNotification,
+                NSWindow.didBecomeMainNotification,
             ]
             for name in names {
                 let token = NotificationCenter.default.addObserver(
@@ -522,10 +542,35 @@ struct WindowConfigurator: NSViewRepresentable {
                 }
                 observations.append(token)
             }
+
+            observeButtonFrames(window: window)
+        }
+
+        private func observeButtonFrames(window: NSWindow) {
+            buttonFrameObservations.forEach { NotificationCenter.default.removeObserver($0) }
+            buttonFrameObservations.removeAll()
+            for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                guard let button = MainActor.assumeIsolated({ window.standardWindowButton(type) }) else { continue }
+                MainActor.assumeIsolated { button.postsFrameChangedNotifications = true }
+                let token = NotificationCenter.default.addObserver(
+                    forName: NSView.frameDidChangeNotification,
+                    object: button,
+                    queue: .main
+                ) { [weak window] _ in
+                    guard let window else { return }
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            WindowConfigurator.repositionTrafficLights(in: window)
+                        }
+                    }
+                }
+                buttonFrameObservations.append(token)
+            }
         }
 
         deinit {
             observations.forEach { NotificationCenter.default.removeObserver($0) }
+            buttonFrameObservations.forEach { NotificationCenter.default.removeObserver($0) }
         }
     }
 }

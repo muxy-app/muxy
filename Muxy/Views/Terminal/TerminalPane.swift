@@ -77,26 +77,26 @@ struct RemoteControlledPlaceholder: View {
     let onTakeOver: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: UIMetrics.spacing7) {
             Spacer()
             Image(systemName: "iphone.gen3")
-                .font(.system(size: 28))
+                .font(.system(size: UIMetrics.fontMega))
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text("Controlled by \(deviceName)")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
             Text("This terminal session is currently being used on \(deviceName). Take over to resume on Mac.")
-                .font(.system(size: 12))
+                .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
             Button {
                 onTakeOver()
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: UIMetrics.spacing4) {
                     Text("Take Over")
                     Text("⌘↩")
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .rounded))
                         .opacity(0.72)
                 }
             }
@@ -159,6 +159,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
         configureSearchCallbacks(view)
         configureFileOpenCallback(view)
+        configureProgressCallback(view)
         context.coordinator.wasFocused = focused
         if focused, !overlayActive {
             view.notifySurfaceFocused()
@@ -196,6 +197,7 @@ struct TerminalBridge: NSViewRepresentable {
         }
         configureSearchCallbacks(nsView)
         configureFileOpenCallback(nsView)
+        configureProgressCallback(nsView)
         let wasFocused = context.coordinator.wasFocused
         let wasOverlayActive = context.coordinator.wasOverlayActive
         context.coordinator.wasFocused = focused
@@ -284,6 +286,16 @@ struct TerminalBridge: NSViewRepresentable {
         guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory) else { return nil }
         guard !isDirectory.boolValue else { return nil }
         return candidate
+    }
+
+    private func configureProgressCallback(_ view: GhosttyTerminalNSView) {
+        let paneID = state.id
+        let projectID = worktreeKey?.projectID
+        view.onProgressReport = { progress in
+            Task { @MainActor in
+                TerminalProgressStore.shared.setProgress(progress, for: paneID, projectID: projectID)
+            }
+        }
     }
 
     private func configureSearchCallbacks(_ view: GhosttyTerminalNSView) {

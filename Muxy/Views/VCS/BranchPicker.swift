@@ -19,23 +19,23 @@ struct BranchPicker: View {
             onRefresh()
             showPopover.toggle()
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontXS, weight: .semibold))
                 Text(currentBranch ?? "detached")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: 120, alignment: .leading)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: UIMetrics.fontMicro, weight: .bold))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
             .foregroundStyle(MuxyTheme.fg.opacity(0.85))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
-            .contentShape(RoundedRectangle(cornerRadius: 5))
+            .padding(.horizontal, UIMetrics.spacing3)
+            .padding(.vertical, UIMetrics.scaled(3))
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
         }
         .buttonStyle(.plain)
         .help(currentBranch ?? "detached")
@@ -102,8 +102,8 @@ struct BranchPickerContent: View {
                     isActive: item.name == currentBranch,
                     isHighlighted: isHighlighted
                 )
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
+                .padding(.horizontal, UIMetrics.spacing3)
+                .padding(.vertical, UIMetrics.spacing1)
                 .contextMenu {
                     if let onDeleteBranch, item.name != currentBranch {
                         Button("Delete Branch", role: .destructive) {
@@ -128,14 +128,14 @@ private struct BranchRow: View {
     @State private var hovered = false
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: UIMetrics.spacing5) {
             Circle()
                 .fill(isActive ? MuxyTheme.accent : MuxyTheme.fgDim.opacity(0.35))
-                .frame(width: 7, height: 7)
-                .frame(width: 10)
+                .frame(width: UIMetrics.scaled(7), height: UIMetrics.scaled(7))
+                .frame(width: UIMetrics.scaled(10))
 
             Text(name)
-                .font(.system(size: 12, weight: isActive ? .semibold : .medium, design: .monospaced))
+                .font(.system(size: UIMetrics.fontBody, weight: isActive ? .semibold : .medium, design: .monospaced))
                 .foregroundStyle(isActive ? MuxyTheme.fg : MuxyTheme.fg.opacity(0.9))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -144,13 +144,13 @@ private struct BranchRow: View {
 
             if isActive {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                     .foregroundStyle(MuxyTheme.accent)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(rowBackground, in: RoundedRectangle(cornerRadius: 6))
+        .padding(.horizontal, UIMetrics.spacing5)
+        .padding(.vertical, UIMetrics.scaled(7))
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
         .onHover { hovered = $0 }
     }
 

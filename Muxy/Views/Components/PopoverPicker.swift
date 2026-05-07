@@ -76,7 +76,7 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
                 }
             }
         }
-        .frame(width: fixedSize ? 300 : nil, height: fixedSize ? 420 : nil)
+        .frame(width: fixedSize ? UIMetrics.scaled(300) : nil, height: fixedSize ? UIMetrics.scaled(420) : nil)
         .frame(maxWidth: fixedSize ? nil : .infinity, maxHeight: fixedSize ? nil : .infinity)
         .background(MuxyTheme.bg)
     }
@@ -88,23 +88,23 @@ struct PopoverPicker<Item: Identifiable, RowContent: View>: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: UIMetrics.spacing4) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.system(size: 12))
+                        .font(.system(size: UIMetrics.fontBody))
                 }
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
                 Spacer()
                 ProgressView()
                     .controlSize(.small)
                     .scaleEffect(0.7)
-                    .frame(width: 12, height: 12)
+                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
                     .opacity(isBusy ? 1 : 0)
             }
             .foregroundStyle(MuxyTheme.fg)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, UIMetrics.scaled(14))
+            .padding(.vertical, UIMetrics.spacing5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

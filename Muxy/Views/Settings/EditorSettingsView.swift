@@ -86,9 +86,9 @@ struct EditorSettingsView: View {
 
             if showsAppearanceSection {
                 SettingsSection("Appearance", showsDivider: false) {
-                    SettingsToggleRow(label: "Show Line Numbers", isOn: $settings.showLineNumbers)
-
                     SettingsToggleRow(label: "Highlight Current Line", isOn: $settings.highlightCurrentLine)
+
+                    SettingsToggleRow(label: "Show Line Numbers", isOn: $settings.showLineNumbers)
 
                     SettingsToggleRow(label: "Wrap Lines", isOn: $settings.lineWrapping)
 

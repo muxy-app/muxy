@@ -83,6 +83,14 @@ struct MermaidCodeBlockNormalizerTests {
         #expect(html.contains("__muxyImageBaseHost"))
     }
 
+    @Test("MarkdownRenderer shell gives markdown links a pointing cursor")
+    @MainActor
+    func markdownRendererShellStylesLinkCursor() {
+        let html = MarkdownRenderer.html(filePath: nil)
+
+        #expect(html.contains(".markdown-body a { color: var(--accent); cursor: pointer; text-decoration: none; }"))
+    }
+
     @Test("MarkdownRenderer themeApplyScript emits Mermaid theme variables")
     @MainActor
     func themeApplyScriptEmitsMermaidThemeVariables() {

@@ -14,30 +14,30 @@ struct PullRequestsListView: View {
     }
 
     private var controlsBar: some View {
-        HStack(spacing: 6) {
-            HStack(spacing: 4) {
+        HStack(spacing: UIMetrics.spacing3) {
+            HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fgDim)
                 TextField("Search", text: $state.pullRequestSearchQuery)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11))
+                    .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fg)
                 if !state.pullRequestSearchQuery.isEmpty {
                     Button {
                         state.pullRequestSearchQuery = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
+                            .font(.system(size: UIMetrics.fontCaption))
                             .foregroundStyle(MuxyTheme.fgDim)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 6)
-            .frame(height: 22)
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 4))
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(MuxyTheme.border, lineWidth: 1))
+            .padding(.horizontal, UIMetrics.spacing3)
+            .frame(height: UIMetrics.scaled(22))
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
 
             Menu {
                 ForEach([
@@ -57,24 +57,24 @@ struct PullRequestsListView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 3) {
+                HStack(spacing: UIMetrics.scaled(3)) {
                     Text(filterLabel(state.pullRequestStateFilter))
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: UIMetrics.fontMicro, weight: .bold))
                 }
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .padding(.horizontal, 6)
-                .frame(height: 22)
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 4))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(MuxyTheme.border, lineWidth: 1))
+                .padding(.horizontal, UIMetrics.spacing3)
+                .frame(height: UIMetrics.scaled(22))
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, UIMetrics.spacing4)
+        .padding(.vertical, UIMetrics.spacing3)
     }
 
     private func filterLabel(_ filter: GitRepositoryService.PRListFilter) -> String {
@@ -122,24 +122,24 @@ struct PullRequestsListView: View {
     }
 
     private var unfetchedState: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: UIMetrics.spacing4) {
             Text("Pull requests not synced yet")
-                .font(.system(size: 11))
+                .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
             Button {
                 state.loadPullRequests()
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: UIMetrics.spacing2) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                     Text("Sync now")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 }
                 .foregroundStyle(MuxyTheme.fg)
-                .padding(.horizontal, 10)
-                .frame(height: 24)
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(MuxyTheme.border, lineWidth: 1))
+                .padding(.horizontal, UIMetrics.spacing5)
+                .frame(height: UIMetrics.controlMedium)
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+                .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusMD).stroke(MuxyTheme.border, lineWidth: 1))
             }
             .buttonStyle(.plain)
         }
@@ -147,17 +147,17 @@ struct PullRequestsListView: View {
     }
 
     private func emptyState(icon: String, text: String) -> some View {
-        VStack(spacing: 6) {
+        VStack(spacing: UIMetrics.spacing3) {
             Image(systemName: icon)
-                .font(.system(size: 16))
+                .font(.system(size: UIMetrics.fontTitleLarge))
                 .foregroundStyle(MuxyTheme.fgDim)
             Text(text)
-                .font(.system(size: 11))
+                .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(20)
+        .padding(UIMetrics.spacing8)
     }
 }
 
@@ -169,31 +169,31 @@ struct PullRequestRow: View {
     @State private var hovered = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: UIMetrics.spacing4) {
             stateBadge
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
+                HStack(spacing: UIMetrics.spacing3) {
                     Text(pr.title)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: UIMetrics.fontBody, weight: .medium))
                         .foregroundStyle(MuxyTheme.fg)
                         .lineLimit(1)
                         .truncationMode(.tail)
                     Text("#\(pr.number)")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fgDim)
                 }
-                HStack(spacing: 4) {
+                HStack(spacing: UIMetrics.spacing2) {
                     Text(pr.author)
-                        .font(.system(size: 10))
+                        .font(.system(size: UIMetrics.fontCaption))
                         .foregroundStyle(MuxyTheme.fgMuted)
                     Text("•")
-                        .font(.system(size: 10))
+                        .font(.system(size: UIMetrics.fontCaption))
                         .foregroundStyle(MuxyTheme.fgDim)
                     Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 9))
+                        .font(.system(size: UIMetrics.fontXS))
                         .foregroundStyle(MuxyTheme.fgDim)
                     Text("\(pr.headBranch) → \(pr.baseBranch)")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -205,8 +205,8 @@ struct PullRequestRow: View {
                 checkoutButton
             }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 44)
+        .padding(.horizontal, UIMetrics.spacing5)
+        .frame(height: UIMetrics.scaled(44))
         .background(hovered ? MuxyTheme.surface : MuxyTheme.bg)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
@@ -218,9 +218,9 @@ struct PullRequestRow: View {
     private var stateBadge: some View {
         let (symbol, color) = stateAppearance
         Image(systemName: symbol)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
             .foregroundStyle(color)
-            .frame(width: 14)
+            .frame(width: UIMetrics.iconMD)
     }
 
     private var stateAppearance: (String, Color) {
@@ -239,36 +239,36 @@ struct PullRequestRow: View {
             EmptyView()
         case .pending:
             Image(systemName: "clock")
-                .font(.system(size: 10))
+                .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
         case .success:
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 10))
+                .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.diffAddFg)
         case .failure:
             Image(systemName: "xmark.octagon.fill")
-                .font(.system(size: 10))
+                .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.diffRemoveFg)
         }
     }
 
     private var checkoutButton: some View {
         Button(action: onCheckout) {
-            HStack(spacing: 3) {
+            HStack(spacing: UIMetrics.scaled(3)) {
                 if isCheckingOut {
                     ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: "arrow.down.to.line")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: UIMetrics.fontXS, weight: .bold))
                 }
                 Text("Checkout")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
             }
             .foregroundStyle(MuxyTheme.fg)
-            .padding(.horizontal, 8)
-            .frame(height: 22)
-            .background(MuxyTheme.bg, in: RoundedRectangle(cornerRadius: 4))
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(MuxyTheme.border, lineWidth: 1))
+            .padding(.horizontal, UIMetrics.spacing4)
+            .frame(height: UIMetrics.scaled(22))
+            .background(MuxyTheme.bg, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(isCheckingOut)
@@ -301,9 +301,9 @@ struct PullRequestsAutoSyncMenu: View {
             }
         } label: {
             Image(systemName: state.pullRequestAutoSyncMinutes > 0 ? "clock.fill" : "clock")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
                 .foregroundStyle(state.pullRequestAutoSyncMinutes > 0 ? MuxyTheme.accent : MuxyTheme.fgMuted)
-                .frame(width: 24, height: 24)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

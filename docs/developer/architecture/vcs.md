@@ -51,6 +51,15 @@ flowchart TB
 
 No rollback on partial failure — errors surface to the sheet so the user retries from where it stopped. Ahead/behind counts come from `GitRepositoryService.aheadBehind`.
 
+## Worktree auto-refresh
+
+`VCSWorktreeAutoRefresher` keeps `WorktreeStore` aligned with `git worktree list` without a manual click. It listens for two notifications, both keyed by `userInfo["repoPath"]`:
+
+- `.vcsDidRefresh` — posted by `VCSTabState` after every full refresh.
+- `.vcsRepoDidChange` — posted by `RemoteServerDelegate` on remote-driven repo changes.
+
+On a hit, it resolves the repo path to a project via `WorktreeStore.projectID(forWorktreePath:)` and runs `WorktreeRefreshHelper.refresh` with `presentErrors: false` (failures log to `os.Logger`, no alert). A per-project in-flight guard coalesces overlapping notifications into a single trailing refresh.
+
 ## Pull Requests section
 
 Independent from the rest of VCS; never auto-fetches with the file/branch refresh. Exposes search, a state filter (Open/Closed/Merged/All), a manual sync button, and an auto-sync interval (Off / 5m / 15m / 30m / 1h) persisted per-repo at `UserDefaults["vcs.prAutoSyncMinutes.<repoPath>"]`.

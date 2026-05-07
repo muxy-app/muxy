@@ -105,7 +105,7 @@ struct VCSTabView: View {
 
     private var header: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 6) {
+            HStack(spacing: UIMetrics.spacing3) {
                 worktreeBranchPicker
 
                 PRPill(
@@ -115,7 +115,7 @@ struct VCSTabView: View {
                     onRequestClose: { prInfo in pendingClosePR = prInfo }
                 )
             }
-            .padding(.leading, 8)
+            .padding(.leading, UIMetrics.spacing4)
 
             Spacer(minLength: 0)
 
@@ -132,7 +132,7 @@ struct VCSTabView: View {
                 if state.isRefreshingPullRequest {
                     ProgressView()
                         .controlSize(.small)
-                        .frame(width: 24, height: 24)
+                        .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 } else {
                     IconButton(symbol: "arrow.clockwise", accessibilityLabel: "Refresh") {
                         state.refresh()
@@ -140,7 +140,7 @@ struct VCSTabView: View {
                 }
             }
         }
-        .frame(height: 32)
+        .frame(height: UIMetrics.scaled(32))
         .background(MuxyTheme.bg)
         .sheet(isPresented: $showCreateWorktreeSheet) {
             if let project = owningProject {
@@ -374,7 +374,7 @@ struct VCSTabView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if state.files.isEmpty, state.errorMessage != nil {
             Text(state.errorMessage ?? "")
-                .font(.system(size: 12))
+                .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -432,22 +432,22 @@ struct VCSTabView: View {
     }
 
     private var commitArea: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: UIMetrics.spacing4) {
             ZStack(alignment: .topLeading) {
                 if state.commitMessage.isEmpty {
                     Text("Commit message (⌘↵ to commit on \(state.branchName ?? "branch"))")
-                        .font(.system(size: 12))
+                        .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(MuxyTheme.fgDim)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, UIMetrics.spacing5)
+                        .padding(.vertical, UIMetrics.spacing5)
                         .allowsHitTesting(false)
                 }
                 TextEditor(text: $state.commitMessage)
-                    .font(.system(size: 12))
+                    .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fg)
                     .scrollContentBackground(.hidden)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 9)
+                    .padding(.horizontal, UIMetrics.scaled(5))
+                    .padding(.vertical, UIMetrics.scaled(9))
                     .frame(minHeight: 27, maxHeight: 50)
                     .onKeyPress(.return, phases: .down) { keyPress in
                         if keyPress.modifiers.contains(.command) {
@@ -457,16 +457,16 @@ struct VCSTabView: View {
                         return .ignored
                     }
             }
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(MuxyTheme.border, lineWidth: 1))
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusMD).stroke(MuxyTheme.border, lineWidth: 1))
 
-            HStack(spacing: 6) {
+            HStack(spacing: UIMetrics.spacing3) {
                 commitButton
                 pullButton
                 pushButton
             }
         }
-        .padding(10)
+        .padding(UIMetrics.spacing5)
         .background(MuxyTheme.bg)
     }
 
@@ -474,25 +474,25 @@ struct VCSTabView: View {
         Button {
             state.commit()
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: UIMetrics.spacing2) {
                 if state.isCommitting {
                     ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                 }
                 Text("Commit")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
             }
             .foregroundStyle(commitEnabled ? MuxyTheme.bg : MuxyTheme.fgDim)
             .frame(maxWidth: .infinity)
             .frame(height: Self.actionButtonHeight)
             .background(
                 commitEnabled ? MuxyTheme.accent : MuxyTheme.surface,
-                in: RoundedRectangle(cornerRadius: 6)
+                in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                     .stroke(MuxyTheme.border, lineWidth: commitEnabled ? 0 : 1)
             )
         }
@@ -505,29 +505,29 @@ struct VCSTabView: View {
         Button {
             state.pull()
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: UIMetrics.spacing2) {
                 if state.isPulling {
                     ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: "arrow.down")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                 }
                 Text("Pull")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 if state.aheadBehind.behind > 0 {
                     Text("\(state.aheadBehind.behind)")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .bold, design: .monospaced))
                         .foregroundStyle(MuxyTheme.bg)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
+                        .padding(.horizontal, UIMetrics.scaled(5))
+                        .padding(.vertical, UIMetrics.scaled(1))
                         .background(MuxyTheme.diffAddFg, in: Capsule())
                 }
             }
             .foregroundStyle(MuxyTheme.fg)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, UIMetrics.spacing5)
             .frame(height: Self.actionButtonHeight)
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(MuxyTheme.border, lineWidth: 1))
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusMD).stroke(MuxyTheme.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(state.isPulling)
@@ -540,29 +540,29 @@ struct VCSTabView: View {
         Button {
             state.push()
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: UIMetrics.spacing2) {
                 if state.isPushing {
                     ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: "arrow.up")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                 }
                 Text("Push")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 if state.aheadBehind.ahead > 0 {
                     Text("\(state.aheadBehind.ahead)")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontCaption, weight: .bold, design: .monospaced))
                         .foregroundStyle(MuxyTheme.bg)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
+                        .padding(.horizontal, UIMetrics.scaled(5))
+                        .padding(.vertical, UIMetrics.scaled(1))
                         .background(MuxyTheme.accent, in: Capsule())
                 }
             }
             .foregroundStyle(MuxyTheme.fg)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, UIMetrics.spacing5)
             .frame(height: Self.actionButtonHeight)
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(MuxyTheme.border, lineWidth: 1))
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusMD).stroke(MuxyTheme.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(state.isPushing)
@@ -571,7 +571,7 @@ struct VCSTabView: View {
             : "Push to origin")
     }
 
-    private static let actionButtonHeight: CGFloat = 28
+    @MainActor private static var actionButtonHeight: CGFloat { UIMetrics.scaled(28) }
 
     private func presentDiscardConfirmation(
         title: String,
@@ -717,9 +717,9 @@ struct VCSSectionVisibilityMenu: View {
             }
         } label: {
             Image(systemName: "sidebar.squares.left")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
                 .foregroundStyle(hovered ? MuxyTheme.fg : MuxyTheme.fgMuted)
-                .frame(width: 24, height: 24)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -768,44 +768,44 @@ struct PRPill: View {
 
     private var createPRPill: some View {
         Button(action: onRequestCreate) {
-            HStack(spacing: 4) {
+            HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: "arrow.triangle.pull")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: UIMetrics.fontXS, weight: .bold))
                 Text("Create PR")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
             }
             .foregroundStyle(MuxyTheme.accent)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, UIMetrics.spacing3)
+            .padding(.vertical, UIMetrics.scaled(3))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(state.isOpeningPullRequest)
         .help("Create a pull request")
-        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(MuxyTheme.accent.opacity(0.35), lineWidth: 1))
+        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+        .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.accent.opacity(0.35), lineWidth: 1))
     }
 
     private func hasPRPill(info: GitRepositoryService.PRInfo) -> some View {
         Button {
             showPRPopover = true
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: prStateIcon(info))
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: UIMetrics.fontXS, weight: .bold))
                     .foregroundStyle(prStateColor(info))
                 Text("PR #\(info.number)")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg.opacity(0.85))
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: UIMetrics.fontMicro, weight: .bold))
                     .foregroundStyle(MuxyTheme.fgDim)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(prStateColor(info).opacity(0.35), lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 5))
+            .padding(.horizontal, UIMetrics.spacing3)
+            .padding(.vertical, UIMetrics.scaled(3))
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(prStateColor(info).opacity(0.35), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
         }
         .buttonStyle(.plain)
         .help("Pull request #\(info.number)")
@@ -882,18 +882,18 @@ struct PRPill: View {
         action: @escaping () -> Void = {}
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: UIMetrics.spacing2) {
                 Image(systemName: icon)
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: UIMetrics.fontXS, weight: .bold))
                 Text(text)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
             }
             .foregroundStyle(tint)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
-            .overlay(RoundedRectangle(cornerRadius: 5).stroke(tint.opacity(0.35), lineWidth: 1))
-            .contentShape(RoundedRectangle(cornerRadius: 5))
+            .padding(.horizontal, UIMetrics.spacing3)
+            .padding(.vertical, UIMetrics.scaled(3))
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(tint.opacity(0.35), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
         }
         .buttonStyle(.plain)
         .disabled(disabled)
@@ -911,16 +911,16 @@ struct PRPopover: View {
     @State private var mergeMethod: GitRepositoryService.PRMergeMethod = .squash
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing5) {
+            HStack(spacing: UIMetrics.spacing4) {
                 Image(systemName: stateIcon)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                     .foregroundStyle(stateColor)
-                VStack(alignment: .leading, spacing: 1) {
+                VStack(alignment: .leading, spacing: UIMetrics.scaled(1)) {
                     Text("Pull Request #\(info.number)")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     Text(stateLabel)
-                        .font(.system(size: 10))
+                        .font(.system(size: UIMetrics.fontCaption))
                         .foregroundStyle(MuxyTheme.fgMuted)
                 }
                 Spacer(minLength: 0)
@@ -932,18 +932,18 @@ struct PRPopover: View {
                             ProgressView().controlSize(.mini)
                         } else {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                                 .foregroundStyle(MuxyTheme.fgMuted)
                         }
                     }
-                    .frame(width: 20, height: 20)
+                    .frame(width: UIMetrics.controlSmall, height: UIMetrics.controlSmall)
                 }
                 .buttonStyle(.plain)
                 .disabled(state.isRefreshingPullRequest)
                 .help("Refresh")
             }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
                 infoRow(label: "Base", value: info.baseBranch)
                 if let label = mergeableLabel {
                     infoRow(
@@ -958,18 +958,18 @@ struct PRPopover: View {
             Divider()
 
             Button(action: onOpenInBrowser) {
-                HStack(spacing: 6) {
+                HStack(spacing: UIMetrics.spacing3) {
                     Image(systemName: "arrow.up.right.square")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     Text("Open on GitHub")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                     Spacer(minLength: 0)
                 }
                 .foregroundStyle(MuxyTheme.fg)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.horizontal, UIMetrics.spacing4)
+                .padding(.vertical, UIMetrics.spacing3)
                 .frame(maxWidth: .infinity)
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             }
             .buttonStyle(.plain)
 
@@ -980,24 +980,24 @@ struct PRPopover: View {
                 )
 
                 Button { onMerge(mergeMethod) } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: UIMetrics.spacing3) {
                         if state.isMergingPullRequest {
                             ProgressView().controlSize(.mini)
                         } else {
                             Image(systemName: "arrow.triangle.merge")
-                                .font(.system(size: 11, weight: .bold))
+                                .font(.system(size: UIMetrics.fontFootnote, weight: .bold))
                         }
                         Text(state.isMergingPullRequest ? "Merging…" : mergeMethod.label)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                         Spacer(minLength: 0)
                     }
                     .foregroundStyle(mergeDisabled ? MuxyTheme.fgDim : MuxyTheme.bg)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, UIMetrics.spacing4)
+                    .padding(.vertical, UIMetrics.spacing3)
                     .frame(maxWidth: .infinity)
                     .background(
                         mergeDisabled ? MuxyTheme.surface : MuxyTheme.accent,
-                        in: RoundedRectangle(cornerRadius: 5)
+                        in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
                     )
                 }
                 .buttonStyle(.plain)
@@ -1005,29 +1005,29 @@ struct PRPopover: View {
                 .help(mergeHelp)
 
                 Button(action: onClose) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: UIMetrics.spacing3) {
                         if state.isClosingPullRequest {
                             ProgressView().controlSize(.mini)
                         } else {
                             Image(systemName: "xmark.circle")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                         }
                         Text("Close PR")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                         Spacer(minLength: 0)
                     }
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, UIMetrics.spacing4)
+                    .padding(.vertical, UIMetrics.spacing3)
                     .frame(maxWidth: .infinity)
-                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
+                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
                 }
                 .buttonStyle(.plain)
                 .disabled(state.isClosingPullRequest)
             }
         }
-        .padding(12)
-        .frame(width: 260)
+        .padding(UIMetrics.spacing6)
+        .frame(width: UIMetrics.scaled(260))
         .task(id: info.number) {
             onRefresh()
         }
@@ -1157,13 +1157,13 @@ struct PRPopover: View {
     }
 
     private func infoRow(label: String, value: String, valueColor: Color = MuxyTheme.fg) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: UIMetrics.spacing3) {
             Text(label)
-                .font(.system(size: 11))
+                .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: 70, alignment: .leading)
+                .frame(width: UIMetrics.scaled(70), alignment: .leading)
             Text(value)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .monospaced))
                 .foregroundStyle(valueColor)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1181,7 +1181,7 @@ private struct SectionSplitLayout: View {
     let onOpenInEditor: (String) -> Void
     let onOpenDiff: (String, Bool) -> Void
 
-    private static let sectionHeaderHeight: CGFloat = 30
+    @MainActor private static var sectionHeaderHeight: CGFloat { UIMetrics.scaled(30) }
 
     private var hasStaged: Bool { !state.stagedFiles.isEmpty }
 
@@ -1297,7 +1297,7 @@ private struct SectionSplitLayout: View {
         Rectangle().fill(MuxyTheme.border).frame(height: 1)
             .overlay {
                 Color.clear
-                    .frame(height: 5)
+                    .frame(height: UIMetrics.scaled(5))
                     .contentShape(Rectangle())
                     .gesture(
                         DragGesture(minimumDistance: 1)
@@ -1357,7 +1357,7 @@ private struct SectionSplitLayout: View {
                 sectionHeader(for: .changes, collapsed: false)
                 if state.files.isEmpty {
                     Text("No changes")
-                        .font(.system(size: 12))
+                        .font(.system(size: UIMetrics.fontBody))
                         .foregroundStyle(MuxyTheme.fgMuted)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -1394,31 +1394,31 @@ private struct SectionSplitLayout: View {
         let isCollapsedState = collapsed
 
         return HStack(spacing: 0) {
-            HStack(spacing: 6) {
+            HStack(spacing: UIMetrics.spacing3) {
                 Button {
                     toggleCollapsed(section)
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: UIMetrics.spacing3) {
                         Image(systemName: isCollapsedState ? "chevron.right" : "chevron.down")
-                            .font(.system(size: 9, weight: .bold))
+                            .font(.system(size: UIMetrics.fontXS, weight: .bold))
                             .foregroundStyle(MuxyTheme.fgDim)
-                            .frame(width: 10)
+                            .frame(width: UIMetrics.scaled(10))
 
                         Text(section.title)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                             .foregroundStyle(MuxyTheme.fgMuted)
                     }
                 }
                 .buttonStyle(.plain)
 
                 Text("\(sectionCount(for: section))")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                     .foregroundStyle(MuxyTheme.bg)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
+                    .padding(.horizontal, UIMetrics.spacing3)
+                    .padding(.vertical, UIMetrics.scaled(1))
                     .background(MuxyTheme.fgMuted, in: Capsule())
             }
-            .padding(.leading, 8)
+            .padding(.leading, UIMetrics.spacing4)
 
             Spacer(minLength: 0)
 
@@ -1489,9 +1489,9 @@ private struct SectionSplitLayout: View {
             state.mode = state.mode == .unified ? .split : .unified
         } label: {
             Image(systemName: state.mode == .unified ? "rectangle.split.2x1" : "rectangle")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: 24, height: 24)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1503,9 +1503,9 @@ private struct SectionSplitLayout: View {
             state.fileListMode = state.fileListMode == .flat ? .folders : .flat
         } label: {
             Image(systemName: state.fileListMode == .flat ? "folder" : "list.bullet")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: 24, height: 24)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1519,9 +1519,9 @@ private struct SectionSplitLayout: View {
             state.setExpanded(files: files, expanded: !anyExpanded)
         } label: {
             Image(systemName: anyExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: 24, height: 24)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1677,23 +1677,23 @@ private struct FileRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: UIMetrics.spacing4) {
             Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgDim)
-                .frame(width: 12)
+                .frame(width: UIMetrics.iconSM)
 
             Text(statusText)
-                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .bold, design: .monospaced))
                 .foregroundStyle(statusColor)
-                .frame(width: 14)
+                .frame(width: UIMetrics.iconMD)
 
             FileDiffIcon()
                 .stroke(statusColor, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                .frame(width: 11, height: 11)
+                .frame(width: UIMetrics.scaled(11), height: UIMetrics.scaled(11))
 
             Text(displayPath)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: UIMetrics.fontBody, weight: .medium))
                 .foregroundStyle(MuxyTheme.fg)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1705,24 +1705,24 @@ private struct FileRow: View {
 
             if stats.binary {
                 Text("Binary")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
                     .foregroundStyle(MuxyTheme.fgMuted)
             } else {
                 if let additions = stats.additions {
                     Text("+\(additions)")
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontBody, weight: .semibold, design: .monospaced))
                         .foregroundStyle(MuxyTheme.diffAddFg)
                 }
                 if let deletions = stats.deletions {
                     Text("-\(deletions)")
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontBody, weight: .semibold, design: .monospaced))
                         .foregroundStyle(MuxyTheme.diffRemoveFg)
                 }
             }
         }
-        .padding(.leading, 10 + CGFloat(depth) * 14)
-        .padding(.trailing, 10)
-        .frame(height: 34)
+        .padding(.leading, UIMetrics.spacing5 + CGFloat(depth) * UIMetrics.iconMD)
+        .padding(.trailing, UIMetrics.spacing5)
+        .frame(height: UIMetrics.scaled(34))
         .background(MuxyTheme.bg)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
@@ -1756,33 +1756,33 @@ private struct FolderRow: View {
     let onToggle: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: UIMetrics.spacing4) {
             Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgDim)
-                .frame(width: 12)
+                .frame(width: UIMetrics.iconSM)
 
             Image(systemName: "folder")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: 11, height: 11)
+                .frame(width: UIMetrics.scaled(11), height: UIMetrics.scaled(11))
 
             Text(name)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: UIMetrics.fontBody, weight: .medium))
                 .foregroundStyle(MuxyTheme.fg)
                 .lineLimit(1)
                 .truncationMode(.tail)
 
             Text("\(fileCount) \(fileCount == 1 ? "file" : "files")")
-                .font(.system(size: 10, weight: .regular))
+                .font(.system(size: UIMetrics.fontCaption, weight: .regular))
                 .foregroundStyle(MuxyTheme.fgDim)
                 .lineLimit(1)
 
             Spacer()
         }
-        .padding(.leading, 10 + CGFloat(depth) * 14)
-        .padding(.trailing, 10)
-        .frame(height: 30)
+        .padding(.leading, UIMetrics.spacing5 + CGFloat(depth) * UIMetrics.iconMD)
+        .padding(.trailing, UIMetrics.spacing5)
+        .frame(height: UIMetrics.scaled(30))
         .background(MuxyTheme.bg)
         .contentShape(Rectangle())
         .onTapGesture(perform: onToggle)

@@ -63,7 +63,7 @@ struct MainWindow: View {
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
-    private let trafficLightWidth: CGFloat = 75
+    @MainActor private var trafficLightWidth: CGFloat { UIMetrics.scaled(75) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -81,7 +81,7 @@ struct MainWindow: View {
                 }
                 topBarContent
             }
-            .frame(height: 32)
+            .frame(height: UIMetrics.scaled(32))
             .background(WindowDragRepresentable())
             .background(MuxyTheme.bg)
 
@@ -173,16 +173,16 @@ struct MainWindow: View {
         .environment(\.overlayActive, showQuickOpen || showFindInFiles || showWorktreeSwitcher || overlayAnimatingOut)
         .overlay(alignment: toastAlignment) {
             if let toast = ToastState.shared.message {
-                HStack(spacing: 6) {
+                HStack(spacing: UIMetrics.spacing3) {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                         .foregroundStyle(MuxyTheme.diffAddFg)
                     Text(toast)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: UIMetrics.fontBody, weight: .medium))
                         .foregroundStyle(MuxyTheme.fg)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .padding(.horizontal, UIMetrics.scaled(14))
+                .padding(.vertical, UIMetrics.spacing4)
                 .background(MuxyTheme.bg, in: Capsule())
                 .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))
                 .padding(toastEdgePadding)
@@ -256,7 +256,7 @@ struct MainWindow: View {
             onMouseBack: { appState.goBack() },
             onMouseForward: { appState.goForward() }
         ))
-        .background(WindowConfigurator(configVersion: ghostty.configVersion))
+        .background(WindowConfigurator(configVersion: ghostty.configVersion, uiScalePreset: UIScale.shared.preset))
         .background(WindowTitleUpdater(title: windowTitle))
         .ignoresSafeArea(.container, edges: .top)
         .onReceive(NotificationCenter.default.publisher(for: .quickOpen)) { _ in
@@ -324,7 +324,7 @@ struct MainWindow: View {
     }
 
     private var navigationArrows: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: UIMetrics.spacing1) {
             NavigationArrowButton(
                 symbol: "chevron.left",
                 isEnabled: appState.navigation.canGoBack,
@@ -340,7 +340,7 @@ struct MainWindow: View {
                 appState.goForward()
             }
         }
-        .padding(.trailing, 4)
+        .padding(.trailing, UIMetrics.spacing2)
     }
 
     @ViewBuilder
@@ -430,9 +430,9 @@ struct MainWindow: View {
                     HStack {
                         if let project = activeProject {
                             Text(project.name)
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                                 .foregroundStyle(MuxyTheme.fgMuted)
-                                .padding(.leading, 12)
+                                .padding(.leading, UIMetrics.spacing6)
                         }
                         Spacer(minLength: 0)
                     }
@@ -442,7 +442,7 @@ struct MainWindow: View {
                     HStack(spacing: 0) {
                         if AppEnvironment.isDevelopment {
                             devModeBadge
-                                .padding(.trailing, 6)
+                                .padding(.trailing, UIMetrics.spacing3)
                         }
                         if let project = activeProject {
                             OpenInIDEControl(
@@ -456,7 +456,7 @@ struct MainWindow: View {
                             UpdateBadge(version: version) {
                                 UpdateService.shared.checkForUpdates()
                             }
-                            .padding(.trailing, 4)
+                            .padding(.trailing, UIMetrics.spacing2)
                         }
                         if let project = activeProject, activeProjectHasSplitWorkspace {
                             IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
@@ -472,7 +472,7 @@ struct MainWindow: View {
                             .help("File Tree (\(KeyBindingStore.shared.combo(for: .toggleFileTree).displayString))")
                         }
                     }
-                    .padding(.trailing, 4)
+                    .padding(.trailing, UIMetrics.spacing2)
                 }
         }
     }
@@ -594,11 +594,13 @@ struct MainWindow: View {
     }
 
     private var toastEdgePadding: EdgeInsets {
-        switch toastPosition {
-        case .topCenter: EdgeInsets(top: 40, leading: 0, bottom: 0, trailing: 0)
-        case .topRight: EdgeInsets(top: 40, leading: 0, bottom: 0, trailing: 16)
-        case .bottomCenter: EdgeInsets(top: 0, leading: 0, bottom: 16, trailing: 0)
-        case .bottomRight: EdgeInsets(top: 0, leading: 0, bottom: 16, trailing: 16)
+        let big = UIMetrics.scaled(40)
+        let small = UIMetrics.spacing7
+        return switch toastPosition {
+        case .topCenter: EdgeInsets(top: big, leading: 0, bottom: 0, trailing: 0)
+        case .topRight: EdgeInsets(top: big, leading: 0, bottom: 0, trailing: small)
+        case .bottomCenter: EdgeInsets(top: 0, leading: 0, bottom: small, trailing: 0)
+        case .bottomRight: EdgeInsets(top: 0, leading: 0, bottom: small, trailing: small)
         }
     }
 
@@ -629,7 +631,7 @@ struct MainWindow: View {
         return max(navigationMinimum, sidebarWidth)
     }
 
-    private var navigationArrowsWidth: CGFloat { 52 }
+    private var navigationArrowsWidth: CGFloat { UIMetrics.scaled(52) }
 
     private var devModeBadge: some View {
         DebugButton()
@@ -713,7 +715,7 @@ struct MainWindow: View {
             .accessibilityHidden(true)
             .overlay {
                 Color.clear
-                    .frame(width: 5)
+                    .frame(width: UIMetrics.scaled(5))
                     .contentShape(Rectangle())
                     .gesture(
                         DragGesture(minimumDistance: 1)
@@ -1030,9 +1032,9 @@ private struct NavigationArrowButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                 .foregroundStyle(foregroundColor)
-                .frame(width: 22, height: 22)
+                .frame(width: UIMetrics.scaled(22), height: UIMetrics.scaled(22))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

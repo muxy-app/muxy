@@ -36,13 +36,13 @@ private struct DiffViewerBreadcrumb: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: UIMetrics.spacing3) {
             FileDiffIcon()
                 .stroke(MuxyTheme.fgDim, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                .frame(width: 11, height: 11)
+                .frame(width: UIMetrics.scaled(11), height: UIMetrics.scaled(11))
 
             Text(state.filePath)
-                .font(.system(size: 11))
+                .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -50,22 +50,22 @@ private struct DiffViewerBreadcrumb: View {
 
             if state.isStaged {
                 Text("Staged")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fgMuted)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
+                    .padding(.horizontal, UIMetrics.scaled(5))
+                    .padding(.vertical, UIMetrics.scaled(1))
                     .background(MuxyTheme.surface, in: Capsule())
             }
 
             if let diff = loadedDiff {
                 if diff.additions > 0 {
                     Text("+\(diff.additions)")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold, design: .monospaced))
                         .foregroundStyle(MuxyTheme.diffAddFg)
                 }
                 if diff.deletions > 0 {
                     Text("-\(diff.deletions)")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold, design: .monospaced))
                         .foregroundStyle(MuxyTheme.diffRemoveFg)
                 }
             }
@@ -79,8 +79,8 @@ private struct DiffViewerBreadcrumb: View {
             }
             .help("Refresh")
         }
-        .padding(.horizontal, 10)
-        .frame(height: 32)
+        .padding(.horizontal, UIMetrics.spacing5)
+        .frame(height: UIMetrics.scaled(32))
         .background(MuxyTheme.bg)
     }
 
@@ -89,8 +89,8 @@ private struct DiffViewerBreadcrumb: View {
             modeButton(.split, symbol: "rectangle.split.2x1", tooltip: "Side by side")
             modeButton(.unified, symbol: "rectangle", tooltip: "Inline")
         }
-        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 5))
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(MuxyTheme.border, lineWidth: 1))
+        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+        .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
     }
 
     private func modeButton(_ mode: VCSTabState.ViewMode, symbol: String, tooltip: String) -> some View {
@@ -99,9 +99,9 @@ private struct DiffViewerBreadcrumb: View {
             state.mode = mode
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 .foregroundStyle(selected ? MuxyTheme.fg : MuxyTheme.fgMuted)
-                .frame(width: 22, height: 20)
+                .frame(width: UIMetrics.scaled(22), height: UIMetrics.controlSmall)
                 .background(selected ? MuxyTheme.bg : Color.clear)
                 .contentShape(Rectangle())
         }

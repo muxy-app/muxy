@@ -48,8 +48,8 @@ struct FileDiffIconButton: View {
                     hovered ? MuxyTheme.fg : MuxyTheme.fgMuted,
                     style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
                 )
-                .frame(width: 13, height: 13)
-                .frame(width: 24, height: 24)
+                .frame(width: UIMetrics.scaled(13), height: UIMetrics.scaled(13))
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

@@ -381,6 +381,14 @@ final class VCSTabState {
                 for path in expandedFilePaths where validPaths.contains(path) {
                     loadDiff(filePath: path, forceFull: false)
                 }
+
+                if !incremental {
+                    NotificationCenter.default.post(
+                        name: .vcsDidRefresh,
+                        object: nil,
+                        userInfo: ["repoPath": projectPath]
+                    )
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 files = []

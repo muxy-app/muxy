@@ -155,7 +155,7 @@ enum MarkdownRenderer {
                 .markdown-body h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
                 .markdown-body h3 { font-size: 1.25em; }
                 .markdown-body h4 { font-size: 1em; }
-                .markdown-body a { color: var(--accent); text-decoration: none; }
+                .markdown-body a { color: var(--accent); cursor: pointer; text-decoration: none; }
                 .markdown-body a:hover { text-decoration: underline; }
                 .markdown-body code {
                     background: var(--code-bg);
