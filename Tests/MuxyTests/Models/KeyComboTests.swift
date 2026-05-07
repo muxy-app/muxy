@@ -46,6 +46,12 @@ struct KeyComboTests {
         #expect(KeyCombo(key: "downarrow", command: true).displayString == "⌘↓")
     }
 
+    @Test("displayString for tab key")
+    func displayStringTabKey() {
+        #expect(KeyCombo(key: "tab", control: true).displayString == "⌃⇥")
+        #expect(KeyCombo(key: "tab", shift: true, control: true).displayString == "⌃⇧⇥")
+    }
+
     @Test("displayString for letter key is uppercased")
     func displayStringLetter() {
         let combo = KeyCombo(key: "t", command: true)
@@ -64,6 +70,11 @@ struct KeyComboTests {
         #expect(KeyCombo.normalized(key: "", keyCode: 124) == "rightarrow")
         #expect(KeyCombo.normalized(key: "", keyCode: 125) == "downarrow")
         #expect(KeyCombo.normalized(key: "", keyCode: 126) == "uparrow")
+    }
+
+    @Test("normalized key with tab keyCode")
+    func normalizedTabKeyCode() {
+        #expect(KeyCombo.normalized(key: "", keyCode: 48) == "tab")
     }
 
     @Test("normalized key with ANSI letter keyCodes")

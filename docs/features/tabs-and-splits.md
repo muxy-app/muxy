@@ -49,6 +49,7 @@ Custom titles and colors are saved in the workspace snapshot and survive worktre
 | Split Down | `⌘⇧D` |
 | Close Pane | `⌘⇧W` |
 | Focus Pane | `⌘⌥←/→/↑/↓` |
+| Cycle Tab (All Panes) | `⌃Tab` / `⌃⇧Tab` |
 
 ## Drag and drop
 
