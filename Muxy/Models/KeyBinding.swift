@@ -19,8 +19,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case focusPaneRight
     case focusPaneUp
     case focusPaneDown
-    case cycleNextPane
-    case cyclePreviousPane
+    case cycleNextTabAcrossPanes
+    case cyclePreviousTabAcrossPanes
     case nextTab
     case previousTab
     case toggleThemePicker
@@ -71,8 +71,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .focusPaneRight,
         .focusPaneUp,
         .focusPaneDown,
-        .cycleNextPane,
-        .cyclePreviousPane,
+        .cycleNextTabAcrossPanes,
+        .cyclePreviousTabAcrossPanes,
         .nextTab,
         .previousTab,
         .toggleThemePicker,
@@ -126,8 +126,16 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .focusPaneRight: ShortcutMetadata(displayName: "Focus Pane Right", category: "Panes", scope: .mainWindow)
         case .focusPaneUp: ShortcutMetadata(displayName: "Focus Pane Up", category: "Panes", scope: .mainWindow)
         case .focusPaneDown: ShortcutMetadata(displayName: "Focus Pane Down", category: "Panes", scope: .mainWindow)
-        case .cycleNextPane: ShortcutMetadata(displayName: "Cycle Next Pane", category: "Panes", scope: .mainWindow)
-        case .cyclePreviousPane: ShortcutMetadata(displayName: "Cycle Previous Pane", category: "Panes", scope: .mainWindow)
+        case .cycleNextTabAcrossPanes: ShortcutMetadata(
+                displayName: "Cycle Next Tab (All Panes)",
+                category: "Tab Navigation",
+                scope: .mainWindow
+            )
+        case .cyclePreviousTabAcrossPanes: ShortcutMetadata(
+                displayName: "Cycle Previous Tab (All Panes)",
+                category: "Tab Navigation",
+                scope: .mainWindow
+            )
         case .nextTab: ShortcutMetadata(displayName: "Next Tab", category: "Tab Navigation", scope: .mainWindow)
         case .previousTab: ShortcutMetadata(displayName: "Previous Tab", category: "Tab Navigation", scope: .mainWindow)
         case .selectTab1: ShortcutMetadata(displayName: "Tab 1", category: "Tab Navigation", scope: .mainWindow)
@@ -243,8 +251,8 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .focusPaneRight, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, option: true)),
         Self(action: .focusPaneUp, combo: KeyCombo(key: KeyCombo.upArrowKey, command: true, option: true)),
         Self(action: .focusPaneDown, combo: KeyCombo(key: KeyCombo.downArrowKey, command: true, option: true)),
-        Self(action: .cycleNextPane, combo: KeyCombo(key: KeyCombo.tabKey, control: true)),
-        Self(action: .cyclePreviousPane, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
+        Self(action: .cycleNextTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, control: true)),
+        Self(action: .cyclePreviousTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
         Self(action: .openVCSTab, combo: KeyCombo(key: "k", command: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),

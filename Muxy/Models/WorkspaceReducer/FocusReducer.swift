@@ -33,7 +33,7 @@ enum FocusReducer {
         focusPane(key: key, direction: direction, state: &state)
     }
 
-    static func cyclePane(projectID: UUID, forward: Bool, state: inout WorkspaceState) {
+    static func cycleTabAcrossPanes(projectID: UUID, forward: Bool, state: inout WorkspaceState) {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
               let root = state.workspaceRoots[key],
               let focusedID = state.focusedAreaID[key]

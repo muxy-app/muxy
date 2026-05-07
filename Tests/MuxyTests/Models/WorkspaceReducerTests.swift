@@ -539,8 +539,8 @@ struct WorkspaceReducerTests {
         #expect(state.focusedAreaID[key] == bottomAreaID)
     }
 
-    @Test("cycleNextPane walks tabs in focused pane before next pane")
-    func cycleNextPaneWalksTabsBeforeNextPane() {
+    @Test("cycleNextTabAcrossPanes walks tabs in focused pane before next pane")
+    func cycleNextTabAcrossPanesWalksTabsBeforeNextPane() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
@@ -573,22 +573,22 @@ struct WorkspaceReducerTests {
         )
 
         _ = WorkspaceReducer.reduce(
-            action: .cycleNextPane(projectID: projectID),
+            action: .cycleNextTabAcrossPanes(projectID: projectID),
             state: &state
         )
         #expect(state.focusedAreaID[key] == firstAreaID)
         #expect(area(in: state, key: key, areaID: firstAreaID)?.activeTabID == secondTabID)
 
         _ = WorkspaceReducer.reduce(
-            action: .cycleNextPane(projectID: projectID),
+            action: .cycleNextTabAcrossPanes(projectID: projectID),
             state: &state
         )
         #expect(state.focusedAreaID[key] == secondAreaID)
         #expect(area(in: state, key: key, areaID: secondAreaID)?.activeTabID == secondAreaTabID)
     }
 
-    @Test("cyclePreviousPane walks backward across panes")
-    func cyclePreviousPaneWalksBackwardAcrossPanes() {
+    @Test("cyclePreviousTabAcrossPanes walks backward across panes")
+    func cyclePreviousTabAcrossPanesWalksBackward() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
@@ -619,15 +619,15 @@ struct WorkspaceReducerTests {
         )
 
         _ = WorkspaceReducer.reduce(
-            action: .cyclePreviousPane(projectID: projectID),
+            action: .cyclePreviousTabAcrossPanes(projectID: projectID),
             state: &state
         )
         #expect(state.focusedAreaID[key] == firstAreaID)
         #expect(area(in: state, key: key, areaID: firstAreaID)?.activeTabID == secondFirstAreaTabID)
     }
 
-    @Test("cyclePane wraps between first and last entries")
-    func cyclePaneWrapsBetweenFirstAndLastEntries() {
+    @Test("cycleTabAcrossPanes wraps between first and last entries")
+    func cycleTabAcrossPanesWrapsBetweenFirstAndLastEntries() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
@@ -657,22 +657,22 @@ struct WorkspaceReducerTests {
             state: &state
         )
         _ = WorkspaceReducer.reduce(
-            action: .cycleNextPane(projectID: projectID),
+            action: .cycleNextTabAcrossPanes(projectID: projectID),
             state: &state
         )
         #expect(state.focusedAreaID[key] == firstAreaID)
         #expect(area(in: state, key: key, areaID: firstAreaID)?.activeTabID == firstTabID)
 
         _ = WorkspaceReducer.reduce(
-            action: .cyclePreviousPane(projectID: projectID),
+            action: .cyclePreviousTabAcrossPanes(projectID: projectID),
             state: &state
         )
         #expect(state.focusedAreaID[key] == secondAreaID)
         #expect(area(in: state, key: key, areaID: secondAreaID)?.activeTabID == lastTabID)
     }
 
-    @Test("cyclePane does nothing with one tab total")
-    func cyclePaneDoesNothingWithOneTabTotal() {
+    @Test("cycleTabAcrossPanes does nothing with one tab total")
+    func cycleTabAcrossPanesDoesNothingWithOneTabTotal() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
@@ -681,14 +681,14 @@ struct WorkspaceReducerTests {
         let tabID = area(in: state, key: key, areaID: areaID)!.activeTabID
 
         _ = WorkspaceReducer.reduce(
-            action: .cycleNextPane(projectID: projectID),
+            action: .cycleNextTabAcrossPanes(projectID: projectID),
             state: &state
         )
         #expect(state.focusedAreaID[key] == areaID)
         #expect(area(in: state, key: key, areaID: areaID)?.activeTabID == tabID)
 
         _ = WorkspaceReducer.reduce(
-            action: .cyclePreviousPane(projectID: projectID),
+            action: .cyclePreviousTabAcrossPanes(projectID: projectID),
             state: &state
         )
         #expect(state.focusedAreaID[key] == areaID)

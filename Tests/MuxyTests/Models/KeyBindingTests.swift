@@ -81,11 +81,11 @@ struct KeyBindingTests {
         #expect(combos.count == unique.count)
     }
 
-    @Test("KeyBinding.defaults includes cycle pane shortcuts")
-    func defaultsIncludesCyclePaneShortcuts() {
+    @Test("KeyBinding.defaults includes cycle tab across panes shortcuts")
+    func defaultsIncludesCycleTabAcrossPanesShortcuts() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
-        #expect(combos[.cycleNextPane] == KeyCombo(key: "tab", control: true))
-        #expect(combos[.cyclePreviousPane] == KeyCombo(key: "tab", shift: true, control: true))
+        #expect(combos[.cycleNextTabAcrossPanes] == KeyCombo(key: "tab", control: true))
+        #expect(combos[.cyclePreviousTabAcrossPanes] == KeyCombo(key: "tab", shift: true, control: true))
     }
 
     @Test("KeyBinding Codable round-trip")

@@ -168,11 +168,11 @@ enum WorkspaceReducer {
         case let .focusPaneDown(projectID):
             FocusReducer.focusPane(projectID: projectID, direction: .down, state: &state)
 
-        case let .cycleNextPane(projectID):
-            FocusReducer.cyclePane(projectID: projectID, forward: true, state: &state)
+        case let .cycleNextTabAcrossPanes(projectID):
+            FocusReducer.cycleTabAcrossPanes(projectID: projectID, forward: true, state: &state)
 
-        case let .cyclePreviousPane(projectID):
-            FocusReducer.cyclePane(projectID: projectID, forward: false, state: &state)
+        case let .cyclePreviousTabAcrossPanes(projectID):
+            FocusReducer.cycleTabAcrossPanes(projectID: projectID, forward: false, state: &state)
 
         case let .applyLayout(projectID, worktreePath, config):
             applyLayout(
