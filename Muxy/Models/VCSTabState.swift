@@ -228,8 +228,6 @@ final class VCSTabState {
     }
 
     private func startWatching() {
-        let gitPath = (projectPath as NSString).appendingPathComponent(".git")
-        guard FileManager.default.fileExists(atPath: gitPath) else { return }
         watcher = FileSystemWatcher(directoryPath: projectPath) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.watcherDidFire()

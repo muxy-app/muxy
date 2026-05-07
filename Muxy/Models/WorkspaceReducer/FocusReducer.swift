@@ -33,6 +33,31 @@ enum FocusReducer {
         focusPane(key: key, direction: direction, state: &state)
     }
 
+    static func cycleTabAcrossPanes(projectID: UUID, forward: Bool, state: inout WorkspaceState) {
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
+              let root = state.workspaceRoots[key],
+              let focusedID = state.focusedAreaID[key]
+        else { return }
+        let frames = root.areaFrames()
+        let sortedAreas = root.allAreas().sorted { lhs, rhs in
+            guard let lhsFrame = frames[lhs.id], let rhsFrame = frames[rhs.id] else { return false }
+            if lhsFrame.minY != rhsFrame.minY { return lhsFrame.minY < rhsFrame.minY }
+            return lhsFrame.minX < rhsFrame.minX
+        }
+        let entries = sortedAreas.flatMap { area in
+            area.tabs.map { tab in (areaID: area.id, tabID: tab.id) }
+        }
+        guard entries.count > 1,
+              let activeTabID = root.findArea(id: focusedID)?.activeTabID,
+              let currentIndex = entries.firstIndex(where: { $0.areaID == focusedID && $0.tabID == activeTabID })
+        else { return }
+        let nextIndex = forward
+            ? (currentIndex + 1) % entries.count
+            : (currentIndex - 1 + entries.count) % entries.count
+        let next = entries[nextIndex]
+        TabReducer.selectTab(projectID: projectID, areaID: next.areaID, tabID: next.tabID, state: &state)
+    }
+
     static func popFocusHistory(key: WorktreeKey, validAreas: [TabArea], state: inout WorkspaceState) -> UUID? {
         let validIDs = Set(validAreas.map(\.id))
         while let last = state.focusHistory[key]?.popLast() {
