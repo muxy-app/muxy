@@ -347,7 +347,6 @@ public enum MuxyResult: Codable, Sendable {
 
 public enum MuxyEventKind: String, Codable, Sendable {
     case workspaceChanged
-    case tabChanged
     case terminalOutput
     case terminalSnapshot
     case notificationReceived
@@ -358,7 +357,6 @@ public enum MuxyEventKind: String, Codable, Sendable {
 
 public enum MuxyEventData: Codable, Sendable {
     case workspace(WorkspaceDTO)
-    case tab(TabChangeEventDTO)
     case terminalOutput(TerminalOutputEventDTO)
     case terminalSnapshot(TerminalOutputEventDTO)
     case notification(NotificationDTO)
@@ -376,7 +374,6 @@ public enum MuxyEventData: Codable, Sendable {
         let type = try container.decode(String.self, forKey: .type)
         switch type {
         case "workspace": self = try .workspace(container.decode(WorkspaceDTO.self, forKey: .value))
-        case "tab": self = try .tab(container.decode(TabChangeEventDTO.self, forKey: .value))
         case "terminalOutput": self = try .terminalOutput(container.decode(TerminalOutputEventDTO.self, forKey: .value))
         case "terminalSnapshot": self = try .terminalSnapshot(container.decode(TerminalOutputEventDTO.self, forKey: .value))
         case "notification": self = try .notification(container.decode(NotificationDTO.self, forKey: .value))
@@ -391,8 +388,6 @@ public enum MuxyEventData: Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case let .workspace(v): try container.encode("workspace", forKey: .type)
-            try container.encode(v, forKey: .value)
-        case let .tab(v): try container.encode("tab", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .terminalOutput(v): try container.encode("terminalOutput", forKey: .type)
             try container.encode(v, forKey: .value)

@@ -351,26 +351,6 @@ public struct TerminalOutputEventDTO: Codable, Sendable {
     }
 }
 
-public struct TabChangeEventDTO: Codable, Sendable {
-    public let projectID: UUID
-    public let areaID: UUID
-    public let tab: TabDTO
-    public let changeKind: TabChangeKind
-    public init(projectID: UUID, areaID: UUID, tab: TabDTO, changeKind: TabChangeKind) {
-        self.projectID = projectID
-        self.areaID = areaID
-        self.tab = tab
-        self.changeKind = changeKind
-    }
-
-    public enum TabChangeKind: String, Codable, Sendable {
-        case created
-        case closed
-        case selected
-        case titleChanged
-    }
-}
-
 public struct GetVCSStatusParams: Codable, Sendable {
     public let projectID: UUID
     public init(projectID: UUID) {
