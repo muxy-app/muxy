@@ -555,7 +555,6 @@ private struct TabCell: View {
 
     private var closeButtonVisible: Bool {
         guard !tab.isPinned else { return false }
-        if paneProgress != nil { return hovered }
         return titleHidden ? hovered : (active || hovered)
     }
 
@@ -570,10 +569,6 @@ private struct TabCell: View {
                     .onTapGesture(perform: onClose)
                     .accessibilityLabel("Close Tab")
                     .accessibilityAddTraits(.isButton)
-            }
-            if let progress = paneProgress, !closeButtonVisible {
-                TerminalProgressCircle(progress: progress)
-                    .transition(.opacity)
             }
         }
         .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
@@ -626,7 +621,11 @@ private struct TabCell: View {
 
     @ViewBuilder
     private var tabIconView: some View {
-        if tab.isPinned {
+        if let progress = paneProgress {
+            TerminalProgressCircle(progress: progress)
+                .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
+                .transition(.opacity)
+        } else if tab.isPinned {
             Image(systemName: "pin.fill")
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
         } else if tab.kind == .vcs {
