@@ -1,11 +1,38 @@
+const childSessions = new Set()
+const sessionsWithCancelledTurnWaitingForIdle = new Set()
+
 export const MuxyNotificationPlugin = async ({ client }) => ({
   event: async ({ event }) => {
     const socketPath = process.env.MUXY_SOCKET_PATH
     const paneID = process.env.MUXY_PANE_ID
     if (!socketPath || !paneID) return
-    if (event.type !== "session.idle") return
+
+    if (event.type === "session.created") {
+      const info = event.properties.info
+      if (info?.parentID) childSessions.add(event.properties.sessionID)
+      return
+    }
+
+    if (event.type === "session.error") {
+      const sessionID = event.properties.sessionID
+      const err = event.properties.error
+      if (err?.name === "MessageAbortedError") {
+        if (sessionID) sessionsWithCancelledTurnWaitingForIdle.add(sessionID)
+        return
+      }
+      return
+    }
+
+    if (event.type !== "session.status") return
+    if (event.properties.status.type !== "idle") return
 
     const sessionID = event.properties.sessionID
+    if (sessionsWithCancelledTurnWaitingForIdle.has(sessionID)) {
+      sessionsWithCancelledTurnWaitingForIdle.delete(sessionID)
+      return
+    }
+    if (childSessions.has(sessionID)) return
+
     let body = "Session completed"
 
     try {
