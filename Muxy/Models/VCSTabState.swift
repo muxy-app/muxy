@@ -1210,8 +1210,7 @@ final class VCSTabState {
                 guard !Task.isCancelled else { return }
                 ToastState.shared.show("Checked out PR #\(item.number)")
                 commits = []
-                performRefresh(incremental: false, forcePRFetch: true)
-                loadBranches()
+                await refreshAndWait()
             } catch {
                 guard !Task.isCancelled else { return }
                 showStatus(errorText(error), isError: true)
