@@ -36,7 +36,7 @@ final class EditorFileWatcher: @unchecked Sendable {
             &context,
             paths,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
-            debounceInterval,
+            0,
             FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
         )
         else { return nil }

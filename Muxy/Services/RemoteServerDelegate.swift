@@ -51,10 +51,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     private func observeWorkspaceState() {
         withObservationTracking { [weak self] in
-            guard let self else { return }
-            for projectID in self.appState.activeWorktreeID.keys {
-                _ = self.getWorkspace(projectID: projectID)
-            }
+            _ = self?.workspaceSnapshots()
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -66,8 +63,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     private func observeProjectsState() {
         withObservationTracking { [weak self] in
-            guard let self else { return }
-            _ = self.projectStore.projects.map { $0.toDTO() }
+            _ = self?.projectSnapshots()
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -95,20 +91,26 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         }
     }
 
+    private func workspaceSnapshots() -> [WorkspaceDTO] {
+        appState.activeWorktreeID.keys.compactMap { getWorkspace(projectID: $0) }
+    }
+
+    private func projectSnapshots() -> [ProjectDTO] {
+        projectStore.projects.map { $0.toDTO() }
+    }
+
     private func broadcastWorkspaces() {
-        for projectID in appState.activeWorktreeID.keys {
-            guard let dto = getWorkspace(projectID: projectID) else { continue }
+        for dto in workspaceSnapshots() {
             server?.broadcast(MuxyEvent(event: .workspaceChanged, data: .workspace(dto)))
         }
     }
 
     private func broadcastProjects() {
-        let dtos = projectStore.projects.map { $0.toDTO() }
-        server?.broadcast(MuxyEvent(event: .projectsChanged, data: .projects(dtos)))
+        server?.broadcast(MuxyEvent(event: .projectsChanged, data: .projects(projectSnapshots())))
     }
 
     func listProjects() -> [ProjectDTO] {
-        projectStore.projects.map { $0.toDTO() }
+        projectSnapshots()
     }
 
     func selectProject(_ projectID: UUID) {
