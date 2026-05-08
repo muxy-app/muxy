@@ -228,7 +228,10 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         else { return }
 
         let size = ghostty_surface_size(surface)
-        guard size.cell_width_px > 0, size.cell_height_px > 0 else { return }
+        guard size.cell_width_px > 0, size.cell_height_px > 0 else {
+            logger.warning("Cannot resize pane \(paneID): cell metrics not yet available")
+            return
+        }
 
         let w = cols * size.cell_width_px
         let h = rows * size.cell_height_px
@@ -271,7 +274,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32) {
-        ensureTerminalView(paneID: paneID, cols: cols, rows: rows)
+        ensureTerminalView(paneID: paneID)
         let snapshotBytes = buildTerminalSnapshot(paneID: paneID)
         PaneOwnershipStore.shared.assign(paneID: paneID, to: clientID)
         if let bytes = snapshotBytes, !bytes.isEmpty {
@@ -282,7 +285,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         applyPTYSize(paneID: paneID, cols: cols, rows: rows)
     }
 
-    private func ensureTerminalView(paneID: UUID, cols: UInt32, rows: UInt32) {
+    private func ensureTerminalView(paneID: UUID) {
         if TerminalViewRegistry.shared.existingView(for: paneID) != nil { return }
         guard let location = appState.locatePane(paneID: paneID) else {
             logger.warning("Cannot materialize pane \(paneID): no matching tab in workspace")
@@ -298,7 +301,10 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         if view.envVars.isEmpty {
             view.envVars = TerminalEnvVarBuilder.build(paneID: paneID, worktreeKey: location.worktreeKey)
         }
-        view.materializeHeadless(cols: cols, rows: rows)
+        view.materializeHeadless()
+        if view.surface == nil {
+            logger.warning("Headless materialization left pane \(paneID) without a surface")
+        }
     }
 
     private func buildTerminalSnapshot(paneID: UUID) -> Data? {
