@@ -29,6 +29,8 @@ Every shortcut listed here can be remapped in **Settings → Keyboard Shortcuts*
 | --- | --- |
 | Next Tab | `Cmd+]` |
 | Previous Tab | `Cmd+[` |
+| Cycle Next Tab (All Panes) | `Ctrl+Tab` |
+| Cycle Previous Tab (All Panes) | `Ctrl+Shift+Tab` |
 | Tab 1–9 | `Cmd+1` … `Cmd+9` |
 
 ## Project navigation

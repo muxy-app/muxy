@@ -79,7 +79,8 @@ final class MobileServerService {
     }
 
     func setEnabled(_ enabled: Bool) {
-        guard enabled != isEnabled else { return }
+        if enabled, isEnabled, server != nil { return }
+        if !enabled, !isEnabled { return }
         isEnabled = enabled
         if enabled {
             start()
@@ -155,8 +156,6 @@ final class MobileServerService {
             logger.error("Mobile server failed to start on port \(port): \(error.localizedDescription)")
             isPortInUse = Self.isAddressInUseError(error)
             retireCurrentServer()
-            isEnabled = false
-            UserDefaults.standard.set(false, forKey: Self.enabledKey)
             lastError = friendlyMessage(for: error, port: port)
         }
     }

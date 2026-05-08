@@ -19,6 +19,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case focusPaneRight
     case focusPaneUp
     case focusPaneDown
+    case cycleNextTabAcrossPanes
+    case cyclePreviousTabAcrossPanes
     case nextTab
     case previousTab
     case toggleThemePicker
@@ -46,6 +48,9 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case selectProject8
     case selectProject9
     case findInTerminal
+    case toggleRichInput
+    case submitRichInput
+    case submitRichInputWithoutReturn
     case openVCSTab
     case quickOpen
     case findInFiles
@@ -69,6 +74,8 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .focusPaneRight,
         .focusPaneUp,
         .focusPaneDown,
+        .cycleNextTabAcrossPanes,
+        .cyclePreviousTabAcrossPanes,
         .nextTab,
         .previousTab,
         .toggleThemePicker,
@@ -95,6 +102,9 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .selectProject8,
         .selectProject9,
         .findInTerminal,
+        .toggleRichInput,
+        .submitRichInput,
+        .submitRichInputWithoutReturn,
         .openVCSTab,
         .quickOpen,
         .findInFiles,
@@ -122,6 +132,16 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .focusPaneRight: ShortcutMetadata(displayName: "Focus Pane Right", category: "Panes", scope: .mainWindow)
         case .focusPaneUp: ShortcutMetadata(displayName: "Focus Pane Up", category: "Panes", scope: .mainWindow)
         case .focusPaneDown: ShortcutMetadata(displayName: "Focus Pane Down", category: "Panes", scope: .mainWindow)
+        case .cycleNextTabAcrossPanes: ShortcutMetadata(
+                displayName: "Cycle Next Tab (All Panes)",
+                category: "Tab Navigation",
+                scope: .mainWindow
+            )
+        case .cyclePreviousTabAcrossPanes: ShortcutMetadata(
+                displayName: "Cycle Previous Tab (All Panes)",
+                category: "Tab Navigation",
+                scope: .mainWindow
+            )
         case .nextTab: ShortcutMetadata(displayName: "Next Tab", category: "Tab Navigation", scope: .mainWindow)
         case .previousTab: ShortcutMetadata(displayName: "Previous Tab", category: "Tab Navigation", scope: .mainWindow)
         case .selectTab1: ShortcutMetadata(displayName: "Tab 1", category: "Tab Navigation", scope: .mainWindow)
@@ -145,6 +165,13 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .selectProject8: ShortcutMetadata(displayName: "Project 8", category: "Project Navigation", scope: .mainWindow)
         case .selectProject9: ShortcutMetadata(displayName: "Project 9", category: "Project Navigation", scope: .mainWindow)
         case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .mainWindow)
+        case .toggleRichInput: ShortcutMetadata(displayName: "Toggle Rich Input", category: "Rich Input", scope: .mainWindow)
+        case .submitRichInput: ShortcutMetadata(displayName: "Send", category: "Rich Input", scope: .richInput)
+        case .submitRichInputWithoutReturn: ShortcutMetadata(
+                displayName: "Send Without Enter",
+                category: "Rich Input",
+                scope: .richInput
+            )
         case .openVCSTab: ShortcutMetadata(displayName: "Source Control", category: "App", scope: .mainWindow)
         case .quickOpen: ShortcutMetadata(displayName: "Quick Open", category: "App", scope: .mainWindow)
         case .findInFiles: ShortcutMetadata(displayName: "Find in Files", category: "App", scope: .mainWindow)
@@ -167,7 +194,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Editor", "App"]
+        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "Editor", "App"]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -237,6 +264,8 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .focusPaneRight, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, option: true)),
         Self(action: .focusPaneUp, combo: KeyCombo(key: KeyCombo.upArrowKey, command: true, option: true)),
         Self(action: .focusPaneDown, combo: KeyCombo(key: KeyCombo.downArrowKey, command: true, option: true)),
+        Self(action: .cycleNextTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, control: true)),
+        Self(action: .cyclePreviousTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
         Self(action: .openVCSTab, combo: KeyCombo(key: "k", command: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
@@ -264,6 +293,9 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .selectProject8, combo: KeyCombo(key: "8", control: true)),
         Self(action: .selectProject9, combo: KeyCombo(key: "9", control: true)),
         Self(action: .findInTerminal, combo: KeyCombo(key: "f", command: true)),
+        Self(action: .toggleRichInput, combo: KeyCombo(key: "i", command: true)),
+        Self(action: .submitRichInput, combo: KeyCombo(key: KeyCombo.returnKey, command: true)),
+        Self(action: .submitRichInputWithoutReturn, combo: KeyCombo(key: KeyCombo.returnKey, command: true, shift: true)),
         Self(action: .quickOpen, combo: KeyCombo(key: "p", command: true)),
         Self(action: .findInFiles, combo: KeyCombo(key: "f", command: true, shift: true)),
         Self(action: .switchWorktree, combo: KeyCombo(key: "o", command: true, shift: true)),

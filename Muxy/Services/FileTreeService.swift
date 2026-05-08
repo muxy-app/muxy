@@ -116,7 +116,7 @@ enum FileTreeService {
                 payload.append(0)
             }
         }
-        stdinPipe.fileHandleForWriting.write(payload)
+        try? stdinPipe.fileHandleForWriting.write(contentsOf: payload)
         try? stdinPipe.fileHandleForWriting.close()
 
         let outData = (try? stdoutPipe.fileHandleForReading.readToEnd()) ?? Data()

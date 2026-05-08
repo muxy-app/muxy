@@ -11,12 +11,26 @@ struct TerminalPane: View {
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
 
     @Bindable private var ownership = PaneOwnershipStore.shared
+    @Environment(\.overlayActive) private var overlayActive
 
     private var remoteOwnerName: String? {
         if case let .remote(_, name) = ownership.owner(for: state.id) { name } else { nil }
     }
 
     var body: some View {
+        terminalLayer
+            .onAppear { state.branchObserver.start() }
+            .onDisappear { state.branchObserver.stop() }
+            .onReceive(NotificationCenter.default.publisher(for: .refocusActiveTerminal)) { _ in
+                guard focused, visible else { return }
+                let view = TerminalViewRegistry.shared.existingView(for: state.id)
+                DispatchQueue.main.async {
+                    view?.window?.makeFirstResponder(view)
+                }
+            }
+    }
+
+    private var terminalLayer: some View {
         ZStack(alignment: .topTrailing) {
             TerminalBridge(
                 state: state,
@@ -60,13 +74,6 @@ struct TerminalPane: View {
                     }
                 )
                 .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .refocusActiveTerminal)) { _ in
-            guard focused, visible else { return }
-            let view = TerminalViewRegistry.shared.existingView(for: state.id)
-            DispatchQueue.main.async {
-                view?.window?.makeFirstResponder(view)
             }
         }
     }
@@ -138,7 +145,7 @@ struct TerminalBridge: NSViewRepresentable {
             commandInteractive: state.startupCommandInteractive
         )
         if view.envVars.isEmpty, let key = worktreeKey {
-            view.envVars = Self.buildEnvVars(paneID: state.id, worktreeKey: key)
+            view.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
         }
         view.isFocused = focused
         view.overlayActive = overlayActive
@@ -177,7 +184,7 @@ struct TerminalBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
         if nsView.envVars.isEmpty, nsView.surface == nil, let key = worktreeKey {
-            nsView.envVars = Self.buildEnvVars(paneID: state.id, worktreeKey: key)
+            nsView.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
         }
         nsView.overlayActive = overlayActive
         nsView.setVisible(visible)
@@ -232,19 +239,6 @@ struct TerminalBridge: NSViewRepresentable {
                 ]
             )
         }
-    }
-
-    private static func buildEnvVars(paneID: UUID, worktreeKey key: WorktreeKey) -> [(key: String, value: String)] {
-        var vars: [(key: String, value: String)] = [
-            (key: "MUXY_PANE_ID", value: paneID.uuidString),
-            (key: "MUXY_PROJECT_ID", value: key.projectID.uuidString),
-            (key: "MUXY_WORKTREE_ID", value: key.worktreeID.uuidString),
-            (key: "MUXY_SOCKET_PATH", value: NotificationSocketServer.socketPath),
-        ]
-        if let hookPath = MuxyNotificationHooks.hookScriptPath {
-            vars.append((key: "MUXY_HOOK_SCRIPT", value: hookPath))
-        }
-        return vars
     }
 
     private func configureFileOpenCallback(_ view: GhosttyTerminalNSView) {

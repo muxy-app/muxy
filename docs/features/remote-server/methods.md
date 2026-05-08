@@ -56,6 +56,7 @@ Notes:
 | Method | Parameters | Result |
 | --- | --- | --- |
 | `getVCSStatus` | `projectID` | `vcsStatus` |
+| `vcsRefresh` | `projectID` | `vcsStatus` |
 | `vcsCommit` | `projectID`, `message`, `stageAll` | `ok` |
 | `vcsPush` | `projectID` | `ok` |
 | `vcsPull` | `projectID` | `ok` |
@@ -68,6 +69,8 @@ Notes:
 | `vcsCreatePR` | `projectID`, `title`, `body`, `baseBranch`, `draft` | `vcsPRCreated` |
 | `vcsAddWorktree` | `projectID`, `name`, `branch`, `createBranch` | `worktrees` |
 | `vcsRemoveWorktree` | `projectID`, `worktreeID` | `ok` |
+
+`getVCSStatus` and `vcsListBranches` read from the desktop's in-memory VCS cache instead of running git on every call. The cache is lazily populated on first access per worktree and kept fresh by the desktop's file-system watcher and post-mutation notifications. Clients can call `vcsRefresh` at any time to force a full re-read from git; it awaits completion and returns the fresh `vcsStatus`.
 
 ## Example: full authentication request
 

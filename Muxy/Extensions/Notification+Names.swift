@@ -21,6 +21,7 @@ extension Notification.Name {
     static let vcsRepoDidChange = Notification.Name("MuxyVCSRepoDidChange")
     static let vcsDidRefresh = Notification.Name("MuxyVCSDidRefresh")
     static let externalDragHoverChanged = Notification.Name("MuxyExternalDragHoverChanged")
+    static let toggleRichInput = Notification.Name("MuxyToggleRichInput")
 }
 
 enum ExternalDragHoverUserInfoKey {

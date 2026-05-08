@@ -33,8 +33,7 @@ struct EditorSettingsView: View {
 
             SettingsSection(
                 "Markdown Preview",
-                footer: "Remote images are fetched over HTTPS only. Plain HTTP and other schemes are blocked.",
-                showsDivider: showsAppearanceSection
+                footer: "Remote images are fetched over HTTPS only. Plain HTTP and other schemes are blocked."
             ) {
                 SettingsToggleRow(label: "Allow Remote Images", isOn: $allowMarkdownRemoteImages)
                     .onChange(of: allowMarkdownRemoteImages) { _, newValue in
@@ -81,6 +80,23 @@ struct EditorSettingsView: View {
                         }
                         .buttonStyle(.borderless)
                     }
+                }
+            }
+
+            SettingsSection(
+                "Rich Input",
+                footer: "Inline File Path keeps multiple images perfectly ordered with text and Enter. "
+                    + "Use Clipboard Paste if your TUI doesn't recognize image paths.",
+                showsDivider: showsAppearanceSection
+            ) {
+                SettingsRow("Image Submission") {
+                    Picker("", selection: $settings.richInputImageStrategy) {
+                        ForEach(RichInputImageStrategy.allCases) { strategy in
+                            Text(strategy.displayName).tag(strategy)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
                 }
             }
 

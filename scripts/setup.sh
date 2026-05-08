@@ -116,10 +116,20 @@ if [[ "$NEEDS_RESOURCES_DOWNLOAD" == "true" ]]; then
     gh release download "$LATEST_TAG" \
         --pattern "GhosttyKit-resources.tar.gz" \
         --repo "$FORK_REPO"
+    THEMES_BACKUP=""
+    if [[ -d "$RESOURCES_DIR/themes" ]]; then
+        THEMES_BACKUP="$(mktemp -d)/themes"
+        mv "$RESOURCES_DIR/themes" "$THEMES_BACKUP"
+    fi
     rm -rf "$RESOURCES_DIR" "$TERMINFO_DIR"
     mkdir -p "$(dirname "$RESOURCES_DIR")"
     tar xzf GhosttyKit-resources.tar.gz -C "$(dirname "$RESOURCES_DIR")"
     rm GhosttyKit-resources.tar.gz
+    rm -rf "$RESOURCES_DIR/themes"
+    if [[ -n "$THEMES_BACKUP" ]]; then
+        mv "$THEMES_BACKUP" "$RESOURCES_DIR/themes"
+        rmdir "$(dirname "$THEMES_BACKUP")" 2>/dev/null || true
+    fi
 fi
 
 echo "==> Done"

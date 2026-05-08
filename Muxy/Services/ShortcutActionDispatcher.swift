@@ -88,6 +88,14 @@ struct ShortcutActionDispatcher {
             guard let projectID = appState.activeProjectID else { return false }
             appState.focusPaneDown(projectID: projectID)
             return true
+        case .cycleNextTabAcrossPanes:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.cycleNextTabAcrossPanes(projectID: projectID)
+            return true
+        case .cyclePreviousTabAcrossPanes:
+            guard let projectID = appState.activeProjectID else { return false }
+            appState.cyclePreviousTabAcrossPanes(projectID: projectID)
+            return true
         case .nextTab:
             guard let projectID = appState.activeProjectID else { return false }
             appState.selectNextTab(projectID: projectID)
@@ -120,6 +128,12 @@ struct ShortcutActionDispatcher {
         case .findInTerminal:
             notificationCenter.post(name: .findInTerminal, object: nil)
             return true
+        case .toggleRichInput:
+            notificationCenter.post(name: .toggleRichInput, object: nil)
+            return true
+        case .submitRichInput,
+             .submitRichInputWithoutReturn:
+            return false
         case .openVCSTab:
             guard let activeProject else { return false }
             openVCS(activeProject)

@@ -5,6 +5,7 @@ import SwiftUI
 enum ShortcutScope: String, Codable, CaseIterable {
     case global
     case mainWindow
+    case richInput
 }
 
 struct KeyCombo: Codable, Equatable, Hashable {
@@ -13,6 +14,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     static let rightArrowKey = "rightarrow"
     static let upArrowKey = "uparrow"
     static let downArrowKey = "downarrow"
+    static let tabKey = "tab"
+    static let returnKey = "return"
     private static func keyName(for keyCode: UInt16) -> String? {
         switch Int(keyCode) {
         case kVK_ANSI_A: "a"
@@ -82,6 +85,9 @@ struct KeyCombo: Codable, Equatable, Hashable {
         case kVK_RightArrow: rightArrowKey
         case kVK_DownArrow: downArrowKey
         case kVK_UpArrow: upArrowKey
+        case kVK_Tab: tabKey
+        case kVK_Return,
+             kVK_ANSI_KeypadEnter: returnKey
         default: nil
         }
     }
@@ -128,6 +134,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
         case Self.rightArrowKey: .rightArrow
         case Self.upArrowKey: .upArrow
         case Self.downArrowKey: .downArrow
+        case Self.tabKey: .tab
+        case Self.returnKey: .return
         default: KeyEquivalent(Character(key))
         }
     }
@@ -154,6 +162,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
         case Self.rightArrowKey: "→"
         case Self.upArrowKey: "↑"
         case Self.downArrowKey: "↓"
+        case Self.tabKey: "⇥"
+        case Self.returnKey: "↩"
         default: key.uppercased()
         }
         parts += keyDisplay
@@ -179,7 +189,9 @@ struct KeyCombo: Codable, Equatable, Hashable {
 
     static func normalized(key: String, keyCode: UInt16? = nil) -> String {
         let lowercased = key.lowercased()
-        if lowercased == leftArrowKey || lowercased == rightArrowKey || lowercased == upArrowKey || lowercased == downArrowKey {
+        if lowercased == leftArrowKey || lowercased == rightArrowKey || lowercased == upArrowKey || lowercased == downArrowKey ||
+            lowercased == tabKey
+        {
             return lowercased
         }
 

@@ -12,6 +12,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     private let projectStore: ProjectStore
     private let worktreeStore: WorktreeStore
     private let gitService = GitRepositoryService()
+    private var workspaceBroadcastTask: Task<Void, Never>?
+    private var projectsBroadcastTask: Task<Void, Never>?
     weak var server: MuxyRemoteServer? {
         didSet { RemoteTerminalStreamer.shared.server = server }
     }
@@ -33,6 +35,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
                 self?.broadcastTheme()
             }
         }
+        observeWorkspaceState()
+        observeProjectsState()
     }
 
     private func broadcastOwnership(paneID: UUID, owner: PaneOwnerDTO) {
@@ -45,8 +49,68 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         server?.broadcast(MuxyEvent(event: .themeChanged, data: .deviceTheme(dto)))
     }
 
-    func listProjects() -> [ProjectDTO] {
+    private func observeWorkspaceState() {
+        withObservationTracking { [weak self] in
+            _ = self?.workspaceSnapshots()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.scheduleWorkspaceBroadcast()
+                self.observeWorkspaceState()
+            }
+        }
+    }
+
+    private func observeProjectsState() {
+        withObservationTracking { [weak self] in
+            _ = self?.projectSnapshots()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.scheduleProjectsBroadcast()
+                self.observeProjectsState()
+            }
+        }
+    }
+
+    private func scheduleWorkspaceBroadcast() {
+        workspaceBroadcastTask?.cancel()
+        workspaceBroadcastTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard let self, !Task.isCancelled else { return }
+            self.broadcastWorkspaces()
+        }
+    }
+
+    private func scheduleProjectsBroadcast() {
+        projectsBroadcastTask?.cancel()
+        projectsBroadcastTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard let self, !Task.isCancelled else { return }
+            self.broadcastProjects()
+        }
+    }
+
+    private func workspaceSnapshots() -> [WorkspaceDTO] {
+        appState.activeWorktreeID.keys.compactMap { getWorkspace(projectID: $0) }
+    }
+
+    private func projectSnapshots() -> [ProjectDTO] {
         projectStore.projects.map { $0.toDTO() }
+    }
+
+    private func broadcastWorkspaces() {
+        for dto in workspaceSnapshots() {
+            server?.broadcast(MuxyEvent(event: .workspaceChanged, data: .workspace(dto)))
+        }
+    }
+
+    private func broadcastProjects() {
+        server?.broadcast(MuxyEvent(event: .projectsChanged, data: .projects(projectSnapshots())))
+    }
+
+    func listProjects() -> [ProjectDTO] {
+        projectSnapshots()
     }
 
     func selectProject(_ projectID: UUID) {
@@ -164,7 +228,10 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         else { return }
 
         let size = ghostty_surface_size(surface)
-        guard size.cell_width_px > 0, size.cell_height_px > 0 else { return }
+        guard size.cell_width_px > 0, size.cell_height_px > 0 else {
+            logger.warning("Cannot resize pane \(paneID): cell metrics not yet available")
+            return
+        }
 
         let w = cols * size.cell_width_px
         let h = rows * size.cell_height_px
@@ -207,6 +274,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32) {
+        ensureTerminalView(paneID: paneID)
         let snapshotBytes = buildTerminalSnapshot(paneID: paneID)
         PaneOwnershipStore.shared.assign(paneID: paneID, to: clientID)
         if let bytes = snapshotBytes, !bytes.isEmpty {
@@ -215,6 +283,28 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             server?.send(event, to: clientID)
         }
         applyPTYSize(paneID: paneID, cols: cols, rows: rows)
+    }
+
+    private func ensureTerminalView(paneID: UUID) {
+        if TerminalViewRegistry.shared.existingView(for: paneID) != nil { return }
+        guard let location = appState.locatePane(paneID: paneID) else {
+            logger.warning("Cannot materialize pane \(paneID): no matching tab in workspace")
+            return
+        }
+        let pane = location.pane
+        let view = TerminalViewRegistry.shared.view(
+            for: paneID,
+            workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
+            command: pane.startupCommand,
+            commandInteractive: pane.startupCommandInteractive
+        )
+        if view.envVars.isEmpty {
+            view.envVars = TerminalEnvVarBuilder.build(paneID: paneID, worktreeKey: location.worktreeKey)
+        }
+        view.materializeHeadless()
+        if view.surface == nil {
+            logger.warning("Headless materialization left pane \(paneID) without a surface")
+        }
     }
 
     private func buildTerminalSnapshot(paneID: UUID) -> Data? {
@@ -281,47 +371,19 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO? {
-        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else { return nil }
-        let repoPath = resolveWorktreePath(projectID: projectID) ?? project.path
-
-        do {
-            let branch = try await gitService.currentBranch(repoPath: repoPath)
-            let aheadBehind = await gitService.aheadBehind(repoPath: repoPath, branch: branch)
-            let files = try await gitService.changedFiles(repoPath: repoPath)
-            let defaultBranch = await gitService.defaultBranch(repoPath: repoPath)
-
-            var pullRequest: VCSPullRequestDTO?
-            if let headSha = await gitService.headSha(repoPath: repoPath),
-               let info = await gitService.cachedPullRequestInfo(
-                   repoPath: repoPath,
-                   branch: branch,
-                   headSha: headSha,
-                   forceFresh: false
-               )
-            {
-                pullRequest = VCSPullRequestDTO(
-                    url: info.url,
-                    number: info.number,
-                    state: info.state.rawValue,
-                    isDraft: info.isDraft,
-                    baseBranch: info.baseBranch
-                )
-            }
-
-            return VCSStatusDTO(
-                branch: branch,
-                aheadCount: aheadBehind.ahead,
-                behindCount: aheadBehind.behind,
-                hasUpstream: aheadBehind.hasUpstream,
-                stagedFiles: files.filter(\.isStaged).map { Self.toFileDTO($0, staged: true) },
-                changedFiles: files.filter(\.isUnstaged).map { Self.toFileDTO($0, staged: false) },
-                defaultBranch: defaultBranch,
-                pullRequest: pullRequest
-            )
-        } catch {
-            logger.error("Failed to get VCS status: \(error)")
-            return nil
+        guard let repoPath = try? repoPath(projectID: projectID) else { return nil }
+        let state = VCSStateStore.shared.state(for: repoPath)
+        if !state.hasCompletedInitialLoad {
+            await state.refreshAndWait()
         }
+        return Self.toStatusDTO(state)
+    }
+
+    func vcsRefresh(projectID: UUID) async -> VCSStatusDTO? {
+        guard let repoPath = try? repoPath(projectID: projectID) else { return nil }
+        let state = VCSStateStore.shared.state(for: repoPath)
+        await state.refreshAndWait()
+        return Self.toStatusDTO(state)
     }
 
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws {
@@ -374,10 +436,18 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func vcsListBranches(projectID: UUID) async throws -> VCSBranchesDTO {
         let repoPath = try repoPath(projectID: projectID)
-        let current = try await gitService.currentBranch(repoPath: repoPath)
-        let locals = try await gitService.listBranches(repoPath: repoPath)
-        let defaultBranch = await gitService.defaultBranch(repoPath: repoPath)
-        return VCSBranchesDTO(current: current, locals: locals, defaultBranch: defaultBranch)
+        let state = VCSStateStore.shared.state(for: repoPath)
+        if !state.hasCompletedInitialLoad {
+            await state.refreshAndWait()
+        }
+        guard let current = state.branchName else {
+            throw RemoteVCSError.notGitRepo
+        }
+        return VCSBranchesDTO(
+            current: current,
+            locals: state.branches,
+            defaultBranch: state.defaultBranch
+        )
     }
 
     func vcsSwitchBranch(projectID: UUID, branch: String) async throws {
@@ -513,6 +583,29 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         )
     }
 
+    private static func toStatusDTO(_ state: VCSTabState) -> VCSStatusDTO? {
+        guard let branch = state.branchName else { return nil }
+        let pullRequest: VCSPullRequestDTO? = state.pullRequestInfo.map { info in
+            VCSPullRequestDTO(
+                url: info.url,
+                number: info.number,
+                state: info.state.rawValue,
+                isDraft: info.isDraft,
+                baseBranch: info.baseBranch
+            )
+        }
+        return VCSStatusDTO(
+            branch: branch,
+            aheadCount: state.aheadBehind.ahead,
+            behindCount: state.aheadBehind.behind,
+            hasUpstream: state.aheadBehind.hasUpstream,
+            stagedFiles: state.files.filter(\.isStaged).map { Self.toFileDTO($0, staged: true) },
+            changedFiles: state.files.filter(\.isUnstaged).map { Self.toFileDTO($0, staged: false) },
+            defaultBranch: state.defaultBranch,
+            pullRequest: pullRequest
+        )
+    }
+
     private static func toFileDTO(_ file: GitStatusFile, staged: Bool) -> GitFileDTO {
         let statusChar = staged ? file.xStatus : file.yStatus
         let isUntracked = file.xStatus == "?" && file.yStatus == "?"
@@ -545,12 +638,14 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     enum RemoteVCSError: LocalizedError {
         case projectNotFound
         case worktreeNotFound
+        case notGitRepo
         case invalidInput(String)
 
         var errorDescription: String? {
             switch self {
             case .projectNotFound: "Project not found."
             case .worktreeNotFound: "Worktree not found."
+            case .notGitRepo: "Not a git repository."
             case let .invalidInput(message): message
             }
         }

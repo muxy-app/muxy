@@ -226,19 +226,52 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ needs.validate.outputs.version }}
         run: |
-          gh release create "v${{ needs.validate.outputs.version }}" \
-            --repo "${{ github.repository }}" \
-            --title "Muxy v${{ needs.validate.outputs.version }}" \
-            --draft \
-            --generate-notes \
-            artifacts/dmg-arm64/*.dmg \
-            artifacts/dmg-x86_64/*.dmg \
-            appcast-arm64.xml \
-            appcast-x86_64.xml \
-            appcast.xml
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              --repo "${{ github.repository }}" \
+              --clobber \
+              artifacts/dmg-arm64/*.dmg \
+              artifacts/dmg-x86_64/*.dmg \
+              appcast-arm64.xml \
+              appcast-x86_64.xml \
+              appcast.xml
+          else
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "Muxy $TAG" \
+              --draft \
+              --generate-notes \
+              artifacts/dmg-arm64/*.dmg \
+              artifacts/dmg-x86_64/*.dmg \
+              appcast-arm64.xml \
+              appcast-x86_64.xml \
+              appcast.xml
+          fi
+
+      - name: Bump BETA_VERSION
+        env:
+          NEXT: ${{ needs.validate.outputs.next_beta_version }}
+          GH_RELEASE_PAT: ${{ secrets.GH_RELEASE_PAT }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GH_RELEASE_PAT}@github.com/${{ github.repository }}.git"
+          git fetch origin main
+          git checkout main
+          git pull --rebase origin main
+          echo "$NEXT" > BETA_VERSION
+          git add BETA_VERSION
+          if git diff --cached --quiet; then
+            echo "BETA_VERSION already at $NEXT, nothing to commit"
+            exit 0
+          fi
+          git commit -m "Bump BETA_VERSION to $NEXT"
+          git push origin main
 
       - name: Notify Discord
+        continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -272,28 +305,10 @@ jobs:
                 timestamp: (now | todate)
               }]
             }')
-          curl -fsSL -H "Content-Type: application/json" \
-            -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
-
-      - name: Bump BETA_VERSION
-        env:
-          NEXT: ${{ needs.validate.outputs.next_beta_version }}
-          GH_RELEASE_PAT: ${{ secrets.GH_RELEASE_PAT }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${GH_RELEASE_PAT}@github.com/${{ github.repository }}.git"
-          git fetch origin main
-          git checkout main
-          git pull --rebase origin main
-          echo "$NEXT" > BETA_VERSION
-          git add BETA_VERSION
-          if git diff --cached --quiet; then
-            echo "BETA_VERSION already at $NEXT, nothing to commit"
-            exit 0
+          if ! curl -fsSL -H "Content-Type: application/json" \
+            -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"; then
+            echo "Discord notification failed; release succeeded regardless"
           fi
-          git commit -m "Bump BETA_VERSION to $NEXT"
-          git push origin main
 
   update-homebrew-tap:
     needs: [validate, release]

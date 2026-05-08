@@ -39,7 +39,7 @@ final class AppState {
         case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
-        case selectTabByIndex(projectID: UUID, areaID: UUID?, index: Int)
+        case selectTabByIndex(projectID: UUID, index: Int)
         case selectNextTab(projectID: UUID)
         case selectPreviousTab(projectID: UUID)
         case splitArea(SplitAreaRequest)
@@ -49,6 +49,8 @@ final class AppState {
         case focusPaneRight(projectID: UUID)
         case focusPaneUp(projectID: UUID)
         case focusPaneDown(projectID: UUID)
+        case cycleNextTabAcrossPanes(projectID: UUID)
+        case cyclePreviousTabAcrossPanes(projectID: UUID)
         case moveTab(projectID: UUID, request: TabMoveRequest)
         case selectNextProject(projects: [Project], worktrees: [UUID: [Worktree]])
         case selectPreviousProject(projects: [Project], worktrees: [UUID: [Worktree]])
@@ -195,6 +197,29 @@ final class AppState {
     func allAreas(for projectID: UUID) -> [TabArea] {
         guard let key = activeWorktreeKey(for: projectID) else { return [] }
         return workspaceRoots[key]?.allAreas() ?? []
+    }
+
+    func locatePane(paneID: UUID) -> (worktreeKey: WorktreeKey, pane: TerminalPaneState)? {
+        for (key, root) in workspaceRoots {
+            for area in root.allAreas() {
+                for tab in area.tabs {
+                    if let pane = tab.content.pane, pane.id == paneID {
+                        return (key, pane)
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    func shortcutOffsets(for projectID: UUID) -> [UUID: Int] {
+        var offsets: [UUID: Int] = [:]
+        var running = 0
+        for area in allAreas(for: projectID) {
+            offsets[area.id] = running
+            running += area.tabs.count
+        }
+        return offsets
     }
 
     func splitFocusedArea(direction: SplitDirection, projectID: UUID) {
@@ -531,7 +556,7 @@ final class AppState {
     }
 
     func selectTabByIndex(_ index: Int, projectID: UUID) {
-        dispatch(.selectTabByIndex(projectID: projectID, areaID: nil, index: index))
+        dispatch(.selectTabByIndex(projectID: projectID, index: index))
     }
 
     func selectNextTab(projectID: UUID) {
@@ -770,6 +795,14 @@ final class AppState {
 
     func focusPaneDown(projectID: UUID) {
         dispatch(.focusPaneDown(projectID: projectID))
+    }
+
+    func cycleNextTabAcrossPanes(projectID: UUID) {
+        dispatch(.cycleNextTabAcrossPanes(projectID: projectID))
+    }
+
+    func cyclePreviousTabAcrossPanes(projectID: UUID) {
+        dispatch(.cyclePreviousTabAcrossPanes(projectID: projectID))
     }
 
     func selectProjectByIndex(_ index: Int, projects: [Project], worktrees: [UUID: [Worktree]]) {

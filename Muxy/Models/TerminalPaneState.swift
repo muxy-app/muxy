@@ -11,6 +11,7 @@ final class TerminalPaneState: Identifiable {
     let startupCommandInteractive: Bool
     let externalEditorFilePath: String?
     let searchState = TerminalSearchState()
+    let branchObserver = PaneBranchObserver()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
 
     init(
@@ -27,6 +28,7 @@ final class TerminalPaneState: Identifiable {
         self.startupCommand = startupCommand
         self.startupCommandInteractive = startupCommandInteractive
         self.externalEditorFilePath = externalEditorFilePath
+        branchObserver.update(repoPath: initialWorkingDirectory ?? projectPath)
     }
 
     func setTitle(_ newTitle: String) {
@@ -40,5 +42,6 @@ final class TerminalPaneState: Identifiable {
 
     func setWorkingDirectory(_ path: String) {
         currentWorkingDirectory = path
+        branchObserver.update(repoPath: path)
     }
 }

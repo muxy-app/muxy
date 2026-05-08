@@ -98,12 +98,22 @@ enum TabReducer {
         area.selectTab(tabID)
     }
 
-    static func selectTabByIndex(projectID: UUID, areaID: UUID?, index: Int, state: inout WorkspaceState) {
+    static func selectTabByIndex(projectID: UUID, index: Int, state: inout WorkspaceState) {
+        guard index >= 0 else { return }
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
-              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
+              let root = state.workspaceRoots[key]
         else { return }
-        FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.selectTabByIndex(index)
+        var remaining = index
+        for area in root.allAreas() {
+            guard remaining < area.tabs.count else {
+                remaining -= area.tabs.count
+                continue
+            }
+            let tab = area.tabs[remaining]
+            FocusReducer.focusArea(area.id, key: key, state: &state)
+            area.selectTab(tab.id)
+            return
+        }
     }
 
     static func selectNextTab(projectID: UUID, state: WorkspaceState) {

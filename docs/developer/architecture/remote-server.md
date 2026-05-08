@@ -83,3 +83,12 @@ sequenceDiagram
 ```
 
 `RemoteTerminalStreamer` registers the data callback on every terminal surface at creation (`GhosttyTerminalNSView.createSurface`), unregisters on teardown, and forwards bytes as `terminalOutput` events targeted at the owning client via `MuxyRemoteServer.send(_:to:)`. The event payload is a `TerminalOutputEventDTO` containing the paneID and a `Data` of raw bytes (base64-encoded on the JSON wire).
+
+## Workspace and projects broadcasts
+
+`RemoteServerDelegate` uses `withObservationTracking` to watch `AppState` and `ProjectStore`. Two independent observers re-arm on every change:
+
+- The workspace observer reads the current `WorkspaceDTO` for each project that has an active worktree, which transitively touches the observable properties referenced by the DTO (split tree, tab list, titles, pin state, active tab). Any change schedules a debounced (~80 ms) broadcast that emits one `workspaceChanged` event per active project to all authenticated clients.
+- The projects observer reads `projectStore.projects` and emits a single `projectsChanged` event with the full list when anything in it mutates.
+
+Debouncing coalesces bursts (e.g. dragging a split divider, rapid tab cycling) into a single push. Coverage is whatever the snapshot reads — today this includes paths that bypass `AppState.dispatch` (terminal-driven title updates via `TerminalPaneState.setTitle`, view-layer mutations like `TabArea.setCustomTitle`, `togglePin`, `reorderTab`). New observable fields on the workspace tree need to flow through `WorkspaceDTO` (or a tracking helper) to be picked up by the broadcaster.
