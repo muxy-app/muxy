@@ -907,11 +907,78 @@ struct WorkspaceReducerTests {
         )
 
         _ = WorkspaceReducer.reduce(
-            action: .selectTabByIndex(projectID: projectID, areaID: nil, index: 0),
+            action: .selectTabByIndex(projectID: projectID, index: 0),
             state: &state
         )
 
         let area = focusedArea(in: state, projectID: projectID)!
         #expect(area.activeTabID == area.tabs[0].id)
+    }
+
+    @Test("selectTabByIndex with negative index does nothing")
+    func selectTabByIndexNegative() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+
+        _ = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: nil),
+            state: &state
+        )
+
+        let area = focusedArea(in: state, projectID: projectID)!
+        let originalTabID = area.activeTabID
+
+        _ = WorkspaceReducer.reduce(
+            action: .selectTabByIndex(projectID: projectID, index: -1),
+            state: &state
+        )
+
+        let newArea = focusedArea(in: state, projectID: projectID)!
+        #expect(newArea.activeTabID == originalTabID)
+    }
+
+    @Test("selectTabByIndex selects cross-pane global index")
+    func selectTabByIndexCrossPane() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+
+        _ = WorkspaceReducer.reduce(action: .createTab(projectID: projectID, areaID: nil), state: &state)
+
+        let firstAreaID = state.focusedAreaID[key]!
+
+        _ = WorkspaceReducer.reduce(
+            action: .splitArea(AppState.SplitAreaRequest(
+                projectID: projectID,
+                areaID: firstAreaID,
+                direction: .horizontal,
+                position: .second
+            )),
+            state: &state
+        )
+
+        let secondAreaID = state.focusedAreaID[key]!
+
+        _ = WorkspaceReducer.reduce(
+            action: .createTab(projectID: projectID, areaID: secondAreaID),
+            state: &state
+        )
+
+        let firstArea = area(in: state, key: key, areaID: firstAreaID)!
+        let secondArea = area(in: state, key: key, areaID: secondAreaID)!
+
+        #expect(firstArea.tabs.count == 2)
+        #expect(secondArea.tabs.count == 2)
+
+        _ = WorkspaceReducer.reduce(
+            action: .selectTabByIndex(projectID: projectID, index: 3),
+            state: &state
+        )
+
+        #expect(state.focusedAreaID[key] == secondAreaID)
+        let newSecondArea = area(in: state, key: key, areaID: secondAreaID)!
+        #expect(newSecondArea.activeTabID == newSecondArea.tabs[1].id)
     }
 }

@@ -7,6 +7,7 @@ struct SplitContainer: View {
     let isActiveProject: Bool
     let showVCSButton: Bool
     let projectID: UUID
+    let shortcutOffsets: [UUID: Int]
     let onFocusArea: (UUID) -> Void
     let onSelectTab: (UUID, UUID) -> Void
     let onCreateTab: (UUID) -> Void
@@ -78,6 +79,7 @@ struct SplitContainer: View {
             isActiveProject: isActiveProject,
             showVCSButton: showVCSButton,
             projectID: projectID,
+            shortcutOffsets: shortcutOffsets,
             onFocusArea: onFocusArea,
             onSelectTab: onSelectTab,
             onCreateTab: onCreateTab,

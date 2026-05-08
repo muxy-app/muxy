@@ -7,6 +7,7 @@ struct TabAreaView: View {
     let showTabStrip: Bool
     let showVCSButton: Bool
     let projectID: UUID
+    let shortcutIndexOffset: Int
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
@@ -38,6 +39,7 @@ struct TabAreaView: View {
                     isFocused: isFocused,
                     showVCSButton: showVCSButton,
                     projectID: projectID,
+                    shortcutIndexOffset: shortcutIndexOffset,
                     onSelectTab: onSelectTab,
                     onCreateTab: onCreateTab,
                     onCreateVCSTab: onCreateVCSTab,

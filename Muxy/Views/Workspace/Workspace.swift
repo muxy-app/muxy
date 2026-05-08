@@ -31,6 +31,7 @@ struct TerminalArea: View {
                 showTabStrip: !rootIsTabArea,
                 showVCSButton: false,
                 projectID: project.id,
+                shortcutOffsets: appState.shortcutOffsets(for: project.id),
                 onFocusArea: { areaID in
                     appState.dispatch(.focusArea(projectID: project.id, areaID: areaID))
                 },
