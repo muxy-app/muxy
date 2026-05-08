@@ -126,6 +126,7 @@ struct PaneTabStrip: View {
 
         return HStack(spacing: 0) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+                let globalIndex = shortcutIndexOffset + index
                 TabCell(
                     tab: tab,
                     active: tab.id == activeTabID,
@@ -133,7 +134,7 @@ struct PaneTabStrip: View {
                     areaID: areaID,
                     hasUnread: NotificationStore.shared.hasUnread(tabID: tab.id),
                     isAnyDragging: dragState.draggedID != nil,
-                    shortcutIndex: shortcutIndexOffset + index < 9 ? shortcutIndexOffset + index + 1 : nil,
+                    shortcutIndex: globalIndex < 9 ? globalIndex + 1 : nil,
                     closableOthersCount: closableOthersCount(excluding: tab.id),
                     closableLeftCount: closableCount(leftOf: index),
                     closableRightCount: closableCount(rightOf: index),

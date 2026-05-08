@@ -133,8 +133,8 @@ enum WorkspaceReducer {
         case let .selectTab(projectID, areaID, tabID):
             TabReducer.selectTab(projectID: projectID, areaID: areaID, tabID: tabID, state: &state)
 
-        case let .selectTabByIndex(projectID, areaID, index):
-            TabReducer.selectTabByIndex(projectID: projectID, areaID: areaID, index: index, state: &state)
+        case let .selectTabByIndex(projectID, index):
+            TabReducer.selectTabByIndex(projectID: projectID, index: index, state: &state)
 
         case let .selectNextTab(projectID):
             TabReducer.selectNextTab(projectID: projectID, state: state)

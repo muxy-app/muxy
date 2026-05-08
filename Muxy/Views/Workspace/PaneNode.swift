@@ -7,6 +7,7 @@ struct PaneNode: View {
     var showTabStrip = true
     var showVCSButton = true
     let projectID: UUID
+    let shortcutOffsets: [UUID: Int]
     let onFocusArea: (UUID) -> Void
     let onSelectTab: (UUID, UUID) -> Void
     let onCreateTab: (UUID) -> Void
@@ -27,6 +28,7 @@ struct PaneNode: View {
                 showTabStrip: showTabStrip,
                 showVCSButton: showVCSButton,
                 projectID: projectID,
+                shortcutIndexOffset: shortcutOffsets[area.id] ?? 0,
                 onFocus: { onFocusArea(area.id) },
                 onSelectTab: { tabID in onSelectTab(area.id, tabID) },
                 onCreateTab: { onCreateTab(area.id) },
@@ -43,6 +45,7 @@ struct PaneNode: View {
                 isActiveProject: isActiveProject,
                 showVCSButton: showVCSButton,
                 projectID: projectID,
+                shortcutOffsets: shortcutOffsets,
                 onFocusArea: onFocusArea,
                 onSelectTab: onSelectTab,
                 onCreateTab: onCreateTab,

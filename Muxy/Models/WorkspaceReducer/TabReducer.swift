@@ -98,7 +98,7 @@ enum TabReducer {
         area.selectTab(tabID)
     }
 
-    static func selectTabByIndex(projectID: UUID, areaID _: UUID?, index: Int, state: inout WorkspaceState) {
+    static func selectTabByIndex(projectID: UUID, index: Int, state: inout WorkspaceState) {
         guard index >= 0 else { return }
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
               let root = state.workspaceRoots[key]

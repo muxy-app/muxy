@@ -39,7 +39,7 @@ final class AppState {
         case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
-        case selectTabByIndex(projectID: UUID, areaID: UUID?, index: Int)
+        case selectTabByIndex(projectID: UUID, index: Int)
         case selectNextTab(projectID: UUID)
         case selectPreviousTab(projectID: UUID)
         case splitArea(SplitAreaRequest)
@@ -212,13 +212,14 @@ final class AppState {
         return nil
     }
 
-    func shortcutOffset(forAreaID areaID: UUID, projectID: UUID) -> Int {
-        var offset = 0
+    func shortcutOffsets(for projectID: UUID) -> [UUID: Int] {
+        var offsets: [UUID: Int] = [:]
+        var running = 0
         for area in allAreas(for: projectID) {
-            if area.id == areaID { return offset }
-            offset += area.tabs.count
+            offsets[area.id] = running
+            running += area.tabs.count
         }
-        return 0
+        return offsets
     }
 
     func splitFocusedArea(direction: SplitDirection, projectID: UUID) {
@@ -555,7 +556,7 @@ final class AppState {
     }
 
     func selectTabByIndex(_ index: Int, projectID: UUID) {
-        dispatch(.selectTabByIndex(projectID: projectID, areaID: nil, index: index))
+        dispatch(.selectTabByIndex(projectID: projectID, index: index))
     }
 
     func selectNextTab(projectID: UUID) {

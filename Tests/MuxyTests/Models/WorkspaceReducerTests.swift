@@ -907,7 +907,7 @@ struct WorkspaceReducerTests {
         )
 
         _ = WorkspaceReducer.reduce(
-            action: .selectTabByIndex(projectID: projectID, areaID: nil, index: 0),
+            action: .selectTabByIndex(projectID: projectID, index: 0),
             state: &state
         )
 
@@ -925,12 +925,12 @@ struct WorkspaceReducerTests {
             action: .createTab(projectID: projectID, areaID: nil),
             state: &state
         )
-        
+
         let area = focusedArea(in: state, projectID: projectID)!
         let originalTabID = area.activeTabID
 
         _ = WorkspaceReducer.reduce(
-            action: .selectTabByIndex(projectID: projectID, areaID: nil, index: -1),
+            action: .selectTabByIndex(projectID: projectID, index: -1),
             state: &state
         )
 
@@ -946,7 +946,7 @@ struct WorkspaceReducerTests {
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
 
         _ = WorkspaceReducer.reduce(action: .createTab(projectID: projectID, areaID: nil), state: &state)
-        
+
         let firstAreaID = state.focusedAreaID[key]!
 
         _ = WorkspaceReducer.reduce(
@@ -968,12 +968,12 @@ struct WorkspaceReducerTests {
 
         let firstArea = area(in: state, key: key, areaID: firstAreaID)!
         let secondArea = area(in: state, key: key, areaID: secondAreaID)!
-        
+
         #expect(firstArea.tabs.count == 2)
         #expect(secondArea.tabs.count == 2)
 
         _ = WorkspaceReducer.reduce(
-            action: .selectTabByIndex(projectID: projectID, areaID: nil, index: 3),
+            action: .selectTabByIndex(projectID: projectID, index: 3),
             state: &state
         )
 
