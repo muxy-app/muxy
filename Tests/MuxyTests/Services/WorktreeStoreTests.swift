@@ -360,6 +360,37 @@ struct WorktreeStoreTests {
         #expect(worktrees[0].branch == "feat/worktree-refresh")
     }
 
+    @Test("remove evicts cached VCS state for the removed worktree")
+    func removeEvictsCachedVCSState() {
+        let project = Project(name: "Repo", path: "/tmp/repo-\(UUID().uuidString)")
+        let removable = Worktree(
+            name: "feature-a",
+            path: project.path + "-feature-a",
+            branch: "feature-a",
+            source: .muxy,
+            isPrimary: false
+        )
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(name: project.name, path: project.path, isPrimary: true),
+                    removable,
+                ]
+            ]
+        )
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: GitWorktreeListingStub(recordsByRepoPath: [:]).listWorktrees,
+            projects: [project]
+        )
+        _ = VCSStateStore.shared.state(for: removable.path)
+        #expect(VCSStateStore.shared.cachedState(for: removable.path) != nil)
+
+        store.remove(worktreeID: removable.id, from: project.id)
+
+        #expect(VCSStateStore.shared.cachedState(for: removable.path) == nil)
+    }
+
     @Test("remove does not delete externally managed worktrees")
     func removeDoesNotDeleteExternalWorktree() {
         let project = Project(name: "Repo", path: "/tmp/repo")

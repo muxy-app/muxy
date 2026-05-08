@@ -186,6 +186,7 @@ final class VCSTabState {
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var isRefreshing = false
     @ObservationIgnored private var pendingRefresh = false
+    @ObservationIgnored private var refreshAndWaitTask: Task<Void, Never>?
     @ObservationIgnored private var lastFetchedHeadSha: String?
     private(set) var hasCompletedInitialLoad = false
     @ObservationIgnored private static let commitsPerPage = 100
@@ -264,12 +265,22 @@ final class VCSTabState {
     }
 
     func refreshAndWait() async {
-        performRefresh(incremental: false, forcePRFetch: true)
-        loadBranches()
-        await branchTask?.value
-        await loadFilesTask?.value
-        await loadBranchesTask?.value
-        await prInfoTask?.value
+        if let existing = refreshAndWaitTask {
+            await existing.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            performRefresh(incremental: false, forcePRFetch: true)
+            loadBranches()
+            await branchTask?.value
+            await loadFilesTask?.value
+            await loadBranchesTask?.value
+            await prInfoTask?.value
+        }
+        refreshAndWaitTask = task
+        await task.value
+        refreshAndWaitTask = nil
     }
 
     private func performRefresh(incremental: Bool, forcePRFetch: Bool = false) {

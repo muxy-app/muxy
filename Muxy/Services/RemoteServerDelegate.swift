@@ -414,8 +414,11 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         if !state.hasCompletedInitialLoad {
             await state.refreshAndWait()
         }
+        guard let current = state.branchName else {
+            throw RemoteVCSError.notGitRepo
+        }
         return VCSBranchesDTO(
-            current: state.branchName ?? "",
+            current: current,
             locals: state.branches,
             defaultBranch: state.defaultBranch
         )
@@ -609,12 +612,14 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     enum RemoteVCSError: LocalizedError {
         case projectNotFound
         case worktreeNotFound
+        case notGitRepo
         case invalidInput(String)
 
         var errorDescription: String? {
             switch self {
             case .projectNotFound: "Project not found."
             case .worktreeNotFound: "Worktree not found."
+            case .notGitRepo: "Not a git repository."
             case let .invalidInput(message): message
             }
         }

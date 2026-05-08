@@ -107,7 +107,7 @@ final class TerminalTab: Identifiable {
                 initialWorkingDirectory: snapshot.currentWorkingDirectory
             ))
         case .vcs:
-            content = .vcs(VCSTabState(projectPath: snapshot.projectPath))
+            content = .vcs(VCSStateStore.shared.state(for: snapshot.projectPath))
         case .editor:
             if let filePath = snapshot.filePath {
                 content = .editor(EditorTabState(projectPath: snapshot.projectPath, filePath: filePath))

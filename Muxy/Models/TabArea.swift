@@ -77,7 +77,7 @@ final class TabArea: Identifiable {
     }
 
     func createVCSTab() {
-        insertTab(TerminalTab(vcsState: VCSTabState(projectPath: projectPath)))
+        insertTab(TerminalTab(vcsState: VCSStateStore.shared.state(for: projectPath)))
     }
 
     func createEditorTab(filePath: String, suppressInitialFocus: Bool = false) {

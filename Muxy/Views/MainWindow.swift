@@ -50,7 +50,6 @@ struct MainWindow: View {
 
     @State private var vcsPanelVisible = false
     @State private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
-    @State private var vcsStates: [WorktreeKey: VCSTabState] = [:]
     @State private var fileTreePanelVisible = false
     @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
     @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
@@ -284,14 +283,10 @@ struct MainWindow: View {
             toggleFileTreePanel()
         }
         .onChange(of: vcsPruneSignature) {
-            pruneVCSStates()
             pruneFileTreeStates()
         }
         .onChange(of: vcsEnsureSignature) {
             guard let project = activeProject else { return }
-            if vcsPanelVisible, VCSDisplayMode.current == .attached {
-                ensureVCSState(for: project)
-            }
             if fileTreePanelVisible {
                 ensureFileTreeState(for: project)
             }
@@ -781,7 +776,6 @@ struct MainWindow: View {
             return
         }
 
-        ensureVCSState(for: project)
         let isShowing = !vcsPanelVisible
         vcsPanelVisible = isShowing
         if isShowing {
@@ -810,15 +804,9 @@ struct MainWindow: View {
 
     private var activeVCSState: VCSTabState? {
         guard let project = activeProject,
-              let key = appState.activeWorktreeKey(for: project.id)
+              appState.activeWorktreeKey(for: project.id) != nil
         else { return nil }
-        return vcsStates[key]
-    }
-
-    private func ensureVCSState(for project: Project) {
-        guard let key = appState.activeWorktreeKey(for: project.id) else { return }
-        guard vcsStates[key] == nil else { return }
-        vcsStates[key] = VCSTabState(projectPath: activeWorktreePath(for: project))
+        return VCSStateStore.shared.state(for: activeWorktreePath(for: project))
     }
 
     private func activeWorktreePath(for project: Project) -> String {
@@ -842,11 +830,6 @@ struct MainWindow: View {
                 toggleAttachedVCSPanel()
             }
         )
-    }
-
-    private func pruneVCSStates() {
-        let validKeys = validVCSKeys()
-        vcsStates = vcsStates.filter { validKeys.contains($0.key) }
     }
 
     private func validVCSKeys() -> Set<WorktreeKey> {
