@@ -199,6 +199,19 @@ final class AppState {
         return workspaceRoots[key]?.allAreas() ?? []
     }
 
+    func locatePane(paneID: UUID) -> (worktreeKey: WorktreeKey, pane: TerminalPaneState)? {
+        for (key, root) in workspaceRoots {
+            for area in root.allAreas() {
+                for tab in area.tabs {
+                    if let pane = tab.content.pane, pane.id == paneID {
+                        return (key, pane)
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
     func splitFocusedArea(direction: SplitDirection, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
         dispatch(.splitArea(.init(

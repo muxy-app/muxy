@@ -271,6 +271,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32) {
+        ensureTerminalView(paneID: paneID, cols: cols, rows: rows)
         let snapshotBytes = buildTerminalSnapshot(paneID: paneID)
         PaneOwnershipStore.shared.assign(paneID: paneID, to: clientID)
         if let bytes = snapshotBytes, !bytes.isEmpty {
@@ -279,6 +280,25 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             server?.send(event, to: clientID)
         }
         applyPTYSize(paneID: paneID, cols: cols, rows: rows)
+    }
+
+    private func ensureTerminalView(paneID: UUID, cols: UInt32, rows: UInt32) {
+        if TerminalViewRegistry.shared.existingView(for: paneID) != nil { return }
+        guard let location = appState.locatePane(paneID: paneID) else {
+            logger.warning("Cannot materialize pane \(paneID): no matching tab in workspace")
+            return
+        }
+        let pane = location.pane
+        let view = TerminalViewRegistry.shared.view(
+            for: paneID,
+            workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
+            command: pane.startupCommand,
+            commandInteractive: pane.startupCommandInteractive
+        )
+        if view.envVars.isEmpty {
+            view.envVars = TerminalEnvVarBuilder.build(paneID: paneID, worktreeKey: location.worktreeKey)
+        }
+        view.materializeHeadless(cols: cols, rows: rows)
     }
 
     private func buildTerminalSnapshot(paneID: UUID) -> Data? {
