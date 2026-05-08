@@ -263,6 +263,15 @@ final class VCSTabState {
         performRefresh(incremental: false)
     }
 
+    func refreshAndWait() async {
+        performRefresh(incremental: false, forcePRFetch: true)
+        loadBranches()
+        await branchTask?.value
+        await loadFilesTask?.value
+        await loadBranchesTask?.value
+        await prInfoTask?.value
+    }
+
     private func performRefresh(incremental: Bool, forcePRFetch: Bool = false) {
         loadFilesTask?.cancel()
         if !incremental, files.isEmpty {

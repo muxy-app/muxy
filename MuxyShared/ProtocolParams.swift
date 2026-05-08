@@ -358,6 +358,13 @@ public struct GetVCSStatusParams: Codable, Sendable {
     }
 }
 
+public struct VCSRefreshParams: Codable, Sendable {
+    public let projectID: UUID
+    public init(projectID: UUID) {
+        self.projectID = projectID
+    }
+}
+
 public struct VCSCommitParams: Codable, Sendable {
     public let projectID: UUID
     public let message: String

@@ -345,47 +345,19 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO? {
-        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else { return nil }
-        let repoPath = resolveWorktreePath(projectID: projectID) ?? project.path
-
-        do {
-            let branch = try await gitService.currentBranch(repoPath: repoPath)
-            let aheadBehind = await gitService.aheadBehind(repoPath: repoPath, branch: branch)
-            let files = try await gitService.changedFiles(repoPath: repoPath)
-            let defaultBranch = await gitService.defaultBranch(repoPath: repoPath)
-
-            var pullRequest: VCSPullRequestDTO?
-            if let headSha = await gitService.headSha(repoPath: repoPath),
-               let info = await gitService.cachedPullRequestInfo(
-                   repoPath: repoPath,
-                   branch: branch,
-                   headSha: headSha,
-                   forceFresh: false
-               )
-            {
-                pullRequest = VCSPullRequestDTO(
-                    url: info.url,
-                    number: info.number,
-                    state: info.state.rawValue,
-                    isDraft: info.isDraft,
-                    baseBranch: info.baseBranch
-                )
-            }
-
-            return VCSStatusDTO(
-                branch: branch,
-                aheadCount: aheadBehind.ahead,
-                behindCount: aheadBehind.behind,
-                hasUpstream: aheadBehind.hasUpstream,
-                stagedFiles: files.filter(\.isStaged).map { Self.toFileDTO($0, staged: true) },
-                changedFiles: files.filter(\.isUnstaged).map { Self.toFileDTO($0, staged: false) },
-                defaultBranch: defaultBranch,
-                pullRequest: pullRequest
-            )
-        } catch {
-            logger.error("Failed to get VCS status: \(error)")
-            return nil
+        guard let repoPath = try? repoPath(projectID: projectID) else { return nil }
+        let state = VCSStateStore.shared.state(for: repoPath)
+        if !state.hasCompletedInitialLoad {
+            await state.refreshAndWait()
         }
+        return Self.toStatusDTO(state)
+    }
+
+    func vcsRefresh(projectID: UUID) async -> VCSStatusDTO? {
+        guard let repoPath = try? repoPath(projectID: projectID) else { return nil }
+        let state = VCSStateStore.shared.state(for: repoPath)
+        await state.refreshAndWait()
+        return Self.toStatusDTO(state)
     }
 
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws {
@@ -438,10 +410,15 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func vcsListBranches(projectID: UUID) async throws -> VCSBranchesDTO {
         let repoPath = try repoPath(projectID: projectID)
-        let current = try await gitService.currentBranch(repoPath: repoPath)
-        let locals = try await gitService.listBranches(repoPath: repoPath)
-        let defaultBranch = await gitService.defaultBranch(repoPath: repoPath)
-        return VCSBranchesDTO(current: current, locals: locals, defaultBranch: defaultBranch)
+        let state = VCSStateStore.shared.state(for: repoPath)
+        if !state.hasCompletedInitialLoad {
+            await state.refreshAndWait()
+        }
+        return VCSBranchesDTO(
+            current: state.branchName ?? "",
+            locals: state.branches,
+            defaultBranch: state.defaultBranch
+        )
     }
 
     func vcsSwitchBranch(projectID: UUID, branch: String) async throws {
@@ -574,6 +551,29 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             name: .vcsRepoDidChange,
             object: nil,
             userInfo: ["repoPath": repoPath]
+        )
+    }
+
+    private static func toStatusDTO(_ state: VCSTabState) -> VCSStatusDTO? {
+        guard let branch = state.branchName else { return nil }
+        let pullRequest: VCSPullRequestDTO? = state.pullRequestInfo.map { info in
+            VCSPullRequestDTO(
+                url: info.url,
+                number: info.number,
+                state: info.state.rawValue,
+                isDraft: info.isDraft,
+                baseBranch: info.baseBranch
+            )
+        }
+        return VCSStatusDTO(
+            branch: branch,
+            aheadCount: state.aheadBehind.ahead,
+            behindCount: state.aheadBehind.behind,
+            hasUpstream: state.aheadBehind.hasUpstream,
+            stagedFiles: state.files.filter(\.isStaged).map { Self.toFileDTO($0, staged: true) },
+            changedFiles: state.files.filter(\.isUnstaged).map { Self.toFileDTO($0, staged: false) },
+            defaultBranch: state.defaultBranch,
+            pullRequest: pullRequest
         )
     }
 

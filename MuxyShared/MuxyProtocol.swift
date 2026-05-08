@@ -79,6 +79,7 @@ public enum MuxyMethod: String, Codable, Sendable {
     case takeOverPane
     case releasePane
     case getVCSStatus
+    case vcsRefresh
     case vcsCommit
     case vcsPush
     case vcsPull
@@ -119,6 +120,7 @@ public enum MuxyParams: Codable, Sendable {
     case takeOverPane(TakeOverPaneParams)
     case releasePane(ReleasePaneParams)
     case getVCSStatus(GetVCSStatusParams)
+    case vcsRefresh(VCSRefreshParams)
     case vcsCommit(VCSCommitParams)
     case vcsPush(VCSPushParams)
     case vcsPull(VCSPullParams)
@@ -165,6 +167,7 @@ public enum MuxyParams: Codable, Sendable {
         case "releasePane": self = try .releasePane(container.decode(ReleasePaneParams.self, forKey: .value))
         case "getTerminalContent": self = try .getTerminalContent(container.decode(GetTerminalContentParams.self, forKey: .value))
         case "getVCSStatus": self = try .getVCSStatus(container.decode(GetVCSStatusParams.self, forKey: .value))
+        case "vcsRefresh": self = try .vcsRefresh(container.decode(VCSRefreshParams.self, forKey: .value))
         case "vcsCommit": self = try .vcsCommit(container.decode(VCSCommitParams.self, forKey: .value))
         case "vcsPush": self = try .vcsPush(container.decode(VCSPushParams.self, forKey: .value))
         case "vcsPull": self = try .vcsPull(container.decode(VCSPullParams.self, forKey: .value))
@@ -227,6 +230,8 @@ public enum MuxyParams: Codable, Sendable {
         case let .getTerminalContent(v): try container.encode("getTerminalContent", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .getVCSStatus(v): try container.encode("getVCSStatus", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsRefresh(v): try container.encode("vcsRefresh", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .vcsCommit(v): try container.encode("vcsCommit", forKey: .type)
             try container.encode(v, forKey: .value)

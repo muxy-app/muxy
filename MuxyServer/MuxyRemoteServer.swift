@@ -51,6 +51,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func clientDisconnected(clientID: UUID)
     func getPaneOwner(paneID: UUID) -> PaneOwnerDTO?
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO?
+    func vcsRefresh(projectID: UUID) async -> VCSStatusDTO?
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws
     func vcsPush(projectID: UUID) async throws
     func vcsPull(projectID: UUID) async throws
@@ -442,6 +443,15 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                 return MuxyResponse(id: request.id, error: .invalidParams)
             }
             guard let status = await delegate.getVCSStatus(projectID: params.projectID) else {
+                return MuxyResponse(id: request.id, error: .notFound)
+            }
+            return MuxyResponse(id: request.id, result: .vcsStatus(status))
+
+        case .vcsRefresh:
+            guard case let .vcsRefresh(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            guard let status = await delegate.vcsRefresh(projectID: params.projectID) else {
                 return MuxyResponse(id: request.id, error: .notFound)
             }
             return MuxyResponse(id: request.id, result: .vcsStatus(status))

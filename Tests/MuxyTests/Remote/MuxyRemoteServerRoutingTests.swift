@@ -31,6 +31,8 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     var stubTab: TabDTO?
     var stubTerminalContent: TerminalCellsDTO?
     var vcsCommitError: Error?
+    var vcsRefreshCalls: [UUID] = []
+    var stubVCSStatus: VCSStatusDTO?
     var stubVCSBranches = VCSBranchesDTO(current: "main", locals: ["main"], defaultBranch: "main")
     var stubCreatePRResult = VCSCreatePRResultDTO(url: "https://example.com", number: 42)
     var stubAddedWorktree = WorktreeDTO(id: UUID(), name: "wt", path: "/tmp/wt", isPrimary: false, createdAt: Date())
@@ -90,6 +92,11 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
 
     func getPaneOwner(paneID _: UUID) -> PaneOwnerDTO? { nil }
     func getVCSStatus(projectID _: UUID) async -> VCSStatusDTO? { nil }
+
+    func vcsRefresh(projectID: UUID) async -> VCSStatusDTO? {
+        vcsRefreshCalls.append(projectID)
+        return stubVCSStatus
+    }
 
     func vcsCommit(projectID _: UUID, message _: String, stageAll _: Bool) async throws {
         if let vcsCommitError { throw vcsCommitError }
@@ -408,6 +415,35 @@ struct MuxyRemoteServerRoutingTests {
         #expect(delegate.vcsPullCalls == [projectID])
         #expect(pushResponse.error == nil)
         #expect(pullResponse.error == nil)
+    }
+
+    @Test("vcsRefresh routes and returns delegate status")
+    func vcsRefreshRoutes() async {
+        let (server, delegate) = makeServer()
+        let projectID = UUID()
+        delegate.stubVCSStatus = VCSStatusDTO(
+            branch: "feature/x",
+            aheadCount: 1,
+            behindCount: 0,
+            hasUpstream: true,
+            stagedFiles: [],
+            changedFiles: [],
+            defaultBranch: "main",
+            pullRequest: nil
+        )
+
+        let response = await server.processRequest(
+            MuxyRequest(id: "8r", method: .vcsRefresh, params: .vcsRefresh(VCSRefreshParams(projectID: projectID))),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(delegate.vcsRefreshCalls == [projectID])
+        guard case let .vcsStatus(status) = response.result else {
+            Issue.record("expected vcsStatus result")
+            return
+        }
+        #expect(status.branch == "feature/x")
+        #expect(status.aheadCount == 1)
     }
 
     @Test("vcs branch routes return and forward data")
