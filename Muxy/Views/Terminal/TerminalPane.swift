@@ -11,12 +11,26 @@ struct TerminalPane: View {
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
 
     @Bindable private var ownership = PaneOwnershipStore.shared
+    @Environment(\.overlayActive) private var overlayActive
 
     private var remoteOwnerName: String? {
         if case let .remote(_, name) = ownership.owner(for: state.id) { name } else { nil }
     }
 
     var body: some View {
+        terminalLayer
+            .onAppear { state.branchObserver.start() }
+            .onDisappear { state.branchObserver.stop() }
+            .onReceive(NotificationCenter.default.publisher(for: .refocusActiveTerminal)) { _ in
+                guard focused, visible else { return }
+                let view = TerminalViewRegistry.shared.existingView(for: state.id)
+                DispatchQueue.main.async {
+                    view?.window?.makeFirstResponder(view)
+                }
+            }
+    }
+
+    private var terminalLayer: some View {
         ZStack(alignment: .topTrailing) {
             TerminalBridge(
                 state: state,
@@ -60,13 +74,6 @@ struct TerminalPane: View {
                     }
                 )
                 .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .refocusActiveTerminal)) { _ in
-            guard focused, visible else { return }
-            let view = TerminalViewRegistry.shared.existingView(for: state.id)
-            DispatchQueue.main.async {
-                view?.window?.makeFirstResponder(view)
             }
         }
     }

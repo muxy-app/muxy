@@ -362,6 +362,12 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .toggleSidebar, store: keyBindings)
 
+            Button("Toggle Rich Input") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.toggleRichInput)
+            }
+            .shortcut(for: .toggleRichInput, store: keyBindings)
+
             Divider()
 
             Button("Open Switcher...") {

@@ -20,6 +20,12 @@ struct MainWindow: View {
         static let maxWidth: CGFloat = 600
     }
 
+    private enum RichInputPanelLayout {
+        static let minWidth: CGFloat = 280
+        static let defaultWidth: CGFloat = 380
+        static let maxWidth: CGFloat = 800
+    }
+
     private enum CloseConfirmationKind {
         case lastTab
         case unsavedEditor
@@ -53,6 +59,10 @@ struct MainWindow: View {
     @State private var fileTreePanelVisible = false
     @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
     @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
+    @State private var richInputPanelVisible = false
+    @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = .init(RichInputPanelLayout.defaultWidth)
+    @AppStorage(RichInputPreferences.fontSizeKey) private var richInputFontSize: Double = RichInputPreferences.defaultFontSize
+    @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
     @State private var showQuickOpen = false
     @State private var showFindInFiles = false
     @State private var showWorktreeSwitcher = false
@@ -98,74 +108,44 @@ struct MainWindow: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .background(MuxyTheme.bg)
 
-                ZStack {
-                    MuxyTheme.bg
-                    if let project = activeProject,
-                       appState.workspaceRoot(for: project.id) == nil,
-                       let worktree = resolvedActiveWorktree(for: project)
-                    {
-                        EmptyProjectPlaceholder(project: project) {
-                            appState.selectWorktree(projectID: project.id, worktree: worktree)
-                        }
-                    } else if projectsWithWorkspaces.isEmpty {
-                        WelcomeView()
-                    } else if let project = activeProjectWithWorkspace,
-                              let activeKey = appState.activeWorktreeKey(for: project.id)
-                    {
-                        ForEach(mountedWorktreeKeys(for: project), id: \.self) { key in
-                            TerminalArea(
-                                project: project,
-                                worktreeKey: key,
-                                isActiveProject: key == activeKey
-                            )
-                            .opacity(key == activeKey ? 1 : 0)
-                            .allowsHitTesting(key == activeKey)
-                            .zIndex(key == activeKey ? 1 : 0)
-                        }
-                    }
-                }
-
-                if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
+                VStack(spacing: 0) {
                     HStack(spacing: 0) {
-                        sidePanelResizeHandle { delta in
-                            vcsPanelWidth = max(
-                                AttachedVCSLayout.minWidth,
-                                min(AttachedVCSLayout.maxWidth, vcsPanelWidth - delta)
-                            )
-                        }
-                        VCSTabView(state: state, focused: false, onFocus: {})
-                            .frame(width: vcsPanelWidth)
-                    }
-                } else if fileTreePanelVisible, let treeState = activeFileTreeState {
-                    HStack(spacing: 0) {
-                        sidePanelResizeHandle { delta in
-                            let next = fileTreePanelWidth - Double(delta)
-                            fileTreePanelWidth = max(
-                                Double(FileTreeLayout.minWidth),
-                                min(Double(FileTreeLayout.maxWidth), next)
-                            )
-                        }
-                        FileTreeView(
-                            state: treeState,
-                            onOpenFile: { filePath in
-                                guard let projectID = appState.activeProjectID else { return }
-                                appState.openFile(filePath, projectID: projectID, preserveFocus: true)
-                            },
-                            onOpenTerminal: { directory in
-                                guard let projectID = appState.activeProjectID else { return }
-                                appState.dispatch(.createTabInDirectory(
-                                    projectID: projectID,
-                                    areaID: nil,
-                                    directory: directory
-                                ))
-                            },
-                            onFileMoved: { oldPath, newPath in
-                                appState.handleFileMoved(from: oldPath, to: newPath)
+                        ZStack {
+                            MuxyTheme.bg
+                            if let project = activeProject,
+                               appState.workspaceRoot(for: project.id) == nil,
+                               let worktree = resolvedActiveWorktree(for: project)
+                            {
+                                EmptyProjectPlaceholder(project: project) {
+                                    appState.selectWorktree(projectID: project.id, worktree: worktree)
+                                }
+                            } else if projectsWithWorkspaces.isEmpty {
+                                WelcomeView()
+                            } else if let project = activeProjectWithWorkspace,
+                                      let activeKey = appState.activeWorktreeKey(for: project.id)
+                            {
+                                ForEach(mountedWorktreeKeys(for: project), id: \.self) { key in
+                                    TerminalArea(
+                                        project: project,
+                                        worktreeKey: key,
+                                        isActiveProject: key == activeKey
+                                    )
+                                    .opacity(key == activeKey ? 1 : 0)
+                                    .allowsHitTesting(key == activeKey)
+                                    .zIndex(key == activeKey ? 1 : 0)
+                                }
                             }
-                        )
-                        .id(treeState.rootPath)
-                        .frame(width: CGFloat(fileTreePanelWidth))
+                        }
+
+                        rightSidePanel
                     }
+
+                    ProjectStatusBar(
+                        activePane: activeTerminalPane,
+                        isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
+                        richInputVisible: richInputPanelVisible,
+                        richInputFontSize: $richInputFontSize
+                    )
                 }
             }
         }
@@ -276,12 +256,11 @@ struct MainWindow: View {
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
         }
         .background(WindowOpenReceiver(openWindow: openWindow))
-        .onReceive(NotificationCenter.default.publisher(for: .toggleAttachedVCS)) { _ in
-            toggleAttachedVCSPanel()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleFileTree)) { _ in
-            toggleFileTreePanel()
-        }
+        .modifier(SidePanelNotificationListeners(
+            onToggleAttachedVCS: { toggleAttachedVCSPanel() },
+            onToggleFileTree: { toggleFileTreePanel() },
+            onToggleRichInput: { toggleRichInputPanel() }
+        ))
         .onChange(of: vcsPruneSignature) {
             pruneFileTreeStates()
         }
@@ -705,6 +684,72 @@ struct MainWindow: View {
         projectStore.projects.filter { appState.workspaceRoot(for: $0.id) != nil }
     }
 
+    @ViewBuilder
+    private var rightSidePanel: some View {
+        if richInputPanelVisible,
+           let richInputState = activeRichInputState,
+           let worktreeKey = activeWorktreeKey
+        {
+            HStack(spacing: 0) {
+                sidePanelResizeHandle { delta in
+                    let next = richInputPanelWidth - Double(delta)
+                    richInputPanelWidth = max(
+                        Double(RichInputPanelLayout.minWidth),
+                        min(Double(RichInputPanelLayout.maxWidth), next)
+                    )
+                }
+                RichInputSidePanel(
+                    state: richInputState,
+                    worktreeKey: worktreeKey,
+                    onDismiss: { closeRichInputPanel() },
+                    onSubmit: { appendReturn in submitRichInput(richInputState, appendReturn: appendReturn) }
+                )
+                .frame(width: CGFloat(richInputPanelWidth))
+            }
+        } else if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
+            HStack(spacing: 0) {
+                sidePanelResizeHandle { delta in
+                    vcsPanelWidth = max(
+                        AttachedVCSLayout.minWidth,
+                        min(AttachedVCSLayout.maxWidth, vcsPanelWidth - delta)
+                    )
+                }
+                VCSTabView(state: state, focused: false, onFocus: {})
+                    .frame(width: vcsPanelWidth)
+            }
+        } else if fileTreePanelVisible, let treeState = activeFileTreeState {
+            HStack(spacing: 0) {
+                sidePanelResizeHandle { delta in
+                    let next = fileTreePanelWidth - Double(delta)
+                    fileTreePanelWidth = max(
+                        Double(FileTreeLayout.minWidth),
+                        min(Double(FileTreeLayout.maxWidth), next)
+                    )
+                }
+                FileTreeView(
+                    state: treeState,
+                    onOpenFile: { filePath in
+                        guard let projectID = appState.activeProjectID else { return }
+                        appState.openFile(filePath, projectID: projectID, preserveFocus: true)
+                    },
+                    onOpenTerminal: { directory in
+                        guard let projectID = appState.activeProjectID else { return }
+                        appState.dispatch(.createTabInDirectory(
+                            projectID: projectID,
+                            areaID: nil,
+                            directory: directory
+                        ))
+                    },
+                    onFileMoved: { oldPath, newPath in
+                        appState.handleFileMoved(from: oldPath, to: newPath)
+                    }
+                )
+                .id(treeState.rootPath)
+                .frame(width: CGFloat(fileTreePanelWidth))
+            }
+        }
+    }
+
     private func sidePanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
         Rectangle().fill(MuxyTheme.border).frame(width: 1)
             .accessibilityHidden(true)
@@ -766,11 +811,12 @@ struct MainWindow: View {
     private func pruneFileTreeStates() {
         let validKeys = validVCSKeys()
         fileTreeStates = fileTreeStates.filter { validKeys.contains($0.key) }
+        richInputStates = richInputStates.filter { validKeys.contains($0.key) }
     }
 
     private func toggleAttachedVCSPanel() {
         guard VCSDisplayMode.current == .attached,
-              let project = activeProject
+              activeProject != nil
         else {
             vcsPanelVisible = false
             return
@@ -780,6 +826,7 @@ struct MainWindow: View {
         vcsPanelVisible = isShowing
         if isShowing {
             fileTreePanelVisible = false
+            closeRichInputPanel()
         }
     }
 
@@ -797,9 +844,63 @@ struct MainWindow: View {
         fileTreePanelVisible = isShowing
         if isShowing {
             vcsPanelVisible = false
+            closeRichInputPanel()
         } else {
             NotificationCenter.default.post(name: .refocusActiveTerminal, object: nil)
         }
+    }
+
+    private var activeRichInputState: RichInputState? {
+        guard let project = activeProject,
+              let key = appState.activeWorktreeKey(for: project.id)
+        else { return nil }
+        if let existing = richInputStates[key] { return existing }
+        let new = RichInputState()
+        if let draft = RichInputDraftStore.shared.draft(for: key) {
+            new.apply(draft)
+        }
+        richInputStates[key] = new
+        return new
+    }
+
+    private var activeRichInputPaneID: UUID? {
+        activeTerminalPane?.id
+    }
+
+    private var activeTerminalPane: TerminalPaneState? {
+        guard let project = activeProject else { return nil }
+        return appState.activeTab(for: project.id)?.content.pane
+    }
+
+    private func toggleRichInputPanel() {
+        guard let richInputState = activeRichInputState else { return }
+        guard richInputPanelVisible else {
+            richInputPanelVisible = true
+            richInputState.focusVersion += 1
+            vcsPanelVisible = false
+            fileTreePanelVisible = false
+            return
+        }
+        if NSApp.keyWindow?.firstResponder is MarkdownEditingTextView {
+            closeRichInputPanel()
+        } else {
+            richInputState.focusVersion += 1
+        }
+    }
+
+    private func closeRichInputPanel() {
+        richInputPanelVisible = false
+        guard let paneID = activeRichInputPaneID,
+              let view = TerminalViewRegistry.shared.existingView(for: paneID)
+        else { return }
+        DispatchQueue.main.async {
+            view.window?.makeFirstResponder(view)
+        }
+    }
+
+    private func submitRichInput(_ richInput: RichInputState, appendReturn: Bool) {
+        guard let paneID = activeRichInputPaneID else { return }
+        RichInputSubmitter.submit(richInput: richInput, paneID: paneID, appendReturn: appendReturn)
     }
 
     private var activeVCSState: VCSTabState? {
@@ -1162,6 +1263,25 @@ private struct WindowOpenReceiver: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .openHelpWindow)) { _ in
                 openWindow(id: "help")
+            }
+    }
+}
+
+private struct SidePanelNotificationListeners: ViewModifier {
+    let onToggleAttachedVCS: () -> Void
+    let onToggleFileTree: () -> Void
+    let onToggleRichInput: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .toggleAttachedVCS)) { _ in
+                onToggleAttachedVCS()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleFileTree)) { _ in
+                onToggleFileTree()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleRichInput)) { _ in
+                onToggleRichInput()
             }
     }
 }

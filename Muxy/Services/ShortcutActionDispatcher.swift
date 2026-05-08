@@ -128,6 +128,12 @@ struct ShortcutActionDispatcher {
         case .findInTerminal:
             notificationCenter.post(name: .findInTerminal, object: nil)
             return true
+        case .toggleRichInput:
+            notificationCenter.post(name: .toggleRichInput, object: nil)
+            return true
+        case .submitRichInput,
+             .submitRichInputWithoutReturn:
+            return false
         case .openVCSTab:
             guard let activeProject else { return false }
             openVCS(activeProject)

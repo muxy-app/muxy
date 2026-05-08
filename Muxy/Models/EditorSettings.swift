@@ -41,6 +41,7 @@ final class EditorSettings {
     var highlightCurrentLine: Bool = true { didSet { save() } }
     var lineWrapping: Bool = false { didSet { save() } }
     var showLineNumbers: Bool = true { didSet { save() } }
+    var richInputImageStrategy: RichInputImageStrategy = .clipboard { didSet { save() } }
 
     @ObservationIgnored private let store: CodableFileStore<Snapshot>
     @ObservationIgnored private var isBatchLoading = false
@@ -114,6 +115,7 @@ final class EditorSettings {
         highlightCurrentLine = true
         lineWrapping = false
         showLineNumbers = true
+        richInputImageStrategy = .clipboard
         isBatchLoading = false
         save()
     }
@@ -135,6 +137,7 @@ final class EditorSettings {
             highlightCurrentLine = snapshot.highlightCurrentLine ?? true
             lineWrapping = snapshot.lineWrapping ?? false
             showLineNumbers = snapshot.showLineNumbers ?? true
+            richInputImageStrategy = snapshot.richInputImageStrategy ?? .clipboard
             isBatchLoading = false
         } catch {
             logger.error("Failed to load editor settings: \(error.localizedDescription)")
@@ -154,7 +157,8 @@ final class EditorSettings {
                 markdownPreviewFontScale: markdownPreviewFontScale,
                 highlightCurrentLine: highlightCurrentLine,
                 lineWrapping: lineWrapping,
-                showLineNumbers: showLineNumbers
+                showLineNumbers: showLineNumbers,
+                richInputImageStrategy: richInputImageStrategy
             ))
         } catch {
             logger.error("Failed to save editor settings: \(error.localizedDescription)")
@@ -173,4 +177,5 @@ private struct Snapshot: Codable {
     let highlightCurrentLine: Bool?
     let lineWrapping: Bool?
     let showLineNumbers: Bool?
+    let richInputImageStrategy: RichInputImageStrategy?
 }

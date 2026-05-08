@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyKit
+import UniformTypeIdentifiers
 
 final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
@@ -415,6 +416,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if overlayActive { return }
         guard let surface else { super.keyDown(with: event)
             return
         }
@@ -502,6 +504,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func keyUp(with event: NSEvent) {
+        if overlayActive { return }
         guard let surface else { return }
         var keyEvent = buildKeyEvent(from: event, action: GHOSTTY_ACTION_RELEASE)
         keyEvent.text = nil
@@ -509,6 +512,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func flagsChanged(with event: NSEvent) {
+        if overlayActive { return }
         guard let surface else { return }
         if hasMarkedText() { return }
         let action: ghostty_input_action_e = isFlagPress(event) ? GHOSTTY_ACTION_PRESS : GHOSTTY_ACTION_RELEASE
@@ -520,6 +524,7 @@ final class GhosttyTerminalNSView: NSView {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if isAppShortcut(event) { return false }
+        if overlayActive { return false }
         guard window?.firstResponder === self || window?.firstResponder === inputContext else { return false }
         guard event.type == .keyDown, let surface else { return false }
 
@@ -547,6 +552,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if overlayActive { return }
         guard let surface else { return }
         let alreadyFirstResponder = window?.firstResponder === self
         window?.makeFirstResponder(self)
@@ -576,6 +582,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if overlayActive { return }
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
@@ -720,6 +727,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        if overlayActive { return }
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
@@ -730,6 +738,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     override func rightMouseUp(with event: NSEvent) {
+        if overlayActive { return }
         guard let surface else { return }
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
@@ -1000,6 +1009,55 @@ final class GhosttyTerminalNSView: NSView {
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
             ghostty_surface_send_input_raw(surface, base, UInt(bytes.count))
         }
+    }
+
+    func submitRichInput(text: String) {
+        guard !text.isEmpty else { return }
+        let sanitized = text.replacingOccurrences(of: "\u{1B}[201~", with: "")
+        sendRemoteBytes(
+            TerminalControlBytes.bracketedPasteStart
+                + Data(sanitized.utf8)
+                + TerminalControlBytes.bracketedPasteEnd
+        )
+    }
+
+    func clearTerminalInput() {
+        sendRemoteBytes(TerminalControlBytes.killLineToCursor)
+    }
+
+    func pasteImageURL(_ url: URL) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        let utType = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType)
+        let pasteboardType: NSPasteboard.PasteboardType
+        var data: Data?
+        if let utType {
+            if utType.conforms(to: .png) {
+                pasteboardType = .png
+                data = try? Data(contentsOf: url)
+            } else if utType.conforms(to: .jpeg) {
+                pasteboardType = NSPasteboard.PasteboardType("public.jpeg")
+                data = try? Data(contentsOf: url)
+            } else if utType.conforms(to: .tiff) {
+                pasteboardType = .tiff
+                data = try? Data(contentsOf: url)
+            } else if let image = NSImage(contentsOf: url) {
+                pasteboardType = .tiff
+                data = image.tiffRepresentation
+            } else {
+                pasteboardType = .tiff
+                data = nil
+            }
+        } else if let image = NSImage(contentsOf: url) {
+            pasteboardType = .tiff
+            data = image.tiffRepresentation
+        } else {
+            pasteboardType = .tiff
+            data = nil
+        }
+        guard let data else { return }
+        pasteboard.setData(data, forType: pasteboardType)
+        sendRemoteBytes(TerminalControlBytes.pasteShortcut)
     }
 
     func sendKeyPress(codepoint: UInt32, keycode: UInt32 = 0, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
