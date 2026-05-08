@@ -158,50 +158,18 @@ final class GhosttyService {
     }
 
     private func resolveGhosttyResources() {
-        guard let resourcesPath = Self.composeGhosttyResources() else {
-            logger.error("ghostty resources could not be composed")
+        guard let bundled = Self.bundledResourcesPath() else {
+            logger.error("bundled ghostty resources not found in app bundle")
             unsetenv("GHOSTTY_RESOURCES_DIR")
             return
         }
-        setenv("GHOSTTY_RESOURCES_DIR", resourcesPath, 1)
+        setenv("GHOSTTY_RESOURCES_DIR", bundled, 1)
     }
 
-    static func bundledThemesPath() -> String? {
-        guard let url = Bundle.appResources.resourceURL?.appendingPathComponent("themes"),
-              FileManager.default.fileExists(atPath: url.path)
+    static func bundledResourcesPath() -> String? {
+        guard let url = Bundle.appResources.resourceURL?.appendingPathComponent("ghostty"),
+              FileManager.default.fileExists(atPath: url.appendingPathComponent("shell-integration").path)
         else { return nil }
         return url.path
-    }
-
-    private static func composeGhosttyResources() -> String? {
-        guard let bundledRoot = Bundle.appResources.resourceURL,
-              FileManager.default.fileExists(atPath: bundledRoot.appendingPathComponent("ghostty/shell-integration").path),
-              FileManager.default.fileExists(atPath: bundledRoot.appendingPathComponent("terminfo").path),
-              let bundledThemes = bundledThemesPath()
-        else { return nil }
-
-        let parent = MuxyFileStorage.appSupportDirectory().appendingPathComponent("ghostty-runtime")
-        let resources = parent.appendingPathComponent("resources")
-        let fileManager = FileManager.default
-        try? fileManager.removeItem(at: parent)
-        do {
-            try fileManager.createDirectory(at: resources, withIntermediateDirectories: true)
-            try fileManager.createSymbolicLink(
-                at: resources.appendingPathComponent("shell-integration"),
-                withDestinationURL: bundledRoot.appendingPathComponent("ghostty/shell-integration")
-            )
-            try fileManager.createSymbolicLink(
-                at: resources.appendingPathComponent("themes"),
-                withDestinationURL: URL(fileURLWithPath: bundledThemes)
-            )
-            try fileManager.createSymbolicLink(
-                at: parent.appendingPathComponent("terminfo"),
-                withDestinationURL: bundledRoot.appendingPathComponent("terminfo")
-            )
-        } catch {
-            logger.error("failed to compose ghostty resources: \(error)")
-            return nil
-        }
-        return resources.path
     }
 }
