@@ -220,6 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
+        SentryService.shared.start()
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         setAppIcon()
@@ -229,7 +230,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ThemeService.shared.migrateToPairedThemeIfNeeded()
         observeSystemAppearanceChanges()
         UpdateService.shared.start()
-        SentryService.shared.start()
         ModifierKeyMonitor.shared.start()
         NotificationSocketServer.shared.start()
         AIProviderRegistry.shared.installAll()
