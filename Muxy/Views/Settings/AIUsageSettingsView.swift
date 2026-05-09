@@ -36,13 +36,13 @@ struct AIUsageSettingsView: View {
 
             Divider().padding(.horizontal, 12)
 
-            if usageEnabled {
-                enabledSettings
-            } else {
-                disabledSettings
+            ScrollView {
+                if usageEnabled {
+                    enabledSettings
+                } else {
+                    disabledSettings
+                }
             }
-
-            Spacer(minLength: 0)
         }
         .onChange(of: usageEnabled) { _, enabled in
             AIUsageSettingsStore.setUsageEnabled(enabled)
@@ -161,15 +161,13 @@ struct AIUsageSettingsView: View {
 
             Divider().padding(.horizontal, 12)
 
-            ScrollView {
-                LazyVGrid(columns: gridColumns, spacing: 8) {
-                    ForEach(providers) { provider in
-                        providerCell(provider)
-                    }
+            LazyVGrid(columns: gridColumns, spacing: 8) {
+                ForEach(providers) { provider in
+                    providerCell(provider)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
     }
 

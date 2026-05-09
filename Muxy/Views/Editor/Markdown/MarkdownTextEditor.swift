@@ -13,6 +13,9 @@ struct MarkdownTextEditor: NSViewRepresentable {
 
     struct Callbacks {
         var onSubmit: (() -> Void)?
+        var onSubmitWithoutReturn: (() -> Void)?
+        var onIncreaseFontSize: (() -> Void)?
+        var onDecreaseFontSize: (() -> Void)?
         var onPasteImageData: ((Data) -> Void)?
         var onPasteFileURL: ((URL) -> Void)?
         var onContentHeightChange: ((CGFloat) -> Void)?
@@ -28,6 +31,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
+        print("[RichInput] MarkdownTextEditor.makeNSView coord=\(ObjectIdentifier(context.coordinator).hashValue)")
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = !configuration.lineWrapping
@@ -81,6 +85,15 @@ struct MarkdownTextEditor: NSViewRepresentable {
         textView.onSubmit = { [weak coordinator = context.coordinator] in
             coordinator?.parent.callbacks.onSubmit?()
         }
+        textView.onSubmitWithoutReturn = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.callbacks.onSubmitWithoutReturn?()
+        }
+        textView.onIncreaseFontSize = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.callbacks.onIncreaseFontSize?()
+        }
+        textView.onDecreaseFontSize = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.callbacks.onDecreaseFontSize?()
+        }
         textView.onPasteImageData = { [weak coordinator = context.coordinator] data in
             coordinator?.parent.callbacks.onPasteImageData?(data)
         }
@@ -104,7 +117,10 @@ struct MarkdownTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? MarkdownEditingTextView else { return }
+        guard let textView = scrollView.documentView as? MarkdownEditingTextView else {
+            print("[RichInput] MarkdownTextEditor.updateNSView no documentView")
+            return
+        }
         context.coordinator.parent = self
         if textView.string != text {
             textView.string = text
@@ -137,10 +153,20 @@ struct MarkdownTextEditor: NSViewRepresentable {
 
         init(parent: MarkdownTextEditor) {
             self.parent = parent
+            super.init()
+            print("[RichInput] Coordinator.init id=\(ObjectIdentifier(self).hashValue)")
+        }
+
+        deinit {
+            print("[RichInput] Coordinator.deinit")
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
+            let id = ObjectIdentifier(self).hashValue
+            let len = textView.string.count
+            let tvAlive = self.textView != nil
+            print("[RichInput] Coordinator.textDidChange id=\(id) len=\(len) tvAlive=\(tvAlive)")
             parent.text = textView.string
             applyHighlighting()
             reportContentHeight()
@@ -163,7 +189,10 @@ struct MarkdownTextEditor: NSViewRepresentable {
         func applyHighlighting() {
             guard let textView,
                   let layoutManager = textView.layoutManager
-            else { return }
+            else {
+                print("[RichInput] applyHighlighting skipped (no textView/layoutManager)")
+                return
+            }
             let fullText = textView.string as NSString
             let fullRange = NSRange(location: 0, length: fullText.length)
             layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
@@ -223,15 +252,54 @@ struct MarkdownTextEditor: NSViewRepresentable {
 
 final class MarkdownEditingTextView: NSTextView {
     var onSubmit: (() -> Void)?
+    var onSubmitWithoutReturn: (() -> Void)?
+    var onIncreaseFontSize: (() -> Void)?
+    var onDecreaseFontSize: (() -> Void)?
     var onPasteImageData: ((Data) -> Void)?
     var onPasteFileURL: ((URL) -> Void)?
     var pendingFocusGrab: Bool = false
 
+    deinit {
+        print("[RichInput] MarkdownEditingTextView.deinit")
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        let id = ObjectIdentifier(self).hashValue
+        let hasWindow = window != nil
+        print("[RichInput] MarkdownEditingTextView.viewDidMoveToWindow id=\(id) hasWindow=\(hasWindow)")
         guard pendingFocusGrab else { return }
         pendingFocusGrab = false
         grabFirstResponder()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let store = KeyBindingStore.shared
+        if store.combo(for: .submitRichInput).matches(event: event) {
+            print("[RichInput] keyDown submit (deferred)")
+            DispatchQueue.main.async { [weak self] in self?.onSubmit?() }
+            return
+        }
+        if store.combo(for: .submitRichInputWithoutReturn).matches(event: event) {
+            print("[RichInput] keyDown submitNoReturn (deferred)")
+            DispatchQueue.main.async { [weak self] in self?.onSubmitWithoutReturn?() }
+            return
+        }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.subtracting(.shift) == .command {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "=",
+                 "+":
+                DispatchQueue.main.async { [weak self] in self?.onIncreaseFontSize?() }
+                return
+            case "-":
+                DispatchQueue.main.async { [weak self] in self?.onDecreaseFontSize?() }
+                return
+            default:
+                break
+            }
+        }
+        super.keyDown(with: event)
     }
 
     func grabFirstResponder() {

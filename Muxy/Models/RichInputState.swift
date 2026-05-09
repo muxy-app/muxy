@@ -9,6 +9,14 @@ final class RichInputState {
     var imagePlaceholderCounter: Int = 0
     var focusVersion: Int = 0
 
+    init() {
+        print("[RichInput] RichInputState.init id=\(ObjectIdentifier(self).hashValue)")
+    }
+
+    deinit {
+        print("[RichInput] RichInputState.deinit")
+    }
+
     func nextImagePlaceholder(for url: URL) -> String {
         imagePlaceholderCounter += 1
         imageAttachments.append(url)
