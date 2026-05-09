@@ -1298,16 +1298,30 @@ private struct SentryConsentPrompter: ViewModifier {
         }
     }
 
+    @MainActor
     private func presentWhenWindowReady() async {
         if let window = readyWindow() {
             present(on: window)
             return
         }
-        let notifications = NotificationCenter.default.notifications(named: NSWindow.didBecomeKeyNotification)
-        for await _ in notifications {
-            if let window = readyWindow() {
-                present(on: window)
-                return
+        await waitForKeyWindow()
+        if let window = readyWindow() {
+            present(on: window)
+        }
+    }
+
+    @MainActor
+    private func waitForKeyWindow() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var token: NSObjectProtocol?
+            token = NotificationCenter.default.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                guard NSApp.keyWindow ?? NSApp.mainWindow != nil else { return }
+                if let token { NotificationCenter.default.removeObserver(token) }
+                continuation.resume()
             }
         }
     }
