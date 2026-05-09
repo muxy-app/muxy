@@ -15,7 +15,7 @@ enum AIAssistantSettings {
     }
 
     static func model(for provider: AIAssistantProvider) -> String? {
-        let key = modelKey(for: provider) ?? ""
+        guard let key = modelKey(for: provider) else { return nil }
         let value = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (value?.isEmpty ?? true) ? nil : value
     }
