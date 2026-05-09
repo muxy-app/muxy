@@ -126,6 +126,8 @@ jobs:
           echo "public_key=$SPARKLE_PUBLIC_KEY" >> "$GITHUB_OUTPUT"
 
       - name: Build and package
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: |
           chmod +x scripts/build-release.sh scripts/create-icns.sh
           scripts/build-release.sh \

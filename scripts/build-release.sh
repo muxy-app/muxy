@@ -10,6 +10,7 @@ VERSION=""
 SIGN_IDENTITY=""
 SPARKLE_PUBLIC_KEY=""
 SPARKLE_FEED_URL=""
+SENTRY_DSN="${SENTRY_DSN:-}"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -31,6 +32,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --sparkle-feed-url)
             SPARKLE_FEED_URL="$2"
+            shift 2
+            ;;
+        --sentry-dsn)
+            SENTRY_DSN="$2"
             shift 2
             ;;
         *)
@@ -85,6 +90,11 @@ fi
 cp "$PROJECT_ROOT/Muxy/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$APP_BUNDLE/Contents/Info.plist"
+
+if [[ -n "$SENTRY_DSN" ]]; then
+    echo "==> Injecting Sentry DSN into Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :SentryDSN $SENTRY_DSN" "$APP_BUNDLE/Contents/Info.plist"
+fi
 
 echo "==> Generating app icon"
 "$SCRIPT_DIR/create-icns.sh" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"

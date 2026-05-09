@@ -229,6 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ThemeService.shared.migrateToPairedThemeIfNeeded()
         observeSystemAppearanceChanges()
         UpdateService.shared.start()
+        SentryService.shared.start()
         ModifierKeyMonitor.shared.start()
         NotificationSocketServer.shared.start()
         AIProviderRegistry.shared.installAll()

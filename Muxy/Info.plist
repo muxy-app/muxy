@@ -30,6 +30,8 @@
 	<string>public.app-category.developer-tools</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<key>SentryDSN</key>
+	<string>__MUXY_SENTRY_DSN__</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>A process running in Muxy's terminal would like to use AppleScript.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
