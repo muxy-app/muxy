@@ -92,89 +92,9 @@ struct MainWindow: View {
     @MainActor private var trafficLightWidth: CGFloat { UIMetrics.scaled(75) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                if !isFullScreen {
-                    Color.clear
-                        .frame(width: topBarLeadingWidth)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .overlay(alignment: .trailing) {
-                            HStack(spacing: 0) {
-                                navigationArrows
-                                Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                            }
-                        }
-                }
-                topBarContent
-            }
-            .frame(height: UIMetrics.scaled(32))
-            .background(WindowDragRepresentable())
-            .background(MuxyTheme.bg)
-
-            Rectangle().fill(MuxyTheme.border).frame(height: 1)
-                .background(MuxyTheme.bg)
-
-            HStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    Sidebar()
-                    if !SidebarLayout.isHidden(expanded: sidebarExpanded, collapsedStyle: sidebarCollapsedStyle) {
-                        Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                .background(MuxyTheme.bg)
-
-                VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        ZStack {
-                            MuxyTheme.bg
-                            if let project = activeProject,
-                               appState.workspaceRoot(for: project.id) == nil,
-                               let worktree = resolvedActiveWorktree(for: project)
-                            {
-                                EmptyProjectPlaceholder(project: project) {
-                                    appState.selectWorktree(projectID: project.id, worktree: worktree)
-                                }
-                            } else if projectsWithWorkspaces.isEmpty {
-                                WelcomeView()
-                            } else if let project = activeProjectWithWorkspace,
-                                      let activeKey = appState.activeWorktreeKey(for: project.id)
-                            {
-                                ForEach(mountedWorktreeKeys(for: project), id: \.self) { key in
-                                    TerminalArea(
-                                        project: project,
-                                        worktreeKey: key,
-                                        isActiveProject: key == activeKey
-                                    )
-                                    .opacity(key == activeKey ? 1 : 0)
-                                    .allowsHitTesting(key == activeKey)
-                                    .zIndex(key == activeKey ? 1 : 0)
-                                }
-                            }
-                        }
-
-                        rightSidePanel
-                    }
-                    .overlay(alignment: .trailing) {
-                        floatingRichInputOverlay
-                    }
-                    .overlay(alignment: .bottom) {
-                        floatingBottomRichInputOverlay
-                    }
-                    .animation(.easeInOut(duration: 0.2), value: richInputPanelVisible)
-
-                    bottomDockedRichInputPanel
-
-                    ProjectStatusBar(
-                        activePane: activeTerminalPane,
-                        activeWorktree: activeProject.flatMap { resolvedActiveWorktree(for: $0) },
-                        isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
-                        richInputVisible: richInputPanelVisible,
-                        richInputFontSize: $richInputFontSize
-                    )
-                }
-            }
+        HStack(spacing: 0) {
+            leftNavigationColumn
+            mainWorkspaceColumn
         }
         .environment(\.overlayActive, showQuickOpen || showFindInFiles || showWorktreeSwitcher || overlayAnimatingOut)
         .overlay(alignment: .bottom) {
@@ -331,6 +251,120 @@ struct MainWindow: View {
             presentLayoutApplyConfirmation(pending: pending)
         }
         .modifier(SentryConsentPrompter())
+    }
+
+    @ViewBuilder
+    private var leftNavigationColumn: some View {
+        if leftNavigationWidth > 0 {
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    if !isFullScreen {
+                        Color.clear
+                            .frame(height: UIMetrics.scaled(32))
+                            .overlay(alignment: .trailing) {
+                                navigationArrows
+                            }
+                            .background(WindowDragRepresentable())
+
+                        Rectangle().fill(MuxyTheme.border).frame(height: 1)
+                            .accessibilityHidden(true)
+                    }
+
+                    Sidebar()
+                }
+                .frame(width: leftNavigationWidth, alignment: .leading)
+                .background(MuxyTheme.bg)
+
+                Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                    .accessibilityHidden(true)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private var mainWorkspaceColumn: some View {
+        VStack(spacing: 0) {
+            mainTitleBarContent
+                .frame(height: UIMetrics.scaled(32))
+                .background(WindowDragRepresentable())
+                .background(MuxyTheme.bg)
+
+            Rectangle().fill(MuxyTheme.border).frame(height: 1)
+                .background(MuxyTheme.bg)
+
+            workspaceContent
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var mainTitleBarContent: some View {
+        HStack(spacing: 0) {
+            if needsMainTitleBarNavigationInset {
+                Color.clear
+                    .frame(width: titleBarNavigationWidth)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .overlay(alignment: .trailing) {
+                        HStack(spacing: 0) {
+                            navigationArrows
+                            Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                        }
+                    }
+            }
+
+            topBarContent
+        }
+    }
+
+    private var workspaceContent: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ZStack {
+                    MuxyTheme.bg
+                    if let project = activeProject,
+                       appState.workspaceRoot(for: project.id) == nil,
+                       let worktree = resolvedActiveWorktree(for: project)
+                    {
+                        EmptyProjectPlaceholder(project: project) {
+                            appState.selectWorktree(projectID: project.id, worktree: worktree)
+                        }
+                    } else if projectsWithWorkspaces.isEmpty {
+                        WelcomeView()
+                    } else if let project = activeProjectWithWorkspace,
+                              let activeKey = appState.activeWorktreeKey(for: project.id)
+                    {
+                        ForEach(mountedWorktreeKeys(for: project), id: \.self) { key in
+                            TerminalArea(
+                                project: project,
+                                worktreeKey: key,
+                                isActiveProject: key == activeKey
+                            )
+                            .opacity(key == activeKey ? 1 : 0)
+                            .allowsHitTesting(key == activeKey)
+                            .zIndex(key == activeKey ? 1 : 0)
+                        }
+                    }
+                }
+
+                rightSidePanel
+            }
+            .overlay(alignment: .trailing) {
+                floatingRichInputOverlay
+            }
+            .overlay(alignment: .bottom) {
+                floatingBottomRichInputOverlay
+            }
+            .animation(.easeInOut(duration: 0.2), value: richInputPanelVisible)
+
+            bottomDockedRichInputPanel
+
+            ProjectStatusBar(
+                activePane: activeTerminalPane,
+                activeWorktree: activeProject.flatMap { resolvedActiveWorktree(for: $0) },
+                isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
+                richInputVisible: richInputPanelVisible,
+                richInputFontSize: $richInputFontSize
+            )
+        }
     }
 
     private var navigationArrows: some View {
@@ -631,14 +665,26 @@ struct MainWindow: View {
         SidebarExpandedStyle(rawValue: sidebarExpandedStyleRaw) ?? .defaultValue
     }
 
-    private var topBarLeadingWidth: CGFloat {
-        let sidebarWidth = SidebarLayout.resolvedWidth(
+    private var sidebarResolvedWidth: CGFloat {
+        SidebarLayout.resolvedWidth(
             expanded: sidebarExpanded,
             collapsedStyle: sidebarCollapsedStyle,
             expandedStyle: sidebarExpandedStyle
-        ) + 1
-        let navigationMinimum = trafficLightWidth + navigationArrowsWidth
-        return max(navigationMinimum, sidebarWidth)
+        )
+    }
+
+    private var leftNavigationWidth: CGFloat {
+        guard sidebarResolvedWidth > 0 else { return 0 }
+        guard !isFullScreen else { return sidebarResolvedWidth }
+        return max(sidebarResolvedWidth, titleBarNavigationWidth)
+    }
+
+    private var needsMainTitleBarNavigationInset: Bool {
+        !isFullScreen && leftNavigationWidth == 0
+    }
+
+    private var titleBarNavigationWidth: CGFloat {
+        trafficLightWidth + navigationArrowsWidth
     }
 
     private var navigationArrowsWidth: CGFloat { UIMetrics.scaled(52) }
