@@ -317,6 +317,7 @@ struct MainWindow: View {
             guard isPresented, let pending = appState.pendingLayoutApply else { return }
             presentLayoutApplyConfirmation(pending: pending)
         }
+        .modifier(SentryConsentPrompter())
     }
 
     private var navigationArrows: some View {
@@ -1457,6 +1458,87 @@ private struct SidePanelNotificationListeners: ViewModifier {
                 onToggleRichInput()
             }
     }
+}
+
+private struct SentryConsentPrompter: ViewModifier {
+    @State private var hasPrompted = false
+
+    func body(content: Content) -> some View {
+        content.task {
+            guard !hasPrompted, SentryService.shared.needsPrompt else { return }
+            hasPrompted = true
+            await presentWhenWindowReady()
+        }
+    }
+
+    @MainActor
+    private func presentWhenWindowReady() async {
+        if let window = readyWindow() {
+            present(on: window)
+            return
+        }
+        await waitForKeyWindow()
+        if let window = readyWindow() {
+            present(on: window)
+        }
+    }
+
+    @MainActor
+    private func waitForKeyWindow() async {
+        let center = NotificationCenter.default
+        let holder = ObserverHolder()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            holder.token = center.addObserver(
+                forName: NSWindow.didBecomeKeyNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated {
+                    guard NSApp.keyWindow ?? NSApp.mainWindow != nil else { return }
+                    if let token = holder.token {
+                        center.removeObserver(token)
+                        holder.token = nil
+                        continuation.resume()
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func readyWindow() -> NSWindow? {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return nil }
+        return window.attachedSheet == nil ? window : nil
+    }
+
+    @MainActor
+    private func present(on window: NSWindow) {
+        let alert = NSAlert()
+        alert.messageText = "Help improve Muxy?"
+        alert.informativeText = """
+        Muxy can send anonymous crash and error reports so we can fix bugs faster. \
+        No personal data, no project contents, no file paths are sent — only crash \
+        details and an anonymous installation ID.
+
+        You can change this anytime in Settings → General → Diagnostics.
+        """
+        alert.alertStyle = .informational
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Allow")
+        alert.addButton(withTitle: "Don't Allow")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+
+        alert.beginSheetModal(for: window) { response in
+            let consent: SentryConsent = response == .alertFirstButtonReturn ? .allowed : .denied
+            SentryService.shared.setConsent(consent)
+        }
+    }
+}
+
+@MainActor
+private final class ObserverHolder {
+    var token: NSObjectProtocol?
 }
 
 private struct OverlayExitTracker: ViewModifier {

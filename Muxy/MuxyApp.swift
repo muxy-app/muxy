@@ -221,6 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
+        SentryService.shared.start()
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         setAppIcon()
