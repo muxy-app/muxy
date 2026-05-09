@@ -25,6 +25,11 @@ struct RichInputSidePanel: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(MuxyTheme.bg)
+            .overlay(alignment: .topLeading) {
+                if state.text.isEmpty {
+                    placeholder
+                }
+            }
             if !state.fileAttachments.isEmpty {
                 Rectangle().fill(MuxyTheme.border).frame(height: 1)
                 AttachmentChipsView(
@@ -80,6 +85,15 @@ struct RichInputSidePanel: View {
     private var clampedFontSize: CGFloat {
         let bounded = min(max(fontSize, RichInputPreferences.minFontSize), RichInputPreferences.maxFontSize)
         return CGFloat(bounded)
+    }
+
+    private var placeholder: some View {
+        Text("Type something...")
+            .font(.system(size: clampedFontSize))
+            .foregroundStyle(MuxyTheme.fgMuted.opacity(0.6))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .allowsHitTesting(false)
     }
 
     private var header: some View {
