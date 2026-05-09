@@ -1299,13 +1299,23 @@ private struct SentryConsentPrompter: ViewModifier {
     }
 
     private func presentWhenWindowReady() async {
-        for _ in 0 ..< 20 {
-            if let window = NSApp.keyWindow ?? NSApp.mainWindow, window.attachedSheet == nil {
+        if let window = readyWindow() {
+            present(on: window)
+            return
+        }
+        let notifications = NotificationCenter.default.notifications(named: NSWindow.didBecomeKeyNotification)
+        for await _ in notifications {
+            if let window = readyWindow() {
                 present(on: window)
                 return
             }
-            try? await Task.sleep(nanoseconds: 250_000_000)
         }
+    }
+
+    @MainActor
+    private func readyWindow() -> NSWindow? {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return nil }
+        return window.attachedSheet == nil ? window : nil
     }
 
     @MainActor

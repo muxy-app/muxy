@@ -14,7 +14,7 @@ final class SentryService {
     let hasDSN: Bool
     private let dsn: String?
     private let defaults: UserDefaults
-    private let starter: (String) -> Void
+    private let starter: (SentryStartContext) -> Void
     private let stopper: () -> Void
 
     var needsPrompt: Bool {
@@ -33,7 +33,7 @@ final class SentryService {
     init(
         dsn: String?,
         defaults: UserDefaults,
-        starter: @escaping (String) -> Void,
+        starter: @escaping (SentryStartContext) -> Void,
         stopper: @escaping () -> Void
     ) {
         self.dsn = dsn
@@ -46,7 +46,12 @@ final class SentryService {
 
     func start() {
         guard hasDSN, let dsn, consent == .allowed, !started else { return }
-        starter(dsn)
+        let context = SentryStartContext(
+            dsn: dsn,
+            releaseName: Self.releaseName,
+            environment: Self.environment(from: defaults)
+        )
+        starter(context)
         started = true
         logger.info("Sentry started")
     }
@@ -92,17 +97,17 @@ final class SentryService {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     }
 
-    private static var environment: String {
-        let channel = UserDefaults.standard.string(forKey: UpdateChannel.storageKey)
+    private static func environment(from defaults: UserDefaults) -> String {
+        let channel = defaults.string(forKey: UpdateChannel.storageKey)
             .flatMap { UpdateChannel(rawValue: $0) } ?? .stable
         return channel == .beta ? "beta" : "production"
     }
 
-    private static let defaultStarter: (String) -> Void = { dsn in
+    private static let defaultStarter: (SentryStartContext) -> Void = { context in
         SentrySDK.start { options in
-            options.dsn = dsn
-            options.releaseName = releaseName
-            options.environment = environment
+            options.dsn = context.dsn
+            options.releaseName = context.releaseName
+            options.environment = context.environment
             options.sendDefaultPii = false
             options.enableAutoBreadcrumbTracking = false
             options.enableNetworkBreadcrumbs = false
@@ -119,4 +124,10 @@ final class SentryService {
     private static let defaultStopper: () -> Void = {
         SentrySDK.close()
     }
+}
+
+struct SentryStartContext {
+    let dsn: String
+    let releaseName: String?
+    let environment: String
 }

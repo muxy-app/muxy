@@ -46,7 +46,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$ARCH" || -z "$VERSION" ]]; then
-    echo "Usage: $0 --arch <arm64|x86_64> --version <X.Y.Z[-beta.N]> [--sign-identity <identity>] [--sparkle-public-key <key>] [--sparkle-feed-url <url>]"
+    echo "Usage: $0 --arch <arm64|x86_64> --version <X.Y.Z[-beta.N]> [--sign-identity <identity>] [--sparkle-public-key <key>] [--sparkle-feed-url <url>] [--sentry-dsn <dsn>]"
     exit 1
 fi
 

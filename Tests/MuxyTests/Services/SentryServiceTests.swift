@@ -97,9 +97,24 @@ struct SentryServiceTests {
         #expect(!service.needsPrompt)
     }
 
+    @Test("environment is derived from the injected defaults' update channel")
+    func startContextEnvironmentReflectsChannel() {
+        var capturedEnvironments: [String] = []
+        let (service, defaults, suiteName) = makeService(
+            dsn: "https://public@example.ingest.sentry.io/1",
+            starter: { context in capturedEnvironments.append(context.environment) }
+        )
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(UpdateChannel.beta.rawValue, forKey: UpdateChannel.storageKey)
+        service.setConsent(.allowed)
+
+        #expect(capturedEnvironments == ["beta"])
+    }
+
     private func makeService(
         dsn: String?,
-        starter: @escaping (String) -> Void = { _ in },
+        starter: @escaping (SentryStartContext) -> Void = { _ in },
         stopper: @escaping () -> Void = {}
     ) -> (SentryService, UserDefaults, String) {
         let suiteName = "muxy.tests.sentry.\(UUID().uuidString)"
