@@ -31,7 +31,6 @@ struct MarkdownTextEditor: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        print("[RichInput] MarkdownTextEditor.makeNSView coord=\(ObjectIdentifier(context.coordinator).hashValue)")
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = !configuration.lineWrapping
@@ -117,10 +116,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? MarkdownEditingTextView else {
-            print("[RichInput] MarkdownTextEditor.updateNSView no documentView")
-            return
-        }
+        guard let textView = scrollView.documentView as? MarkdownEditingTextView else { return }
         context.coordinator.parent = self
         if textView.string != text {
             textView.string = text
@@ -153,20 +149,10 @@ struct MarkdownTextEditor: NSViewRepresentable {
 
         init(parent: MarkdownTextEditor) {
             self.parent = parent
-            super.init()
-            print("[RichInput] Coordinator.init id=\(ObjectIdentifier(self).hashValue)")
-        }
-
-        deinit {
-            print("[RichInput] Coordinator.deinit")
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            let id = ObjectIdentifier(self).hashValue
-            let len = textView.string.count
-            let tvAlive = self.textView != nil
-            print("[RichInput] Coordinator.textDidChange id=\(id) len=\(len) tvAlive=\(tvAlive)")
             parent.text = textView.string
             applyHighlighting()
             reportContentHeight()
@@ -189,10 +175,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
         func applyHighlighting() {
             guard let textView,
                   let layoutManager = textView.layoutManager
-            else {
-                print("[RichInput] applyHighlighting skipped (no textView/layoutManager)")
-                return
-            }
+            else { return }
             let fullText = textView.string as NSString
             let fullRange = NSRange(location: 0, length: fullText.length)
             layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
@@ -259,15 +242,8 @@ final class MarkdownEditingTextView: NSTextView {
     var onPasteFileURL: ((URL) -> Void)?
     var pendingFocusGrab: Bool = false
 
-    deinit {
-        print("[RichInput] MarkdownEditingTextView.deinit")
-    }
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        let id = ObjectIdentifier(self).hashValue
-        let hasWindow = window != nil
-        print("[RichInput] MarkdownEditingTextView.viewDidMoveToWindow id=\(id) hasWindow=\(hasWindow)")
         guard pendingFocusGrab else { return }
         pendingFocusGrab = false
         grabFirstResponder()
@@ -276,13 +252,13 @@ final class MarkdownEditingTextView: NSTextView {
     override func keyDown(with event: NSEvent) {
         let store = KeyBindingStore.shared
         if store.combo(for: .submitRichInput).matches(event: event) {
-            print("[RichInput] keyDown submit (deferred)")
-            DispatchQueue.main.async { [weak self] in self?.onSubmit?() }
+            let callback = onSubmit
+            Task { @MainActor in callback?() }
             return
         }
         if store.combo(for: .submitRichInputWithoutReturn).matches(event: event) {
-            print("[RichInput] keyDown submitNoReturn (deferred)")
-            DispatchQueue.main.async { [weak self] in self?.onSubmitWithoutReturn?() }
+            let callback = onSubmitWithoutReturn
+            Task { @MainActor in callback?() }
             return
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -290,10 +266,12 @@ final class MarkdownEditingTextView: NSTextView {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "=",
                  "+":
-                DispatchQueue.main.async { [weak self] in self?.onIncreaseFontSize?() }
+                let callback = onIncreaseFontSize
+                Task { @MainActor in callback?() }
                 return
             case "-":
-                DispatchQueue.main.async { [weak self] in self?.onDecreaseFontSize?() }
+                let callback = onDecreaseFontSize
+                Task { @MainActor in callback?() }
                 return
             default:
                 break

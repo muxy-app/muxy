@@ -13,15 +13,11 @@ enum RichInputSubmitter {
     }
 
     static func submit(richInput: RichInputState, paneID: UUID, appendReturn: Bool) {
-        print("[RichInput] submit start paneID=\(paneID) appendReturn=\(appendReturn)")
         let body = richInput.text
         let fileAttachments = richInput.fileAttachments
         let imageAttachments = richInput.imageAttachments
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedBody.isEmpty || !fileAttachments.isEmpty || !imageAttachments.isEmpty else {
-            print("[RichInput] submit empty, skip")
-            return
-        }
+        guard !trimmedBody.isEmpty || !fileAttachments.isEmpty || !imageAttachments.isEmpty else { return }
 
         let pathParts = fileAttachments.map { ShellEscaper.escape($0.path) }
         var combined = ""
@@ -38,15 +34,9 @@ enum RichInputSubmitter {
             images: imageAttachments,
             strategy: EditorSettings.shared.richInputImageStrategy
         )
-        print("[RichInput] submit segments=\(segments.count) bodyLen=\(body.count)")
 
         Task { @MainActor in
-            print("[RichInput] submit Task begin")
-            guard let view = TerminalViewRegistry.shared.existingView(for: paneID) else {
-                print("[RichInput] submit no view for paneID")
-                return
-            }
-            print("[RichInput] submit clearTerminalInput")
+            guard let view = TerminalViewRegistry.shared.existingView(for: paneID) else { return }
             view.clearTerminalInput()
             try? await Task.sleep(for: initialDelay)
 
@@ -55,33 +45,27 @@ enum RichInputSubmitter {
                 switch segment {
                 case let .text(chunk):
                     if !chunk.isEmpty {
-                        print("[RichInput] submit send text chunk len=\(chunk.count)")
                         view.submitRichInput(text: chunk)
                     }
                 case let .image(url):
                     if savedClipboard == nil {
                         savedClipboard = SystemPasteboardSnapshot.capture()
                     }
-                    print("[RichInput] submit pasteImageURL")
                     view.pasteImageURL(url)
                     try? await Task.sleep(for: imagePasteDelay)
                 }
             }
 
             if appendReturn {
-                print("[RichInput] submit sendReturn")
                 view.sendRemoteBytes(TerminalControlBytes.carriageReturn)
             }
 
             if let savedClipboard {
                 try? await Task.sleep(for: imagePasteDelay)
-                print("[RichInput] submit restore clipboard")
                 SystemPasteboardSnapshot.restore(items: savedClipboard)
             }
 
-            print("[RichInput] submit makeFirstResponder")
             view.window?.makeFirstResponder(view)
-            print("[RichInput] submit done")
         }
     }
 

@@ -937,10 +937,8 @@ struct MainWindow: View {
 
     private func pruneFileTreeStates() {
         let validKeys = validVCSKeys()
-        let beforeRichInput = richInputStates.count
         fileTreeStates = fileTreeStates.filter { validKeys.contains($0.key) }
         richInputStates = richInputStates.filter { validKeys.contains($0.key) }
-        print("[RichInput] pruneFileTreeStates richInputStates \(beforeRichInput) -> \(richInputStates.count)")
     }
 
     private func toggleAttachedVCSPanel() {
@@ -985,11 +983,8 @@ struct MainWindow: View {
         guard let project = activeProject,
               let key = appState.activeWorktreeKey(for: project.id)
         else { return nil }
-        if let existing = richInputStates[key] {
-            return existing
-        }
+        if let existing = richInputStates[key] { return existing }
         let new = RichInputState()
-        print("[RichInput] activeRichInputState created new id=\(ObjectIdentifier(new).hashValue)")
         if let draft = RichInputDraftStore.shared.draft(for: key) {
             new.apply(draft)
         }
@@ -1007,14 +1002,7 @@ struct MainWindow: View {
     }
 
     private func toggleRichInputPanel() {
-        guard let richInputState = activeRichInputState else {
-            print("[RichInput] toggleRichInputPanel no activeRichInputState")
-            return
-        }
-        print(
-            "[RichInput] toggleRichInputPanel visible=\(richInputPanelVisible) " +
-                "floating=\(richInputFloating) pos=\(richInputPosition.rawValue)"
-        )
+        guard let richInputState = activeRichInputState else { return }
         guard richInputPanelVisible else {
             if richInputReplacesRightSidePanel {
                 if vcsPanelVisible {
@@ -1045,7 +1033,6 @@ struct MainWindow: View {
     }
 
     private func closeRichInputPanel() {
-        print("[RichInput] closeRichInputPanel")
         richInputPanelVisible = false
         let panelToRestore = panelToRestoreAfterRichInput
         panelToRestoreAfterRichInput = nil

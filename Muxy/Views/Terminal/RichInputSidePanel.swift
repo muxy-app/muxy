@@ -13,10 +13,7 @@ struct RichInputSidePanel: View {
         .defaultPosition
 
     var body: some View {
-        _ = print(
-            "[RichInput] RichInputSidePanel.body state=\(ObjectIdentifier(state).hashValue) pos=\(position.rawValue)"
-        )
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             header
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
             MarkdownTextEditor(
