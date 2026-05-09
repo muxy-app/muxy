@@ -26,6 +26,10 @@ enum AIAssistantProvider: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    var supportsBuiltInRunner: Bool {
+        self != .custom
+    }
+
     func builtInArguments(model: String?) -> [String] {
         switch self {
         case .claude:

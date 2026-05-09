@@ -8,20 +8,17 @@ struct AIPullRequestDraft {
 enum AIAssistantServiceError: Error, LocalizedError {
     case noChanges
     case diffFailed(String)
-    case diffTruncated(lineLimit: Int)
 
     var errorDescription: String? {
         switch self {
         case .noChanges: "No changes to summarize."
         case let .diffFailed(message): "Failed to read git diff: \(message)"
-        case let .diffTruncated(lineLimit):
-            "Diff exceeds \(lineLimit) lines and cannot be summarized. Reduce the change set or split it across commits."
         }
     }
 }
 
 enum AIAssistantService {
-    static let diffLineLimit = 4000
+    private static let diffLineLimit = 4000
 
     static func generateCommitMessage(
         repoPath: String,
@@ -40,7 +37,7 @@ enum AIAssistantService {
             baseBranch: nil
         )
         let raw = try await runProvider(prompt: prompt, repoPath: repoPath)
-        return cleanProviderOutput(raw)
+        return cleanCommitOutput(raw)
     }
 
     static func generatePullRequest(
@@ -93,7 +90,14 @@ enum AIAssistantService {
     ) async throws -> String {
         if let baseBranch, let branch, !baseBranch.isEmpty, !branch.isEmpty, baseBranch != branch {
             let range = "\(baseBranch)...\(branch)"
-            return try await runDiff(repoPath: repoPath, arguments: ["diff", "--no-color", range])
+            let committed = try await runDiff(
+                repoPath: repoPath,
+                arguments: ["diff", "--no-color", range]
+            )
+            let working = try await runDiff(repoPath: repoPath, arguments: ["diff", "--no-color", "HEAD"])
+            return [committed, working]
+                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                .joined(separator: "\n")
         }
         return try await runDiff(repoPath: repoPath, arguments: ["diff", "--no-color", "HEAD"])
     }
@@ -108,9 +112,6 @@ enum AIAssistantService {
             if result.status != 0, !result.stderr.isEmpty {
                 throw AIAssistantServiceError.diffFailed(result.stderr)
             }
-            if result.truncated {
-                throw AIAssistantServiceError.diffTruncated(lineLimit: diffLineLimit)
-            }
             return result.stdout
         } catch let error as AIAssistantServiceError {
             throw error
@@ -119,13 +120,15 @@ enum AIAssistantService {
         }
     }
 
-    static func cleanProviderOutput(_ raw: String) -> String {
-        stripCodeFence(raw.trimmingCharacters(in: .whitespacesAndNewlines))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func cleanCommitOutput(_ raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("```") {
+            text = stripCodeFence(text)
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func stripCodeFence(_ text: String) -> String {
-        guard text.hasPrefix("```") else { return text }
         var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         if let first = lines.first, first.hasPrefix("```") {
             lines.removeFirst()
@@ -136,8 +139,8 @@ enum AIAssistantService {
         return lines.joined(separator: "\n")
     }
 
-    static func parsePullRequest(_ raw: String) throws -> AIPullRequestDraft {
-        let cleaned = cleanProviderOutput(raw)
+    private static func parsePullRequest(_ raw: String) throws -> AIPullRequestDraft {
+        let cleaned = stripCodeFence(raw.trimmingCharacters(in: .whitespacesAndNewlines))
         guard let json = extractJSONObject(from: cleaned) else {
             throw AIAssistantRunnerError.parsingFailed("Provider response did not contain valid JSON.")
         }
@@ -162,7 +165,7 @@ enum AIAssistantService {
         }
     }
 
-    static func extractJSONObject(from text: String) -> String? {
+    private static func extractJSONObject(from text: String) -> String? {
         guard let start = text.firstIndex(of: "{") else { return nil }
         var depth = 0
         var inString = false

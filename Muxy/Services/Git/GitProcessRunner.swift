@@ -50,7 +50,6 @@ enum GitProcessRunner {
         let workingDirectory: String?
         let lineLimit: Int?
         let signpostName: StaticString
-        let stdin: Data?
     }
 
     static func runGit(
@@ -64,8 +63,7 @@ enum GitProcessRunner {
                 arguments: ["git", "-C", repoPath] + arguments,
                 workingDirectory: nil,
                 lineLimit: lineLimit,
-                signpostName: "git",
-                stdin: nil
+                signpostName: "git"
             )
         )
     }
@@ -73,8 +71,7 @@ enum GitProcessRunner {
     static func runCommand(
         executable: String,
         arguments: [String],
-        workingDirectory: String,
-        stdin: Data? = nil
+        workingDirectory: String
     ) async throws -> GitProcessResult {
         try await runProcess(
             ProcessSpec(
@@ -82,8 +79,7 @@ enum GitProcessRunner {
                 arguments: arguments,
                 workingDirectory: workingDirectory,
                 lineLimit: nil,
-                signpostName: "command",
-                stdin: stdin
+                signpostName: "command"
             )
         )
     }
@@ -155,27 +151,13 @@ enum GitProcessRunner {
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
-        let stdinPipe: Pipe? = spec.stdin == nil ? nil : Pipe()
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
-        if let stdinPipe {
-            process.standardInput = stdinPipe
-        }
 
         do {
             try process.run()
         } catch {
             throw GitProcessError.launchFailed(error.localizedDescription)
-        }
-
-        if let stdinPipe, let stdinData = spec.stdin {
-            let writer = stdinPipe.fileHandleForWriting
-            stderrDrainQueue.async {
-                if !stdinData.isEmpty {
-                    try? writer.write(contentsOf: stdinData)
-                }
-                try? writer.close()
-            }
         }
 
         guard handle.attach(process) else {

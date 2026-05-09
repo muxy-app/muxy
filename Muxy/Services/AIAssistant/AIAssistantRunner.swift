@@ -23,10 +23,8 @@ enum AIAssistantRunnerError: Error, LocalizedError {
 }
 
 struct AIAssistantInvocation {
-    let executable: String
-    let arguments: [String]
+    let commandLine: String
     let displayName: String
-    let usesLoginShell: Bool
 }
 
 enum AIAssistantRunner {
@@ -42,23 +40,11 @@ enum AIAssistantRunner {
                     "Custom command is empty. Configure it in Settings → AI."
                 )
             }
-            return AIAssistantInvocation(
-                executable: userShell(),
-                arguments: ["-l", "-c", trimmed],
-                displayName: firstToken(trimmed),
-                usesLoginShell: true
-            )
+            return AIAssistantInvocation(commandLine: trimmed, displayName: firstToken(trimmed))
         }
-        let name = provider.defaultExecutable
-        guard let resolved = GitProcessRunner.resolveExecutable(name) else {
-            throw AIAssistantRunnerError.commandNotFound(name)
-        }
-        return AIAssistantInvocation(
-            executable: resolved,
-            arguments: provider.builtInArguments(model: model),
-            displayName: name,
-            usesLoginShell: false
-        )
+        let parts = [provider.defaultExecutable] + provider.builtInArguments(model: model)
+        let commandLine = parts.map(shellQuote).joined(separator: " ")
+        return AIAssistantInvocation(commandLine: commandLine, displayName: provider.defaultExecutable)
     }
 
     static func run(
@@ -66,35 +52,68 @@ enum AIAssistantRunner {
         prompt: String,
         workingDirectory: String
     ) async throws -> String {
-        let stdin = prompt.data(using: .utf8) ?? Data()
-        let result: GitProcessResult
-        do {
-            result = try await GitProcessRunner.runCommand(
-                executable: invocation.executable,
-                arguments: invocation.arguments,
-                workingDirectory: workingDirectory,
-                stdin: stdin
-            )
-        } catch let GitProcessError.launchFailed(message) {
-            throw AIAssistantRunnerError.launchFailed(message)
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let result = try executeSync(
+                        invocation: invocation,
+                        prompt: prompt,
+                        workingDirectory: workingDirectory
+                    )
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
-        if result.status == 127 || isCommandNotFound(stderr: result.stderr) {
+    }
+
+    private static func executeSync(
+        invocation: AIAssistantInvocation,
+        prompt: String,
+        workingDirectory: String
+    ) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: userShell())
+        process.arguments = ["-l", "-c", invocation.commandLine]
+        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
+
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+        } catch {
+            throw AIAssistantRunnerError.launchFailed(error.localizedDescription)
+        }
+
+        if let data = prompt.data(using: .utf8) {
+            stdinPipe.fileHandleForWriting.write(data)
+        }
+        try? stdinPipe.fileHandleForWriting.close()
+
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+
+        if process.terminationStatus == 127 || stderr.contains("command not found") {
             throw AIAssistantRunnerError.commandNotFound(invocation.displayName)
         }
-        if result.status != 0 {
-            throw AIAssistantRunnerError.nonZeroExit(status: result.status, stderr: result.stderr)
+        if process.terminationStatus != 0 {
+            throw AIAssistantRunnerError.nonZeroExit(status: process.terminationStatus, stderr: stderr)
         }
-        let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             throw AIAssistantRunnerError.emptyOutput
         }
         return trimmed
-    }
-
-    static func isCommandNotFound(stderr: String) -> Bool {
-        let lowered = stderr.lowercased()
-        return lowered.contains("command not found")
-            || lowered.contains("no such file or directory")
     }
 
     private static func userShell() -> String {
@@ -107,7 +126,17 @@ enum AIAssistantRunner {
         return String(cString: shellPtr)
     }
 
-    static func firstToken(_ command: String) -> String {
+    private static func shellQuote(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "@%+=:,./-_"))
+        if value.unicodeScalars.allSatisfy({ safe.contains($0) }) {
+            return value
+        }
+        let escaped = value.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escaped)'"
+    }
+
+    private static func firstToken(_ command: String) -> String {
         command.split(whereSeparator: { $0.isWhitespace }).first.map(String.init) ?? command
     }
 }

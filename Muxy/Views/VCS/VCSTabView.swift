@@ -429,7 +429,13 @@ struct VCSTabView: View {
                 showInlinePRForm = false
             },
             onGenerateAI: { base in
-                try await state.generatePullRequestDraft(baseBranch: base)
+                let path = state.projectPath
+                let branch = state.branchName
+                return try await AIAssistantService.generatePullRequest(
+                    repoPath: path,
+                    branch: branch,
+                    baseBranch: base
+                )
             }
         )
     }

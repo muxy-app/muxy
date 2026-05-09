@@ -686,14 +686,6 @@ final class VCSTabState {
         }
     }
 
-    func generatePullRequestDraft(baseBranch: String) async throws -> AIPullRequestDraft {
-        try await AIAssistantService.generatePullRequest(
-            repoPath: projectPath,
-            branch: branchName,
-            baseBranch: baseBranch
-        )
-    }
-
     func push() {
         isPushing = true
         Task { [weak self] in

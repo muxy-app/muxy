@@ -43,26 +43,34 @@ struct AIAssistantSettingsView: View {
 
             SettingsSection(
                 "Commit Prompt",
-                footer: "Guides the model when generating commit messages. Leave blank to use the built-in default."
+                footer: "Guides the model when generating commit messages. Output is plain text."
             ) {
                 promptEditor(
                     text: $commitPrompt,
-                    placeholder: AIAssistantPrompts.defaultCommitUserPrompt,
-                    onReset: { commitPrompt = "" }
+                    onReset: { commitPrompt = AIAssistantPrompts.defaultCommitUserPrompt }
                 )
             }
 
             SettingsSection(
                 "Pull Request Prompt",
                 footer: "Guides the model when generating PR title and description. "
-                    + "Leave blank to use the built-in default."
+                    + "Output is parsed as JSON; do not change the response format."
             ) {
                 promptEditor(
                     text: $prPrompt,
-                    placeholder: AIAssistantPrompts.defaultPullRequestUserPrompt,
-                    onReset: { prPrompt = "" }
+                    onReset: { prPrompt = AIAssistantPrompts.defaultPullRequestUserPrompt }
                 )
             }
+        }
+        .onAppear(perform: seedDefaultPromptsIfNeeded)
+    }
+
+    private func seedDefaultPromptsIfNeeded() {
+        if commitPrompt.isEmpty {
+            commitPrompt = AIAssistantPrompts.defaultCommitUserPrompt
+        }
+        if prPrompt.isEmpty {
+            prPrompt = AIAssistantPrompts.defaultPullRequestUserPrompt
         }
     }
 
@@ -97,35 +105,23 @@ struct AIAssistantSettingsView: View {
 
     private func promptEditor(
         text: Binding<String>,
-        placeholder: String,
         onReset: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            ZStack(alignment: .topLeading) {
-                if text.wrappedValue.isEmpty {
-                    Text(placeholder)
-                        .font(.system(size: SettingsMetrics.footnoteFontSize))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 8)
-                        .allowsHitTesting(false)
-                }
-                TextEditor(text: text)
-                    .font(.system(size: SettingsMetrics.footnoteFontSize))
-                    .scrollContentBackground(.hidden)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-            }
-            .frame(height: 120)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-            .padding(.horizontal, SettingsMetrics.horizontalPadding)
+            TextEditor(text: text)
+                .font(.system(size: SettingsMetrics.footnoteFontSize))
+                .scrollContentBackground(.hidden)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .frame(height: 120)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                .padding(.horizontal, SettingsMetrics.horizontalPadding)
 
             HStack {
                 Spacer()
                 Button("Reset to default", action: onReset)
                     .buttonStyle(.borderless)
                     .controlSize(.small)
-                    .disabled(text.wrappedValue.isEmpty)
             }
             .padding(.horizontal, SettingsMetrics.horizontalPadding)
             .padding(.bottom, 4)
