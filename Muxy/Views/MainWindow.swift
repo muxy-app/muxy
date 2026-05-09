@@ -437,6 +437,12 @@ struct MainWindow: View {
                 }
                 .overlay(alignment: .trailing) {
                     HStack(spacing: 0) {
+                        if let version = UpdateService.shared.availableUpdateVersion {
+                            UpdateBadge(version: version) {
+                                UpdateService.shared.checkForUpdates()
+                            }
+                            .padding(.trailing, UIMetrics.spacing2)
+                        }
                         if AppEnvironment.isDevelopment {
                             devModeBadge
                                 .padding(.trailing, UIMetrics.spacing3)
@@ -448,12 +454,6 @@ struct MainWindow: View {
                                 cursorProvider: activeEditorCursor
                             )
                             LayoutPickerMenu(projectID: project.id)
-                        }
-                        if let version = UpdateService.shared.availableUpdateVersion {
-                            UpdateBadge(version: version) {
-                                UpdateService.shared.checkForUpdates()
-                            }
-                            .padding(.trailing, UIMetrics.spacing2)
                         }
                         if let project = activeProject, activeProjectHasSplitWorkspace {
                             IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {

@@ -69,6 +69,12 @@ struct PaneTabStrip: View {
             .frame(height: UIMetrics.scaled(32))
 
             HStack(spacing: 0) {
+                if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {
+                    UpdateBadge(version: version) {
+                        UpdateService.shared.checkForUpdates()
+                    }
+                    .padding(.trailing, UIMetrics.spacing2)
+                }
                 if showDevelopmentBadge {
                     developmentBadge
                         .padding(.trailing, UIMetrics.spacing3)
@@ -80,12 +86,6 @@ struct PaneTabStrip: View {
                         cursorProvider: openInIDECursorProvider
                     )
                     LayoutPickerMenu(projectID: projectID)
-                }
-                if isWindowTitleBar, let version = UpdateService.shared.availableUpdateVersion {
-                    UpdateBadge(version: version) {
-                        UpdateService.shared.checkForUpdates()
-                    }
-                    .padding(.trailing, UIMetrics.spacing2)
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))
