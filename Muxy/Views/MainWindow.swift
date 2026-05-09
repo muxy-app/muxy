@@ -1312,16 +1312,22 @@ private struct SentryConsentPrompter: ViewModifier {
 
     @MainActor
     private func waitForKeyWindow() async {
+        let center = NotificationCenter.default
+        let holder = ObserverHolder()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            var token: NSObjectProtocol?
-            token = NotificationCenter.default.addObserver(
+            holder.token = center.addObserver(
                 forName: NSWindow.didBecomeKeyNotification,
                 object: nil,
                 queue: .main
             ) { _ in
-                guard NSApp.keyWindow ?? NSApp.mainWindow != nil else { return }
-                if let token { NotificationCenter.default.removeObserver(token) }
-                continuation.resume()
+                MainActor.assumeIsolated {
+                    guard NSApp.keyWindow ?? NSApp.mainWindow != nil else { return }
+                    if let token = holder.token {
+                        center.removeObserver(token)
+                        holder.token = nil
+                        continuation.resume()
+                    }
+                }
             }
         }
     }
@@ -1355,6 +1361,11 @@ private struct SentryConsentPrompter: ViewModifier {
             SentryService.shared.setConsent(consent)
         }
     }
+}
+
+@MainActor
+private final class ObserverHolder {
+    var token: NSObjectProtocol?
 }
 
 private struct OverlayExitTracker: ViewModifier {
