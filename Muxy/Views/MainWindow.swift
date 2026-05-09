@@ -709,113 +709,77 @@ struct MainWindow: View {
 
     @ViewBuilder
     private var floatingRichInputOverlay: some View {
-        if richInputPanelVisible,
-           richInputFloating,
-           richInputPosition == .right,
-           let richInputState = activeRichInputState,
-           let worktreeKey = activeWorktreeKey
-        {
-            HStack(spacing: 0) {
-                sidePanelResizeHandle { delta in
-                    let next = richInputPanelWidth - Double(delta)
-                    richInputPanelWidth = max(
-                        Double(RichInputPanelLayout.minWidth),
-                        min(Double(RichInputPanelLayout.maxWidth), next)
-                    )
-                }
-                RichInputSidePanel(
-                    state: richInputState,
-                    worktreeKey: worktreeKey,
-                    onDismiss: { closeRichInputPanel() },
-                    onSubmit: { appendReturn in submitRichInput(richInputState, appendReturn: appendReturn) }
-                )
-                .frame(width: CGFloat(richInputPanelWidth))
-            }
-            .background(MuxyTheme.bg)
-            .transition(.move(edge: .trailing))
+        if isRichInputVisible(floating: true, at: .right) {
+            richInputPanelContent(at: .right)
+                .background(MuxyTheme.bg)
+                .transition(.move(edge: .trailing))
         }
     }
 
     @ViewBuilder
     private var bottomDockedRichInputPanel: some View {
-        if richInputPanelVisible,
-           !richInputFloating,
-           richInputPosition == .bottom,
-           let richInputState = activeRichInputState,
-           let worktreeKey = activeWorktreeKey
-        {
-            VStack(spacing: 0) {
-                bottomPanelResizeHandle { delta in
-                    let next = richInputPanelHeight - Double(delta)
-                    richInputPanelHeight = max(
-                        Double(RichInputPanelLayout.minHeight),
-                        min(Double(RichInputPanelLayout.maxHeight), next)
-                    )
-                }
-                RichInputSidePanel(
-                    state: richInputState,
-                    worktreeKey: worktreeKey,
-                    onDismiss: { closeRichInputPanel() },
-                    onSubmit: { appendReturn in submitRichInput(richInputState, appendReturn: appendReturn) }
-                )
-                .frame(height: CGFloat(richInputPanelHeight))
-            }
+        if isRichInputVisible(floating: false, at: .bottom) {
+            richInputPanelContent(at: .bottom)
         }
     }
 
     @ViewBuilder
     private var floatingBottomRichInputOverlay: some View {
-        if richInputPanelVisible,
-           richInputFloating,
-           richInputPosition == .bottom,
-           let richInputState = activeRichInputState,
-           let worktreeKey = activeWorktreeKey
-        {
-            VStack(spacing: 0) {
-                bottomPanelResizeHandle { delta in
-                    let next = richInputPanelHeight - Double(delta)
-                    richInputPanelHeight = max(
-                        Double(RichInputPanelLayout.minHeight),
-                        min(Double(RichInputPanelLayout.maxHeight), next)
-                    )
+        if isRichInputVisible(floating: true, at: .bottom) {
+            richInputPanelContent(at: .bottom)
+                .background(MuxyTheme.bg)
+                .transition(.move(edge: .bottom))
+        }
+    }
+
+    private func isRichInputVisible(floating: Bool, at position: RichInputPanelPosition) -> Bool {
+        richInputPanelVisible
+            && richInputFloating == floating
+            && richInputPosition == position
+            && activeRichInputState != nil
+            && activeWorktreeKey != nil
+    }
+
+    @ViewBuilder
+    private func richInputPanelContent(at position: RichInputPanelPosition) -> some View {
+        if let richInputState = activeRichInputState, let worktreeKey = activeWorktreeKey {
+            let panel = RichInputSidePanel(
+                state: richInputState,
+                worktreeKey: worktreeKey,
+                onDismiss: { closeRichInputPanel() },
+                onSubmit: { appendReturn in submitRichInput(richInputState, appendReturn: appendReturn) }
+            )
+            switch position {
+            case .right:
+                HStack(spacing: 0) {
+                    sidePanelResizeHandle { delta in
+                        let next = richInputPanelWidth - Double(delta)
+                        richInputPanelWidth = max(
+                            Double(RichInputPanelLayout.minWidth),
+                            min(Double(RichInputPanelLayout.maxWidth), next)
+                        )
+                    }
+                    panel.frame(width: CGFloat(richInputPanelWidth))
                 }
-                RichInputSidePanel(
-                    state: richInputState,
-                    worktreeKey: worktreeKey,
-                    onDismiss: { closeRichInputPanel() },
-                    onSubmit: { appendReturn in submitRichInput(richInputState, appendReturn: appendReturn) }
-                )
-                .frame(height: CGFloat(richInputPanelHeight))
+            case .bottom:
+                VStack(spacing: 0) {
+                    bottomPanelResizeHandle { delta in
+                        let next = richInputPanelHeight - Double(delta)
+                        richInputPanelHeight = max(
+                            Double(RichInputPanelLayout.minHeight),
+                            min(Double(RichInputPanelLayout.maxHeight), next)
+                        )
+                    }
+                    panel.frame(height: CGFloat(richInputPanelHeight))
+                }
             }
-            .background(MuxyTheme.bg)
-            .transition(.move(edge: .bottom))
         }
     }
 
     @ViewBuilder
     private var rightSidePanel: some View {
-        if richInputPanelVisible,
-           !richInputFloating,
-           richInputPosition == .right,
-           let richInputState = activeRichInputState,
-           let worktreeKey = activeWorktreeKey
-        {
-            HStack(spacing: 0) {
-                sidePanelResizeHandle { delta in
-                    let next = richInputPanelWidth - Double(delta)
-                    richInputPanelWidth = max(
-                        Double(RichInputPanelLayout.minWidth),
-                        min(Double(RichInputPanelLayout.maxWidth), next)
-                    )
-                }
-                RichInputSidePanel(
-                    state: richInputState,
-                    worktreeKey: worktreeKey,
-                    onDismiss: { closeRichInputPanel() },
-                    onSubmit: { appendReturn in submitRichInput(richInputState, appendReturn: appendReturn) }
-                )
-                .frame(width: CGFloat(richInputPanelWidth))
-            }
+        if isRichInputVisible(floating: false, at: .right) {
+            richInputPanelContent(at: .right)
         } else if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
             HStack(spacing: 0) {
                 sidePanelResizeHandle { delta in

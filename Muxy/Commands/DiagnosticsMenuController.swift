@@ -5,33 +5,12 @@ final class DiagnosticsMenuController {
     static let shared = DiagnosticsMenuController()
 
     private var toggleItem: NSMenuItem?
-    private var observer: NSObjectProtocol?
 
     private init() {}
 
     func install() {
         DispatchQueue.main.async { [weak self] in
             self?.ensureInstalled()
-        }
-        if observer == nil {
-            observer = NotificationCenter.default.addObserver(
-                forName: NSMenu.didChangeItemNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                guard let self,
-                      let menu = notification.object as? NSMenu
-                else { return }
-                let menuRef = ObjectIdentifier(menu)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        guard let mainMenu = NSApp.mainMenu,
-                              ObjectIdentifier(mainMenu) == menuRef
-                        else { return }
-                        self.ensureInstalled()
-                    }
-                }
-            }
         }
     }
 

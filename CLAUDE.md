@@ -41,7 +41,6 @@ Run `scripts/checks.sh --fix` after every task.
 - Never answer any question without a proper investigation and exploring the codebase.
 - Prioritize problem comprehension over premature implementation. Validate the approach before execution to avoid rework
 - Plan properly before executing to not double work
-- Use print() for logging instead of OSLog
 
 ## Code Review
 

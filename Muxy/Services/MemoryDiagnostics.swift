@@ -2,9 +2,6 @@ import AppKit
 import Darwin
 import Foundation
 import os
-#if canImport(Darwin)
-import Darwin.libproc
-#endif
 
 private let logger = Logger(subsystem: "app.muxy", category: "MemoryDiagnostics")
 
@@ -22,7 +19,12 @@ final class MemoryDiagnostics: NSObject {
     private let writeQueue = DispatchQueue(label: "app.muxy.diagnostics", qos: .utility)
     private var samplingTimer: DispatchSourceTimer?
     private var crumbTimer: DispatchSourceTimer?
-    nonisolated(unsafe) private var disabledForSession = false
+    nonisolated private let disabledForSessionLock = OSAllocatedUnfairLock<Bool>(initialState: false)
+    nonisolated private var disabledForSession: Bool {
+        get { disabledForSessionLock.withLock { $0 } }
+        set { disabledForSessionLock.withLock { $0 = newValue } }
+    }
+
     private weak var appState: AppState?
     nonisolated(unsafe) private let isoFormatter = ISO8601DateFormatter()
     nonisolated(unsafe) private let snapshotStampFormatter: ISO8601DateFormatter = {
