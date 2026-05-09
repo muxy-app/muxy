@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ProjectStatusBar: View {
     let activePane: TerminalPaneState?
+    let activeWorktree: Worktree?
     let isInteractive: Bool
     let richInputVisible: Bool
     @Binding var richInputFontSize: Double
@@ -14,7 +15,11 @@ struct ProjectStatusBar: View {
     var body: some View {
         HStack(spacing: 8) {
             if let pane = activePane {
-                cwdLabel(pane)
+                pathButton(pane)
+                if let worktree = activeWorktree {
+                    separator
+                    worktreeLabel(worktree)
+                }
                 if let branch = pane.branchObserver.branch {
                     separator
                     branchLabel(branch)
@@ -42,17 +47,42 @@ struct ProjectStatusBar: View {
         .accessibilityLabel("Status bar")
     }
 
-    private func cwdLabel(_ pane: TerminalPaneState) -> some View {
+    private func pathButton(_ pane: TerminalPaneState) -> some View {
+        let fullPath = pane.currentWorkingDirectory ?? pane.projectPath
+        let displayPath = abbreviatePath(fullPath)
+        let truncated = ProjectStatusBar.truncatePath(displayPath, maxCharacters: ProjectStatusBar.pathMaxCharacters)
+        return Button {
+            revealInFinder(fullPath)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "folder")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(truncated)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(MuxyTheme.fgMuted)
+        }
+        .buttonStyle(.plain)
+        .help(fullPath)
+        .accessibilityLabel("Reveal \(fullPath) in Finder")
+        .contextMenu {
+            Button("Copy Path") { copyToPasteboard(fullPath) }
+            Button("Reveal in Finder") { revealInFinder(fullPath) }
+        }
+    }
+
+    private func worktreeLabel(_ worktree: Worktree) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: "folder")
+            Image(systemName: "square.stack.3d.up")
                 .font(.system(size: 10, weight: .semibold))
-            Text(abbreviatePath(pane.currentWorkingDirectory ?? pane.projectPath))
+            Text(worktree.name)
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
-                .truncationMode(.middle)
+                .truncationMode(.tail)
         }
         .foregroundStyle(MuxyTheme.fgMuted)
-        .help(pane.currentWorkingDirectory ?? pane.projectPath)
+        .help("Worktree: \(worktree.name)")
     }
 
     private func branchLabel(_ branch: String) -> some View {
@@ -160,9 +190,28 @@ struct ProjectStatusBar: View {
         NotificationCenter.default.post(name: .toggleRichInput, object: nil)
     }
 
+    private func revealInFinder(_ path: String) {
+        let url = URL(fileURLWithPath: path)
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func copyToPasteboard(_ string: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
+    }
+
     private func abbreviatePath(_ path: String) -> String {
         let home = NSHomeDirectory()
         guard !home.isEmpty, path.hasPrefix(home) else { return path }
         return "~" + path.dropFirst(home.count)
+    }
+
+    static let pathMaxCharacters = 40
+
+    static func truncatePath(_ path: String, maxCharacters: Int) -> String {
+        guard path.count > maxCharacters, maxCharacters > 1 else { return path }
+        let suffix = path.suffix(maxCharacters - 1)
+        return "…" + suffix
     }
 }
