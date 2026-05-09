@@ -11,6 +11,7 @@ struct RichInputSidePanel: View {
     @AppStorage(RichInputPreferences.fontSizeKey) private var fontSize: Double = RichInputPreferences.defaultFontSize
     @AppStorage(RichInputPreferences.positionKey) private var position: RichInputPanelPosition = RichInputPreferences
         .defaultPosition
+    @AppStorage(RichInputPreferences.floatingKey) private var floating: Bool = RichInputPreferences.defaultFloating
 
     var body: some View {
         VStack(spacing: 0) {
@@ -90,6 +91,13 @@ struct RichInputSidePanel: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
             Spacer(minLength: 8)
+            Button(action: toggleFloating) {
+                Image(systemName: pinToggleIcon)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .buttonStyle(RichInputToolbarButtonStyle())
+            .accessibilityLabel(pinToggleLabel)
+            .help(pinToggleLabel)
             Button(action: togglePosition) {
                 Image(systemName: positionToggleIcon)
                     .font(.system(size: 11, weight: .semibold))
@@ -126,6 +134,18 @@ struct RichInputSidePanel: View {
 
     private func togglePosition() {
         position = position == .right ? .bottom : .right
+    }
+
+    private var pinToggleIcon: String {
+        floating ? "pin" : "pin.slash"
+    }
+
+    private var pinToggleLabel: String {
+        floating ? "Dock Panel" : "Float Panel"
+    }
+
+    private func toggleFloating() {
+        floating.toggle()
     }
 
     private func increaseFontSize() {

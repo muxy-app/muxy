@@ -158,7 +158,7 @@ struct MainWindow: View {
                     .overlay(alignment: .bottom) {
                         floatingBottomRichInputOverlay
                     }
-                    .animation(.easeInOut(duration: 0.2), value: richInputPanelVisible && richInputFloating)
+                    .animation(.easeInOut(duration: 0.2), value: richInputPanelVisible)
 
                     bottomDockedRichInputPanel
 

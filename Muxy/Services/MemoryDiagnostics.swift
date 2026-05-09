@@ -74,10 +74,10 @@ final class MemoryDiagnostics: NSObject {
 
     private func startCrumbTimer() {
         guard crumbTimer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: writeQueue)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + Self.crumbInterval, repeating: Self.crumbInterval)
         timer.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.writeCrumbNow()
             }
         }
@@ -167,10 +167,10 @@ final class MemoryDiagnostics: NSObject {
 
     private func startPeriodicLogging() {
         guard samplingTimer == nil, !disabledForSession else { return }
-        let timer = DispatchSource.makeTimerSource(queue: writeQueue)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + Self.samplingInterval, repeating: Self.samplingInterval)
         timer.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.captureAndAppendPeriodicLine()
             }
         }
