@@ -520,6 +520,35 @@ struct MuxyRemoteServerRoutingTests {
         #expect(result.number == delegate.stubCreatePRResult.number)
     }
 
+    @Test("vcs merge pull request route forwards params")
+    func vcsMergePullRequestRoute() async {
+        let (server, delegate) = makeServer()
+        let projectID = UUID()
+
+        let response = await server.processRequest(
+            MuxyRequest(
+                id: "8m",
+                method: .vcsMergePullRequest,
+                params: .vcsMergePullRequest(VCSMergePullRequestParams(
+                    projectID: projectID,
+                    number: 42,
+                    method: .squash,
+                    deleteBranch: true
+                ))
+            ),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(delegate.vcsMergePullRequestCalls.first?.projectID == projectID)
+        #expect(delegate.vcsMergePullRequestCalls.first?.number == 42)
+        #expect(delegate.vcsMergePullRequestCalls.first?.method == .squash)
+        #expect(delegate.vcsMergePullRequestCalls.first?.deleteBranch == true)
+        guard case .ok = response.result else {
+            Issue.record("expected ok result")
+            return
+        }
+    }
+
     @Test("vcs worktree routes forward input and output")
     func vcsWorktreeRoutes() async {
         let (server, delegate) = makeServer()

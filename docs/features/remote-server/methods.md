@@ -67,6 +67,7 @@ Notes:
 | `vcsSwitchBranch` | `projectID`, `branch` | `ok` |
 | `vcsCreateBranch` | `projectID`, `name` | `ok` |
 | `vcsCreatePR` | `projectID`, `title`, `body`, `baseBranch`, `draft` | `vcsPRCreated` |
+| `vcsMergePullRequest` | `projectID`, `number`, `method`, `deleteBranch` | `ok` |
 | `vcsAddWorktree` | `projectID`, `name`, `branch`, `createBranch` | `worktrees` |
 | `vcsRemoveWorktree` | `projectID`, `worktreeID` | `ok` |
 
