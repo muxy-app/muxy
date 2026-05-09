@@ -90,6 +90,7 @@ public enum MuxyMethod: String, Codable, Sendable {
     case vcsSwitchBranch
     case vcsCreateBranch
     case vcsCreatePR
+    case vcsMergePullRequest
     case vcsAddWorktree
     case vcsRemoveWorktree
     case getProjectLogo
@@ -131,6 +132,7 @@ public enum MuxyParams: Codable, Sendable {
     case vcsSwitchBranch(VCSSwitchBranchParams)
     case vcsCreateBranch(VCSCreateBranchParams)
     case vcsCreatePR(VCSCreatePRParams)
+    case vcsMergePullRequest(VCSMergePullRequestParams)
     case vcsAddWorktree(VCSAddWorktreeParams)
     case vcsRemoveWorktree(VCSRemoveWorktreeParams)
     case getProjectLogo(GetProjectLogoParams)
@@ -178,6 +180,7 @@ public enum MuxyParams: Codable, Sendable {
         case "vcsSwitchBranch": self = try .vcsSwitchBranch(container.decode(VCSSwitchBranchParams.self, forKey: .value))
         case "vcsCreateBranch": self = try .vcsCreateBranch(container.decode(VCSCreateBranchParams.self, forKey: .value))
         case "vcsCreatePR": self = try .vcsCreatePR(container.decode(VCSCreatePRParams.self, forKey: .value))
+        case "vcsMergePullRequest": self = try .vcsMergePullRequest(container.decode(VCSMergePullRequestParams.self, forKey: .value))
         case "vcsAddWorktree": self = try .vcsAddWorktree(container.decode(VCSAddWorktreeParams.self, forKey: .value))
         case "vcsRemoveWorktree": self = try .vcsRemoveWorktree(container.decode(VCSRemoveWorktreeParams.self, forKey: .value))
         case "getProjectLogo": self = try .getProjectLogo(container.decode(GetProjectLogoParams.self, forKey: .value))
@@ -252,6 +255,8 @@ public enum MuxyParams: Codable, Sendable {
         case let .vcsCreateBranch(v): try container.encode("vcsCreateBranch", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .vcsCreatePR(v): try container.encode("vcsCreatePR", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .vcsMergePullRequest(v): try container.encode("vcsMergePullRequest", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .vcsAddWorktree(v): try container.encode("vcsAddWorktree", forKey: .type)
             try container.encode(v, forKey: .value)

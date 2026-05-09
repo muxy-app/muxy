@@ -496,6 +496,27 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         return VCSCreatePRResultDTO(url: info.url, number: info.number)
     }
 
+    func vcsMergePullRequest(
+        projectID: UUID,
+        number: Int,
+        method: VCSMergeMethodDTO,
+        deleteBranch: Bool
+    ) async throws {
+        let repoPath = try repoPath(projectID: projectID)
+        let mergeMethod: GitRepositoryService.PRMergeMethod = switch method {
+        case .merge: .merge
+        case .squash: .squash
+        case .rebase: .rebase
+        }
+        try await gitService.mergePullRequest(
+            repoPath: repoPath,
+            number: number,
+            method: mergeMethod,
+            deleteBranch: deleteBranch
+        )
+        notifyRepoDidChange(repoPath: repoPath)
+    }
+
     func vcsAddWorktree(
         projectID: UUID,
         name: String,
@@ -585,15 +606,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     private static func toStatusDTO(_ state: VCSTabState) -> VCSStatusDTO? {
         guard let branch = state.branchName else { return nil }
-        let pullRequest: VCSPullRequestDTO? = state.pullRequestInfo.map { info in
-            VCSPullRequestDTO(
-                url: info.url,
-                number: info.number,
-                state: info.state.rawValue,
-                isDraft: info.isDraft,
-                baseBranch: info.baseBranch
-            )
-        }
+        let pullRequest = state.pullRequestInfo.map(Self.toPullRequestDTO)
         return VCSStatusDTO(
             branch: branch,
             aheadCount: state.aheadBehind.ahead,
@@ -604,6 +617,34 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             defaultBranch: state.defaultBranch,
             pullRequest: pullRequest
         )
+    }
+
+    private static func toPullRequestDTO(_ info: GitRepositoryService.PRInfo) -> VCSPullRequestDTO {
+        VCSPullRequestDTO(
+            url: info.url,
+            number: info.number,
+            state: info.state.rawValue,
+            isDraft: info.isDraft,
+            baseBranch: info.baseBranch,
+            mergeable: info.mergeable,
+            mergeStateStatus: info.mergeStateStatus.rawValue,
+            checks: VCSPRChecksDTO(
+                status: Self.checksStatusString(info.checks.status),
+                passing: info.checks.passing,
+                failing: info.checks.failing,
+                pending: info.checks.pending,
+                total: info.checks.total
+            )
+        )
+    }
+
+    private static func checksStatusString(_ status: GitRepositoryService.PRChecksStatus) -> String {
+        switch status {
+        case .none: "none"
+        case .pending: "pending"
+        case .success: "success"
+        case .failure: "failure"
+        }
     }
 
     private static func toFileDTO(_ file: GitStatusFile, staged: Bool) -> GitFileDTO {

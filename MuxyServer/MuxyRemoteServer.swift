@@ -62,6 +62,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func vcsSwitchBranch(projectID: UUID, branch: String) async throws
     func vcsCreateBranch(projectID: UUID, name: String) async throws
     func vcsCreatePR(projectID: UUID, title: String, body: String, baseBranch: String?, draft: Bool) async throws -> VCSCreatePRResultDTO
+    func vcsMergePullRequest(projectID: UUID, number: Int, method: VCSMergeMethodDTO, deleteBranch: Bool) async throws
     func vcsAddWorktree(projectID: UUID, name: String, branch: String, createBranch: Bool) async throws -> WorktreeDTO
     func vcsRemoveWorktree(projectID: UUID, worktreeID: UUID) async throws
     func getProjectLogo(projectID: UUID) -> ProjectLogoDTO?
@@ -572,6 +573,22 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                     draft: params.draft
                 )
                 return MuxyResponse(id: request.id, result: .vcsPRCreated(info))
+            } catch {
+                return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
+            }
+
+        case .vcsMergePullRequest:
+            guard case let .vcsMergePullRequest(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                try await delegate.vcsMergePullRequest(
+                    projectID: params.projectID,
+                    number: params.number,
+                    method: params.method,
+                    deleteBranch: params.deleteBranch
+                )
+                return MuxyResponse(id: request.id, result: .ok)
             } catch {
                 return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
             }

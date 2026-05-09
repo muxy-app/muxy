@@ -23,6 +23,7 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     var vcsSwitchBranchCalls: [(projectID: UUID, branch: String)] = []
     var vcsCreateBranchCalls: [(projectID: UUID, name: String)] = []
     var vcsCreatePRCalls: [(projectID: UUID, title: String, body: String, baseBranch: String?, draft: Bool)] = []
+    var vcsMergePullRequestCalls: [(projectID: UUID, number: Int, method: VCSMergeMethodDTO, deleteBranch: Bool)] = []
     var vcsAddWorktreeCalls: [(projectID: UUID, name: String, branch: String, createBranch: Bool)] = []
     var vcsRemoveWorktreeCalls: [(projectID: UUID, worktreeID: UUID)] = []
 
@@ -144,6 +145,15 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     ) async throws -> VCSCreatePRResultDTO {
         vcsCreatePRCalls.append((projectID, title, body, baseBranch, draft))
         return stubCreatePRResult
+    }
+
+    func vcsMergePullRequest(
+        projectID: UUID,
+        number: Int,
+        method: VCSMergeMethodDTO,
+        deleteBranch: Bool
+    ) async throws {
+        vcsMergePullRequestCalls.append((projectID, number, method, deleteBranch))
     }
 
     func vcsAddWorktree(

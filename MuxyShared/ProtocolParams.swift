@@ -459,6 +459,25 @@ public struct VCSCreatePRParams: Codable, Sendable {
     }
 }
 
+public enum VCSMergeMethodDTO: String, Codable, Sendable {
+    case merge
+    case squash
+    case rebase
+}
+
+public struct VCSMergePullRequestParams: Codable, Sendable {
+    public let projectID: UUID
+    public let number: Int
+    public let method: VCSMergeMethodDTO
+    public let deleteBranch: Bool
+    public init(projectID: UUID, number: Int, method: VCSMergeMethodDTO, deleteBranch: Bool) {
+        self.projectID = projectID
+        self.number = number
+        self.method = method
+        self.deleteBranch = deleteBranch
+    }
+}
+
 public struct VCSAddWorktreeParams: Codable, Sendable {
     public let projectID: UUID
     public let name: String

@@ -60,13 +60,44 @@ public struct VCSPullRequestDTO: Codable, Sendable, Hashable {
     public let state: String
     public let isDraft: Bool
     public let baseBranch: String
+    public let mergeable: Bool?
+    public let mergeStateStatus: String
+    public let checks: VCSPRChecksDTO
 
-    public init(url: String, number: Int, state: String, isDraft: Bool, baseBranch: String) {
+    public init(
+        url: String,
+        number: Int,
+        state: String,
+        isDraft: Bool,
+        baseBranch: String,
+        mergeable: Bool? = nil,
+        mergeStateStatus: String = "UNKNOWN",
+        checks: VCSPRChecksDTO = VCSPRChecksDTO(status: "none", passing: 0, failing: 0, pending: 0, total: 0)
+    ) {
         self.url = url
         self.number = number
         self.state = state
         self.isDraft = isDraft
         self.baseBranch = baseBranch
+        self.mergeable = mergeable
+        self.mergeStateStatus = mergeStateStatus
+        self.checks = checks
+    }
+}
+
+public struct VCSPRChecksDTO: Codable, Sendable, Hashable {
+    public let status: String
+    public let passing: Int
+    public let failing: Int
+    public let pending: Int
+    public let total: Int
+
+    public init(status: String, passing: Int, failing: Int, pending: Int, total: Int) {
+        self.status = status
+        self.passing = passing
+        self.failing = failing
+        self.pending = pending
+        self.total = total
     }
 }
 
