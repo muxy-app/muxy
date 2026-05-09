@@ -75,6 +75,7 @@ struct MainWindow: View {
     @AppStorage(RichInputPreferences.floatingKey) private var richInputFloating = RichInputPreferences.defaultFloating
     @AppStorage(RichInputPreferences.positionKey) private var richInputPosition: RichInputPanelPosition = RichInputPreferences
         .defaultPosition
+    @AppStorage(RichInputPreferences.broadcastKey) private var richInputBroadcast = RichInputPreferences.defaultBroadcast
     @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
     @State private var showQuickOpen = false
     @State private var showFindInFiles = false
@@ -1025,8 +1026,16 @@ struct MainWindow: View {
     }
 
     private func submitRichInput(_ richInput: RichInputState, appendReturn: Bool) {
-        guard let paneID = activeRichInputPaneID else { return }
-        RichInputSubmitter.submit(richInput: richInput, paneID: paneID, appendReturn: appendReturn)
+        let paneIDs = richInputBroadcast ? visibleTerminalPaneIDs() : [activeRichInputPaneID].compactMap(\.self)
+        guard !paneIDs.isEmpty else { return }
+        RichInputSubmitter.submit(richInput: richInput, paneIDs: paneIDs, appendReturn: appendReturn)
+    }
+
+    private func visibleTerminalPaneIDs() -> [UUID] {
+        guard let project = activeProject,
+              let root = appState.workspaceRoot(for: project.id)
+        else { return [] }
+        return root.allAreas().compactMap { $0.activeTab?.content.pane?.id }
     }
 
     private var activeVCSState: VCSTabState? {

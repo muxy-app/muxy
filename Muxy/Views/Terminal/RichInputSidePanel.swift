@@ -12,6 +12,7 @@ struct RichInputSidePanel: View {
     @AppStorage(RichInputPreferences.positionKey) private var position: RichInputPanelPosition = RichInputPreferences
         .defaultPosition
     @AppStorage(RichInputPreferences.floatingKey) private var floating: Bool = RichInputPreferences.defaultFloating
+    @AppStorage(RichInputPreferences.broadcastKey) private var broadcast: Bool = RichInputPreferences.defaultBroadcast
 
     var body: some View {
         VStack(spacing: 0) {
@@ -105,6 +106,14 @@ struct RichInputSidePanel: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
             Spacer(minLength: 8)
+            Button(action: toggleBroadcast) {
+                Image(systemName: broadcastToggleIcon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(broadcast ? MuxyTheme.accent : MuxyTheme.fgMuted)
+            }
+            .buttonStyle(RichInputToolbarButtonStyle())
+            .accessibilityLabel(broadcastToggleLabel)
+            .help(broadcastToggleLabel)
             Button(action: toggleFloating) {
                 Image(systemName: pinToggleIcon)
                     .font(.system(size: 11, weight: .semibold))
@@ -160,6 +169,18 @@ struct RichInputSidePanel: View {
 
     private func toggleFloating() {
         floating.toggle()
+    }
+
+    private var broadcastToggleIcon: String {
+        broadcast ? "dot.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.slash"
+    }
+
+    private var broadcastToggleLabel: String {
+        broadcast ? "Broadcast On — Send to All Visible Panes" : "Broadcast Off — Send to Active Pane"
+    }
+
+    private func toggleBroadcast() {
+        broadcast.toggle()
     }
 
     private func increaseFontSize() {
