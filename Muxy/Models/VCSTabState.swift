@@ -92,6 +92,7 @@ final class VCSTabState {
     var isCommitting = false
     var isPushing = false
     var isPulling = false
+    var isGeneratingCommitMessage = false
     var isSwitchingBranch = false
     var isLoadingBranches = false
     var statusMessage: String?
@@ -652,6 +653,32 @@ final class VCSTabState {
                 commits = []
                 showStatus("Committed \(hash)", isError: false)
                 performRefresh(incremental: false)
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func generateCommitMessageWithAI() {
+        guard hasAnyChanges else {
+            showStatus("No changes to summarize.", isError: true)
+            return
+        }
+        if isGeneratingCommitMessage { return }
+        isGeneratingCommitMessage = true
+        let path = projectPath
+        let branch = branchName
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isGeneratingCommitMessage = false }
+            do {
+                let message = try await AIAssistantService.generateCommitMessage(
+                    repoPath: path,
+                    branch: branch
+                )
+                guard !Task.isCancelled else { return }
+                commitMessage = message
             } catch {
                 guard !Task.isCancelled else { return }
                 showStatus(errorText(error), isError: true)
