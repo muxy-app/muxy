@@ -1,5 +1,6 @@
 import Foundation
 import MuxyShared
+import SystemConfiguration
 
 @MainActor
 @Observable
@@ -7,9 +8,10 @@ final class PaneOwnershipStore {
     static let shared = PaneOwnershipStore()
 
     var macDeviceName: String = {
-        let raw = ProcessInfo.processInfo.hostName
-        let trimmed = raw.split(separator: ".").first.map(String.init) ?? raw
-        return trimmed.isEmpty ? "Mac" : trimmed
+        if let name = SCDynamicStoreCopyComputerName(nil, nil) as String?, !name.isEmpty {
+            return name
+        }
+        return "Mac"
     }()
 
     private var owners: [UUID: PaneOwnerDTO] = [:]
