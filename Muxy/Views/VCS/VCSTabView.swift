@@ -487,25 +487,33 @@ struct VCSTabView: View {
     }
 
     private var aiCommitButton: some View {
-        let canGenerate = !state.isGeneratingCommitMessage && state.hasAnyChanges
+        let isGenerating = state.isGeneratingCommitMessage
+        let canGenerate = !isGenerating && state.hasAnyChanges
         return Button {
-            state.generateCommitMessageWithAI()
+            if isGenerating {
+                state.cancelCommitMessageGeneration()
+            } else {
+                state.generateCommitMessageWithAI()
+            }
         } label: {
-            Group {
-                if state.isGeneratingCommitMessage {
+            HStack(spacing: UIMetrics.spacing2) {
+                if isGenerating {
                     ProgressView().controlSize(.mini)
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: UIMetrics.fontCaption))
+                    Text("Cancel")
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 } else {
                     Image(systemName: "sparkles")
                         .font(.system(size: UIMetrics.scaled(12), weight: .semibold))
-                        .foregroundStyle(canGenerate ? MuxyTheme.accent : MuxyTheme.fgDim)
                 }
             }
-            .frame(width: 22, height: 22)
+            .foregroundStyle(canGenerate || isGenerating ? MuxyTheme.accent : MuxyTheme.fgDim)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!canGenerate)
-        .help("Generate commit message with AI")
+        .disabled(!isGenerating && !canGenerate)
+        .help(isGenerating ? "Cancel generation" : "Generate commit message with AI")
     }
 
     private var commitButton: some View {

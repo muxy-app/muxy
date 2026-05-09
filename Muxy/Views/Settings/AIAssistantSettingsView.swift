@@ -13,6 +13,20 @@ struct AIAssistantSettingsView: View {
         AIAssistantProvider(rawValue: providerRaw) ?? .claude
     }
 
+    private var commitPromptBinding: Binding<String> {
+        Binding(
+            get: { commitPrompt.isEmpty ? AIAssistantPrompts.defaultCommitUserPrompt : commitPrompt },
+            set: { commitPrompt = $0 }
+        )
+    }
+
+    private var prPromptBinding: Binding<String> {
+        Binding(
+            get: { prPrompt.isEmpty ? AIAssistantPrompts.defaultPullRequestUserPrompt : prPrompt },
+            set: { prPrompt = $0 }
+        )
+    }
+
     var body: some View {
         SettingsContainer {
             SettingsSection(
@@ -46,8 +60,8 @@ struct AIAssistantSettingsView: View {
                 footer: "Guides the model when generating commit messages. Output is plain text."
             ) {
                 promptEditor(
-                    text: $commitPrompt,
-                    onReset: { commitPrompt = AIAssistantPrompts.defaultCommitUserPrompt }
+                    text: commitPromptBinding,
+                    onReset: { commitPrompt = "" }
                 )
             }
 
@@ -57,20 +71,10 @@ struct AIAssistantSettingsView: View {
                     + "Output is parsed as JSON; do not change the response format."
             ) {
                 promptEditor(
-                    text: $prPrompt,
-                    onReset: { prPrompt = AIAssistantPrompts.defaultPullRequestUserPrompt }
+                    text: prPromptBinding,
+                    onReset: { prPrompt = "" }
                 )
             }
-        }
-        .onAppear(perform: seedDefaultPromptsIfNeeded)
-    }
-
-    private func seedDefaultPromptsIfNeeded() {
-        if commitPrompt.isEmpty {
-            commitPrompt = AIAssistantPrompts.defaultCommitUserPrompt
-        }
-        if prPrompt.isEmpty {
-            prPrompt = AIAssistantPrompts.defaultPullRequestUserPrompt
         }
     }
 
@@ -91,9 +95,9 @@ struct AIAssistantSettingsView: View {
                     .frame(width: SettingsMetrics.controlWidth)
             }
             Text(
-                "Muxy pipes the full prompt and diff to your command via stdin and reads the response from stdout. "
-                    + "Provide arguments that make the tool emit only the response (no banners or progress). "
-                    + "Use quotes around arguments containing spaces."
+                "Runs through your login shell so PATH and aliases resolve. "
+                    + "Muxy pipes the full prompt to stdin and reads the response from stdout. "
+                    + "Provide arguments that make the tool emit only the response (no banners or progress)."
             )
             .font(.system(size: SettingsMetrics.footnoteFontSize))
             .foregroundStyle(.secondary)

@@ -1,5 +1,33 @@
 import Foundation
 
+struct AIAssistantSettingsSnapshot {
+    let provider: AIAssistantProvider
+    let claudeModel: String?
+    let codexModel: String?
+    let opencodeModel: String?
+    let customCommand: String
+    let commitPrompt: String?
+    let prPrompt: String?
+
+    func model(for provider: AIAssistantProvider) -> String? {
+        switch provider {
+        case .claude: claudeModel
+        case .codex: codexModel
+        case .opencode: opencodeModel
+        case .custom: nil
+        }
+    }
+
+    func userPrompt(for task: AIAssistantTask) -> String {
+        switch task {
+        case .commitMessage:
+            commitPrompt ?? AIAssistantPrompts.defaultCommitUserPrompt
+        case .pullRequest:
+            prPrompt ?? AIAssistantPrompts.defaultPullRequestUserPrompt
+        }
+    }
+}
+
 enum AIAssistantSettings {
     static let providerKey = "muxy.ai.assistant.provider"
     static let claudeModelKey = "muxy.ai.assistant.model.claude"
@@ -9,43 +37,23 @@ enum AIAssistantSettings {
     static let commitPromptKey = "muxy.ai.assistant.prompt.commit"
     static let prPromptKey = "muxy.ai.assistant.prompt.pr"
 
-    static var provider: AIAssistantProvider {
-        let raw = UserDefaults.standard.string(forKey: providerKey) ?? AIAssistantProvider.claude.rawValue
-        return AIAssistantProvider(rawValue: raw) ?? .claude
+    static func snapshot() -> AIAssistantSettingsSnapshot {
+        let defaults = UserDefaults.standard
+        let providerRaw = defaults.string(forKey: providerKey) ?? AIAssistantProvider.claude.rawValue
+        let provider = AIAssistantProvider(rawValue: providerRaw) ?? .claude
+        return AIAssistantSettingsSnapshot(
+            provider: provider,
+            claudeModel: trimmed(defaults.string(forKey: claudeModelKey)),
+            codexModel: trimmed(defaults.string(forKey: codexModelKey)),
+            opencodeModel: trimmed(defaults.string(forKey: opencodeModelKey)),
+            customCommand: defaults.string(forKey: customCommandKey) ?? "",
+            commitPrompt: trimmed(defaults.string(forKey: commitPromptKey)),
+            prPrompt: trimmed(defaults.string(forKey: prPromptKey))
+        )
     }
 
-    static func model(for provider: AIAssistantProvider) -> String? {
-        let key = modelKey(for: provider) ?? ""
-        let value = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func trimmed(_ value: String?) -> String? {
+        let value = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (value?.isEmpty ?? true) ? nil : value
-    }
-
-    static func modelKey(for provider: AIAssistantProvider) -> String? {
-        switch provider {
-        case .claude: claudeModelKey
-        case .codex: codexModelKey
-        case .opencode: opencodeModelKey
-        case .custom: nil
-        }
-    }
-
-    static var customCommand: String {
-        UserDefaults.standard.string(forKey: customCommandKey) ?? ""
-    }
-
-    static func userPrompt(for task: AIAssistantTask) -> String {
-        let key = task == .commitMessage ? commitPromptKey : prPromptKey
-        let stored = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let stored, !stored.isEmpty {
-            return stored
-        }
-        return defaultUserPrompt(for: task)
-    }
-
-    static func defaultUserPrompt(for task: AIAssistantTask) -> String {
-        switch task {
-        case .commitMessage: AIAssistantPrompts.defaultCommitUserPrompt
-        case .pullRequest: AIAssistantPrompts.defaultPullRequestUserPrompt
-        }
     }
 }

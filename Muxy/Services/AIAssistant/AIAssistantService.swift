@@ -17,26 +17,28 @@ enum AIAssistantServiceError: Error, LocalizedError {
     }
 }
 
+@MainActor
 enum AIAssistantService {
     private static let diffLineLimit = 4000
+    private static let truncationMarker = "\n[diff truncated by Muxy at \(diffLineLimit) lines]\n"
 
     static func generateCommitMessage(
         repoPath: String,
         branch: String?
     ) async throws -> String {
+        let settings = AIAssistantSettings.snapshot()
         let diff = try await stagedDiff(repoPath: repoPath)
         guard !diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AIAssistantServiceError.noChanges
         }
-        let userPrompt = AIAssistantSettings.userPrompt(for: .commitMessage)
         let prompt = AIAssistantPrompts.composedPrompt(
             for: .commitMessage,
-            userPrompt: userPrompt,
+            userPrompt: settings.userPrompt(for: .commitMessage),
             diff: diff,
             branch: branch,
             baseBranch: nil
         )
-        let raw = try await runProvider(prompt: prompt, repoPath: repoPath)
+        let raw = try await runProvider(prompt: prompt, repoPath: repoPath, settings: settings)
         return cleanCommitOutput(raw)
     }
 
@@ -45,28 +47,31 @@ enum AIAssistantService {
         branch: String?,
         baseBranch: String?
     ) async throws -> AIPullRequestDraft {
+        let settings = AIAssistantSettings.snapshot()
         let diff = try await branchDiff(repoPath: repoPath, branch: branch, baseBranch: baseBranch)
         guard !diff.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AIAssistantServiceError.noChanges
         }
-        let userPrompt = AIAssistantSettings.userPrompt(for: .pullRequest)
         let prompt = AIAssistantPrompts.composedPrompt(
             for: .pullRequest,
-            userPrompt: userPrompt,
+            userPrompt: settings.userPrompt(for: .pullRequest),
             diff: diff,
             branch: branch,
             baseBranch: baseBranch
         )
-        let raw = try await runProvider(prompt: prompt, repoPath: repoPath)
+        let raw = try await runProvider(prompt: prompt, repoPath: repoPath, settings: settings)
         return try parsePullRequest(raw)
     }
 
-    private static func runProvider(prompt: String, repoPath: String) async throws -> String {
-        let provider = AIAssistantSettings.provider
+    private static func runProvider(
+        prompt: String,
+        repoPath: String,
+        settings: AIAssistantSettingsSnapshot
+    ) async throws -> String {
         let invocation = try AIAssistantRunner.resolveInvocation(
-            provider: provider,
-            customCommand: AIAssistantSettings.customCommand,
-            model: AIAssistantSettings.model(for: provider)
+            provider: settings.provider,
+            customCommand: settings.customCommand,
+            model: settings.model(for: settings.provider)
         )
         return try await AIAssistantRunner.run(
             invocation: invocation,
@@ -112,7 +117,7 @@ enum AIAssistantService {
             if result.status != 0, !result.stderr.isEmpty {
                 throw AIAssistantServiceError.diffFailed(result.stderr)
             }
-            return result.stdout
+            return result.truncated ? result.stdout + truncationMarker : result.stdout
         } catch let error as AIAssistantServiceError {
             throw error
         } catch {

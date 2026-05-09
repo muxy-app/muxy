@@ -29,6 +29,7 @@ struct CreatePRForm: View {
     @State private var didLoadRemoteBranches = false
     @State private var isGeneratingAI = false
     @State private var aiError: String?
+    @State private var aiTask: Task<Void, Never>?
 
     private var availableBaseBranches: [String] {
         if !context.remoteBranches.isEmpty {
@@ -246,24 +247,30 @@ struct CreatePRForm: View {
 
     private var aiGenerateButton: some View {
         Button {
-            generateWithAI()
+            if isGeneratingAI {
+                cancelAIGeneration()
+            } else {
+                generateWithAI()
+            }
         } label: {
             HStack(spacing: UIMetrics.spacing2) {
                 if isGeneratingAI {
                     ProgressView().controlSize(.mini)
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: UIMetrics.fontCaption))
                 } else {
                     Image(systemName: "sparkles")
                         .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 }
-                Text(isGeneratingAI ? "Generating…" : "Generate with AI")
+                Text(isGeneratingAI ? "Cancel" : "Generate with AI")
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
             }
             .foregroundStyle(MuxyTheme.accent)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isGeneratingAI || inProgress)
-        .help("Generate title and description from the diff")
+        .disabled(inProgress)
+        .help(isGeneratingAI ? "Cancel generation" : "Generate title and description from the diff")
     }
 
     private func generateWithAI() {
@@ -275,21 +282,31 @@ struct CreatePRForm: View {
         isGeneratingAI = true
         aiError = nil
         let base = baseBranch
-        Task {
+        aiTask?.cancel()
+        aiTask = Task { @MainActor in
             do {
                 let draft = try await onGenerateAI(base)
-                await MainActor.run {
-                    title = draft.title
-                    bodyText = draft.body
-                    isGeneratingAI = false
-                }
+                guard !Task.isCancelled else { return }
+                title = draft.title
+                bodyText = draft.body
+                isGeneratingAI = false
+                aiTask = nil
+            } catch is CancellationError {
+                isGeneratingAI = false
+                aiTask = nil
             } catch {
-                await MainActor.run {
-                    aiError = error.localizedDescription
-                    isGeneratingAI = false
-                }
+                guard !Task.isCancelled else { return }
+                aiError = error.localizedDescription
+                isGeneratingAI = false
+                aiTask = nil
             }
         }
+    }
+
+    private func cancelAIGeneration() {
+        aiTask?.cancel()
+        aiTask = nil
+        isGeneratingAI = false
     }
 
     private var descriptionField: some View {
