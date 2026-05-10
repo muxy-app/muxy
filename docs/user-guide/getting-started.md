@@ -39,6 +39,7 @@ Projects persist in `~/Library/Application Support/Muxy/projects.json`.
 | New tab | `⌘T` |
 | Split right / down | `⌘D` / `⌘⇧D` |
 | Focus pane | `⌘⌥←/→/↑/↓` |
+| Maximize pane | `⌘⌥↩` |
 | Close pane / tab | `⌘⇧W` / `⌘W` |
 | Switch tabs | `⌘1…9`, `⌘]` / `⌘[` |
 

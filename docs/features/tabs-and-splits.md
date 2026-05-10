@@ -49,7 +49,14 @@ Custom titles and colors are saved in the workspace snapshot and survive worktre
 | Split Down | `⌘⇧D` |
 | Close Pane | `⌘⇧W` |
 | Focus Pane | `⌘⌥←/→/↑/↓` |
+| Toggle Maximize Pane | `⌘⌥↩` |
 | Cycle Tab (All Panes) | `⌃Tab` / `⌃⇧Tab` |
+
+## Maximize pane
+
+Use the maximize button in a pane's tab strip, or press `⌘⌥↩`, to temporarily focus that pane in a split workspace. Press the same shortcut or the restore button to show the full split tree again.
+
+Maximize is available only when the worktree has multiple panes. Moving focus to another pane or splitting the maximized pane restores the full layout.
 
 ## Drag and drop
 

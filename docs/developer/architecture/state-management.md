@@ -32,6 +32,12 @@ classDiagram
 
 A workspace tree is keyed by `WorktreeKey(projectID, worktreeID)`. `AppState.activeWorktreeID[projectID]` tracks the visible worktree per project.
 
+## Pane maximize state
+
+`AppState.maximizedAreaID` stores the temporarily maximized pane per `WorktreeKey`. It is presentation state, not persisted workspace state: the split tree stays intact while `TerminalArea` renders only the selected `TabArea`.
+
+When a pane is maximized, tab shortcut offsets are scoped to that pane so `⌘1…9` selects visible tabs only. The maximize state is cleared when the workspace is no longer split, the maximized area disappears, focus moves to another area, or the maximized pane is split.
+
 ## Persistence
 
 | File | Contents |

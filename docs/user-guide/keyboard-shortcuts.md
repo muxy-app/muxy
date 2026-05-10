@@ -22,6 +22,7 @@ Every shortcut listed here can be remapped in **Settings → Keyboard Shortcuts*
 | Focus Pane Right | `Cmd+Opt+→` |
 | Focus Pane Up | `Cmd+Opt+↑` |
 | Focus Pane Down | `Cmd+Opt+↓` |
+| Toggle Maximize Pane | `Cmd+Opt+Return` |
 
 ## Tab navigation
 
