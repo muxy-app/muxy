@@ -176,7 +176,7 @@ struct RichInputSidePanel: View {
     }
 
     private var broadcastToggleLabel: String {
-        broadcast ? "Broadcast On — Send to All Visible Panes" : "Broadcast Off — Send to Active Pane"
+        broadcast ? "Broadcast On — Send to All Split Panes" : "Broadcast Off — Send to Active Pane"
     }
 
     private func toggleBroadcast() {
