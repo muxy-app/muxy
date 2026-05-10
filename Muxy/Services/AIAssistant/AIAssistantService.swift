@@ -22,6 +22,18 @@ enum AIAssistantService {
     private static let diffLineLimit = 4000
     private static let truncationMarker = "\n[diff truncated by Muxy at \(diffLineLimit) lines]\n"
 
+    private static let excludedPathspecs: [String] = [
+        ":(exclude,glob)**/Package.resolved",
+        ":(exclude,glob)**/*.lock",
+        ":(exclude,glob)**/*.lockfile",
+        ":(exclude,glob)**/package-lock.json",
+        ":(exclude,glob)**/yarn.lock",
+        ":(exclude,glob)**/pnpm-lock.yaml",
+        ":(exclude,glob)**/Pods/**",
+        ":(exclude,glob)**/*.xcframework/**",
+        ":(exclude,glob)**/*.pbxproj",
+    ]
+
     static func generateCommitMessage(
         repoPath: String,
         branch: String?
@@ -81,11 +93,21 @@ enum AIAssistantService {
     }
 
     private static func stagedDiff(repoPath: String) async throws -> String {
-        let staged = try await runDiff(repoPath: repoPath, arguments: ["diff", "--cached", "--no-color"])
+        let staged = try await runDiff(repoPath: repoPath, arguments: diffArgs(["diff", "--cached", "--no-color"]))
         if !staged.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return staged
         }
-        return try await runDiff(repoPath: repoPath, arguments: ["diff", "--no-color"])
+        let working = try await runDiff(repoPath: repoPath, arguments: diffArgs(["diff", "--no-color"]))
+        let untracked = await untrackedFilesDiff(repoPath: repoPath)
+
+        var sections: [String] = []
+        if !working.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sections.append(working)
+        }
+        if !untracked.isEmpty {
+            sections.append("=== Untracked files ===\n\(untracked)")
+        }
+        return sections.joined(separator: "\n\n")
     }
 
     private static func branchDiff(
@@ -97,14 +119,85 @@ enum AIAssistantService {
             let range = "\(baseBranch)...\(branch)"
             let committed = try await runDiff(
                 repoPath: repoPath,
-                arguments: ["diff", "--no-color", range]
+                arguments: diffArgs(["diff", "--no-color", range])
             )
-            let working = try await runDiff(repoPath: repoPath, arguments: ["diff", "--no-color", "HEAD"])
-            return [committed, working]
-                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                .joined(separator: "\n")
+            let working = try await runDiff(
+                repoPath: repoPath,
+                arguments: diffArgs(["diff", "--no-color", "HEAD"])
+            )
+            let untracked = await untrackedFilesDiff(repoPath: repoPath)
+
+            var sections: [String] = []
+            if !committed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                sections.append("=== Committed changes (\(branch) vs merge-base with \(baseBranch)) ===\n\(committed)")
+            }
+            if !working.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                sections.append("=== Uncommitted working-tree changes ===\n\(working)")
+            }
+            if !untracked.isEmpty {
+                sections.append("=== Untracked files ===\n\(untracked)")
+            }
+            return sections.joined(separator: "\n\n")
         }
-        return try await runDiff(repoPath: repoPath, arguments: ["diff", "--no-color", "HEAD"])
+
+        let working = try await runDiff(repoPath: repoPath, arguments: diffArgs(["diff", "--no-color", "HEAD"]))
+        let untracked = await untrackedFilesDiff(repoPath: repoPath)
+        if untracked.isEmpty {
+            return working
+        }
+        var sections: [String] = []
+        if !working.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            sections.append(working)
+        }
+        sections.append("=== Untracked files ===\n\(untracked)")
+        return sections.joined(separator: "\n\n")
+    }
+
+    private static func untrackedFilesDiff(repoPath: String) async -> String {
+        let listing = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["ls-files", "--others", "--exclude-standard", "-z"],
+            lineLimit: diffLineLimit
+        )
+        guard let listing, listing.status == 0 else { return "" }
+        let paths = listing.stdout
+            .split(separator: "\u{0}", omittingEmptySubsequences: true)
+            .map(String.init)
+            .filter { !shouldExcludeUntrackedPath($0) }
+        guard !paths.isEmpty else { return "" }
+
+        var pieces: [String] = []
+        for path in paths {
+            if let rendered = await renderUntrackedFile(repoPath: repoPath, relativePath: path) {
+                pieces.append(rendered)
+            }
+        }
+        return pieces.joined(separator: "\n")
+    }
+
+    private static func renderUntrackedFile(repoPath: String, relativePath: String) async -> String? {
+        let result = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["diff", "--no-color", "--no-index", "--", "/dev/null", relativePath],
+            lineLimit: diffLineLimit
+        )
+        guard let result else { return nil }
+        let output = result.truncated ? result.stdout + truncationMarker : result.stdout
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : output
+    }
+
+    private static func shouldExcludeUntrackedPath(_ path: String) -> Bool {
+        let lowercased = path.lowercased()
+        let suffixes = [".lock", ".lockfile", ".resolved", ".pbxproj"]
+        if suffixes.contains(where: { lowercased.hasSuffix($0) }) { return true }
+        let segments = ["/pods/", "/.xcframework/", "/node_modules/"]
+        let normalized = "/" + lowercased
+        return segments.contains(where: { normalized.contains($0) })
+    }
+
+    private static func diffArgs(_ baseArguments: [String]) -> [String] {
+        baseArguments + ["--"] + excludedPathspecs
     }
 
     private static func runDiff(repoPath: String, arguments: [String]) async throws -> String {
