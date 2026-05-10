@@ -53,42 +53,83 @@ struct SidebarLayoutTests {
 
 @Suite("MainWindowLayout")
 struct MainWindowLayoutTests {
-    @Test("visible sidebar owns the title bar height instead of sitting below tab strip")
-    func visibleSidebarExtendsThroughTitleBar() {
+    @Test("collapsed icon sidebar keeps its own rail width")
+    func collapsedIconSidebarKeepsRailWidth() {
         #expect(MainWindowLayout.leftNavigationWidth(
             sidebarWidth: 44,
             titleBarNavigationWidth: 127,
             isFullScreen: false
-        ) == 127)
-        #expect(!MainWindowLayout.needsMainTitleBarNavigationInset(
-            leftNavigationWidth: 127,
-            isFullScreen: false
-        ))
+        ) == 44)
     }
 
-    @Test("hidden sidebar keeps title bar navigation inset in main title bar")
+    @Test("wide sidebar owns the title bar height instead of sitting below tab strip")
+    func wideSidebarExtendsThroughTitleBar() {
+        #expect(MainWindowLayout.leftNavigationWidth(
+            sidebarWidth: 220,
+            titleBarNavigationWidth: 127,
+            isFullScreen: false
+        ) == 220)
+        #expect(MainWindowLayout.titleBarNavigationOverlayWidth(
+            leftNavigationWidth: 220,
+            titleBarNavigationWidth: 127,
+            isFullScreen: false
+        ) == 220)
+        #expect(MainWindowLayout.mainTitleBarLeadingInset(
+            leftNavigationWidth: 220,
+            titleBarNavigationOverlayWidth: 220,
+            isFullScreen: false
+        ) == 0)
+    }
+
+    @Test("narrow visible sidebar reserves only overflow in main title bar")
+    func narrowSidebarReservesOverflowInTitleBar() {
+        #expect(MainWindowLayout.titleBarNavigationOverlayWidth(
+            leftNavigationWidth: 44,
+            titleBarNavigationWidth: 127,
+            isFullScreen: false
+        ) == 127)
+        #expect(MainWindowLayout.mainTitleBarLeadingInset(
+            leftNavigationWidth: 44,
+            titleBarNavigationOverlayWidth: 127,
+            isFullScreen: false
+        ) == 83)
+    }
+
+    @Test("hidden sidebar keeps full title bar navigation inset")
     func hiddenSidebarLeavesNavigationInTitleBar() {
         #expect(MainWindowLayout.leftNavigationWidth(
             sidebarWidth: 0,
             titleBarNavigationWidth: 127,
             isFullScreen: false
         ) == 0)
-        #expect(MainWindowLayout.needsMainTitleBarNavigationInset(
+        #expect(MainWindowLayout.titleBarNavigationOverlayWidth(
             leftNavigationWidth: 0,
+            titleBarNavigationWidth: 127,
             isFullScreen: false
-        ))
+        ) == 127)
+        #expect(MainWindowLayout.mainTitleBarLeadingInset(
+            leftNavigationWidth: 0,
+            titleBarNavigationOverlayWidth: 127,
+            isFullScreen: false
+        ) == 127)
     }
 
-    @Test("full screen uses sidebar width without traffic light padding")
+    @Test("full screen uses sidebar width without title bar navigation overlay")
     func fullScreenSidebarUsesResolvedWidth() {
         #expect(MainWindowLayout.leftNavigationWidth(
             sidebarWidth: 44,
             titleBarNavigationWidth: 127,
             isFullScreen: true
         ) == 44)
-        #expect(!MainWindowLayout.needsMainTitleBarNavigationInset(
+        #expect(MainWindowLayout.titleBarNavigationOverlayWidth(
             leftNavigationWidth: 44,
+            titleBarNavigationWidth: 127,
             isFullScreen: true
-        ))
+        ) == 0)
+        #expect(MainWindowLayout.mainTitleBarLeadingInset(
+            leftNavigationWidth: 44,
+            titleBarNavigationOverlayWidth: 0,
+            isFullScreen: true
+        ) == 0)
     }
 }
