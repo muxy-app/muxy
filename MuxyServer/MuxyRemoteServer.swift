@@ -166,6 +166,7 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             let params = NWParameters.tcp
             params.allowLocalEndpointReuse = true
             let ws = NWProtocolWebSocket.Options()
+            ws.autoReplyPing = true
             params.defaultProtocolStack.applicationProtocols.insert(ws, at: 0)
             listener = try NWListener(using: params, on: endpointPort)
         } catch {
