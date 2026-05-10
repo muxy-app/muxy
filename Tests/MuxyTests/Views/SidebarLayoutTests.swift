@@ -1,4 +1,5 @@
 import Testing
+import CoreGraphics
 
 @testable import Muxy
 
@@ -47,5 +48,47 @@ struct SidebarLayoutTests {
         ) == SidebarLayout.expandedWidth)
         #expect(!SidebarLayout.isHidden(expanded: true, collapsedStyle: .hidden))
         #expect(SidebarLayout.isWide(expanded: true, expandedStyle: .wide))
+    }
+}
+
+@Suite("MainWindowLayout")
+struct MainWindowLayoutTests {
+    @Test("visible sidebar owns the title bar height instead of sitting below tab strip")
+    func visibleSidebarExtendsThroughTitleBar() {
+        #expect(MainWindowLayout.leftNavigationWidth(
+            sidebarWidth: 44,
+            titleBarNavigationWidth: 127,
+            isFullScreen: false
+        ) == 127)
+        #expect(!MainWindowLayout.needsMainTitleBarNavigationInset(
+            leftNavigationWidth: 127,
+            isFullScreen: false
+        ))
+    }
+
+    @Test("hidden sidebar keeps title bar navigation inset in main title bar")
+    func hiddenSidebarLeavesNavigationInTitleBar() {
+        #expect(MainWindowLayout.leftNavigationWidth(
+            sidebarWidth: 0,
+            titleBarNavigationWidth: 127,
+            isFullScreen: false
+        ) == 0)
+        #expect(MainWindowLayout.needsMainTitleBarNavigationInset(
+            leftNavigationWidth: 0,
+            isFullScreen: false
+        ))
+    }
+
+    @Test("full screen uses sidebar width without traffic light padding")
+    func fullScreenSidebarUsesResolvedWidth() {
+        #expect(MainWindowLayout.leftNavigationWidth(
+            sidebarWidth: 44,
+            titleBarNavigationWidth: 127,
+            isFullScreen: true
+        ) == 44)
+        #expect(!MainWindowLayout.needsMainTitleBarNavigationInset(
+            leftNavigationWidth: 44,
+            isFullScreen: true
+        ))
     }
 }
