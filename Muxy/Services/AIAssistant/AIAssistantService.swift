@@ -22,17 +22,25 @@ enum AIAssistantService {
     private static let diffLineLimit = 4000
     private static let truncationMarker = "\n[diff truncated by Muxy at \(diffLineLimit) lines]\n"
 
-    private static let excludedPathspecs: [String] = [
-        ":(exclude,glob)**/Package.resolved",
-        ":(exclude,glob)**/*.lock",
-        ":(exclude,glob)**/*.lockfile",
-        ":(exclude,glob)**/package-lock.json",
-        ":(exclude,glob)**/yarn.lock",
-        ":(exclude,glob)**/pnpm-lock.yaml",
-        ":(exclude,glob)**/Pods/**",
-        ":(exclude,glob)**/*.xcframework/**",
-        ":(exclude,glob)**/*.pbxproj",
+    private static let excludedPatterns: [String] = [
+        "**/Package.resolved",
+        "**/*.lock",
+        "**/*.lockfile",
+        "**/package-lock.json",
+        "**/yarn.lock",
+        "**/pnpm-lock.yaml",
+        "**/Pods/**",
+        "**/*.xcframework/**",
+        "**/*.pbxproj",
     ]
+
+    private static var excludedPathspecs: [String] {
+        excludedPatterns.map { ":(exclude,glob)\($0)" }
+    }
+
+    private static var untrackedExcludeFlags: [String] {
+        excludedPatterns.flatMap { ["-x", $0] }
+    }
 
     static func generateCommitMessage(
         repoPath: String,
@@ -156,14 +164,13 @@ enum AIAssistantService {
     private static func untrackedFilesDiff(repoPath: String) async -> String {
         let listing = try? await GitProcessRunner.runGit(
             repoPath: repoPath,
-            arguments: ["ls-files", "--others", "--exclude-standard", "-z"],
+            arguments: ["ls-files", "--others", "--exclude-standard", "-z"] + untrackedExcludeFlags,
             lineLimit: diffLineLimit
         )
         guard let listing, listing.status == 0 else { return "" }
         let paths = listing.stdout
             .split(separator: "\u{0}", omittingEmptySubsequences: true)
             .map(String.init)
-            .filter { !shouldExcludeUntrackedPath($0) }
         guard !paths.isEmpty else { return "" }
 
         var pieces: [String] = []
@@ -185,15 +192,6 @@ enum AIAssistantService {
         let output = result.truncated ? result.stdout + truncationMarker : result.stdout
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : output
-    }
-
-    private static func shouldExcludeUntrackedPath(_ path: String) -> Bool {
-        let lowercased = path.lowercased()
-        let suffixes = [".lock", ".lockfile", ".resolved", ".pbxproj"]
-        if suffixes.contains(where: { lowercased.hasSuffix($0) }) { return true }
-        let segments = ["/pods/", "/.xcframework/", "/node_modules/"]
-        let normalized = "/" + lowercased
-        return segments.contains(where: { normalized.contains($0) })
     }
 
     private static func diffArgs(_ baseArguments: [String]) -> [String] {
