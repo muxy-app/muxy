@@ -379,7 +379,9 @@ final class GhosttyTerminalNSView: NSView {
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
         if result {
-            ghostty_surface_set_focus(surface, true)
+            if let surface {
+                ghostty_surface_set_focus(surface, true)
+            }
             if !isFocused {
                 DispatchQueue.main.async { [weak self] in
                     self?.onFocus?()
@@ -391,7 +393,7 @@ final class GhosttyTerminalNSView: NSView {
 
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
-        if result {
+        if result, let surface {
             ghostty_surface_set_focus(surface, false)
         }
         return result
