@@ -31,7 +31,7 @@ struct Sidebar: View {
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
-    @State private var expanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
+    let expanded: Bool
     @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
 
@@ -57,7 +57,7 @@ struct Sidebar: View {
                 .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
                 .clipped()
 
-            SidebarFooter(expanded: isWide)
+            SidebarFooter(isWide: isWide, sidebarExpanded: expanded)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxHeight: .infinity, alignment: .bottom)
@@ -65,16 +65,6 @@ struct Sidebar: View {
         .opacity(isHidden ? 0 : 1)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Sidebar")
-        .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
-            toggleExpanded()
-        }
-    }
-
-    private func toggleExpanded() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            expanded.toggle()
-        }
-        UserDefaults.standard.set(expanded, forKey: "muxy.sidebarExpanded")
     }
 
     private var addButton: some View {
@@ -272,7 +262,8 @@ private struct AddProjectButton: View {
 }
 
 struct SidebarFooter: View {
-    var expanded: Bool = false
+    var isWide = false
+    var sidebarExpanded = false
     @AppStorage(AIUsageSettingsStore.usageEnabledKey) private var usageEnabled = false
     @AppStorage(AIUsageSettingsStore.usageDisplayModeKey) private var usageDisplayModeRaw = AIUsageSettingsStore.defaultUsageDisplayMode
         .rawValue
@@ -292,7 +283,7 @@ struct SidebarFooter: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if expanded {
+            if isWide {
                 expandedFooter
             } else {
                 collapsedFooter
@@ -328,7 +319,7 @@ struct SidebarFooter: View {
     }
 
     private var sidebarToggleLabel: String {
-        expanded ? "Collapse Sidebar" : "Expand Sidebar"
+        sidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar"
     }
 
     private var sidebarToggleIcon: String {
@@ -366,7 +357,7 @@ struct SidebarFooter: View {
         AIUsagePreviewButton(
             display: previewProviderDisplay,
             percentLabel: previewProviderPercentLabel,
-            expanded: expanded,
+            expanded: isWide,
             onTap: { showAIUsagePopover.toggle() }
         )
         .popover(isPresented: $showAIUsagePopover) {
