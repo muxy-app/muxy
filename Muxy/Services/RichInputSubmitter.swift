@@ -69,10 +69,9 @@ enum RichInputSubmitter {
             for segment in segments {
                 switch segment {
                 case let .text(chunk):
-                    if !chunk.isEmpty {
-                        for view in views {
-                            view.submitRichInput(text: chunk)
-                        }
+                    guard !chunk.isEmpty else { continue }
+                    for view in views {
+                        view.submitRichInput(text: chunk)
                     }
                 case let .image(url):
                     for view in views {
