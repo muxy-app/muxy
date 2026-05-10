@@ -18,8 +18,10 @@ final class GitMetadataCache: @unchecked Sendable {
     private var prInfo: [PRKey: PREntry] = [:]
     private var defaultBranch: [String: String?] = [:]
     private var ghInstalled: Bool?
+    private var remoteWebURL: [String: URL?] = [:]
+    private var verifiedGitRepo: Set<String> = []
 
-    private let prTTL: TimeInterval = 60
+    private let prTTL: TimeInterval = 300
 
     private init() {}
 
@@ -79,5 +81,36 @@ final class GitMetadataCache: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         ghInstalled = installed
+    }
+
+    func cachedRemoteWebURL(repoPath: String) -> URL?? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let value = remoteWebURL[repoPath] else { return nil }
+        return .some(value)
+    }
+
+    func storeRemoteWebURL(_ url: URL?, repoPath: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        remoteWebURL[repoPath] = url
+    }
+
+    func invalidateRemoteWebURL(repoPath: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        remoteWebURL.removeValue(forKey: repoPath)
+    }
+
+    func isVerifiedGitRepo(repoPath: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return verifiedGitRepo.contains(repoPath)
+    }
+
+    func markVerifiedGitRepo(repoPath: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        verifiedGitRepo.insert(repoPath)
     }
 }

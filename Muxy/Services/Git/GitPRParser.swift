@@ -77,13 +77,18 @@ enum GitPRParser {
         )
     }
 
-    static func parsePRInfoMatchingHeadSha(_ json: String, headSha: String) -> GitRepositoryService.PRInfo? {
+    static func parsePRInfoMatchingHeadSha(
+        _ json: String,
+        headSha: String,
+        branch: String
+    ) -> GitRepositoryService.PRInfo? {
         guard let data = json.data(using: .utf8),
               let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else { return nil }
-        let normalized = headSha.lowercased()
+        let normalizedSha = headSha.lowercased()
         let match = array.first { entry in
-            (entry["headRefOid"] as? String)?.lowercased() == normalized
+            (entry["headRefOid"] as? String)?.lowercased() == normalizedSha
+                && (entry["headRefName"] as? String) == branch
         }
         guard let match else { return nil }
         return parsePRInfo(match)

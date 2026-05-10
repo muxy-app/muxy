@@ -192,7 +192,7 @@ struct GitPRParserTests {
 
     @Suite("parsePRInfoMatchingHeadSha")
     struct PRInfoMatchingHeadSha {
-        @Test("matches PR by head SHA case-insensitively")
+        @Test("matches PR by head SHA case-insensitively when branch matches")
         func matches() {
             let json = """
             [
@@ -201,6 +201,7 @@ struct GitPRParserTests {
                 "number": 1,
                 "state": "OPEN",
                 "baseRefName": "main",
+                "headRefName": "feature-a",
                 "statusCheckRollup": [],
                 "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
               },
@@ -209,6 +210,7 @@ struct GitPRParserTests {
                 "number": 2,
                 "state": "OPEN",
                 "baseRefName": "main",
+                "headRefName": "feature-b",
                 "statusCheckRollup": [],
                 "headRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
               }
@@ -216,22 +218,50 @@ struct GitPRParserTests {
             """
             let info = GitPRParser.parsePRInfoMatchingHeadSha(
                 json,
-                headSha: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+                headSha: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                branch: "feature-b"
             )
             #expect(info?.number == 2)
+        }
+
+        @Test("returns nil when SHA matches but branch differs")
+        func branchMismatch() {
+            let json = """
+            [
+              {
+                "url": "https://github.com/o/r/pull/1",
+                "number": 1,
+                "state": "OPEN",
+                "baseRefName": "main",
+                "headRefName": "feature-a",
+                "statusCheckRollup": [],
+                "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+            """
+            let info = GitPRParser.parsePRInfoMatchingHeadSha(
+                json,
+                headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                branch: "other-branch"
+            )
+            #expect(info == nil)
         }
 
         @Test("returns nil when no PR matches")
         func noMatch() {
             let json = """
-            [{"url":"u","number":1,"state":"OPEN","statusCheckRollup":[],"headRefOid":"aa"}]
+            [{"url":"u","number":1,"state":"OPEN","statusCheckRollup":[],"headRefOid":"aa","headRefName":"x"}]
             """
-            #expect(GitPRParser.parsePRInfoMatchingHeadSha(json, headSha: "deadbeef") == nil)
+            #expect(
+                GitPRParser.parsePRInfoMatchingHeadSha(json, headSha: "deadbeef", branch: "x") == nil
+            )
         }
 
         @Test("returns nil for invalid JSON")
         func invalid() {
-            #expect(GitPRParser.parsePRInfoMatchingHeadSha("not-json", headSha: "x") == nil)
+            #expect(
+                GitPRParser.parsePRInfoMatchingHeadSha("not-json", headSha: "x", branch: "y") == nil
+            )
         }
     }
 

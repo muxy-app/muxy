@@ -177,22 +177,35 @@ struct GitRepositoryService {
         return installed
     }
 
+    enum PRFetchResult: Equatable {
+        case found(PRInfo)
+        case noPR
+        case failed
+    }
+
     func cachedPullRequestInfo(
         repoPath: String,
         branch: String,
         headSha: String,
         forceFresh: Bool
-    ) async -> PRInfo? {
+    ) async -> PRFetchResult {
         if !forceFresh, let cached = GitMetadataCache.shared.cachedPRInfo(
             repoPath: repoPath,
             branch: branch,
             headSha: headSha
         ) {
-            return cached
+            return cached.map { .found($0) } ?? .noPR
         }
-        let info = await pullRequestInfo(repoPath: repoPath, branch: branch, headSha: headSha)
-        GitMetadataCache.shared.storePRInfo(info, repoPath: repoPath, branch: branch, headSha: headSha)
-        return info
+        let result = await pullRequestInfoResult(repoPath: repoPath, branch: branch, headSha: headSha)
+        switch result {
+        case let .found(info):
+            GitMetadataCache.shared.storePRInfo(info, repoPath: repoPath, branch: branch, headSha: headSha)
+        case .noPR:
+            GitMetadataCache.shared.storePRInfo(nil, repoPath: repoPath, branch: branch, headSha: headSha)
+        case .failed:
+            break
+        }
+        return result
     }
 
     private static let prInfoJSONFields =
@@ -200,34 +213,52 @@ struct GitRepositoryService {
     private static let prInfoJSONFieldsWithHeadRefOid = prInfoJSONFields + ",headRefOid"
 
     func pullRequestInfo(repoPath: String, branch: String, headSha: String? = nil) async -> PRInfo? {
-        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
-
-        if let info = await ghPRView(ghPath: ghPath, repoPath: repoPath, jsonFields: Self.prInfoJSONFields) {
-            return info
-        }
-        if let info = await ghPRView(
-            ghPath: ghPath, repoPath: repoPath, argument: branch, jsonFields: Self.prInfoJSONFields
+        if case let .found(info) = await pullRequestInfoResult(
+            repoPath: repoPath, branch: branch, headSha: headSha
         ) {
             return info
         }
+        return nil
+    }
+
+    func pullRequestInfoResult(
+        repoPath: String,
+        branch: String,
+        headSha: String? = nil
+    ) async -> PRFetchResult {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return .failed }
+
+        let viewResult = await ghPRView(ghPath: ghPath, repoPath: repoPath, jsonFields: Self.prInfoJSONFields)
+        if case let .found(info) = viewResult { return .found(info) }
+
+        let viewByBranch = await ghPRView(
+            ghPath: ghPath, repoPath: repoPath, argument: branch, jsonFields: Self.prInfoJSONFields
+        )
+        if case let .found(info) = viewByBranch { return .found(info) }
 
         let resolvedSha: String? = if let headSha { headSha } else { await self.headSha(repoPath: repoPath) }
         if let resolvedSha {
-            return await pullRequestInfoByHeadSha(
-                ghPath: ghPath, repoPath: repoPath, headSha: resolvedSha
+            let byShaResult = await pullRequestInfoByHeadSha(
+                ghPath: ghPath, repoPath: repoPath, branch: branch, headSha: resolvedSha
             )
+            if case let .found(info) = byShaResult { return .found(info) }
+            if byShaResult == .failed { return .failed }
         }
-        return nil
+
+        if viewResult == .failed || viewByBranch == .failed { return .failed }
+        return .noPR
     }
 
     private func pullRequestInfoByHeadSha(
         ghPath: String,
         repoPath: String,
+        branch: String,
         headSha: String
-    ) async -> PRInfo? {
+    ) async -> PRFetchResult {
         let arguments = [
             "pr", "list",
             "--state", "all",
+            "--head", branch,
             "--limit", "100",
             "--json", Self.prInfoJSONFieldsWithHeadRefOid,
         ]
@@ -236,8 +267,16 @@ struct GitRepositoryService {
             arguments: arguments,
             workingDirectory: repoPath
         )
-        guard let result, result.status == 0 else { return nil }
-        return GitPRParser.parsePRInfoMatchingHeadSha(result.stdout, headSha: headSha)
+        guard let result else { return .failed }
+        guard result.status == 0 else {
+            return ghErrorIndicatesNoPR(stderr: result.stderr) ? .noPR : .failed
+        }
+        if let info = GitPRParser.parsePRInfoMatchingHeadSha(
+            result.stdout, headSha: headSha, branch: branch
+        ) {
+            return .found(info)
+        }
+        return .noPR
     }
 
     private func ghPRView(
@@ -245,7 +284,7 @@ struct GitRepositoryService {
         repoPath: String,
         argument: String? = nil,
         jsonFields: String
-    ) async -> PRInfo? {
+    ) async -> PRFetchResult {
         var arguments = ["pr", "view"]
         if let argument {
             arguments.append(argument)
@@ -257,8 +296,22 @@ struct GitRepositoryService {
             arguments: arguments,
             workingDirectory: repoPath
         )
-        guard let result, result.status == 0 else { return nil }
-        return GitPRParser.parsePRInfo(result.stdout)
+        guard let result else { return .failed }
+        guard result.status == 0 else {
+            return ghErrorIndicatesNoPR(stderr: result.stderr) ? .noPR : .failed
+        }
+        if let info = GitPRParser.parsePRInfo(result.stdout) {
+            return .found(info)
+        }
+        return .noPR
+    }
+
+    private func ghErrorIndicatesNoPR(stderr: String) -> Bool {
+        let lowered = stderr.lowercased()
+        return lowered.contains("no pull requests found")
+            || lowered.contains("no pull request found")
+            || lowered.contains("could not resolve")
+            || lowered.contains("no commits between")
     }
 
     enum PRListFilter: String {
@@ -409,13 +462,20 @@ struct GitRepositoryService {
     }
 
     func remoteWebURL(repoPath: String, remote: String = "origin") async -> URL? {
+        if remote == "origin", let cached = GitMetadataCache.shared.cachedRemoteWebURL(repoPath: repoPath) {
+            return cached
+        }
         let result = try? await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["remote", "get-url", remote]
         )
         guard let result, result.status == 0 else { return nil }
         let raw = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Self.webURL(fromRemoteURL: raw)
+        let url = Self.webURL(fromRemoteURL: raw)
+        if remote == "origin" {
+            GitMetadataCache.shared.storeRemoteWebURL(url, repoPath: repoPath)
+        }
+        return url
     }
 
     static func webURL(fromRemoteURL raw: String) -> URL? {
@@ -518,12 +578,14 @@ struct GitRepositoryService {
             .map(String.init)
             .first(where: { $0.hasPrefix("https://") }) ?? ""
 
-        if !createdURL.isEmpty, let info = await ghPRView(
-            ghPath: ghPath,
-            repoPath: repoPath,
-            argument: createdURL,
-            jsonFields: Self.prInfoJSONFields
-        ) {
+        if !createdURL.isEmpty,
+           case let .found(info) = await ghPRView(
+               ghPath: ghPath,
+               repoPath: repoPath,
+               argument: createdURL,
+               jsonFields: Self.prInfoJSONFields
+           )
+        {
             return info
         }
 
@@ -603,14 +665,17 @@ struct GitRepositoryService {
         let signpostID = GitSignpost.begin("changedFiles")
         defer { GitSignpost.end("changedFiles", signpostID) }
 
-        let verifyResult = try await GitProcessRunner.runGit(
-            repoPath: repoPath,
-            arguments: ["rev-parse", "--is-inside-work-tree"]
-        )
-        guard verifyResult.status == 0,
-              verifyResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
-        else {
-            throw GitError.notGitRepository
+        if !GitMetadataCache.shared.isVerifiedGitRepo(repoPath: repoPath) {
+            let verifyResult = try await GitProcessRunner.runGit(
+                repoPath: repoPath,
+                arguments: ["rev-parse", "--is-inside-work-tree"]
+            )
+            guard verifyResult.status == 0,
+                  verifyResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+            else {
+                throw GitError.notGitRepository
+            }
+            GitMetadataCache.shared.markVerifiedGitRepo(repoPath: repoPath)
         }
 
         async let statusTask = GitProcessRunner.runGit(
