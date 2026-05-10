@@ -113,7 +113,7 @@ struct MainWindow: View {
     @State private var showWorktreeSwitcher = false
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
-    @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
+    @State private var sidebarExpanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
@@ -127,6 +127,7 @@ struct MainWindow: View {
             leftNavigationColumn
             mainWorkspaceColumn
         }
+        .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
         .overlay(alignment: .topLeading) {
             titleBarNavigationOverlay
         }
@@ -239,6 +240,7 @@ struct MainWindow: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 sidebarExpanded.toggle()
             }
+            UserDefaults.standard.set(sidebarExpanded, forKey: "muxy.sidebarExpanded")
         }
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
@@ -312,6 +314,7 @@ struct MainWindow: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
+        .animation(.easeInOut(duration: 0.2), value: leftNavigationWidth)
     }
 
     private var mainWorkspaceColumn: some View {
@@ -339,27 +342,30 @@ struct MainWindow: View {
 
             topBarContent
         }
+        .animation(.easeInOut(duration: 0.2), value: mainTitleBarLeadingInset)
     }
 
-    @ViewBuilder
     private var titleBarNavigationOverlay: some View {
-        if !isFullScreen {
-            Color.clear
-                .frame(width: titleBarNavigationOverlayWidth, height: UIMetrics.scaled(32))
-                .fixedSize(horizontal: true, vertical: false)
-                .background(WindowDragRepresentable())
-                .background(MuxyTheme.bg)
-                .overlay(alignment: .trailing) {
-                    HStack(spacing: 0) {
-                        navigationArrows
-                        if titleBarNavigationOverflowsSidebar {
-                            Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                                .accessibilityHidden(true)
+        Group {
+            if !isFullScreen {
+                Color.clear
+                    .frame(width: titleBarNavigationOverlayWidth, height: UIMetrics.scaled(32))
+                    .fixedSize(horizontal: true, vertical: false)
+                    .background(WindowDragRepresentable())
+                    .background(MuxyTheme.bg)
+                    .overlay(alignment: .trailing) {
+                        HStack(spacing: 0) {
+                            navigationArrows
+                            if titleBarNavigationOverflowsSidebar {
+                                Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                                    .accessibilityHidden(true)
+                            }
                         }
                     }
-                }
-                .zIndex(1)
+                    .zIndex(1)
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: titleBarNavigationOverlayWidth)
     }
 
     private var workspaceContent: some View {
