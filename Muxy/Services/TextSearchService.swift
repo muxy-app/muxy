@@ -19,16 +19,19 @@ enum TextSearchService {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard trimmed.count >= minQueryLength else { return [] }
         guard let executable = ripgrepExecutableURL() else { return [] }
+        guard let patternData = trimmed.data(using: .utf8) else { return [] }
 
         return await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = executable
-            process.arguments = arguments(query: trimmed, projectPath: projectPath)
+            process.arguments = arguments(projectPath: projectPath)
 
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
+            let stdinPipe = Pipe()
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
+            process.standardInput = stdinPipe
 
             let resultsBox = MatchesBox()
             let handle = stdoutPipe.fileHandleForReading
@@ -53,8 +56,11 @@ enum TextSearchService {
 
             do {
                 try process.run()
+                stdinPipe.fileHandleForWriting.write(patternData)
+                try? stdinPipe.fileHandleForWriting.close()
             } catch {
                 handle.readabilityHandler = nil
+                try? stdinPipe.fileHandleForWriting.close()
                 continuation.resume(returning: [])
             }
         }
@@ -71,7 +77,7 @@ enum TextSearchService {
         return nil
     }
 
-    private static func arguments(query: String, projectPath: String) -> [String] {
+    private static func arguments(projectPath: String) -> [String] {
         [
             "--json",
             "--smart-case",
@@ -79,8 +85,9 @@ enum TextSearchService {
             "--max-columns", "300",
             "--max-filesize", "2M",
             "--no-config",
+            "-f",
+            "-",
             "--",
-            query,
             projectPath,
         ]
     }

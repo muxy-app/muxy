@@ -39,4 +39,51 @@ struct TextSearchServiceTests {
         let column = TextSearchService.columnFromUTF8Offset(4, in: "héllo world")
         #expect(column == 4)
     }
+
+    @Test("parses Korean ripgrep match offsets")
+    func parsesKoreanMatchOffsets() throws {
+        let line = #"{"type":"match","data":{"path":{"text":"/proj/greeting.md"},"lines":{"text":"안녕하세요\n"},"line_number":1,"absolute_offset":0,"submatches":[{"match":{"text":"안녕"},"start":0,"end":6}]}}"#
+        let match = try #require(TextSearchService.parseLine(line, projectPath: "/proj"))
+
+        #expect(match.relativePath == "greeting.md")
+        #expect(match.lineNumber == 1)
+        #expect(match.lineText == "안녕하세요")
+        #expect(match.matchStart == 0)
+        #expect(match.matchEnd == 6)
+        #expect(match.column == 1)
+    }
+
+    @Test("searches Korean text through ripgrep")
+    func searchesKoreanText() async throws {
+        guard TextSearchService.ripgrepExecutableURL() != nil else { return }
+        let directory = try makeSearchFixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let matches = await TextSearchService.search(query: "안녕", in: directory.path)
+
+        #expect(matches.contains { $0.lineText == "안녕하세요" })
+    }
+
+    @Test("keeps regex search semantics")
+    func keepsRegexSearchSemantics() async throws {
+        guard TextSearchService.ripgrepExecutableURL() != nil else { return }
+        let directory = try makeSearchFixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let matches = await TextSearchService.search(query: "foo.*bar", in: directory.path)
+
+        #expect(matches.contains { $0.lineText == "foo123bar" })
+    }
+
+    private func makeSearchFixture() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-text-search-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("test.md")
+        try """
+        안녕하세요
+        foo123bar
+        """.write(to: file, atomically: true, encoding: .utf8)
+        return directory
+    }
 }
