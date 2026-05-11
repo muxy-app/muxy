@@ -65,9 +65,10 @@ struct FileTreeView: View {
                     .frame(maxWidth: .infinity, minHeight: 0, alignment: .top)
                 }
                 .background(rootDropTarget)
-                .onChange(of: state.selectedFilePath) { _, newValue in
+                .onChange(of: state.pendingScrollTarget) { _, newValue in
                     guard let newValue else { return }
                     proxy.scrollTo(newValue, anchor: .center)
+                    state.consumeScrollTarget()
                 }
                 .onChange(of: state.pendingRenamePath) { _, newValue in
                     if newValue == nil { requestKeyboardFocus() }

@@ -39,6 +39,7 @@ final class FileTreeState {
     var pendingDeletePaths: [String] = []
     var cutPaths: Set<String> = []
     var dropHighlightPath: String?
+    private(set) var pendingScrollTarget: String?
 
     @ObservationIgnored private var watcher: FileSystemWatcher?
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
@@ -248,7 +249,9 @@ final class FileTreeState {
         } else {
             delta >= 0 ? 0 : ordered.count - 1
         }
-        selectOnly(ordered[targetIndex])
+        let target = ordered[targetIndex]
+        selectOnly(target)
+        pendingScrollTarget = target
     }
 
     func collapseOrJumpToParent() {
@@ -261,6 +264,7 @@ final class FileTreeState {
         guard parent != normalizedRootPath else { return }
         guard visiblePathsInOrder().contains(parent) else { return }
         selectOnly(parent)
+        pendingScrollTarget = parent
     }
 
     func expandOrDescend() {
@@ -277,6 +281,7 @@ final class FileTreeState {
         let next = ordered[idx + 1]
         guard next.hasPrefix(path + "/") else { return }
         selectOnly(next)
+        pendingScrollTarget = next
     }
 
     func activateSelection(open: (String) -> Void) {
@@ -299,21 +304,29 @@ final class FileTreeState {
     }
 
     func revealFile(at filePath: String) {
+        let wasAlreadySelected = selectedFilePath == filePath
         selectedFilePath = filePath
         selectedPaths = [filePath]
         selectionAnchorPath = filePath
         guard filePath.hasPrefix(normalizedRootPath + "/") else { return }
         let relative = String(filePath.dropFirst(normalizedRootPath.count + 1))
         let components = relative.split(separator: "/").map(String.init)
-        guard components.count > 1 else { return }
-        var current = normalizedRootPath
-        for component in components.dropLast() {
-            current += "/" + component
-            if !expanded.contains(current) {
-                expanded.insert(current)
-                reloadChildren(of: current)
+        if components.count > 1 {
+            var current = normalizedRootPath
+            for component in components.dropLast() {
+                current += "/" + component
+                if !expanded.contains(current) {
+                    expanded.insert(current)
+                    reloadChildren(of: current)
+                }
             }
         }
+        guard !wasAlreadySelected else { return }
+        pendingScrollTarget = filePath
+    }
+
+    func consumeScrollTarget() {
+        pendingScrollTarget = nil
     }
 
     func status(for absolutePath: String) -> FileStatus? {
