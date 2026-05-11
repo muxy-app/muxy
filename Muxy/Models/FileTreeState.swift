@@ -186,6 +186,44 @@ final class FileTreeState {
         return result
     }
 
+    enum FlatRowItem: Identifiable {
+        case entry(FileTreeEntry, depth: Int)
+        case pendingNew(PendingNewEntry, depth: Int)
+
+        var id: String {
+            switch self {
+            case let .entry(entry, _):
+                "e:\(entry.absolutePath)"
+            case let .pendingNew(pending, _):
+                "p:\(pending.token.uuidString)"
+            }
+        }
+    }
+
+    func flatVisibleRows() -> [FlatRowItem] {
+        var result: [FlatRowItem] = []
+        for entry in visibleRootEntries() {
+            appendFlat(entry, depth: 0, into: &result)
+        }
+        if let pending = pendingNewEntry, pending.parentPath == normalizedRootPath {
+            result.append(.pendingNew(pending, depth: 0))
+        }
+        return result
+    }
+
+    private func appendFlat(_ entry: FileTreeEntry, depth: Int, into result: inout [FlatRowItem]) {
+        result.append(.entry(entry, depth: depth))
+        guard entry.isDirectory, expanded.contains(entry.absolutePath),
+              let children = visibleChildren(of: entry)
+        else { return }
+        for child in children {
+            appendFlat(child, depth: depth + 1, into: &result)
+        }
+        if let pending = pendingNewEntry, pending.parentPath == entry.absolutePath {
+            result.append(.pendingNew(pending, depth: depth + 1))
+        }
+    }
+
     func entry(at path: String) -> FileTreeEntry? {
         let parent = parentDirectory(of: path)
         let candidates: [FileTreeEntry]

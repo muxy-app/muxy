@@ -7,12 +7,7 @@ import SystemConfiguration
 final class PaneOwnershipStore {
     static let shared = PaneOwnershipStore()
 
-    var macDeviceName: String = {
-        if let name = SCDynamicStoreCopyComputerName(nil, nil) as String?, !name.isEmpty {
-            return name
-        }
-        return "Mac"
-    }()
+    var macDeviceName: String = "Mac"
 
     private var owners: [UUID: PaneOwnerDTO] = [:]
     private var deviceNames: [UUID: String] = [:]
@@ -20,7 +15,14 @@ final class PaneOwnershipStore {
 
     var onOwnershipChanged: ((UUID, PaneOwnerDTO) -> Void)?
 
-    private init() {}
+    private init() {
+        Task.detached(priority: .utility) {
+            guard let name = SCDynamicStoreCopyComputerName(nil, nil) as String?,
+                  !name.isEmpty
+            else { return }
+            await MainActor.run { PaneOwnershipStore.shared.macDeviceName = name }
+        }
+    }
 
     func owner(for paneID: UUID) -> PaneOwnerDTO {
         owners[paneID] ?? .mac(deviceName: macDeviceName)

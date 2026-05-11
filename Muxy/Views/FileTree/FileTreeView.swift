@@ -38,23 +38,26 @@ struct FileTreeView: View {
                     ZStack(alignment: .top) {
                         emptySpaceTarget
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(state.visibleRootEntries(), id: \.absolutePath) { entry in
-                                FileTreeRowGroup(
-                                    entry: entry,
-                                    depth: 0,
-                                    state: state,
-                                    commands: commands,
-                                    onOpenFile: onOpenFile,
-                                    requestFocus: requestKeyboardFocus
-                                )
-                            }
-                            if let pending = state.pendingNewEntry, pending.parentPath == normalizedRootPath {
-                                FileTreeNewEntryRow(
-                                    kind: pending.kind,
-                                    depth: 0,
-                                    commands: commands
-                                )
-                                .id(pending.token)
+                            ForEach(state.flatVisibleRows()) { item in
+                                switch item {
+                                case let .entry(entry, depth):
+                                    FileTreeRow(
+                                        entry: entry,
+                                        depth: depth,
+                                        state: state,
+                                        commands: commands,
+                                        onOpenFile: onOpenFile,
+                                        requestFocus: requestKeyboardFocus
+                                    )
+                                    .id(entry.absolutePath)
+                                case let .pendingNew(pending, depth):
+                                    FileTreeNewEntryRow(
+                                        kind: pending.kind,
+                                        depth: depth,
+                                        commands: commands
+                                    )
+                                    .id(pending.token)
+                                }
                             }
                         }
                         .padding(.vertical, UIMetrics.spacing2)
@@ -257,46 +260,6 @@ struct FileTreeView: View {
 
     private func requestKeyboardFocus() {
         focusToken &+= 1
-    }
-
-    private var normalizedRootPath: String {
-        state.rootPath.hasSuffix("/") ? String(state.rootPath.dropLast()) : state.rootPath
-    }
-}
-
-private struct FileTreeRowGroup: View {
-    let entry: FileTreeEntry
-    let depth: Int
-    @Bindable var state: FileTreeState
-    let commands: FileTreeCommands
-    let onOpenFile: (String) -> Void
-    let requestFocus: () -> Void
-
-    var body: some View {
-        FileTreeRow(
-            entry: entry,
-            depth: depth,
-            state: state,
-            commands: commands,
-            onOpenFile: onOpenFile,
-            requestFocus: requestFocus
-        )
-        if entry.isDirectory, state.isExpanded(entry), let children = state.visibleChildren(of: entry) {
-            ForEach(children, id: \.absolutePath) { child in
-                FileTreeRowGroup(
-                    entry: child,
-                    depth: depth + 1,
-                    state: state,
-                    commands: commands,
-                    onOpenFile: onOpenFile,
-                    requestFocus: requestFocus
-                )
-            }
-            if let pending = state.pendingNewEntry, pending.parentPath == entry.absolutePath {
-                FileTreeNewEntryRow(kind: pending.kind, depth: depth + 1, commands: commands)
-                    .id(pending.token)
-            }
-        }
     }
 }
 

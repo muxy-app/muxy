@@ -117,10 +117,30 @@ final class SentryService {
             options.beforeSend = { event in
                 event.user = nil
                 event.serverName = nil
+                if isModalAlertHang(event) { return nil }
                 return event
             }
         }
     }
+
+    nonisolated static func isModalAlertHang(_ event: Event) -> Bool {
+        guard event.exceptions?.contains(where: { $0.type == "App Hanging" }) == true else {
+            return false
+        }
+        let frames = event.exceptions?.flatMap { $0.stacktrace?.frames ?? [] } ?? []
+        return frames.contains { frame in
+            guard let function = frame.function else { return false }
+            return modalAlertFrameSignatures.contains { function.contains($0) }
+        }
+    }
+
+    nonisolated private static let modalAlertFrameSignatures: [String] = [
+        "runModal",
+        "_NSTryRunModal",
+        "_doModalLoop",
+        "NSOpenPanel",
+        "NSSavePanel",
+    ]
 
     private static let defaultStopper: () -> Void = {
         SentrySDK.close()
