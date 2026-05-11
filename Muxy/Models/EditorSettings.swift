@@ -47,11 +47,16 @@ final class EditorSettings {
     @ObservationIgnored private var isBatchLoading = false
 
     var resolvedFont: NSFont {
-        if let font = NSFont(name: fontFamily, size: fontSize) {
-            return font
+        if let cached = cachedResolvedFont, cached.fontName == fontFamily, cached.pointSize == fontSize {
+            return cached
         }
-        return NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        let font = NSFont(name: fontFamily, size: fontSize)
+            ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        cachedResolvedFont = font
+        return font
     }
+
+    @ObservationIgnored private var cachedResolvedFont: NSFont?
 
     var resolvedMarkdownPreviewFontFamilyCSS: String {
         if markdownPreviewFontFamily == Self.systemFontFamilyToken {
@@ -75,12 +80,16 @@ final class EditorSettings {
         "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif"
 
     static var availableMarkdownPreviewFonts: [String] {
+        if let cached = cachedMarkdownPreviewFonts { return cached }
         let families = NSFontManager.shared.availableFontFamilies.sorted()
-        return [systemFontFamilyToken] + families
+        let result = [systemFontFamilyToken] + families
+        cachedMarkdownPreviewFonts = result
+        return result
     }
 
     static var availableMonospacedFonts: [String] {
-        NSFontManager.shared
+        if let cached = cachedMonospacedFonts { return cached }
+        let result = NSFontManager.shared
             .availableFontFamilies
             .filter { family in
                 guard let font = NSFont(name: family, size: 13) else { return false }
@@ -90,7 +99,12 @@ final class EditorSettings {
                     || family.localizedCaseInsensitiveContains("consolas")
             }
             .sorted()
+        cachedMonospacedFonts = result
+        return result
     }
+
+    private static var cachedMarkdownPreviewFonts: [String]?
+    private static var cachedMonospacedFonts: [String]?
 
     private init() {
         store = CodableFileStore(

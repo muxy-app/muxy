@@ -29,20 +29,25 @@ enum AIAssistantProvider: String, CaseIterable, Identifiable, Codable {
     func builtInArguments(model: String?) -> [String] {
         switch self {
         case .claude:
-            var args = ["-p", "--output-format", "text"]
+            var args = [
+                "-p",
+                "--output-format", "text",
+                "--tools", "",
+                "--permission-mode", "dontAsk",
+            ]
             if let model, !model.isEmpty {
                 args.append(contentsOf: ["--model", model])
             }
             return args
         case .codex:
-            var args = ["exec", "--skip-git-repo-check"]
+            var args = ["exec", "--skip-git-repo-check", "--sandbox", "read-only"]
             if let model, !model.isEmpty {
                 args.append(contentsOf: ["--model", model])
             }
             args.append("-")
             return args
         case .opencode:
-            var args = ["run"]
+            var args = ["run", "--pure"]
             if let model, !model.isEmpty {
                 args.append(contentsOf: ["--model", model])
             }

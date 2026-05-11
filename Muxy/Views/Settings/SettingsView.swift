@@ -20,7 +20,30 @@ struct SettingsView: View {
             AIUsageSettingsView()
                 .tabItem { Label("AI Usage", systemImage: "chart.bar") }
         }
-        .frame(width: 500, height: 500)
+        .frame(minWidth: 720, minHeight: 560)
+        .background(SettingsWindowConfigurator(minSize: NSSize(width: 720, height: 560)))
         .resetsSettingsFocusOnOutsideClick()
     }
+}
+
+private struct SettingsWindowConfigurator: NSViewRepresentable {
+    let minSize: NSSize
+
+    func makeNSView(context _: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { [weak view] in
+            guard let window = view?.window else { return }
+            window.styleMask.insert(.resizable)
+            window.minSize = minSize
+            if window.frame.width < minSize.width || window.frame.height < minSize.height {
+                var frame = window.frame
+                frame.size.width = max(frame.size.width, minSize.width)
+                frame.size.height = max(frame.size.height, minSize.height)
+                window.setFrame(frame, display: true)
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_: NSView, context _: Context) {}
 }
