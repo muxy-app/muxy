@@ -25,12 +25,7 @@ enum AIAssistantRunnerError: Error, LocalizedError {
 }
 
 struct AIAssistantInvocation {
-    enum Kind {
-        case direct(executable: String, arguments: [String])
-        case shell(commandLine: String)
-    }
-
-    let kind: Kind
+    let commandLine: String
     let displayName: String
 }
 
@@ -47,13 +42,6 @@ enum AIAssistantRunner {
         attributes: .concurrent
     )
 
-    private static let shellPathSearch = [
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/usr/bin",
-        "/bin",
-    ]
-
     static func resolveInvocation(
         provider: AIAssistantProvider,
         customCommand: String,
@@ -66,16 +54,12 @@ enum AIAssistantRunner {
                     "Custom command is empty. Configure it in Settings → AI."
                 )
             }
-            return AIAssistantInvocation(kind: .shell(commandLine: trimmed), displayName: firstToken(trimmed))
+            return AIAssistantInvocation(commandLine: trimmed, displayName: firstToken(trimmed))
         }
         let executable = provider.defaultExecutable
-        guard let resolved = resolveExecutable(executable) else {
-            throw AIAssistantRunnerError.commandNotFound(executable)
-        }
-        return AIAssistantInvocation(
-            kind: .direct(executable: resolved, arguments: provider.builtInArguments(model: model)),
-            displayName: executable
-        )
+        let arguments = provider.builtInArguments(model: model)
+        let commandLine = ([executable] + arguments).map(ShellEscaper.escape).joined(separator: " ")
+        return AIAssistantInvocation(commandLine: commandLine, displayName: executable)
     }
 
     static func run(
@@ -119,15 +103,8 @@ enum AIAssistantRunner {
         handle: ProcessHandle
     ) throws -> String {
         let process = Process()
-        switch invocation.kind {
-        case let .direct(executable, arguments):
-            process.executableURL = URL(fileURLWithPath: executable)
-            process.arguments = arguments
-            process.environment = enrichedEnvironment()
-        case let .shell(commandLine):
-            process.executableURL = URL(fileURLWithPath: userShell())
-            process.arguments = ["-l", "-c", commandLine]
-        }
+        process.executableURL = URL(fileURLWithPath: userShell())
+        process.arguments = ["-l", "-i", "-c", invocation.commandLine]
         process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
 
         let stdinPipe = Pipe()
@@ -179,49 +156,6 @@ enum AIAssistantRunner {
             throw AIAssistantRunnerError.emptyOutput
         }
         return trimmed
-    }
-
-    private static func resolveExecutable(_ name: String) -> String? {
-        if let direct = GitProcessRunner.resolveExecutable(name) {
-            return direct
-        }
-        for directory in shellPathSearch {
-            let path = "\(directory)/\(name)"
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-        return resolveViaUserShell(name)
-    }
-
-    private static func resolveViaUserShell(_ name: String) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: userShell())
-        process.arguments = ["-l", "-c", "command -v \(name)"]
-        let stdoutPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = Pipe()
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) else { return nil }
-        return path
-    }
-
-    private static func enrichedEnvironment() -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        let existing = environment["PATH"] ?? ""
-        let extras = shellPathSearch.filter { !existing.contains($0) }
-        if !extras.isEmpty {
-            environment["PATH"] = (extras + [existing]).filter { !$0.isEmpty }.joined(separator: ":")
-        }
-        return environment
     }
 
     private static func userShell() -> String {

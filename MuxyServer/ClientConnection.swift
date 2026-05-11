@@ -69,8 +69,9 @@ final class ClientConnection: @unchecked Sendable {
                 return
             }
 
-            let isWebSocket = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) != nil
-            guard isWebSocket else {
+            let metadata = context?.protocolMetadata(definition: NWProtocolWebSocket.definition)
+                as? NWProtocolWebSocket.Metadata
+            guard let metadata, metadata.opcode == .text || metadata.opcode == .binary else {
                 self.receiveNextMessage()
                 return
             }

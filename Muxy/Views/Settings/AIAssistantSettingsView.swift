@@ -95,7 +95,7 @@ struct AIAssistantSettingsView: View {
                     .frame(width: SettingsMetrics.controlWidth)
             }
             Text(
-                "Runs through your login shell so PATH and aliases resolve. "
+                "Runs through your interactive login shell so PATH and aliases resolve. "
                     + "Muxy pipes the full prompt to stdin and reads the response from stdout. "
                     + "Provide arguments that make the tool emit only the response (no banners or progress)."
             )
