@@ -21,7 +21,7 @@ struct ExpandedProjectRow: View {
     @State private var hovered = false
     @State private var isRenaming = false
     @State private var renameText = ""
-    @State private var isGitRepo = false
+    @State private var isVCSRepo = false
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableExpandedImage?
     @State private var worktreesExpanded = false
@@ -51,18 +51,18 @@ struct ExpandedProjectRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             projectHeader
-            if worktreesExpanded, isGitRepo {
+            if worktreesExpanded, isVCSRepo {
                 worktreeList
             }
         }
         .task(id: project.path) {
-            isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
-            if autoExpandWorktrees, isActive, isGitRepo {
+            isVCSRepo = await WorktreeServiceFactory.isRepository(project.path)
+            if autoExpandWorktrees, isActive, isVCSRepo {
                 worktreesExpanded = true
             }
         }
         .onChange(of: isActive) { _, active in
-            guard autoExpandWorktrees, active, isGitRepo else { return }
+            guard autoExpandWorktrees, active, isVCSRepo else { return }
             withAnimation(.easeInOut(duration: 0.15)) {
                 worktreesExpanded = true
             }
@@ -78,7 +78,7 @@ struct ExpandedProjectRow: View {
             }
             Divider()
             Button("Rename Project") { startRename() }
-            if isGitRepo {
+            if isVCSRepo {
                 Divider()
                 Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
                 Button("New Worktree…") { showCreateWorktreeSheet = true }
@@ -132,7 +132,7 @@ struct ExpandedProjectRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                if isGitRepo, let worktree = activeWorktree {
+                if isVCSRepo, let worktree = activeWorktree {
                     Text(worktree.isPrimary ? "primary" : worktree.name)
                         .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fg)
@@ -143,7 +143,7 @@ struct ExpandedProjectRow: View {
 
             Spacer(minLength: UIMetrics.spacing2)
 
-            if isGitRepo {
+            if isVCSRepo {
                 worktreeChevron
             }
         }
@@ -163,7 +163,7 @@ struct ExpandedProjectRow: View {
         }
         .onTapGesture {
             guard !isAnyDragging else { return }
-            if isActive, isGitRepo {
+            if isActive, isVCSRepo {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     worktreesExpanded.toggle()
                 }
@@ -266,7 +266,7 @@ struct ExpandedProjectRow: View {
 
     private var projectHeaderAccessibilityLabel: String {
         var label = project.name
-        if isGitRepo, let worktree = activeWorktree {
+        if isVCSRepo, let worktree = activeWorktree {
             label += ", worktree: \(worktree.isPrimary ? "primary" : worktree.name)"
         }
         return label
@@ -344,7 +344,8 @@ struct ExpandedProjectRow: View {
     }
 
     private func requestRemove(worktree: Worktree) async {
-        let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(worktreePath: worktree.path)
+        let service = await WorktreeServiceFactory.service(for: project.path)
+        let hasChanges = await service.hasUncommittedChanges(worktreePath: worktree.path)
         if !hasChanges {
             performRemove(worktree: worktree)
             return

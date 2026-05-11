@@ -129,7 +129,7 @@ struct WorktreeBranchPicker: View {
                 case .worktrees:
                     WorktreePopover(
                         project: project,
-                        isGitRepo: isGitRepo,
+                        isVCSRepo: isGitRepo,
                         onDismiss: { showPopover = false },
                         onRequestCreate: {
                             showPopover = false

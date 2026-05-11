@@ -1,35 +1,10 @@
 import Foundation
 
-struct GitWorktreeRecord: Hashable {
-    let path: String
-    let branch: String?
-    let head: String?
-    let isBare: Bool
-    let isDetached: Bool
-    let isPrunable: Bool
-
-    init(
-        path: String,
-        branch: String?,
-        head: String?,
-        isBare: Bool,
-        isDetached: Bool,
-        isPrunable: Bool = false
-    ) {
-        self.path = path
-        self.branch = branch
-        self.head = head
-        self.isBare = isBare
-        self.isDetached = isDetached
-        self.isPrunable = isPrunable
-    }
-}
-
 protocol GitWorktreeListing {
-    func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord]
+    func listWorktrees(repoPath: String) async throws -> [WorktreeRecord]
 }
 
-actor GitWorktreeService: GitWorktreeListing {
+actor GitWorktreeService: WorktreeService, GitWorktreeListing {
     static let shared = GitWorktreeService()
 
     enum GitWorktreeError: LocalizedError {
@@ -46,7 +21,7 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
-    func isGitRepository(_ path: String) async -> Bool {
+    func isRepository(_ path: String) async -> Bool {
         guard let result = try? runGit(repoPath: path, arguments: ["rev-parse", "--is-inside-work-tree"]) else {
             return false
         }
@@ -65,7 +40,7 @@ actor GitWorktreeService: GitWorktreeListing {
         return !result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord] {
+    func listWorktrees(repoPath: String) async throws -> [WorktreeRecord] {
         let result = try runGit(repoPath: repoPath, arguments: ["worktree", "list", "--porcelain"])
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
@@ -103,7 +78,7 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
-    func removeWorktree(repoPath: String, path: String, force: Bool = false) async throws {
+    func removeWorktree(repoPath: String, path: String, force: Bool) async throws {
         var args: [String] = ["worktree", "remove"]
         if force { args.append("--force") }
         args += ["--", path]
@@ -126,8 +101,8 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
-    private func parsePorcelain(_ raw: String) -> [GitWorktreeRecord] {
-        var records: [GitWorktreeRecord] = []
+    private func parsePorcelain(_ raw: String) -> [WorktreeRecord] {
+        var records: [WorktreeRecord] = []
         var currentPath: String?
         var currentBranch: String?
         var currentHead: String?
@@ -137,7 +112,7 @@ actor GitWorktreeService: GitWorktreeListing {
 
         func flush() {
             guard let path = currentPath else { return }
-            records.append(GitWorktreeRecord(
+            records.append(WorktreeRecord(
                 path: path,
                 branch: currentBranch,
                 head: currentHead,

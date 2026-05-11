@@ -19,7 +19,7 @@ struct ProjectRow: View {
     @State private var isRenaming = false
     @State private var renameText = ""
     @State private var showWorktreePopover = false
-    @State private var isGitRepo = false
+    @State private var isVCSRepo = false
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableImage?
     @State private var isRefreshingWorktrees = false
@@ -58,7 +58,7 @@ struct ProjectRow: View {
                 onSelect()
             }
             .task(id: project.path) {
-                isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
+                isVCSRepo = await WorktreeServiceFactory.isRepository(project.path)
             }
             .contextMenu {
                 Button("Set Logo...") { pickLogoImage() }
@@ -71,7 +71,7 @@ struct ProjectRow: View {
                 }
                 Divider()
                 Button("Rename Project") { startRename() }
-                if isGitRepo {
+                if isVCSRepo {
                     Divider()
                     Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
                     Button("New Worktree…") { showCreateWorktreeSheet = true }
@@ -85,7 +85,7 @@ struct ProjectRow: View {
             .popover(isPresented: $showWorktreePopover, arrowEdge: .trailing) {
                 WorktreePopover(
                     project: project,
-                    isGitRepo: isGitRepo,
+                    isVCSRepo: isVCSRepo,
                     onDismiss: { showWorktreePopover = false },
                     onRequestCreate: {
                         showWorktreePopover = false

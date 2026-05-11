@@ -7,19 +7,19 @@ import Testing
 @Suite("VCSWorktreeAutoRefresher")
 @MainActor
 struct VCSWorktreeAutoRefresherTests {
-    @Test(".vcsDidRefresh triggers refreshFromGit for the matching project")
+    @Test(".vcsDidRefresh triggers refreshWorktrees for the matching project")
     func vcsDidRefreshTriggersRefresh() async {
         let context = makeContext()
         await runRefresh(context: context, notification: .vcsDidRefresh)
-        await #expect(context.gitService.callCount(forRepoPath: context.project.path) == 1)
+        await #expect(context.listingService.callCount(forRepoPath: context.project.path) == 1)
         #expect(context.worktreeStore.list(for: context.project.id).contains { $0.path == context.featurePath })
     }
 
-    @Test(".vcsRepoDidChange triggers refreshFromGit for the matching project")
+    @Test(".vcsRepoDidChange triggers refreshWorktrees for the matching project")
     func vcsRepoDidChangeTriggersRefresh() async {
         let context = makeContext()
         await runRefresh(context: context, notification: .vcsRepoDidChange)
-        await #expect(context.gitService.callCount(forRepoPath: context.project.path) == 1)
+        await #expect(context.listingService.callCount(forRepoPath: context.project.path) == 1)
         #expect(context.worktreeStore.list(for: context.project.id).contains { $0.path == context.featurePath })
     }
 
@@ -32,7 +32,7 @@ struct VCSWorktreeAutoRefresherTests {
             userInfo: ["repoPath": "/tmp/muxy-test-unknown-\(UUID().uuidString)"]
         )
         await drainMainQueue()
-        await #expect(context.gitService.callCount(forRepoPath: context.project.path) == 0)
+        await #expect(context.listingService.callCount(forRepoPath: context.project.path) == 0)
         #expect(context.worktreeStore.list(for: context.project.id).count == 1)
     }
 
@@ -42,7 +42,7 @@ struct VCSWorktreeAutoRefresherTests {
             object: nil,
             userInfo: ["repoPath": context.project.path]
         )
-        await context.gitService.awaitCall(forRepoPath: context.project.path)
+        await context.listingService.awaitCall(forRepoPath: context.project.path)
         await drainMainQueue()
     }
 
@@ -62,16 +62,16 @@ struct VCSWorktreeAutoRefresherTests {
         let featurePath = "/tmp/muxy-test-repo-\(suffix)-feature-x"
         let project = Project(name: "Repo", path: projectPath)
         let projectStore = ProjectStore(persistence: ProjectPersistenceStub(initial: [project]))
-        let gitService = TrackingGitWorktreeListingStub(recordsByRepoPath: [
+        let listingService = TrackingWorktreeListingStub(recordsByRepoPath: [
             projectPath: [
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: projectPath,
                     branch: "main",
                     head: nil,
                     isBare: false,
                     isDetached: false
                 ),
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: featurePath,
                     branch: "feature-x",
                     head: nil,
@@ -84,7 +84,7 @@ struct VCSWorktreeAutoRefresherTests {
             persistence: WorktreePersistenceStub(initial: [
                 project.id: [Worktree(name: project.name, path: project.path, isPrimary: true)]
             ]),
-            listGitWorktrees: gitService.listWorktrees,
+            listWorktrees: listingService.listWorktrees,
             projects: [project]
         )
         let appState = AppState(
@@ -103,7 +103,7 @@ struct VCSWorktreeAutoRefresherTests {
             projectStore: projectStore,
             worktreeStore: worktreeStore,
             appState: appState,
-            gitService: gitService,
+            listingService: listingService,
             refresher: refresher
         )
     }
@@ -115,7 +115,7 @@ struct VCSWorktreeAutoRefresherTests {
         let projectStore: ProjectStore
         let worktreeStore: WorktreeStore
         let appState: AppState
-        let gitService: TrackingGitWorktreeListingStub
+        let listingService: TrackingWorktreeListingStub
         let refresher: VCSWorktreeAutoRefresher
 
         init(
@@ -124,7 +124,7 @@ struct VCSWorktreeAutoRefresherTests {
             projectStore: ProjectStore,
             worktreeStore: WorktreeStore,
             appState: AppState,
-            gitService: TrackingGitWorktreeListingStub,
+            listingService: TrackingWorktreeListingStub,
             refresher: VCSWorktreeAutoRefresher
         ) {
             self.project = project
@@ -132,22 +132,22 @@ struct VCSWorktreeAutoRefresherTests {
             self.projectStore = projectStore
             self.worktreeStore = worktreeStore
             self.appState = appState
-            self.gitService = gitService
+            self.listingService = listingService
             self.refresher = refresher
         }
     }
 }
 
-private actor GitWorktreeCallTracker {
-    private let recordsByRepoPath: [String: [GitWorktreeRecord]]
+private actor WorktreeCallTracker {
+    private let recordsByRepoPath: [String: [WorktreeRecord]]
     private var calls: [String: Int] = [:]
     private var pendingContinuations: [String: [CheckedContinuation<Void, Never>]] = [:]
 
-    init(recordsByRepoPath: [String: [GitWorktreeRecord]]) {
+    init(recordsByRepoPath: [String: [WorktreeRecord]]) {
         self.recordsByRepoPath = recordsByRepoPath
     }
 
-    func record(repoPath: String) -> [GitWorktreeRecord] {
+    func record(repoPath: String) -> [WorktreeRecord] {
         calls[repoPath, default: 0] += 1
         let waiters = pendingContinuations.removeValue(forKey: repoPath) ?? []
         for continuation in waiters {
@@ -168,15 +168,15 @@ private actor GitWorktreeCallTracker {
     }
 }
 
-private final class TrackingGitWorktreeListingStub: Sendable {
-    let tracker: GitWorktreeCallTracker
+private final class TrackingWorktreeListingStub: Sendable {
+    let tracker: WorktreeCallTracker
 
-    init(recordsByRepoPath: [String: [GitWorktreeRecord]]) {
-        self.tracker = GitWorktreeCallTracker(recordsByRepoPath: recordsByRepoPath)
+    init(recordsByRepoPath: [String: [WorktreeRecord]]) {
+        self.tracker = WorktreeCallTracker(recordsByRepoPath: recordsByRepoPath)
     }
 
     @Sendable
-    func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord] {
+    func listWorktrees(repoPath: String) async throws -> [WorktreeRecord] {
         await tracker.record(repoPath: repoPath)
     }
 

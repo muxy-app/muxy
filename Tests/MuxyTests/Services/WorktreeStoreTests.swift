@@ -47,8 +47,8 @@ struct WorktreeStoreTests {
         #expect(worktree.canBeRemoved)
     }
 
-    @Test("refreshFromGit imports missing external worktrees and preserves existing IDs by path")
-    func refreshFromGitImportsAndPreservesIDs() async throws {
+    @Test("refreshWorktrees imports missing external worktrees and preserves existing IDs by path")
+    func refreshWorktreesImportsAndPreservesIDs() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
         let existingID = UUID()
         let createdAt = Date(timeIntervalSince1970: 123)
@@ -73,23 +73,23 @@ struct WorktreeStoreTests {
                 ]
             ]
         )
-        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+        let listingStub = WorktreeListingStub(recordsByRepoPath: [
             project.path: [
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: project.path,
                     branch: "main",
                     head: nil,
                     isBare: false,
                     isDetached: false
                 ),
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: "/tmp/repo-feature-a",
                     branch: "feature-a",
                     head: nil,
                     isBare: false,
                     isDetached: false
                 ),
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: "/tmp/repo-feature-b",
                     branch: "feature-b",
                     head: nil,
@@ -100,11 +100,11 @@ struct WorktreeStoreTests {
         ])
         let store = WorktreeStore(
             persistence: persistence,
-            listGitWorktrees: gitService.listWorktrees,
+            listWorktrees: listingStub.listWorktrees,
             projects: [project]
         )
 
-        let worktrees = try await store.refreshFromGit(project: project)
+        let worktrees = try await store.refreshWorktrees(project: project)
 
         #expect(worktrees.count == 3)
         #expect(worktrees[0].isPrimary)
@@ -122,8 +122,8 @@ struct WorktreeStoreTests {
         #expect(imported.isExternallyManaged)
     }
 
-    @Test("refreshFromGit keeps missing Muxy-managed worktrees")
-    func refreshFromGitKeepsMissingMuxyManagedEntries() async throws {
+    @Test("refreshWorktrees keeps missing Muxy-managed worktrees")
+    func refreshWorktreesKeepsMissingMuxyManagedEntries() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
         let persistence = WorktreePersistenceStub(
             initial: [
@@ -139,9 +139,9 @@ struct WorktreeStoreTests {
                 ]
             ]
         )
-        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+        let listingStub = WorktreeListingStub(recordsByRepoPath: [
             project.path: [
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: project.path,
                     branch: "main",
                     head: nil,
@@ -152,18 +152,18 @@ struct WorktreeStoreTests {
         ])
         let store = WorktreeStore(
             persistence: persistence,
-            listGitWorktrees: gitService.listWorktrees,
+            listWorktrees: listingStub.listWorktrees,
             projects: [project]
         )
 
-        let worktrees = try await store.refreshFromGit(project: project)
+        let worktrees = try await store.refreshWorktrees(project: project)
 
         #expect(worktrees.count == 2)
         #expect(worktrees.contains(where: { $0.path == "/tmp/repo-retained" }))
     }
 
-    @Test("refreshFromGit removes missing external worktrees")
-    func refreshFromGitRemovesMissingExternalEntries() async throws {
+    @Test("refreshWorktrees removes missing external worktrees")
+    func refreshWorktreesRemovesMissingExternalEntries() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
         let persistence = WorktreePersistenceStub(
             initial: [
@@ -179,9 +179,9 @@ struct WorktreeStoreTests {
                 ]
             ]
         )
-        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+        let listingStub = WorktreeListingStub(recordsByRepoPath: [
             project.path: [
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: project.path,
                     branch: "main",
                     head: nil,
@@ -192,19 +192,19 @@ struct WorktreeStoreTests {
         ])
         let store = WorktreeStore(
             persistence: persistence,
-            listGitWorktrees: gitService.listWorktrees,
+            listWorktrees: listingStub.listWorktrees,
             projects: [project]
         )
 
-        let worktrees = try await store.refreshFromGit(project: project)
+        let worktrees = try await store.refreshWorktrees(project: project)
 
         #expect(worktrees.count == 1)
         #expect(worktrees.allSatisfy { !$0.isExternallyManaged })
         #expect(!worktrees.contains(where: { $0.path == "/tmp/repo-external" }))
     }
 
-    @Test("refreshFromGit ignores bare and prunable records")
-    func refreshFromGitIgnoresUnusableRecords() async throws {
+    @Test("refreshWorktrees ignores bare and prunable records")
+    func refreshWorktreesIgnoresUnusableRecords() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
         let persistence = WorktreePersistenceStub(
             initial: [
@@ -213,23 +213,23 @@ struct WorktreeStoreTests {
                 ]
             ]
         )
-        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+        let listingStub = WorktreeListingStub(recordsByRepoPath: [
             project.path: [
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: project.path,
                     branch: "main",
                     head: nil,
                     isBare: false,
                     isDetached: false
                 ),
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: "/tmp/repo-bare",
                     branch: nil,
                     head: nil,
                     isBare: true,
                     isDetached: false
                 ),
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: "/tmp/repo-prunable",
                     branch: "feature-prunable",
                     head: nil,
@@ -237,7 +237,7 @@ struct WorktreeStoreTests {
                     isDetached: false,
                     isPrunable: true
                 ),
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: "/tmp/repo-live",
                     branch: "feature-live",
                     head: nil,
@@ -248,11 +248,11 @@ struct WorktreeStoreTests {
         ])
         let store = WorktreeStore(
             persistence: persistence,
-            listGitWorktrees: gitService.listWorktrees,
+            listWorktrees: listingStub.listWorktrees,
             projects: [project]
         )
 
-        let worktrees = try await store.refreshFromGit(project: project)
+        let worktrees = try await store.refreshWorktrees(project: project)
 
         #expect(worktrees.count == 2)
         #expect(worktrees.contains(where: { $0.path == "/tmp/repo-live" }))
@@ -260,8 +260,8 @@ struct WorktreeStoreTests {
         #expect(!worktrees.contains(where: { $0.path == "/tmp/repo-prunable" }))
     }
 
-    @Test("refreshFromGit tolerates duplicate persisted paths without trapping")
-    func refreshFromGitToleratesDuplicatePaths() async throws {
+    @Test("refreshWorktrees tolerates duplicate persisted paths without trapping")
+    func refreshWorktreesToleratesDuplicatePaths() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
         let duplicatePath = "/tmp/repo-dupe"
         let persistence = WorktreePersistenceStub(
@@ -285,16 +285,16 @@ struct WorktreeStoreTests {
                 ]
             ]
         )
-        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+        let listingStub = WorktreeListingStub(recordsByRepoPath: [
             project.path: [
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: project.path,
                     branch: "main",
                     head: nil,
                     isBare: false,
                     isDetached: false
                 ),
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: duplicatePath,
                     branch: "updated",
                     head: nil,
@@ -305,19 +305,19 @@ struct WorktreeStoreTests {
         ])
         let store = WorktreeStore(
             persistence: persistence,
-            listGitWorktrees: gitService.listWorktrees,
+            listWorktrees: listingStub.listWorktrees,
             projects: [project]
         )
 
-        let worktrees = try await store.refreshFromGit(project: project)
+        let worktrees = try await store.refreshWorktrees(project: project)
 
         let atDuplicatePath = worktrees.filter { $0.path == duplicatePath }
         #expect(atDuplicatePath.count == 2)
         #expect(atDuplicatePath.contains(where: { $0.branch == "updated" }))
     }
 
-    @Test("refreshFromGit treats symlinked primary paths as the primary worktree")
-    func refreshFromGitResolvesSymlinkedPrimaryPath() async throws {
+    @Test("refreshWorktrees treats symlinked primary paths as the primary worktree")
+    func refreshWorktreesResolvesSymlinkedPrimaryPath() async throws {
         let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("muxy-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
@@ -336,9 +336,9 @@ struct WorktreeStoreTests {
                 ]
             ]
         )
-        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+        let listingStub = WorktreeListingStub(recordsByRepoPath: [
             project.path: [
-                GitWorktreeRecord(
+                WorktreeRecord(
                     path: realRepo.path,
                     branch: "feat/worktree-refresh",
                     head: nil,
@@ -349,11 +349,11 @@ struct WorktreeStoreTests {
         ])
         let store = WorktreeStore(
             persistence: persistence,
-            listGitWorktrees: gitService.listWorktrees,
+            listWorktrees: listingStub.listWorktrees,
             projects: [project]
         )
 
-        let worktrees = try await store.refreshFromGit(project: project)
+        let worktrees = try await store.refreshWorktrees(project: project)
 
         #expect(worktrees.count == 1)
         #expect(worktrees[0].isPrimary)
@@ -380,7 +380,7 @@ struct WorktreeStoreTests {
         )
         let store = WorktreeStore(
             persistence: persistence,
-            listGitWorktrees: GitWorktreeListingStub(recordsByRepoPath: [:]).listWorktrees,
+            listWorktrees: WorktreeListingStub(recordsByRepoPath: [:]).listWorktrees,
             projects: [project]
         )
         _ = VCSStateStore.shared.state(for: removable.path)
@@ -411,7 +411,7 @@ struct WorktreeStoreTests {
         )
         let store = WorktreeStore(
             persistence: persistence,
-            listGitWorktrees: GitWorktreeListingStub(recordsByRepoPath: [:]).listWorktrees,
+            listWorktrees: WorktreeListingStub(recordsByRepoPath: [:]).listWorktrees,
             projects: [project]
         )
 
@@ -465,10 +465,10 @@ private final class WorktreePersistenceStub: WorktreePersisting {
     }
 }
 
-private struct GitWorktreeListingStub: GitWorktreeListing {
-    let recordsByRepoPath: [String: [GitWorktreeRecord]]
+private struct WorktreeListingStub {
+    let recordsByRepoPath: [String: [WorktreeRecord]]
 
-    func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord] {
+    func listWorktrees(repoPath: String) async throws -> [WorktreeRecord] {
         recordsByRepoPath[repoPath] ?? []
     }
 }

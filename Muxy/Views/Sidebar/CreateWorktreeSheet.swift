@@ -26,13 +26,18 @@ struct CreateWorktreeSheet: View {
     @State private var runSetup = false
     @State private var inProgress = false
     @State private var errorMessage: String?
+    @State private var vcsKind: VCSKind?
+    @State private var revision: String = ""
 
     private let gitRepository = GitRepositoryService()
-    private let gitWorktree = GitWorktreeService.shared
+
+    private var isJujutsu: Bool {
+        vcsKind?.isJujutsu ?? false
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
-            Text("New Worktree")
+            Text(isJujutsu ? "New Workspace" : "New Worktree")
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
 
             VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
@@ -41,33 +46,45 @@ struct CreateWorktreeSheet: View {
                     .textFieldStyle(.roundedBorder)
             }
 
-            SegmentedPicker(
-                selection: $createNewBranch,
-                options: [(true, "Create new branch"), (false, "Use existing branch")]
-            )
-
-            if createNewBranch {
+            if isJujutsu {
                 VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
-                    Text("Branch Name").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
-                    TextField("feature-x", text: $branchName)
+                    Text("Revision or Bookmark (optional)")
+                        .font(.system(size: UIMetrics.fontFootnote))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                    TextField("@", text: $revision)
                         .textFieldStyle(.roundedBorder)
-                        .onChange(of: branchName) { _, newValue in
-                            branchNameEdited = newValue != name
-                        }
                 }
             } else {
-                VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
-                    Text("Branch").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
-                    Picker("", selection: $selectedExistingBranch) {
-                        ForEach(availableBranches, id: \.self) { branch in
-                            Text(branch).tag(branch)
-                        }
+                SegmentedPicker(
+                    selection: $createNewBranch,
+                    options: [(true, "Create new branch"), (false, "Use existing branch")]
+                )
+
+                if createNewBranch {
+                    VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
+                        Text("Branch Name").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
+                        TextField("feature-x", text: $branchName)
+                            .textFieldStyle(.roundedBorder)
+                            .onChange(of: branchName) { _, newValue in
+                                branchNameEdited = newValue != name
+                            }
                     }
-                    .labelsHidden()
+                } else {
+                    VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
+                        Text("Branch").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
+                        Picker("", selection: $selectedExistingBranch) {
+                            ForEach(availableBranches, id: \.self) { branch in
+                                Text(branch).tag(branch)
+                            }
+                        }
+                        .labelsHidden()
+                    }
                 }
             }
 
-            locationSection
+            if !isJujutsu {
+                locationSection
+            }
 
             if setupCommands.isEmpty {
                 setupCommandsGuideSection
@@ -94,16 +111,19 @@ struct CreateWorktreeSheet: View {
         .padding(UIMetrics.spacing8)
         .frame(width: UIMetrics.scaled(460))
         .task {
-            loadLocation()
-            await loadBranches()
+            vcsKind = await VCSKind.detect(at: project.path)
+            if !isJujutsu {
+                loadLocation()
+                await loadBranches()
+            }
             loadSetupCommands()
         }
         .onChange(of: name) { _, newValue in
-            guard createNewBranch, !branchNameEdited else { return }
+            guard !isJujutsu, createNewBranch, !branchNameEdited else { return }
             branchName = newValue
         }
         .onChange(of: createNewBranch) { _, isCreatingNewBranch in
-            guard isCreatingNewBranch, !branchNameEdited else { return }
+            guard !isJujutsu, isCreatingNewBranch, !branchNameEdited else { return }
             branchName = name
         }
     }
@@ -240,6 +260,9 @@ struct CreateWorktreeSheet: View {
 
     private var canCreate: Bool {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        if isJujutsu {
+            return true
+        }
         if createNewBranch {
             return !branchName.trimmingCharacters(in: .whitespaces).isEmpty
         }
@@ -267,6 +290,60 @@ struct CreateWorktreeSheet: View {
         inProgress = true
         errorMessage = nil
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
+        let service = await WorktreeServiceFactory.service(for: project.path)
+
+        if isJujutsu {
+            await createJujutsuWorkspace(service: service, trimmedName: trimmedName)
+        } else {
+            await createGitWorktree(service: service, trimmedName: trimmedName)
+        }
+    }
+
+    @MainActor
+    private func createJujutsuWorkspace(service: any WorktreeService, trimmedName: String) async {
+        let slug = Self.slug(from: trimmedName)
+        let projectURL = URL(fileURLWithPath: project.path, isDirectory: true)
+        let parentDirectory = projectURL.deletingLastPathComponent().path
+        let projectDirName = projectURL.lastPathComponent
+        let worktreeDirectory = URL(fileURLWithPath: parentDirectory, isDirectory: true)
+            .appendingPathComponent("\(projectDirName)-\(slug)", isDirectory: true)
+            .path
+
+        if FileManager.default.fileExists(atPath: worktreeDirectory) {
+            inProgress = false
+            errorMessage = "A workspace with this name already exists on disk."
+            return
+        }
+
+        let trimmedRevision = revision.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        do {
+            try await service.addWorktree(
+                repoPath: project.path,
+                path: worktreeDirectory,
+                branch: trimmedRevision,
+                createBranch: false
+            )
+        } catch {
+            inProgress = false
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        let worktree = Worktree(
+            name: trimmedName,
+            path: worktreeDirectory,
+            branch: trimmedRevision.isEmpty ? nil : trimmedRevision,
+            ownsBranch: false,
+            isPrimary: false
+        )
+        worktreeStore.add(worktree, to: project.id)
+        inProgress = false
+        onFinish(.created(worktree, runSetup: runSetup))
+    }
+
+    @MainActor
+    private func createGitWorktree(service: any WorktreeService, trimmedName: String) async {
         let branch = createNewBranch
             ? branchName.trimmingCharacters(in: .whitespaces)
             : selectedExistingBranch
@@ -298,7 +375,7 @@ struct CreateWorktreeSheet: View {
         }
 
         do {
-            try await gitWorktree.addWorktree(
+            try await service.addWorktree(
                 repoPath: project.path,
                 path: worktreeDirectory,
                 branch: branch,

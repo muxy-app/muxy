@@ -530,29 +530,46 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         guard !trimmedName.isEmpty else {
             throw RemoteVCSError.invalidInput("Worktree name is required.")
         }
+        let service = await WorktreeServiceFactory.service(for: project.path)
+        let vcsKind = await VCSKind.detect(at: project.path)
+        let isJJ = vcsKind?.isJujutsu ?? false
+
         let trimmedBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedBranch.isEmpty else {
+        if !isJJ, trimmedBranch.isEmpty {
             throw RemoteVCSError.invalidInput("Branch name is required.")
         }
+
         let slug = Self.worktreeSlug(from: trimmedName)
-        let worktreeDirectory = WorktreeLocationResolver.worktreeDirectory(for: project, slug: slug)
+        let worktreeDirectory: String
+        if isJJ {
+            let projectURL = URL(fileURLWithPath: project.path, isDirectory: true)
+            let parentDirectory = projectURL.deletingLastPathComponent().path
+            let projectDirName = projectURL.lastPathComponent
+            worktreeDirectory = URL(fileURLWithPath: parentDirectory, isDirectory: true)
+                .appendingPathComponent("\(projectDirName)-\(slug)", isDirectory: true)
+                .path
+        } else {
+            worktreeDirectory = WorktreeLocationResolver.worktreeDirectory(for: project, slug: slug)
+        }
 
         if FileManager.default.fileExists(atPath: worktreeDirectory) {
             throw RemoteVCSError.invalidInput("A worktree with this name already exists on disk.")
         }
 
-        let parentDirectory = URL(fileURLWithPath: worktreeDirectory)
-            .deletingLastPathComponent()
-            .path
-        try await GitProcessRunner.offMainThrowing {
-            try FileManager.default.createDirectory(
-                atPath: parentDirectory,
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
+        if !isJJ {
+            let parentDirectory = URL(fileURLWithPath: worktreeDirectory)
+                .deletingLastPathComponent()
+                .path
+            try await GitProcessRunner.offMainThrowing {
+                try FileManager.default.createDirectory(
+                    atPath: parentDirectory,
+                    withIntermediateDirectories: true,
+                    attributes: nil
+                )
+            }
         }
 
-        try await GitWorktreeService.shared.addWorktree(
+        try await service.addWorktree(
             repoPath: project.path,
             path: worktreeDirectory,
             branch: trimmedBranch,
@@ -562,8 +579,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         let worktree = Worktree(
             name: trimmedName,
             path: worktreeDirectory,
-            branch: trimmedBranch,
-            ownsBranch: createBranch,
+            branch: trimmedBranch.isEmpty ? nil : trimmedBranch,
+            ownsBranch: isJJ ? false : createBranch,
             isPrimary: false
         )
         worktreeStore.add(worktree, to: project.id)
