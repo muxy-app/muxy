@@ -62,10 +62,6 @@ line_length:
   ignores_function_declarations: false
   ignores_comments: true
 
-function_parameter_count:
-  warning: 6
-  error: 8
-
 type_name:
   min_length: 2
   max_length: 60

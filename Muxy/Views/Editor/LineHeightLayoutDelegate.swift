@@ -2,7 +2,14 @@ import AppKit
 
 final class LineHeightLayoutDelegate: NSObject, NSLayoutManagerDelegate {
     var lineHeightMultiplier: CGFloat = 1.0
+    var fallbackFont: NSFont
 
+    init(fallbackFont: NSFont) {
+        self.fallbackFont = fallbackFont
+        super.init()
+    }
+
+    // swiftlint:disable:next function_parameter_count
     func layoutManager(
         _ layoutManager: NSLayoutManager,
         shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
@@ -35,6 +42,6 @@ final class LineHeightLayoutDelegate: NSObject, NSLayoutManagerDelegate {
                 return font
             }
         }
-        return NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        return fallbackFont
     }
 }

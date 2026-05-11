@@ -253,8 +253,8 @@ struct CodeEditorView: NSViewRepresentable {
         let textStorage = NSTextStorage()
         let layoutManager = CodeEditorLayoutManager()
         layoutManager.usesFontLeading = false
-        let lineHeightDelegate = LineHeightLayoutDelegate()
-        lineHeightDelegate.lineHeightMultiplier = editorSettings.lineHeight
+        let lineHeightDelegate = LineHeightLayoutDelegate(fallbackFont: editorSettings.resolvedFont)
+        lineHeightDelegate.lineHeightMultiplier = editorSettings.lineHeightMultiplier
         layoutManager.delegate = lineHeightDelegate
         textStorage.addLayoutManager(layoutManager)
 
@@ -298,7 +298,6 @@ struct CodeEditorView: NSViewRepresentable {
         textView.backgroundColor = palette.background
         textView.insertionPointColor = palette.foreground
         textView.textColor = palette.foreground
-
         textView.typingAttributes = [
             .font: font,
             .foregroundColor: palette.foreground,
@@ -433,10 +432,14 @@ struct CodeEditorView: NSViewRepresentable {
         let themeChanged = coordinator.lastThemeVersion != themeVersion
         let font = editorSettings.resolvedFont
         let fontChanged = textView.font != font
-        let lineHeightMultiplier = editorSettings.lineHeight
+        let lineHeightMultiplier = editorSettings.lineHeightMultiplier
         let lineHeightChanged = coordinator.lastLineHeightMultiplier != lineHeightMultiplier
 
         applyThemeAndFont(scrollView: scrollView, textView: textView, font: font)
+
+        if fontChanged {
+            coordinator.lineHeightDelegate?.fallbackFont = font
+        }
 
         if lineHeightChanged {
             coordinator.lineHeightDelegate?.lineHeightMultiplier = lineHeightMultiplier
@@ -479,11 +482,7 @@ struct CodeEditorView: NSViewRepresentable {
         }
     }
 
-    private func applyThemeAndFont(
-        scrollView: NSScrollView,
-        textView: NSTextView,
-        font: NSFont
-    ) {
+    private func applyThemeAndFont(scrollView: NSScrollView, textView: NSTextView, font: NSFont) {
         let palette = EditorThemePalette.active
         let fgColor = palette.foreground
         let bgColor = palette.background
@@ -842,7 +841,7 @@ struct CodeEditorView: NSViewRepresentable {
             let viewport = ViewportState(backingStore: store)
             viewport.updateEstimatedLineHeight(
                 font: editorSettings.resolvedFont,
-                lineHeightMultiplier: editorSettings.lineHeight
+                lineHeightMultiplier: editorSettings.lineHeightMultiplier
             )
             viewport.lineWrappingEnabled = lineWrappingEnabled
             viewportState = viewport

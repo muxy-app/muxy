@@ -190,9 +190,9 @@ struct EditorSettingsView: View {
                 SettingsRow("Line Height") {
                     HStack(spacing: 8) {
                         Button {
-                            settings.lineHeight = max(
-                                EditorSettings.minLineHeight,
-                                settings.lineHeight - EditorSettings.lineHeightStep
+                            settings.lineHeightMultiplier = max(
+                                EditorSettings.minLineHeightMultiplier,
+                                settings.lineHeightMultiplier - EditorSettings.lineHeightMultiplierStep
                             )
                         } label: {
                             Image(systemName: "minus")
@@ -200,16 +200,16 @@ struct EditorSettingsView: View {
                                 .frame(width: 20, height: 20)
                         }
                         .buttonStyle(.borderless)
-                        .disabled(settings.lineHeight <= EditorSettings.minLineHeight + 0.001)
+                        .disabled(settings.lineHeightMultiplier <= EditorSettings.minLineHeightMultiplier + 0.001)
 
-                        Text(String(format: "%.1f×", settings.lineHeight))
+                        Text(String(format: "%.1f×", settings.lineHeightMultiplier))
                             .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
                             .frame(width: 44)
 
                         Button {
-                            settings.lineHeight = min(
-                                EditorSettings.maxLineHeight,
-                                settings.lineHeight + EditorSettings.lineHeightStep
+                            settings.lineHeightMultiplier = min(
+                                EditorSettings.maxLineHeightMultiplier,
+                                settings.lineHeightMultiplier + EditorSettings.lineHeightMultiplierStep
                             )
                         } label: {
                             Image(systemName: "plus")
@@ -217,7 +217,7 @@ struct EditorSettingsView: View {
                                 .frame(width: 20, height: 20)
                         }
                         .buttonStyle(.borderless)
-                        .disabled(settings.lineHeight >= EditorSettings.maxLineHeight - 0.001)
+                        .disabled(settings.lineHeightMultiplier >= EditorSettings.maxLineHeightMultiplier - 0.001)
                     }
                 }
             }
