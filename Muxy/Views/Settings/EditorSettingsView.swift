@@ -186,6 +186,40 @@ struct EditorSettingsView: View {
                         .buttonStyle(.borderless)
                     }
                 }
+
+                SettingsRow("Line Height") {
+                    HStack(spacing: 8) {
+                        Button {
+                            settings.lineHeight = max(
+                                EditorSettings.minLineHeight,
+                                settings.lineHeight - EditorSettings.lineHeightStep
+                            )
+                        } label: {
+                            Image(systemName: "minus")
+                                .font(.system(size: 10, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(settings.lineHeight <= EditorSettings.minLineHeight + 0.001)
+
+                        Text(String(format: "%.1f×", settings.lineHeight))
+                            .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
+                            .frame(width: 44)
+
+                        Button {
+                            settings.lineHeight = min(
+                                EditorSettings.maxLineHeight,
+                                settings.lineHeight + EditorSettings.lineHeightStep
+                            )
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .medium))
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(settings.lineHeight >= EditorSettings.maxLineHeight - 0.001)
+                    }
+                }
             }
         }
     }

@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 
 @testable import Muxy
@@ -149,5 +150,32 @@ struct ViewportStateTests {
         let vp = makeViewport(lineCount: 100)
         #expect(vp.scrollY(forLine: 10) == 160)
         #expect(vp.scrollY(forLine: 0) == 0)
+    }
+
+    @Test("updateEstimatedLineHeight scales by multiplier")
+    func lineHeightMultiplierScales() {
+        let vp = makeViewport(lineCount: 10)
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        vp.updateEstimatedLineHeight(font: font, lineHeightMultiplier: 1.0)
+        let base = vp.estimatedLineHeight
+
+        vp.updateEstimatedLineHeight(font: font, lineHeightMultiplier: 2.0)
+        let doubled = vp.estimatedLineHeight
+
+        #expect(doubled >= base * 2 - 1)
+        #expect(doubled <= base * 2 + 1)
+    }
+
+    @Test("multiplier scales totalDocumentHeight")
+    func lineHeightMultiplierAffectsTotalHeight() {
+        let vp = makeViewport(lineCount: 100)
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        vp.updateEstimatedLineHeight(font: font, lineHeightMultiplier: 1.0)
+        let baseHeight = vp.totalDocumentHeight
+
+        vp.updateEstimatedLineHeight(font: font, lineHeightMultiplier: 1.5)
+        let taller = vp.totalDocumentHeight
+
+        #expect(taller > baseHeight)
     }
 }

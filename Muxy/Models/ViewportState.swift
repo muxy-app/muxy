@@ -41,9 +41,11 @@ final class ViewportState {
         rebuildEstimates()
     }
 
-    func updateEstimatedLineHeight(font: NSFont) {
-        let lineHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
-        oracle.updateLineHeight(lineHeight > 0 ? lineHeight : 16)
+    func updateEstimatedLineHeight(font: NSFont, lineHeightMultiplier: CGFloat = 1.0) {
+        let typographicHeight = font.ascender - font.descender
+        let multiplier = max(lineHeightMultiplier, 1.0)
+        let scaled = ceil(typographicHeight * multiplier)
+        oracle.updateLineHeight(scaled > 0 ? scaled : 16)
         oracle.updateCharWidth(estimatedCharWidth(for: font))
         rebuildEstimates()
     }
