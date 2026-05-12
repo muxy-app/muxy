@@ -21,10 +21,10 @@ extension AIProviderIntegration {
 }
 
 extension AIProviderIntegration {
-    var settingsKey: String { "muxy.notifications.provider.\(id).enabled" }
+    var settingsKey: String { NotificationSettings.providerEnabledKey(for: id) }
 
     var isEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: settingsKey, fallback: true) }
+        get { NotificationSettings.providerEnabled(providerID: id) }
         nonmutating set { UserDefaults.standard.set(newValue, forKey: settingsKey) }
     }
 

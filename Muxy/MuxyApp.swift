@@ -54,6 +54,7 @@ struct MuxyApp: App {
                     NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore
                     NotificationStore.shared.markAllAsRead()
+                    DesktopNotificationService.shared.start(appState: appState)
                     MemoryDiagnostics.shared.configure(appState: appState)
                     TerminalProgressStore.shared.appState = appState
                     appDelegate.onTerminate = { [appState] in
@@ -232,6 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeSystemAppearanceChanges()
         UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
+        DesktopNotificationService.shared.prepare()
         NotificationSocketServer.shared.start()
         AIProviderRegistry.shared.installAll()
         _ = AIUsageSettingsStore.isUsageEnabled()

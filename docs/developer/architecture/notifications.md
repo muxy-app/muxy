@@ -16,6 +16,7 @@ flowchart TB
   Nav --> Store[NotificationStore.add]
   Store -->|focused + active| Drop[suppress]
   Store --> Toast[Toast + sound]
+  Store --> Desktop[DesktopNotificationService<br/>UserNotifications]
   Store --> Persist[notifications.json<br/>debounced]
   Store --> UI[badge + panel]
 ```
@@ -28,7 +29,7 @@ flowchart TB
 
 ## Click-to-navigate
 
-`NotificationNavigator.navigate(to:)` dispatches `selectProject` → `focusArea` → `selectTab` against `AppState`. System notifications encode the navigation context in `userInfo` and bring the app to front on click.
+`NotificationNavigator.navigate(to:)` dispatches `selectProject` → `focusArea` → `selectTab` against `AppState`. Toast and desktop notification clicks look up the persisted notification by UUID, navigate with the stored context, and mark it read. Desktop notifications keep only the notification UUID in `userInfo`.
 
 ## Pane environment
 

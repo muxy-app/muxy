@@ -32,10 +32,11 @@ See [Keyboard Shortcuts](keyboard-shortcuts.md).
 
 ## Notifications
 
-- **Enable notifications** — global toggle.
+- **Toast** — show an in-app toast on arrival.
+- **Desktop notifications** — show a macOS notification when Muxy is not frontmost.
 - **Toast position** — top or bottom of the window.
 - **Sound** — play a system sound on arrival.
-- **Per‑source delivery** — separate toggles for Claude Code, OpenCode, OSC sequences, and the socket API.
+- **AI Providers** — enable or disable each provider hook integration.
 
 See [Notifications](../features/notifications.md).
 

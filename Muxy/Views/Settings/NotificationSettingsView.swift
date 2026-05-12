@@ -2,14 +2,19 @@ import AppKit
 import SwiftUI
 
 struct NotificationSettingsView: View {
-    @AppStorage("muxy.notifications.sound") private var sound = NotificationSound.funk.rawValue
-    @AppStorage("muxy.notifications.toastEnabled") private var toastEnabled = true
-    @AppStorage("muxy.notifications.toastPosition") private var toastPosition = ToastPosition.topCenter.rawValue
+    @AppStorage(NotificationSettings.Key.sound) private var sound = NotificationSettings.Default.sound.rawValue
+    @AppStorage(NotificationSettings.Key.toastEnabled) private var toastEnabled = NotificationSettings.Default.toastEnabled
+    @AppStorage(NotificationSettings.Key.desktopEnabled) private var desktopEnabled = NotificationSettings.Default.desktopEnabled
+    @AppStorage(NotificationSettings.Key.toastPosition) private var toastPosition = NotificationSettings.Default.toastPosition.rawValue
 
     var body: some View {
         SettingsContainer {
             SettingsSection("Delivery") {
                 SettingsToggleRow(label: "Toast", isOn: $toastEnabled)
+                SettingsToggleRow(label: "Desktop notifications", isOn: $desktopEnabled)
+                    .onChange(of: desktopEnabled) { _, newValue in
+                        requestDesktopNotificationAuthorizationIfNeeded(newValue)
+                    }
             }
 
             SettingsSection("Sound") {
@@ -42,6 +47,15 @@ struct NotificationSettingsView: View {
     private func previewSound(_ value: String) {
         guard let sound = NotificationSound(rawValue: value), sound != .none else { return }
         NSSound(named: .init(sound.rawValue))?.play()
+    }
+
+    private func requestDesktopNotificationAuthorizationIfNeeded(_ enabled: Bool) {
+        guard enabled else { return }
+        DesktopNotificationService.shared.requestAuthorizationIfNeeded { authorized in
+            if !authorized {
+                desktopEnabled = false
+            }
+        }
     }
 }
 

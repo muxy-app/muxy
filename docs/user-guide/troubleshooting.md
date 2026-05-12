@@ -48,7 +48,7 @@ After authenticating, restart Muxy or click **Refresh** in the PR list.
 
 ## Notifications aren't showing
 
-- Check **Settings → Notifications** that the global toggle and the relevant per‑source toggle are on.
+- Check **Settings → Notifications** that Toast or Desktop notifications are enabled and that the relevant provider integration is on.
 - macOS may have suppressed Muxy's system notifications — check **System Settings → Notifications → Muxy**.
 - For socket‑based integrations, verify the socket exists: `ls -l ~/Library/Application\ Support/Muxy/muxy.sock`.
 

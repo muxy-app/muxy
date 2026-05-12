@@ -8,6 +8,7 @@ flowchart TB
   Sock --> Server[NotificationSocketServer]
   Server --> Store[NotificationStore]
   Store --> Toast[Toast + sound]
+  Store --> Desktop[macOS desktop notification]
   Store --> Panel[Notification panel]
 ```
 
@@ -115,4 +116,4 @@ The built-in integrations are good templates:
 
 ## Delivery settings
 
-Muxy respects user choices under **Settings → Notifications**: toast on/off, position (top/bottom), sound. A dot also appears on the project and worktree rows in the sidebar until the notification is read.
+Muxy respects user choices under **Settings → Notifications**: toast on/off, macOS desktop notifications on/off, toast position, sound, and per-provider hook toggles. Toasts and desktop notifications show the same title/body and click through to the originating pane. Desktop notifications ask for macOS notification permission when enabled and contain only the visible title/body plus an internal notification ID for click-to-navigate. A dot also appears on the project and worktree rows in the sidebar until the notification is read.
