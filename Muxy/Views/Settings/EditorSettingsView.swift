@@ -137,6 +137,58 @@ struct EditorSettingsView: View {
             }
 
             SettingsToggleRow(label: "Floating Panel", isOn: $richInputFloating)
+
+            SettingsRow("Font Family") {
+                Picker("", selection: $settings.richInputFontFamily) {
+                    ForEach(monoFonts, id: \.self) { family in
+                        Text(family)
+                            .font(.custom(family, size: 12))
+                            .tag(family)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+            }
+
+            SettingsRow("Line Height") {
+                HStack(spacing: 8) {
+                    Button {
+                        settings.richInputLineHeightMultiplier = max(
+                            EditorSettings.minLineHeightMultiplier,
+                            settings.richInputLineHeightMultiplier - EditorSettings.lineHeightMultiplierStep
+                        )
+                    } label: {
+                        Image(systemName: "minus")
+                            .font(.system(size: 10, weight: .medium))
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(
+                        settings.richInputLineHeightMultiplier
+                            <= EditorSettings.minLineHeightMultiplier + 0.001
+                    )
+
+                    Text(String(format: "%.1f×", settings.richInputLineHeightMultiplier))
+                        .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
+                        .frame(width: 44)
+
+                    Button {
+                        settings.richInputLineHeightMultiplier = min(
+                            EditorSettings.maxLineHeightMultiplier,
+                            settings.richInputLineHeightMultiplier + EditorSettings.lineHeightMultiplierStep
+                        )
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 10, weight: .medium))
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(
+                        settings.richInputLineHeightMultiplier
+                            >= EditorSettings.maxLineHeightMultiplier - 0.001
+                    )
+                }
+            }
         }
 
         if showsAppearanceSection {

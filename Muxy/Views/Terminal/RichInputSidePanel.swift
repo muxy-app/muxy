@@ -8,6 +8,7 @@ struct RichInputSidePanel: View {
     let onDismiss: () -> Void
     let onSubmit: (_ appendReturn: Bool) -> Void
 
+    @State private var editorSettings = EditorSettings.shared
     @AppStorage(RichInputPreferences.fontSizeKey) private var fontSize: Double = RichInputPreferences.defaultFontSize
     @AppStorage(RichInputPreferences.positionKey) private var position: RichInputPanelPosition = RichInputPreferences
         .defaultPosition
@@ -59,11 +60,17 @@ struct RichInputSidePanel: View {
 
     private var editorConfiguration: MarkdownTextEditor.Configuration {
         MarkdownTextEditor.Configuration(
-            font: .systemFont(ofSize: clampedFontSize),
+            font: resolvedFont,
             insets: NSSize(width: 12, height: 10),
             lineWrapping: true,
-            grabsFirstResponderOnAppear: true
+            grabsFirstResponderOnAppear: true,
+            lineHeightMultiplier: editorSettings.richInputLineHeightMultiplier
         )
+    }
+
+    private var resolvedFont: NSFont {
+        NSFont(name: editorSettings.richInputFontFamily, size: clampedFontSize)
+            ?? .monospacedSystemFont(ofSize: clampedFontSize, weight: .regular)
     }
 
     private var editorCallbacks: MarkdownTextEditor.Callbacks {

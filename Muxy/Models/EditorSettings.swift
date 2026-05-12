@@ -37,6 +37,9 @@ final class EditorSettings {
     static let maxLineHeightMultiplier: CGFloat = 2.0
     static let lineHeightMultiplierStep: CGFloat = 0.1
 
+    static let defaultRichInputFontFamily = "SF Mono"
+    static let defaultRichInputLineHeightMultiplier: CGFloat = 1.2
+
     var fontSize: CGFloat = 13 { didSet { save() } }
     var fontFamily: String = "SF Mono" { didSet { save() } }
     var defaultEditor: DefaultEditor = .builtIn { didSet { save() } }
@@ -48,6 +51,11 @@ final class EditorSettings {
     var showLineNumbers: Bool = true { didSet { save() } }
 
     var lineHeightMultiplier: CGFloat = EditorSettings.defaultLineHeightMultiplier {
+        didSet { save() }
+    }
+
+    var richInputFontFamily: String = EditorSettings.defaultRichInputFontFamily { didSet { save() } }
+    var richInputLineHeightMultiplier: CGFloat = EditorSettings.defaultRichInputLineHeightMultiplier {
         didSet { save() }
     }
 
@@ -140,6 +148,8 @@ final class EditorSettings {
         lineWrapping = false
         showLineNumbers = true
         lineHeightMultiplier = Self.defaultLineHeightMultiplier
+        richInputFontFamily = Self.defaultRichInputFontFamily
+        richInputLineHeightMultiplier = Self.defaultRichInputLineHeightMultiplier
         richInputImageStrategy = .clipboard
         isBatchLoading = false
         save()
@@ -167,6 +177,13 @@ final class EditorSettings {
                 max(loadedMultiplier, Self.minLineHeightMultiplier),
                 Self.maxLineHeightMultiplier
             )
+            richInputFontFamily = snapshot.richInputFontFamily ?? Self.defaultRichInputFontFamily
+            let loadedRichInputMultiplier = snapshot.richInputLineHeightMultiplier
+                ?? Self.defaultRichInputLineHeightMultiplier
+            richInputLineHeightMultiplier = min(
+                max(loadedRichInputMultiplier, Self.minLineHeightMultiplier),
+                Self.maxLineHeightMultiplier
+            )
             richInputImageStrategy = snapshot.richInputImageStrategy ?? .clipboard
             isBatchLoading = false
         } catch {
@@ -189,6 +206,8 @@ final class EditorSettings {
                 lineWrapping: lineWrapping,
                 showLineNumbers: showLineNumbers,
                 lineHeightMultiplier: lineHeightMultiplier,
+                richInputFontFamily: richInputFontFamily,
+                richInputLineHeightMultiplier: richInputLineHeightMultiplier,
                 richInputImageStrategy: richInputImageStrategy
             ))
         } catch {
@@ -209,5 +228,7 @@ private struct Snapshot: Codable {
     let lineWrapping: Bool?
     let showLineNumbers: Bool?
     let lineHeightMultiplier: CGFloat?
+    let richInputFontFamily: String?
+    let richInputLineHeightMultiplier: CGFloat?
     let richInputImageStrategy: RichInputImageStrategy?
 }

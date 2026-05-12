@@ -9,6 +9,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
         var allowsUndo: Bool = true
         var lineWrapping: Bool = true
         var grabsFirstResponderOnAppear: Bool = false
+        var lineHeightMultiplier: CGFloat = 1.0
     }
 
     struct Callbacks {
@@ -48,6 +49,11 @@ struct MarkdownTextEditor: NSViewRepresentable {
         textContainer.lineFragmentPadding = 0
 
         let layoutManager = NSLayoutManager()
+        layoutManager.usesFontLeading = false
+        let lineHeightDelegate = LineHeightLayoutDelegate(fallbackFont: configuration.font)
+        lineHeightDelegate.lineHeightMultiplier = configuration.lineHeightMultiplier
+        layoutManager.delegate = lineHeightDelegate
+        context.coordinator.lineHeightDelegate = lineHeightDelegate
         layoutManager.addTextContainer(textContainer)
 
         let textStorage = NSTextStorage()
@@ -126,6 +132,16 @@ struct MarkdownTextEditor: NSViewRepresentable {
         textView.textContainerInset = configuration.insets
         textView.textColor = MarkdownTextEditor.defaultForeground()
         textView.insertionPointColor = MarkdownTextEditor.defaultForeground()
+        if let lineHeightDelegate = context.coordinator.lineHeightDelegate {
+            lineHeightDelegate.fallbackFont = configuration.font
+            if abs(lineHeightDelegate.lineHeightMultiplier - configuration.lineHeightMultiplier) > .ulpOfOne {
+                lineHeightDelegate.lineHeightMultiplier = configuration.lineHeightMultiplier
+                textView.layoutManager?.invalidateLayout(
+                    forCharacterRange: NSRange(location: 0, length: textView.string.utf16.count),
+                    actualCharacterRange: nil
+                )
+            }
+        }
         if context.coordinator.lastFocusVersion != focusVersion {
             context.coordinator.lastFocusVersion = focusVersion
             textView.grabFirstResponder()
@@ -145,6 +161,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
         var parent: MarkdownTextEditor
         weak var textView: MarkdownEditingTextView?
         var lastFocusVersion: Int = -1
+        var lineHeightDelegate: LineHeightLayoutDelegate?
         private var lastReportedHeight: CGFloat = -1
 
         init(parent: MarkdownTextEditor) {
