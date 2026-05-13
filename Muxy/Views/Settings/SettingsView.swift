@@ -11,6 +11,8 @@ struct SettingsView: View {
                 .tabItem { Label("Editor", systemImage: "pencil.line") }
             KeyboardShortcutsSettingsView()
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+            RecordingSettingsView()
+                .tabItem { Label("Recording", systemImage: "mic") }
             NotificationSettingsView()
                 .tabItem { Label("Notifications", systemImage: "bell") }
             MobileSettingsView()

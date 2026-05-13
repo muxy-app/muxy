@@ -12,6 +12,10 @@ struct ProjectStatusBar: View {
         KeyBindingStore.shared.combo(for: .toggleRichInput).displayString
     }
 
+    private var voiceShortcutLabel: String {
+        KeyBindingStore.shared.combo(for: .toggleVoiceRecording).displayString
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             if let pane = activePane {
@@ -34,6 +38,8 @@ struct ProjectStatusBar: View {
             }
             if activePane != nil {
                 richInputToggleButton
+                separator
+                voiceRecordingButton
             }
         }
         .padding(.horizontal, 10)
@@ -122,6 +128,22 @@ struct ProjectStatusBar: View {
         .help("Toggle Rich Input")
     }
 
+    private var voiceRecordingButton: some View {
+        Button(action: handleToggleVoiceRecording) {
+            HStack(spacing: 4) {
+                Image(systemName: "mic")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(voiceShortcutLabel)
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(MuxyTheme.fgDim)
+            }
+        }
+        .buttonStyle(RichInputToolbarButtonStyle())
+        .disabled(!isInteractive)
+        .accessibilityLabel("Start Voice Recording")
+        .help("Start Voice Recording")
+    }
+
     private var zoomControls: some View {
         HStack(spacing: 2) {
             Button(action: decreaseFontSize) {
@@ -188,6 +210,11 @@ struct ProjectStatusBar: View {
     private func handleToggleRichInput() {
         guard isInteractive else { return }
         NotificationCenter.default.post(name: .toggleRichInput, object: nil)
+    }
+
+    private func handleToggleVoiceRecording() {
+        guard isInteractive else { return }
+        NotificationCenter.default.post(name: .toggleVoiceRecording, object: nil)
     }
 
     private func revealInFinder(_ path: String) {

@@ -62,6 +62,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case navigateBack
     case navigateForward
     case toggleMaximizePane
+    case toggleVoiceRecording
 
     static let allCases: [Self] = [
         .newTab,
@@ -117,6 +118,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .navigateBack,
         .navigateForward,
         .toggleMaximizePane,
+        .toggleVoiceRecording,
     ]
 
     var id: String { rawValue }
@@ -184,6 +186,11 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .toggleAIUsage: ShortcutMetadata(displayName: "Toggle AI Usage", category: "App", scope: .mainWindow)
         case .navigateBack: ShortcutMetadata(displayName: "Navigate Back", category: "Navigation", scope: .mainWindow)
         case .navigateForward: ShortcutMetadata(displayName: "Navigate Forward", category: "Navigation", scope: .mainWindow)
+        case .toggleVoiceRecording: ShortcutMetadata(
+                displayName: "Voice Recording",
+                category: "Rich Input",
+                scope: .mainWindow
+            )
         case .toggleThemePicker: ShortcutMetadata(displayName: "Theme Picker", category: "App", scope: .mainWindow)
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
@@ -309,5 +316,6 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .navigateBack, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, control: true)),
         Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),
         Self(action: .toggleMaximizePane, combo: KeyCombo(key: KeyCombo.returnKey, command: true, option: true)),
+        Self(action: .toggleVoiceRecording, combo: KeyCombo(key: "i", command: true, shift: true)),
     ]
 }

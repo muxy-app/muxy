@@ -55,6 +55,7 @@ let package = Package(
                     "GhosttyKit.xcframework/macos-arm64_x86_64/ghostty-internal.a",
                 ]),
                 .linkedFramework("AppKit"),
+                .linkedFramework("AVFoundation"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("CoreText"),
@@ -63,6 +64,7 @@ let package = Package(
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit"),
                 .linkedFramework("QuartzCore"),
+                .linkedFramework("Speech"),
                 .linkedLibrary("c++"),
             ]
         ),
@@ -80,6 +82,7 @@ let package = Package(
                     "GhosttyKit.xcframework/macos-arm64_x86_64/ghostty-internal.a",
                 ]),
                 .linkedFramework("AppKit"),
+                .linkedFramework("AVFoundation"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("CoreGraphics"),
                 .linkedFramework("CoreText"),
@@ -88,6 +91,7 @@ let package = Package(
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit"),
                 .linkedFramework("QuartzCore"),
+                .linkedFramework("Speech"),
                 .linkedLibrary("c++"),
             ]
         ),
