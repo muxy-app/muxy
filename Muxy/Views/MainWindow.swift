@@ -87,7 +87,7 @@ struct MainWindow: View {
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
     @AppStorage(RecordingPreferences.autoSendKey) private var recordingAutoSend = RecordingPreferences.defaultAutoSend
-    @AppStorage(RecordingPreferences.languageKey) private var recordingLanguage = ""
+    @AppStorage(RecordingPreferences.languageKey) private var recordingLanguage = RecordingPreferences.defaultLanguage
     @State private var voiceRecording = VoiceRecordingState.shared
     @MainActor private var trafficLightWidth: CGFloat { UIMetrics.scaled(75) }
 

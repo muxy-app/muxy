@@ -2,7 +2,7 @@ import SwiftUI
 
 struct RecordingSettingsView: View {
     @AppStorage(RecordingPreferences.autoSendKey) private var autoSend = RecordingPreferences.defaultAutoSend
-    @AppStorage(RecordingPreferences.languageKey) private var languageIdentifier = ""
+    @AppStorage(RecordingPreferences.languageKey) private var languageIdentifier = RecordingPreferences.defaultLanguage
 
     @State private var languages: [SpeechLanguage] = []
 

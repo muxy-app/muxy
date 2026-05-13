@@ -189,9 +189,7 @@ struct VoiceRecordingPanel: View {
 
     nonisolated static func formatElapsed(_ elapsed: TimeInterval) -> String {
         let total = max(0, Int(elapsed))
-        let minutes = total / 60
-        let seconds = total % 60
-        return String(format: "%02d:%02d", minutes, seconds)
+        return Duration.seconds(total).formatted(.time(pattern: .minuteSecond(padMinuteToLength: 2)))
     }
 }
 

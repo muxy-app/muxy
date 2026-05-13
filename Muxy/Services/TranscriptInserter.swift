@@ -58,17 +58,11 @@ enum TranscriptInserter {
     }
 
     private static func nearestGhosttyView(from responder: NSResponder) -> GhosttyTerminalNSView? {
-        var current: NSResponder? = responder
-        while let node = current {
-            if let view = node as? GhosttyTerminalNSView { return view }
-            current = node.nextResponder
-        }
-        if let view = responder as? NSView {
-            var ancestor: NSView? = view
-            while let node = ancestor {
-                if let view = node as? GhosttyTerminalNSView { return view }
-                ancestor = node.superview
-            }
+        guard let view = responder as? NSView else { return nil }
+        var ancestor: NSView? = view
+        while let node = ancestor {
+            if let terminal = node as? GhosttyTerminalNSView { return terminal }
+            ancestor = node.superview
         }
         return nil
     }
