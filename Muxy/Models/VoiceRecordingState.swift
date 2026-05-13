@@ -12,7 +12,7 @@ final class VoiceRecordingState {
     var errorMessage: String?
     let recorder = VoiceRecorder()
 
-    @ObservationIgnored private weak var capturedResponder: NSResponder?
+    @ObservationIgnored private var capturedResponder: NSResponder?
 
     private init() {}
 

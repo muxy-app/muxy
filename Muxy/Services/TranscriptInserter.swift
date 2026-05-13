@@ -12,21 +12,22 @@ enum TranscriptInserter {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        guard let responder, let window = window(for: responder) else {
+        let target = resolveTarget(preferred: responder)
+        guard let target, let window = window(for: target) else {
             copyToClipboardWithToast(trimmed)
             return
         }
 
         window.makeKey()
         NSApp.activate(ignoringOtherApps: true)
-        window.makeFirstResponder(responder)
+        window.makeFirstResponder(target)
 
-        if let terminal = nearestGhosttyView(from: responder) {
+        if let terminal = nearestGhosttyView(from: target) {
             sendToTerminal(text: trimmed, view: terminal, appendReturn: appendReturn)
             return
         }
 
-        if let textView = responder as? NSTextView {
+        if let textView = target as? NSTextView {
             textView.insertText(trimmed, replacementRange: textView.selectedRange())
             if appendReturn {
                 postReturnKey()
@@ -34,12 +35,12 @@ enum TranscriptInserter {
             return
         }
 
-        if let control = responder as? NSTextField {
+        if let control = target as? NSTextField {
             insert(text: trimmed, into: control, appendReturn: appendReturn)
             return
         }
 
-        if let textInput = responder as? NSTextInputClient {
+        if let textInput = target as? NSTextInputClient {
             textInput.insertText(trimmed, replacementRange: NSRange(location: NSNotFound, length: 0))
             if appendReturn {
                 postReturnKey()
@@ -48,6 +49,27 @@ enum TranscriptInserter {
         }
 
         copyToClipboardWithToast(trimmed)
+    }
+
+    private static func resolveTarget(preferred: NSResponder?) -> NSResponder? {
+        if let preferred, window(for: preferred) != nil {
+            return preferred
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow,
+           let terminal = firstGhosttyView(in: window.contentView)
+        {
+            return terminal
+        }
+        return NSApp.keyWindow?.firstResponder
+    }
+
+    private static func firstGhosttyView(in root: NSView?) -> GhosttyTerminalNSView? {
+        guard let root else { return nil }
+        if let terminal = root as? GhosttyTerminalNSView { return terminal }
+        for subview in root.subviews {
+            if let terminal = firstGhosttyView(in: subview) { return terminal }
+        }
+        return nil
     }
 
     private static func window(for responder: NSResponder) -> NSWindow? {

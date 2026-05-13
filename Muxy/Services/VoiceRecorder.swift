@@ -59,6 +59,11 @@ final class VoiceRecorder {
         do {
             try engine.start()
         } catch {
+            engine.inputNode.removeTap(onBus: 0)
+            levelSink.detach()
+            self.levelSink = nil
+            self.request = nil
+            self.recognizer = nil
             throw VoiceRecorderError.engineFailure(error.localizedDescription)
         }
 
@@ -262,18 +267,25 @@ final class TranscriptSink: @unchecked Sendable {
 }
 
 final class LevelSink: @unchecked Sendable {
+    private static let minInterval: TimeInterval = 1.0 / 15.0
+
     private let lock = NSLock()
     private var handler: (@MainActor (Float) -> Void)?
+    private var lastPublishedAt: TimeInterval = 0
 
     init(handler: @escaping @MainActor (Float) -> Void) {
         self.handler = handler
     }
 
     func publish(_ value: Float) {
+        let now = ProcessInfo.processInfo.systemUptime
         lock.lock()
-        let current = handler
+        guard let current = handler, now - lastPublishedAt >= Self.minInterval else {
+            lock.unlock()
+            return
+        }
+        lastPublishedAt = now
         lock.unlock()
-        guard let current else { return }
         Task { @MainActor in
             current(value)
         }
