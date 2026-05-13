@@ -6,7 +6,6 @@ import Speech
 private let logger = Logger(subsystem: "app.muxy", category: "VoiceRecorder")
 
 enum VoiceRecorderError: Error {
-    case permissionDenied
     case recognizerUnavailable
     case engineFailure(String)
 }
@@ -63,7 +62,7 @@ final class VoiceRecorder {
             throw VoiceRecorderError.engineFailure(error.localizedDescription)
         }
 
-        let transcriptSink = TranscriptSink { [weak self] text, _ in
+        let transcriptSink = TranscriptSink { [weak self] text in
             guard let self else { return }
             self.transcript = text
         }
@@ -201,8 +200,7 @@ final class VoiceRecorder {
     ) -> SFSpeechRecognitionTask {
         let handler: @Sendable (SFSpeechRecognitionResult?, Error?) -> Void = { result, _ in
             guard let result else { return }
-            let text = result.bestTranscription.formattedString
-            sink.publish(text, isFinal: result.isFinal)
+            sink.publish(result.bestTranscription.formattedString)
         }
         return recognizer.recognitionTask(with: request, resultHandler: handler)
     }
@@ -240,19 +238,19 @@ struct UncheckedBox<T>: @unchecked Sendable {
 
 final class TranscriptSink: @unchecked Sendable {
     private let lock = NSLock()
-    private var handler: (@MainActor (String, Bool) -> Void)?
+    private var handler: (@MainActor (String) -> Void)?
 
-    init(handler: @escaping @MainActor (String, Bool) -> Void) {
+    init(handler: @escaping @MainActor (String) -> Void) {
         self.handler = handler
     }
 
-    func publish(_ value: String, isFinal: Bool) {
+    func publish(_ value: String) {
         lock.lock()
         let current = handler
         lock.unlock()
         guard let current else { return }
         Task { @MainActor in
-            current(value, isFinal)
+            current(value)
         }
     }
 

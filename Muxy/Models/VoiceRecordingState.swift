@@ -3,34 +3,20 @@ import AVFoundation
 import Foundation
 import Speech
 
-enum VoicePermissionState: Equatable {
-    case unknown
-    case granted
-    case denied
-}
-
 @MainActor
 @Observable
 final class VoiceRecordingState {
     static let shared = VoiceRecordingState()
 
     var isPanelVisible = false
-    var permission: VoicePermissionState = .unknown
     var errorMessage: String?
     let recorder = VoiceRecorder()
 
     @ObservationIgnored private weak var capturedResponder: NSResponder?
 
-    private init() {
-        refreshPermission()
-    }
+    private init() {}
 
-    func toggle(autoSend: Bool, languageIdentifier: String) {
-        guard !isPanelVisible else { return }
-        present(autoSend: autoSend, languageIdentifier: languageIdentifier)
-    }
-
-    func present(autoSend _: Bool, languageIdentifier: String) {
+    func present(languageIdentifier: String) {
         guard !isPanelVisible else { return }
         errorMessage = nil
         capturedResponder = NSApp.keyWindow?.firstResponder
@@ -42,7 +28,6 @@ final class VoiceRecordingState {
         }
         Task { @MainActor in
             let granted = await VoiceRecorder.requestPermissions()
-            permission = granted ? .granted : .denied
             guard granted else {
                 errorMessage = "Microphone or speech recognition is denied. Enable both in System Settings."
                 return
@@ -57,27 +42,20 @@ final class VoiceRecordingState {
 
     func finish(autoSend: Bool) {
         guard isPanelVisible else { return }
-        let final = recorder.transcript
+        let final = recorder.finish()
         guard !final.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             errorMessage = "No speech detected. Try again or press Esc to close."
             return
         }
         let responder = capturedResponder
         cleanup()
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(220))
-            _ = recorder.finish()
-        }
         TranscriptInserter.insert(text: final, into: responder, appendReturn: autoSend)
     }
 
     func cancel() {
         guard isPanelVisible else { return }
+        recorder.cancel()
         cleanup()
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(220))
-            recorder.cancel()
-        }
     }
 
     func togglePause() {
@@ -87,10 +65,6 @@ final class VoiceRecordingState {
         } else {
             recorder.pause()
         }
-    }
-
-    func refreshPermission() {
-        permission = VoiceRecorder.currentPermissionStatus() ? .granted : .unknown
     }
 
     private static func resolveLocale(from identifier: String) -> Locale? {
@@ -111,8 +85,6 @@ final class VoiceRecordingState {
 
     private func readableMessage(for error: Error) -> String {
         switch error {
-        case VoiceRecorderError.permissionDenied:
-            "Microphone access is denied. Enable it in System Settings."
         case VoiceRecorderError.recognizerUnavailable:
             "Speech recognition is unavailable on this device."
         case let VoiceRecorderError.engineFailure(message):

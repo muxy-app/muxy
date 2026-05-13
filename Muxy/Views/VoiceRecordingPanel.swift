@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 struct VoiceRecordingPanel: View {
@@ -7,7 +8,7 @@ struct VoiceRecordingPanel: View {
     @State private var isFocused = false
     @State private var pulse = false
 
-    private let levelBarSpacing: CGFloat = 3
+    private static let levelBarSpacing: CGFloat = 3
 
     var body: some View {
         VStack(spacing: UIMetrics.spacing3) {
@@ -102,7 +103,7 @@ struct VoiceRecordingPanel: View {
     private var levelMeter: some View {
         GeometryReader { geometry in
             let barCount = max(8, Int(geometry.size.width / UIMetrics.scaled(6)))
-            HStack(spacing: UIMetrics.scaled(levelBarSpacing)) {
+            HStack(spacing: UIMetrics.scaled(Self.levelBarSpacing)) {
                 ForEach(0 ..< barCount, id: \.self) { index in
                     let threshold = Float(index + 1) / Float(barCount)
                     let active = !state.recorder.isPaused && state.recorder.level >= threshold
@@ -172,7 +173,6 @@ struct VoiceRecordingPanel: View {
     private func iconButton(
         systemName: String,
         tint: Color,
-        background: Color? = nil,
         accessibility: String,
         action: @escaping () -> Void
     ) -> some View {
@@ -181,10 +181,7 @@ struct VoiceRecordingPanel: View {
                 .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
-                .background(
-                    background ?? MuxyTheme.surface,
-                    in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-                )
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibility)
@@ -246,13 +243,13 @@ final class VoicePanelFocusTrapView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        switch event.keyCode {
-        case 36,
-             76:
+        switch Int(event.keyCode) {
+        case kVK_Return,
+             kVK_ANSI_KeypadEnter:
             onFinish?()
-        case 53:
+        case kVK_Escape:
             onCancel?()
-        case 49:
+        case kVK_Space:
             onTogglePause?()
         default:
             super.keyDown(with: event)

@@ -8,23 +8,14 @@ struct SpeechLanguage: Identifiable, Hashable {
     var id: String { identifier }
 }
 
+@MainActor
 enum SpeechLanguageCatalog {
-    private static let cacheLock = NSLock()
-    nonisolated(unsafe) private static var cachedLanguages: [SpeechLanguage]?
+    private static var cachedLanguages: [SpeechLanguage]?
 
     static func onDeviceLanguages() -> [SpeechLanguage] {
-        cacheLock.lock()
-        if let cached = cachedLanguages {
-            cacheLock.unlock()
-            return cached
-        }
-        cacheLock.unlock()
-
+        if let cachedLanguages { return cachedLanguages }
         let computed = computeOnDeviceLanguages()
-
-        cacheLock.lock()
         cachedLanguages = computed
-        cacheLock.unlock()
         return computed
     }
 
@@ -54,8 +45,7 @@ enum SpeechLanguageCatalog {
                 else { return nil }
                 let identifier = locale.identifier
                 guard seen.insert(identifier).inserted else { return nil }
-                let name = displayLocale.localizedString(forIdentifier: identifier)
-                    ?? identifier
+                let name = displayLocale.localizedString(forIdentifier: identifier) ?? identifier
                 return SpeechLanguage(identifier: identifier, displayName: name)
             }
         return languages.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }

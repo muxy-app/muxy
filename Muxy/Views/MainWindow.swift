@@ -707,10 +707,7 @@ struct MainWindow: View {
             voiceRecording.cancel()
             return true
         }
-        voiceRecording.present(
-            autoSend: recordingAutoSend,
-            languageIdentifier: recordingLanguage
-        )
+        voiceRecording.present(languageIdentifier: recordingLanguage)
         return true
     }
 
