@@ -6,9 +6,12 @@ struct MobilePairingQRView: View {
     let uriString: String
     let size: CGFloat
 
+    @State private var cachedImage: NSImage?
+    @State private var cacheKey: String?
+
     var body: some View {
         Group {
-            if let image = Self.makeQRImage(uriString: uriString, size: size) {
+            if let image = currentImage {
                 Image(nsImage: image)
                     .interpolation(.none)
                     .resizable()
@@ -24,6 +27,24 @@ struct MobilePairingQRView: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
         )
+        .onAppear(perform: rebuildIfNeeded)
+        .onChange(of: uriString) { _, _ in rebuildIfNeeded() }
+        .onChange(of: size) { _, _ in rebuildIfNeeded() }
+    }
+
+    private var currentImage: NSImage? {
+        cacheKey == Self.key(uriString: uriString, size: size) ? cachedImage : nil
+    }
+
+    private func rebuildIfNeeded() {
+        let key = Self.key(uriString: uriString, size: size)
+        guard cacheKey != key else { return }
+        cachedImage = Self.makeQRImage(uriString: uriString, size: size)
+        cacheKey = key
+    }
+
+    private static func key(uriString: String, size: CGFloat) -> String {
+        "\(Int(size.rounded()))|\(uriString)"
     }
 
     private var placeholder: some View {

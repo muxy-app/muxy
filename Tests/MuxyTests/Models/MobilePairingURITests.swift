@@ -51,6 +51,20 @@ struct MobilePairingURITests {
         #expect(!names.contains("label"))
     }
 
+    @Test("omits nil service and label")
+    func omitsNilOptionals() throws {
+        let uri = try #require(MobilePairingURI.makeString(
+            host: "host.local",
+            port: 4865,
+            service: nil,
+            label: nil
+        ))
+        let components = try #require(URLComponents(string: uri))
+        let names = (components.queryItems ?? []).map(\.name)
+        #expect(!names.contains("service"))
+        #expect(!names.contains("label"))
+    }
+
     @Test("rejects empty host")
     func rejectsEmptyHost() {
         #expect(MobilePairingURI.makeString(host: "  ", port: 4865, service: nil, label: nil) == nil)
