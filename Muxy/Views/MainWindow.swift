@@ -2,15 +2,8 @@ import AppKit
 import SwiftUI
 
 enum MainWindowLayout {
-    static func leftNavigationWidth(
-        sidebarWidth: CGFloat,
-        titleBarNavigationWidth: CGFloat,
-        isFullScreen: Bool
-    ) -> CGFloat {
-        guard sidebarWidth > 0 else { return 0 }
-        _ = titleBarNavigationWidth
-        _ = isFullScreen
-        return sidebarWidth
+    static func leftNavigationWidth(sidebarWidth: CGFloat) -> CGFloat {
+        max(0, sidebarWidth)
     }
 
     static func titleBarNavigationOverlayWidth(
@@ -113,7 +106,7 @@ struct MainWindow: View {
     @State private var showWorktreeSwitcher = false
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
-    @State private var sidebarExpanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
+    @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
@@ -240,7 +233,6 @@ struct MainWindow: View {
             withAnimation(.easeInOut(duration: 0.2)) {
                 sidebarExpanded.toggle()
             }
-            UserDefaults.standard.set(sidebarExpanded, forKey: "muxy.sidebarExpanded")
         }
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
@@ -293,7 +285,7 @@ struct MainWindow: View {
         VStack(spacing: 0) {
             if !isFullScreen {
                 Color.clear
-                    .frame(height: UIMetrics.scaled(32))
+                    .frame(height: UIMetrics.titleBarHeight)
                     .background(WindowDragRepresentable())
 
                 Rectangle().fill(MuxyTheme.border).frame(height: 1)
@@ -320,7 +312,7 @@ struct MainWindow: View {
     private var mainWorkspaceColumn: some View {
         VStack(spacing: 0) {
             mainTitleBarContent
-                .frame(height: UIMetrics.scaled(32))
+                .frame(height: UIMetrics.titleBarHeight)
                 .background(WindowDragRepresentable())
                 .background(MuxyTheme.bg)
 
@@ -345,27 +337,25 @@ struct MainWindow: View {
         .animation(.easeInOut(duration: 0.2), value: mainTitleBarLeadingInset)
     }
 
+    @ViewBuilder
     private var titleBarNavigationOverlay: some View {
-        Group {
-            if !isFullScreen {
-                Color.clear
-                    .frame(width: titleBarNavigationOverlayWidth, height: UIMetrics.scaled(32))
-                    .fixedSize(horizontal: true, vertical: false)
-                    .background(WindowDragRepresentable())
-                    .background(MuxyTheme.bg)
-                    .overlay(alignment: .trailing) {
-                        HStack(spacing: 0) {
-                            navigationArrows
-                            if titleBarNavigationOverflowsSidebar {
-                                Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                                    .accessibilityHidden(true)
-                            }
+        if !isFullScreen {
+            Color.clear
+                .frame(width: titleBarNavigationOverlayWidth, height: UIMetrics.titleBarHeight)
+                .fixedSize(horizontal: true, vertical: false)
+                .background(WindowDragRepresentable())
+                .background(MuxyTheme.bg)
+                .overlay(alignment: .trailing) {
+                    HStack(spacing: 0) {
+                        navigationArrows
+                        if titleBarNavigationOverflowsSidebar {
+                            Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                                .accessibilityHidden(true)
                         }
                     }
-                    .zIndex(1)
-            }
+                }
+                .animation(.easeInOut(duration: 0.2), value: titleBarNavigationOverlayWidth)
         }
-        .animation(.easeInOut(duration: 0.2), value: titleBarNavigationOverlayWidth)
     }
 
     private var workspaceContent: some View {
@@ -727,11 +717,7 @@ struct MainWindow: View {
     }
 
     private var leftNavigationWidth: CGFloat {
-        MainWindowLayout.leftNavigationWidth(
-            sidebarWidth: sidebarResolvedWidth,
-            titleBarNavigationWidth: titleBarNavigationWidth,
-            isFullScreen: isFullScreen
-        )
+        MainWindowLayout.leftNavigationWidth(sidebarWidth: sidebarResolvedWidth)
     }
 
     private var titleBarNavigationOverlayWidth: CGFloat {
@@ -755,7 +741,7 @@ struct MainWindow: View {
     }
 
     private var leftNavigationBorderTopPadding: CGFloat {
-        titleBarNavigationOverflowsSidebar ? UIMetrics.scaled(33) : 0
+        titleBarNavigationOverflowsSidebar ? UIMetrics.titleBarHeight + 1 : 0
     }
 
     private var titleBarNavigationWidth: CGFloat {

@@ -48,6 +48,7 @@ enum UIMetrics {
 
     static var tabBarHeight: CGFloat { scaled(28) }
     static var headerHeight: CGFloat { scaled(36) }
+    static var titleBarHeight: CGFloat { scaled(32) }
 
     static func scaled(_ value: CGFloat) -> CGFloat {
         value * UIScale.shared.multiplier

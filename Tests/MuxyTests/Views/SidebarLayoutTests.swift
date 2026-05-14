@@ -55,20 +55,12 @@ struct SidebarLayoutTests {
 struct MainWindowLayoutTests {
     @Test("collapsed icon sidebar keeps its own rail width")
     func collapsedIconSidebarKeepsRailWidth() {
-        #expect(MainWindowLayout.leftNavigationWidth(
-            sidebarWidth: 44,
-            titleBarNavigationWidth: 127,
-            isFullScreen: false
-        ) == 44)
+        #expect(MainWindowLayout.leftNavigationWidth(sidebarWidth: 44) == 44)
     }
 
     @Test("wide sidebar owns the title bar height instead of sitting below tab strip")
     func wideSidebarExtendsThroughTitleBar() {
-        #expect(MainWindowLayout.leftNavigationWidth(
-            sidebarWidth: 220,
-            titleBarNavigationWidth: 127,
-            isFullScreen: false
-        ) == 220)
+        #expect(MainWindowLayout.leftNavigationWidth(sidebarWidth: 220) == 220)
         #expect(MainWindowLayout.titleBarNavigationOverlayWidth(
             leftNavigationWidth: 220,
             titleBarNavigationWidth: 127,
@@ -97,11 +89,7 @@ struct MainWindowLayoutTests {
 
     @Test("hidden sidebar keeps full title bar navigation inset")
     func hiddenSidebarLeavesNavigationInTitleBar() {
-        #expect(MainWindowLayout.leftNavigationWidth(
-            sidebarWidth: 0,
-            titleBarNavigationWidth: 127,
-            isFullScreen: false
-        ) == 0)
+        #expect(MainWindowLayout.leftNavigationWidth(sidebarWidth: 0) == 0)
         #expect(MainWindowLayout.titleBarNavigationOverlayWidth(
             leftNavigationWidth: 0,
             titleBarNavigationWidth: 127,
@@ -114,13 +102,8 @@ struct MainWindowLayoutTests {
         ) == 127)
     }
 
-    @Test("full screen uses sidebar width without title bar navigation overlay")
-    func fullScreenSidebarUsesResolvedWidth() {
-        #expect(MainWindowLayout.leftNavigationWidth(
-            sidebarWidth: 44,
-            titleBarNavigationWidth: 127,
-            isFullScreen: true
-        ) == 44)
+    @Test("full screen suppresses title bar navigation overlay")
+    func fullScreenSuppressesTitleBarOverlay() {
         #expect(MainWindowLayout.titleBarNavigationOverlayWidth(
             leftNavigationWidth: 44,
             titleBarNavigationWidth: 127,
