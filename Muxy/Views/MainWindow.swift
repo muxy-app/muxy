@@ -83,6 +83,7 @@ struct MainWindow: View {
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
     @State private var sidebarExpanded = UserDefaults.standard.bool(forKey: "muxy.sidebarExpanded")
+    @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
@@ -166,13 +167,15 @@ struct MainWindow: View {
 
                     bottomDockedRichInputPanel
 
-                    ProjectStatusBar(
-                        activePane: activeTerminalPane,
-                        activeWorktree: activeProject.flatMap { resolvedActiveWorktree(for: $0) },
-                        isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
-                        richInputVisible: richInputPanelVisible,
-                        richInputFontSize: $richInputFontSize
-                    )
+                    if showStatusBar {
+                        ProjectStatusBar(
+                            activePane: activeTerminalPane,
+                            activeWorktree: activeProject.flatMap { resolvedActiveWorktree(for: $0) },
+                            isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
+                            richInputVisible: richInputPanelVisible,
+                            richInputFontSize: $richInputFontSize
+                        )
+                    }
                 }
             }
         }
@@ -284,6 +287,11 @@ struct MainWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
             withAnimation(.easeInOut(duration: 0.2)) {
                 sidebarExpanded.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleStatusBar)) { _ in
+            withAnimation(.easeInOut(duration: 0.2)) {
+                showStatusBar.toggle()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
