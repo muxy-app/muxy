@@ -53,18 +53,23 @@ protocol UserNotificationScheduling: AnyObject {
 }
 
 final class SystemUserNotificationScheduler: UserNotificationScheduling {
-    private let center: UNUserNotificationCenter
+    private let centerProvider: () -> UNUserNotificationCenter?
+    private lazy var center: UNUserNotificationCenter? = centerProvider()
 
-    init(center: UNUserNotificationCenter = .current()) {
-        self.center = center
+    init(centerProvider: @escaping () -> UNUserNotificationCenter? = SystemUserNotificationScheduler.defaultCenter) {
+        self.centerProvider = centerProvider
     }
 
     var delegate: (any UNUserNotificationCenterDelegate)? {
-        get { center.delegate }
-        set { center.delegate = newValue }
+        get { center?.delegate }
+        set { center?.delegate = newValue }
     }
 
     func authorizationStatus(completionHandler: @escaping @Sendable (UNAuthorizationStatus) -> Void) {
+        guard let center else {
+            completionHandler(.denied)
+            return
+        }
         center.getNotificationSettings { settings in
             completionHandler(settings.authorizationStatus)
         }
@@ -74,11 +79,24 @@ final class SystemUserNotificationScheduler: UserNotificationScheduling {
         options: UNAuthorizationOptions,
         completionHandler: @escaping @Sendable (Bool, (any Error)?) -> Void
     ) {
+        guard let center else {
+            completionHandler(false, nil)
+            return
+        }
         center.requestAuthorization(options: options, completionHandler: completionHandler)
     }
 
     func add(_ request: UNNotificationRequest, withCompletionHandler completionHandler: (@Sendable ((any Error)?) -> Void)?) {
+        guard let center else {
+            completionHandler?(nil)
+            return
+        }
         center.add(request, withCompletionHandler: completionHandler)
+    }
+
+    private static func defaultCenter() -> UNUserNotificationCenter? {
+        guard Bundle.main.bundleIdentifier != nil else { return nil }
+        return .current()
     }
 }
 
