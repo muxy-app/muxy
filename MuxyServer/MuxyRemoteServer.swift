@@ -72,6 +72,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
 
 public final class MuxyRemoteServer: @unchecked Sendable {
     public static let defaultPort: UInt16 = 4865
+    public static let bonjourServiceType: String = "_muxy._tcp"
 
     private let port: UInt16
     private var listener: NWListener?
@@ -169,6 +170,7 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             ws.autoReplyPing = true
             params.defaultProtocolStack.applicationProtocols.insert(ws, at: 0)
             listener = try NWListener(using: params, on: endpointPort)
+            listener?.service = NWListener.Service(name: nil, type: Self.bonjourServiceType)
         } catch {
             logger.error("Failed to create listener: \(error)")
             finishStart(.failure(error))
