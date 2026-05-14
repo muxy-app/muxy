@@ -289,11 +289,6 @@ struct MainWindow: View {
                 sidebarExpanded.toggle()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleStatusBar)) { _ in
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showStatusBar.toggle()
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
         }

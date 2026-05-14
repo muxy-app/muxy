@@ -25,6 +25,8 @@ struct AppearanceSettingsView: View {
                     .pickerStyle(.segmented)
                     .frame(width: SettingsMetrics.controlWidth)
                 }
+
+                SettingsToggleRow(label: "Show Status Bar", isOn: $showStatusBar)
             }
 
             SettingsSection("Terminal") {
@@ -74,10 +76,6 @@ struct AppearanceSettingsView: View {
                     }
                     .frame(width: SettingsMetrics.controlWidth)
                 }
-            }
-
-            SettingsSection("Status Bar") {
-                SettingsToggleRow(label: "Show Status Bar", isOn: $showStatusBar)
             }
 
             SettingsSection("Source Control", showsDivider: false) {
