@@ -107,6 +107,7 @@ struct MainWindow: View {
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
+    @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
@@ -400,13 +401,15 @@ struct MainWindow: View {
 
             bottomDockedRichInputPanel
 
-            ProjectStatusBar(
-                activePane: activeTerminalPane,
-                activeWorktree: activeProject.flatMap { resolvedActiveWorktree(for: $0) },
-                isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
-                richInputVisible: richInputPanelVisible,
-                richInputFontSize: $richInputFontSize
-            )
+            if showStatusBar {
+                ProjectStatusBar(
+                    activePane: activeTerminalPane,
+                    activeWorktree: activeProject.flatMap { resolvedActiveWorktree(for: $0) },
+                    isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
+                    richInputVisible: richInputPanelVisible,
+                    richInputFontSize: $richInputFontSize
+                )
+            }
         }
     }
 

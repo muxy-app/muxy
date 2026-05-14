@@ -10,6 +10,7 @@ struct AppearanceSettingsView: View {
     @AppStorage("muxy.vcsDisplayMode") private var vcsDisplayMode = VCSDisplayMode.attached.rawValue
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyle = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyle = SidebarExpandedStyle.defaultValue.rawValue
+    @AppStorage("muxy.showStatusBar") private var showStatusBar = true
 
     var body: some View {
         SettingsContainer {
@@ -24,6 +25,8 @@ struct AppearanceSettingsView: View {
                     .pickerStyle(.segmented)
                     .frame(width: SettingsMetrics.controlWidth)
                 }
+
+                SettingsToggleRow(label: "Show Status Bar", isOn: $showStatusBar)
             }
 
             SettingsSection("Terminal") {
