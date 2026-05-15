@@ -185,8 +185,8 @@ struct ProjectOpenServiceTests {
         #expect(appState.activeProjectID == nil)
     }
 
-    @Test("custom picker preference routes project opening to the in-app picker")
-    func customPreferenceRoutesToProjectPicker() throws {
+    @Test("custom picker preference posts picker notification without opening Finder")
+    func customPreferencePresentsProjectPickerWithoutOpeningFinder() throws {
         let (appState, projectStore, worktreeStore) = makeStores()
         let suiteName = "ProjectOpenServiceTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -205,20 +205,23 @@ struct ProjectOpenServiceTests {
             flag.didPost = true
         }
         defer { notificationCenter.removeObserver(observer) }
+        var didOpenFinder = false
 
         ProjectOpenService.openProjectViaPicker(
             appState: appState,
             projectStore: projectStore,
             worktreeStore: worktreeStore,
             preferences: preferences,
-            notificationCenter: notificationCenter
+            notificationCenter: notificationCenter,
+            openWithFinder: { didOpenFinder = true }
         )
 
         #expect(flag.didPost)
+        #expect(!didOpenFinder)
     }
 
-    @Test("finder picker preference routes project opening to Finder without posting picker notification")
-    func finderPreferenceRoutesToFinder() throws {
+    @Test("finder picker preference opens Finder without posting picker notification")
+    func finderPreferencePresentsFinderWithoutProjectPickerNotification() throws {
         let (appState, projectStore, worktreeStore) = makeStores()
         let suiteName = "ProjectOpenServiceTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -251,23 +254,6 @@ struct ProjectOpenServiceTests {
 
         #expect(!flag.didPost)
         #expect(didOpenFinder)
-    }
-
-    @Test("presentation router chooses picker mode without project stores")
-    func presentationRouterChoosesPickerMode() throws {
-        let suiteName = "ProjectOpenPresentationRouterTests-\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            Issue.record("Unable to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let preferences = ProjectPickerPreferences(defaults: defaults)
-
-        #expect(ProjectOpenPresentationRouter(preferences: preferences).route() == .customPicker)
-
-        preferences.mode = .finder
-
-        #expect(ProjectOpenPresentationRouter(preferences: preferences).route() == .finder)
     }
 
     private func makeStores() -> (AppState, ProjectStore, WorktreeStore) {

@@ -32,26 +32,43 @@ enum ProjectOpenService {
         notificationCenter: NotificationCenter = .default,
         openWithFinder: (() -> Void)? = nil
     ) {
-        presentOpenProject(preferences: preferences, notificationCenter: notificationCenter) {
+        let finder = ProjectOpenFinderPresentationAdapter {
             if let openWithFinder {
                 openWithFinder()
             } else {
                 openProject(appState: appState, projectStore: projectStore, worktreeStore: worktreeStore)
             }
         }
+        presentOpenProject(
+            preferences: preferences,
+            customPicker: ProjectOpenCustomPickerPresentationAdapter(notificationCenter: notificationCenter),
+            finder: finder
+        )
     }
 
     static func presentOpenProject(
         preferences: ProjectPickerPreferences = ProjectPickerPreferences(),
         notificationCenter: NotificationCenter = .default,
-        openWithFinder: () -> Void
+        openWithFinder: @escaping () -> Void
     ) {
-        switch ProjectOpenPresentationRouter(preferences: preferences).route() {
-        case .customPicker:
-            notificationCenter.post(name: .openProjectPicker, object: nil)
-        case .finder:
-            openWithFinder()
-        }
+        presentOpenProject(
+            preferences: preferences,
+            customPicker: ProjectOpenCustomPickerPresentationAdapter(notificationCenter: notificationCenter),
+            finder: ProjectOpenFinderPresentationAdapter(presentFinder: openWithFinder)
+        )
+    }
+
+    static func presentOpenProject(
+        preferences: ProjectPickerPreferences = ProjectPickerPreferences(),
+        customPicker: ProjectOpenCustomPickerPresentationAdapter = ProjectOpenCustomPickerPresentationAdapter(),
+        finder: ProjectOpenFinderPresentationAdapter
+    ) {
+        ProjectOpenPresentationRouter(
+            preferences: preferences,
+            customPicker: customPicker,
+            finder: finder
+        )
+        .present()
     }
 
     @discardableResult
