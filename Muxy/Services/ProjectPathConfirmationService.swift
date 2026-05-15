@@ -1,5 +1,17 @@
 import Foundation
 
+enum ProjectOpenConfirmationResult: Equatable {
+    case success
+    case missingDirectory
+    case notDirectory
+    case createFailed
+    case failed
+
+    var didConfirm: Bool {
+        self == .success
+    }
+}
+
 enum ProjectPathConfirmationDirectoryState: Equatable {
     case missing
     case directory

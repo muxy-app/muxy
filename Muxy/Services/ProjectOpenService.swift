@@ -1,17 +1,5 @@
 import AppKit
 
-enum ProjectOpenConfirmationResult: Equatable {
-    case success
-    case missingDirectory
-    case notDirectory
-    case createFailed
-    case failed
-
-    var didConfirm: Bool {
-        self == .success
-    }
-}
-
 @MainActor
 enum ProjectOpenService {
     static func openProject(
