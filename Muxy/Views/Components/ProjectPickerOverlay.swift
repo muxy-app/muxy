@@ -180,6 +180,9 @@ struct ProjectPickerOverlay: View {
             Text(row)
                 .font(.system(size: UIMetrics.fontBody, design: .monospaced))
             Spacer()
+            if row == ".." {
+                ProjectPickerShortcutHint(keys: "⌥ ⌫", label: "Go back")
+            }
         }
         .padding(.horizontal, UIMetrics.spacing5)
         .padding(.vertical, UIMetrics.spacing3)
@@ -204,10 +207,10 @@ struct ProjectPickerOverlay: View {
     private var footer: some View {
         HStack(spacing: UIMetrics.spacing5) {
             HStack(spacing: UIMetrics.spacing4) {
-                ProjectPickerFooterHint(keys: "↑↓", label: "Navigate")
-                ProjectPickerFooterHint(keys: "Return", label: "Open")
-                ProjectPickerFooterHint(keys: "⌘ Return", label: actionTitle)
-                ProjectPickerFooterHint(keys: "Esc", label: "Close")
+                ProjectPickerShortcutHint(keys: "↑↓", label: "Navigate")
+                ProjectPickerShortcutHint(keys: "Return", label: "Open")
+                ProjectPickerShortcutHint(keys: "⌘ Return", label: actionTitle)
+                ProjectPickerShortcutHint(keys: "Esc", label: "Close")
             }
             Spacer(minLength: UIMetrics.spacing6)
             Button("Choose with Finder…") {
@@ -308,7 +311,7 @@ struct ProjectPickerOverlay: View {
     }
 }
 
-private struct ProjectPickerFooterHint: View {
+private struct ProjectPickerShortcutHint: View {
     let keys: String
     let label: String
 
@@ -406,6 +409,10 @@ private struct ProjectPickerPathField: NSViewRepresentable {
                 return true
             }
             if commandSelector == #selector(NSResponder.moveLeft(_:)) {
+                parent.onGoUp()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.deleteWordBackward(_:)) {
                 parent.onGoUp()
                 return true
             }
