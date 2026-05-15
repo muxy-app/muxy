@@ -122,6 +122,9 @@ struct GeneralSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .focusProjectPickerDefaultLocation)) { _ in
             applyPendingProjectPickerDefaultLocationFocus()
         }
+        .background(SettingsMouseFocusReset {
+            focusedControl = nil
+        })
     }
 
     private var sentryConsentBinding: Binding<Bool> {
@@ -312,4 +315,53 @@ struct GeneralSettingsView: View {
 
 private enum GeneralSettingsFocusedControl: Hashable {
     case projectPickerDefaultLocationChooseFolder
+}
+
+private struct SettingsMouseFocusReset: NSViewRepresentable {
+    let reset: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(reset: reset)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.attach(to: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.reset = reset
+        context.coordinator.view = nsView
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.detach()
+    }
+
+    final class Coordinator {
+        var reset: () -> Void
+        weak var view: NSView?
+        private var monitor: Any?
+
+        init(reset: @escaping () -> Void) {
+            self.reset = reset
+        }
+
+        func attach(to view: NSView) {
+            self.view = view
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                guard let self, event.window === self.view?.window else { return event }
+                self.reset()
+                return event
+            }
+        }
+
+        func detach() {
+            guard let monitor else { return }
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
 }
