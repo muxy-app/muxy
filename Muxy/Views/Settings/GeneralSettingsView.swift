@@ -271,7 +271,7 @@ struct GeneralSettingsView: View {
     }
 
     private func applyPendingProjectPickerDefaultLocationFocus() {
-        guard SettingsFocusRequest.consumeProjectPickerDefaultLocation() else { return }
+        guard SettingsFocusCoordinator.shared.consume(.projectPickerDefaultLocation) else { return }
         focusProjectPickerDefaultLocation()
     }
 
@@ -288,8 +288,7 @@ struct GeneralSettingsView: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.message = "Select the default location for the project picker"
-        let initialPath = ProjectPickerDefaultLocation.status == .ready ? ProjectPickerDefaultLocation.path : NSHomeDirectory()
-        panel.directoryURL = URL(fileURLWithPath: initialPath)
+        panel.directoryURL = URL(fileURLWithPath: ProjectPickerDefaultLocation.chooserInitialPath())
         guard panel.runModal() == .OK, let url = panel.url else { return }
         projectPickerDefaultLocationPath = url.standardizedFileURL.path
         refreshProjectPickerDefaultLocationStatus()

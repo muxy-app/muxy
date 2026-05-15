@@ -1,18 +1,21 @@
 import Foundation
 
-struct ProjectPickerDirectorySnapshot {
+struct ProjectPickerDirectorySnapshot: Equatable {
     let rows: [String]
     let readFailed: Bool
 
-    static func load(navigator: ProjectPickerNavigator) -> ProjectPickerDirectorySnapshot {
+    static func load(
+        navigator: ProjectPickerNavigator,
+        fileManager: FileManager = .default
+    ) -> ProjectPickerDirectorySnapshot {
         do {
-            let urls = try FileManager.default.contentsOfDirectory(
+            let urls = try fileManager.contentsOfDirectory(
                 at: URL(fileURLWithPath: navigator.directoryPath),
                 includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
                 options: []
             )
             let names = urls.compactMap { url -> String? in
-                guard isDirectoryOrDirectorySymlink(url) else { return nil }
+                guard isDirectoryOrDirectorySymlink(url, fileManager: fileManager) else { return nil }
                 return url.lastPathComponent
             }
             return ProjectPickerDirectorySnapshot(rows: navigator.directoryRows(from: names), readFailed: false)
@@ -22,11 +25,11 @@ struct ProjectPickerDirectorySnapshot {
         }
     }
 
-    private static func isDirectoryOrDirectorySymlink(_ url: URL) -> Bool {
+    private static func isDirectoryOrDirectorySymlink(_ url: URL, fileManager: FileManager) -> Bool {
         let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         if values?.isDirectory == true { return true }
         guard values?.isSymbolicLink == true else { return false }
         var isDirectory = ObjCBool(false)
-        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+        return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 }

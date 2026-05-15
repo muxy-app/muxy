@@ -49,12 +49,11 @@ enum ProjectPickerDefaultLocation {
     }
 
     static func status(defaults: UserDefaults) -> ProjectPickerDefaultLocationStatus {
-        let path = path(defaults: defaults)
-        var isDirectory = ObjCBool(false)
-        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return .missing }
-        guard isDirectory.boolValue else { return .notDirectory }
-        guard FileManager.default.isReadableFile(atPath: path) else { return .unreadable }
-        return .ready
+        ProjectPickerPathSemantics.defaultLocationStatus(path: path(defaults: defaults))
+    }
+
+    static func chooserInitialPath(defaults: UserDefaults = .standard) -> String {
+        status(defaults: defaults) == .ready ? path(defaults: defaults) : NSHomeDirectory()
     }
 
     private static func storedCustomPath(defaults: UserDefaults) -> String? {
@@ -71,19 +70,10 @@ enum ProjectPickerDefaultLocation {
     }
 
     private static func expandedPath(_ path: String) -> String {
-        PathExpansion.expandTilde(path, homeDirectory: NSHomeDirectory())
+        ProjectPickerPathSemantics.expandedPath(path, homeDirectory: NSHomeDirectory())
     }
 
     private static func abbreviatedPath(_ path: String) -> String {
-        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
-        let homeDirectory = NSHomeDirectory()
-        let displayPath: String = if standardizedPath == homeDirectory {
-            "~"
-        } else if standardizedPath.hasPrefix(homeDirectory + "/") {
-            "~" + standardizedPath.dropFirst(homeDirectory.count)
-        } else {
-            standardizedPath
-        }
-        return displayPath.hasSuffix("/") ? displayPath : displayPath + "/"
+        ProjectPickerPathSemantics.abbreviatedDirectoryDisplayPath(path, homeDirectory: NSHomeDirectory())
     }
 }

@@ -44,15 +44,25 @@ enum ProjectOpenService {
         notificationCenter: NotificationCenter = .default,
         openWithFinder: (() -> Void)? = nil
     ) {
-        switch preferences.mode {
-        case .custom:
-            notificationCenter.post(name: .openProjectPicker, object: nil)
-        case .finder:
+        presentOpenProject(preferences: preferences, notificationCenter: notificationCenter) {
             if let openWithFinder {
                 openWithFinder()
             } else {
                 openProject(appState: appState, projectStore: projectStore, worktreeStore: worktreeStore)
             }
+        }
+    }
+
+    static func presentOpenProject(
+        preferences: ProjectPickerPreferences = ProjectPickerPreferences(),
+        notificationCenter: NotificationCenter = .default,
+        openWithFinder: () -> Void
+    ) {
+        switch ProjectOpenPresentationRouter(preferences: preferences).route() {
+        case .customPicker:
+            notificationCenter.post(name: .openProjectPicker, object: nil)
+        case .finder:
+            openWithFinder()
         }
     }
 
@@ -81,7 +91,7 @@ enum ProjectOpenService {
         worktreeStore: WorktreeStore,
         createIfMissing: Bool = false
     ) -> ProjectOpenConfirmationResult {
-        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        let standardizedPath = ProjectPickerPathSemantics.standardizedPath(path)
         var isDirectory: ObjCBool = false
         if !FileManager.default.fileExists(atPath: standardizedPath, isDirectory: &isDirectory) {
             guard createIfMissing else { return .missingDirectory }

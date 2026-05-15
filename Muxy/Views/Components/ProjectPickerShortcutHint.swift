@@ -42,17 +42,12 @@ struct ProjectPickerShortcutHint: View {
 }
 
 struct ProjectPickerFooterShortcut: Hashable {
+    let command: ProjectPickerCommand
     let keycap: ProjectPickerShortcutKeycap
     let label: String
 
     static func ordered(actionTitle: String) -> [ProjectPickerFooterShortcut] {
-        [
-            ProjectPickerFooterShortcut(keycap: .navigate, label: "Navigate"),
-            ProjectPickerFooterShortcut(keycap: .returnKey, label: "Open"),
-            ProjectPickerFooterShortcut(keycap: .commandReturn, label: actionTitle),
-            ProjectPickerFooterShortcut(keycap: .optionDelete, label: "Go back"),
-            ProjectPickerFooterShortcut(keycap: .escape, label: "Close"),
-        ]
+        ProjectPickerCommand.footerCommands.compactMap { $0.footerShortcut(actionTitle: actionTitle) }
     }
 }
 

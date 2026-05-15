@@ -4,13 +4,7 @@ import SwiftUI
 
 struct ProjectPickerPathField: NSViewRepresentable {
     @Binding var text: String
-    let onSubmit: () -> Void
-    let onCommandSubmit: () -> Void
-    let onEscape: () -> Void
-    let onArrowUp: () -> Void
-    let onArrowDown: () -> Void
-    let onTab: () -> Void
-    let onGoUp: () -> Void
+    let onCommand: (ProjectPickerCommand) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -25,8 +19,7 @@ struct ProjectPickerPathField: NSViewRepresentable {
         field.font = .monospacedSystemFont(ofSize: UIMetrics.fontEmphasis, weight: .regular)
         field.textColor = NSColor(MuxyTheme.fg)
         field.stringValue = text
-        field.onEscape = onEscape
-        field.onCommandSubmit = onCommandSubmit
+        field.onCommand = onCommand
         DispatchQueue.main.async {
             field.window?.makeFirstResponder(field)
             field.moveCursorToEnd()
@@ -40,8 +33,7 @@ struct ProjectPickerPathField: NSViewRepresentable {
             nsView.stringValue = text
         }
         if let field = nsView as? ProjectPickerNSTextField {
-            field.onEscape = onEscape
-            field.onCommandSubmit = onCommandSubmit
+            field.onCommand = onCommand
         }
     }
 
@@ -60,27 +52,27 @@ struct ProjectPickerPathField: NSViewRepresentable {
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                parent.onSubmit()
+                parent.onCommand(.openHighlighted)
                 return true
             }
             if commandSelector == #selector(NSResponder.insertTab(_:)) {
-                parent.onTab()
+                parent.onCommand(.completeHighlighted)
                 return true
             }
             if commandSelector == #selector(NSResponder.moveUp(_:)) {
-                parent.onArrowUp()
+                parent.onCommand(.moveHighlightUp)
                 return true
             }
             if commandSelector == #selector(NSResponder.moveDown(_:)) {
-                parent.onArrowDown()
+                parent.onCommand(.moveHighlightDown)
                 return true
             }
             if commandSelector == #selector(NSResponder.deleteWordBackward(_:)), shouldGoUpOnDeleteBackward(textView) {
-                parent.onGoUp()
+                parent.onCommand(.goBack)
                 return true
             }
             if commandSelector == #selector(NSResponder.deleteBackward(_:)), shouldGoUpOnDeleteBackward(textView) {
-                parent.onGoUp()
+                parent.onCommand(.goBack)
                 return true
             }
             return false
@@ -96,8 +88,7 @@ struct ProjectPickerPathField: NSViewRepresentable {
 }
 
 private final class ProjectPickerNSTextField: NSTextField {
-    var onEscape: (() -> Void)?
-    var onCommandSubmit: (() -> Void)?
+    var onCommand: ((ProjectPickerCommand) -> Void)?
 
     func moveCursorToEnd() {
         guard let editor = currentEditor() else { return }
@@ -109,11 +100,11 @@ private final class ProjectPickerNSTextField: NSTextField {
             return super.performKeyEquivalent(with: event)
         }
         if event.keyCode == kVK_Escape {
-            onEscape?()
+            onCommand?(.dismiss)
             return true
         }
         if event.keyCode == kVK_Return, event.modifierFlags.contains(.command) {
-            onCommandSubmit?()
+            onCommand?(.confirmTypedPath)
             return true
         }
         return super.performKeyEquivalent(with: event)

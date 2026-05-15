@@ -48,8 +48,8 @@ struct ProjectPickerNavigatorTests {
 
     @Test("path expansion uses the supplied home directory")
     func pathExpansionUsesSuppliedHomeDirectory() {
-        #expect(PathExpansion.expandTilde("~/Projects", homeDirectory: "/Users/alice") == "/Users/alice/Projects")
-        #expect(PathExpansion.expandTilde("~", homeDirectory: "/Users/alice") == "/Users/alice")
+        #expect(ProjectPickerPathSemantics.expandedPath("~/Projects", homeDirectory: "/Users/alice") == "/Users/alice/Projects")
+        #expect(ProjectPickerPathSemantics.expandedPath("~", homeDirectory: "/Users/alice") == "/Users/alice")
     }
 
     @Test("parent path walks above home to filesystem root and stops")

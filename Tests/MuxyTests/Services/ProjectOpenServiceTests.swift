@@ -211,6 +211,23 @@ struct ProjectOpenServiceTests {
         #expect(didOpenFinder)
     }
 
+    @Test("presentation router chooses picker mode without project stores")
+    func presentationRouterChoosesPickerMode() throws {
+        let suiteName = "ProjectOpenPresentationRouterTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Unable to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = ProjectPickerPreferences(defaults: defaults)
+
+        #expect(ProjectOpenPresentationRouter(preferences: preferences).route() == .customPicker)
+
+        preferences.mode = .finder
+
+        #expect(ProjectOpenPresentationRouter(preferences: preferences).route() == .finder)
+    }
+
     private func makeStores() -> (AppState, ProjectStore, WorktreeStore) {
         let projectStore = ProjectStore(persistence: ProjectPersistenceStub())
         let worktreeStore = WorktreeStore(persistence: WorktreePersistenceStub(), projects: [])
