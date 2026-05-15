@@ -232,10 +232,9 @@ struct ProjectPickerOverlay: View {
     private var footer: some View {
         HStack(spacing: UIMetrics.spacing5) {
             HStack(spacing: UIMetrics.spacing4) {
-                ProjectPickerShortcutHint(keycap: .navigate, label: "Navigate")
-                ProjectPickerShortcutHint(keycap: .returnKey, label: "Open")
-                ProjectPickerShortcutHint(keycap: .commandReturn, label: actionTitle)
-                ProjectPickerShortcutHint(keycap: .escape, label: "Close")
+                ForEach(ProjectPickerFooterShortcut.ordered(actionTitle: actionTitle), id: \.self) { shortcut in
+                    ProjectPickerShortcutHint(keycap: shortcut.keycap, label: shortcut.label)
+                }
             }
             Spacer(minLength: UIMetrics.spacing6)
             Button("Choose with Finder…") {
@@ -442,9 +441,6 @@ private struct ProjectPickerDirectoryRow: View {
             Text(row)
                 .font(.system(size: UIMetrics.fontBody, design: .monospaced))
             Spacer()
-            if isParent {
-                ProjectPickerShortcutHint(keycap: .optionDelete, label: "Go back")
-            }
         }
         .padding(.horizontal, UIMetrics.spacing5)
         .padding(.vertical, UIMetrics.spacing3)
