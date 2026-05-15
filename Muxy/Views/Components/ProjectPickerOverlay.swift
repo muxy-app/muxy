@@ -40,7 +40,7 @@ struct ProjectPickerOverlay: View {
     }
 
     private var ghostText: String {
-        guard let highlightedRow, highlightedRow != ".." else { return "" }
+        guard let highlightedRow, !isParentDirectoryRow(highlightedRow) else { return "" }
         let completedPath = navigator.completedPath(highlightedRow: highlightedRow)
         guard completedPath.hasPrefix(input) else { return "" }
         return String(completedPath.dropFirst(input.count))
@@ -131,11 +131,11 @@ struct ProjectPickerOverlay: View {
     }
 
     private var projectRows: [String] {
-        rows.filter { $0 != ".." }
+        rows.filter { !isParentDirectoryRow($0) }
     }
 
     private var hasParentRow: Bool {
-        rows.contains("..")
+        rows.contains { isParentDirectoryRow($0) }
     }
 
     private var unavailableProjectContent: some View {
@@ -148,8 +148,8 @@ struct ProjectPickerOverlay: View {
     }
 
     private var parentDirectoryRow: some View {
-        directoryRow("..", isHighlighted: highlightedIndex == 0)
-            .onTapGesture { descend("..") }
+        directoryRow(ProjectPickerNavigator.parentDirectoryRow, isHighlighted: highlightedIndex == 0)
+            .onTapGesture { descend(ProjectPickerNavigator.parentDirectoryRow) }
     }
 
     private var directoryRows: some View {
@@ -175,12 +175,12 @@ struct ProjectPickerOverlay: View {
 
     private func directoryRow(_ row: String, isHighlighted: Bool) -> some View {
         HStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: row == ".." ? "arrow.turn.up.left" : "folder")
+            Image(systemName: iconName(for: row))
                 .foregroundStyle(MuxyTheme.fgMuted)
             Text(row)
                 .font(.system(size: UIMetrics.fontBody, design: .monospaced))
             Spacer()
-            if row == ".." {
+            if isParentDirectoryRow(row) {
                 ProjectPickerShortcutHint(keys: "⌥ ⌫", label: "Go back")
             }
         }
@@ -188,6 +188,14 @@ struct ProjectPickerOverlay: View {
         .padding(.vertical, UIMetrics.spacing3)
         .background(isHighlighted ? MuxyTheme.hover : .clear)
         .contentShape(Rectangle())
+    }
+
+    private func iconName(for row: String) -> String {
+        isParentDirectoryRow(row) ? "arrow.turn.up.left" : "folder"
+    }
+
+    private func isParentDirectoryRow(_ row: String) -> Bool {
+        row == ProjectPickerNavigator.parentDirectoryRow
     }
 
     private var unavailableProjectMessage: some View {
@@ -240,14 +248,14 @@ struct ProjectPickerOverlay: View {
             highlightedIndex = initialHighlightedIndex(for: rows)
         } catch {
             directoryReadFailed = true
-            rows = navigator.directoryPath == "/" ? [] : [".."]
+            rows = navigator.directoryPath == "/" ? [] : [ProjectPickerNavigator.parentDirectoryRow]
             highlightedIndex = initialHighlightedIndex(for: rows)
         }
     }
 
     private func initialHighlightedIndex(for rows: [String]) -> Int? {
         guard !rows.isEmpty else { return nil }
-        guard rows.first == "..", rows.count > 1 else { return 0 }
+        guard rows.first.map(isParentDirectoryRow) == true, rows.count > 1 else { return 0 }
         return 1
     }
 
@@ -282,7 +290,7 @@ struct ProjectPickerOverlay: View {
     }
 
     private func descend(_ row: String) {
-        if row == ".." {
+        if isParentDirectoryRow(row) {
             goUp()
             return
         }

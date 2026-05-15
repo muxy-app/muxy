@@ -34,6 +34,8 @@ struct ProjectPickerDirectoryReadFailure {
 }
 
 struct ProjectPickerNavigator {
+    static let parentDirectoryRow = ".."
+
     let input: String
     let homeDirectory: String
 
@@ -70,7 +72,7 @@ struct ProjectPickerNavigator {
             .filter { filter.isEmpty || $0.localizedCaseInsensitiveContains(filter) }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         guard directoryPath != "/" else { return rows }
-        return [".."] + rows
+        return [Self.parentDirectoryRow] + rows
     }
 
     func completedPath(highlightedRow: String) -> String {
