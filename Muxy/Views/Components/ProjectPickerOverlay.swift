@@ -7,13 +7,13 @@ struct ProjectPickerOverlay: View {
     let onChooseFinder: () -> Void
     let onDismiss: () -> Void
 
-    @State private var input = ProjectPickerStartingDirectory.displayPath
+    @State private var input = ProjectPickerDefaultDirectory.displayPath
     @State private var rows: [String] = []
     @State private var highlightedIndex: Int?
-    @State private var readFailure: ProjectPickerDirectoryReadFailure?
+    @State private var directoryReadFailed = false
 
     private var navigator: ProjectPickerNavigator {
-        ProjectPickerNavigator(input: input, homeDirectory: ProjectPickerStartingDirectory.path)
+        ProjectPickerNavigator(input: input, homeDirectory: NSHomeDirectory())
     }
 
     private var highlightedRow: String? {
@@ -74,12 +74,9 @@ struct ProjectPickerOverlay: View {
 
     private var pathBar: some View {
         HStack(spacing: UIMetrics.spacing4) {
-            Button(action: goUp) {
-                Text("←")
-                    .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold, design: .monospaced))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(MuxyTheme.fgMuted)
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
 
             ZStack(alignment: .leading) {
                 ghostTextPreview
@@ -120,8 +117,8 @@ struct ProjectPickerOverlay: View {
 
     private var directoryContent: some View {
         Group {
-            if let readFailure {
-                permissionState(readFailure)
+            if showsUnavailableProjectState {
+                unavailableProjectContent
             } else {
                 directoryRows
             }
@@ -129,27 +126,43 @@ struct ProjectPickerOverlay: View {
         .frame(maxHeight: .infinity)
     }
 
+    private var showsUnavailableProjectState: Bool {
+        directoryReadFailed || projectRows.isEmpty
+    }
+
+    private var projectRows: [String] {
+        rows.filter { $0 != ".." }
+    }
+
+    private var hasParentRow: Bool {
+        rows.contains("..")
+    }
+
+    private var unavailableProjectContent: some View {
+        VStack(spacing: 0) {
+            if hasParentRow {
+                parentDirectoryRow
+            }
+            unavailableProjectMessage
+        }
+    }
+
+    private var parentDirectoryRow: some View {
+        directoryRow("..", isHighlighted: highlightedIndex == 0)
+            .onTapGesture { descend("..") }
+    }
+
     private var directoryRows: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: true) {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.element) { index, row in
-                        HStack(spacing: UIMetrics.spacing3) {
-                            Image(systemName: row == ".." ? "arrow.turn.up.left" : "folder")
-                                .foregroundStyle(MuxyTheme.fgMuted)
-                            Text(row)
-                                .font(.system(size: UIMetrics.fontBody, design: .monospaced))
-                            Spacer()
-                        }
-                        .padding(.horizontal, UIMetrics.spacing5)
-                        .padding(.vertical, UIMetrics.spacing3)
-                        .background(index == highlightedIndex ? MuxyTheme.hover : .clear)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            highlightedIndex = index
-                            descend(row)
-                        }
-                        .id(row)
+                        directoryRow(row, isHighlighted: index == highlightedIndex)
+                            .onTapGesture {
+                                highlightedIndex = index
+                                descend(row)
+                            }
+                            .id(row)
                     }
                 }
             }
@@ -160,17 +173,30 @@ struct ProjectPickerOverlay: View {
         }
     }
 
-    private func permissionState(_ failure: ProjectPickerDirectoryReadFailure) -> some View {
-        VStack(spacing: UIMetrics.spacing4) {
-            Text(errorMessage(for: failure.kind))
-                .font(.system(size: UIMetrics.fontBody))
+    private func directoryRow(_ row: String, isHighlighted: Bool) -> some View {
+        HStack(spacing: UIMetrics.spacing3) {
+            Image(systemName: row == ".." ? "arrow.turn.up.left" : "folder")
                 .foregroundStyle(MuxyTheme.fgMuted)
-            HStack(spacing: UIMetrics.spacing4) {
-                Button("Retry", action: reloadDirectory)
-                if failure.kind == .permissionDenied {
-                    Button("Open System Settings", action: openFilesAndFoldersSettings)
-                }
-            }
+            Text(row)
+                .font(.system(size: UIMetrics.fontBody, design: .monospaced))
+            Spacer()
+        }
+        .padding(.horizontal, UIMetrics.spacing5)
+        .padding(.vertical, UIMetrics.spacing3)
+        .background(isHighlighted ? MuxyTheme.hover : .clear)
+        .contentShape(Rectangle())
+    }
+
+    private var unavailableProjectMessage: some View {
+        VStack(spacing: UIMetrics.spacing4) {
+            Text(unavailableProjectTitle)
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+            Text(unavailableProjectDescription)
+                .font(.system(size: UIMetrics.fontFootnote))
+                .foregroundStyle(MuxyTheme.fgDim)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: UIMetrics.scaled(420))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -206,13 +232,13 @@ struct ProjectPickerOverlay: View {
                 guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { return nil }
                 return url.lastPathComponent
             }
-            readFailure = nil
+            directoryReadFailed = false
             rows = navigator.directoryRows(from: names)
             highlightedIndex = initialHighlightedIndex(for: rows)
         } catch {
-            readFailure = ProjectPickerDirectoryReadFailure(error: error)
-            rows = []
-            highlightedIndex = nil
+            directoryReadFailed = true
+            rows = navigator.directoryPath == "/" ? [] : [".."]
+            highlightedIndex = initialHighlightedIndex(for: rows)
         }
     }
 
@@ -273,20 +299,12 @@ struct ProjectPickerOverlay: View {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    private func errorMessage(for kind: ProjectPickerDirectoryReadFailureKind) -> String {
-        switch kind {
-        case .permissionDenied:
-            "Muxy needs permission to read this folder"
-        case .notFound:
-            "No such folder"
-        case .ioFailure:
-            "Could not read this folder"
-        }
+    private var unavailableProjectTitle: String {
+        "No project folders found"
     }
 
-    private func openFilesAndFoldersSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders") else { return }
-        NSWorkspace.shared.open(url)
+    private var unavailableProjectDescription: String {
+        "Use the action above to open or create this project, go up, or choose with Finder."
     }
 }
 

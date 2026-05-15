@@ -12,6 +12,8 @@ struct GeneralSettingsView: View {
     private var keepProjectsOpenWhenNoTabs = false
     @AppStorage(ProjectPickerPreferences.storageKey)
     private var projectPickerModeRaw = ProjectPickerMode.custom.rawValue
+    @AppStorage(ProjectPickerDefaultDirectory.storageKey)
+    private var projectPickerDefaultDirectoryPath = ""
     @AppStorage(UpdateChannel.storageKey)
     private var updateChannelRaw = UpdateChannel.stable.rawValue
     @AppStorage(QuitConfirmationPreferences.confirmQuitKey)
@@ -48,8 +50,7 @@ struct GeneralSettingsView: View {
 
             SettingsSection(
                 "Projects",
-                footer: "Choose whether project opening uses Muxy's keyboard-first picker or Finder. "
-                    + "Projects can stay in the sidebar after closing their last tab."
+                footer: projectsFooter
             ) {
                 SettingsRow("Project picker") {
                     Picker("", selection: $projectPickerModeRaw) {
@@ -60,6 +61,11 @@ struct GeneralSettingsView: View {
                     .labelsHidden()
                     .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
                 }
+
+                if projectPickerMode == .custom {
+                    projectPickerDefaultDirectorySetting
+                }
+
                 SettingsToggleRow(
                     label: "Keep projects open after closing the last tab",
                     isOn: $keepProjectsOpenWhenNoTabs
@@ -121,6 +127,74 @@ struct GeneralSettingsView: View {
         )
     }
 
+    private var projectPickerMode: ProjectPickerMode {
+        ProjectPickerMode(rawValue: projectPickerModeRaw) ?? .custom
+    }
+
+    private var projectsFooter: String {
+        if projectPickerMode == .custom {
+            return "Muxy's keyboard-first picker starts in this default directory. Use App Default to reset it. "
+                + "Projects can stay in the sidebar after closing their last tab."
+        }
+        return "Finder opens the system folder chooser. Projects can stay in the sidebar after closing their last tab."
+    }
+
+    private var projectPickerDefaultDirectorySetting: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Default directory")
+                .font(.system(size: SettingsMetrics.labelFontSize))
+
+            HStack(alignment: .center, spacing: 8) {
+                projectPickerDefaultDirectoryDisplay
+                    .layoutPriority(1)
+
+                Button("Choose Folder...") {
+                    chooseProjectPickerDefaultDirectory()
+                }
+                .fixedSize(horizontal: true, vertical: false)
+
+                Button("Use App Default") {
+                    projectPickerDefaultDirectoryPath = ""
+                }
+                .fixedSize(horizontal: true, vertical: false)
+                .disabled(projectPickerDefaultDirectoryPath.isEmpty)
+            }
+
+            if let warning = ProjectPickerDefaultDirectory.status.warning {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: SettingsMetrics.footnoteFontSize))
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+    }
+
+    private var projectPickerDefaultDirectoryDisplay: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "folder")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 15)
+
+            Text(ProjectPickerDefaultDirectory.displayPath)
+                .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
+                .foregroundStyle(projectPickerDefaultDirectoryPath.isEmpty ? .secondary : .primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 9)
+        .frame(minWidth: 170, maxWidth: .infinity, alignment: .leading)
+        .frame(height: 22)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(.quaternary.opacity(0.7), lineWidth: 1)
+        )
+    }
+
     private var defaultWorktreeLocationText: String {
         defaultWorktreeParentPath.isEmpty ? "Muxy App Support" : defaultWorktreeParentPath
     }
@@ -173,6 +247,18 @@ struct GeneralSettingsView: View {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(.quaternary.opacity(0.7), lineWidth: 1)
         )
+    }
+
+    private func chooseProjectPickerDefaultDirectory() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Select the default directory for the project picker"
+        let initialPath = ProjectPickerDefaultDirectory.status == .ready ? ProjectPickerDefaultDirectory.path : NSHomeDirectory()
+        panel.directoryURL = URL(fileURLWithPath: initialPath)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        projectPickerDefaultDirectoryPath = url.path
     }
 
     private func chooseDefaultWorktreeParentPath() {
