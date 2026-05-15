@@ -18,6 +18,17 @@ struct ProjectPickerNavigator {
         return URL(fileURLWithPath: input).lastPathComponent
     }
 
+    func directoryRows(from directoryNames: [String]) -> [String] {
+        let filter = leafFilter
+        let showsDotfiles = filter.hasPrefix(".")
+        let rows = directoryNames
+            .filter { showsDotfiles || !$0.hasPrefix(".") }
+            .filter { filter.isEmpty || $0.localizedCaseInsensitiveContains(filter) }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        guard directoryPath != "/" else { return rows }
+        return [".."] + rows
+    }
+
     private var expandedInput: String {
         if input == "~" { return homeDirectory }
         if input.hasPrefix("~/") {

@@ -12,4 +12,13 @@ struct ProjectPickerNavigatorTests {
         #expect(navigator.directoryPath == "/Users/alice/Projects")
         #expect(navigator.leafFilter == "mu")
     }
+
+    @Test("directory rows include parent and hide dotfiles until the leaf starts with a dot")
+    func directoryRowsHideDotfiles() {
+        let normal = ProjectPickerNavigator(input: "~/", homeDirectory: "/Users/alice")
+        let dotfileSearch = ProjectPickerNavigator(input: "~/.s", homeDirectory: "/Users/alice")
+
+        #expect(normal.directoryRows(from: ["Code", ".ssh", "Documents"]) == ["..", "Code", "Documents"])
+        #expect(dotfileSearch.directoryRows(from: ["Code", ".ssh", "Documents"]) == ["..", ".ssh"])
+    }
 }
