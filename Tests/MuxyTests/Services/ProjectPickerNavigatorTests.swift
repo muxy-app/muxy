@@ -28,4 +28,16 @@ struct ProjectPickerNavigatorTests {
 
         #expect(navigator.completedPath(highlightedRow: "muxy") == "~/Projects/muxy/")
     }
+
+    @Test("directory read errors distinguish permissions from missing folders and other failures")
+    func directoryReadErrorCategorization() {
+        #expect(ProjectPickerDirectoryReadFailure(error: posixError(EACCES)).kind == .permissionDenied)
+        #expect(ProjectPickerDirectoryReadFailure(error: posixError(EPERM)).kind == .permissionDenied)
+        #expect(ProjectPickerDirectoryReadFailure(error: posixError(ENOENT)).kind == .notFound)
+        #expect(ProjectPickerDirectoryReadFailure(error: posixError(EIO)).kind == .ioFailure)
+    }
+
+    private func posixError(_ code: Int32) -> NSError {
+        NSError(domain: NSPOSIXErrorDomain, code: Int(code))
+    }
 }

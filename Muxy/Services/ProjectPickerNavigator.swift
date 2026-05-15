@@ -1,4 +1,34 @@
+import Darwin
 import Foundation
+
+enum ProjectPickerDirectoryReadFailureKind {
+    case permissionDenied
+    case notFound
+    case ioFailure
+}
+
+struct ProjectPickerDirectoryReadFailure {
+    let kind: ProjectPickerDirectoryReadFailureKind
+    let error: Error
+
+    init(error: Error) {
+        self.error = error
+        let nsError = error as NSError
+        guard nsError.domain == NSPOSIXErrorDomain else {
+            kind = .ioFailure
+            return
+        }
+        switch Int32(nsError.code) {
+        case EACCES,
+             EPERM:
+            kind = .permissionDenied
+        case ENOENT:
+            kind = .notFound
+        default:
+            kind = .ioFailure
+        }
+    }
+}
 
 struct ProjectPickerNavigator {
     let input: String
