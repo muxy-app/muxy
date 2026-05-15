@@ -26,6 +26,32 @@ struct ProjectOpenServiceTests {
         #expect(appState.activeProjectID == projectStore.projects.first?.id)
     }
 
+    @Test("already-added path is selected without creating a duplicate project")
+    func existingProjectSelectedWithoutDuplicate() throws {
+        let (appState, projectStore, worktreeStore) = makeStores()
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-project-picker-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        #expect(ProjectOpenService.confirmProjectPath(
+            dir.path,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
+        ))
+        appState.activeProjectID = nil
+
+        #expect(ProjectOpenService.confirmProjectPath(
+            dir.path,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
+        ))
+        #expect(projectStore.projects.count == 1)
+        #expect(appState.activeProjectID == projectStore.projects.first?.id)
+    }
+
     private func makeStores() -> (AppState, ProjectStore, WorktreeStore) {
         let projectStore = ProjectStore(persistence: ProjectPersistenceStub())
         let worktreeStore = WorktreeStore(persistence: WorktreePersistenceStub(), projects: [])
