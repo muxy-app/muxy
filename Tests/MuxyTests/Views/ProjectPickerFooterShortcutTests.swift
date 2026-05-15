@@ -4,15 +4,16 @@ import Testing
 
 @Suite("ProjectPickerFooterShortcut")
 struct ProjectPickerFooterShortcutTests {
-    @Test("go back shortcut is shown before close in the footer")
-    func goBackShortcutPrecedesClose() {
+    @Test("tab autocomplete shortcut is shown in the footer")
+    func tabAutocompleteShortcutIsShown() {
         let shortcuts = ProjectPickerFooterShortcut.ordered(actionTitle: "Add Project")
 
-        #expect(shortcuts.map(\.label) == ["Navigate", "Open", "Add Project", "Go back", "Close"])
+        #expect(shortcuts.map(\.label) == ["Navigate", "Autocomplete", "Open", "Add Project", "Go back", "Close"])
         #expect(shortcuts.map(\.command) == ProjectPickerCommand.footerCommands)
         #expect(shortcuts.flatMap(\.command.sessionCommands).allSatisfy { $0.isSessionHandled })
-        #expect(shortcuts[3].keycap == .optionDelete)
-        #expect(shortcuts[4].keycap == .escape)
+        #expect(shortcuts[1].keycap == .tab)
+        #expect(shortcuts[4].keycap == .optionDelete)
+        #expect(shortcuts[5].keycap == .escape)
     }
 
     @Test("typed path action title changes label without changing command identity")
@@ -21,8 +22,8 @@ struct ProjectPickerFooterShortcutTests {
         let createShortcuts = ProjectPickerFooterShortcut.ordered(actionTitle: "Create & Add Project")
 
         #expect(addShortcuts.map(\.command) == createShortcuts.map(\.command))
-        #expect(addShortcuts[2].label == "Add Project")
-        #expect(createShortcuts[2].label == "Create & Add Project")
-        #expect(addShortcuts[2].command == .confirmTypedPath)
+        #expect(addShortcuts[3].label == "Add Project")
+        #expect(createShortcuts[3].label == "Create & Add Project")
+        #expect(addShortcuts[3].command == .confirmTypedPath)
     }
 }

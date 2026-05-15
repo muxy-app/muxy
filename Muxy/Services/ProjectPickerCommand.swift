@@ -12,6 +12,7 @@ enum ProjectPickerCommand: Hashable {
 
     static let footerCommands: [ProjectPickerCommand] = [
         .navigate,
+        .completeHighlighted,
         .openHighlighted,
         .confirmTypedPath,
         .goBack,
@@ -41,6 +42,8 @@ enum ProjectPickerCommand: Hashable {
         switch self {
         case .navigate:
             ProjectPickerFooterShortcut(command: self, keycap: .navigate, label: "Navigate")
+        case .completeHighlighted:
+            ProjectPickerFooterShortcut(command: self, keycap: .tab, label: "Autocomplete")
         case .openHighlighted:
             ProjectPickerFooterShortcut(command: self, keycap: .returnKey, label: "Open")
         case .confirmTypedPath:
@@ -50,8 +53,7 @@ enum ProjectPickerCommand: Hashable {
         case .dismiss:
             ProjectPickerFooterShortcut(command: self, keycap: .escape, label: "Close")
         case .moveHighlightUp,
-             .moveHighlightDown,
-             .completeHighlighted:
+             .moveHighlightDown:
             nil
         }
     }
