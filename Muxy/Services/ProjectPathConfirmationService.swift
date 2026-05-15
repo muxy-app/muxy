@@ -54,7 +54,7 @@ struct ProjectPathConfirmationService {
         path: String,
         createIfMissing: Bool = false
     ) -> ProjectOpenConfirmationResult {
-        let standardizedPath = ProjectPickerNavigator.standardizedPath(path)
+        let standardizedPath = ProjectPickerPathService.standardizedPath(path)
         if let failure = ensureDirectory(at: standardizedPath, createIfMissing: createIfMissing) {
             return failure
         }
@@ -88,7 +88,7 @@ struct ProjectPathConfirmationService {
 
     private func project(at standardizedPath: String) -> Project {
         if let existing = projectStore.projects.first(where: {
-            ProjectPickerNavigator.standardizedPath($0.path) == standardizedPath
+            ProjectPickerPathService.standardizedPath($0.path) == standardizedPath
         }) {
             return existing
         }

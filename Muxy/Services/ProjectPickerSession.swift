@@ -7,10 +7,15 @@ struct ProjectPickerSession {
     private(set) var directoryLoadState = ProjectPickerDirectoryLoadState.loading(showsMessage: false)
 
     let homeDirectory: String
+    let pathService: ProjectPickerPathService
     var projectPaths: [String]
 
+    var pathState: ProjectPickerPathState {
+        pathService.state(for: input)
+    }
+
     var navigator: ProjectPickerNavigator {
-        ProjectPickerNavigator(input: input, homeDirectory: homeDirectory)
+        ProjectPickerNavigator(pathState: pathState)
     }
 
     var highlightedRow: String? {
@@ -19,11 +24,11 @@ struct ProjectPickerSession {
     }
 
     var standardizedTypedPath: String {
-        navigator.standardizedConfirmPath
+        pathState.standardizedConfirmPath
     }
 
     var typedPathState: ProjectPickerTypedPathState {
-        ProjectPickerNavigator.typedPathState(path: standardizedTypedPath)
+        pathService.typedPathState(path: standardizedTypedPath)
     }
 
     var isExistingProject: Bool {
@@ -56,10 +61,16 @@ struct ProjectPickerSession {
         directoryLoadState.readFailed || projectRows.isEmpty
     }
 
-    init(defaultDisplayPath: String, homeDirectory: String = NSHomeDirectory(), projectPaths: [String]) {
+    init(
+        defaultDisplayPath: String,
+        homeDirectory: String = NSHomeDirectory(),
+        projectPaths: [String],
+        pathService: ProjectPickerPathService? = nil
+    ) {
         input = defaultDisplayPath
         self.homeDirectory = homeDirectory
         self.projectPaths = projectPaths
+        self.pathService = pathService ?? ProjectPickerPathService(homeDirectory: homeDirectory)
     }
 
     mutating func setProjectPaths(_ projectPaths: [String]) {
@@ -69,7 +80,7 @@ struct ProjectPickerSession {
     mutating func setInput(_ input: String) -> ProjectPickerEffect {
         self.input = input
         directoryLoadState = .loading(showsMessage: false)
-        return .requestDirectoryReload(navigator)
+        return .requestDirectoryReload(pathState)
     }
 
     mutating func showLoadingMessage() {
@@ -167,7 +178,7 @@ struct ProjectPickerSession {
 }
 
 enum ProjectPickerEffect: Equatable {
-    case requestDirectoryReload(ProjectPickerNavigator)
+    case requestDirectoryReload(ProjectPickerPathState)
     case confirmCreateDirectory(path: String)
     case confirmProjectPath(path: String, createIfMissing: Bool)
     case chooseFinder

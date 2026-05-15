@@ -45,84 +45,80 @@ struct ProjectPickerPreferencesTests {
     }
 
     @Test("default location status reports invalid custom paths")
-    func defaultLocationStatusReportsInvalidCustomPaths() throws {
+    func defaultLocationStatusReportsInvalidCustomPaths() {
         let suiteName = "ProjectPickerDefaultLocationStatusTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             Issue.record("Unable to create isolated UserDefaults suite")
             return
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        let pathService = ProjectPickerPathService(fileSystem: ProjectPickerDefaultLocationFileSystemStub(
+            directoryStates: [
+                "/tmp/ready": .directory,
+                "/tmp/file": .notDirectory,
+            ],
+            readablePaths: ["/tmp/ready"]
+        ))
 
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        ProjectPickerDefaultLocation.setCustomPath("/tmp/ready", defaults: defaults)
+        #expect(ProjectPickerDefaultLocation.status(defaults: defaults, pathService: pathService) == .ready)
 
-        let file = root.appendingPathComponent("file")
-        try Data().write(to: file)
-        let missing = root.appendingPathComponent("missing", isDirectory: true)
+        ProjectPickerDefaultLocation.setCustomPath("/tmp/file", defaults: defaults)
+        #expect(ProjectPickerDefaultLocation.status(defaults: defaults, pathService: pathService) == .notDirectory)
 
-        ProjectPickerDefaultLocation.setCustomPath(from: root, defaults: defaults)
-        #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .ready)
-
-        ProjectPickerDefaultLocation.setCustomPath(from: file, defaults: defaults)
-        #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .notDirectory)
-
-        ProjectPickerDefaultLocation.setCustomPath(from: missing, defaults: defaults)
-        #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .missing)
+        ProjectPickerDefaultLocation.setCustomPath("/tmp/missing", defaults: defaults)
+        #expect(ProjectPickerDefaultLocation.status(defaults: defaults, pathService: pathService) == .missing)
     }
 
     @Test("default location status reports unreadable custom paths")
-    func defaultLocationStatusReportsUnreadableCustomPaths() throws {
+    func defaultLocationStatusReportsUnreadableCustomPaths() {
         let suiteName = "ProjectPickerDefaultLocationUnreadableStatusTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             Issue.record("Unable to create isolated UserDefaults suite")
             return
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        let pathService = ProjectPickerPathService(fileSystem: ProjectPickerDefaultLocationFileSystemStub(
+            directoryStates: ["/tmp/unreadable": .directory]
+        ))
 
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-            try? FileManager.default.removeItem(at: directory)
-        }
+        ProjectPickerDefaultLocation.setCustomPath("/tmp/unreadable", defaults: defaults)
 
-        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: directory.path)
-        ProjectPickerDefaultLocation.setCustomPath(from: directory, defaults: defaults)
-
-        #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .unreadable)
+        #expect(ProjectPickerDefaultLocation.status(defaults: defaults, pathService: pathService) == .unreadable)
     }
 
     @Test("default location state includes display status warning and chooser fallback")
-    func defaultLocationStateIncludesDisplayStatusWarningAndChooserFallback() throws {
+    func defaultLocationStateIncludesDisplayStatusWarningAndChooserFallback() {
         let suiteName = "ProjectPickerDefaultLocationStateTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             Issue.record("Unable to create isolated UserDefaults suite")
             return
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        let pathService = ProjectPickerPathService(
+            homeDirectory: "/Users/alice",
+            fileSystem: ProjectPickerDefaultLocationFileSystemStub(
+                directoryStates: ["/Users/alice/Projects": .directory],
+                readablePaths: ["/Users/alice/Projects"]
+            )
+        )
 
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+        ProjectPickerDefaultLocation.setCustomPath("~/Projects", defaults: defaults)
+        let readyState = ProjectPickerDefaultLocation.state(defaults: defaults, pathService: pathService)
 
-        ProjectPickerDefaultLocation.setCustomPath(from: root, defaults: defaults)
-        let readyState = ProjectPickerDefaultLocation.state(defaults: defaults)
-
-        #expect(readyState.path == root.standardizedFileURL.path)
-        #expect(readyState.displayPath == root.standardizedFileURL.path + "/")
+        #expect(readyState.path == "/Users/alice/Projects")
+        #expect(readyState.displayPath == "~/Projects/")
         #expect(!readyState.usesAppDefault)
         #expect(readyState.status == .ready)
         #expect(readyState.warning == nil)
-        #expect(readyState.chooserInitialPath == root.standardizedFileURL.path)
+        #expect(readyState.chooserInitialPath == "/Users/alice/Projects")
 
-        let missing = root.appendingPathComponent("missing", isDirectory: true)
-        ProjectPickerDefaultLocation.setCustomPath(from: missing, defaults: defaults)
-        let missingState = ProjectPickerDefaultLocation.state(defaults: defaults)
+        ProjectPickerDefaultLocation.setCustomPath("~/Missing", defaults: defaults)
+        let missingState = ProjectPickerDefaultLocation.state(defaults: defaults, pathService: pathService)
 
         #expect(missingState.status == .missing)
         #expect(missingState.warning == "Default location no longer exists. Choose another folder or use the app default.")
-        #expect(missingState.chooserInitialPath == NSHomeDirectory())
+        #expect(missingState.chooserInitialPath == "/Users/alice")
     }
 
     @Test("default location resets and normalizes selected directories through the model")
@@ -149,5 +145,22 @@ struct ProjectPickerPreferencesTests {
 
         #expect(ProjectPickerDefaultLocation.path(defaults: defaults) == NSHomeDirectory())
         #expect(ProjectPickerDefaultLocation.state(defaults: defaults).usesAppDefault)
+    }
+}
+
+private struct ProjectPickerDefaultLocationFileSystemStub: ProjectPickerFileSystem {
+    var directoryStates: [String: ProjectPickerFileSystemDirectoryState] = [:]
+    var readablePaths: Set<String> = []
+
+    func directoryState(atPath path: String) -> ProjectPickerFileSystemDirectoryState {
+        directoryStates[path] ?? .missing
+    }
+
+    func isReadableFile(atPath path: String) -> Bool {
+        readablePaths.contains(path)
+    }
+
+    func contentsOfDirectory(atPath path: String) throws -> [ProjectPickerFileSystemDirectoryEntry] {
+        []
     }
 }

@@ -146,10 +146,10 @@ private actor ProjectPickerWorkflowTestDirectoryLoader {
     private var requests: Set<String> = []
     private var continuations: [String: CheckedContinuation<ProjectPickerDirectorySnapshot, Never>] = [:]
 
-    func load(_ navigator: ProjectPickerNavigator) async -> ProjectPickerDirectorySnapshot {
-        requests.insert(navigator.input)
+    func load(_ pathState: ProjectPickerPathState) async -> ProjectPickerDirectorySnapshot {
+        requests.insert(pathState.input)
         return await withCheckedContinuation { continuation in
-            continuations[navigator.input] = continuation
+            continuations[pathState.input] = continuation
         }
     }
 

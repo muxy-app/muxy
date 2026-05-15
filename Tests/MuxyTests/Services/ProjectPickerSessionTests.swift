@@ -13,7 +13,7 @@ struct ProjectPickerSessionTests {
 
         #expect(session.input == "~/Projects/mu")
         #expect(session.directoryLoadState == .loading(showsMessage: false))
-        #expect(effect == .requestDirectoryReload(ProjectPickerNavigator(input: "~/Projects/mu", homeDirectory: "/Users/alice")))
+        #expect(effect == .requestDirectoryReload(pathState("~/Projects/mu")))
     }
 
     @Test("snapshot application chooses first real row after parent row")
@@ -38,13 +38,13 @@ struct ProjectPickerSessionTests {
         let completionEffects = session.handle(.completeHighlighted)
         #expect(session.input == "~/Projects/sample/")
         #expect(completionEffects == [
-            .requestDirectoryReload(ProjectPickerNavigator(input: "~/Projects/sample/", homeDirectory: "/Users/alice")),
+            .requestDirectoryReload(pathState("~/Projects/sample/")),
         ])
 
         let parentEffects = session.handle(.goBack)
         #expect(session.input == "~/Projects/")
         #expect(parentEffects == [
-            .requestDirectoryReload(ProjectPickerNavigator(input: "~/Projects/", homeDirectory: "/Users/alice")),
+            .requestDirectoryReload(pathState("~/Projects/")),
         ])
     }
 
@@ -57,7 +57,7 @@ struct ProjectPickerSessionTests {
 
         #expect(session.input == "~/Projects/muxy/")
         #expect(descendEffects == [
-            .requestDirectoryReload(ProjectPickerNavigator(input: "~/Projects/muxy/", homeDirectory: "/Users/alice")),
+            .requestDirectoryReload(pathState("~/Projects/muxy/")),
         ])
 
         session.applyDirectorySnapshot(ProjectPickerDirectorySnapshot(rows: [".."], readFailed: false))
@@ -66,29 +66,38 @@ struct ProjectPickerSessionTests {
 
         #expect(session.input == "~/Projects/")
         #expect(parentEffects == [
-            .requestDirectoryReload(ProjectPickerNavigator(input: "~/Projects/", homeDirectory: "/Users/alice")),
+            .requestDirectoryReload(pathState("~/Projects/")),
         ])
     }
 
     @Test("typed path confirmation emits create or confirm effects")
-    func typedPathConfirmationEffects() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muxy-project-picker-session-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
+    func typedPathConfirmationEffects() {
+        let pathService = ProjectPickerPathService(
+            fileSystem: ProjectPickerFileSystemStub(directoryStates: [
+                "/tmp/existing": .directory,
+                "/tmp/existing/missing": .missing,
+            ])
+        )
 
-        var existingSession = ProjectPickerSession(defaultDisplayPath: root.path, projectPaths: [])
+        var existingSession = ProjectPickerSession(
+            defaultDisplayPath: "/tmp/existing",
+            projectPaths: [],
+            pathService: pathService
+        )
         #expect(existingSession.handle(.confirmTypedPath) == [
-            .confirmProjectPath(path: root.standardizedFileURL.path, createIfMissing: false),
+            .confirmProjectPath(path: "/tmp/existing", createIfMissing: false),
         ])
 
-        let missing = root.appendingPathComponent("missing", isDirectory: true)
-        var missingSession = ProjectPickerSession(defaultDisplayPath: missing.path, projectPaths: [])
+        var missingSession = ProjectPickerSession(
+            defaultDisplayPath: "/tmp/existing/missing",
+            projectPaths: [],
+            pathService: pathService
+        )
         #expect(missingSession.handle(.confirmTypedPath) == [
-            .confirmCreateDirectory(path: missing.standardizedFileURL.path),
+            .confirmCreateDirectory(path: "/tmp/existing/missing"),
         ])
         #expect(missingSession.confirmCreateDirectoryAccepted() == [
-            .confirmProjectPath(path: missing.standardizedFileURL.path, createIfMissing: true),
+            .confirmProjectPath(path: "/tmp/existing/missing", createIfMissing: true),
         ])
     }
 
@@ -106,5 +115,25 @@ struct ProjectPickerSessionTests {
         #expect(session.topRightActionTitle == "Open Project")
         #expect(presentation.title == "Path Is Not a Folder")
         #expect(presentation.message == "Muxy can only add folders as projects. Choose a folder or type a new folder path.")
+    }
+
+    private func pathState(_ input: String) -> ProjectPickerPathState {
+        ProjectPickerPathService(homeDirectory: "/Users/alice").state(for: input)
+    }
+}
+
+private struct ProjectPickerFileSystemStub: ProjectPickerFileSystem {
+    let directoryStates: [String: ProjectPickerFileSystemDirectoryState]
+
+    func directoryState(atPath path: String) -> ProjectPickerFileSystemDirectoryState {
+        directoryStates[path] ?? .missing
+    }
+
+    func isReadableFile(atPath path: String) -> Bool {
+        directoryStates[path] == .directory
+    }
+
+    func contentsOfDirectory(atPath path: String) throws -> [ProjectPickerFileSystemDirectoryEntry] {
+        []
     }
 }

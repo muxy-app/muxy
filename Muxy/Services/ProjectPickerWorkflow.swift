@@ -1,6 +1,6 @@
 import Foundation
 
-typealias ProjectPickerDirectoryLoader = @Sendable (ProjectPickerNavigator) async -> ProjectPickerDirectorySnapshot
+typealias ProjectPickerDirectoryLoader = @Sendable (ProjectPickerPathState) async -> ProjectPickerDirectorySnapshot
 
 @MainActor
 @Observable
@@ -36,7 +36,7 @@ final class ProjectPickerWorkflow {
     func appear() {
         guard !didAppear else { return }
         didAppear = true
-        scheduleDirectoryReload(navigator: session.navigator)
+        scheduleDirectoryReload(pathState: session.pathState)
     }
 
     func cancel() {
@@ -94,8 +94,8 @@ final class ProjectPickerWorkflow {
 
     private func executeSingle(_ effect: ProjectPickerEffect) -> [ProjectPickerWorkflowRequest] {
         switch effect {
-        case let .requestDirectoryReload(navigator):
-            scheduleDirectoryReload(navigator: navigator)
+        case let .requestDirectoryReload(pathState):
+            scheduleDirectoryReload(pathState: pathState)
             return []
         case let .confirmCreateDirectory(path):
             return [.askCreateDirectory(path: path)]
@@ -110,7 +110,7 @@ final class ProjectPickerWorkflow {
         }
     }
 
-    private func scheduleDirectoryReload(navigator: ProjectPickerNavigator) {
+    private func scheduleDirectoryReload(pathState: ProjectPickerPathState) {
         cancelDirectoryReload()
         let loadID = UUID()
         directoryLoadID = loadID
@@ -124,7 +124,7 @@ final class ProjectPickerWorkflow {
         reloadTask = Task { [weak self, reloadDelay, directoryLoader] in
             try? await Task.sleep(for: reloadDelay)
             guard !Task.isCancelled else { return }
-            let snapshot = await directoryLoader(navigator)
+            let snapshot = await directoryLoader(pathState)
             guard !Task.isCancelled else { return }
             self?.applyDirectorySnapshot(snapshot, loadID: loadID)
         }
@@ -149,9 +149,9 @@ final class ProjectPickerWorkflow {
         session.applyDirectorySnapshot(snapshot)
     }
 
-    private static let liveDirectoryLoader: ProjectPickerDirectoryLoader = { navigator in
+    private static let liveDirectoryLoader: ProjectPickerDirectoryLoader = { pathState in
         await Task.detached(priority: .userInitiated) {
-            ProjectPickerDirectorySnapshot.load(navigator: navigator)
+            ProjectPickerPathService(homeDirectory: pathState.homeDirectory).directorySnapshot(for: pathState)
         }.value
     }
 }
