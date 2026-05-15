@@ -44,6 +44,10 @@ enum ProjectPickerDefaultDirectory {
         storedCustomPath(defaults: defaults) == nil
     }
 
+    static func usesAppDefault(storedCustomPath: String) -> Bool {
+        normalizedCustomPath(storedCustomPath) == nil
+    }
+
     static func status(defaults: UserDefaults) -> ProjectPickerDefaultDirectoryStatus {
         let path = path(defaults: defaults)
         var isDirectory = ObjCBool(false)
@@ -67,7 +71,7 @@ enum ProjectPickerDefaultDirectory {
     }
 
     private static func expandedPath(_ path: String) -> String {
-        NSString(string: path).expandingTildeInPath
+        PathExpansion.expandTilde(path, homeDirectory: NSHomeDirectory())
     }
 
     private static func abbreviatedPath(_ path: String) -> String {

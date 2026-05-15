@@ -164,7 +164,7 @@ struct ProjectOpenServiceTests {
         }
         defer { notificationCenter.removeObserver(observer) }
 
-        ProjectOpenService.openProject(
+        ProjectOpenService.openProjectViaPicker(
             appState: appState,
             projectStore: projectStore,
             worktreeStore: worktreeStore,
@@ -173,6 +173,42 @@ struct ProjectOpenServiceTests {
         )
 
         #expect(flag.didPost)
+    }
+
+    @Test("finder picker preference routes project opening to Finder without posting picker notification")
+    func finderPreferenceRoutesToFinder() throws {
+        let (appState, projectStore, worktreeStore) = makeStores()
+        let suiteName = "ProjectOpenServiceTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Unable to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = ProjectPickerPreferences(defaults: defaults)
+        preferences.mode = .finder
+        let notificationCenter = NotificationCenter()
+        let flag = NotificationFlag()
+        let observer = notificationCenter.addObserver(
+            forName: .openProjectPicker,
+            object: nil,
+            queue: nil
+        ) { _ in
+            flag.didPost = true
+        }
+        defer { notificationCenter.removeObserver(observer) }
+        var didOpenFinder = false
+
+        ProjectOpenService.openProjectViaPicker(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            preferences: preferences,
+            notificationCenter: notificationCenter,
+            openWithFinder: { didOpenFinder = true }
+        )
+
+        #expect(!flag.didPost)
+        #expect(didOpenFinder)
     }
 
     private func makeStores() -> (AppState, ProjectStore, WorktreeStore) {

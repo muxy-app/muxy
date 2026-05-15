@@ -13,6 +13,7 @@ struct ProjectPickerOverlay: View {
     @State private var rows: [String] = []
     @State private var highlightedIndex: Int?
     @State private var directoryLoadState = ProjectPickerDirectoryLoadState.loading(showsMessage: false)
+    @State private var didInitializeInput = false
     @State private var directoryLoadID = UUID()
     @State private var reloadTask: Task<Void, Never>?
     @State private var loadingMessageTask: Task<Void, Never>?
@@ -76,9 +77,8 @@ struct ProjectPickerOverlay: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .accessibilityAddTraits(.isModal)
         }
-        .onAppear { resetInputToDefaultDirectory() }
+        .onAppear { initializeInputIfNeeded() }
         .onChange(of: input) { scheduleDirectoryReload() }
-        .onChange(of: projectPickerDefaultDirectoryPath) { resetInputToDefaultDirectory() }
         .onDisappear { cancelDirectoryReload() }
     }
 
@@ -244,7 +244,9 @@ struct ProjectPickerOverlay: View {
         .padding(.vertical, UIMetrics.spacing4)
     }
 
-    private func resetInputToDefaultDirectory() {
+    private func initializeInputIfNeeded() {
+        guard !didInitializeInput else { return }
+        didInitializeInput = true
         input = ProjectPickerDefaultDirectory.displayPath(storedCustomPath: projectPickerDefaultDirectoryPath)
         scheduleDirectoryReload()
     }
@@ -310,10 +312,7 @@ struct ProjectPickerOverlay: View {
     }
 
     private func confirmDefault() {
-        guard let highlightedRow else {
-            confirmTypedPath()
-            return
-        }
+        guard let highlightedRow else { return }
         descend(highlightedRow)
     }
 
@@ -610,7 +609,7 @@ private struct ProjectPickerPathField: NSViewRepresentable {
                 parent.onArrowDown()
                 return true
             }
-            if commandSelector == #selector(NSResponder.deleteWordBackward(_:)) {
+            if commandSelector == #selector(NSResponder.deleteWordBackward(_:)), shouldGoUpOnDeleteBackward(textView) {
                 parent.onGoUp()
                 return true
             }
@@ -640,6 +639,9 @@ private final class ProjectPickerNSTextField: NSTextField {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard window?.firstResponder === currentEditor() else {
+            return super.performKeyEquivalent(with: event)
+        }
         if event.keyCode == kVK_Escape {
             onEscape?()
             return true

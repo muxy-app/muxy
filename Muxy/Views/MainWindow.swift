@@ -215,7 +215,7 @@ struct MainWindow: View {
                         )
                     },
                     onChooseFinder: {
-                        ProjectOpenService.openProjectWithFinder(
+                        ProjectOpenService.openProject(
                             appState: appState,
                             projectStore: projectStore,
                             worktreeStore: worktreeStore

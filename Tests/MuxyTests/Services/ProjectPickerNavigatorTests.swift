@@ -29,6 +29,29 @@ struct ProjectPickerNavigatorTests {
         #expect(navigator.completedPath(highlightedRow: "muxy") == "~/Projects/muxy/")
     }
 
+    @Test("bare leaf input filters from filesystem root")
+    func bareLeafInputFiltersRoot() {
+        let navigator = ProjectPickerNavigator(input: "mu", homeDirectory: "/Users/alice")
+
+        #expect(navigator.directoryPath == "/")
+        #expect(navigator.leafFilter == "mu")
+        #expect(navigator.confirmPath == "/mu")
+        #expect(navigator.completedPath(highlightedRow: "muxy") == "/muxy/")
+    }
+
+    @Test("completion from empty and bare tilde inputs stays absolute")
+    func completionFromEmptyAndBareTildeInputs() {
+        #expect(ProjectPickerNavigator(input: "", homeDirectory: "/Users/alice").completedPath(highlightedRow: "Users") == "/Users/")
+        #expect(ProjectPickerNavigator(input: "~", homeDirectory: "/Users/alice").directoryPath == "/Users/alice")
+        #expect(ProjectPickerNavigator(input: "~", homeDirectory: "/Users/alice").completedPath(highlightedRow: "Projects") == "~/Projects/")
+    }
+
+    @Test("path expansion uses the supplied home directory")
+    func pathExpansionUsesSuppliedHomeDirectory() {
+        #expect(PathExpansion.expandTilde("~/Projects", homeDirectory: "/Users/alice") == "/Users/alice/Projects")
+        #expect(PathExpansion.expandTilde("~", homeDirectory: "/Users/alice") == "/Users/alice")
+    }
+
     @Test("parent path walks above home to filesystem root and stops")
     func parentPathWalksToRoot() {
         #expect(ProjectPickerNavigator(input: "~/Projects/", homeDirectory: "/Users/alice").parentDisplayPath == "~/")

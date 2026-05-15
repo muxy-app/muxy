@@ -69,7 +69,7 @@ struct Sidebar: View {
 
     private var addButton: some View {
         AddProjectButton(expanded: isWide) {
-            ProjectOpenService.openProject(
+            ProjectOpenService.openProjectViaPicker(
                 appState: appState,
                 projectStore: projectStore,
                 worktreeStore: worktreeStore

@@ -7,6 +7,9 @@ struct ProjectPickerNavigator {
     let homeDirectory: String
 
     var directoryPath: String {
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedInput.isEmpty { return "/" }
+        if trimmedInput == "~" { return standardizedDirectory(homeDirectory) }
         let expanded = expandedInput
         guard !expanded.hasSuffix("/") else {
             return standardizedDirectory(expanded)
@@ -16,8 +19,9 @@ struct ProjectPickerNavigator {
     }
 
     var leafFilter: String {
-        guard !input.hasSuffix("/") else { return "" }
-        return URL(fileURLWithPath: input).lastPathComponent
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedInput.isEmpty || trimmedInput == "~" || trimmedInput.hasSuffix("/") { return "" }
+        return URL(fileURLWithPath: trimmedInput).lastPathComponent
     }
 
     var confirmPath: String {
@@ -49,19 +53,20 @@ struct ProjectPickerNavigator {
     }
 
     private var displayDirectoryPrefix: String {
-        guard !input.hasSuffix("/") else { return input }
-        guard let slashIndex = input.lastIndex(of: "/") else { return "" }
-        return String(input[...slashIndex])
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedInput.hasPrefix("~"), directoryPath == homeDirectory { return "~/" }
+        if trimmedInput.hasPrefix("~"), directoryPath.hasPrefix(homeDirectory + "/") {
+            return "~" + directoryPath.dropFirst(homeDirectory.count) + "/"
+        }
+        return directoryPath == "/" ? "/" : directoryPath + "/"
     }
 
     private var expandedInput: String {
         let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedInput.isEmpty else { return "/" }
-        if trimmedInput == "~" { return homeDirectory }
-        if trimmedInput.hasPrefix("~/") {
-            return homeDirectory + String(trimmedInput.dropFirst())
-        }
-        return trimmedInput
+        let expandedPath = PathExpansion.expandTilde(trimmedInput, homeDirectory: homeDirectory)
+        guard expandedPath.hasPrefix("/") else { return "/" + expandedPath }
+        return expandedPath
     }
 
     private func standardizedDirectory(_ path: String) -> String {

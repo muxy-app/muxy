@@ -70,4 +70,26 @@ struct ProjectPickerPreferencesTests {
         defaults.set(missing.path, forKey: ProjectPickerDefaultDirectory.storageKey)
         #expect(ProjectPickerDefaultDirectory.status(defaults: defaults) == .missing)
     }
+
+    @Test("default directory status reports unreadable custom paths")
+    func defaultDirectoryStatusReportsUnreadableCustomPaths() throws {
+        let suiteName = "ProjectPickerDefaultDirectoryUnreadableStatusTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Unable to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: directory.path)
+        defaults.set(directory.path, forKey: ProjectPickerDefaultDirectory.storageKey)
+
+        #expect(ProjectPickerDefaultDirectory.status(defaults: defaults) == .unreadable)
+    }
 }

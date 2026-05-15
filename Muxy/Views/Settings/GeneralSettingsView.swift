@@ -164,7 +164,7 @@ struct GeneralSettingsView: View {
                     projectPickerDefaultDirectoryPath = ""
                 }
                 .fixedSize(horizontal: true, vertical: false)
-                .disabled(projectPickerDefaultDirectoryPath.isEmpty)
+                .disabled(ProjectPickerDefaultDirectory.usesAppDefault(storedCustomPath: projectPickerDefaultDirectoryPath))
             }
 
             if let warning = projectPickerDefaultDirectoryStatus.warning {
@@ -186,7 +186,10 @@ struct GeneralSettingsView: View {
 
             Text(ProjectPickerDefaultDirectory.displayPath)
                 .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
-                .foregroundStyle(projectPickerDefaultDirectoryPath.isEmpty ? .secondary : .primary)
+                .foregroundStyle(
+                    ProjectPickerDefaultDirectory
+                        .usesAppDefault(storedCustomPath: projectPickerDefaultDirectoryPath) ? .secondary : .primary
+                )
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -265,7 +268,7 @@ struct GeneralSettingsView: View {
         let initialPath = ProjectPickerDefaultDirectory.status == .ready ? ProjectPickerDefaultDirectory.path : NSHomeDirectory()
         panel.directoryURL = URL(fileURLWithPath: initialPath)
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        projectPickerDefaultDirectoryPath = url.path
+        projectPickerDefaultDirectoryPath = url.standardizedFileURL.path
         refreshProjectPickerDefaultDirectoryStatus()
     }
 
