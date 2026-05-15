@@ -307,7 +307,7 @@ private struct ProjectPickerFooterHint: View {
     var body: some View {
         HStack(spacing: UIMetrics.scaled(4)) {
             Text(keys)
-                .font(.system(size: UIMetrics.fontXS, weight: .semibold, design: .monospaced))
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
@@ -316,7 +316,7 @@ private struct ProjectPickerFooterHint: View {
                 .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
                 .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
             Text(label)
-                .font(.system(size: UIMetrics.fontXS))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgDim)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
