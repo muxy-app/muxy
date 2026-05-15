@@ -179,9 +179,6 @@ struct ProjectPickerOverlay: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(MuxyTheme.accent)
-            Button(actionTitle, action: confirmTypedPath)
-                .buttonStyle(.plain)
-                .foregroundStyle(MuxyTheme.accent)
         }
         .padding(.horizontal, UIMetrics.spacing5)
         .padding(.vertical, UIMetrics.spacing4)
