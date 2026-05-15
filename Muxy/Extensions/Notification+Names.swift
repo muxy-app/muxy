@@ -13,6 +13,7 @@ extension Notification.Name {
     static let quickOpen = Notification.Name("MuxyQuickOpen")
     static let findInFiles = Notification.Name("MuxyFindInFiles")
     static let switchWorktree = Notification.Name("MuxySwitchWorktree")
+    static let openProjectPicker = Notification.Name("MuxyOpenProjectPicker")
     static let saveActiveEditor = Notification.Name("MuxySaveActiveEditor")
     static let windowFullScreenDidChange = Notification.Name("MuxyWindowFullScreenDidChange")
     static let toggleSidebar = Notification.Name("MuxyToggleSidebar")
