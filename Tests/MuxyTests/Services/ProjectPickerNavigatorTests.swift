@@ -21,4 +21,11 @@ struct ProjectPickerNavigatorTests {
         #expect(normal.directoryRows(from: ["Code", ".ssh", "Documents"]) == ["..", "Code", "Documents"])
         #expect(dotfileSearch.directoryRows(from: ["Code", ".ssh", "Documents"]) == ["..", ".ssh"])
     }
+
+    @Test("tab completion replaces the typed leaf with the highlighted directory")
+    func tabCompletion() {
+        let navigator = ProjectPickerNavigator(input: "~/Projects/mu", homeDirectory: "/Users/alice")
+
+        #expect(navigator.completedPath(highlightedRow: "muxy") == "~/Projects/muxy/")
+    }
 }

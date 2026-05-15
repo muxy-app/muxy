@@ -29,6 +29,16 @@ struct ProjectPickerNavigator {
         return [".."] + rows
     }
 
+    func completedPath(highlightedRow: String) -> String {
+        displayDirectoryPrefix + highlightedRow + "/"
+    }
+
+    private var displayDirectoryPrefix: String {
+        guard !input.hasSuffix("/") else { return input }
+        guard let slashIndex = input.lastIndex(of: "/") else { return "" }
+        return String(input[...slashIndex])
+    }
+
     private var expandedInput: String {
         if input == "~" { return homeDirectory }
         if input.hasPrefix("~/") {
