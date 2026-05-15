@@ -10,6 +10,8 @@ struct GeneralSettingsView: View {
     private var confirmRunningProcess = true
     @AppStorage(ProjectLifecyclePreferences.keepOpenWhenNoTabsKey)
     private var keepProjectsOpenWhenNoTabs = false
+    @AppStorage(ProjectPickerPreferences.storageKey)
+    private var projectPickerModeRaw = ProjectPickerMode.custom.rawValue
     @AppStorage(UpdateChannel.storageKey)
     private var updateChannelRaw = UpdateChannel.stable.rawValue
     @AppStorage(QuitConfirmationPreferences.confirmQuitKey)
@@ -46,9 +48,18 @@ struct GeneralSettingsView: View {
 
             SettingsSection(
                 "Projects",
-                footer: "Keep projects in the sidebar after closing their last tab. "
-                    + "To remove a project afterward, use the right-click menu."
+                footer: "Choose whether project opening uses Muxy's keyboard-first picker or Finder. "
+                    + "Projects can stay in the sidebar after closing their last tab."
             ) {
+                SettingsRow("Project picker") {
+                    Picker("", selection: $projectPickerModeRaw) {
+                        ForEach(ProjectPickerMode.allCases) { mode in
+                            Text(mode.label).tag(mode.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                }
                 SettingsToggleRow(
                     label: "Keep projects open after closing the last tab",
                     isOn: $keepProjectsOpenWhenNoTabs

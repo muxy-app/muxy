@@ -5,6 +5,21 @@ enum ProjectOpenService {
     static func openProject(
         appState: AppState,
         projectStore: ProjectStore,
+        worktreeStore: WorktreeStore,
+        preferences: ProjectPickerPreferences = ProjectPickerPreferences(),
+        notificationCenter: NotificationCenter = .default
+    ) {
+        switch preferences.mode {
+        case .custom:
+            notificationCenter.post(name: .openProjectPicker, object: nil)
+        case .finder:
+            openProjectWithFinder(appState: appState, projectStore: projectStore, worktreeStore: worktreeStore)
+        }
+    }
+
+    static func openProjectWithFinder(
+        appState: AppState,
+        projectStore: ProjectStore,
         worktreeStore: WorktreeStore
     ) {
         let panel = NSOpenPanel()

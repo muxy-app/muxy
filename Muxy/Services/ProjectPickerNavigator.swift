@@ -48,6 +48,17 @@ struct ProjectPickerNavigator {
         return URL(fileURLWithPath: input).lastPathComponent
     }
 
+    var confirmPath: String {
+        expandedInput
+    }
+
+    var parentDisplayPath: String {
+        let parent = URL(fileURLWithPath: directoryPath).deletingLastPathComponent().standardizedFileURL.path
+        guard parent != homeDirectory else { return "~/" }
+        guard parent.hasPrefix(homeDirectory + "/") else { return parent == "/" ? "/" : parent + "/" }
+        return "~" + parent.dropFirst(homeDirectory.count) + "/"
+    }
+
     func directoryRows(from directoryNames: [String]) -> [String] {
         let filter = leafFilter
         let showsDotfiles = filter.hasPrefix(".")

@@ -72,6 +72,38 @@ struct ProjectOpenServiceTests {
         #expect(projectStore.projects.first?.path == dir.standardizedFileURL.path)
     }
 
+    @Test("custom picker preference routes project opening to the in-app picker")
+    func customPreferenceRoutesToProjectPicker() throws {
+        let (appState, projectStore, worktreeStore) = makeStores()
+        let suiteName = "ProjectOpenServiceTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Unable to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = ProjectPickerPreferences(defaults: defaults)
+        let notificationCenter = NotificationCenter()
+        let flag = NotificationFlag()
+        let observer = notificationCenter.addObserver(
+            forName: .openProjectPicker,
+            object: nil,
+            queue: nil
+        ) { _ in
+            flag.didPost = true
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        ProjectOpenService.openProject(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            preferences: preferences,
+            notificationCenter: notificationCenter
+        )
+
+        #expect(flag.didPost)
+    }
+
     private func makeStores() -> (AppState, ProjectStore, WorktreeStore) {
         let projectStore = ProjectStore(persistence: ProjectPersistenceStub())
         let worktreeStore = WorktreeStore(persistence: WorktreePersistenceStub(), projects: [])
@@ -82,6 +114,10 @@ struct ProjectOpenServiceTests {
         )
         return (appState, projectStore, worktreeStore)
     }
+}
+
+private final class NotificationFlag: @unchecked Sendable {
+    var didPost = false
 }
 
 private final class ProjectPersistenceStub: ProjectPersisting {
