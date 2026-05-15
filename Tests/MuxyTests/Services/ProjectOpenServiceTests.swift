@@ -52,6 +52,26 @@ struct ProjectOpenServiceTests {
         #expect(appState.activeProjectID == projectStore.projects.first?.id)
     }
 
+    @Test("missing directory is created before adding when creation is confirmed")
+    func missingDirectoryCreatedThenAdded() throws {
+        let (appState, projectStore, worktreeStore) = makeStores()
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-project-picker-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let didConfirm = ProjectOpenService.confirmProjectPath(
+            dir.path,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            createIfMissing: true
+        )
+
+        #expect(didConfirm)
+        #expect(FileManager.default.fileExists(atPath: dir.path))
+        #expect(projectStore.projects.first?.path == dir.standardizedFileURL.path)
+    }
+
     private func makeStores() -> (AppState, ProjectStore, WorktreeStore) {
         let projectStore = ProjectStore(persistence: ProjectPersistenceStub())
         let worktreeStore = WorktreeStore(persistence: WorktreePersistenceStub(), projects: [])

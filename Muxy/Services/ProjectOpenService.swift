@@ -26,13 +26,24 @@ enum ProjectOpenService {
         _ path: String,
         appState: AppState,
         projectStore: ProjectStore,
-        worktreeStore: WorktreeStore
+        worktreeStore: WorktreeStore,
+        createIfMissing: Bool = false
     ) -> Bool {
         let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: standardizedPath, isDirectory: &isDirectory),
-              isDirectory.boolValue
-        else { return false }
+        if !FileManager.default.fileExists(atPath: standardizedPath, isDirectory: &isDirectory) {
+            guard createIfMissing else { return false }
+            do {
+                try FileManager.default.createDirectory(
+                    at: URL(fileURLWithPath: standardizedPath),
+                    withIntermediateDirectories: true
+                )
+                isDirectory = true
+            } catch {
+                return false
+            }
+        }
+        guard isDirectory.boolValue else { return false }
 
         if let existing = projectStore.projects.first(where: { $0.path == standardizedPath }),
            let primary = worktreeStore.primary(for: existing.id)
