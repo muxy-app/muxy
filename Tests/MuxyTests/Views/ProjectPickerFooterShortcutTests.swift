@@ -9,8 +9,15 @@ struct ProjectPickerFooterShortcutTests {
         let shortcuts = ProjectPickerFooterShortcut.ordered(actionTitle: "Add Project")
 
         #expect(shortcuts.map(\.label) == ["Navigate", "Autocomplete", "Open", "Add Project", "Go back", "Close"])
-        #expect(shortcuts.map(\.command) == ProjectPickerCommand.footerCommands)
-        #expect(shortcuts.flatMap(\.command.sessionCommands).allSatisfy { $0.isSessionHandled })
+        #expect(shortcuts.map(\.intents) == [
+            [.moveHighlightUp, .moveHighlightDown],
+            [.completeHighlighted],
+            [.openHighlighted],
+            [.confirmTypedPath],
+            [.goBack],
+            [.dismiss],
+        ])
+        #expect(shortcuts.flatMap(\.intents).allSatisfy(ProjectPickerCommand.handledIntents.contains))
         #expect(shortcuts[1].keycap == .tab)
         #expect(shortcuts[4].keycap == .optionDelete)
         #expect(shortcuts[5].keycap == .escape)
@@ -21,9 +28,9 @@ struct ProjectPickerFooterShortcutTests {
         let addShortcuts = ProjectPickerFooterShortcut.ordered(actionTitle: "Add Project")
         let createShortcuts = ProjectPickerFooterShortcut.ordered(actionTitle: "Create & Add Project")
 
-        #expect(addShortcuts.map(\.command) == createShortcuts.map(\.command))
+        #expect(addShortcuts.map(\.intents) == createShortcuts.map(\.intents))
         #expect(addShortcuts[3].label == "Add Project")
         #expect(createShortcuts[3].label == "Create & Add Project")
-        #expect(addShortcuts[3].command == .confirmTypedPath)
+        #expect(addShortcuts[3].intents == [.confirmTypedPath])
     }
 }

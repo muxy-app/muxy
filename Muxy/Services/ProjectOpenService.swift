@@ -91,39 +91,11 @@ enum ProjectOpenService {
         worktreeStore: WorktreeStore,
         createIfMissing: Bool = false
     ) -> ProjectOpenConfirmationResult {
-        let standardizedPath = ProjectPickerPathSemantics.standardizedPath(path)
-        var isDirectory: ObjCBool = false
-        if !FileManager.default.fileExists(atPath: standardizedPath, isDirectory: &isDirectory) {
-            guard createIfMissing else { return .missingDirectory }
-            do {
-                try FileManager.default.createDirectory(
-                    at: URL(fileURLWithPath: standardizedPath),
-                    withIntermediateDirectories: true
-                )
-                isDirectory = true
-            } catch {
-                return .createFailed
-            }
-        }
-        guard isDirectory.boolValue else { return .notDirectory }
-
-        if let existing = projectStore.projects.first(where: { $0.path == standardizedPath }) {
-            worktreeStore.ensurePrimary(for: existing)
-            guard let primary = worktreeStore.primary(for: existing.id) else { return .failed }
-            appState.selectProject(existing, worktree: primary)
-            return .success
-        }
-
-        let url = URL(fileURLWithPath: standardizedPath)
-        let project = Project(
-            name: url.lastPathComponent,
-            path: standardizedPath,
-            sortOrder: projectStore.projects.count
+        ProjectPathConfirmationService(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
         )
-        projectStore.add(project)
-        worktreeStore.ensurePrimary(for: project)
-        guard let primary = worktreeStore.primary(for: project.id) else { return .failed }
-        appState.selectProject(project, worktree: primary)
-        return .success
+        .confirm(path: path, createIfMissing: createIfMissing)
     }
 }

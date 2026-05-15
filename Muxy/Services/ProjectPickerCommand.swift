@@ -1,7 +1,6 @@
 import Foundation
 
 enum ProjectPickerCommand: Hashable {
-    case navigate
     case moveHighlightUp
     case moveHighlightDown
     case openHighlighted
@@ -10,51 +9,46 @@ enum ProjectPickerCommand: Hashable {
     case dismiss
     case completeHighlighted
 
-    static let footerCommands: [ProjectPickerCommand] = [
-        .navigate,
-        .completeHighlighted,
-        .openHighlighted,
-        .confirmTypedPath,
-        .goBack,
-        .dismiss,
-    ]
-
-    var isSessionHandled: Bool {
-        !sessionCommands.isEmpty
+    static var handledIntents: Set<ProjectPickerCommand> {
+        Set(allCases)
     }
 
-    var sessionCommands: [ProjectPickerCommand] {
-        switch self {
-        case .navigate:
-            [.moveHighlightUp, .moveHighlightDown]
-        case .moveHighlightUp,
-             .moveHighlightDown,
-             .openHighlighted,
-             .confirmTypedPath,
-             .goBack,
-             .dismiss,
-             .completeHighlighted:
-            [self]
-        }
+    static func footerShortcuts(actionTitle: String) -> [ProjectPickerFooterShortcut] {
+        [
+            ProjectPickerFooterShortcut(intents: [.moveHighlightUp, .moveHighlightDown], keycap: .navigate, label: "Navigate"),
+            ProjectPickerFooterShortcut(intents: [.completeHighlighted], keycap: .tab, label: "Autocomplete"),
+            ProjectPickerFooterShortcut(intents: [.openHighlighted], keycap: .returnKey, label: "Open"),
+            ProjectPickerFooterShortcut(intents: [.confirmTypedPath], keycap: .commandReturn, label: actionTitle),
+            ProjectPickerFooterShortcut(intents: [.goBack], keycap: .optionDelete, label: "Go back"),
+            ProjectPickerFooterShortcut(intents: [.dismiss], keycap: .escape, label: "Close"),
+        ]
     }
+}
 
-    func footerShortcut(actionTitle: String) -> ProjectPickerFooterShortcut? {
-        switch self {
-        case .navigate:
-            ProjectPickerFooterShortcut(command: self, keycap: .navigate, label: "Navigate")
-        case .completeHighlighted:
-            ProjectPickerFooterShortcut(command: self, keycap: .tab, label: "Autocomplete")
-        case .openHighlighted:
-            ProjectPickerFooterShortcut(command: self, keycap: .returnKey, label: "Open")
-        case .confirmTypedPath:
-            ProjectPickerFooterShortcut(command: self, keycap: .commandReturn, label: actionTitle)
-        case .goBack:
-            ProjectPickerFooterShortcut(command: self, keycap: .optionDelete, label: "Go back")
-        case .dismiss:
-            ProjectPickerFooterShortcut(command: self, keycap: .escape, label: "Close")
-        case .moveHighlightUp,
-             .moveHighlightDown:
-            nil
-        }
+extension ProjectPickerCommand: CaseIterable {}
+
+struct ProjectPickerFooterShortcut: Hashable {
+    let intents: [ProjectPickerCommand]
+    let keycap: ProjectPickerShortcutKeycap
+    let label: String
+
+    static func ordered(actionTitle: String) -> [ProjectPickerFooterShortcut] {
+        ProjectPickerCommand.footerShortcuts(actionTitle: actionTitle)
     }
+}
+
+struct ProjectPickerShortcutKeycap: Hashable {
+    let parts: [ProjectPickerShortcutKeycapPart]
+
+    static let navigate = ProjectPickerShortcutKeycap(parts: [.symbol("arrow.up"), .symbol("arrow.down")])
+    static let tab = ProjectPickerShortcutKeycap(parts: [.text("Tab")])
+    static let returnKey = ProjectPickerShortcutKeycap(parts: [.symbol("return")])
+    static let commandReturn = ProjectPickerShortcutKeycap(parts: [.symbol("command"), .symbol("return")])
+    static let escape = ProjectPickerShortcutKeycap(parts: [.text("Esc")])
+    static let optionDelete = ProjectPickerShortcutKeycap(parts: [.symbol("option"), .symbol("delete.left")])
+}
+
+enum ProjectPickerShortcutKeycapPart: Hashable {
+    case symbol(String)
+    case text(String)
 }

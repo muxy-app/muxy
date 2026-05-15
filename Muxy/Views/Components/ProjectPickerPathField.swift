@@ -51,28 +51,11 @@ struct ProjectPickerPathField: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                parent.onCommand(.openHighlighted)
-                return true
-            }
-            if commandSelector == #selector(NSResponder.insertTab(_:)) {
-                parent.onCommand(.completeHighlighted)
-                return true
-            }
-            if commandSelector == #selector(NSResponder.moveUp(_:)) {
-                parent.onCommand(.moveHighlightUp)
-                return true
-            }
-            if commandSelector == #selector(NSResponder.moveDown(_:)) {
-                parent.onCommand(.moveHighlightDown)
-                return true
-            }
-            if commandSelector == #selector(NSResponder.deleteWordBackward(_:)), shouldGoUpOnDeleteBackward(textView) {
-                parent.onCommand(.goBack)
-                return true
-            }
-            if commandSelector == #selector(NSResponder.deleteBackward(_:)), shouldGoUpOnDeleteBackward(textView) {
-                parent.onCommand(.goBack)
+            if let command = ProjectPickerPathFieldCommandMapper.command(
+                for: commandSelector,
+                shouldGoUpOnDeleteBackward: shouldGoUpOnDeleteBackward(textView)
+            ) {
+                parent.onCommand(command)
                 return true
             }
             return false
@@ -99,14 +82,28 @@ private final class ProjectPickerNSTextField: NSTextField {
         guard window?.firstResponder === currentEditor() else {
             return super.performKeyEquivalent(with: event)
         }
-        if event.keyCode == kVK_Escape {
-            onCommand?(.dismiss)
-            return true
-        }
-        if event.keyCode == kVK_Return, event.modifierFlags.contains(.command) {
-            onCommand?(.confirmTypedPath)
+        if let command = ProjectPickerPathFieldCommandMapper.command(for: event) {
+            onCommand?(command)
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+}
+
+private enum ProjectPickerPathFieldCommandMapper {
+    static func command(for selector: Selector, shouldGoUpOnDeleteBackward: Bool) -> ProjectPickerCommand? {
+        if selector == #selector(NSResponder.insertNewline(_:)) { return .openHighlighted }
+        if selector == #selector(NSResponder.insertTab(_:)) { return .completeHighlighted }
+        if selector == #selector(NSResponder.moveUp(_:)) { return .moveHighlightUp }
+        if selector == #selector(NSResponder.moveDown(_:)) { return .moveHighlightDown }
+        if selector == #selector(NSResponder.deleteWordBackward(_:)) { return shouldGoUpOnDeleteBackward ? .goBack : nil }
+        if selector == #selector(NSResponder.deleteBackward(_:)) { return shouldGoUpOnDeleteBackward ? .goBack : nil }
+        return nil
+    }
+
+    static func command(for event: NSEvent) -> ProjectPickerCommand? {
+        if event.keyCode == kVK_Escape { return .dismiss }
+        if event.keyCode == kVK_Return, event.modifierFlags.contains(.command) { return .confirmTypedPath }
+        return nil
     }
 }

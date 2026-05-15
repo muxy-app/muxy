@@ -1,13 +1,12 @@
 import SwiftUI
 
 struct ProjectPickerShortcutHint: View {
-    let keycap: ProjectPickerShortcutKeycap
-    let label: String
+    let shortcut: ProjectPickerFooterShortcut
 
     var body: some View {
         HStack(spacing: UIMetrics.scaled(4)) {
             HStack(spacing: UIMetrics.scaled(3)) {
-                ForEach(Array(keycap.parts.enumerated()), id: \.offset) { _, part in
+                ForEach(Array(shortcut.keycap.parts.enumerated()), id: \.offset) { _, part in
                     keycapPart(part)
                 }
             }
@@ -17,7 +16,7 @@ struct ProjectPickerShortcutHint: View {
             .padding(.vertical, UIMetrics.scaled(2))
             .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
-            Text(label)
+            Text(shortcut.label)
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgDim)
                 .lineLimit(1)
@@ -39,30 +38,4 @@ struct ProjectPickerShortcutHint: View {
                 .foregroundStyle(MuxyTheme.fgMuted)
         }
     }
-}
-
-struct ProjectPickerFooterShortcut: Hashable {
-    let command: ProjectPickerCommand
-    let keycap: ProjectPickerShortcutKeycap
-    let label: String
-
-    static func ordered(actionTitle: String) -> [ProjectPickerFooterShortcut] {
-        ProjectPickerCommand.footerCommands.compactMap { $0.footerShortcut(actionTitle: actionTitle) }
-    }
-}
-
-struct ProjectPickerShortcutKeycap: Hashable {
-    let parts: [ProjectPickerShortcutKeycapPart]
-
-    static let navigate = ProjectPickerShortcutKeycap(parts: [.symbol("arrow.up"), .symbol("arrow.down")])
-    static let tab = ProjectPickerShortcutKeycap(parts: [.text("Tab")])
-    static let returnKey = ProjectPickerShortcutKeycap(parts: [.symbol("return")])
-    static let commandReturn = ProjectPickerShortcutKeycap(parts: [.symbol("command"), .symbol("return")])
-    static let escape = ProjectPickerShortcutKeycap(parts: [.text("Esc")])
-    static let optionDelete = ProjectPickerShortcutKeycap(parts: [.symbol("option"), .symbol("delete.left")])
-}
-
-enum ProjectPickerShortcutKeycapPart: Hashable {
-    case symbol(String)
-    case text(String)
 }

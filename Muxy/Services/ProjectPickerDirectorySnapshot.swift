@@ -20,8 +20,7 @@ struct ProjectPickerDirectorySnapshot: Equatable {
             }
             return ProjectPickerDirectorySnapshot(rows: navigator.directoryRows(from: names), readFailed: false)
         } catch {
-            let rows = navigator.directoryPath == "/" ? [] : [ProjectPickerNavigator.parentDirectoryRow]
-            return ProjectPickerDirectorySnapshot(rows: rows, readFailed: true)
+            return ProjectPickerDirectorySnapshot(rows: navigator.directoryReadFailureRows, readFailed: true)
         }
     }
 

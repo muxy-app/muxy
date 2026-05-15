@@ -23,7 +23,7 @@ struct ProjectPickerSession {
     }
 
     var typedPathState: ProjectPickerTypedPathState {
-        ProjectPickerPathSemantics.typedPathState(path: standardizedTypedPath)
+        ProjectPickerNavigator.typedPathState(path: standardizedTypedPath)
     }
 
     var isExistingProject: Bool {
@@ -90,8 +90,6 @@ struct ProjectPickerSession {
 
     mutating func handle(_ command: ProjectPickerCommand) -> [ProjectPickerEffect] {
         switch command {
-        case .navigate:
-            return []
         case .moveHighlightUp:
             moveHighlight(-1)
             return []
@@ -128,7 +126,7 @@ struct ProjectPickerSession {
     }
 
     func isParentDirectoryRow(_ row: String) -> Bool {
-        row == ProjectPickerPathSemantics.parentDirectoryRow
+        navigator.isParentDirectoryRow(row)
     }
 
     private mutating func moveHighlight(_ delta: Int) {

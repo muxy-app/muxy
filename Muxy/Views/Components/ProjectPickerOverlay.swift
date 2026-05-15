@@ -8,17 +8,25 @@ struct ProjectPickerOverlay: View {
     let onDismiss: () -> Void
 
     @Environment(\.openSettings) private var openSettings
-    @AppStorage(ProjectPickerDefaultLocation.storageKey) private var projectPickerDefaultLocationPath = ""
-    @State private var session = ProjectPickerSession(defaultDisplayPath: "", projectPaths: [])
-    @State private var didInitializeInput = false
-    @State private var directoryLoadID = UUID()
-    @State private var reloadTask: Task<Void, Never>?
-    @State private var loadingMessageTask: Task<Void, Never>?
+    @State private var workflow: ProjectPickerWorkflow
+
+    init(
+        projectPaths: [String],
+        onConfirm: @escaping (String, Bool) -> ProjectOpenConfirmationResult,
+        onChooseFinder: @escaping () -> Void,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.projectPaths = projectPaths
+        self.onConfirm = onConfirm
+        self.onChooseFinder = onChooseFinder
+        self.onDismiss = onDismiss
+        _workflow = State(initialValue: ProjectPickerWorkflow(projectPaths: projectPaths))
+    }
 
     private var inputBinding: Binding<String> {
         Binding(
-            get: { session.input },
-            set: { execute(session.setInput($0)) }
+            get: { workflow.session.input },
+            set: { execute(workflow.setInput($0)) }
         )
     }
 
@@ -44,9 +52,9 @@ struct ProjectPickerOverlay: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .accessibilityAddTraits(.isModal)
         }
-        .onAppear { initializeInputIfNeeded() }
-        .onChange(of: projectPaths) { session.setProjectPaths($1) }
-        .onDisappear { cancelDirectoryReload() }
+        .onAppear { workflow.appear() }
+        .onChange(of: projectPaths) { workflow.setProjectPaths($1) }
+        .onDisappear { workflow.cancel() }
     }
 
     private var pathBar: some View {
@@ -70,7 +78,7 @@ struct ProjectPickerOverlay: View {
     }
 
     private var topRightActionMenu: some View {
-        let defaultLocationNeedsFix = ProjectPickerDefaultLocation.status != .ready
+        let defaultLocationNeedsFix = !ProjectPickerDefaultLocation.state.isReady
 
         return HStack(spacing: 0) {
             Button(
@@ -79,7 +87,7 @@ struct ProjectPickerOverlay: View {
                     HStack(spacing: UIMetrics.spacing2) {
                         Image(systemName: "plus")
                             .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                        Text(session.topRightActionTitle)
+                        Text(workflow.session.topRightActionTitle)
                             .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     }
                     .padding(.leading, UIMetrics.spacing3)
@@ -129,9 +137,9 @@ struct ProjectPickerOverlay: View {
 
     private var ghostTextPreview: some View {
         HStack(spacing: 0) {
-            Text(session.input)
+            Text(workflow.session.input)
                 .foregroundStyle(.clear)
-            Text(session.ghostText)
+            Text(workflow.session.ghostText)
                 .foregroundStyle(MuxyTheme.fgDim.opacity(0.65))
         }
         .font(.system(size: UIMetrics.fontEmphasis, design: .monospaced))
@@ -141,9 +149,9 @@ struct ProjectPickerOverlay: View {
 
     private var directoryContent: some View {
         Group {
-            if session.directoryLoadState.isLoading {
+            if workflow.session.directoryLoadState.isLoading {
                 loadingProjectContent
-            } else if session.showsUnavailableProjectState {
+            } else if workflow.session.showsUnavailableProjectState {
                 unavailableProjectContent
             } else {
                 directoryRows
@@ -155,7 +163,7 @@ struct ProjectPickerOverlay: View {
     private var loadingProjectContent: some View {
         VStack {
             Spacer()
-            if session.directoryLoadState.showsMessage {
+            if workflow.session.directoryLoadState.showsMessage {
                 Text("Loading…")
                     .font(.system(size: UIMetrics.fontBody))
                     .foregroundStyle(MuxyTheme.fgMuted)
@@ -167,7 +175,7 @@ struct ProjectPickerOverlay: View {
 
     private var unavailableProjectContent: some View {
         VStack(spacing: 0) {
-            if session.hasParentRow {
+            if workflow.session.hasParentRow {
                 parentDirectoryRow
             }
             unavailableProjectMessage
@@ -178,32 +186,32 @@ struct ProjectPickerOverlay: View {
         ProjectPickerDirectoryRow(
             row: ProjectPickerNavigator.parentDirectoryRow,
             isParent: true,
-            isHighlighted: session.highlightedIndex == 0
+            isHighlighted: workflow.session.highlightedIndex == 0
         )
-        .onTapGesture { execute(session.activate(row: ProjectPickerNavigator.parentDirectoryRow)) }
+        .onTapGesture { execute(workflow.activate(row: ProjectPickerNavigator.parentDirectoryRow)) }
     }
 
     private var directoryRows: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: true) {
                 LazyVStack(spacing: 0) {
-                    ForEach(Array(session.rows.enumerated()), id: \.element) { index, row in
+                    ForEach(Array(workflow.session.rows.enumerated()), id: \.element) { index, row in
                         ProjectPickerDirectoryRow(
                             row: row,
-                            isParent: session.isParentDirectoryRow(row),
-                            isHighlighted: index == session.highlightedIndex
+                            isParent: workflow.session.isParentDirectoryRow(row),
+                            isHighlighted: index == workflow.session.highlightedIndex
                         )
                         .onTapGesture {
-                            session.selectRow(at: index)
-                            execute(session.activate(row: row))
+                            workflow.selectRow(at: index)
+                            execute(workflow.activate(row: row))
                         }
                         .id(row)
                     }
                 }
             }
-            .onChange(of: session.highlightedIndex) { _, newIndex in
-                guard let newIndex, newIndex < session.rows.count else { return }
-                proxy.scrollTo(session.rows[newIndex], anchor: nil)
+            .onChange(of: workflow.session.highlightedIndex) { _, newIndex in
+                guard let newIndex, newIndex < workflow.session.rows.count else { return }
+                proxy.scrollTo(workflow.session.rows[newIndex], anchor: nil)
             }
         }
     }
@@ -224,8 +232,8 @@ struct ProjectPickerOverlay: View {
 
     private var footer: some View {
         HStack(spacing: UIMetrics.scaled(18)) {
-            ForEach(ProjectPickerFooterShortcut.ordered(actionTitle: session.topRightActionTitle), id: \.self) { shortcut in
-                ProjectPickerShortcutHint(keycap: shortcut.keycap, label: shortcut.label)
+            ForEach(ProjectPickerFooterShortcut.ordered(actionTitle: workflow.session.topRightActionTitle), id: \.self) { shortcut in
+                ProjectPickerShortcutHint(shortcut: shortcut)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
@@ -234,51 +242,30 @@ struct ProjectPickerOverlay: View {
     }
 
     private func chooseWithFinder() {
-        execute([.dismiss, .chooseFinder])
+        execute(workflow.chooseWithFinder())
     }
 
     private func editDefaultLocation() {
-        execute([.dismiss, .openSettingsFocusedOnDefaultLocation])
-    }
-
-    private func initializeInputIfNeeded() {
-        guard !didInitializeInput else { return }
-        didInitializeInput = true
-        session = ProjectPickerSession(
-            defaultDisplayPath: ProjectPickerDefaultLocation.displayPath(storedCustomPath: projectPickerDefaultLocationPath),
-            projectPaths: projectPaths
-        )
-        execute(.requestDirectoryReload(session.navigator))
+        execute(workflow.editDefaultLocation())
     }
 
     private func handleCommand(_ command: ProjectPickerCommand) {
-        execute(session.handle(command))
+        execute(workflow.handle(command))
     }
 
-    private func execute(_ effect: ProjectPickerEffect) {
-        execute([effect])
-    }
-
-    private func execute(_ effects: [ProjectPickerEffect]) {
-        for effect in effects {
-            executeSingle(effect)
+    private func execute(_ requests: [ProjectPickerWorkflowRequest]) {
+        for request in requests {
+            executeSingle(request)
         }
     }
 
-    private func executeSingle(_ effect: ProjectPickerEffect) {
-        switch effect {
-        case let .requestDirectoryReload(navigator):
-            scheduleDirectoryReload(navigator: navigator)
-        case let .confirmCreateDirectory(path):
-            guard confirmCreateDirectory(path: path) else { return }
-            execute(session.confirmCreateDirectoryAccepted())
+    private func executeSingle(_ request: ProjectPickerWorkflowRequest) {
+        switch request {
+        case let .askCreateDirectory(path):
+            execute(workflow.handleCreateDirectoryDecision(path: path, accepted: confirmCreateDirectory(path: path)))
         case let .confirmProjectPath(path, createIfMissing):
             let result = onConfirm(path, createIfMissing)
-            guard !result.didConfirm else {
-                onDismiss()
-                return
-            }
-            showConfirmationFailureAlert(session.confirmationFailurePresentation(for: result))
+            execute(workflow.handleProjectPathConfirmationResult(result, path: path))
         case .chooseFinder:
             DispatchQueue.main.async { onChooseFinder() }
         case .openSettingsFocusedOnDefaultLocation:
@@ -288,43 +275,9 @@ struct ProjectPickerOverlay: View {
             }
         case .dismiss:
             onDismiss()
+        case let .showFailure(presentation):
+            showConfirmationFailureAlert(presentation)
         }
-    }
-
-    private func scheduleDirectoryReload(navigator: ProjectPickerNavigator) {
-        let loadID = UUID()
-        directoryLoadID = loadID
-        cancelDirectoryReload()
-        loadingMessageTask = Task {
-            try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard directoryLoadID == loadID else { return }
-                session.showLoadingMessage()
-            }
-        }
-        reloadTask = Task {
-            try? await Task.sleep(for: .milliseconds(100))
-            guard !Task.isCancelled else { return }
-            let snapshot = await Task.detached(priority: .userInitiated) {
-                ProjectPickerDirectorySnapshot.load(navigator: navigator)
-            }.value
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard directoryLoadID == loadID else { return }
-                apply(snapshot)
-            }
-        }
-    }
-
-    private func cancelDirectoryReload() {
-        reloadTask?.cancel()
-        loadingMessageTask?.cancel()
-    }
-
-    private func apply(_ snapshot: ProjectPickerDirectorySnapshot) {
-        loadingMessageTask?.cancel()
-        session.applyDirectorySnapshot(snapshot)
     }
 
     private func confirmCreateDirectory(path: String) -> Bool {

@@ -20,13 +20,42 @@ enum ProjectPickerDefaultLocationStatus: Equatable {
     }
 }
 
+struct ProjectPickerDefaultLocationState: Equatable {
+    let path: String
+    let displayPath: String
+    let usesAppDefault: Bool
+    let status: ProjectPickerDefaultLocationStatus
+    let chooserInitialPath: String
+
+    var isReady: Bool {
+        status == .ready
+    }
+
+    var warning: String? {
+        status.warning
+    }
+}
+
 enum ProjectPickerDefaultLocation {
-    static let storageKey = "muxy.projectPicker.defaultDirectory"
+    private static let storageKey = "muxy.projectPicker.defaultDirectory"
 
     static var path: String { path(defaults: .standard) }
     static var displayPath: String { displayPath(defaults: .standard) }
     static var usesAppDefault: Bool { usesAppDefault(defaults: .standard) }
     static var status: ProjectPickerDefaultLocationStatus { status(defaults: .standard) }
+    static var state: ProjectPickerDefaultLocationState { state(defaults: .standard) }
+
+    static func state(defaults: UserDefaults) -> ProjectPickerDefaultLocationState {
+        let path = path(defaults: defaults)
+        let status = ProjectPickerNavigator.defaultLocationStatus(path: path)
+        return ProjectPickerDefaultLocationState(
+            path: path,
+            displayPath: abbreviatedPath(path),
+            usesAppDefault: usesAppDefault(defaults: defaults),
+            status: status,
+            chooserInitialPath: status == .ready ? path : NSHomeDirectory()
+        )
+    }
 
     static func path(defaults: UserDefaults) -> String {
         expandedPath(storedCustomPath(defaults: defaults) ?? NSHomeDirectory())
@@ -49,11 +78,27 @@ enum ProjectPickerDefaultLocation {
     }
 
     static func status(defaults: UserDefaults) -> ProjectPickerDefaultLocationStatus {
-        ProjectPickerPathSemantics.defaultLocationStatus(path: path(defaults: defaults))
+        ProjectPickerNavigator.defaultLocationStatus(path: path(defaults: defaults))
     }
 
     static func chooserInitialPath(defaults: UserDefaults = .standard) -> String {
-        status(defaults: defaults) == .ready ? path(defaults: defaults) : NSHomeDirectory()
+        state(defaults: defaults).chooserInitialPath
+    }
+
+    static func setCustomPath(_ path: String, defaults: UserDefaults = .standard) {
+        guard let path = normalizedCustomPath(path) else {
+            resetToAppDefault(defaults: defaults)
+            return
+        }
+        defaults.set(path, forKey: storageKey)
+    }
+
+    static func setCustomPath(from url: URL, defaults: UserDefaults = .standard) {
+        setCustomPath(url.standardizedFileURL.path, defaults: defaults)
+    }
+
+    static func resetToAppDefault(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: storageKey)
     }
 
     private static func storedCustomPath(defaults: UserDefaults) -> String? {
@@ -70,10 +115,10 @@ enum ProjectPickerDefaultLocation {
     }
 
     private static func expandedPath(_ path: String) -> String {
-        ProjectPickerPathSemantics.expandedPath(path, homeDirectory: NSHomeDirectory())
+        ProjectPickerNavigator.expandedPath(path, homeDirectory: NSHomeDirectory())
     }
 
     private static func abbreviatedPath(_ path: String) -> String {
-        ProjectPickerPathSemantics.abbreviatedDirectoryDisplayPath(path, homeDirectory: NSHomeDirectory())
+        ProjectPickerNavigator.abbreviatedDirectoryDisplayPath(path, homeDirectory: NSHomeDirectory())
     }
 }

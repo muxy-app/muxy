@@ -75,6 +75,28 @@ struct ProjectOpenServiceTests {
         #expect(appState.activeProjectID == project.id)
     }
 
+    @Test("standardized equivalent path selects an existing project without creating a duplicate")
+    func standardizedEquivalentPathDedupesExistingProject() throws {
+        let (appState, projectStore, worktreeStore) = makeStores()
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-project-picker-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let project = Project(name: dir.lastPathComponent, path: dir.appendingPathComponent(".").path)
+        projectStore.add(project)
+
+        let result = ProjectOpenService.confirmProjectPathResult(
+            dir.standardizedFileURL.path,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
+        )
+
+        #expect(result == .success)
+        #expect(projectStore.projects.count == 1)
+        #expect(appState.activeProjectID == project.id)
+    }
+
     @Test("regular file path is rejected")
     func regularFilePathRejected() throws {
         let (appState, projectStore, worktreeStore) = makeStores()
@@ -141,6 +163,26 @@ struct ProjectOpenServiceTests {
         #expect(didConfirm)
         #expect(FileManager.default.fileExists(atPath: dir.path))
         #expect(projectStore.projects.first?.path == dir.standardizedFileURL.path)
+    }
+
+    @Test("create failure returns create failed without adding a project")
+    func createFailureReturnsCreateFailedWithoutAddingProject() {
+        let (appState, projectStore, worktreeStore) = makeStores()
+        let service = ProjectPathConfirmationService(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            fileSystem: ProjectPathConfirmationFileSystemStub(
+                state: .missing,
+                createError: ProjectPathConfirmationFileSystemStub.Error()
+            )
+        )
+
+        let result = service.confirm(path: "/tmp/muxy-create-failure", createIfMissing: true)
+
+        #expect(result == .createFailed)
+        #expect(projectStore.projects.isEmpty)
+        #expect(appState.activeProjectID == nil)
     }
 
     @Test("custom picker preference routes project opening to the in-app picker")
@@ -242,6 +284,23 @@ struct ProjectOpenServiceTests {
 
 private final class NotificationFlag: @unchecked Sendable {
     var didPost = false
+}
+
+private struct ProjectPathConfirmationFileSystemStub: ProjectPathConfirmationFileSystem {
+    struct Error: Swift.Error {}
+
+    let state: ProjectPathConfirmationDirectoryState
+    var createError: Swift.Error?
+
+    func directoryState(atPath path: String) -> ProjectPathConfirmationDirectoryState {
+        state
+    }
+
+    func createDirectory(atPath path: String) throws {
+        if let createError {
+            throw createError
+        }
+    }
 }
 
 private final class ProjectPersistenceStub: ProjectPersisting {

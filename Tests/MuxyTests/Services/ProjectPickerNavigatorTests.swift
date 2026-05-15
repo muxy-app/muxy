@@ -48,8 +48,8 @@ struct ProjectPickerNavigatorTests {
 
     @Test("path expansion uses the supplied home directory")
     func pathExpansionUsesSuppliedHomeDirectory() {
-        #expect(ProjectPickerPathSemantics.expandedPath("~/Projects", homeDirectory: "/Users/alice") == "/Users/alice/Projects")
-        #expect(ProjectPickerPathSemantics.expandedPath("~", homeDirectory: "/Users/alice") == "/Users/alice")
+        #expect(ProjectPickerNavigator.expandedPath("~/Projects", homeDirectory: "/Users/alice") == "/Users/alice/Projects")
+        #expect(ProjectPickerNavigator.expandedPath("~", homeDirectory: "/Users/alice") == "/Users/alice")
     }
 
     @Test("parent path walks above home to filesystem root and stops")
@@ -66,6 +66,27 @@ struct ProjectPickerNavigatorTests {
 
         #expect(navigator.directoryPath == "/")
         #expect(navigator.parentDisplayPath == "/")
+        #expect(navigator.directoryRows(from: ["Users"]) == ["Users"])
+    }
+
+    @Test("ghost text completes matching display paths and ignores parent rows")
+    func ghostTextUsesHighlightedRow() {
+        #expect(ProjectPickerNavigator(input: "~/Projects/mu", homeDirectory: "/Users/alice").ghostText(highlightedRow: "muxy") == "xy/")
+        #expect(ProjectPickerNavigator(input: "mu", homeDirectory: "/Users/alice").ghostText(highlightedRow: "muxy") == "xy/")
+        #expect(ProjectPickerNavigator(input: "muxy", homeDirectory: "/Users/alice").ghostText(highlightedRow: "muxy") == "/")
+        #expect(ProjectPickerNavigator(input: "~/Projects/", homeDirectory: "/Users/alice").ghostText(highlightedRow: "..") == "")
+    }
+
+    @Test("directory snapshot failure uses navigator fallback rows")
+    func directorySnapshotFailureUsesNavigatorFallbackRows() {
+        let missingPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-project-picker-missing-\(UUID().uuidString)")
+            .path + "/"
+        let navigator = ProjectPickerNavigator(input: missingPath, homeDirectory: "/Users/alice")
+        let snapshot = ProjectPickerDirectorySnapshot.load(navigator: navigator)
+
+        #expect(snapshot.rows == [".."])
+        #expect(snapshot.readFailed)
     }
 
     @Test("directory snapshot includes symlinked folders")

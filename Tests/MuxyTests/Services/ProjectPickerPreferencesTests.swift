@@ -35,7 +35,7 @@ struct ProjectPickerPreferencesTests {
         #expect(ProjectPickerDefaultLocation.displayPath(defaults: defaults) == "~/")
         #expect(ProjectPickerDefaultLocation.usesAppDefault(defaults: defaults))
 
-        defaults.set("~/Projects", forKey: ProjectPickerDefaultLocation.storageKey)
+        ProjectPickerDefaultLocation.setCustomPath("~/Projects", defaults: defaults)
 
         #expect(ProjectPickerDefaultLocation.path(defaults: defaults) == NSHomeDirectory() + "/Projects")
         #expect(ProjectPickerDefaultLocation.displayPath(defaults: defaults) == "~/Projects/")
@@ -61,13 +61,13 @@ struct ProjectPickerPreferencesTests {
         try Data().write(to: file)
         let missing = root.appendingPathComponent("missing", isDirectory: true)
 
-        defaults.set(root.path, forKey: ProjectPickerDefaultLocation.storageKey)
+        ProjectPickerDefaultLocation.setCustomPath(from: root, defaults: defaults)
         #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .ready)
 
-        defaults.set(file.path, forKey: ProjectPickerDefaultLocation.storageKey)
+        ProjectPickerDefaultLocation.setCustomPath(from: file, defaults: defaults)
         #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .notDirectory)
 
-        defaults.set(missing.path, forKey: ProjectPickerDefaultLocation.storageKey)
+        ProjectPickerDefaultLocation.setCustomPath(from: missing, defaults: defaults)
         #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .missing)
     }
 
@@ -88,8 +88,66 @@ struct ProjectPickerPreferencesTests {
         }
 
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: directory.path)
-        defaults.set(directory.path, forKey: ProjectPickerDefaultLocation.storageKey)
+        ProjectPickerDefaultLocation.setCustomPath(from: directory, defaults: defaults)
 
         #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .unreadable)
+    }
+
+    @Test("default location state includes display status warning and chooser fallback")
+    func defaultLocationStateIncludesDisplayStatusWarningAndChooserFallback() throws {
+        let suiteName = "ProjectPickerDefaultLocationStateTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Unable to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        ProjectPickerDefaultLocation.setCustomPath(from: root, defaults: defaults)
+        let readyState = ProjectPickerDefaultLocation.state(defaults: defaults)
+
+        #expect(readyState.path == root.standardizedFileURL.path)
+        #expect(readyState.displayPath == root.standardizedFileURL.path + "/")
+        #expect(!readyState.usesAppDefault)
+        #expect(readyState.status == .ready)
+        #expect(readyState.warning == nil)
+        #expect(readyState.chooserInitialPath == root.standardizedFileURL.path)
+
+        let missing = root.appendingPathComponent("missing", isDirectory: true)
+        ProjectPickerDefaultLocation.setCustomPath(from: missing, defaults: defaults)
+        let missingState = ProjectPickerDefaultLocation.state(defaults: defaults)
+
+        #expect(missingState.status == .missing)
+        #expect(missingState.warning == "Default location no longer exists. Choose another folder or use the app default.")
+        #expect(missingState.chooserInitialPath == NSHomeDirectory())
+    }
+
+    @Test("default location resets and normalizes selected directories through the model")
+    func defaultLocationResetsAndNormalizesSelectedDirectoriesThroughModel() throws {
+        let suiteName = "ProjectPickerDefaultLocationMutationTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            Issue.record("Unable to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let nested = root.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let selectedURL = URL(fileURLWithPath: nested.path + "/.", isDirectory: true)
+        ProjectPickerDefaultLocation.setCustomPath(from: selectedURL, defaults: defaults)
+
+        #expect(ProjectPickerDefaultLocation.path(defaults: defaults) == nested.standardizedFileURL.path)
+        #expect(!ProjectPickerDefaultLocation.state(defaults: defaults).usesAppDefault)
+
+        ProjectPickerDefaultLocation.resetToAppDefault(defaults: defaults)
+
+        #expect(ProjectPickerDefaultLocation.path(defaults: defaults) == NSHomeDirectory())
+        #expect(ProjectPickerDefaultLocation.state(defaults: defaults).usesAppDefault)
     }
 }
