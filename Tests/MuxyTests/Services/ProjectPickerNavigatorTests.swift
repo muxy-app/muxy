@@ -35,9 +35,14 @@ struct ProjectPickerNavigatorTests {
         #expect(ProjectPickerDirectoryReadFailure(error: posixError(EPERM)).kind == .permissionDenied)
         #expect(ProjectPickerDirectoryReadFailure(error: posixError(ENOENT)).kind == .notFound)
         #expect(ProjectPickerDirectoryReadFailure(error: posixError(EIO)).kind == .ioFailure)
+        #expect(ProjectPickerDirectoryReadFailure(error: cocoaError(underlying: posixError(EACCES))).kind == .permissionDenied)
     }
 
     private func posixError(_ code: Int32) -> NSError {
         NSError(domain: NSPOSIXErrorDomain, code: Int(code))
+    }
+
+    private func cocoaError(underlying: NSError) -> NSError {
+        NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError, userInfo: [NSUnderlyingErrorKey: underlying])
     }
 }

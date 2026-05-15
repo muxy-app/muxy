@@ -13,19 +13,22 @@ struct ProjectPickerDirectoryReadFailure {
 
     init(error: Error) {
         self.error = error
-        let nsError = error as NSError
-        guard nsError.domain == NSPOSIXErrorDomain else {
-            kind = .ioFailure
-            return
+        kind = Self.kind(for: error as NSError)
+    }
+
+    private static func kind(for error: NSError) -> ProjectPickerDirectoryReadFailureKind {
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+            return kind(for: underlying)
         }
-        switch Int32(nsError.code) {
+        guard error.domain == NSPOSIXErrorDomain else { return .ioFailure }
+        switch Int32(error.code) {
         case EACCES,
              EPERM:
-            kind = .permissionDenied
+            return .permissionDenied
         case ENOENT:
-            kind = .notFound
+            return .notFound
         default:
-            kind = .ioFailure
+            return .ioFailure
         }
     }
 }
