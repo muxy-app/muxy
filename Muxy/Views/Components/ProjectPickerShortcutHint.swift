@@ -45,8 +45,8 @@ struct ProjectPickerShortcutKeycap: Hashable {
     let parts: [ProjectPickerShortcutKeycapPart]
 
     static let navigate = ProjectPickerShortcutKeycap(parts: [.symbol("arrow.up"), .symbol("arrow.down")])
-    static let returnKey = ProjectPickerShortcutKeycap(parts: [.text("Return")])
-    static let commandReturn = ProjectPickerShortcutKeycap(parts: [.symbol("command"), .text("Return")])
+    static let returnKey = ProjectPickerShortcutKeycap(parts: [.symbol("return")])
+    static let commandReturn = ProjectPickerShortcutKeycap(parts: [.symbol("command"), .symbol("return")])
     static let escape = ProjectPickerShortcutKeycap(parts: [.text("Esc")])
     static let optionDelete = ProjectPickerShortcutKeycap(parts: [.symbol("option"), .symbol("delete.left")])
 }
