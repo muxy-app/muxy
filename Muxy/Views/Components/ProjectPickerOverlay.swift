@@ -119,17 +119,7 @@ struct ProjectPickerOverlay: View {
     }
 
     private var directoryContent: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("DIRECTORIES")
-                    .font(.system(size: UIMetrics.fontXS, weight: .bold))
-                    .tracking(0.6)
-                    .foregroundStyle(MuxyTheme.fgDim)
-                Spacer()
-            }
-            .padding(.horizontal, UIMetrics.spacing5)
-            .padding(.vertical, UIMetrics.spacing3)
-
+        Group {
             if let readFailure {
                 permissionState(readFailure)
             } else {
