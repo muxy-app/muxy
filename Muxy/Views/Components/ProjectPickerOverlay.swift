@@ -169,7 +169,7 @@ struct ProjectPickerOverlay: View {
                 ProjectPickerFooterHint(keys: "↑↓", label: "Navigate")
                 ProjectPickerFooterHint(keys: "Tab", label: "Complete")
                 ProjectPickerFooterHint(keys: "Return", label: "Open")
-                ProjectPickerFooterHint(keys: "⌘Return", label: actionTitle)
+                ProjectPickerFooterHint(keys: "⌘ Return", label: actionTitle)
                 ProjectPickerFooterHint(keys: "Esc", label: "Close")
             }
             Spacer(minLength: UIMetrics.spacing6)
@@ -329,9 +329,13 @@ private struct ProjectPickerPathField: NSViewRepresentable {
         field.focusRingType = .none
         field.font = .monospacedSystemFont(ofSize: UIMetrics.fontEmphasis, weight: .regular)
         field.textColor = NSColor(MuxyTheme.fg)
+        field.stringValue = text
         field.onEscape = onEscape
         field.onCommandSubmit = onCommandSubmit
-        DispatchQueue.main.async { field.window?.makeFirstResponder(field) }
+        DispatchQueue.main.async {
+            field.window?.makeFirstResponder(field)
+            field.moveCursorToEnd()
+        }
         return field
     }
 
@@ -391,6 +395,11 @@ private struct ProjectPickerPathField: NSViewRepresentable {
 private final class ProjectPickerNSTextField: NSTextField {
     var onEscape: (() -> Void)?
     var onCommandSubmit: (() -> Void)?
+
+    func moveCursorToEnd() {
+        guard let editor = currentEditor() else { return }
+        editor.selectedRange = NSRange(location: stringValue.utf16.count, length: 0)
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.keyCode == 53 {
