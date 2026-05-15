@@ -16,9 +16,8 @@ struct GeneralSettingsView: View {
     private var updateChannelRaw = UpdateChannel.stable.rawValue
     @AppStorage(QuitConfirmationPreferences.confirmQuitKey)
     private var confirmQuit = true
-    @State private var projectPickerDefaultLocationState = ProjectPickerDefaultLocation.state
+    @State private var projectPickerDefaultLocationSettings = ProjectPickerDefaultLocationSettingsModel()
     @State private var sentry = SentryService.shared
-    @FocusState private var focusedControl: GeneralSettingsFocusedControl?
 
     var body: some View {
         SettingsContainer {
@@ -63,7 +62,10 @@ struct GeneralSettingsView: View {
                 }
 
                 if projectPickerMode == .custom {
-                    projectPickerDefaultLocationSetting
+                    ProjectPickerDefaultLocationSettingsView(
+                        model: projectPickerDefaultLocationSettings,
+                        pickerModeRaw: projectPickerModeRaw
+                    )
                 }
 
                 SettingsToggleRow(
@@ -108,20 +110,6 @@ struct GeneralSettingsView: View {
                 }
             }
         }
-        .onAppear {
-            refreshProjectPickerDefaultLocationState()
-            applyPendingProjectPickerDefaultLocationFocus()
-        }
-        .onChange(of: projectPickerModeRaw) { refreshProjectPickerDefaultLocationState() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshProjectPickerDefaultLocationState()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .focusProjectPickerDefaultLocation)) { _ in
-            applyPendingProjectPickerDefaultLocationFocus()
-        }
-        .background(SettingsMouseFocusReset {
-            focusedControl = nil
-        })
     }
 
     private var sentryConsentBinding: Binding<Bool> {
@@ -151,64 +139,6 @@ struct GeneralSettingsView: View {
                 + "Projects can stay in the sidebar after closing their last tab."
         }
         return "Muxy Picker can use Finder or Muxy's picker. Projects can stay in the sidebar after closing their last tab."
-    }
-
-    private var projectPickerDefaultLocationSetting: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("Default location")
-                .font(.system(size: SettingsMetrics.labelFontSize))
-
-            HStack(alignment: .center, spacing: 8) {
-                projectPickerDefaultLocationDisplay
-                    .layoutPriority(1)
-
-                Button("Choose Folder...") {
-                    chooseProjectPickerDefaultLocation()
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                .focused($focusedControl, equals: .projectPickerDefaultLocationChooseFolder)
-
-                Button("Use App Default") {
-                    ProjectPickerDefaultLocation.resetToAppDefault()
-                    refreshProjectPickerDefaultLocationState()
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                .disabled(projectPickerDefaultLocationState.usesAppDefault)
-            }
-
-            if let warning = projectPickerDefaultLocationState.warning {
-                Label(warning, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: SettingsMetrics.footnoteFontSize))
-                    .foregroundStyle(.orange)
-            }
-        }
-        .padding(.horizontal, SettingsMetrics.horizontalPadding)
-        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
-    }
-
-    private var projectPickerDefaultLocationDisplay: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "folder")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 15)
-
-            Text(projectPickerDefaultLocationState.displayPath)
-                .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
-                .foregroundStyle(projectPickerDefaultLocationState.usesAppDefault ? .secondary : .primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 9)
-        .frame(minWidth: 170, maxWidth: .infinity, alignment: .leading)
-        .frame(height: 22)
-        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(.quaternary.opacity(0.7), lineWidth: 1)
-        )
     }
 
     private var defaultWorktreeLocationText: String {
@@ -265,34 +195,6 @@ struct GeneralSettingsView: View {
         )
     }
 
-    private func applyPendingProjectPickerDefaultLocationFocus() {
-        guard SettingsFocusCoordinator.shared.consume(.projectPickerDefaultLocation) else { return }
-        focusProjectPickerDefaultLocation()
-    }
-
-    private func focusProjectPickerDefaultLocation() {
-        focusedControl = nil
-        DispatchQueue.main.async {
-            focusedControl = .projectPickerDefaultLocationChooseFolder
-        }
-    }
-
-    private func chooseProjectPickerDefaultLocation() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Select the default location for the project picker"
-        panel.directoryURL = URL(fileURLWithPath: projectPickerDefaultLocationState.chooserInitialPath, isDirectory: true)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        ProjectPickerDefaultLocation.setCustomPath(from: url)
-        refreshProjectPickerDefaultLocationState()
-    }
-
-    private func refreshProjectPickerDefaultLocationState() {
-        projectPickerDefaultLocationState = ProjectPickerDefaultLocation.state
-    }
-
     private func chooseDefaultWorktreeParentPath() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -304,58 +206,5 @@ struct GeneralSettingsView: View {
         }
         guard panel.runModal() == .OK, let url = panel.url else { return }
         defaultWorktreeParentPath = url.path
-    }
-}
-
-private enum GeneralSettingsFocusedControl: Hashable {
-    case projectPickerDefaultLocationChooseFolder
-}
-
-private struct SettingsMouseFocusReset: NSViewRepresentable {
-    let reset: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(reset: reset)
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        context.coordinator.attach(to: view)
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.reset = reset
-        context.coordinator.view = nsView
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.detach()
-    }
-
-    final class Coordinator {
-        var reset: () -> Void
-        weak var view: NSView?
-        private var monitor: Any?
-
-        init(reset: @escaping () -> Void) {
-            self.reset = reset
-        }
-
-        func attach(to view: NSView) {
-            self.view = view
-            guard monitor == nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-                guard let self, event.window === self.view?.window else { return event }
-                self.reset()
-                return event
-            }
-        }
-
-        func detach() {
-            guard let monitor else { return }
-            NSEvent.removeMonitor(monitor)
-            self.monitor = nil
-        }
     }
 }
