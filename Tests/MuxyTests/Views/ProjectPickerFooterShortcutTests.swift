@@ -6,9 +6,9 @@ import Testing
 struct ProjectPickerFooterShortcutTests {
     @Test("go back shortcut is shown before close in the footer")
     func goBackShortcutPrecedesClose() {
-        let shortcuts = ProjectPickerFooterShortcut.ordered(actionTitle: "Add")
+        let shortcuts = ProjectPickerFooterShortcut.ordered(actionTitle: "Add Project")
 
-        #expect(shortcuts.map(\.label) == ["Navigate", "Open", "Add", "Go back", "Close"])
+        #expect(shortcuts.map(\.label) == ["Navigate", "Open", "Add Project", "Go back", "Close"])
         #expect(shortcuts[3].keycap == .optionDelete)
         #expect(shortcuts[4].keycap == .escape)
     }

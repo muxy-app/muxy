@@ -286,14 +286,12 @@ struct ProjectPickerOverlay: View {
     }
 
     private var footer: some View {
-        HStack(spacing: UIMetrics.spacing5) {
-            HStack(spacing: UIMetrics.spacing4) {
-                ForEach(ProjectPickerFooterShortcut.ordered(actionTitle: actionTitle), id: \.self) { shortcut in
-                    ProjectPickerShortcutHint(keycap: shortcut.keycap, label: shortcut.label)
-                }
+        HStack(spacing: UIMetrics.scaled(18)) {
+            ForEach(ProjectPickerFooterShortcut.ordered(actionTitle: topRightActionTitle), id: \.self) { shortcut in
+                ProjectPickerShortcutHint(keycap: shortcut.keycap, label: shortcut.label)
             }
-            Spacer(minLength: UIMetrics.spacing6)
         }
+        .frame(maxWidth: .infinity, alignment: .center)
         .padding(.horizontal, UIMetrics.spacing5)
         .padding(.vertical, UIMetrics.spacing4)
     }
