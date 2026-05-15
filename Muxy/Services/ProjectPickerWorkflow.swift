@@ -48,7 +48,9 @@ final class ProjectPickerWorkflow {
     }
 
     func setInput(_ input: String) -> [ProjectPickerWorkflowRequest] {
-        execute(session.setInput(input))
+        session.setInput(input)
+        scheduleDirectoryReload(pathState: session.pathState)
+        return []
     }
 
     func selectRow(at index: Int) {
@@ -56,19 +58,36 @@ final class ProjectPickerWorkflow {
     }
 
     func activate(row: String) -> [ProjectPickerWorkflowRequest] {
-        execute(session.activate(row: row))
+        reloadAfterInputChange {
+            session.activate(row: row)
+        }
     }
 
     func handle(_ command: ProjectPickerCommand) -> [ProjectPickerWorkflowRequest] {
-        execute(session.handle(command))
+        switch command {
+        case .moveHighlightUp,
+             .moveHighlightDown:
+            session.handle(command)
+            return []
+        case .openHighlighted,
+             .goBack,
+             .completeHighlighted:
+            return reloadAfterInputChange {
+                session.handle(command)
+            }
+        case .confirmTypedPath:
+            return confirmTypedPath()
+        case .dismiss:
+            return [.dismiss]
+        }
     }
 
     func chooseWithFinder() -> [ProjectPickerWorkflowRequest] {
-        execute([.dismiss, .chooseFinder])
+        [.dismiss, .chooseFinder]
     }
 
     func editDefaultLocation() -> [ProjectPickerWorkflowRequest] {
-        execute([.dismiss, .openSettingsFocusedOnDefaultLocation])
+        [.dismiss, .openSettingsFocusedOnDefaultLocation]
     }
 
     func handleCreateDirectoryDecision(path: String, accepted: Bool) -> [ProjectPickerWorkflowRequest] {
@@ -84,30 +103,20 @@ final class ProjectPickerWorkflow {
         return [.showFailure(ProjectPickerConfirmationFailurePresentation(result: result, path: path))]
     }
 
-    private func execute(_ effect: ProjectPickerEffect) -> [ProjectPickerWorkflowRequest] {
-        execute([effect])
-    }
-
-    private func execute(_ effects: [ProjectPickerEffect]) -> [ProjectPickerWorkflowRequest] {
-        effects.flatMap(executeSingle)
-    }
-
-    private func executeSingle(_ effect: ProjectPickerEffect) -> [ProjectPickerWorkflowRequest] {
-        switch effect {
-        case let .requestDirectoryReload(pathState):
-            scheduleDirectoryReload(pathState: pathState)
-            return []
-        case let .confirmCreateDirectory(path):
+    private func confirmTypedPath() -> [ProjectPickerWorkflowRequest] {
+        let path = session.standardizedTypedPath
+        guard session.typedPathState != .missing else {
             return [.askCreateDirectory(path: path)]
-        case let .confirmProjectPath(path, createIfMissing):
-            return [.confirmProjectPath(path: path, createIfMissing: createIfMissing)]
-        case .chooseFinder:
-            return [.chooseFinder]
-        case .openSettingsFocusedOnDefaultLocation:
-            return [.openSettingsFocusedOnDefaultLocation]
-        case .dismiss:
-            return [.dismiss]
         }
+        return [.confirmProjectPath(path: path, createIfMissing: false)]
+    }
+
+    private func reloadAfterInputChange(_ update: () -> Void) -> [ProjectPickerWorkflowRequest] {
+        let previousInput = session.input
+        update()
+        guard session.input != previousInput else { return [] }
+        scheduleDirectoryReload(pathState: session.pathState)
+        return []
     }
 
     private func scheduleDirectoryReload(pathState: ProjectPickerPathState) {

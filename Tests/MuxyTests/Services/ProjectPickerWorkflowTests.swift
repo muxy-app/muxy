@@ -97,8 +97,19 @@ struct ProjectPickerWorkflowTests {
         #expect(workflow.session.directoryLoadState == .loading(showsMessage: false))
     }
 
-    @Test("missing typed path asks before confirming creation")
-    func missingTypedPathCreateConfirmation() {
+    @Test("typed path confirmation emits external requests")
+    func typedPathConfirmationRequests() throws {
+        let existingPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-project-picker-workflow-existing-\(UUID().uuidString)", isDirectory: true)
+            .standardizedFileURL
+        try FileManager.default.createDirectory(at: existingPath, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: existingPath) }
+
+        let existingWorkflow = ProjectPickerWorkflow(defaultDisplayPath: existingPath.path, projectPaths: [])
+        #expect(existingWorkflow.handle(.confirmTypedPath) == [
+            .confirmProjectPath(path: existingPath.path, createIfMissing: false),
+        ])
+
         let missingPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-project-picker-workflow-\(UUID().uuidString)", isDirectory: true)
             .standardizedFileURL

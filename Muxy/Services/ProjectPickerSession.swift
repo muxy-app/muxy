@@ -77,10 +77,9 @@ struct ProjectPickerSession {
         self.projectPaths = projectPaths
     }
 
-    mutating func setInput(_ input: String) -> ProjectPickerEffect {
+    mutating func setInput(_ input: String) {
         self.input = input
         directoryLoadState = .loading(showsMessage: false)
-        return .requestDirectoryReload(pathState)
     }
 
     mutating func showLoadingMessage() {
@@ -99,41 +98,29 @@ struct ProjectPickerSession {
         highlightedIndex = initialHighlightedIndex(for: snapshot.rows)
     }
 
-    mutating func handle(_ command: ProjectPickerCommand) -> [ProjectPickerEffect] {
+    mutating func handle(_ command: ProjectPickerCommand) {
         switch command {
         case .moveHighlightUp:
             moveHighlight(-1)
-            return []
         case .moveHighlightDown:
             moveHighlight(1)
-            return []
         case .openHighlighted:
-            guard let highlightedRow else { return [] }
-            return descend(highlightedRow)
+            guard let highlightedRow else { return }
+            descend(highlightedRow)
         case .confirmTypedPath:
-            return confirmTypedPath()
+            return
         case .goBack:
-            return goUp()
+            goUp()
         case .dismiss:
-            return [.dismiss]
+            return
         case .completeHighlighted:
-            guard let highlightedRow else { return [] }
-            return [setInput(navigator.completedPath(highlightedRow: highlightedRow))]
+            guard let highlightedRow else { return }
+            setInput(navigator.completedPath(highlightedRow: highlightedRow))
         }
     }
 
-    mutating func activate(row: String) -> [ProjectPickerEffect] {
+    mutating func activate(row: String) {
         descend(row)
-    }
-
-    func confirmCreateDirectoryAccepted() -> [ProjectPickerEffect] {
-        [.confirmProjectPath(path: standardizedTypedPath, createIfMissing: true)]
-    }
-
-    func confirmationFailurePresentation(
-        for result: ProjectOpenConfirmationResult
-    ) -> ProjectPickerConfirmationFailurePresentation {
-        ProjectPickerConfirmationFailurePresentation(result: result, path: standardizedTypedPath)
     }
 
     func isParentDirectoryRow(_ row: String) -> Bool {
@@ -149,25 +136,18 @@ struct ProjectPickerSession {
         highlightedIndex = max(0, min(rows.count - 1, current + delta))
     }
 
-    private mutating func confirmTypedPath() -> [ProjectPickerEffect] {
-        let shouldCreate = typedPathState == .missing
-        if shouldCreate {
-            return [.confirmCreateDirectory(path: standardizedTypedPath)]
-        }
-        return [.confirmProjectPath(path: standardizedTypedPath, createIfMissing: false)]
-    }
-
-    private mutating func descend(_ row: String) -> [ProjectPickerEffect] {
+    private mutating func descend(_ row: String) {
         if isParentDirectoryRow(row) {
-            return goUp()
+            goUp()
+            return
         }
-        return [setInput(navigator.completedPath(highlightedRow: row))]
+        setInput(navigator.completedPath(highlightedRow: row))
     }
 
-    private mutating func goUp() -> [ProjectPickerEffect] {
+    private mutating func goUp() {
         let parentPath = navigator.parentDisplayPath
-        guard parentPath != input else { return [] }
-        return [setInput(parentPath)]
+        guard parentPath != input else { return }
+        setInput(parentPath)
     }
 
     private func initialHighlightedIndex(for rows: [String]) -> Int? {
@@ -175,15 +155,6 @@ struct ProjectPickerSession {
         guard rows.first.map(isParentDirectoryRow) == true, rows.count > 1 else { return 0 }
         return 1
     }
-}
-
-enum ProjectPickerEffect: Equatable {
-    case requestDirectoryReload(ProjectPickerPathState)
-    case confirmCreateDirectory(path: String)
-    case confirmProjectPath(path: String, createIfMissing: Bool)
-    case chooseFinder
-    case openSettingsFocusedOnDefaultLocation
-    case dismiss
 }
 
 struct ProjectPickerConfirmationFailurePresentation: Equatable {

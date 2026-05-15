@@ -34,7 +34,7 @@ struct ProjectPickerOverlay: View {
         ZStack {
             Color.black.opacity(0.3)
                 .ignoresSafeArea()
-                .onTapGesture { onDismiss() }
+                .onTapGesture { handleCommand(.dismiss) }
 
             VStack(spacing: 0) {
                 pathBar
