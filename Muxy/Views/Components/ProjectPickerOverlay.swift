@@ -164,11 +164,15 @@ struct ProjectPickerOverlay: View {
     }
 
     private var footer: some View {
-        HStack {
-            Text("↑↓ Navigate   Tab Complete   Enter Open   ⌘Enter \(actionTitle)   Esc Close")
-                .font(.system(size: UIMetrics.fontXS))
-                .foregroundStyle(MuxyTheme.fgDim)
-            Spacer()
+        HStack(spacing: UIMetrics.spacing5) {
+            HStack(spacing: UIMetrics.spacing4) {
+                ProjectPickerFooterHint(keys: "↑↓", label: "Navigate")
+                ProjectPickerFooterHint(keys: "Tab", label: "Complete")
+                ProjectPickerFooterHint(keys: "Enter", label: "Open")
+                ProjectPickerFooterHint(keys: "⌘Enter", label: actionTitle)
+                ProjectPickerFooterHint(keys: "Esc", label: "Close")
+            }
+            Spacer(minLength: UIMetrics.spacing6)
             Button("Choose with Finder…") {
                 onChooseFinder()
                 onDismiss()
@@ -196,7 +200,7 @@ struct ProjectPickerOverlay: View {
             }
             readFailure = nil
             rows = navigator.directoryRows(from: names)
-            highlightedIndex = rows.isEmpty ? nil : 0
+            highlightedIndex = nil
         } catch {
             readFailure = ProjectPickerDirectoryReadFailure(error: error)
             rows = []
@@ -269,6 +273,26 @@ struct ProjectPickerOverlay: View {
     private func openFilesAndFoldersSettings() {
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders") else { return }
         NSWorkspace.shared.open(url)
+    }
+}
+
+private struct ProjectPickerFooterHint: View {
+    let keys: String
+    let label: String
+
+    var body: some View {
+        HStack(spacing: UIMetrics.spacing2) {
+            Text(keys)
+                .font(.system(size: UIMetrics.fontXS, weight: .semibold, design: .monospaced))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .padding(.horizontal, UIMetrics.scaled(5))
+                .padding(.vertical, UIMetrics.scaled(2))
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
+            Text(label)
+                .font(.system(size: UIMetrics.fontXS))
+                .foregroundStyle(MuxyTheme.fgDim)
+        }
     }
 }
 
