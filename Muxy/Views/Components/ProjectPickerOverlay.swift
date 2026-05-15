@@ -148,8 +148,12 @@ struct ProjectPickerOverlay: View {
     }
 
     private var parentDirectoryRow: some View {
-        directoryRow(ProjectPickerNavigator.parentDirectoryRow, isHighlighted: highlightedIndex == 0)
-            .onTapGesture { descend(ProjectPickerNavigator.parentDirectoryRow) }
+        ProjectPickerDirectoryRow(
+            row: ProjectPickerNavigator.parentDirectoryRow,
+            isParent: true,
+            isHighlighted: highlightedIndex == 0
+        )
+        .onTapGesture { descend(ProjectPickerNavigator.parentDirectoryRow) }
     }
 
     private var directoryRows: some View {
@@ -157,12 +161,16 @@ struct ProjectPickerOverlay: View {
             ScrollView(.vertical, showsIndicators: true) {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.element) { index, row in
-                        directoryRow(row, isHighlighted: index == highlightedIndex)
-                            .onTapGesture {
-                                highlightedIndex = index
-                                descend(row)
-                            }
-                            .id(row)
+                        ProjectPickerDirectoryRow(
+                            row: row,
+                            isParent: isParentDirectoryRow(row),
+                            isHighlighted: index == highlightedIndex
+                        )
+                        .onTapGesture {
+                            highlightedIndex = index
+                            descend(row)
+                        }
+                        .id(row)
                     }
                 }
             }
@@ -171,27 +179,6 @@ struct ProjectPickerOverlay: View {
                 proxy.scrollTo(rows[newIndex], anchor: nil)
             }
         }
-    }
-
-    private func directoryRow(_ row: String, isHighlighted: Bool) -> some View {
-        HStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: iconName(for: row))
-                .foregroundStyle(MuxyTheme.fgMuted)
-            Text(row)
-                .font(.system(size: UIMetrics.fontBody, design: .monospaced))
-            Spacer()
-            if isParentDirectoryRow(row) {
-                ProjectPickerShortcutHint(keys: "⌥ ⌫", label: "Go back")
-            }
-        }
-        .padding(.horizontal, UIMetrics.spacing5)
-        .padding(.vertical, UIMetrics.spacing3)
-        .background(isHighlighted ? MuxyTheme.hover : .clear)
-        .contentShape(Rectangle())
-    }
-
-    private func iconName(for row: String) -> String {
-        isParentDirectoryRow(row) ? "arrow.turn.up.left" : "folder"
     }
 
     private func isParentDirectoryRow(_ row: String) -> Bool {
@@ -215,10 +202,10 @@ struct ProjectPickerOverlay: View {
     private var footer: some View {
         HStack(spacing: UIMetrics.spacing5) {
             HStack(spacing: UIMetrics.spacing4) {
-                ProjectPickerShortcutHint(keys: "↑↓", label: "Navigate")
-                ProjectPickerShortcutHint(keys: "Return", label: "Open")
-                ProjectPickerShortcutHint(keys: "⌘ Return", label: actionTitle)
-                ProjectPickerShortcutHint(keys: "Esc", label: "Close")
+                ProjectPickerShortcutHint(keycap: .navigate, label: "Navigate")
+                ProjectPickerShortcutHint(keycap: .returnKey, label: "Open")
+                ProjectPickerShortcutHint(keycap: .commandReturn, label: actionTitle)
+                ProjectPickerShortcutHint(keycap: .escape, label: "Close")
             }
             Spacer(minLength: UIMetrics.spacing6)
             Button("Choose with Finder…") {
@@ -319,21 +306,52 @@ struct ProjectPickerOverlay: View {
     }
 }
 
+private struct ProjectPickerDirectoryRow: View {
+    let row: String
+    let isParent: Bool
+    let isHighlighted: Bool
+    @State private var hovered = false
+
+    private var iconName: String {
+        isParent ? "arrow.turn.up.left" : "folder"
+    }
+
+    var body: some View {
+        HStack(spacing: UIMetrics.spacing3) {
+            Image(systemName: iconName)
+                .foregroundStyle(MuxyTheme.fgMuted)
+            Text(row)
+                .font(.system(size: UIMetrics.fontBody, design: .monospaced))
+            Spacer()
+            if isParent {
+                ProjectPickerShortcutHint(keycap: .optionDelete, label: "Go back")
+            }
+        }
+        .padding(.horizontal, UIMetrics.spacing5)
+        .padding(.vertical, UIMetrics.spacing3)
+        .background(isHighlighted ? MuxyTheme.surface : hovered ? MuxyTheme.hover : .clear)
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+    }
+}
+
 private struct ProjectPickerShortcutHint: View {
-    let keys: String
+    let keycap: ProjectPickerShortcutKeycap
     let label: String
 
     var body: some View {
         HStack(spacing: UIMetrics.scaled(4)) {
-            Text(keys)
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, UIMetrics.scaled(4))
-                .padding(.vertical, UIMetrics.scaled(2))
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
-                .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
+            HStack(spacing: UIMetrics.scaled(3)) {
+                ForEach(Array(keycap.parts.enumerated()), id: \.offset) { _, part in
+                    keycapPart(part)
+                }
+            }
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, UIMetrics.scaled(4))
+            .padding(.vertical, UIMetrics.scaled(2))
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
             Text(label)
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgDim)
@@ -342,6 +360,35 @@ private struct ProjectPickerShortcutHint: View {
         }
         .fixedSize(horizontal: true, vertical: false)
     }
+
+    @ViewBuilder
+    private func keycapPart(_ part: ProjectPickerShortcutKeycapPart) -> some View {
+        switch part {
+        case let .symbol(name):
+            Image(systemName: name)
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+        case let .text(text):
+            Text(text)
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
+                .foregroundStyle(MuxyTheme.fgMuted)
+        }
+    }
+}
+
+private struct ProjectPickerShortcutKeycap: Hashable {
+    let parts: [ProjectPickerShortcutKeycapPart]
+
+    static let navigate = ProjectPickerShortcutKeycap(parts: [.symbol("arrow.up"), .symbol("arrow.down")])
+    static let returnKey = ProjectPickerShortcutKeycap(parts: [.text("Return")])
+    static let commandReturn = ProjectPickerShortcutKeycap(parts: [.symbol("command"), .text("Return")])
+    static let escape = ProjectPickerShortcutKeycap(parts: [.text("Esc")])
+    static let optionDelete = ProjectPickerShortcutKeycap(parts: [.symbol("option"), .symbol("delete.left")])
+}
+
+private enum ProjectPickerShortcutKeycapPart: Hashable {
+    case symbol(String)
+    case text(String)
 }
 
 private struct ProjectPickerPathField: NSViewRepresentable {
