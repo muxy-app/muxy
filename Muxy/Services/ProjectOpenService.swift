@@ -13,14 +13,44 @@ enum ProjectOpenService {
         panel.allowsMultipleSelection = false
         panel.message = "Select a project folder"
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        confirmProjectPath(
+            url.path(percentEncoded: false),
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
+        )
+    }
+
+    @discardableResult
+    static func confirmProjectPath(
+        _ path: String,
+        appState: AppState,
+        projectStore: ProjectStore,
+        worktreeStore: WorktreeStore
+    ) -> Bool {
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: standardizedPath, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else { return false }
+
+        if let existing = projectStore.projects.first(where: { $0.path == standardizedPath }),
+           let primary = worktreeStore.primary(for: existing.id)
+        {
+            appState.selectProject(existing, worktree: primary)
+            return true
+        }
+
+        let url = URL(fileURLWithPath: standardizedPath)
         let project = Project(
             name: url.lastPathComponent,
-            path: url.path(percentEncoded: false),
+            path: standardizedPath,
             sortOrder: projectStore.projects.count
         )
         projectStore.add(project)
         worktreeStore.ensurePrimary(for: project)
-        guard let primary = worktreeStore.primary(for: project.id) else { return }
+        guard let primary = worktreeStore.primary(for: project.id) else { return false }
         appState.selectProject(project, worktree: primary)
+        return true
     }
 }
