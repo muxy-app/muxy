@@ -12,14 +12,15 @@ struct GeneralSettingsView: View {
     private var keepProjectsOpenWhenNoTabs = false
     @AppStorage(ProjectPickerPreferences.storageKey)
     private var projectPickerModeRaw = ProjectPickerMode.custom.rawValue
-    @AppStorage(ProjectPickerDefaultDirectory.storageKey)
-    private var projectPickerDefaultDirectoryPath = ""
+    @AppStorage(ProjectPickerDefaultLocation.storageKey)
+    private var projectPickerDefaultLocationPath = ""
     @AppStorage(UpdateChannel.storageKey)
     private var updateChannelRaw = UpdateChannel.stable.rawValue
     @AppStorage(QuitConfirmationPreferences.confirmQuitKey)
     private var confirmQuit = true
-    @State private var projectPickerDefaultDirectoryStatus = ProjectPickerDefaultDirectory.status
+    @State private var projectPickerDefaultLocationStatus = ProjectPickerDefaultLocation.status
     @State private var sentry = SentryService.shared
+    @FocusState private var focusedControl: GeneralSettingsFocusedControl?
 
     var body: some View {
         SettingsContainer {
@@ -53,7 +54,7 @@ struct GeneralSettingsView: View {
                 "Projects",
                 footer: projectsFooter
             ) {
-                SettingsRow("Project picker") {
+                SettingsRow("Muxy Picker") {
                     Picker("", selection: $projectPickerModeRaw) {
                         ForEach(ProjectPickerMode.allCases) { mode in
                             Text(mode.label).tag(mode.rawValue)
@@ -64,7 +65,7 @@ struct GeneralSettingsView: View {
                 }
 
                 if projectPickerMode == .custom {
-                    projectPickerDefaultDirectorySetting
+                    projectPickerDefaultLocationSetting
                 }
 
                 SettingsToggleRow(
@@ -109,11 +110,17 @@ struct GeneralSettingsView: View {
                 }
             }
         }
-        .onAppear { refreshProjectPickerDefaultDirectoryStatus() }
-        .onChange(of: projectPickerDefaultDirectoryPath) { refreshProjectPickerDefaultDirectoryStatus() }
-        .onChange(of: projectPickerModeRaw) { refreshProjectPickerDefaultDirectoryStatus() }
+        .onAppear {
+            refreshProjectPickerDefaultLocationStatus()
+            applyPendingProjectPickerDefaultLocationFocus()
+        }
+        .onChange(of: projectPickerDefaultLocationPath) { refreshProjectPickerDefaultLocationStatus() }
+        .onChange(of: projectPickerModeRaw) { refreshProjectPickerDefaultLocationStatus() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshProjectPickerDefaultDirectoryStatus()
+            refreshProjectPickerDefaultLocationStatus()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .focusProjectPickerDefaultLocation)) { _ in
+            applyPendingProjectPickerDefaultLocationFocus()
         }
     }
 
@@ -140,34 +147,35 @@ struct GeneralSettingsView: View {
 
     private var projectsFooter: String {
         if projectPickerMode == .custom {
-            return "Muxy's keyboard-first picker starts in this default directory. Use App Default to reset it. "
+            return "Muxy Picker starts in this default location. Use App Default to reset it. "
                 + "Projects can stay in the sidebar after closing their last tab."
         }
-        return "Finder opens the system folder chooser. Projects can stay in the sidebar after closing their last tab."
+        return "Muxy Picker can use Finder or Muxy's picker. Projects can stay in the sidebar after closing their last tab."
     }
 
-    private var projectPickerDefaultDirectorySetting: some View {
+    private var projectPickerDefaultLocationSetting: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("Default directory")
+            Text("Default location")
                 .font(.system(size: SettingsMetrics.labelFontSize))
 
             HStack(alignment: .center, spacing: 8) {
-                projectPickerDefaultDirectoryDisplay
+                projectPickerDefaultLocationDisplay
                     .layoutPriority(1)
 
                 Button("Choose Folder...") {
-                    chooseProjectPickerDefaultDirectory()
+                    chooseProjectPickerDefaultLocation()
                 }
                 .fixedSize(horizontal: true, vertical: false)
+                .focused($focusedControl, equals: .projectPickerDefaultLocationChooseFolder)
 
                 Button("Use App Default") {
-                    projectPickerDefaultDirectoryPath = ""
+                    projectPickerDefaultLocationPath = ""
                 }
                 .fixedSize(horizontal: true, vertical: false)
-                .disabled(ProjectPickerDefaultDirectory.usesAppDefault(storedCustomPath: projectPickerDefaultDirectoryPath))
+                .disabled(ProjectPickerDefaultLocation.usesAppDefault(storedCustomPath: projectPickerDefaultLocationPath))
             }
 
-            if let warning = projectPickerDefaultDirectoryStatus.warning {
+            if let warning = projectPickerDefaultLocationStatus.warning {
                 Label(warning, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: SettingsMetrics.footnoteFontSize))
                     .foregroundStyle(.orange)
@@ -177,18 +185,18 @@ struct GeneralSettingsView: View {
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
     }
 
-    private var projectPickerDefaultDirectoryDisplay: some View {
+    private var projectPickerDefaultLocationDisplay: some View {
         HStack(spacing: 7) {
             Image(systemName: "folder")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 15)
 
-            Text(ProjectPickerDefaultDirectory.displayPath)
+            Text(ProjectPickerDefaultLocation.displayPath)
                 .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
                 .foregroundStyle(
-                    ProjectPickerDefaultDirectory
-                        .usesAppDefault(storedCustomPath: projectPickerDefaultDirectoryPath) ? .secondary : .primary
+                    ProjectPickerDefaultLocation
+                        .usesAppDefault(storedCustomPath: projectPickerDefaultLocationPath) ? .secondary : .primary
                 )
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -259,21 +267,33 @@ struct GeneralSettingsView: View {
         )
     }
 
-    private func chooseProjectPickerDefaultDirectory() {
+    private func applyPendingProjectPickerDefaultLocationFocus() {
+        guard SettingsFocusRequest.consumeProjectPickerDefaultLocation() else { return }
+        focusProjectPickerDefaultLocation()
+    }
+
+    private func focusProjectPickerDefaultLocation() {
+        focusedControl = nil
+        DispatchQueue.main.async {
+            focusedControl = .projectPickerDefaultLocationChooseFolder
+        }
+    }
+
+    private func chooseProjectPickerDefaultLocation() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.message = "Select the default directory for the project picker"
-        let initialPath = ProjectPickerDefaultDirectory.status == .ready ? ProjectPickerDefaultDirectory.path : NSHomeDirectory()
+        panel.message = "Select the default location for the project picker"
+        let initialPath = ProjectPickerDefaultLocation.status == .ready ? ProjectPickerDefaultLocation.path : NSHomeDirectory()
         panel.directoryURL = URL(fileURLWithPath: initialPath)
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        projectPickerDefaultDirectoryPath = url.standardizedFileURL.path
-        refreshProjectPickerDefaultDirectoryStatus()
+        projectPickerDefaultLocationPath = url.standardizedFileURL.path
+        refreshProjectPickerDefaultLocationStatus()
     }
 
-    private func refreshProjectPickerDefaultDirectoryStatus() {
-        projectPickerDefaultDirectoryStatus = ProjectPickerDefaultDirectory.status
+    private func refreshProjectPickerDefaultLocationStatus() {
+        projectPickerDefaultLocationStatus = ProjectPickerDefaultLocation.status
     }
 
     private func chooseDefaultWorktreeParentPath() {
@@ -288,4 +308,8 @@ struct GeneralSettingsView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         defaultWorktreeParentPath = url.path
     }
+}
+
+private enum GeneralSettingsFocusedControl: Hashable {
+    case projectPickerDefaultLocationChooseFolder
 }

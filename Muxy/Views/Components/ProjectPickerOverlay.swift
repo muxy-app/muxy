@@ -7,7 +7,8 @@ struct ProjectPickerOverlay: View {
     let onChooseFinder: () -> Void
     let onDismiss: () -> Void
 
-    @AppStorage(ProjectPickerDefaultDirectory.storageKey) private var projectPickerDefaultDirectoryPath = ""
+    @Environment(\.openSettings) private var openSettings
+    @AppStorage(ProjectPickerDefaultLocation.storageKey) private var projectPickerDefaultLocationPath = ""
     @State private var input = ""
     @State private var rows: [String] = []
     @State private var highlightedIndex: Int?
@@ -45,6 +46,11 @@ struct ProjectPickerOverlay: View {
     private var actionTitle: String {
         if isExistingProject { return "Open" }
         return typedPathState == .missing ? "Create & Add" : "Add"
+    }
+
+    private var topRightActionTitle: String {
+        if isExistingProject { return "Open Project" }
+        return typedPathState == .missing ? "Create & Add Project" : "Add Project"
     }
 
     private var ghostText: String {
@@ -107,15 +113,65 @@ struct ProjectPickerOverlay: View {
                 )
             }
 
-            Button(action: confirmTypedPath) {
-                Text(actionTitle)
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(MuxyTheme.accent)
+            topRightActionMenu
         }
         .padding(.horizontal, UIMetrics.spacing6)
         .padding(.vertical, UIMetrics.spacing5)
+    }
+
+    private var topRightActionMenu: some View {
+        let defaultLocationNeedsFix = ProjectPickerDefaultLocation.status != .ready
+
+        return HStack(spacing: 0) {
+            Button(action: confirmTypedPath) {
+                HStack(spacing: UIMetrics.spacing2) {
+                    Image(systemName: "plus")
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                    Text(topRightActionTitle)
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                }
+                .padding(.leading, UIMetrics.spacing3)
+                .padding(.trailing, UIMetrics.spacing4)
+                .padding(.vertical, UIMetrics.spacing2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Rectangle()
+                .fill(MuxyTheme.border)
+                .frame(width: 1)
+
+            Menu {
+                Button {
+                    chooseWithFinder()
+                } label: {
+                    Label("Choose in Finder", systemImage: "folder")
+                }
+                Button {
+                    editDefaultLocation()
+                } label: {
+                    if defaultLocationNeedsFix {
+                        Label("Fix Default Location", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    } else {
+                        Label("Edit Default Location", systemImage: "gearshape")
+                    }
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+                    .padding(.horizontal, UIMetrics.spacing3)
+                    .padding(.vertical, UIMetrics.spacing2)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+        }
+        .foregroundStyle(MuxyTheme.fg)
+        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusMD).stroke(MuxyTheme.border, lineWidth: 1))
+        .fixedSize()
     }
 
     private var ghostTextPreview: some View {
@@ -237,21 +293,28 @@ struct ProjectPickerOverlay: View {
                 }
             }
             Spacer(minLength: UIMetrics.spacing6)
-            Button("Choose with Finder…") {
-                onDismiss()
-                DispatchQueue.main.async { onChooseFinder() }
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(MuxyTheme.accent)
         }
         .padding(.horizontal, UIMetrics.spacing5)
         .padding(.vertical, UIMetrics.spacing4)
     }
 
+    private func chooseWithFinder() {
+        onDismiss()
+        DispatchQueue.main.async { onChooseFinder() }
+    }
+
+    private func editDefaultLocation() {
+        onDismiss()
+        DispatchQueue.main.async {
+            openSettings()
+            SettingsFocusRequest.requestProjectPickerDefaultLocation()
+        }
+    }
+
     private func initializeInputIfNeeded() {
         guard !didInitializeInput else { return }
         didInitializeInput = true
-        input = ProjectPickerDefaultDirectory.displayPath(storedCustomPath: projectPickerDefaultDirectoryPath)
+        input = ProjectPickerDefaultLocation.displayPath(storedCustomPath: projectPickerDefaultLocationPath)
         scheduleDirectoryReload()
     }
 

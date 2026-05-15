@@ -1,6 +1,6 @@
 import Foundation
 
-enum ProjectPickerDefaultDirectoryStatus: Equatable {
+enum ProjectPickerDefaultLocationStatus: Equatable {
     case ready
     case missing
     case notDirectory
@@ -11,22 +11,22 @@ enum ProjectPickerDefaultDirectoryStatus: Equatable {
         case .ready:
             nil
         case .missing:
-            "Default directory no longer exists. Choose another folder or use the app default."
+            "Default location no longer exists. Choose another folder or use the app default."
         case .notDirectory:
-            "Default directory is not a folder. Choose another folder or use the app default."
+            "Default location is not a folder. Choose another folder or use the app default."
         case .unreadable:
-            "Default directory can’t be read. Choose another folder, fix permissions, or use the app default."
+            "Default location can’t be read. Choose another folder, fix permissions, or use the app default."
         }
     }
 }
 
-enum ProjectPickerDefaultDirectory {
+enum ProjectPickerDefaultLocation {
     static let storageKey = "muxy.projectPicker.defaultDirectory"
 
     static var path: String { path(defaults: .standard) }
     static var displayPath: String { displayPath(defaults: .standard) }
     static var usesAppDefault: Bool { usesAppDefault(defaults: .standard) }
-    static var status: ProjectPickerDefaultDirectoryStatus { status(defaults: .standard) }
+    static var status: ProjectPickerDefaultLocationStatus { status(defaults: .standard) }
 
     static func path(defaults: UserDefaults) -> String {
         expandedPath(storedCustomPath(defaults: defaults) ?? NSHomeDirectory())
@@ -48,7 +48,7 @@ enum ProjectPickerDefaultDirectory {
         normalizedCustomPath(storedCustomPath) == nil
     }
 
-    static func status(defaults: UserDefaults) -> ProjectPickerDefaultDirectoryStatus {
+    static func status(defaults: UserDefaults) -> ProjectPickerDefaultLocationStatus {
         let path = path(defaults: defaults)
         var isDirectory = ObjCBool(false)
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return .missing }

@@ -22,31 +22,31 @@ struct ProjectPickerPreferencesTests {
         #expect(ProjectPickerPreferences(defaults: defaults).mode == .finder)
     }
 
-    @Test("default directory defaults to home and supports a custom path")
-    func defaultDirectoryPersists() throws {
-        let suiteName = "ProjectPickerDefaultDirectoryTests-\(UUID().uuidString)"
+    @Test("default location defaults to home and supports a custom path")
+    func defaultLocationPersists() throws {
+        let suiteName = "ProjectPickerDefaultLocationTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             Issue.record("Unable to create isolated UserDefaults suite")
             return
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        #expect(ProjectPickerDefaultDirectory.path(defaults: defaults) == NSHomeDirectory())
-        #expect(ProjectPickerDefaultDirectory.displayPath(defaults: defaults) == "~/")
-        #expect(ProjectPickerDefaultDirectory.usesAppDefault(defaults: defaults))
+        #expect(ProjectPickerDefaultLocation.path(defaults: defaults) == NSHomeDirectory())
+        #expect(ProjectPickerDefaultLocation.displayPath(defaults: defaults) == "~/")
+        #expect(ProjectPickerDefaultLocation.usesAppDefault(defaults: defaults))
 
-        defaults.set("~/Projects", forKey: ProjectPickerDefaultDirectory.storageKey)
+        defaults.set("~/Projects", forKey: ProjectPickerDefaultLocation.storageKey)
 
-        #expect(ProjectPickerDefaultDirectory.path(defaults: defaults) == NSHomeDirectory() + "/Projects")
-        #expect(ProjectPickerDefaultDirectory.displayPath(defaults: defaults) == "~/Projects/")
-        #expect(ProjectPickerDefaultDirectory.displayPath(storedCustomPath: "~/Projects") == "~/Projects/")
-        #expect(ProjectPickerDefaultDirectory.displayPath(storedCustomPath: "") == "~/")
-        #expect(!ProjectPickerDefaultDirectory.usesAppDefault(defaults: defaults))
+        #expect(ProjectPickerDefaultLocation.path(defaults: defaults) == NSHomeDirectory() + "/Projects")
+        #expect(ProjectPickerDefaultLocation.displayPath(defaults: defaults) == "~/Projects/")
+        #expect(ProjectPickerDefaultLocation.displayPath(storedCustomPath: "~/Projects") == "~/Projects/")
+        #expect(ProjectPickerDefaultLocation.displayPath(storedCustomPath: "") == "~/")
+        #expect(!ProjectPickerDefaultLocation.usesAppDefault(defaults: defaults))
     }
 
-    @Test("default directory status reports invalid custom paths")
-    func defaultDirectoryStatusReportsInvalidCustomPaths() throws {
-        let suiteName = "ProjectPickerDefaultDirectoryStatusTests-\(UUID().uuidString)"
+    @Test("default location status reports invalid custom paths")
+    func defaultLocationStatusReportsInvalidCustomPaths() throws {
+        let suiteName = "ProjectPickerDefaultLocationStatusTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             Issue.record("Unable to create isolated UserDefaults suite")
             return
@@ -61,19 +61,19 @@ struct ProjectPickerPreferencesTests {
         try Data().write(to: file)
         let missing = root.appendingPathComponent("missing", isDirectory: true)
 
-        defaults.set(root.path, forKey: ProjectPickerDefaultDirectory.storageKey)
-        #expect(ProjectPickerDefaultDirectory.status(defaults: defaults) == .ready)
+        defaults.set(root.path, forKey: ProjectPickerDefaultLocation.storageKey)
+        #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .ready)
 
-        defaults.set(file.path, forKey: ProjectPickerDefaultDirectory.storageKey)
-        #expect(ProjectPickerDefaultDirectory.status(defaults: defaults) == .notDirectory)
+        defaults.set(file.path, forKey: ProjectPickerDefaultLocation.storageKey)
+        #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .notDirectory)
 
-        defaults.set(missing.path, forKey: ProjectPickerDefaultDirectory.storageKey)
-        #expect(ProjectPickerDefaultDirectory.status(defaults: defaults) == .missing)
+        defaults.set(missing.path, forKey: ProjectPickerDefaultLocation.storageKey)
+        #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .missing)
     }
 
-    @Test("default directory status reports unreadable custom paths")
-    func defaultDirectoryStatusReportsUnreadableCustomPaths() throws {
-        let suiteName = "ProjectPickerDefaultDirectoryUnreadableStatusTests-\(UUID().uuidString)"
+    @Test("default location status reports unreadable custom paths")
+    func defaultLocationStatusReportsUnreadableCustomPaths() throws {
+        let suiteName = "ProjectPickerDefaultLocationUnreadableStatusTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             Issue.record("Unable to create isolated UserDefaults suite")
             return
@@ -88,8 +88,8 @@ struct ProjectPickerPreferencesTests {
         }
 
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: directory.path)
-        defaults.set(directory.path, forKey: ProjectPickerDefaultDirectory.storageKey)
+        defaults.set(directory.path, forKey: ProjectPickerDefaultLocation.storageKey)
 
-        #expect(ProjectPickerDefaultDirectory.status(defaults: defaults) == .unreadable)
+        #expect(ProjectPickerDefaultLocation.status(defaults: defaults) == .unreadable)
     }
 }
