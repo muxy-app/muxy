@@ -50,8 +50,14 @@ struct ProjectPickerOverlay: View {
     private var ghostText: String {
         guard let highlightedRow, !isParentDirectoryRow(highlightedRow) else { return "" }
         let completedPath = navigator.completedPath(highlightedRow: highlightedRow)
-        guard completedPath.hasPrefix(input) else { return "" }
-        return String(completedPath.dropFirst(input.count))
+        if completedPath.hasPrefix(input) {
+            return String(completedPath.dropFirst(input.count))
+        }
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedInput.contains("/"), !trimmedInput.hasPrefix("~") else { return "" }
+        guard highlightedRow.localizedCaseInsensitiveCompare(trimmedInput) != .orderedSame else { return "/" }
+        guard highlightedRow.lowercased().hasPrefix(trimmedInput.lowercased()) else { return "" }
+        return String(highlightedRow.dropFirst(trimmedInput.count)) + "/"
     }
 
     var body: some View {
