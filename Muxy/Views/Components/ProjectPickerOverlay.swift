@@ -39,6 +39,13 @@ struct ProjectPickerOverlay: View {
         return typedPathExists ? "Add" : "Create & Add"
     }
 
+    private var ghostText: String {
+        guard let highlightedRow, highlightedRow != ".." else { return "" }
+        let completedPath = navigator.completedPath(highlightedRow: highlightedRow)
+        guard completedPath.hasPrefix(input) else { return "" }
+        return String(completedPath.dropFirst(input.count))
+    }
+
     var body: some View {
         ZStack {
             Color.black.opacity(0.3)
@@ -74,16 +81,19 @@ struct ProjectPickerOverlay: View {
             .buttonStyle(.plain)
             .foregroundStyle(MuxyTheme.fgMuted)
 
-            ProjectPickerPathField(
-                text: $input,
-                onSubmit: { confirmDefault() },
-                onCommandSubmit: { confirmTypedPath() },
-                onEscape: { onDismiss() },
-                onArrowUp: { moveHighlight(-1) },
-                onArrowDown: { moveHighlight(1) },
-                onTab: { completeHighlighted() },
-                onGoUp: { goUp() }
-            )
+            ZStack(alignment: .leading) {
+                ghostTextPreview
+                ProjectPickerPathField(
+                    text: $input,
+                    onSubmit: { confirmDefault() },
+                    onCommandSubmit: { confirmTypedPath() },
+                    onEscape: { onDismiss() },
+                    onArrowUp: { moveHighlight(-1) },
+                    onArrowDown: { moveHighlight(1) },
+                    onTab: { completeHighlighted() },
+                    onGoUp: { goUp() }
+                )
+            }
 
             Button(action: confirmTypedPath) {
                 Text(actionTitle)
@@ -94,6 +104,18 @@ struct ProjectPickerOverlay: View {
         }
         .padding(.horizontal, UIMetrics.spacing6)
         .padding(.vertical, UIMetrics.spacing5)
+    }
+
+    private var ghostTextPreview: some View {
+        HStack(spacing: 0) {
+            Text(input)
+                .foregroundStyle(.clear)
+            Text(ghostText)
+                .foregroundStyle(MuxyTheme.fgDim.opacity(0.65))
+        }
+        .font(.system(size: UIMetrics.fontEmphasis, design: .monospaced))
+        .lineLimit(1)
+        .allowsHitTesting(false)
     }
 
     private var directoryContent: some View {
@@ -167,7 +189,6 @@ struct ProjectPickerOverlay: View {
         HStack(spacing: UIMetrics.spacing5) {
             HStack(spacing: UIMetrics.spacing4) {
                 ProjectPickerFooterHint(keys: "↑↓", label: "Navigate")
-                ProjectPickerFooterHint(keys: "Tab", label: "Complete")
                 ProjectPickerFooterHint(keys: "Return", label: "Open")
                 ProjectPickerFooterHint(keys: "⌘ Return", label: actionTitle)
                 ProjectPickerFooterHint(keys: "Esc", label: "Close")
