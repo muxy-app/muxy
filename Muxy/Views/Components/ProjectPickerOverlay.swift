@@ -52,7 +52,7 @@ struct ProjectPickerOverlay: View {
                 Divider().overlay(MuxyTheme.border)
                 footer
             }
-            .frame(width: UIMetrics.scaled(560), height: UIMetrics.scaled(460))
+            .frame(width: UIMetrics.scaled(640), height: UIMetrics.scaled(460))
             .background(MuxyTheme.bg)
             .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusXL))
             .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusXL).stroke(MuxyTheme.border, lineWidth: 1))
@@ -168,8 +168,8 @@ struct ProjectPickerOverlay: View {
             HStack(spacing: UIMetrics.spacing4) {
                 ProjectPickerFooterHint(keys: "↑↓", label: "Navigate")
                 ProjectPickerFooterHint(keys: "Tab", label: "Complete")
-                ProjectPickerFooterHint(keys: "Enter", label: "Open")
-                ProjectPickerFooterHint(keys: "⌘Enter", label: actionTitle)
+                ProjectPickerFooterHint(keys: "Return", label: "Open")
+                ProjectPickerFooterHint(keys: "⌘Return", label: actionTitle)
                 ProjectPickerFooterHint(keys: "Esc", label: "Close")
             }
             Spacer(minLength: UIMetrics.spacing6)
@@ -200,12 +200,18 @@ struct ProjectPickerOverlay: View {
             }
             readFailure = nil
             rows = navigator.directoryRows(from: names)
-            highlightedIndex = nil
+            highlightedIndex = initialHighlightedIndex(for: rows)
         } catch {
             readFailure = ProjectPickerDirectoryReadFailure(error: error)
             rows = []
             highlightedIndex = nil
         }
+    }
+
+    private func initialHighlightedIndex(for rows: [String]) -> Int? {
+        guard !rows.isEmpty else { return nil }
+        guard rows.first == "..", rows.count > 1 else { return 0 }
+        return 1
     }
 
     private func moveHighlight(_ delta: Int) {
@@ -281,18 +287,23 @@ private struct ProjectPickerFooterHint: View {
     let label: String
 
     var body: some View {
-        HStack(spacing: UIMetrics.spacing2) {
+        HStack(spacing: UIMetrics.scaled(4)) {
             Text(keys)
                 .font(.system(size: UIMetrics.fontXS, weight: .semibold, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fgMuted)
-                .padding(.horizontal, UIMetrics.scaled(5))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, UIMetrics.scaled(4))
                 .padding(.vertical, UIMetrics.scaled(2))
                 .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
                 .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
             Text(label)
                 .font(.system(size: UIMetrics.fontXS))
                 .foregroundStyle(MuxyTheme.fgDim)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
