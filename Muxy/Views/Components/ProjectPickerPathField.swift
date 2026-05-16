@@ -97,7 +97,6 @@ private enum ProjectPickerPathFieldCommandMapper {
         if selector == #selector(NSResponder.moveUp(_:)) { return .moveHighlightUp }
         if selector == #selector(NSResponder.moveDown(_:)) { return .moveHighlightDown }
         if selector == #selector(NSResponder.deleteWordBackward(_:)) { return shouldGoUpOnDeleteBackward ? .goBack : nil }
-        if selector == #selector(NSResponder.deleteBackward(_:)) { return shouldGoUpOnDeleteBackward ? .goBack : nil }
         return nil
     }
 
