@@ -38,6 +38,18 @@ enum ProjectPickerFileSystemDirectoryEntry: Equatable {
             false
         }
     }
+
+    var projectPickerDirectoryItem: ProjectPickerDirectoryItem? {
+        switch self {
+        case let .directory(name):
+            .directory(name)
+        case let .directorySymlink(name):
+            .directorySymlink(name)
+        case .file,
+             .fileSymlink:
+            nil
+        }
+    }
 }
 
 protocol ProjectPickerFileSystem {
@@ -72,8 +84,9 @@ struct FileManagerProjectPickerFileSystem: ProjectPickerFileSystem {
 
     private func directoryEntry(for url: URL) -> ProjectPickerFileSystemDirectoryEntry {
         let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-        if values?.isDirectory == true { return .directory(url.lastPathComponent) }
-        guard values?.isSymbolicLink == true else { return .file(url.lastPathComponent) }
+        guard values?.isSymbolicLink == true else {
+            return values?.isDirectory == true ? .directory(url.lastPathComponent) : .file(url.lastPathComponent)
+        }
 
         var isDirectory = ObjCBool(false)
         let pointsToDirectory = fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
@@ -91,18 +104,26 @@ struct ProjectPickerPathState: Equatable {
     let parentDisplayPath: String
     let completionDisplayPrefix: String
 
+    var directoryReadFailureItems: [ProjectPickerDirectoryItem] {
+        directoryPath == "/" ? [] : [.parent]
+    }
+
     var directoryReadFailureRows: [String] {
-        directoryPath == "/" ? [] : [ProjectPickerPathService.parentDirectoryRow]
+        directoryReadFailureItems.map(\.name)
     }
 
     func directoryRows(from directoryNames: [String]) -> [String] {
+        directoryItems(from: directoryNames.map(ProjectPickerDirectoryItem.directory)).map(\.name)
+    }
+
+    func directoryItems(from directoryItems: [ProjectPickerDirectoryItem]) -> [ProjectPickerDirectoryItem] {
         let showsDotfiles = leafFilter.hasPrefix(".")
-        let rows = directoryNames
-            .filter { showsDotfiles || !$0.hasPrefix(".") }
-            .filter { leafFilter.isEmpty || $0.localizedCaseInsensitiveContains(leafFilter) }
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let rows = directoryItems
+            .filter { showsDotfiles || !$0.name.hasPrefix(".") }
+            .filter { leafFilter.isEmpty || $0.name.localizedCaseInsensitiveContains(leafFilter) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         guard directoryPath != "/" else { return rows }
-        return [ProjectPickerPathService.parentDirectoryRow] + rows
+        return [.parent] + rows
     }
 }
 
@@ -162,12 +183,11 @@ struct ProjectPickerPathService {
 
     func directorySnapshot(for pathState: ProjectPickerPathState) -> ProjectPickerDirectorySnapshot {
         do {
-            let names = try fileSystem.contentsOfDirectory(atPath: pathState.directoryPath)
-                .filter(\.isProjectPickerDirectory)
-                .map(\.name)
-            return ProjectPickerDirectorySnapshot(rows: pathState.directoryRows(from: names), readFailed: false)
+            let items = try fileSystem.contentsOfDirectory(atPath: pathState.directoryPath)
+                .compactMap(\.projectPickerDirectoryItem)
+            return ProjectPickerDirectorySnapshot(rows: pathState.directoryItems(from: items), readFailed: false)
         } catch {
-            return ProjectPickerDirectorySnapshot(rows: pathState.directoryReadFailureRows, readFailed: true)
+            return ProjectPickerDirectorySnapshot(rows: pathState.directoryReadFailureItems, readFailed: true)
         }
     }
 

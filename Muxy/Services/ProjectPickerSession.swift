@@ -2,7 +2,7 @@ import Foundation
 
 struct ProjectPickerSession {
     private(set) var input: String
-    private(set) var rows: [String] = []
+    private(set) var rows: [ProjectPickerDirectoryItem] = []
     private(set) var highlightedIndex: Int?
     private(set) var directoryLoadState = ProjectPickerDirectoryLoadState.loading(showsMessage: false)
 
@@ -18,9 +18,13 @@ struct ProjectPickerSession {
         ProjectPickerNavigator(pathState: pathState)
     }
 
-    var highlightedRow: String? {
+    var highlightedItem: ProjectPickerDirectoryItem? {
         guard let highlightedIndex, highlightedIndex < rows.count else { return nil }
         return rows[highlightedIndex]
+    }
+
+    var highlightedRow: String? {
+        highlightedItem?.name
     }
 
     var standardizedTypedPath: String {
@@ -49,12 +53,12 @@ struct ProjectPickerSession {
         navigator.ghostText(highlightedRow: highlightedRow)
     }
 
-    var projectRows: [String] {
-        rows.filter { !isParentDirectoryRow($0) }
+    var projectRows: [ProjectPickerDirectoryItem] {
+        rows.filter { !$0.isParent }
     }
 
     var hasParentRow: Bool {
-        rows.contains { isParentDirectoryRow($0) }
+        rows.contains(where: \.isParent)
     }
 
     var showsUnavailableProjectState: Bool {
@@ -105,8 +109,8 @@ struct ProjectPickerSession {
         case .moveHighlightDown:
             moveHighlight(1)
         case .openHighlighted:
-            guard let highlightedRow else { return }
-            descend(highlightedRow)
+            guard let highlightedItem else { return }
+            descend(highlightedItem)
         case .confirmTypedPath:
             return
         case .goBack:
@@ -119,12 +123,16 @@ struct ProjectPickerSession {
         }
     }
 
-    mutating func activate(row: String) {
+    mutating func activate(row: ProjectPickerDirectoryItem) {
         descend(row)
     }
 
     func isParentDirectoryRow(_ row: String) -> Bool {
         navigator.isParentDirectoryRow(row)
+    }
+
+    func isParentDirectoryRow(_ row: ProjectPickerDirectoryItem) -> Bool {
+        row.isParent
     }
 
     private mutating func moveHighlight(_ delta: Int) {
@@ -136,12 +144,12 @@ struct ProjectPickerSession {
         highlightedIndex = max(0, min(rows.count - 1, current + delta))
     }
 
-    private mutating func descend(_ row: String) {
-        if isParentDirectoryRow(row) {
+    private mutating func descend(_ row: ProjectPickerDirectoryItem) {
+        if row.isParent {
             goUp()
             return
         }
-        setInput(navigator.completedPath(highlightedRow: row))
+        setInput(navigator.completedPath(highlightedRow: row.name))
     }
 
     private mutating func goUp() {
@@ -150,9 +158,9 @@ struct ProjectPickerSession {
         setInput(parentPath)
     }
 
-    private func initialHighlightedIndex(for rows: [String]) -> Int? {
+    private func initialHighlightedIndex(for rows: [ProjectPickerDirectoryItem]) -> Int? {
         guard !rows.isEmpty else { return nil }
-        guard rows.first.map(isParentDirectoryRow) == true, rows.count > 1 else { return 0 }
+        guard rows.first?.isParent == true, rows.count > 1 else { return 0 }
         return 1
     }
 }

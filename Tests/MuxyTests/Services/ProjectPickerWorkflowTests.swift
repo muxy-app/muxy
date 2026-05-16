@@ -28,7 +28,7 @@ struct ProjectPickerWorkflowTests {
             input: "~/Second",
             snapshot: ProjectPickerDirectorySnapshot(rows: ["Second"], readFailed: false)
         )
-        await waitUntil { workflow.session.rows == ["Second"] }
+        await waitUntil { workflow.session.rows.map(\.name) == ["Second"] }
 
         await loader.resolve(
             input: "~/First",
@@ -36,7 +36,7 @@ struct ProjectPickerWorkflowTests {
         )
         try? await Task.sleep(for: .milliseconds(20))
 
-        #expect(workflow.session.rows == ["Second"])
+        #expect(workflow.session.rows.map(\.name) == ["Second"])
     }
 
     @Test("loading message appears only while reload is active")

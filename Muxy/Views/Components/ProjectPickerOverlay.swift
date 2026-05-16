@@ -183,12 +183,11 @@ struct ProjectPickerOverlay: View {
     }
 
     private var parentDirectoryRow: some View {
-        ProjectPickerDirectoryRow(
-            row: ProjectPickerNavigator.parentDirectoryRow,
-            isParent: true,
+        ProjectPickerDirectoryRowView(
+            row: .parent,
             isHighlighted: workflow.session.highlightedIndex == 0
         )
-        .onTapGesture { execute(workflow.activate(row: ProjectPickerNavigator.parentDirectoryRow)) }
+        .onTapGesture { execute(workflow.activate(row: .parent)) }
     }
 
     private var directoryRows: some View {
@@ -196,9 +195,8 @@ struct ProjectPickerOverlay: View {
             ScrollView(.vertical, showsIndicators: true) {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(workflow.session.rows.enumerated()), id: \.element) { index, row in
-                        ProjectPickerDirectoryRow(
+                        ProjectPickerDirectoryRowView(
                             row: row,
-                            isParent: workflow.session.isParentDirectoryRow(row),
                             isHighlighted: index == workflow.session.highlightedIndex
                         )
                         .onTapGesture {
@@ -307,21 +305,16 @@ struct ProjectPickerOverlay: View {
     }
 }
 
-private struct ProjectPickerDirectoryRow: View {
-    let row: String
-    let isParent: Bool
+private struct ProjectPickerDirectoryRowView: View {
+    let row: ProjectPickerDirectoryItem
     let isHighlighted: Bool
     @State private var hovered = false
 
-    private var iconName: String {
-        isParent ? "arrow.turn.up.left" : "folder"
-    }
-
     var body: some View {
         HStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: iconName)
-                .foregroundStyle(MuxyTheme.fgMuted)
-            Text(row)
+            icon
+                .frame(width: UIMetrics.scaled(16), height: UIMetrics.scaled(16))
+            Text(row.name)
                 .font(.system(size: UIMetrics.fontBody, design: .monospaced))
             Spacer()
         }
@@ -330,5 +323,27 @@ private struct ProjectPickerDirectoryRow: View {
         .background(isHighlighted ? MuxyTheme.surface : hovered ? MuxyTheme.hover : .clear)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        if row.isParent {
+            Image(systemName: "arrow.turn.up.left")
+                .foregroundStyle(MuxyTheme.fgMuted)
+        } else if row.isDirectorySymlink {
+            ZStack(alignment: .bottomTrailing) {
+                Image(systemName: "folder")
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                Image(systemName: "arrow.up.forward")
+                    .font(.system(size: UIMetrics.scaled(7), weight: .bold))
+                    .foregroundStyle(MuxyTheme.fg)
+                    .padding(1)
+                    .background(MuxyTheme.surface, in: Circle())
+                    .offset(x: UIMetrics.scaled(3), y: UIMetrics.scaled(2))
+            }
+        } else {
+            Image(systemName: "folder")
+                .foregroundStyle(MuxyTheme.fgMuted)
+        }
     }
 }

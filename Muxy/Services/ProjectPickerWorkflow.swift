@@ -57,7 +57,7 @@ final class ProjectPickerWorkflow {
         session.selectRow(at: index)
     }
 
-    func activate(row: String) -> [ProjectPickerWorkflowRequest] {
+    func activate(row: ProjectPickerDirectoryItem) -> [ProjectPickerWorkflowRequest] {
         reloadAfterInputChange {
             session.activate(row: row)
         }

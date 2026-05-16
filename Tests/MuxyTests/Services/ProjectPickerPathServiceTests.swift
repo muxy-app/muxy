@@ -85,7 +85,10 @@ struct ProjectPickerPathServiceTests {
         let readySnapshot = service.directorySnapshot(for: service.state(for: "~/"))
         let failedSnapshot = service.directorySnapshot(for: service.state(for: "~/Missing/"))
 
-        #expect(readySnapshot == ProjectPickerDirectorySnapshot(rows: ["..", "Code", "Linked"], readFailed: false))
+        #expect(readySnapshot == ProjectPickerDirectorySnapshot(
+            rows: [.parent, .directory("Code"), .directorySymlink("Linked")],
+            readFailed: false
+        ))
         #expect(failedSnapshot == ProjectPickerDirectorySnapshot(rows: [".."], readFailed: true))
     }
 
@@ -106,10 +109,11 @@ struct ProjectPickerPathServiceTests {
         let service = ProjectPickerPathService(homeDirectory: "/Users/alice")
         let snapshot = service.directorySnapshot(for: service.state(for: root.path + "/"))
 
-        #expect(snapshot.rows.contains("target-directory"))
-        #expect(snapshot.rows.contains("directory-link"))
-        #expect(!snapshot.rows.contains("target-file"))
-        #expect(!snapshot.rows.contains("file-link"))
+        #expect(snapshot.rows.contains(.directory("target-directory")))
+        #expect(snapshot.rows.contains(.directorySymlink("directory-link")))
+        #expect(!snapshot.rows.map(\.name).contains("target-file"))
+        #expect(!snapshot.rows.map(\.name).contains("file-link"))
+        #expect(snapshot.rows.first { $0.name == "directory-link" }?.isDirectorySymlink == true)
     }
 }
 
