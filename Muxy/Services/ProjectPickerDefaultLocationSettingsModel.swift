@@ -83,7 +83,7 @@ struct ProjectPickerDefaultLocationSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("Default location")
+            Text("Default path for project picker")
                 .font(.system(size: SettingsMetrics.labelFontSize))
 
             HStack(alignment: .center, spacing: 8) {
