@@ -12,6 +12,8 @@ SPARKLE_PUBLIC_KEY=""
 SPARKLE_FEED_URL=""
 SENTRY_DSN="${SENTRY_DSN:-}"
 
+AUTO_SIGN=false
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --arch)
@@ -21,6 +23,10 @@ while [[ $# -gt 0 ]]; do
         --version)
             VERSION="$2"
             shift 2
+            ;;
+        --sign)
+            AUTO_SIGN=true
+            shift
             ;;
         --sign-identity)
             SIGN_IDENTITY="$2"
@@ -46,8 +52,25 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$ARCH" || -z "$VERSION" ]]; then
-    echo "Usage: $0 --arch <arm64|x86_64> --version <X.Y.Z[-beta.N]> [--sign-identity <identity>] [--sparkle-public-key <key>] [--sparkle-feed-url <url>] [--sentry-dsn <dsn>]"
+    echo "Usage: $0 --arch <arm64|x86_64> --version <X.Y.Z[-beta.N]> [--sign | --sign-identity <identity>] [--sparkle-public-key <key>] [--sparkle-feed-url <url>] [--sentry-dsn <dsn>]"
     exit 1
+fi
+
+if [[ "$AUTO_SIGN" == "true" && -n "$SIGN_IDENTITY" ]]; then
+    echo "Error: --sign and --sign-identity are mutually exclusive"
+    exit 1
+fi
+
+if [[ "$AUTO_SIGN" == "true" ]]; then
+    SIGN_IDENTITY=$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development:/ {print $2; exit}')
+    if [[ -z "$SIGN_IDENTITY" ]]; then
+        SIGN_IDENTITY=$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application:/ {print $2; exit}')
+    fi
+    if [[ -z "$SIGN_IDENTITY" ]]; then
+        echo "Error: --sign requires an 'Apple Development' or 'Developer ID Application' identity in the keychain"
+        exit 1
+    fi
+    echo "==> Auto-selected signing identity: $SIGN_IDENTITY"
 fi
 
 if [[ "$ARCH" != "arm64" && "$ARCH" != "x86_64" ]]; then

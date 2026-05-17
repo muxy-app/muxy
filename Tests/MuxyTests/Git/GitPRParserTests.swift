@@ -263,6 +263,12 @@ struct GitPRParserTests {
                 GitPRParser.parsePRInfoMatchingHeadSha("not-json", headSha: "x", branch: "y") == nil
             )
         }
+
+        @Test("head-SHA fallback JSON fields include headRefName so fork PRs can match by branch")
+        func sha_fallback_fields_include_headRefName() {
+            #expect(GitRepositoryService.prInfoJSONFieldsWithHeadRefOid.contains("headRefName"))
+            #expect(GitRepositoryService.prInfoJSONFieldsWithHeadRefOid.contains("headRefOid"))
+        }
     }
 
     @Suite("parseAheadBehind")
