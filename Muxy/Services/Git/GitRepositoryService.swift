@@ -208,9 +208,9 @@ struct GitRepositoryService {
         return result
     }
 
-    private static let prInfoJSONFields =
+    static let prInfoJSONFields =
         "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,isCrossRepository"
-    private static let prInfoJSONFieldsWithHeadRefOid = prInfoJSONFields + ",headRefOid"
+    static let prInfoJSONFieldsWithHeadRefOid = prInfoJSONFields + ",headRefOid,headRefName"
 
     func pullRequestInfo(repoPath: String, branch: String, headSha: String? = nil) async -> PRInfo? {
         if case let .found(info) = await pullRequestInfoResult(
