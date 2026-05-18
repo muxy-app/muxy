@@ -434,6 +434,67 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         notifyRepoDidChange(repoPath: repoPath)
     }
 
+    func vcsGetDiff(projectID: UUID, filePath: String, forceFull: Bool) async throws -> VCSDiffDTO {
+        let repoPath = try repoPath(projectID: projectID)
+        let state = VCSStateStore.shared.state(for: repoPath)
+        if !state.hasCompletedInitialLoad {
+            await state.refreshAndWait()
+        }
+        let file = state.files.first { $0.path == filePath }
+        if file?.isBinary == true {
+            return VCSDiffDTO(
+                filePath: filePath,
+                rows: [],
+                additions: 0,
+                deletions: 0,
+                truncated: false,
+                isBinary: true
+            )
+        }
+        let hints: GitRepositoryService.DiffHints = if let file {
+            GitRepositoryService.DiffHints(
+                hasStaged: file.isStaged,
+                hasUnstaged: file.isUnstaged,
+                isUntrackedOrNew: file.xStatus == "?" && file.yStatus == "?"
+            )
+        } else {
+            .unknown
+        }
+        let lineLimit = forceFull ? nil : DiffLoader.previewLineLimit
+        let result = try await gitService.patchAndCompare(
+            repoPath: repoPath,
+            filePath: filePath,
+            lineLimit: lineLimit,
+            hints: hints
+        )
+        return VCSDiffDTO(
+            filePath: filePath,
+            rows: result.rows.map(Self.toDiffRowDTO),
+            additions: result.additions,
+            deletions: result.deletions,
+            truncated: result.truncated,
+            isBinary: false
+        )
+    }
+
+    private static func toDiffRowDTO(_ row: DiffDisplayRow) -> VCSDiffRowDTO {
+        let kind: VCSDiffRowKindDTO = switch row.kind {
+        case .hunk: .hunk
+        case .context: .context
+        case .addition: .addition
+        case .deletion: .deletion
+        case .collapsed: .collapsed
+        }
+        return VCSDiffRowDTO(
+            kind: kind,
+            oldLineNumber: row.oldLineNumber,
+            newLineNumber: row.newLineNumber,
+            oldText: row.oldText,
+            newText: row.newText,
+            text: row.text
+        )
+    }
+
     func vcsListBranches(projectID: UUID) async throws -> VCSBranchesDTO {
         let repoPath = try repoPath(projectID: projectID)
         let state = VCSStateStore.shared.state(for: repoPath)

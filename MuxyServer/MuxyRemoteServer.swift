@@ -71,6 +71,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
         baseBranch: String?
     ) async throws -> WorktreeDTO
     func vcsRemoveWorktree(projectID: UUID, worktreeID: UUID) async throws
+    func vcsGetDiff(projectID: UUID, filePath: String, forceFull: Bool) async throws -> VCSDiffDTO
     func getProjectLogo(projectID: UUID) -> ProjectLogoDTO?
     func listNotifications() -> [NotificationDTO]
     func markNotificationRead(_ notificationID: UUID)
@@ -626,6 +627,21 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             do {
                 try await delegate.vcsRemoveWorktree(projectID: params.projectID, worktreeID: params.worktreeID)
                 return MuxyResponse(id: request.id, result: .ok)
+            } catch {
+                return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
+            }
+
+        case .vcsGetDiff:
+            guard case let .vcsGetDiff(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            do {
+                let diff = try await delegate.vcsGetDiff(
+                    projectID: params.projectID,
+                    filePath: params.filePath,
+                    forceFull: params.forceFull
+                )
+                return MuxyResponse(id: request.id, result: .vcsDiff(diff))
             } catch {
                 return MuxyResponse(id: request.id, error: MuxyError(code: 500, message: error.localizedDescription))
             }

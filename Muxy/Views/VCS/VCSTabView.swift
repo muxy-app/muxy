@@ -243,6 +243,7 @@ struct VCSTabView: View {
         let worktree = activeWorktreeForTab
         let defaultBranch = state.defaultBranch
         let isWorktreeMerge = worktree.map { !$0.isPrimary } ?? false
+        let baseBranch = prInfo.baseBranch
         state.mergePullRequest(method: method, deleteBranch: !isWorktreeMerge) { _, mergedBranch in
             ToastState.shared.show("Merged PR #\(prInfo.number)")
             Task { @MainActor in
@@ -250,7 +251,8 @@ struct VCSTabView: View {
                     mergedBranch: mergedBranch,
                     project: project,
                     worktree: worktree,
-                    defaultBranch: defaultBranch
+                    defaultBranch: defaultBranch,
+                    baseBranch: baseBranch
                 )
             }
         }
@@ -293,19 +295,40 @@ struct VCSTabView: View {
         mergedBranch: String,
         project: Project?,
         worktree: Worktree?,
-        defaultBranch: String?
+        defaultBranch: String?,
+        baseBranch: String
     ) async {
         if let project, let worktree, worktree.canBeRemoved {
-            removeWorktreeAfterMerge(project: project, worktree: worktree, mergedBranch: mergedBranch)
+            removeWorktreeAfterMerge(
+                project: project,
+                worktree: worktree,
+                mergedBranch: mergedBranch,
+                defaultBranch: defaultBranch,
+                baseBranch: baseBranch
+            )
             return
         }
 
         if let defaultBranch, defaultBranch != mergedBranch {
             await state.switchBranchAndRefresh(defaultBranch)
         }
+        let pulled = await Self.fastForwardAfterMerge(
+            repoPath: state.projectPath,
+            defaultBranch: defaultBranch,
+            baseBranch: baseBranch
+        )
+        if !pulled.isEmpty {
+            state.refresh()
+        }
     }
 
-    private func removeWorktreeAfterMerge(project: Project, worktree: Worktree, mergedBranch: String) {
+    private func removeWorktreeAfterMerge(
+        project: Project,
+        worktree: Worktree,
+        mergedBranch: String,
+        defaultBranch: String?,
+        baseBranch: String
+    ) {
         let repoPath = project.path
         let remaining = worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.isPrimary }) ?? remaining.first
@@ -324,7 +347,39 @@ struct VCSTabView: View {
                 repoPath: repoPath,
                 branch: mergedBranch
             )
+            await Self.fastForwardAfterMerge(
+                repoPath: repoPath,
+                defaultBranch: defaultBranch,
+                baseBranch: baseBranch
+            )
         }
+    }
+
+    @discardableResult
+    private static func fastForwardAfterMerge(
+        repoPath: String,
+        defaultBranch: String?,
+        baseBranch: String
+    ) async -> [String] {
+        let git = GitRepositoryService()
+        var pulled: [String] = []
+        if let defaultBranch, !defaultBranch.isEmpty,
+           await git.fastForwardBranch(repoPath: repoPath, branch: defaultBranch)
+        {
+            pulled.append(defaultBranch)
+        }
+        let trimmedBase = baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedBase.isEmpty, trimmedBase != defaultBranch,
+           await git.fastForwardBranch(repoPath: repoPath, branch: trimmedBase)
+        {
+            pulled.append(trimmedBase)
+        }
+        if !pulled.isEmpty {
+            await MainActor.run {
+                ToastState.shared.show("Pulled \(pulled.joined(separator: ", "))")
+            }
+        }
+        return pulled
     }
 
     private func presentClosePRConfirmation(prInfo: GitRepositoryService.PRInfo) {
