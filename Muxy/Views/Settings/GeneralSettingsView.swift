@@ -6,6 +6,8 @@ struct GeneralSettingsView: View {
     private var autoExpandWorktrees = false
     @AppStorage(GeneralSettingsKeys.defaultWorktreeParentPath)
     private var defaultWorktreeParentPath = ""
+    @AppStorage(FileTreeSourcePreference.storageKey)
+    private var fileTreeSourceRaw = FileTreeSourcePreference.defaultValue.rawValue
     @AppStorage(TabCloseConfirmationPreferences.confirmRunningProcessKey)
     private var confirmRunningProcess = true
     @AppStorage(ProjectLifecyclePreferences.keepOpenWhenNoTabsKey)
@@ -45,6 +47,22 @@ struct GeneralSettingsView: View {
                     label: "Auto-expand worktrees on project switch",
                     isOn: $autoExpandWorktrees
                 )
+            }
+
+            SettingsSection(
+                "File Tree",
+                footer: "When set to the active terminal, the file tree follows the working directory of "
+                    + "the active terminal tab. If there is no active terminal, it keeps the last known path."
+            ) {
+                SettingsRow("Root directory") {
+                    Picker("", selection: $fileTreeSourceRaw) {
+                        ForEach(FileTreeSourcePreference.allCases) { source in
+                            Text(source.title).tag(source.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                }
             }
 
             SettingsSection(

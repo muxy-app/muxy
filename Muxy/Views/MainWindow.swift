@@ -91,6 +91,8 @@ struct MainWindow: View {
     @State private var fileTreePanelVisible = false
     @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
     @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
+    @State private var fileTreeLastTerminalPaths: [WorktreeKey: String] = [:]
+    @AppStorage(FileTreeSourcePreference.storageKey) private var fileTreeSourceRaw = FileTreeSourcePreference.defaultValue.rawValue
     @State private var richInputPanelVisible = false
     @State private var panelToRestoreAfterRichInput: SidePanelKind?
     @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = .init(RichInputPanelLayout.defaultWidth)
@@ -285,6 +287,16 @@ struct MainWindow: View {
                 ensureFileTreeState(for: project)
             }
         }
+        .modifier(FileTreeSourceObserver(
+            activeTerminalCWD: activeTerminalPane?.currentWorkingDirectory,
+            activeTerminalID: activeTerminalPane?.id,
+            sourceRaw: fileTreeSourceRaw,
+            onTerminalChange: refreshFileTreeRootForActiveTerminal,
+            onSourceChange: {
+                guard let project = activeProject else { return }
+                ensureFileTreeState(for: project)
+            }
+        ))
         .modifier(FileTreeSelectionSync(
             filePath: activeEditorFilePath,
             panelVisible: fileTreePanelVisible,
@@ -984,7 +996,7 @@ struct MainWindow: View {
                         appState.handleFileMoved(from: oldPath, to: newPath)
                     }
                 )
-                .id(treeState.rootPath)
+                .id(activeFileTreeIdentity)
                 .frame(width: CGFloat(fileTreePanelWidth))
             }
         }
@@ -1011,11 +1023,41 @@ struct MainWindow: View {
         return fileTreeStates[key]
     }
 
+    private var activeFileTreeIdentity: WorktreeKey? {
+        guard let project = activeProject else { return nil }
+        return appState.activeWorktreeKey(for: project.id)
+    }
+
     private func ensureFileTreeState(for project: Project) {
         guard let key = appState.activeWorktreeKey(for: project.id) else { return }
-        let path = activeWorktreePath(for: project)
-        if let existing = fileTreeStates[key], existing.rootPath == path { return }
+        let path = resolvedFileTreeRoot(for: project, key: key)
+        if let existing = fileTreeStates[key] {
+            existing.setRootPath(path)
+            return
+        }
         fileTreeStates[key] = FileTreeState(rootPath: path)
+    }
+
+    private var fileTreeSource: FileTreeSourcePreference {
+        FileTreeSourcePreference(rawValue: fileTreeSourceRaw) ?? .projectBase
+    }
+
+    private func resolvedFileTreeRoot(for project: Project, key: WorktreeKey) -> String {
+        let base = activeWorktreePath(for: project)
+        guard fileTreeSource == .activeTerminal else { return base }
+        if let cwd = appState.activeTab(for: project.id)?.content.pane?.currentWorkingDirectory {
+            fileTreeLastTerminalPaths[key] = cwd
+            return cwd
+        }
+        return fileTreeLastTerminalPaths[key] ?? base
+    }
+
+    private func refreshFileTreeRootForActiveTerminal() {
+        guard fileTreeSource == .activeTerminal,
+              fileTreePanelVisible,
+              let project = activeProject
+        else { return }
+        ensureFileTreeState(for: project)
     }
 
     private var activeEditorState: EditorTabState? {
@@ -1048,6 +1090,7 @@ struct MainWindow: View {
     private func pruneFileTreeStates() {
         let validKeys = validVCSKeys()
         fileTreeStates = fileTreeStates.filter { validKeys.contains($0.key) }
+        fileTreeLastTerminalPaths = fileTreeLastTerminalPaths.filter { validKeys.contains($0.key) }
         richInputStates = richInputStates.filter { validKeys.contains($0.key) }
     }
 
@@ -1382,6 +1425,21 @@ private struct FileTreeSelectionSync: ViewModifier {
                 guard visible else { return }
                 sync(filePath)
             }
+    }
+}
+
+private struct FileTreeSourceObserver: ViewModifier {
+    let activeTerminalCWD: String?
+    let activeTerminalID: UUID?
+    let sourceRaw: String
+    let onTerminalChange: () -> Void
+    let onSourceChange: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: activeTerminalCWD) { _, _ in onTerminalChange() }
+            .onChange(of: activeTerminalID) { _, _ in onTerminalChange() }
+            .onChange(of: sourceRaw) { _, _ in onSourceChange() }
     }
 }
 
