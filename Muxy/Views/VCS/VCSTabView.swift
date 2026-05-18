@@ -312,7 +312,7 @@ struct VCSTabView: View {
         if let defaultBranch, defaultBranch != mergedBranch {
             await state.switchBranchAndRefresh(defaultBranch)
         }
-        await fastForwardAfterMerge(
+        await Self.fastForwardAfterMerge(
             repoPath: state.projectPath,
             defaultBranch: defaultBranch,
             baseBranch: baseBranch
@@ -350,18 +350,6 @@ struct VCSTabView: View {
                 baseBranch: baseBranch
             )
         }
-    }
-
-    private func fastForwardAfterMerge(
-        repoPath: String,
-        defaultBranch: String?,
-        baseBranch: String
-    ) async {
-        await Self.fastForwardAfterMerge(
-            repoPath: repoPath,
-            defaultBranch: defaultBranch,
-            baseBranch: baseBranch
-        )
     }
 
     private static func fastForwardAfterMerge(
