@@ -30,6 +30,11 @@ struct ProjectGroupSection: View {
                 projectRows
             }
         }
+        .padding(UIMetrics.spacing1)
+        .overlay(
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+                .stroke(MuxyTheme.border, lineWidth: 1)
+        )
     }
 
     private var isAnyDragging: Bool { draggedID != nil }
@@ -76,17 +81,24 @@ struct ProjectGroupSection: View {
     }
 
     private var collapsedGroupHeader: some View {
-        Image(systemName: group.isExpanded ? "chevron.down" : "chevron.right")
-            .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-            .foregroundStyle(MuxyTheme.fgMuted)
-            .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconSM)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    groupStore.toggleExpanded(groupID: group.id)
-                }
+        VStack(spacing: UIMetrics.spacing1) {
+            Text(group.name.prefix(1).uppercased())
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.iconXXL)
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            Image(systemName: group.isExpanded ? "chevron.down" : "chevron.right")
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconSM)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                groupStore.toggleExpanded(groupID: group.id)
             }
-            .contextMenu { groupContextMenu }
+        }
+        .contextMenu { groupContextMenu }
     }
 
     @ViewBuilder

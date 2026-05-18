@@ -99,7 +99,7 @@ struct Sidebar: View {
 
     private var projectList: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: UIMetrics.spacing2) {
+            LazyVStack(spacing: UIMetrics.spacing3) {
                 ForEach(Array(groupedProjects.enumerated()), id: \.element.group.id) { groupIndex, entry in
                     ProjectGroupSection(
                         group: entry.group,
