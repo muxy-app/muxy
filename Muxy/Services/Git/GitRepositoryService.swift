@@ -1008,6 +1008,31 @@ struct GitRepositoryService {
         GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
     }
 
+    @discardableResult
+    func fastForwardBranch(repoPath: String, branch: String) async -> Bool {
+        let trimmed = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
+        else { return false }
+
+        let headResult = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["symbolic-ref", "--quiet", "--short", "HEAD"]
+        )
+        let currentBranch = headResult?.stdout.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let arguments: [String] = currentBranch == trimmed
+            ? ["pull", "--ff-only"]
+            : ["fetch", "origin", "\(trimmed):\(trimmed)"]
+
+        let result = try? await GitProcessRunner.runGit(repoPath: repoPath, arguments: arguments)
+        let success = result?.status == 0
+        if success {
+            GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath, branch: trimmed)
+        }
+        return success
+    }
+
     func listBranches(repoPath: String) async throws -> [String] {
         let result = try await GitProcessRunner.runGit(
             repoPath: repoPath,
