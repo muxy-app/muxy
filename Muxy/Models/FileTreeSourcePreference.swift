@@ -13,13 +13,5 @@ enum FileTreeSourcePreference: String, CaseIterable, Identifiable {
         }
     }
 
-    static let storageKey = "muxy.fileTreeSource"
     static let defaultValue: FileTreeSourcePreference = .projectBase
-
-    static var current: FileTreeSourcePreference {
-        guard let raw = UserDefaults.standard.string(forKey: storageKey),
-              let value = FileTreeSourcePreference(rawValue: raw)
-        else { return defaultValue }
-        return value
-    }
 }

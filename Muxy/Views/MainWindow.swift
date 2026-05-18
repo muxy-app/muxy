@@ -92,7 +92,7 @@ struct MainWindow: View {
     @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
     @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
     @State private var fileTreeLastTerminalPaths: [WorktreeKey: String] = [:]
-    @AppStorage(FileTreeSourcePreference.storageKey) private var fileTreeSourceRaw = FileTreeSourcePreference.defaultValue.rawValue
+    @AppStorage(GeneralSettingsKeys.fileTreeSource) private var fileTreeSourceRaw = FileTreeSourcePreference.defaultValue.rawValue
     @State private var richInputPanelVisible = false
     @State private var panelToRestoreAfterRichInput: SidePanelKind?
     @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = .init(RichInputPanelLayout.defaultWidth)

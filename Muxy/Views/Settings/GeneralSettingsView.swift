@@ -6,7 +6,7 @@ struct GeneralSettingsView: View {
     private var autoExpandWorktrees = false
     @AppStorage(GeneralSettingsKeys.defaultWorktreeParentPath)
     private var defaultWorktreeParentPath = ""
-    @AppStorage(FileTreeSourcePreference.storageKey)
+    @AppStorage(GeneralSettingsKeys.fileTreeSource)
     private var fileTreeSourceRaw = FileTreeSourcePreference.defaultValue.rawValue
     @AppStorage(TabCloseConfirmationPreferences.confirmRunningProcessKey)
     private var confirmRunningProcess = true
