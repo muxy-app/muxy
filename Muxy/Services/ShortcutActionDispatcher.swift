@@ -44,6 +44,8 @@ struct ShortcutActionDispatcher {
             }
             appState.createTab(projectID: projectID)
             return true
+        case .reopenClosedTerminalTab:
+            return appState.reopenLastClosedTerminalTab()
         case .closeTab:
             guard let projectID = appState.activeProjectID,
                   let area = appState.focusedArea(for: projectID),

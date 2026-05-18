@@ -1,6 +1,6 @@
 # Notification Setup
 
-Muxy ships built-in integrations for **Claude Code** and **OpenCode** — toggle them under **Settings → Notifications**. This page is for everything else: sending notifications into Muxy from any other tool (a custom CLI, a build script, a different AI agent, …).
+Muxy ships built-in integrations for **Claude Code**, **Codex**, **Cursor**, **Droid**, and **OpenCode** — toggle them under **Settings → Notifications**. This page is for everything else: sending notifications into Muxy from any other tool (a custom CLI, a build script, a different AI agent, …).
 
 ```mermaid
 flowchart TB
@@ -31,7 +31,7 @@ One message per connection: a single UTF-8 line with four pipe-separated fields:
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `type` | yes | Source identifier. Unknown values are accepted and shown generically. Built-in: `claude_hook`, `opencode`. |
+| `type` | yes | Source identifier. Unknown values are accepted and shown generically. Built-in: `claude_hook`, `codex_hook`, `cursor_hook`, `droid_hook`, `opencode`. |
 | `paneID` | yes | Pane the event belongs to. Use `$MUXY_PANE_ID` from inside a Muxy terminal. Leave empty to attach to the active pane. |
 | `title` | yes | Notification title. Empty falls back to `Task completed!`. |
 | `body` | no | Body. Must not contain `\|` or newlines — replace them first. |

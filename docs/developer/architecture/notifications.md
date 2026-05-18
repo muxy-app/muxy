@@ -7,7 +7,7 @@ Notifications alert users when terminal events occur (command completion, AI age
 ```mermaid
 flowchart TB
   OSC[OSC 9/777<br/>terminal escape] --> Adapter[GhosttyRuntimeEventAdapter]
-  Claude[Claude Code hooks] --> Sock[Unix socket<br/>muxy.sock]
+  Claude[Agent CLI hooks<br/>Claude / Codex / Cursor / Droid / OpenCode] --> Sock[Unix socket<br/>muxy.sock]
   External[External tools] --> Sock
   Sock --> Server[NotificationSocketServer]
   Adapter --> Lookup[TerminalViewRegistry<br/>paneID lookup]
@@ -23,7 +23,7 @@ flowchart TB
 | Source | Mechanism |
 | --- | --- |
 | OSC 9 / 777 | `GHOSTTY_ACTION_DESKTOP_NOTIFICATION` in `GhosttyRuntimeEventAdapter`. |
-| Claude Code | Wrapper script injects `--hooks` to route lifecycle events through the socket. |
+| Agent CLIs (Claude Code, Codex, Cursor, Droid, OpenCode) | `AIProviderRegistry` installs per-tool hook scripts that route lifecycle events through the socket. |
 | Unix socket | `~/Library/Application Support/Muxy/muxy.sock`, pipe-delimited messages with paneID. |
 
 ## Click-to-navigate

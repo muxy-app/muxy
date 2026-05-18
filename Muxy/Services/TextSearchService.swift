@@ -7,63 +7,39 @@ struct TextSearchMatch: Identifiable, Equatable {
     let lineNumber: Int
     let column: Int
     let lineText: String
-    let matchStart: Int
-    let matchEnd: Int
+    let matchByteStart: Int
+    let matchByteLength: Int
+}
+
+struct TextSearchOptions: Equatable {
+    var caseSensitive: Bool = false
+    var wholeWord: Bool = false
 }
 
 enum TextSearchService {
     static let maxResults = 200
+    static let maxResultsPerFile = 20
     static let minQueryLength = 2
 
-    static func search(query: String, in projectPath: String) async -> [TextSearchMatch] {
+    static func search(
+        query: String,
+        in projectPath: String,
+        options: TextSearchOptions = TextSearchOptions(),
+        coordinator: SearchCoordinator? = nil
+    ) async -> [TextSearchMatch] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard trimmed.count >= minQueryLength else { return [] }
         guard let executable = ripgrepExecutableURL() else { return [] }
         guard let patternData = trimmed.data(using: .utf8) else { return [] }
 
-        return await withCheckedContinuation { continuation in
-            let process = Process()
-            process.executableURL = executable
-            process.arguments = arguments(projectPath: projectPath)
-
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            let stdinPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-            process.standardInput = stdinPipe
-
-            let resultsBox = MatchesBox()
-            let handle = stdoutPipe.fileHandleForReading
-
-            handle.readabilityHandler = { fileHandle in
-                let data = fileHandle.availableData
-                if data.isEmpty { return }
-                guard let chunk = String(data: data, encoding: .utf8) else { return }
-                let done = resultsBox.append(chunk: chunk, projectPath: projectPath, limit: maxResults)
-                if done, process.isRunning {
-                    process.terminate()
-                }
-            }
-
-            process.terminationHandler = { _ in
-                handle.readabilityHandler = nil
-                if let remaining = try? handle.readToEnd(), let chunk = String(data: remaining, encoding: .utf8) {
-                    _ = resultsBox.append(chunk: chunk, projectPath: projectPath, limit: maxResults)
-                }
-                continuation.resume(returning: resultsBox.take())
-            }
-
-            do {
-                try process.run()
-                stdinPipe.fileHandleForWriting.write(patternData)
-                try? stdinPipe.fileHandleForWriting.close()
-            } catch {
-                handle.readabilityHandler = nil
-                try? stdinPipe.fileHandleForWriting.close()
-                continuation.resume(returning: [])
-            }
-        }
+        let runner = coordinator ?? SearchCoordinator()
+        return await runner.run(
+            executable: executable,
+            patternData: patternData,
+            patternByteLength: patternData.count,
+            projectPath: projectPath,
+            options: options
+        )
     }
 
     static func ripgrepExecutableURL() -> URL? {
@@ -77,107 +53,161 @@ enum TextSearchService {
         return nil
     }
 
-    private static func arguments(projectPath: String) -> [String] {
-        [
-            "--json",
-            "--smart-case",
-            "--max-count", "20",
+    static func arguments(projectPath: String, options: TextSearchOptions) -> [String] {
+        var args: [String] = [
+            "--vimgrep",
+            "--max-count", "\(maxResultsPerFile)",
             "--max-columns", "300",
             "--max-filesize", "2M",
             "--no-config",
-            "-f",
-            "-",
-            "--",
-            projectPath,
+            "-F",
         ]
+        args.append(options.caseSensitive ? "--case-sensitive" : "--smart-case")
+        if options.wholeWord { args.append("--word-regexp") }
+        args.append(contentsOf: ["-f", "-", "--", projectPath])
+        return args
     }
 
-    static func parseLine(_ line: String, projectPath: String) -> TextSearchMatch? {
-        guard let data = line.data(using: .utf8) else { return nil }
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        guard let type = object["type"] as? String, type == "match" else { return nil }
-        guard let payload = object["data"] as? [String: Any] else { return nil }
-        guard let pathDict = payload["path"] as? [String: Any] else { return nil }
-        guard let absolutePath = pathDict["text"] as? String else { return nil }
-        guard let lineNumber = payload["line_number"] as? Int else { return nil }
-        guard let lineDict = payload["lines"] as? [String: Any] else { return nil }
-        guard var lineText = lineDict["text"] as? String else { return nil }
-        if lineText.hasSuffix("\n") { lineText.removeLast() }
-        if lineText.hasSuffix("\r") { lineText.removeLast() }
+    static func parseVimgrepLine(
+        _ line: Substring,
+        projectPath: String,
+        patternByteLength: Int
+    ) -> TextSearchMatch? {
+        guard let firstColon = line.firstIndex(of: ":") else { return nil }
+        let absolutePath = String(line[..<firstColon])
+        let afterPath = line.index(after: firstColon)
 
-        var matchStart = 0
-        var matchEnd = lineText.utf8.count
-        if let submatches = payload["submatches"] as? [[String: Any]], let first = submatches.first {
-            matchStart = (first["start"] as? Int) ?? 0
-            matchEnd = (first["end"] as? Int) ?? matchStart
-        }
+        guard let secondColon = line[afterPath...].firstIndex(of: ":") else { return nil }
+        guard let lineNumber = Int(line[afterPath ..< secondColon]) else { return nil }
+        let afterLine = line.index(after: secondColon)
+
+        guard let thirdColon = line[afterLine...].firstIndex(of: ":") else { return nil }
+        guard let column = Int(line[afterLine ..< thirdColon]) else { return nil }
+        let textStart = line.index(after: thirdColon)
+
+        let lineText = String(line[textStart...])
 
         let prefix = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
         let relative = absolutePath.hasPrefix(prefix)
             ? String(absolutePath.dropFirst(prefix.count))
             : absolutePath
 
-        let column = columnFromUTF8Offset(matchStart, in: lineText)
+        let byteStart = max(0, column - 1)
+        let byteLength = min(patternByteLength, max(0, lineText.utf8.count - byteStart))
 
         return TextSearchMatch(
-            id: "\(absolutePath):\(lineNumber):\(matchStart)",
+            id: "\(absolutePath):\(lineNumber):\(byteStart)",
             absolutePath: absolutePath,
             relativePath: relative,
             lineNumber: lineNumber,
             column: column,
             lineText: lineText,
-            matchStart: matchStart,
-            matchEnd: matchEnd
+            matchByteStart: byteStart,
+            matchByteLength: byteLength
         )
-    }
-
-    static func columnFromUTF8Offset(_ utf8Offset: Int, in text: String) -> Int {
-        guard utf8Offset > 0 else { return 1 }
-        let utf8 = text.utf8
-        var consumed = 0
-        var characterCount = 0
-        var index = utf8.startIndex
-        while index != utf8.endIndex, consumed < utf8Offset {
-            consumed += 1
-            index = utf8.index(after: index)
-            if let scalarIndex = index.samePosition(in: text.unicodeScalars) {
-                characterCount = text.unicodeScalars.distance(from: text.unicodeScalars.startIndex, to: scalarIndex)
-            }
-        }
-        return characterCount + 1
     }
 }
 
-private final class MatchesBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var buffer = ""
-    private var matches: [TextSearchMatch] = []
+actor SearchCoordinator {
+    private var current: (process: Process, exit: Task<Void, Never>)?
 
-    func append(chunk: String, projectPath: String, limit: Int) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
+    func run(
+        executable: URL,
+        patternData: Data,
+        patternByteLength: Int,
+        projectPath: String,
+        options: TextSearchOptions
+    ) async -> [TextSearchMatch] {
+        if let active = current {
+            if active.process.isRunning { active.process.terminate() }
+            await active.exit.value
+            current = nil
+        }
 
-        if matches.count >= limit { return true }
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = TextSearchService.arguments(projectPath: projectPath, options: options)
 
-        buffer.append(chunk)
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let stdinPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        process.standardInput = stdinPipe
 
-        while let newlineRange = buffer.range(of: "\n") {
-            let line = String(buffer[buffer.startIndex ..< newlineRange.lowerBound])
-            buffer.removeSubrange(buffer.startIndex ..< newlineRange.upperBound)
+        let outputBox = OutputBox()
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        stdoutHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty { return }
+            outputBox.append(data)
+        }
 
-            if line.isEmpty { continue }
-            if let match = TextSearchService.parseLine(line, projectPath: projectPath) {
-                matches.append(match)
-                if matches.count >= limit { return true }
+        let exitTask = Task<Void, Never> {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                process.terminationHandler = { _ in
+                    stdoutHandle.readabilityHandler = nil
+                    if let remaining = try? stdoutHandle.readToEnd(), !remaining.isEmpty {
+                        outputBox.append(remaining)
+                    }
+                    continuation.resume()
+                }
             }
         }
 
-        return matches.count >= limit
-    }
+        do {
+            try process.run()
+            stdinPipe.fileHandleForWriting.write(patternData)
+            try? stdinPipe.fileHandleForWriting.close()
+        } catch {
+            stdoutHandle.readabilityHandler = nil
+            try? stdinPipe.fileHandleForWriting.close()
+            return []
+        }
 
-    func take() -> [TextSearchMatch] {
+        current = (process, exitTask)
+
+        return await withTaskCancellationHandler {
+            await exitTask.value
+            if current?.process === process { current = nil }
+            return outputBox.parseMatches(projectPath: projectPath, patternByteLength: patternByteLength)
+        } onCancel: {
+            if process.isRunning { process.terminate() }
+        }
+    }
+}
+
+private final class OutputBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+
+    func append(_ data: Data) {
         lock.lock()
         defer { lock.unlock() }
+        buffer.append(data)
+    }
+
+    func parseMatches(projectPath: String, patternByteLength: Int) -> [TextSearchMatch] {
+        lock.lock()
+        let data = buffer
+        lock.unlock()
+
+        guard let text = String(data: data, encoding: .utf8) else { return [] }
+
+        var matches: [TextSearchMatch] = []
+        matches.reserveCapacity(TextSearchService.maxResults)
+
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let match = TextSearchService.parseVimgrepLine(
+                line,
+                projectPath: projectPath,
+                patternByteLength: patternByteLength
+            )
+            else { continue }
+            matches.append(match)
+            if matches.count >= TextSearchService.maxResults { break }
+        }
+
         return matches
     }
 }

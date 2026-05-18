@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import GhosttyKit
 import UniformTypeIdentifiers
 
@@ -46,8 +47,13 @@ final class GhosttyTerminalNSView: NSView {
     private var keyTextAccumulator: [String] = []
     private var currentKeyEvent: NSEvent?
     private var commandSelectorCalled = false
+    private var inputTrackingDecisionCache: (expiresAt: Date, canRecord: Bool)?
 
-    init(workingDirectory: String, command: String? = nil, commandInteractive: Bool = false) {
+    init(
+        workingDirectory: String,
+        command: String? = nil,
+        commandInteractive: Bool = false
+    ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.commandInteractive = commandInteractive
@@ -110,13 +116,19 @@ final class GhosttyTerminalNSView: NSView {
         var cStrings: [UnsafeMutablePointer<CChar>] = []
         defer { cStrings.forEach { free($0) } }
 
-        if let command, let loginWrapped = strdup(Self.loginShellCommand(command, interactive: commandInteractive)) {
+        var cEnvVars: [ghostty_env_var_s] = []
+        if let command,
+           let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(interactive: commandInteractive)),
+           let commandKey = strdup(TerminalLaunchCommand.environmentKey),
+           let commandValue = strdup(command)
+        {
             cStrings.append(loginWrapped)
+            cStrings.append(contentsOf: [commandKey, commandValue])
+            cEnvVars.append(ghostty_env_var_s(key: commandKey, value: commandValue))
             config.command = UnsafePointer(loginWrapped)
             config.wait_after_command = false
         }
 
-        var cEnvVars: [ghostty_env_var_s] = []
         for pair in envVars {
             guard let ck = strdup(pair.key), let cv = strdup(pair.value) else { continue }
             cStrings.append(contentsOf: [ck, cv])
@@ -437,6 +449,7 @@ final class GhosttyTerminalNSView: NSView {
             } else {
                 text.withCString { ptr in
                     keyEvent.text = ptr
+                    recordTextInput(text)
                     _ = ghostty_surface_key(surface, keyEvent)
                 }
             }
@@ -472,6 +485,7 @@ final class GhosttyTerminalNSView: NSView {
                 )
                 text.withCString { ptr in
                     keyEvent.text = ptr
+                    recordTextInput(text)
                     _ = ghostty_surface_key(surface, keyEvent)
                 }
             }
@@ -487,9 +501,11 @@ final class GhosttyTerminalNSView: NSView {
             if !text.isEmpty, !keyEvent.composing {
                 text.withCString { ptr in
                     keyEvent.text = ptr
+                    recordTextInput(text)
                     _ = ghostty_surface_key(surface, keyEvent)
                 }
             } else {
+                recordSpecialKey(event)
                 keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                 keyEvent.text = nil
                 _ = ghostty_surface_key(surface, keyEvent)
@@ -997,6 +1013,7 @@ final class GhosttyTerminalNSView: NSView {
     func sendText(_ text: String) {
         guard let surface else { return }
         text.withCString { ptr in
+            recordTextInput(text)
             ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
         }
     }
@@ -1016,6 +1033,7 @@ final class GhosttyTerminalNSView: NSView {
     func submitRichInput(text: String) {
         guard !text.isEmpty else { return }
         let sanitized = text.replacingOccurrences(of: "\u{1B}[201~", with: "")
+        recordTextInput(sanitized)
         sendRemoteBytes(
             TerminalControlBytes.bracketedPasteStart
                 + Data(sanitized.utf8)
@@ -1024,6 +1042,9 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func clearTerminalInput() {
+        if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
+            TerminalCommandTracker.shared.clearBuffer(paneID: paneID)
+        }
         sendRemoteBytes(TerminalControlBytes.killLineToCursor)
     }
 
@@ -1064,6 +1085,11 @@ final class GhosttyTerminalNSView: NSView {
 
     func sendKeyPress(codepoint: UInt32, keycode: UInt32 = 0, mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE) {
         guard let surface else { return }
+        if codepoint == Codepoint.carriageReturn {
+            recordReturnInput()
+        } else if codepoint == Codepoint.delete || keycode == UInt32(KeyCode.backspace) {
+            recordBackspaceInput()
+        }
         var press = ghostty_input_key_s()
         press.action = GHOSTTY_ACTION_PRESS
         press.keycode = keycode
@@ -1083,21 +1109,79 @@ final class GhosttyTerminalNSView: NSView {
         surface != nil
     }
 
-    private static func loginShellCommand(_ command: String, interactive: Bool) -> String {
-        let shell = userShell()
-        let escaped = command.replacingOccurrences(of: "'", with: "'\\''")
-        let flags = interactive ? "-l -i" : "-l"
-        return "\(shell) \(flags) -c '\(escaped)'"
+    private enum Codepoint {
+        static let carriageReturn: UInt32 = 13
+        static let delete: UInt32 = 127
     }
 
-    private static func userShell() -> String {
-        if let shell = ProcessInfo.processInfo.environment["SHELL"], !shell.isEmpty {
-            return shell
+    private enum KeyCode {
+        static let `return`: UInt16 = 36
+        static let backspace: UInt16 = 51
+    }
+
+    private func recordTextInput(_ text: String) {
+        guard let paneID = TerminalViewRegistry.shared.paneID(for: self) else { return }
+        guard canRecordTerminalInput() else { return }
+        TerminalCommandTracker.shared.recordText(text, paneID: paneID)
+    }
+
+    private func recordReturnInput() {
+        guard let paneID = TerminalViewRegistry.shared.paneID(for: self) else { return }
+        guard canRecordTerminalInput() else { return }
+        TerminalCommandTracker.shared.recordReturn(paneID: paneID)
+    }
+
+    private func recordBackspaceInput() {
+        guard let paneID = TerminalViewRegistry.shared.paneID(for: self) else { return }
+        guard canRecordTerminalInput() else { return }
+        TerminalCommandTracker.shared.recordBackspace(paneID: paneID)
+    }
+
+    private func canRecordTerminalInput() -> Bool {
+        let now = Date()
+        if let cache = inputTrackingDecisionCache, cache.expiresAt > now {
+            return cache.canRecord
         }
-        guard let pw = getpwuid(getuid()), let shellPtr = pw.pointee.pw_shell else {
-            return "/bin/zsh"
+        let canRecord = currentInputTrackingDecision()
+        inputTrackingDecisionCache = (now.addingTimeInterval(0.15), canRecord)
+        return canRecord
+    }
+
+    private func currentInputTrackingDecision() -> Bool {
+        guard let surface else { return false }
+        let foregroundPID = ghostty_surface_foreground_pid(surface)
+        let context = TerminalCommandTrackingInputContext(
+            altScreen: isAlternateScreenActive(surface: surface),
+            foregroundProcessName: Self.processName(pid: foregroundPID)
+        )
+        return TerminalCommandTrackingInputGate.shouldRecordInput(context)
+    }
+
+    private func isAlternateScreenActive(surface: ghostty_surface_t) -> Bool {
+        var cells = ghostty_cells_s()
+        guard ghostty_surface_read_cells(surface, &cells) else { return false }
+        defer { ghostty_surface_free_cells(surface, &cells) }
+        return cells.alt_screen
+    }
+
+    private static func processName(pid: UInt64) -> String? {
+        guard pid > 0, pid <= UInt64(Int32.max) else { return nil }
+        var buffer = [CChar](repeating: 0, count: 1024)
+        let length = proc_name(Int32(pid), &buffer, UInt32(buffer.count))
+        guard length > 0 else { return nil }
+        let bytes = buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) }
+        return String(bytes: bytes, encoding: .utf8)
+    }
+
+    private func recordSpecialKey(_ event: NSEvent) {
+        switch event.keyCode {
+        case KeyCode.return:
+            recordReturnInput()
+        case KeyCode.backspace:
+            recordBackspaceInput()
+        default:
+            return
         }
-        return String(cString: shellPtr)
     }
 
     enum SearchDirection: String {
@@ -1169,6 +1253,7 @@ extension GhosttyTerminalNSView: @preconcurrency NSTextInputClient {
                 keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                 keyEvent.composing = false
                 keyEvent.text = ptr
+                recordTextInput(text)
                 _ = ghostty_surface_key(surface, keyEvent)
             }
         }

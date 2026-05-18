@@ -126,6 +126,14 @@ enum WorkspaceReducer {
                 state: &state
             )
 
+        case let .restoreClosedTerminalTab(projectID, areaID, snapshot):
+            TabReducer.restoreClosedTerminalTab(
+                projectID: projectID,
+                areaID: areaID,
+                snapshot: snapshot,
+                state: &state
+            )
+
         case let .closeTab(projectID, areaID, tabID):
             guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state) else { break }
             TabReducer.closeTab(tabID, areaID: areaID, key: key, state: &state, effects: &effects)

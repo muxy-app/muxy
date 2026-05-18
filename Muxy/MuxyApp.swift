@@ -57,6 +57,7 @@ struct MuxyApp: App {
                     MemoryDiagnostics.shared.configure(appState: appState)
                     TerminalProgressStore.shared.appState = appState
                     appDelegate.onTerminate = { [appState] in
+                        appState.saveTerminalSessions()
                         appState.saveWorkspaces()
                     }
                     appDelegate.hasUnsavedEditorTabs = { [appState] in

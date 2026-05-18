@@ -9,6 +9,7 @@ private struct ShortcutMetadata {
 
 enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case newTab
+    case reopenClosedTerminalTab
     case closeTab
     case renameTab
     case pinUnpinTab
@@ -66,6 +67,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
 
     static let allCases: [Self] = [
         .newTab,
+        .reopenClosedTerminalTab,
         .closeTab,
         .renameTab,
         .pinUnpinTab,
@@ -126,6 +128,11 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     private var metadata: ShortcutMetadata {
         switch self {
         case .newTab: ShortcutMetadata(displayName: "New Tab", category: "Tabs", scope: .mainWindow)
+        case .reopenClosedTerminalTab: ShortcutMetadata(
+                displayName: "Reopen Closed Terminal Tab",
+                category: "Tabs",
+                scope: .mainWindow
+            )
         case .closeTab: ShortcutMetadata(displayName: "Close Tab", category: "Tabs", scope: .mainWindow)
         case .renameTab: ShortcutMetadata(displayName: "Rename Tab", category: "Tabs", scope: .mainWindow)
         case .pinUnpinTab: ShortcutMetadata(displayName: "Pin/Unpin Tab", category: "Tabs", scope: .mainWindow)
@@ -264,8 +271,9 @@ struct KeyBinding: Codable, Identifiable {
 
     static let defaults: [Self] = [
         Self(action: .newTab, combo: KeyCombo(key: "t", command: true)),
+        Self(action: .reopenClosedTerminalTab, combo: KeyCombo(key: "t", command: true, shift: true)),
         Self(action: .closeTab, combo: KeyCombo(key: "w", command: true)),
-        Self(action: .renameTab, combo: KeyCombo(key: "t", command: true, shift: true)),
+        Self(action: .renameTab, combo: KeyCombo(key: "t", shift: true, option: true)),
         Self(action: .pinUnpinTab, combo: KeyCombo(key: "p", command: true, shift: true)),
         Self(action: .splitRight, combo: KeyCombo(key: "d", command: true)),
         Self(action: .splitDown, combo: KeyCombo(key: "d", command: true, shift: true)),

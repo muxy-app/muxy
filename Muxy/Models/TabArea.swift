@@ -24,10 +24,15 @@ final class TabArea: Identifiable {
         activeTabID = tab.id
     }
 
-    init(restoring snapshot: TabAreaSnapshot) {
+    init(restoring snapshot: TabAreaSnapshot, sessionsByPaneID: [UUID: TerminalSessionSnapshot] = [:]) {
         id = snapshot.id
         projectPath = snapshot.projectPath
-        tabs = snapshot.tabs.map { TerminalTab(restoring: $0) }
+        tabs = snapshot.tabs.map { tabSnapshot in
+            TerminalTab(
+                restoring: tabSnapshot,
+                restoredSession: tabSnapshot.paneID.flatMap { sessionsByPaneID[$0] }
+            )
+        }
         if let index = snapshot.activeTabIndex, index >= 0, index < tabs.count {
             activeTabID = tabs[index].id
         } else {
@@ -74,6 +79,22 @@ final class TabArea: Identifiable {
             startupCommandInteractive: true
         )
         insertTab(TerminalTab(pane: pane))
+    }
+
+    func restoreClosedTerminalTab(_ snapshot: ClosedTerminalTabSnapshot) {
+        let command = snapshot.commandToRestore
+        let safeCommand = command.flatMap { TerminalSessionRestorePolicy.isSafeToRestore($0) ? $0 : nil }
+        let pane = TerminalPaneState(
+            projectPath: snapshot.projectPath,
+            title: snapshot.title,
+            initialWorkingDirectory: snapshot.workingDirectory,
+            startupCommand: safeCommand,
+            startupCommandInteractive: safeCommand != nil
+        )
+        let tab = TerminalTab(pane: pane)
+        tab.customTitle = snapshot.customTitle
+        tab.colorID = snapshot.colorID
+        insertTab(tab)
     }
 
     func createVCSTab() {
