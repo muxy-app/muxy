@@ -21,19 +21,19 @@ enum TextSearchService {
     static let maxResultsPerFile = 20
     static let minQueryLength = 2
 
-    private static let coordinator = SearchCoordinator()
-
     static func search(
         query: String,
         in projectPath: String,
-        options: TextSearchOptions = TextSearchOptions()
+        options: TextSearchOptions = TextSearchOptions(),
+        coordinator: SearchCoordinator? = nil
     ) async -> [TextSearchMatch] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard trimmed.count >= minQueryLength else { return [] }
         guard let executable = ripgrepExecutableURL() else { return [] }
         guard let patternData = trimmed.data(using: .utf8) else { return [] }
 
-        return await coordinator.run(
+        let runner = coordinator ?? SearchCoordinator()
+        return await runner.run(
             executable: executable,
             patternData: patternData,
             patternByteLength: patternData.count,
@@ -108,7 +108,7 @@ enum TextSearchService {
     }
 }
 
-private actor SearchCoordinator {
+actor SearchCoordinator {
     private var current: (process: Process, exit: Task<Void, Never>)?
 
     func run(

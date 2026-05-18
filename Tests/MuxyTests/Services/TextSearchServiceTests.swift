@@ -74,17 +74,23 @@ struct TextSearchServiceTests {
         #expect(literal.contains { $0.lineText == "foo123bar" })
     }
 
-    @Test("cancels in-flight ripgrep when the Task is cancelled")
-    func cancelsRunningSearch() async throws {
+    @Test("starting a new search cancels the in-flight one")
+    func newSearchCancelsPrevious() async throws {
         guard TextSearchService.ripgrepExecutableURL() != nil else { return }
         let directory = try makeSearchFixture()
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let task = Task { await TextSearchService.search(query: "foo", in: directory.path) }
-        task.cancel()
-        let results = await task.value
+        let coordinator = SearchCoordinator()
+        async let first = TextSearchService.search(
+            query: "foo123bar", in: directory.path, coordinator: coordinator
+        )
+        async let second = TextSearchService.search(
+            query: "안녕", in: directory.path, coordinator: coordinator
+        )
+        let (firstResults, secondResults) = await (first, second)
 
-        #expect(results.isEmpty || results.allSatisfy { !$0.lineText.isEmpty })
+        #expect(secondResults.contains { $0.lineText == "안녕하세요" })
+        #expect(firstResults.isEmpty || firstResults.contains { $0.lineText == "foo123bar" })
     }
 
     private func makeSearchFixture() throws -> URL {

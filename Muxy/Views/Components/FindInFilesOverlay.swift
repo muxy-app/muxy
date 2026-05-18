@@ -11,6 +11,7 @@ struct FindInFilesOverlay: View {
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
     @State private var options = TextSearchOptions()
+    @State private var coordinator = SearchCoordinator()
 
     var body: some View {
         ZStack {
@@ -127,7 +128,12 @@ struct FindInFilesOverlay: View {
                 guard !Task.isCancelled else { return }
             }
 
-            let found = await TextSearchService.search(query: currentQuery, in: projectPath, options: options)
+            let found = await TextSearchService.search(
+                query: currentQuery,
+                in: projectPath,
+                options: options,
+                coordinator: coordinator
+            )
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
