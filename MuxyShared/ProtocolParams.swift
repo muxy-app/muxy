@@ -483,11 +483,19 @@ public struct VCSAddWorktreeParams: Codable, Sendable {
     public let name: String
     public let branch: String
     public let createBranch: Bool
-    public init(projectID: UUID, name: String, branch: String, createBranch: Bool) {
+    public let baseBranch: String?
+    public init(
+        projectID: UUID,
+        name: String,
+        branch: String,
+        createBranch: Bool,
+        baseBranch: String? = nil
+    ) {
         self.projectID = projectID
         self.name = name
         self.branch = branch
         self.createBranch = createBranch
+        self.baseBranch = baseBranch
     }
 }
 

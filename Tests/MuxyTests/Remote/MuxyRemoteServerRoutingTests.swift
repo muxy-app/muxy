@@ -24,7 +24,7 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     var vcsCreateBranchCalls: [(projectID: UUID, name: String)] = []
     var vcsCreatePRCalls: [(projectID: UUID, title: String, body: String, baseBranch: String?, draft: Bool)] = []
     var vcsMergePullRequestCalls: [(projectID: UUID, number: Int, method: VCSMergeMethodDTO, deleteBranch: Bool)] = []
-    var vcsAddWorktreeCalls: [(projectID: UUID, name: String, branch: String, createBranch: Bool)] = []
+    var vcsAddWorktreeCalls: [(projectID: UUID, name: String, branch: String, createBranch: Bool, baseBranch: String?)] = []
     var vcsRemoveWorktreeCalls: [(projectID: UUID, worktreeID: UUID)] = []
 
     var stubProjects: [ProjectDTO] = []
@@ -160,9 +160,10 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
         projectID: UUID,
         name: String,
         branch: String,
-        createBranch: Bool
+        createBranch: Bool,
+        baseBranch: String?
     ) async throws -> WorktreeDTO {
-        vcsAddWorktreeCalls.append((projectID, name, branch, createBranch))
+        vcsAddWorktreeCalls.append((projectID, name, branch, createBranch, baseBranch))
         return stubAddedWorktree
     }
 
@@ -563,8 +564,9 @@ struct MuxyRemoteServerRoutingTests {
                 params: .vcsAddWorktree(VCSAddWorktreeParams(
                     projectID: projectID,
                     name: "wt",
-                    branch: "main",
-                    createBranch: false
+                    branch: "feature",
+                    createBranch: true,
+                    baseBranch: "main"
                 ))
             ),
             clientID: clientID
@@ -580,8 +582,9 @@ struct MuxyRemoteServerRoutingTests {
 
         #expect(delegate.vcsAddWorktreeCalls.first?.projectID == projectID)
         #expect(delegate.vcsAddWorktreeCalls.first?.name == "wt")
-        #expect(delegate.vcsAddWorktreeCalls.first?.branch == "main")
-        #expect(delegate.vcsAddWorktreeCalls.first?.createBranch == false)
+        #expect(delegate.vcsAddWorktreeCalls.first?.branch == "feature")
+        #expect(delegate.vcsAddWorktreeCalls.first?.createBranch == true)
+        #expect(delegate.vcsAddWorktreeCalls.first?.baseBranch == "main")
         #expect(delegate.vcsRemoveWorktreeCalls.first?.projectID == projectID)
         #expect(delegate.vcsRemoveWorktreeCalls.first?.worktreeID == worktreeID)
         guard case let .worktrees(worktrees) = addResponse.result else {

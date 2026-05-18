@@ -60,12 +60,20 @@ enum GitProcessRunner {
         try await runProcess(
             ProcessSpec(
                 executable: "/usr/bin/env",
-                arguments: ["git", "-C", repoPath] + arguments,
+                arguments: ["git"] + gitHubCredentialHelperArgs() + ["-C", repoPath] + arguments,
                 workingDirectory: nil,
                 lineLimit: lineLimit,
                 signpostName: "git"
             )
         )
+    }
+
+    static func gitHubCredentialHelperArgs(ghResolver: (String) -> String? = resolveExecutable) -> [String] {
+        guard let ghPath = ghResolver("gh") else { return [] }
+        return [
+            "-c", "credential.helper=",
+            "-c", "credential.https://github.com.helper=!\(ghPath) auth git-credential",
+        ]
     }
 
     static func runCommand(

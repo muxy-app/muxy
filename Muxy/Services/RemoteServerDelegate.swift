@@ -521,7 +521,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         projectID: UUID,
         name: String,
         branch: String,
-        createBranch: Bool
+        createBranch: Bool,
+        baseBranch: String?
     ) async throws -> WorktreeDTO {
         guard let project = projectStore.projects.first(where: { $0.id == projectID }) else {
             throw RemoteVCSError.projectNotFound
@@ -534,6 +535,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         guard !trimmedBranch.isEmpty else {
             throw RemoteVCSError.invalidInput("Branch name is required.")
         }
+        let trimmedBase = baseBranch?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedBase: String? = (createBranch && trimmedBase?.isEmpty == false) ? trimmedBase : nil
         let slug = Self.worktreeSlug(from: trimmedName)
         let worktreeDirectory = WorktreeLocationResolver.worktreeDirectory(for: project, slug: slug)
 
@@ -556,7 +559,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             repoPath: project.path,
             path: worktreeDirectory,
             branch: trimmedBranch,
-            createBranch: createBranch
+            createBranch: createBranch,
+            baseBranch: resolvedBase
         )
 
         let worktree = Worktree(

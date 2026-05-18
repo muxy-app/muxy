@@ -63,7 +63,13 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func vcsCreateBranch(projectID: UUID, name: String) async throws
     func vcsCreatePR(projectID: UUID, title: String, body: String, baseBranch: String?, draft: Bool) async throws -> VCSCreatePRResultDTO
     func vcsMergePullRequest(projectID: UUID, number: Int, method: VCSMergeMethodDTO, deleteBranch: Bool) async throws
-    func vcsAddWorktree(projectID: UUID, name: String, branch: String, createBranch: Bool) async throws -> WorktreeDTO
+    func vcsAddWorktree(
+        projectID: UUID,
+        name: String,
+        branch: String,
+        createBranch: Bool,
+        baseBranch: String?
+    ) async throws -> WorktreeDTO
     func vcsRemoveWorktree(projectID: UUID, worktreeID: UUID) async throws
     func getProjectLogo(projectID: UUID) -> ProjectLogoDTO?
     func listNotifications() -> [NotificationDTO]
@@ -605,7 +611,8 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                     projectID: params.projectID,
                     name: params.name,
                     branch: params.branch,
-                    createBranch: params.createBranch
+                    createBranch: params.createBranch,
+                    baseBranch: params.baseBranch
                 )
                 return MuxyResponse(id: request.id, result: .worktrees([worktree]))
             } catch {

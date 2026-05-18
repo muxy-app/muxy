@@ -87,11 +87,21 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
-    func addWorktree(repoPath: String, path: String, branch: String, createBranch: Bool) async throws {
+    func addWorktree(
+        repoPath: String,
+        path: String,
+        branch: String,
+        createBranch: Bool,
+        baseBranch: String? = nil
+    ) async throws {
         try Self.validateBranchName(branch)
         var args: [String] = ["worktree", "add"]
         if createBranch {
-            args += ["-b", branch, "--", path]
+            args += ["-b", branch, path]
+            if let baseBranch {
+                try Self.validateBranchName(baseBranch)
+                args.append(baseBranch)
+            }
         } else {
             args += ["--", path, branch]
         }
