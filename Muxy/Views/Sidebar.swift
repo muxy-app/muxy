@@ -29,6 +29,7 @@ enum SidebarLayout {
 struct Sidebar: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
+    @Environment(ProjectGroupStore.self) private var groupStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
     let expanded: Bool
@@ -78,47 +79,54 @@ struct Sidebar: View {
         .help(shortcutTooltip("Add Project", for: .openProject))
     }
 
+    private var groupedProjects: [(group: ProjectGroup, projects: [Project])] {
+        groupStore.groups.map { group in
+            let projects = group.projectIDs.compactMap { id in
+                projectStore.projects.first { $0.id == id }
+            }
+            return (group, projects)
+        }
+    }
+
+    private var ungroupedProjects: [Project] {
+        let assignedIDs = Set(groupStore.groups.flatMap(\.projectIDs))
+        return projectStore.projects.filter { !assignedIDs.contains($0.id) }
+    }
+
+    private func globalIndexOffset(forGroupIndex groupIndex: Int) -> Int {
+        groupedProjects.prefix(groupIndex).reduce(0) { $0 + $1.projects.count }
+    }
+
     private var projectList: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: UIMetrics.spacing2) {
-                ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) { index, project in
-                    Group {
-                        if isWide {
-                            ExpandedProjectRow(
-                                project: project,
-                                shortcutIndex: index < 9 ? index + 1 : nil,
-                                isAnyDragging: dragState.draggedID != nil,
-                                onSelect: { select(project) },
-                                onRemove: { remove(project) },
-                                onRename: { projectStore.rename(id: project.id, to: $0) },
-                                onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
-                                onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) }
+                ForEach(Array(groupedProjects.enumerated()), id: \.element.group.id) { groupIndex, entry in
+                    ProjectGroupSection(
+                        group: entry.group,
+                        projects: entry.projects,
+                        isWide: isWide,
+                        draggedID: dragState.draggedID,
+                        globalIndexOffset: globalIndexOffset(forGroupIndex: groupIndex),
+                        onSelect: { select($0) },
+                        onRemove: { remove($0) },
+                        onRename: { project, name in projectStore.rename(id: project.id, to: name) },
+                        onSetLogo: { project, logo in projectStore.setLogo(id: project.id, to: logo) },
+                        onSetIconColor: { project, color in projectStore.setIconColor(id: project.id, to: color) },
+                        onRenameGroup: { groupStore.renameGroup(id: entry.group.id, to: $0) },
+                        onDeleteGroup: { deleteGroup(entry.group) },
+                        onAddGroup: { addNewGroup() },
+                        onMoveProject: { project, targetGroupID in
+                            groupStore.moveProject(
+                                projectID: project.id,
+                                fromGroup: entry.group.id,
+                                toGroup: targetGroupID
                             )
-                        } else {
-                            ProjectRow(
-                                project: project,
-                                shortcutIndex: index < 9 ? index + 1 : nil,
-                                isAnyDragging: dragState.draggedID != nil,
-                                onSelect: { select(project) },
-                                onRemove: { remove(project) },
-                                onRename: { projectStore.rename(id: project.id, to: $0) },
-                                onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
-                                onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) }
-                            )
-                        }
-                    }
-                    .background {
-                        if dragState.draggedID != nil {
-                            GeometryReader { geo in
-                                Color.clear.preference(
-                                    key: UUIDFramePreferenceKey<SidebarFrameTag>.self,
-                                    value: [project.id: geo.frame(in: .named("sidebar"))]
-                                )
-                            }
-                        }
-                    }
-                    .gesture(projectDragGesture(for: project))
+                        },
+                        allGroups: groupStore.groups,
+                        projectDragGesture: { projectDragGesture(for: $0) }
+                    )
                 }
+                ungroupedSection
                 addButton
             }
             .padding(.horizontal, isWide ? UIMetrics.spacing3 : UIMetrics.spacing4)
@@ -131,26 +139,75 @@ struct Sidebar: View {
         .coordinateSpace(name: "sidebar")
     }
 
+    @ViewBuilder
+    private var ungroupedSection: some View {
+        let projects = ungroupedProjects
+        if !projects.isEmpty {
+            let ungroupedOffset = groupedProjects.reduce(0) { $0 + $1.projects.count }
+            ForEach(Array(projects.enumerated()), id: \.element.id) { offset, project in
+                let shortcutIndex = ungroupedOffset + offset
+                Group {
+                    if isWide {
+                        ExpandedProjectRow(
+                            project: project,
+                            shortcutIndex: shortcutIndex < 9 ? shortcutIndex + 1 : nil,
+                            isAnyDragging: dragState.draggedID != nil,
+                            onSelect: { select(project) },
+                            onRemove: { remove(project) },
+                            onRename: { projectStore.rename(id: project.id, to: $0) },
+                            onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
+                            onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) }
+                        )
+                    } else {
+                        ProjectRow(
+                            project: project,
+                            shortcutIndex: shortcutIndex < 9 ? shortcutIndex + 1 : nil,
+                            isAnyDragging: dragState.draggedID != nil,
+                            onSelect: { select(project) },
+                            onRemove: { remove(project) },
+                            onRename: { projectStore.rename(id: project.id, to: $0) },
+                            onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
+                            onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) }
+                        )
+                    }
+                }
+                .background {
+                    if dragState.draggedID != nil {
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: UUIDFramePreferenceKey<SidebarFrameTag>.self,
+                                value: [project.id: geo.frame(in: .named("sidebar"))]
+                            )
+                        }
+                    }
+                }
+                .gesture(projectDragGesture(for: project))
+            }
+        }
+    }
+
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
         "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
     }
 
-    private func projectDragGesture(for project: Project) -> some Gesture {
-        DragGesture(minimumDistance: 6, coordinateSpace: .named("sidebar"))
-            .onChanged { value in
-                if dragState.draggedID == nil {
-                    dragState.draggedID = project.id
-                    dragState.lastReorderTargetID = nil
+    private func projectDragGesture(for project: Project) -> AnyGesture<DragGesture.Value> {
+        AnyGesture(
+            DragGesture(minimumDistance: 6, coordinateSpace: .named("sidebar"))
+                .onChanged { value in
+                    if dragState.draggedID == nil {
+                        dragState.draggedID = project.id
+                        dragState.lastReorderTargetID = nil
+                    }
+                    reorderIfNeeded(at: value.location)
                 }
-                reorderIfNeeded(at: value.location)
-            }
-            .onEnded { _ in
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    dragState.draggedID = nil
-                    dragState.frames = [:]
-                    dragState.lastReorderTargetID = nil
+                .onEnded { _ in
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        dragState.draggedID = nil
+                        dragState.frames = [:]
+                        dragState.lastReorderTargetID = nil
+                    }
                 }
-            }
+        )
     }
 
     private func select(_ project: Project) {
@@ -172,6 +229,14 @@ struct Sidebar: View {
         appState.removeProject(project.id)
         projectStore.remove(id: project.id)
         worktreeStore.removeProject(project.id)
+    }
+
+    private func deleteGroup(_ group: ProjectGroup) {
+        groupStore.removeGroup(id: group.id)
+    }
+
+    private func addNewGroup() {
+        groupStore.addGroup(name: "New Group")
     }
 
     private func reorderIfNeeded(at location: CGPoint) {
