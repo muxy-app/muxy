@@ -10,6 +10,8 @@ struct FindInFilesOverlay: View {
     @State private var highlightedMatchID: String?
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
+    @State private var options = TextSearchOptions()
+    @State private var coordinator = SearchCoordinator()
 
     var body: some View {
         ZStack {
@@ -51,6 +53,22 @@ struct FindInFilesOverlay: View {
                 onPageUp: { moveHighlight(-PaletteSearchField.pageJump) },
                 onPageDown: { moveHighlight(PaletteSearchField.pageJump) }
             )
+            SearchOptionToggle(
+                label: "Aa",
+                isOn: options.caseSensitive,
+                tooltip: "Match Case"
+            ) {
+                options.caseSensitive.toggle()
+                performSearch(debounce: false)
+            }
+            SearchOptionToggle(
+                label: "ab|",
+                isOn: options.wholeWord,
+                tooltip: "Match Whole Word"
+            ) {
+                options.wholeWord.toggle()
+                performSearch(debounce: false)
+            }
         }
         .padding(.horizontal, UIMetrics.spacing6)
         .padding(.vertical, UIMetrics.spacing5)
@@ -106,11 +124,16 @@ struct FindInFilesOverlay: View {
 
         searchTask = Task {
             if debounce {
-                try? await Task.sleep(for: .milliseconds(50))
+                try? await Task.sleep(for: .milliseconds(120))
                 guard !Task.isCancelled else { return }
             }
 
-            let found = await TextSearchService.search(query: currentQuery, in: projectPath)
+            let found = await TextSearchService.search(
+                query: currentQuery,
+                in: projectPath,
+                options: options,
+                coordinator: coordinator
+            )
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
@@ -212,42 +235,67 @@ private struct MatchRow: View {
     let isHighlighted: Bool
     @State private var hovered = false
 
+    private static let maxSnippetCharacters = 200
+    private static let leadingContextCharacters = 24
+
     var body: some View {
-        highlightedSnippet
-            .font(.system(size: UIMetrics.fontBody, design: .monospaced))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .padding(.leading, UIMetrics.spacing9)
-            .padding(.trailing, UIMetrics.spacing6)
-            .padding(.vertical, UIMetrics.scaled(3))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isHighlighted ? MuxyTheme.surface : hovered ? MuxyTheme.hover : .clear)
-            .onHover { hovered = $0 }
+        HStack(alignment: .firstTextBaseline, spacing: UIMetrics.spacing4) {
+            Text("\(match.lineNumber)")
+                .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                .foregroundStyle(MuxyTheme.fgDim)
+                .frame(minWidth: UIMetrics.scaled(36), alignment: .trailing)
+            snippet
+                .font(.system(size: UIMetrics.fontBody, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.leading, UIMetrics.spacing6)
+        .padding(.trailing, UIMetrics.spacing6)
+        .padding(.vertical, UIMetrics.scaled(3))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isHighlighted ? MuxyTheme.surface : hovered ? MuxyTheme.hover : .clear)
+        .onHover { hovered = $0 }
     }
 
-    private var highlightedSnippet: Text {
-        let trimmed = trimLeadingWhitespace(match.lineText)
-        let utf8 = Array(match.lineText.utf8)
-        let removed = utf8.count - Array(trimmed.utf8).count
+    private var snippet: Text {
+        let line = match.lineText
+        let utf8 = line.utf8
+        let total = utf8.count
 
-        let adjustedStart = max(0, match.matchStart - removed)
-        let adjustedEnd = max(adjustedStart, match.matchEnd - removed)
-        let trimmedUTF8 = Array(trimmed.utf8)
-
-        guard match.matchStart >= 0,
-              match.matchEnd <= utf8.count,
-              match.matchStart < match.matchEnd,
-              adjustedEnd <= trimmedUTF8.count
+        guard match.matchByteStart >= 0,
+              match.matchByteLength > 0,
+              match.matchByteStart + match.matchByteLength <= total,
+              let startScalar = utf8Index(line, byteOffset: match.matchByteStart),
+              let endScalar = utf8Index(line, byteOffset: match.matchByteStart + match.matchByteLength)
         else {
-            return Text(trimmed).foregroundColor(MuxyTheme.fgDim)
+            return Text(trimmed(line)).foregroundColor(MuxyTheme.fgDim)
         }
 
-        let prefix = String(data: Data(trimmedUTF8[0 ..< adjustedStart]), encoding: .utf8) ?? ""
-        let middle = String(data: Data(trimmedUTF8[adjustedStart ..< adjustedEnd]), encoding: .utf8) ?? ""
-        let suffix = String(data: Data(trimmedUTF8[adjustedEnd ..< trimmedUTF8.count]), encoding: .utf8) ?? ""
-        return Text(prefix).foregroundColor(MuxyTheme.fgDim)
-            + Text(middle).foregroundColor(MuxyTheme.fg).bold()
-            + Text(suffix).foregroundColor(MuxyTheme.fgDim)
+        let beforeMatch = String(line[..<startScalar])
+        let middle = String(line[startScalar ..< endScalar])
+        let afterMatch = String(line[endScalar...])
+
+        let leadingTrimmed = trimLeadingWhitespace(beforeMatch)
+        let (prefixDisplay, prefixEllipsis) = truncatedPrefix(leadingTrimmed)
+        let (suffixDisplay, suffixEllipsis) = truncatedSuffix(afterMatch)
+
+        let prefixPart = Text(prefixEllipsis ? "…" : "").foregroundColor(MuxyTheme.fgDim)
+            + Text(prefixDisplay).foregroundColor(MuxyTheme.fgDim)
+        let matchPart = Text(middle).foregroundColor(MuxyTheme.fg).bold()
+        let suffixPart = Text(suffixDisplay).foregroundColor(MuxyTheme.fgDim)
+            + Text(suffixEllipsis ? "…" : "").foregroundColor(MuxyTheme.fgDim)
+        return prefixPart + matchPart + suffixPart
+    }
+
+    private func utf8Index(_ string: String, byteOffset: Int) -> String.Index? {
+        let utf8 = string.utf8
+        guard byteOffset >= 0, byteOffset <= utf8.count else { return nil }
+        let index = utf8.index(utf8.startIndex, offsetBy: byteOffset)
+        return index.samePosition(in: string)
+    }
+
+    private func trimmed(_ text: String) -> String {
+        trimLeadingWhitespace(text)
     }
 
     private func trimLeadingWhitespace(_ text: String) -> String {
@@ -256,5 +304,48 @@ private struct MatchRow: View {
             index = text.index(after: index)
         }
         return String(text[index...])
+    }
+
+    private func truncatedPrefix(_ text: String) -> (String, Bool) {
+        let limit = Self.leadingContextCharacters
+        guard text.count > limit else { return (text, false) }
+        let start = text.index(text.endIndex, offsetBy: -limit)
+        return (String(text[start...]), true)
+    }
+
+    private func truncatedSuffix(_ text: String) -> (String, Bool) {
+        let limit = Self.maxSnippetCharacters - Self.leadingContextCharacters
+        guard text.count > limit else { return (text, false) }
+        let end = text.index(text.startIndex, offsetBy: limit)
+        return (String(text[..<end]), true)
+    }
+}
+
+private struct SearchOptionToggle: View {
+    let label: String
+    let isOn: Bool
+    let tooltip: String
+    let action: () -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold, design: .monospaced))
+                .foregroundStyle(isOn ? MuxyTheme.fg : MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.scaled(28), height: UIMetrics.scaled(22))
+                .background(
+                    RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
+                        .fill(isOn ? MuxyTheme.surface : hovered ? MuxyTheme.hover : .clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
+                        .stroke(isOn ? MuxyTheme.border : .clear, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(tooltip)
+        .onHover { hovered = $0 }
     }
 }
