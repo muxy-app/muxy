@@ -170,6 +170,11 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     func vcsRemoveWorktree(projectID: UUID, worktreeID: UUID) async throws {
         vcsRemoveWorktreeCalls.append((projectID, worktreeID))
     }
+
+    func vcsGetDiff(projectID _: UUID, filePath: String, forceFull _: Bool) async throws -> VCSDiffDTO {
+        VCSDiffDTO(filePath: filePath, rows: [], additions: 0, deletions: 0, truncated: false, isBinary: false)
+    }
+
     func getProjectLogo(projectID _: UUID) -> ProjectLogoDTO? { nil }
     func listNotifications() -> [NotificationDTO] { [] }
 
