@@ -441,6 +441,16 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             await state.refreshAndWait()
         }
         let file = state.files.first { $0.path == filePath }
+        if file?.isBinary == true {
+            return VCSDiffDTO(
+                filePath: filePath,
+                rows: [],
+                additions: 0,
+                deletions: 0,
+                truncated: false,
+                isBinary: true
+            )
+        }
         let hints: GitRepositoryService.DiffHints = if let file {
             GitRepositoryService.DiffHints(
                 hasStaged: file.isStaged,
@@ -463,7 +473,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             additions: result.additions,
             deletions: result.deletions,
             truncated: result.truncated,
-            isBinary: file?.isBinary ?? false
+            isBinary: false
         )
     }
 
@@ -479,6 +489,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             kind: kind,
             oldLineNumber: row.oldLineNumber,
             newLineNumber: row.newLineNumber,
+            oldText: row.oldText,
+            newText: row.newText,
             text: row.text
         )
     }

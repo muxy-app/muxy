@@ -12,12 +12,23 @@ public struct VCSDiffRowDTO: Codable, Sendable, Hashable {
     public let kind: VCSDiffRowKindDTO
     public let oldLineNumber: Int?
     public let newLineNumber: Int?
+    public let oldText: String?
+    public let newText: String?
     public let text: String
 
-    public init(kind: VCSDiffRowKindDTO, oldLineNumber: Int?, newLineNumber: Int?, text: String) {
+    public init(
+        kind: VCSDiffRowKindDTO,
+        oldLineNumber: Int?,
+        newLineNumber: Int?,
+        oldText: String?,
+        newText: String?,
+        text: String
+    ) {
         self.kind = kind
         self.oldLineNumber = oldLineNumber
         self.newLineNumber = newLineNumber
+        self.oldText = oldText
+        self.newText = newText
         self.text = text
     }
 }
