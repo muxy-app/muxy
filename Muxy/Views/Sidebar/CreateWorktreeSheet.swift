@@ -22,7 +22,6 @@ struct CreateWorktreeSheet: View {
     @State private var selectedParentPath: String?
     @State private var usesProjectLocation = false
     @State private var availableBranches: [String] = []
-    @State private var defaultBranch: String?
     @State private var selectedBaseBranch: String = ""
     @State private var setupCommands: [String] = []
     @State private var runSetup = false
@@ -266,7 +265,6 @@ struct CreateWorktreeSheet: View {
             let resolvedDefault = await defaultValue
             await MainActor.run {
                 availableBranches = branches
-                defaultBranch = resolvedDefault
                 if selectedExistingBranch.isEmpty {
                     selectedExistingBranch = branches.first ?? ""
                 }
