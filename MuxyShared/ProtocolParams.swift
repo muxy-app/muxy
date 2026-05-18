@@ -508,6 +508,18 @@ public struct VCSRemoveWorktreeParams: Codable, Sendable {
     }
 }
 
+public struct VCSGetDiffParams: Codable, Sendable {
+    public let projectID: UUID
+    public let filePath: String
+    public let forceFull: Bool
+
+    public init(projectID: UUID, filePath: String, forceFull: Bool = false) {
+        self.projectID = projectID
+        self.filePath = filePath
+        self.forceFull = forceFull
+    }
+}
+
 public struct GetProjectLogoParams: Codable, Sendable {
     public let projectID: UUID
     public init(projectID: UUID) {
