@@ -312,11 +312,14 @@ struct VCSTabView: View {
         if let defaultBranch, defaultBranch != mergedBranch {
             await state.switchBranchAndRefresh(defaultBranch)
         }
-        await Self.fastForwardAfterMerge(
+        let pulled = await Self.fastForwardAfterMerge(
             repoPath: state.projectPath,
             defaultBranch: defaultBranch,
             baseBranch: baseBranch
         )
+        if !pulled.isEmpty {
+            state.refresh()
+        }
     }
 
     private func removeWorktreeAfterMerge(
@@ -352,11 +355,12 @@ struct VCSTabView: View {
         }
     }
 
+    @discardableResult
     private static func fastForwardAfterMerge(
         repoPath: String,
         defaultBranch: String?,
         baseBranch: String
-    ) async {
+    ) async -> [String] {
         let git = GitRepositoryService()
         var pulled: [String] = []
         if let defaultBranch, !defaultBranch.isEmpty,
@@ -375,6 +379,7 @@ struct VCSTabView: View {
                 ToastState.shared.show("Pulled \(pulled.joined(separator: ", "))")
             }
         }
+        return pulled
     }
 
     private func presentClosePRConfirmation(prInfo: GitRepositoryService.PRInfo) {

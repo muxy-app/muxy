@@ -1021,16 +1021,45 @@ struct GitRepositoryService {
         )
         let currentBranch = headResult?.stdout.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        let arguments: [String] = currentBranch == trimmed
-            ? ["pull", "--ff-only"]
-            : ["fetch", "origin", "\(trimmed):\(trimmed)"]
-
-        let result = try? await GitProcessRunner.runGit(repoPath: repoPath, arguments: arguments)
-        let success = result?.status == 0
+        let success: Bool
+        if currentBranch == trimmed {
+            let result = try? await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["pull", "--ff-only"])
+            success = result?.status == 0
+        } else {
+            success = await fastForwardInactiveBranch(repoPath: repoPath, branch: trimmed)
+        }
         if success {
             GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath, branch: trimmed)
         }
         return success
+    }
+
+    private func fastForwardInactiveBranch(repoPath: String, branch: String) async -> Bool {
+        let localRef = "refs/heads/\(branch)"
+        let remoteRef = "refs/remotes/origin/\(branch)"
+        let fetchResult = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["fetch", "origin", "refs/heads/\(branch):\(remoteRef)"]
+        )
+        guard fetchResult?.status == 0 else { return false }
+
+        let localExistsResult = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["show-ref", "--verify", "--quiet", localRef]
+        )
+        if localExistsResult?.status == 0 {
+            let ancestorResult = try? await GitProcessRunner.runGit(
+                repoPath: repoPath,
+                arguments: ["merge-base", "--is-ancestor", branch, remoteRef]
+            )
+            guard ancestorResult?.status == 0 else { return false }
+        }
+
+        let updateResult = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["update-ref", localRef, remoteRef]
+        )
+        return updateResult?.status == 0
     }
 
     func listBranches(repoPath: String) async throws -> [String] {
