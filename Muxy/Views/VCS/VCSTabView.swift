@@ -1001,6 +1001,59 @@ struct PRPill: View {
     }
 }
 
+struct PRMergeabilityPresentation: Equatable {
+    enum Tone {
+        case positive
+        case negative
+        case muted
+    }
+
+    let text: String
+    let tone: Tone
+
+    @MainActor var color: Color {
+        switch tone {
+        case .positive: MuxyTheme.diffAddFg
+        case .negative: MuxyTheme.diffRemoveFg
+        case .muted: MuxyTheme.fgMuted
+        }
+    }
+
+    static func make(info: GitRepositoryService.PRInfo) -> PRMergeabilityPresentation? {
+        switch info.mergeStateStatus {
+        case .dirty:
+            return PRMergeabilityPresentation(text: "Conflicts", tone: .negative)
+        case .behind:
+            return PRMergeabilityPresentation(text: "Behind base", tone: .negative)
+        case .blocked:
+            return PRMergeabilityPresentation(text: "Blocked", tone: .negative)
+        case .draft:
+            return PRMergeabilityPresentation(text: "Draft", tone: .muted)
+        case .clean,
+             .hasHooks:
+            return PRMergeabilityPresentation(text: "Yes", tone: .positive)
+        case .unstable:
+            return unstablePresentation(checks: info.checks)
+        case .unknown:
+            if info.mergeable == true { return PRMergeabilityPresentation(text: "Yes", tone: .positive) }
+            if info.mergeable == false { return PRMergeabilityPresentation(text: "Conflicts", tone: .negative) }
+            return nil
+        }
+    }
+
+    private static func unstablePresentation(checks: GitRepositoryService.PRChecks) -> PRMergeabilityPresentation {
+        switch checks.status {
+        case .failure:
+            PRMergeabilityPresentation(text: "Yes (checks failing)", tone: .positive)
+        case .pending:
+            PRMergeabilityPresentation(text: "Yes (checks running)", tone: .positive)
+        case .none,
+             .success:
+            PRMergeabilityPresentation(text: "Yes", tone: .positive)
+        }
+    }
+}
+
 struct PRPopover: View {
     @Bindable var state: VCSTabState
     let info: GitRepositoryService.PRInfo
@@ -1046,7 +1099,7 @@ struct PRPopover: View {
 
             VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
                 infoRow(label: "Base", value: info.baseBranch)
-                if let label = mergeableLabel {
+                if let label = PRMergeabilityPresentation.make(info: info) {
                     infoRow(
                         label: "Mergeable",
                         value: label.text,
@@ -1168,28 +1221,6 @@ struct PRPopover: View {
                 return "Checks are still running. You will be asked to confirm before merging."
             }
             return "Merge PR #\(info.number)"
-        }
-    }
-
-    private var mergeableLabel: (text: String, color: Color)? {
-        switch info.mergeStateStatus {
-        case .dirty:
-            return ("Conflicts", MuxyTheme.diffRemoveFg)
-        case .behind:
-            return ("Behind base", MuxyTheme.diffRemoveFg)
-        case .blocked:
-            return ("Blocked", MuxyTheme.diffRemoveFg)
-        case .draft:
-            return ("Draft", MuxyTheme.fgMuted)
-        case .clean,
-             .hasHooks:
-            return ("Yes", MuxyTheme.diffAddFg)
-        case .unstable:
-            return ("Yes (checks failing)", MuxyTheme.diffAddFg)
-        case .unknown:
-            if info.mergeable == true { return ("Yes", MuxyTheme.diffAddFg) }
-            if info.mergeable == false { return ("Conflicts", MuxyTheme.diffRemoveFg) }
-            return nil
         }
     }
 
