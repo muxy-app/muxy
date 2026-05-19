@@ -1079,7 +1079,7 @@ struct PRPopover: View {
             .buttonStyle(.plain)
 
             if info.state == .open {
-                if info.mergeStateStatus == .behind {
+                if info.mergeStateStatus == .behind, !info.isCrossRepository {
                     Button(action: onUpdateBranch) {
                         HStack(spacing: UIMetrics.spacing3) {
                             if state.isUpdatingPullRequestBranch {

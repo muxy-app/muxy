@@ -1149,14 +1149,19 @@ final class VCSTabState {
 
     func updatePullRequestBranch() {
         guard let info = pullRequestInfo, !isUpdatingPullRequestBranch else { return }
+        guard !info.isCrossRepository else {
+            showStatus("Branch lives on a fork — update it locally.", isError: true)
+            return
+        }
+        guard let branch = branchName else { return }
         isUpdatingPullRequestBranch = true
         Task { [weak self] in
             guard let self else { return }
             defer { isUpdatingPullRequestBranch = false }
             do {
                 try await git.mergeBaseIntoCurrentBranch(repoPath: projectPath, baseBranch: info.baseBranch)
-                guard !Task.isCancelled else { return }
-                ToastState.shared.show("Updated branch with \(info.baseBranch)")
+                guard !Task.isCancelled, branchName == branch else { return }
+                ToastState.shared.show("Merged \(info.baseBranch) into \(branch)")
                 refreshPullRequest()
             } catch {
                 guard !Task.isCancelled else { return }

@@ -1016,6 +1016,16 @@ struct GitRepositoryService {
             throw GitError.commandFailed("Invalid base branch name.")
         }
 
+        let statusResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["status", "--porcelain=1", "--untracked-files=no"]
+        )
+        if statusResult.status == 0,
+           !statusResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            throw GitError.commandFailed("Commit or stash your changes before updating the branch.")
+        }
+
         let fetchResult = try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["fetch", "origin", trimmed]
