@@ -3,9 +3,9 @@ name: Auto Merge
 on:
   pull_request_target:
     types: [labeled]
-  check_suite:
+  workflow_run:
+    workflows: [Checks]
     types: [completed]
-  status: {}
 
 permissions:
   contents: write
@@ -14,7 +14,7 @@ permissions:
   statuses: read
 
 concurrency:
-  group: auto-merge-${{ github.event.pull_request.number || github.event.check_suite.head_sha || github.event.sha }}
+  group: auto-merge-${{ github.event.pull_request.number || github.event.workflow_run.head_sha || github.event.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -30,7 +30,7 @@ jobs:
           REPO: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.check_suite.head_sha || github.event.sha }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.sha }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "pull_request_target" ]; then
