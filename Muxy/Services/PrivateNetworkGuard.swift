@@ -9,11 +9,6 @@ enum PrivateNetworkGuard {
         return false
     }
 
-    static func isLiteralIPAddress(_ host: String) -> Bool {
-        let stripped = stripBrackets(host)
-        return parseIPv4(stripped) != nil || parseIPv6(stripped) != nil
-    }
-
     static func hostResolvesToPublicAddress(_ host: String) -> Bool {
         guard !host.isEmpty else { return false }
         let stripped = stripBrackets(host)
@@ -65,6 +60,7 @@ enum PrivateNetworkGuard {
         guard bytes.count == 4 else { return true }
         let b0 = bytes[0]
         let b1 = bytes[1]
+        let b2 = bytes[2]
         if b0 == 0 { return true }
         if b0 == 10 { return true }
         if b0 == 127 { return true }
@@ -72,6 +68,11 @@ enum PrivateNetworkGuard {
         if b0 == 172, (16 ... 31).contains(b1) { return true }
         if b0 == 192, b1 == 168 { return true }
         if b0 == 100, (64 ... 127).contains(b1) { return true }
+        if b0 == 192, b1 == 0, b2 == 2 { return true }
+        if b0 == 198, (18 ... 19).contains(b1) { return true }
+        if b0 == 198, b1 == 51, b2 == 100 { return true }
+        if b0 == 203, b1 == 0, b2 == 113 { return true }
+        if b0 >= 224 { return true }
         return false
     }
 
@@ -82,6 +83,8 @@ enum PrivateNetworkGuard {
         if bytes == Array(repeating: 0, count: 15) + [1] { return true }
         if bytes[0] == 0xFE, (bytes[1] & 0xC0) == 0x80 { return true }
         if (bytes[0] & 0xFE) == 0xFC { return true }
+        if bytes[0] == 0xFF { return true }
+        if bytes[0] == 0x20, bytes[1] == 0x01, bytes[2] == 0x0D, bytes[3] == 0xB8 { return true }
         if bytes[0 ... 9] == ArraySlice(Array(repeating: UInt8(0), count: 10)),
            bytes[10] == 0xFF, bytes[11] == 0xFF
         {

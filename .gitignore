@@ -26,3 +26,4 @@ appcast*.xml
 /muxy-markdown-remote-image-urlcache
 .opencode/
 .pi/
+.zurp-last-code-review-run.json

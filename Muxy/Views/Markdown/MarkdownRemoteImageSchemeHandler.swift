@@ -28,6 +28,15 @@ private final class WKURLSchemeTaskBox: @unchecked Sendable {
     }
 }
 
+private final class RemoteImageTaskEntry {
+    let box: WKURLSchemeTaskBox
+    var dataTask: URLSessionDataTask?
+
+    init(box: WKURLSchemeTaskBox) {
+        self.box = box
+    }
+}
+
 final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
     nonisolated static let scheme = "muxy-md-remote"
 
@@ -61,11 +70,26 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         return URLSession(configuration: config, delegate: sessionDelegate, delegateQueue: nil)
     }()
 
-    private let activeTasks = NSMapTable<URLSessionDataTask, WKURLSchemeTaskBox>.weakToStrongObjects()
+    private var activeTasks: [ObjectIdentifier: RemoteImageTaskEntry] = [:]
     private let activeTasksLock = NSLock()
+    private let hostResolver: @Sendable (String) -> Bool
+    private let allowsRemoteImages: @Sendable () -> Bool
+
+    init(
+        hostResolver: @escaping @Sendable (String) -> Bool = PrivateNetworkGuard.hostResolvesToPublicAddress,
+        allowsRemoteImages: @escaping @Sendable () -> Bool = { MarkdownPreviewPreferences.allowRemoteImages }
+    ) {
+        self.hostResolver = hostResolver
+        self.allowsRemoteImages = allowsRemoteImages
+        super.init()
+    }
 
     func webView(_: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        guard MarkdownPreviewPreferences.allowRemoteImages else {
+        start(urlSchemeTask)
+    }
+
+    func start(_ urlSchemeTask: WKURLSchemeTask) {
+        guard allowsRemoteImages() else {
             urlSchemeTask.didFailWithError(URLError(.cancelled))
             return
         }
@@ -85,17 +109,22 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
 
+        registerTask(schemeTaskBox)
         Self.resolverQueue.async { [weak self] in
             guard let self else { return }
             let host = remoteURL.host ?? ""
-            let allowed = PrivateNetworkGuard.hostResolvesToPublicAddress(host)
+            let allowed = self.hostResolver(host)
             DispatchQueue.main.async {
-                guard !schemeTaskBox.isStopped else { return }
+                guard !schemeTaskBox.isStopped else {
+                    self.removeTaskMapping(for: schemeTaskBox)
+                    return
+                }
                 if !allowed {
                     remoteImageLogger.debug(
                         "Rejected remote image: private/unresolved host=\(host, privacy: .public)"
                     )
                     self.failTask(schemeTaskBox, error: URLError(.badURL))
+                    self.removeTaskMapping(for: schemeTaskBox)
                     return
                 }
                 self.startFetch(remoteURL: remoteURL, originalURL: url, schemeTaskBox: schemeTaskBox)
@@ -121,8 +150,20 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
             }
         }
         activeTasksLock.lock()
-        activeTasks.setObject(schemeTaskBox, forKey: task)
+        guard let entry = activeTasks[ObjectIdentifier(schemeTaskBox.schemeTask)],
+              entry.box === schemeTaskBox,
+              !schemeTaskBox.isStopped
+        else {
+            activeTasksLock.unlock()
+            task.cancel()
+            return
+        }
+        entry.dataTask = task
         activeTasksLock.unlock()
+        guard !schemeTaskBox.isStopped else {
+            task.cancel()
+            return
+        }
         task.resume()
     }
 
@@ -135,6 +176,19 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         let originalURL: URL
     }
 
+    private struct CacheEntry {
+        var dataURL: URL?
+        var metaURL: URL?
+        var size = 0
+        var modified = Date.distantPast
+        var dataModified: Date?
+
+        var urls: (data: URL, meta: URL)? {
+            guard let dataURL, let metaURL else { return nil }
+            return (dataURL, metaURL)
+        }
+    }
+
     @MainActor
     private func handleFetchResult(_ outcome: FetchOutcome) {
         let schemeTaskBox = outcome.schemeTaskBox
@@ -143,9 +197,7 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         let data = outcome.data
         let response = outcome.response
         let error = outcome.error
-        activeTasksLock.lock()
-        removeTaskMapping(for: schemeTaskBox)
-        activeTasksLock.unlock()
+        defer { removeTaskMapping(for: schemeTaskBox) }
 
         if let error {
             remoteImageLogger.debug(
@@ -180,35 +232,32 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
-        activeTasksLock.lock()
-        let entry = findEntry(for: urlSchemeTask)
-        if let entry {
-            entry.box.markStopped()
-            activeTasks.removeObject(forKey: entry.task)
-        }
-        activeTasksLock.unlock()
-        entry?.task.cancel()
+        stop(urlSchemeTask)
     }
 
-    private func findEntry(for schemeTask: WKURLSchemeTask) -> (task: URLSessionDataTask, box: WKURLSchemeTaskBox)? {
-        let enumerator = activeTasks.keyEnumerator()
-        while let key = enumerator.nextObject() as? URLSessionDataTask {
-            guard let box = activeTasks.object(forKey: key) else { continue }
-            if box.schemeTask === schemeTask {
-                return (key, box)
-            }
+    func stop(_ urlSchemeTask: WKURLSchemeTask) {
+        activeTasksLock.lock()
+        let entry = activeTasks.removeValue(forKey: ObjectIdentifier(urlSchemeTask))
+        if let entry {
+            entry.box.markStopped()
         }
-        return nil
+        activeTasksLock.unlock()
+        entry?.dataTask?.cancel()
+    }
+
+    private func registerTask(_ box: WKURLSchemeTaskBox) {
+        activeTasksLock.lock()
+        activeTasks[ObjectIdentifier(box.schemeTask)] = RemoteImageTaskEntry(box: box)
+        activeTasksLock.unlock()
     }
 
     private func removeTaskMapping(for box: WKURLSchemeTaskBox) {
-        let enumerator = activeTasks.keyEnumerator()
-        while let key = enumerator.nextObject() as? URLSessionDataTask {
-            if activeTasks.object(forKey: key) === box {
-                activeTasks.removeObject(forKey: key)
-                return
-            }
+        activeTasksLock.lock()
+        let id = ObjectIdentifier(box.schemeTask)
+        if activeTasks[id]?.box === box {
+            activeTasks.removeValue(forKey: id)
         }
+        activeTasksLock.unlock()
     }
 
     private func deliver(_ data: Data, mimeType: String, to box: WKURLSchemeTaskBox, originalURL: URL) {
@@ -276,6 +325,10 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
             cacheDirectoryName,
             isDirectory: true
         )
+        return prepareCacheDirectory(directory)
+    }
+
+    nonisolated private static func prepareCacheDirectory(_ directory: URL) -> URL? {
         if !FileManager.default.fileExists(atPath: directory.path) {
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
@@ -289,17 +342,39 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     nonisolated private static func cacheURLs(for url: URL) -> (data: URL, meta: URL)? {
         guard let directory = cacheDirectory() else { return nil }
+        return cacheURLs(for: url, in: directory)
+    }
+
+    nonisolated private static func cacheURLs(for url: URL, in directory: URL) -> (data: URL, meta: URL)? {
+        guard let directory = prepareCacheDirectory(directory) else { return nil }
         let key = cacheKey(for: url)
         return (directory.appendingPathComponent(key + ".bin"), directory.appendingPathComponent(key + ".mime"))
     }
 
     nonisolated static func readCache(for url: URL) -> (data: Data, mimeType: String)? {
         guard let urls = cacheURLs(for: url) else { return nil }
+        return readCache(for: url, urls: urls)
+    }
+
+    nonisolated static func readCache(for url: URL, in directory: URL) -> (data: Data, mimeType: String)? {
+        guard let urls = cacheURLs(for: url, in: directory) else { return nil }
+        return readCache(for: url, urls: urls)
+    }
+
+    nonisolated private static func readCache(
+        for url: URL,
+        urls: (data: URL, meta: URL)
+    ) -> (data: Data, mimeType: String)? {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: urls.data.path),
-              let modified = attrs[.modificationDate] as? Date,
-              Date().timeIntervalSince(modified) < cacheTTLSeconds,
+              let modified = attrs[.modificationDate] as? Date
+        else {
+            removeCacheEntry(urls)
+            return nil
+        }
+        guard Date().timeIntervalSince(modified) < cacheTTLSeconds,
               let data = try? Data(contentsOf: urls.data)
         else {
+            removeCacheEntry(urls)
             return nil
         }
         let mimeType = (try? String(contentsOf: urls.meta, encoding: .utf8))?
@@ -309,13 +384,34 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     nonisolated static func writeCache(data: Data, mimeType: String, for url: URL) {
         guard let urls = cacheURLs(for: url) else { return }
+        writeCache(data: data, mimeType: mimeType, urls: urls, pruneAfterWrite: true)
+    }
+
+    nonisolated static func writeCache(data: Data, mimeType: String, for url: URL, in directory: URL) {
+        guard let urls = cacheURLs(for: url, in: directory) else { return }
+        writeCache(data: data, mimeType: mimeType, urls: urls, pruneAfterWrite: false)
+    }
+
+    nonisolated private static func writeCache(
+        data: Data,
+        mimeType: String,
+        urls: (data: URL, meta: URL),
+        pruneAfterWrite: Bool
+    ) {
         try? data.write(to: urls.data, options: .atomic)
         try? mimeType.write(to: urls.meta, atomically: true, encoding: .utf8)
-        cacheMaintenanceQueue.async { pruneCache(maxBytes: cacheSizeCapBytes) }
+        if pruneAfterWrite {
+            cacheMaintenanceQueue.async { pruneCache(maxBytes: cacheSizeCapBytes) }
+        }
     }
 
     nonisolated static func pruneCache(maxBytes: Int) {
         guard let directory = cacheDirectory() else { return }
+        pruneCache(maxBytes: maxBytes, in: directory)
+    }
+
+    nonisolated static func pruneCache(maxBytes: Int, in directory: URL) {
+        guard let directory = prepareCacheDirectory(directory) else { return }
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(
             at: directory,
@@ -324,14 +420,9 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         )
         else { return }
 
-        struct Entry {
-            let url: URL
-            let size: Int
-            let modified: Date
-        }
-
-        var collected: [Entry] = []
+        var collected: [String: CacheEntry] = [:]
         var total = 0
+        var unknownEntries: [(url: URL, size: Int)] = []
         for fileURL in entries {
             guard let values = try? fileURL.resourceValues(
                 forKeys: [.fileSizeKey, .contentModificationDateKey]
@@ -339,16 +430,63 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
                 let size = values.fileSize,
                 let modified = values.contentModificationDate
             else { continue }
-            collected.append(Entry(url: fileURL, size: size, modified: modified))
+            let ext = fileURL.pathExtension
+            if ext != "bin", ext != "mime" {
+                unknownEntries.append((fileURL, size))
+                total += size
+                continue
+            }
+            let key = fileURL.deletingPathExtension().lastPathComponent
+            var entry = collected[key] ?? CacheEntry()
+            if ext == "bin" {
+                entry.dataURL = fileURL
+                entry.dataModified = modified
+            } else {
+                entry.metaURL = fileURL
+            }
+            entry.size += size
+            entry.modified = max(entry.modified, modified)
+            collected[key] = entry
             total += size
         }
 
-        guard total > maxBytes else { return }
-        let sorted = collected.sorted { $0.modified < $1.modified }
-        for entry in sorted {
-            if total <= maxBytes { break }
+        for entry in unknownEntries {
             try? fm.removeItem(at: entry.url)
             total -= entry.size
+        }
+
+        let now = Date()
+        var remaining: [CacheEntry] = []
+        for entry in collected.values {
+            let expired = entry.dataModified.map { now.timeIntervalSince($0) >= cacheTTLSeconds } ?? true
+            if expired || entry.urls == nil {
+                removeCacheEntry(entry)
+                total -= entry.size
+            } else {
+                remaining.append(entry)
+            }
+        }
+
+        guard total > maxBytes else { return }
+        let sorted = remaining.sorted { $0.modified < $1.modified }
+        for entry in sorted {
+            if total <= maxBytes { break }
+            removeCacheEntry(entry)
+            total -= entry.size
+        }
+    }
+
+    nonisolated private static func removeCacheEntry(_ urls: (data: URL, meta: URL)) {
+        try? FileManager.default.removeItem(at: urls.data)
+        try? FileManager.default.removeItem(at: urls.meta)
+    }
+
+    nonisolated private static func removeCacheEntry(_ entry: CacheEntry) {
+        if let dataURL = entry.dataURL {
+            try? FileManager.default.removeItem(at: dataURL)
+        }
+        if let metaURL = entry.metaURL {
+            try? FileManager.default.removeItem(at: metaURL)
         }
     }
 
