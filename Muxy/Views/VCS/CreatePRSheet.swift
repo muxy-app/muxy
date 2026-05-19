@@ -453,10 +453,6 @@ struct CreatePRForm: View {
                 ?? availableBaseBranches.first
                 ?? ""
         }
-        if !draft.didApplyDefaults {
-            draft.includeAll = true
-            draft.didApplyDefaults = true
-        }
         titleFocused = true
     }
 

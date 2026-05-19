@@ -159,10 +159,6 @@ struct VCSTabView: View {
                 onCancel: { showCreateBranchSheet = false }
             )
         }
-        .onChange(of: state.pullRequestInfo?.number) { _, number in
-            guard number != nil, state.showInlinePRForm else { return }
-            state.showInlinePRForm = false
-        }
     }
 
     private func requestOpenPR() {
@@ -481,8 +477,7 @@ struct VCSTabView: View {
             },
             onCancel: {
                 state.openPullRequestError = nil
-                state.showInlinePRForm = false
-                state.prFormDraft = VCSTabState.PRFormDraft()
+                state.resetPRForm()
             },
             onGenerateAI: { base in
                 let path = state.projectPath

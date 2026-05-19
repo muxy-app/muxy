@@ -64,7 +64,6 @@ final class VCSTabState {
         var includeAll: Bool = true
         var draft: Bool = false
         var advanced: Bool = false
-        var didApplyDefaults: Bool = false
         var initialCurrentBranch: String?
     }
 
@@ -995,6 +994,11 @@ final class VCSTabState {
         }
     }
 
+    func resetPRForm() {
+        prFormDraft = PRFormDraft()
+        showInlinePRForm = false
+    }
+
     func openPullRequest(_ request: PRCreateRequest) {
         let trimmedTitle = request.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBase = request.baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1065,8 +1069,7 @@ final class VCSTabState {
 
         pullRequestInfo = info
         commits = []
-        prFormDraft = PRFormDraft()
-        showInlinePRForm = false
+        resetPRForm()
         ToastState.shared.show("Pull request #\(info.number) opened")
         loadBranches()
         performRefresh(incremental: false)
