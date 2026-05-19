@@ -56,9 +56,11 @@ enum AIUsageTokenReader {
             return nil
         }
 
+        let watcher = ProcessTimeoutWatcher.install(on: process, timeout: 5)
         let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
         _ = stderr.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        watcher.cancel()
 
         guard process.terminationStatus == 0,
               let output = String(data: outputData, encoding: .utf8)

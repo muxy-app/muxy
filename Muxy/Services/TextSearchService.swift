@@ -157,6 +157,7 @@ actor SearchCoordinator {
 
         do {
             try process.run()
+            ProcessTimeoutWatcher.install(on: process, timeout: 30)
             stdinPipe.fileHandleForWriting.write(patternData)
             try? stdinPipe.fileHandleForWriting.close()
         } catch {

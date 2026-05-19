@@ -78,6 +78,7 @@ enum FileSearchService {
 
             do {
                 try process.run()
+                ProcessTimeoutWatcher.install(on: process, timeout: 30)
             } catch {
                 handle.readabilityHandler = nil
                 continuation.resume(returning: [])

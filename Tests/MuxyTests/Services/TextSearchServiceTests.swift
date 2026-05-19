@@ -76,21 +76,36 @@ struct TextSearchServiceTests {
 
     @Test("starting a new search cancels the in-flight one")
     func newSearchCancelsPrevious() async throws {
-        guard TextSearchService.ripgrepExecutableURL() != nil else { return }
         let directory = try makeSearchFixture()
         defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = try makeFakeRipgrep()
+        defer { try? FileManager.default.removeItem(at: executable.deletingLastPathComponent()) }
 
         let coordinator = SearchCoordinator()
-        async let first = TextSearchService.search(
-            query: "foo123bar", in: directory.path, coordinator: coordinator
+        let firstPattern = Data("slow".utf8)
+        let secondPattern = Data("안녕".utf8)
+        let first = Task {
+            await coordinator.run(
+                executable: executable,
+                patternData: firstPattern,
+                patternByteLength: firstPattern.count,
+                projectPath: directory.path,
+                options: TextSearchOptions()
+            )
+        }
+        try await Task.sleep(for: .milliseconds(50))
+
+        let secondResults = await coordinator.run(
+            executable: executable,
+            patternData: secondPattern,
+            patternByteLength: secondPattern.count,
+            projectPath: directory.path,
+            options: TextSearchOptions()
         )
-        async let second = TextSearchService.search(
-            query: "안녕", in: directory.path, coordinator: coordinator
-        )
-        let (firstResults, secondResults) = await (first, second)
+        let firstResults = await first.value
 
         #expect(secondResults.contains { $0.lineText == "안녕하세요" })
-        #expect(firstResults.isEmpty || firstResults.contains { $0.lineText == "foo123bar" })
+        #expect(firstResults.isEmpty)
     }
 
     private func makeSearchFixture() throws -> URL {
@@ -103,5 +118,28 @@ struct TextSearchServiceTests {
         foo123bar
         """.write(to: file, atomically: true, encoding: .utf8)
         return directory
+    }
+
+    private func makeFakeRipgrep() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-fake-rg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let executable = directory.appendingPathComponent("rg")
+        try """
+        #!/bin/sh
+        project=""
+        for arg in "$@"; do
+          project="$arg"
+        done
+        pattern="$(cat)"
+        if [ "$pattern" = "slow" ]; then
+          sleep 2
+          printf "%s/test.md:2:1:foo123bar\\n" "$project"
+        else
+          printf "%s/test.md:1:1:안녕하세요\\n" "$project"
+        fi
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        return executable
     }
 }

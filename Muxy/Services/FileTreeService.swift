@@ -108,6 +108,7 @@ enum FileTreeService {
         } catch {
             return []
         }
+        let watcher = ProcessTimeoutWatcher.install(on: process, timeout: 5)
 
         var payload = Data()
         for name in candidates {
@@ -122,6 +123,7 @@ enum FileTreeService {
         let outData = (try? stdoutPipe.fileHandleForReading.readToEnd()) ?? Data()
         _ = try? stderrPipe.fileHandleForReading.readToEnd()
         process.waitUntilExit()
+        watcher.cancel()
 
         var result: Set<String> = []
         var current = Data()

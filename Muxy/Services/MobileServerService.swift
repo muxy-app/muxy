@@ -221,10 +221,12 @@ final class MobileServerService {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             return []
         }
+        let watcher = ProcessTimeoutWatcher.install(on: process, timeout: 5)
+        process.waitUntilExit()
+        watcher.cancel()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         guard let output = String(data: data, encoding: .utf8) else { return [] }
         return output

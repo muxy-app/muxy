@@ -10,6 +10,52 @@ struct GitProcessResult {
 
 enum GitProcessError: Error {
     case launchFailed(String)
+    case timedOut(TimeInterval)
+}
+
+enum GitCommandClass {
+    case fastMetadata
+    case statusDiff
+    case network
+
+    var defaultTimeout: TimeInterval {
+        switch self {
+        case .fastMetadata: 5
+        case .statusDiff: 20
+        case .network: 60
+        }
+    }
+
+    static func classifyGit(arguments: [String]) -> GitCommandClass {
+        guard let command = primarySubcommand(in: arguments) else { return .statusDiff }
+        if ["fetch", "pull", "push", "ls-remote", "clone", "submodule"].contains(command) {
+            return .network
+        }
+        if ["rev-parse", "branch", "config", "symbolic-ref", "merge-base", "remote", "tag", "worktree"].contains(command) {
+            return .fastMetadata
+        }
+        if ["status", "diff", "log", "show", "rev-list"].contains(command) {
+            return .statusDiff
+        }
+        return .statusDiff
+    }
+
+    private static func primarySubcommand(in arguments: [String]) -> String? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if ["-c", "-C", "--git-dir", "--work-tree", "--namespace"].contains(argument) {
+                index += 2
+                continue
+            }
+            if argument.hasPrefix("-") {
+                index += 1
+                continue
+            }
+            return argument
+        }
+        return nil
+    }
 }
 
 enum GitProcessRunner {
@@ -49,13 +95,15 @@ enum GitProcessRunner {
         let arguments: [String]
         let workingDirectory: String?
         let lineLimit: Int?
+        let timeout: TimeInterval?
         let signpostName: StaticString
     }
 
     static func runGit(
         repoPath: String,
         arguments: [String],
-        lineLimit: Int? = nil
+        lineLimit: Int? = nil,
+        timeout: TimeInterval? = nil
     ) async throws -> GitProcessResult {
         try await runProcess(
             ProcessSpec(
@@ -63,8 +111,23 @@ enum GitProcessRunner {
                 arguments: ["git"] + gitHubCredentialHelperArgs() + ["-C", repoPath] + arguments,
                 workingDirectory: nil,
                 lineLimit: lineLimit,
+                timeout: timeout ?? GitCommandClass.classifyGit(arguments: arguments).defaultTimeout,
                 signpostName: "git"
             )
+        )
+    }
+
+    static func runGit(
+        repoPath: String,
+        arguments: [String],
+        commandClass: GitCommandClass,
+        lineLimit: Int? = nil
+    ) async throws -> GitProcessResult {
+        try await runGit(
+            repoPath: repoPath,
+            arguments: arguments,
+            lineLimit: lineLimit,
+            timeout: commandClass.defaultTimeout
         )
     }
 
@@ -79,7 +142,8 @@ enum GitProcessRunner {
     static func runCommand(
         executable: String,
         arguments: [String],
-        workingDirectory: String
+        workingDirectory: String,
+        timeout: TimeInterval? = nil
     ) async throws -> GitProcessResult {
         try await runProcess(
             ProcessSpec(
@@ -87,9 +151,14 @@ enum GitProcessRunner {
                 arguments: arguments,
                 workingDirectory: workingDirectory,
                 lineLimit: nil,
+                timeout: timeout ?? defaultCommandTimeout(executable: executable),
                 signpostName: "command"
             )
         )
+    }
+
+    private static func defaultCommandTimeout(executable: String) -> TimeInterval? {
+        URL(fileURLWithPath: executable).lastPathComponent == "gh" ? GitCommandClass.network.defaultTimeout : nil
     }
 
     private static func runProcess(_ spec: ProcessSpec) async throws -> GitProcessResult {
@@ -180,6 +249,17 @@ enum GitProcessRunner {
         }
         defer { handle.detach() }
 
+        let timeoutFiredBox = TimeoutFlag()
+        let timeoutWatcher: DispatchWorkItem? = if let timeout = spec.timeout {
+            ProcessTimeoutWatcher.install(on: process, timeout: timeout) { [timeoutFiredBox, spec] in
+                timeoutFiredBox.fire()
+                GitSignpost.event(spec.signpostName, "timeout")
+            }
+        } else {
+            nil
+        }
+        defer { timeoutWatcher?.cancel() }
+
         let stderrCollector = AsyncDataCollector()
         stderrCollector.start(reading: stderrPipe.fileHandleForReading, on: stderrDrainQueue)
 
@@ -199,6 +279,10 @@ enum GitProcessRunner {
 
         process.waitUntilExit()
         let stderrData = stderrCollector.wait()
+
+        if timeoutFiredBox.didFire, let timeout = spec.timeout {
+            throw GitProcessError.timedOut(timeout)
+        }
 
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
@@ -248,6 +332,23 @@ enum GitProcessRunner {
                 return collected
             }
         }
+    }
+}
+
+private final class TimeoutFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var fired = false
+
+    func fire() {
+        lock.lock()
+        fired = true
+        lock.unlock()
+    }
+
+    var didFire: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return fired
     }
 }
 
