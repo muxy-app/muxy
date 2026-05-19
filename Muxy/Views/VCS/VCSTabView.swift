@@ -935,6 +935,9 @@ struct PRPill: View {
                 },
                 onRefresh: {
                     state.refreshPullRequest()
+                },
+                onUpdateBranch: {
+                    state.updatePullRequestBranch()
                 }
             )
         }
@@ -1008,6 +1011,7 @@ struct PRPopover: View {
     let onClose: () -> Void
     let onOpenInBrowser: () -> Void
     let onRefresh: () -> Void
+    let onUpdateBranch: () -> Void
 
     @State private var mergeMethod: GitRepositoryService.PRMergeMethod = .squash
 
@@ -1075,6 +1079,30 @@ struct PRPopover: View {
             .buttonStyle(.plain)
 
             if info.state == .open {
+                if info.mergeStateStatus == .behind {
+                    Button(action: onUpdateBranch) {
+                        HStack(spacing: UIMetrics.spacing3) {
+                            if state.isUpdatingPullRequestBranch {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "arrow.down.circle")
+                                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                            }
+                            Text(state.isUpdatingPullRequestBranch ? "Updating…" : "Update branch")
+                                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(MuxyTheme.fg)
+                        .padding(.horizontal, UIMetrics.spacing4)
+                        .padding(.vertical, UIMetrics.spacing3)
+                        .frame(maxWidth: .infinity)
+                        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(state.isUpdatingPullRequestBranch)
+                    .help("Merge \(info.baseBranch) into this branch")
+                }
+
                 SegmentedPicker(
                     selection: $mergeMethod,
                     options: GitRepositoryService.PRMergeMethod.allCases.map { ($0, $0.shortLabel) }

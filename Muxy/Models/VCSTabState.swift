@@ -83,6 +83,7 @@ final class VCSTabState {
     var isMergingPullRequest = false
     var isClosingPullRequest = false
     var isRefreshingPullRequest = false
+    var isUpdatingPullRequestBranch = false
     var hasFetchedPullRequestInfo = false
     private(set) var isGitRepo = false
     private(set) var remoteWebURL: URL?
@@ -1139,6 +1140,24 @@ final class VCSTabState {
                 pullRequestInfo = nil
                 ToastState.shared.show("Closed PR #\(info.number)")
                 onSuccess()
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
+    func updatePullRequestBranch() {
+        guard let info = pullRequestInfo, !isUpdatingPullRequestBranch else { return }
+        isUpdatingPullRequestBranch = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isUpdatingPullRequestBranch = false }
+            do {
+                try await git.mergeBaseIntoCurrentBranch(repoPath: projectPath, baseBranch: info.baseBranch)
+                guard !Task.isCancelled else { return }
+                ToastState.shared.show("Updated branch with \(info.baseBranch)")
+                refreshPullRequest()
             } catch {
                 guard !Task.isCancelled else { return }
                 showStatus(errorText(error), isError: true)
