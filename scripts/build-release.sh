@@ -61,16 +61,36 @@ if [[ "$AUTO_SIGN" == "true" && -n "$SIGN_IDENTITY" ]]; then
     exit 1
 fi
 
+find_signing_identity() {
+    local certificate_prefix="$1"
+
+    security find-identity -v -p codesigning | awk -v prefix="$certificate_prefix" '
+        index($0, "\"" prefix) && hash == "" {
+            hash = $2
+            name = $0
+            sub(/^[^"]*"/, "", name)
+            sub(/".*$/, "", name)
+        }
+        END {
+            if (hash != "") {
+                print hash "\t" name
+            }
+        }
+    '
+}
+
 if [[ "$AUTO_SIGN" == "true" ]]; then
-    SIGN_IDENTITY=$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development:/ {print $2; exit}')
-    if [[ -z "$SIGN_IDENTITY" ]]; then
-        SIGN_IDENTITY=$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application:/ {print $2; exit}')
+    SELECTED_IDENTITY=$(find_signing_identity "Apple Development:")
+    if [[ -z "$SELECTED_IDENTITY" ]]; then
+        SELECTED_IDENTITY=$(find_signing_identity "Developer ID Application:")
     fi
-    if [[ -z "$SIGN_IDENTITY" ]]; then
+    if [[ -z "$SELECTED_IDENTITY" ]]; then
         echo "Error: --sign requires an 'Apple Development' or 'Developer ID Application' identity in the keychain"
         exit 1
     fi
-    echo "==> Auto-selected signing identity: $SIGN_IDENTITY"
+    SIGN_IDENTITY="${SELECTED_IDENTITY%%$'\t'*}"
+    SIGN_IDENTITY_LABEL="${SELECTED_IDENTITY#*$'\t'}"
+    echo "==> Auto-selected signing identity: $SIGN_IDENTITY_LABEL ($SIGN_IDENTITY)"
 fi
 
 if [[ "$ARCH" != "arm64" && "$ARCH" != "x86_64" ]]; then
@@ -187,16 +207,22 @@ fi
 
 echo "==> Creating DMG"
 if ! command -v create-dmg &> /dev/null; then
-    echo "Error: create-dmg not found. Install with: npm install --global create-dmg"
+    echo "Error: create-dmg not found. Install with: pnpm add --global create-dmg"
     exit 1
 fi
 
 cd "$BUILD_DIR"
-create-dmg "$APP_BUNDLE" "$BUILD_DIR" || true
+rm -f "$BUILD_DIR/$DMG_NAME"
+create-dmg "$APP_BUNDLE" "$BUILD_DIR"
 
 GENERATED_DMG=$(find "$BUILD_DIR" -maxdepth 1 -name "Muxy*.dmg" -not -name "$DMG_NAME" | head -1)
 if [[ -n "$GENERATED_DMG" ]]; then
     mv "$GENERATED_DMG" "$BUILD_DIR/$DMG_NAME"
+fi
+
+if [[ ! -f "$BUILD_DIR/$DMG_NAME" ]]; then
+    echo "Error: expected DMG was not created at $BUILD_DIR/$DMG_NAME"
+    exit 1
 fi
 
 if [[ -n "$SIGN_IDENTITY" && -f "$BUILD_DIR/$DMG_NAME" ]]; then
