@@ -605,6 +605,16 @@ final class GhosttyTerminalNSView: NSView {
         let pt = mousePoint(from: event)
         ghostty_surface_mouse_pos(surface, pt.x, pt.y, modsFromEvent(event))
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        autoCopySelectionIfEnabled()
+    }
+
+    private func autoCopySelectionIfEnabled() {
+        guard UserDefaults.standard.bool(forKey: GeneralSettingsKeys.autoCopyTerminalSelection) else { return }
+        guard let selection = readSelectionText(), !selection.isEmpty else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(selection, forType: .string)
+        ToastState.shared.show("Copied")
     }
 
     override func mouseDragged(with event: NSEvent) {
