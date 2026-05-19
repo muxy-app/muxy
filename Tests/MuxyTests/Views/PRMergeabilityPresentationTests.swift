@@ -23,7 +23,7 @@ struct PRMergeabilityPresentationTests {
         )))
 
         #expect(presentation.text == "Yes (checks failing)")
-        #expect(presentation.tone == .positive)
+        #expect(presentation.tone == .warning)
     }
 
     @Test("unknown merge state falls back to mergeable value")
