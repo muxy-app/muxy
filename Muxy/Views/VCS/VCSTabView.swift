@@ -112,7 +112,9 @@ struct VCSTabView: View {
                     state: state,
                     onRequestCreate: { requestOpenPR() },
                     onRequestMerge: { prInfo, method in performMerge(prInfo: prInfo, method: method) },
-                    onRequestClose: { prInfo in pendingClosePR = prInfo }
+                    onRequestClose: { prInfo in pendingClosePR = prInfo },
+                    onRequestCleanup: { prInfo in presentManualCleanupConfirmation(prInfo: prInfo) },
+                    canCleanup: state.branchName != nil
                 )
             }
             .padding(.leading, UIMetrics.spacing4)
@@ -258,6 +260,67 @@ struct VCSTabView: View {
         }
     }
 
+    private func performManualCleanup(prInfo: GitRepositoryService.PRInfo) {
+        guard let mergedBranch = state.branchName, !mergedBranch.isEmpty else { return }
+        let project = owningProject
+        let worktree = activeWorktreeForTab
+        let defaultBranch = state.defaultBranch
+        let baseBranch = prInfo.baseBranch
+        Task { @MainActor in
+            await cleanupAfterMerge(
+                mergedBranch: mergedBranch,
+                project: project,
+                worktree: worktree,
+                defaultBranch: defaultBranch,
+                baseBranch: baseBranch
+            )
+            ToastState.shared.show("Cleaned up PR #\(prInfo.number)")
+        }
+    }
+
+    private func presentManualCleanupConfirmation(prInfo: GitRepositoryService.PRInfo) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else { return }
+
+        let worktree = activeWorktreeForTab
+        let isWorktreeCleanup = worktree.map(\.canBeRemoved) ?? false
+        let branch = state.branchName ?? ""
+        let hasChanges = state.hasAnyChanges
+
+        let messageText = "Clean up after PR #\(prInfo.number)?"
+        let worktreeWarning = """
+        This will remove the worktree and delete branch "\(branch)". \
+        Uncommitted changes in this worktree will be lost permanently.
+        """
+        let branchWarning = """
+        This will switch to the default branch and delete branch "\(branch)". \
+        Uncommitted changes on this branch will no longer belong to any branch.
+        """
+        let worktreeClean = "This will remove the worktree and delete branch \"\(branch)\"."
+        let branchClean = "This will switch to the default branch and delete branch \"\(branch)\"."
+        let informativeText: String = if isWorktreeCleanup {
+            hasChanges ? worktreeWarning : worktreeClean
+        } else {
+            hasChanges ? branchWarning : branchClean
+        }
+
+        let alert = NSAlert()
+        alert.messageText = messageText
+        alert.informativeText = informativeText
+        alert.alertStyle = hasChanges ? .critical : .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Clean Up")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.keyEquivalent = ""
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            performManualCleanup(prInfo: prInfo)
+        }
+    }
+
     private func presentDirtyMergeConfirmation(prInfo: GitRepositoryService.PRInfo, method: GitRepositoryService.PRMergeMethod) {
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
               window.attachedSheet == nil
@@ -312,8 +375,15 @@ struct VCSTabView: View {
         if let defaultBranch, defaultBranch != mergedBranch {
             await state.switchBranchAndRefresh(defaultBranch)
         }
+        let repoPath = state.projectPath
+        let branchToDelete = mergedBranch
+        if !branchToDelete.isEmpty, branchToDelete != defaultBranch {
+            try? await GitWorktreeService.shared.deleteBranch(repoPath: repoPath, branch: branchToDelete)
+            try? await GitRepositoryService().deleteRemoteBranch(repoPath: repoPath, branch: branchToDelete)
+            state.loadBranches()
+        }
         let pulled = await Self.fastForwardAfterMerge(
-            repoPath: state.projectPath,
+            repoPath: repoPath,
             defaultBranch: defaultBranch,
             baseBranch: baseBranch
         )
@@ -837,6 +907,8 @@ struct PRPill: View {
     let onRequestCreate: () -> Void
     let onRequestMerge: (GitRepositoryService.PRInfo, GitRepositoryService.PRMergeMethod) -> Void
     let onRequestClose: (GitRepositoryService.PRInfo) -> Void
+    let onRequestCleanup: (GitRepositoryService.PRInfo) -> Void
+    let canCleanup: Bool
 
     @State private var showPRPopover = false
 
@@ -914,6 +986,7 @@ struct PRPill: View {
             PRPopover(
                 state: state,
                 info: info,
+                canCleanup: canCleanup,
                 onMerge: { method in
                     let needsConfirmation = state.hasAnyChanges
                         || info.checks.status == .failure
@@ -926,6 +999,10 @@ struct PRPill: View {
                 onClose: {
                     showPRPopover = false
                     onRequestClose(info)
+                },
+                onCleanup: {
+                    showPRPopover = false
+                    onRequestCleanup(info)
                 },
                 onOpenInBrowser: {
                     showPRPopover = false
@@ -1004,8 +1081,10 @@ struct PRPill: View {
 struct PRPopover: View {
     @Bindable var state: VCSTabState
     let info: GitRepositoryService.PRInfo
+    let canCleanup: Bool
     let onMerge: (GitRepositoryService.PRMergeMethod) -> Void
     let onClose: () -> Void
+    let onCleanup: () -> Void
     let onOpenInBrowser: () -> Void
     let onRefresh: () -> Void
 
@@ -1073,6 +1152,25 @@ struct PRPopover: View {
                 .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             }
             .buttonStyle(.plain)
+
+            if info.state == .merged, canCleanup {
+                Button(action: onCleanup) {
+                    HStack(spacing: UIMetrics.spacing3) {
+                        Image(systemName: "trash")
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .bold))
+                        Text("Cleanup")
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(MuxyTheme.bg)
+                    .padding(.horizontal, UIMetrics.spacing4)
+                    .padding(.vertical, UIMetrics.spacing3)
+                    .frame(maxWidth: .infinity)
+                    .background(MuxyTheme.accent, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                }
+                .buttonStyle(.plain)
+                .help("Remove the worktree or delete the local branch for this merged PR")
+            }
 
             if info.state == .open {
                 SegmentedPicker(
