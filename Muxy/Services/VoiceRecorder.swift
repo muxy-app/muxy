@@ -215,7 +215,6 @@ final class VoiceRecorder {
         request: SFSpeechAudioBufferRecognitionRequest,
         sink: LevelSink
     ) {
-        let format = inputNode.outputFormat(forBus: 0)
         inputNode.removeTap(onBus: 0)
         let requestBox = UncheckedBox(request)
         let block: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
@@ -223,7 +222,7 @@ final class VoiceRecorder {
             let normalized = normalize(power: averagePower(in: buffer))
             sink.publish(normalized)
         }
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: block)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil, block: block)
     }
 
     nonisolated static func normalize(power db: Float) -> Float {
