@@ -220,8 +220,6 @@ private struct WorktreePopoverRow: View {
                 Button("Remove", role: .destructive, action: onRemove)
             } else {
                 Button("Rename") { startRename() }
-                Divider()
-                Text("External worktree").font(.system(size: UIMetrics.fontFootnote))
             }
         }
     }

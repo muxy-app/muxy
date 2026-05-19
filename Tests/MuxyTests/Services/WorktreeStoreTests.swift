@@ -391,8 +391,8 @@ struct WorktreeStoreTests {
         #expect(VCSStateStore.shared.cachedState(for: removable.path) == nil)
     }
 
-    @Test("remove does not delete externally managed worktrees")
-    func removeDoesNotDeleteExternalWorktree() {
+    @Test("remove deletes externally managed worktrees")
+    func removeDeletesExternalWorktree() {
         let project = Project(name: "Repo", path: "/tmp/repo")
         let external = Worktree(
             name: "feature-b",
@@ -417,8 +417,8 @@ struct WorktreeStoreTests {
 
         store.remove(worktreeID: external.id, from: project.id)
 
-        #expect(store.list(for: project.id).contains(external))
-        #expect(external.canBeRemoved == false)
+        #expect(!store.list(for: project.id).contains(external))
+        #expect(external.canBeRemoved)
     }
 
     @Test("WorktreeDTO preserves removal capability")
@@ -440,7 +440,7 @@ struct WorktreeStoreTests {
         )
 
         #expect(primary.toDTO().canBeRemoved == false)
-        #expect(external.toDTO().canBeRemoved == false)
+        #expect(external.toDTO().canBeRemoved)
         #expect(managed.toDTO().canBeRemoved)
     }
 }
