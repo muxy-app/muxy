@@ -12,7 +12,6 @@ struct VCSTabView: View {
     @State private var pendingDiscardPath: String?
     @State private var showCreateWorktreeSheet = false
     @State private var showCreateBranchSheet = false
-    @State private var showInlinePRForm = false
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
     private var commitEnabled: Bool {
@@ -161,15 +160,15 @@ struct VCSTabView: View {
             )
         }
         .onChange(of: state.pullRequestInfo?.number) { _, number in
-            guard number != nil, showInlinePRForm else { return }
-            showInlinePRForm = false
+            guard number != nil, state.showInlinePRForm else { return }
+            state.showInlinePRForm = false
         }
     }
 
     private func requestOpenPR() {
         state.openPullRequestError = nil
         state.loadBranches()
-        showInlinePRForm = true
+        state.showInlinePRForm = true
     }
 
     @ViewBuilder
@@ -434,7 +433,7 @@ struct VCSTabView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 0) {
-                if showInlinePRForm {
+                if state.showInlinePRForm {
                     createPRForm
                 } else {
                     commitArea
@@ -465,6 +464,7 @@ struct VCSTabView: View {
             ),
             inProgress: state.isOpeningPullRequest,
             errorMessage: state.openPullRequestError,
+            draft: $state.prFormDraft,
             onLoadRemoteBranches: { state.loadRemoteBranches() },
             onSubmit: { base, title, body, branchStrategy, includeMode, draft in
                 ToastState.shared.show("Creating pull request…")
@@ -481,7 +481,8 @@ struct VCSTabView: View {
             },
             onCancel: {
                 state.openPullRequestError = nil
-                showInlinePRForm = false
+                state.showInlinePRForm = false
+                state.prFormDraft = VCSTabState.PRFormDraft()
             },
             onGenerateAI: { base in
                 let path = state.projectPath

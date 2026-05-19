@@ -55,6 +55,19 @@ final class VCSTabState {
         let draft: Bool
     }
 
+    struct PRFormDraft: Equatable {
+        var title: String = ""
+        var body: String = ""
+        var baseBranch: String = ""
+        var newBranchName: String = ""
+        var userEditedBranchName: Bool = false
+        var includeAll: Bool = true
+        var draft: Bool = false
+        var advanced: Bool = false
+        var didApplyDefaults: Bool = false
+        var initialCurrentBranch: String?
+    }
+
     let projectPath: String
     var files: [GitStatusFile] = []
     var mode: ViewMode = .unified
@@ -88,6 +101,8 @@ final class VCSTabState {
     private(set) var remoteWebURL: URL?
 
     var commitMessage = ""
+    var prFormDraft = PRFormDraft()
+    var showInlinePRForm = false
     var branches: [String] = []
     var isCommitting = false
     var isPushing = false
@@ -1050,6 +1065,8 @@ final class VCSTabState {
 
         pullRequestInfo = info
         commits = []
+        prFormDraft = PRFormDraft()
+        showInlinePRForm = false
         ToastState.shared.show("Pull request #\(info.number) opened")
         loadBranches()
         performRefresh(incremental: false)
