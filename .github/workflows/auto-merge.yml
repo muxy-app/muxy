@@ -45,6 +45,7 @@ jobs:
         if: steps.prs.outputs.numbers != '[]'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_BRANCH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
           PR_NUMBERS: ${{ steps.prs.outputs.numbers }}
         run: |
@@ -98,7 +99,7 @@ jobs:
 
             if [ "$mergeable_state" = "behind" ]; then
               echo "Branch is behind $base_ref; updating."
-              gh api -X PUT "repos/$REPO/pulls/$pr/update-branch" \
+              GH_TOKEN="$UPDATE_BRANCH_TOKEN" gh api -X PUT "repos/$REPO/pulls/$pr/update-branch" \
                 -f expected_head_sha="$head_sha" || echo "Update-branch call failed; will retry on next event."
               echo "::endgroup::"
               continue
