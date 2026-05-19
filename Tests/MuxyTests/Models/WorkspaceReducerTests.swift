@@ -178,6 +178,27 @@ struct WorkspaceReducerTests {
         #expect(area?.activeTab?.kind == .vcs)
     }
 
+    @Test("createVCSTab focuses existing VCS tab instead of adding a duplicate")
+    func createVCSTabReusesExisting() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+
+        let action = AppState.Action.createVCSTab(projectID: projectID, areaID: nil)
+        _ = WorkspaceReducer.reduce(action: action, state: &state)
+        let firstArea = focusedArea(in: state, projectID: projectID)
+        let firstTabID = firstArea?.activeTabID
+
+        firstArea?.createTab()
+        #expect(firstArea?.activeTab?.kind == .terminal)
+
+        _ = WorkspaceReducer.reduce(action: action, state: &state)
+
+        let area = focusedArea(in: state, projectID: projectID)
+        #expect(area?.tabs.filter { $0.kind == .vcs }.count == 1)
+        #expect(area?.activeTabID == firstTabID)
+    }
+
     @Test("createEditorTab adds editor tab")
     func createEditorTab() {
         let projectID = UUID()
