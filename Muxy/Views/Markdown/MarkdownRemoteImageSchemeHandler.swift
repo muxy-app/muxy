@@ -29,20 +29,36 @@ private final class WKURLSchemeTaskBox: @unchecked Sendable {
 }
 
 final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
-    static let scheme = "muxy-md-remote"
+    nonisolated static let scheme = "muxy-md-remote"
 
-    private static let maxImageBytes: Int = 50 * 1024 * 1024
-    private static let cacheDirectoryName = "MarkdownImageCache"
-    private static let allowedMIMEPrefixes: [String] = ["image/"]
-    private static let userAgent = "Muxy/1.0 (Markdown Preview)"
+    nonisolated static let maxImageBytes: Int = 50 * 1024 * 1024
+    nonisolated static let cacheDirectoryName = "MarkdownImageCache"
+    nonisolated static let cacheTTLSeconds: TimeInterval = 7 * 24 * 60 * 60
+    nonisolated static let cacheSizeCapBytes: Int = 50 * 1024 * 1024
+    nonisolated static let responseCacheMaxAgeSeconds: Int = 7 * 24 * 60 * 60
+    nonisolated static let allowedMIMEPrefixes: [String] = ["image/"]
+    nonisolated static let userAgent = "Muxy/1.0 (Markdown Preview)"
 
-    private static let urlSession: URLSession = {
+    nonisolated static let resolverQueue = DispatchQueue(
+        label: "app.muxy.markdown-image-resolver",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
+    nonisolated static let cacheMaintenanceQueue = DispatchQueue(
+        label: "app.muxy.markdown-image-cache",
+        qos: .utility
+    )
+
+    nonisolated private static let sessionDelegate = SchemeHandlerSessionDelegate()
+
+    nonisolated static let urlSession: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
         config.timeoutIntervalForResource = 60
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.urlCache = nil
-        return URLSession(configuration: config)
+        return URLSession(configuration: config, delegate: sessionDelegate, delegateQueue: nil)
     }()
 
     private let activeTasks = NSMapTable<URLSessionDataTask, WKURLSchemeTaskBox>.weakToStrongObjects()
@@ -69,6 +85,25 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
 
+        Self.resolverQueue.async { [weak self] in
+            guard let self else { return }
+            let host = remoteURL.host ?? ""
+            let allowed = PrivateNetworkGuard.hostResolvesToPublicAddress(host)
+            DispatchQueue.main.async {
+                guard !schemeTaskBox.isStopped else { return }
+                if !allowed {
+                    remoteImageLogger.debug(
+                        "Rejected remote image: private/unresolved host=\(host, privacy: .public)"
+                    )
+                    self.failTask(schemeTaskBox, error: URLError(.badURL))
+                    return
+                }
+                self.startFetch(remoteURL: remoteURL, originalURL: url, schemeTaskBox: schemeTaskBox)
+            }
+        }
+    }
+
+    private func startFetch(remoteURL: URL, originalURL: URL, schemeTaskBox: WKURLSchemeTaskBox) {
         var request = URLRequest(url: remoteURL)
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         let task = Self.urlSession.dataTask(with: request) { [weak self] data, response, error in
@@ -79,7 +114,7 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
                 error: error,
                 schemeTaskBox: schemeTaskBox,
                 remoteURL: remoteURL,
-                originalURL: url
+                originalURL: originalURL
             )
             DispatchQueue.main.async {
                 self.handleFetchResult(outcome)
@@ -185,7 +220,7 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
             headerFields: [
                 "Content-Type": mimeType,
                 "Content-Length": String(data.count),
-                "Cache-Control": "max-age=31536000",
+                "Cache-Control": "max-age=\(Self.responseCacheMaxAgeSeconds)",
                 "Access-Control-Allow-Origin": "*",
             ]
         )
@@ -201,7 +236,7 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         box.schemeTask.didFailWithError(error)
     }
 
-    static func decodeRemoteURL(from url: URL) -> URL? {
+    nonisolated static func decodeRemoteURL(from url: URL) -> URL? {
         let token = url.lastPathComponent
         guard !token.isEmpty else { return nil }
         let padded = token.replacingOccurrences(of: "-", with: "+")
@@ -213,14 +248,27 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
               let scheme = resolved.scheme?.lowercased(),
               scheme == "https",
               let host = resolved.host,
-              !host.isEmpty
+              !host.isEmpty,
+              !PrivateNetworkGuard.isLiteralPrivateAddress(host)
         else {
             return nil
         }
         return resolved
     }
 
-    private static func cacheDirectory() -> URL? {
+    nonisolated static func redirectRequestIfAllowed(_ request: URLRequest) -> URLRequest? {
+        guard let url = request.url,
+              url.scheme?.lowercased() == "https",
+              let host = url.host,
+              !host.isEmpty,
+              PrivateNetworkGuard.hostResolvesToPublicAddress(host)
+        else {
+            return nil
+        }
+        return request
+    }
+
+    nonisolated private static func cacheDirectory() -> URL? {
         guard let baseURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             return nil
         }
@@ -234,38 +282,83 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         return directory
     }
 
-    private static func cacheKey(for url: URL) -> String {
+    nonisolated private static func cacheKey(for url: URL) -> String {
         let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func cacheURLs(for url: URL) -> (data: URL, meta: URL)? {
+    nonisolated private static func cacheURLs(for url: URL) -> (data: URL, meta: URL)? {
         guard let directory = cacheDirectory() else { return nil }
         let key = cacheKey(for: url)
         return (directory.appendingPathComponent(key + ".bin"), directory.appendingPathComponent(key + ".mime"))
     }
 
-    static func readCache(for url: URL) -> (data: Data, mimeType: String)? {
+    nonisolated static func readCache(for url: URL) -> (data: Data, mimeType: String)? {
         guard let urls = cacheURLs(for: url) else { return nil }
-        guard let data = try? Data(contentsOf: urls.data) else { return nil }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: urls.data.path),
+              let modified = attrs[.modificationDate] as? Date,
+              Date().timeIntervalSince(modified) < cacheTTLSeconds,
+              let data = try? Data(contentsOf: urls.data)
+        else {
+            return nil
+        }
         let mimeType = (try? String(contentsOf: urls.meta, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? mimeType(forURL: url)
         return (data, mimeType)
     }
 
-    static func writeCache(data: Data, mimeType: String, for url: URL) {
+    nonisolated static func writeCache(data: Data, mimeType: String, for url: URL) {
         guard let urls = cacheURLs(for: url) else { return }
         try? data.write(to: urls.data, options: .atomic)
         try? mimeType.write(to: urls.meta, atomically: true, encoding: .utf8)
+        cacheMaintenanceQueue.async { pruneCache(maxBytes: cacheSizeCapBytes) }
     }
 
-    private static func resolvedMIMEType(_ mimeType: String, fallbackURL: URL) -> String {
+    nonisolated static func pruneCache(maxBytes: Int) {
+        guard let directory = cacheDirectory() else { return }
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )
+        else { return }
+
+        struct Entry {
+            let url: URL
+            let size: Int
+            let modified: Date
+        }
+
+        var collected: [Entry] = []
+        var total = 0
+        for fileURL in entries {
+            guard let values = try? fileURL.resourceValues(
+                forKeys: [.fileSizeKey, .contentModificationDateKey]
+            ),
+                let size = values.fileSize,
+                let modified = values.contentModificationDate
+            else { continue }
+            collected.append(Entry(url: fileURL, size: size, modified: modified))
+            total += size
+        }
+
+        guard total > maxBytes else { return }
+        let sorted = collected.sorted { $0.modified < $1.modified }
+        for entry in sorted {
+            if total <= maxBytes { break }
+            try? fm.removeItem(at: entry.url)
+            total -= entry.size
+        }
+    }
+
+    nonisolated private static func resolvedMIMEType(_ mimeType: String, fallbackURL: URL) -> String {
         let trimmed = mimeType.split(separator: ";").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? mimeType
         if !trimmed.isEmpty { return trimmed }
         return self.mimeType(forURL: fallbackURL)
     }
 
-    private static func mimeType(forURL url: URL) -> String {
+    nonisolated private static func mimeType(forURL url: URL) -> String {
         if let utType = UTType(filenameExtension: url.pathExtension.lowercased()),
            let preferred = utType.preferredMIMEType
         {
@@ -274,8 +367,20 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         return "application/octet-stream"
     }
 
-    private static func isAllowedMIME(_ mimeType: String) -> Bool {
+    nonisolated private static func isAllowedMIME(_ mimeType: String) -> Bool {
         let lowered = mimeType.lowercased()
         return allowedMIMEPrefixes.contains { lowered.hasPrefix($0) }
+    }
+}
+
+private final class SchemeHandlerSessionDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _: URLSession,
+        task _: URLSessionTask,
+        willPerformHTTPRedirection _: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(MarkdownRemoteImageSchemeHandler.redirectRequestIfAllowed(request))
     }
 }
