@@ -6,6 +6,8 @@ on:
   workflow_run:
     workflows: [Checks]
     types: [completed]
+  push:
+    branches: [main]
 
 permissions:
   contents: write
@@ -14,14 +16,17 @@ permissions:
   statuses: read
 
 concurrency:
-  group: auto-merge-${{ github.event.pull_request.number || github.event.workflow_run.head_sha || github.event.sha }}
+  group: auto-merge-${{ github.event.pull_request.number || github.event.workflow_run.head_sha || github.event.after || github.event.sha }}
   cancel-in-progress: false
 
 jobs:
   auto-merge:
     name: Auto Merge
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request_target' || github.event.label.name == 'auto-merge'
+    if: >-
+      (github.event_name == 'pull_request_target' && github.event.label.name == 'auto-merge') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      github.event_name == 'push'
     steps:
       - name: Resolve pull requests
         id: prs
@@ -35,6 +40,12 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" = "pull_request_target" ]; then
             echo "numbers=[$PR_NUMBER]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" = "push" ]; then
+            numbers=$(gh pr list --repo "$REPO" --state open --label auto-merge --json number \
+              --jq '[.[].number]')
+            echo "numbers=$numbers" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           numbers=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
@@ -113,12 +124,13 @@ jobs:
 
             check_state=$(gh api "repos/$REPO/commits/$head_sha/check-runs" \
               --jq '[.check_runs[] | select(.name != "Auto Merge") | .conclusion]')
+            total=$(echo "$check_state" | jq 'length')
             pending=$(echo "$check_state" | jq '[.[] | select(. == null)] | length')
             failed=$(echo "$check_state" | jq '[.[] | select(. != null and . != "success" and . != "skipped" and . != "neutral")] | length')
 
             status_state=$(gh api "repos/$REPO/commits/$head_sha/status" --jq '.state')
 
-            echo "checks pending=$pending failed=$failed status=$status_state"
+            echo "checks total=$total pending=$pending failed=$failed status=$status_state"
 
             if [ "$failed" -gt 0 ] || [ "$status_state" = "failure" ] || [ "$status_state" = "error" ]; then
               echo "Checks failing; leaving label so next push can retry."
@@ -126,8 +138,8 @@ jobs:
               continue
             fi
 
-            if [ "$pending" -gt 0 ] || [ "$status_state" = "pending" ]; then
-              echo "Checks still running; will retry when they complete."
+            if [ "$total" -eq 0 ] || [ "$pending" -gt 0 ] || [ "$status_state" = "pending" ]; then
+              echo "Checks not ready (total=$total pending=$pending status=$status_state); will retry."
               echo "::endgroup::"
               continue
             fi
