@@ -1,0 +1,143 @@
+name: Auto Merge
+
+on:
+  pull_request_target:
+    types: [labeled]
+  check_suite:
+    types: [completed]
+  status: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number || github.event.check_suite.head_sha || github.event.sha }}
+  cancel-in-progress: false
+
+jobs:
+  auto-merge:
+    name: Auto Merge
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request_target' || github.event.label.name == 'auto-merge'
+    steps:
+      - name: Resolve pull requests
+        id: prs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.check_suite.head_sha || github.event.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request_target" ]; then
+            echo "numbers=[$PR_NUMBER]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          numbers=$(gh api "repos/$REPO/commits/$HEAD_SHA/pulls" \
+            --jq '[.[] | select(.state == "open") | .number]')
+          echo "numbers=$numbers" >> "$GITHUB_OUTPUT"
+
+      - name: Process pull requests
+        if: steps.prs.outputs.numbers != '[]'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBERS: ${{ steps.prs.outputs.numbers }}
+        run: |
+          set -euo pipefail
+
+          for pr in $(echo "$PR_NUMBERS" | jq -r '.[]'); do
+            echo "::group::PR #$pr"
+
+            pr_json=$(gh api "repos/$REPO/pulls/$pr")
+            for attempt in 1 2 3 4 5; do
+              mergeable=$(echo "$pr_json" | jq -r '.mergeable')
+              [ "$mergeable" != "null" ] && break
+              echo "mergeable still computing; retrying in 3s (attempt $attempt)"
+              sleep 3
+              pr_json=$(gh api "repos/$REPO/pulls/$pr")
+            done
+
+            state=$(echo "$pr_json" | jq -r '.state')
+            draft=$(echo "$pr_json" | jq -r '.draft')
+            has_label=$(echo "$pr_json" | jq -r '[.labels[].name] | index("auto-merge") != null')
+
+            if [ "$state" != "open" ] || [ "$draft" = "true" ] || [ "$has_label" != "true" ]; then
+              echo "Skipping: state=$state draft=$draft labelled=$has_label"
+              echo "::endgroup::"
+              continue
+            fi
+
+            label_actor=$(gh api "repos/$REPO/issues/$pr/timeline" \
+              --jq '[.[] | select(.event == "labeled" and .label.name == "auto-merge")] | last | .actor.login')
+
+            if [ -z "$label_actor" ] || [ "$label_actor" = "null" ]; then
+              echo "Could not resolve auto-merge labeler; skipping."
+              echo "::endgroup::"
+              continue
+            fi
+
+            actor_perm=$(gh api "repos/$REPO/collaborators/$label_actor/permission" --jq '.permission' || echo "none")
+            if [ "$actor_perm" != "admin" ] && [ "$actor_perm" != "write" ] && [ "$actor_perm" != "maintain" ]; then
+              echo "Removing auto-merge label: @$label_actor lacks write permission (has: $actor_perm)"
+              gh api -X DELETE "repos/$REPO/issues/$pr/labels/auto-merge" || true
+              gh pr comment "$pr" --repo "$REPO" --body "Auto-merge requires write access. Removing the \`auto-merge\` label."
+              echo "::endgroup::"
+              continue
+            fi
+
+            mergeable_state=$(echo "$pr_json" | jq -r '.mergeable_state')
+            head_sha=$(echo "$pr_json" | jq -r '.head.sha')
+            base_ref=$(echo "$pr_json" | jq -r '.base.ref')
+
+            echo "mergeable_state=$mergeable_state head=$head_sha base=$base_ref"
+
+            if [ "$mergeable_state" = "behind" ]; then
+              echo "Branch is behind $base_ref; updating."
+              gh api -X PUT "repos/$REPO/pulls/$pr/update-branch" \
+                -f expected_head_sha="$head_sha" || echo "Update-branch call failed; will retry on next event."
+              echo "::endgroup::"
+              continue
+            fi
+
+            if [ "$mergeable_state" = "dirty" ] || [ "$mergeable_state" = "blocked" ]; then
+              echo "PR not mergeable yet (state=$mergeable_state); waiting for next event."
+              echo "::endgroup::"
+              continue
+            fi
+
+            check_state=$(gh api "repos/$REPO/commits/$head_sha/check-runs" \
+              --jq '[.check_runs[] | select(.name != "Auto Merge") | .conclusion]')
+            pending=$(echo "$check_state" | jq '[.[] | select(. == null)] | length')
+            failed=$(echo "$check_state" | jq '[.[] | select(. != null and . != "success" and . != "skipped" and . != "neutral")] | length')
+
+            status_state=$(gh api "repos/$REPO/commits/$head_sha/status" --jq '.state')
+
+            echo "checks pending=$pending failed=$failed status=$status_state"
+
+            if [ "$failed" -gt 0 ] || [ "$status_state" = "failure" ] || [ "$status_state" = "error" ]; then
+              echo "Checks failing; leaving label so next push can retry."
+              echo "::endgroup::"
+              continue
+            fi
+
+            if [ "$pending" -gt 0 ] || [ "$status_state" = "pending" ]; then
+              echo "Checks still running; will retry when they complete."
+              echo "::endgroup::"
+              continue
+            fi
+
+            if [ "$mergeable_state" != "clean" ] && [ "$mergeable_state" != "has_hooks" ] && [ "$mergeable_state" != "unstable" ]; then
+              echo "Unexpected mergeable_state=$mergeable_state; skipping."
+              echo "::endgroup::"
+              continue
+            fi
+
+            echo "All checks green; squash-merging."
+            gh pr merge "$pr" --repo "$REPO" --squash --delete-branch
+            echo "::endgroup::"
+          done

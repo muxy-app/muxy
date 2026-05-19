@@ -18,6 +18,8 @@ struct GeneralSettingsView: View {
     private var updateChannelRaw = UpdateChannel.stable.rawValue
     @AppStorage(QuitConfirmationPreferences.confirmQuitKey)
     private var confirmQuit = true
+    @AppStorage(GeneralSettingsKeys.autoCopyTerminalSelection)
+    private var autoCopyTerminalSelection = false
     @State private var projectPickerDefaultLocationSettings = ProjectPickerDefaultLocationSettingsModel()
     @State private var sentry = SentryService.shared
 
@@ -98,6 +100,16 @@ struct GeneralSettingsView: View {
                     + "Projects can still override this from the new worktree dialog."
             ) {
                 worktreeLocationControl
+            }
+
+            SettingsSection(
+                "Terminal",
+                footer: "When enabled, releasing the mouse after selecting text in the terminal copies it to the clipboard."
+            ) {
+                SettingsToggleRow(
+                    label: "Auto-copy selected text",
+                    isOn: $autoCopyTerminalSelection
+                )
             }
 
             SettingsSection("Tabs") {
