@@ -85,18 +85,40 @@ enum PrivateNetworkGuard {
         if (bytes[0] & 0xFE) == 0xFC { return true }
         if bytes[0] == 0xFF { return true }
         if bytes[0] == 0x20, bytes[1] == 0x01, bytes[2] == 0x0D, bytes[3] == 0xB8 { return true }
-        if bytes[0 ... 9] == ArraySlice(Array(repeating: UInt8(0), count: 10)),
+        if bytes[0 ..< 10].allSatisfy({ $0 == 0 }),
            bytes[10] == 0xFF, bytes[11] == 0xFF
         {
-            var mapped = in_addr()
-            mapped.s_addr = (UInt32(bytes[12]) << 24)
-                | (UInt32(bytes[13]) << 16)
-                | (UInt32(bytes[14]) << 8)
-                | UInt32(bytes[15])
-            mapped.s_addr = mapped.s_addr.bigEndian
-            return isPrivateIPv4(mapped)
+            return isPrivateIPv4Bytes(bytes[12 ... 15])
+        }
+        if bytes[0] == 0x00, bytes[1] == 0x64, bytes[2] == 0xFF, bytes[3] == 0x9B,
+           bytes[4 ..< 12].allSatisfy({ $0 == 0 })
+        {
+            return isPrivateIPv4Bytes(bytes[12 ... 15])
+        }
+        if bytes[0] == 0x00, bytes[1] == 0x64, bytes[2] == 0xFF, bytes[3] == 0x9B,
+           bytes[4] == 0x00, bytes[5] == 0x01
+        {
+            return isPrivateIPv4Bytes(bytes[6 ... 9])
+        }
+        if bytes[0] == 0x20, bytes[1] == 0x02 {
+            return isPrivateIPv4Bytes(bytes[2 ... 5])
+        }
+        if bytes[0] == 0x20, bytes[1] == 0x01, bytes[2] == 0x00, bytes[3] == 0x00 { return true }
+        if bytes[0] == 0x20, bytes[1] == 0x01, bytes[2] == 0x00, (bytes[3] & 0xF0) == 0x10 {
+            return true
         }
         return false
+    }
+
+    private static func isPrivateIPv4Bytes(_ bytes: ArraySlice<UInt8>) -> Bool {
+        guard bytes.count == 4 else { return true }
+        var addr = in_addr()
+        let value = (UInt32(bytes[bytes.startIndex]) << 24)
+            | (UInt32(bytes[bytes.index(bytes.startIndex, offsetBy: 1)]) << 16)
+            | (UInt32(bytes[bytes.index(bytes.startIndex, offsetBy: 2)]) << 8)
+            | UInt32(bytes[bytes.index(bytes.startIndex, offsetBy: 3)])
+        addr.s_addr = value.bigEndian
+        return isPrivateIPv4(addr)
     }
 
     private static func isPublicSockAddr(_ addr: UnsafePointer<sockaddr>) -> Bool {

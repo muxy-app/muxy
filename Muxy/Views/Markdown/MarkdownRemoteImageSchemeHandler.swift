@@ -23,12 +23,12 @@ private final class WKURLSchemeTaskBox: @unchecked Sendable {
 
     func markStopped() {
         stateLock.lock()
+        defer { stateLock.unlock() }
         stoppedFlag = true
-        stateLock.unlock()
     }
 }
 
-private final class RemoteImageTaskEntry {
+private final class RemoteImageTaskEntry: @unchecked Sendable {
     let box: WKURLSchemeTaskBox
     var dataTask: URLSessionDataTask?
 
@@ -45,8 +45,23 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
     nonisolated static let cacheTTLSeconds: TimeInterval = 7 * 24 * 60 * 60
     nonisolated static let cacheSizeCapBytes: Int = 50 * 1024 * 1024
     nonisolated static let responseCacheMaxAgeSeconds: Int = 7 * 24 * 60 * 60
-    nonisolated static let allowedMIMEPrefixes: [String] = ["image/"]
+    nonisolated static let allowedMIMETypes: [String] = [
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/gif",
+        "image/webp",
+        "image/avif",
+        "image/heic",
+        "image/heif",
+        "image/bmp",
+        "image/tiff",
+        "image/x-icon",
+        "image/vnd.microsoft.icon",
+    ]
     nonisolated static let userAgent = "Muxy/1.0 (Markdown Preview)"
+    nonisolated private static let maxConcurrentHostResolutions = 4
+    nonisolated private static let resolverSemaphore = DispatchSemaphore(value: maxConcurrentHostResolutions)
 
     nonisolated static let resolverQueue = DispatchQueue(
         label: "app.muxy.markdown-image-resolver",
@@ -112,8 +127,17 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         registerTask(schemeTaskBox)
         Self.resolverQueue.async { [weak self] in
             guard let self else { return }
+            guard !schemeTaskBox.isStopped else {
+                DispatchQueue.main.async {
+                    self.removeTaskMapping(for: schemeTaskBox)
+                }
+                return
+            }
             let host = remoteURL.host ?? ""
-            let allowed = self.hostResolver(host)
+            let allowed = Self.resolveWithBackpressure {
+                guard !schemeTaskBox.isStopped else { return false }
+                return self.hostResolver(host)
+            }
             DispatchQueue.main.async {
                 guard !schemeTaskBox.isStopped else {
                     self.removeTaskMapping(for: schemeTaskBox)
@@ -317,6 +341,18 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         return request
     }
 
+    nonisolated static func redirectRequestIfAllowed(
+        _ request: URLRequest,
+        completion: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        resolverQueue.async {
+            let result = resolveWithBackpressure {
+                redirectRequestIfAllowed(request)
+            }
+            completion(result)
+        }
+    }
+
     nonisolated private static func cacheDirectory() -> URL? {
         guard let baseURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             return nil
@@ -330,7 +366,11 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     nonisolated private static func prepareCacheDirectory(_ directory: URL) -> URL? {
         if !FileManager.default.fileExists(atPath: directory.path) {
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            } catch {
+                return nil
+            }
         }
         return directory
     }
@@ -379,6 +419,10 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         let mimeType = (try? String(contentsOf: urls.meta, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? mimeType(forURL: url)
+        guard isAllowedMIME(mimeType) else {
+            removeCacheEntry(urls)
+            return nil
+        }
         return (data, mimeType)
     }
 
@@ -507,7 +551,13 @@ final class MarkdownRemoteImageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     nonisolated private static func isAllowedMIME(_ mimeType: String) -> Bool {
         let lowered = mimeType.lowercased()
-        return allowedMIMEPrefixes.contains { lowered.hasPrefix($0) }
+        return allowedMIMETypes.contains(lowered)
+    }
+
+    nonisolated private static func resolveWithBackpressure<T>(_ work: () -> T) -> T {
+        resolverSemaphore.wait()
+        defer { resolverSemaphore.signal() }
+        return work()
     }
 }
 
@@ -517,8 +567,10 @@ private final class SchemeHandlerSessionDelegate: NSObject, URLSessionTaskDelega
         task _: URLSessionTask,
         willPerformHTTPRedirection _: HTTPURLResponse,
         newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
-        completionHandler(MarkdownRemoteImageSchemeHandler.redirectRequestIfAllowed(request))
+        MarkdownRemoteImageSchemeHandler.redirectRequestIfAllowed(request) { allowedRequest in
+            completionHandler(allowedRequest)
+        }
     }
 }

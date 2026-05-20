@@ -31,6 +31,11 @@ struct PrivateNetworkGuardTests {
             "::ffff:127.0.0.1",
             "::ffff:10.0.0.1",
             "::ffff:169.254.169.254",
+            "64:ff9b::a00:1",
+            "64:ff9b:1:a00:1::",
+            "2002:0a00:0001::",
+            "2001::1",
+            "2001:10::1",
         ]
 
         for host in privateHosts {

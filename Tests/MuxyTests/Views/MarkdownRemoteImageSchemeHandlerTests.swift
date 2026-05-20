@@ -49,6 +49,65 @@ struct MarkdownRemoteImageSchemeHandlerTests {
         #expect(MarkdownRemoteImageSchemeHandler.redirectRequestIfAllowed(request)?.url == request.url)
     }
 
+    @Test("remote image MIME policy is explicit raster only")
+    func remoteImageMIMEPolicyIsExplicitRasterOnly() {
+        #expect(!MarkdownRemoteImageSchemeHandler.allowedMIMETypes.contains("image/"))
+        #expect(!MarkdownRemoteImageSchemeHandler.allowedMIMETypes.contains("image/svg+xml"))
+        #expect(MarkdownRemoteImageSchemeHandler.allowedMIMETypes.contains("image/png"))
+        #expect(MarkdownRemoteImageSchemeHandler.allowedMIMETypes.contains("image/jpeg"))
+    }
+
+    @Test("cached disallowed MIME entries are rejected")
+    func cachedDisallowedMIMEEntriesAreRejected() throws {
+        let directory = try Self.temporaryCacheDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = try #require(URL(string: "https://example.com/\(UUID().uuidString).svg"))
+        let urls = try Self.cacheURLs(for: url, in: directory)
+        defer { Self.removeCacheFiles(urls) }
+
+        MarkdownRemoteImageSchemeHandler.writeCache(
+            data: Data(repeating: 1, count: 8),
+            mimeType: "image/svg+xml",
+            for: url,
+            in: directory
+        )
+
+        #expect(MarkdownRemoteImageSchemeHandler.readCache(for: url, in: directory) == nil)
+        #expect(!FileManager.default.fileExists(atPath: urls.data.path))
+        #expect(!FileManager.default.fileExists(atPath: urls.meta.path))
+    }
+
+    @Test("host resolution is capped under burst load")
+    @MainActor
+    func hostResolutionIsCappedUnderBurstLoad() async throws {
+        let probe = ResolverConcurrencyProbe()
+        let handler = MarkdownRemoteImageSchemeHandler(
+            hostResolver: { _ in
+                probe.enter()
+                probe.waitUntilReleased()
+                probe.leave()
+                return false
+            },
+            allowsRemoteImages: { true }
+        )
+        let tasks = try (0 ..< 12).map { index in
+            FakeURLSchemeTask(url: try Self.schemeURL(for: "https://example\(index).com/image.png"))
+        }
+
+        for task in tasks {
+            handler.start(task)
+        }
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        #expect(probe.maxActive <= 4)
+
+        for task in tasks {
+            handler.stop(task)
+        }
+        probe.release()
+        try await Task.sleep(nanoseconds: 200_000_000)
+    }
+
     @Test("stop during host resolution prevents later task callbacks")
     @MainActor
     func stopDuringHostResolutionPreventsCallbacks() async throws {
@@ -269,6 +328,42 @@ private final class ResolverGate: @unchecked Sendable {
             finishedContinuations.append(continuation)
             lock.unlock()
         }
+    }
+
+    func waitUntilReleased() {
+        condition.lock()
+        while !released {
+            condition.wait()
+        }
+        condition.unlock()
+    }
+
+    func release() {
+        condition.lock()
+        released = true
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
+private final class ResolverConcurrencyProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let condition = NSCondition()
+    private var active = 0
+    private var released = false
+    private(set) var maxActive = 0
+
+    func enter() {
+        lock.lock()
+        active += 1
+        maxActive = max(maxActive, active)
+        lock.unlock()
+    }
+
+    func leave() {
+        lock.lock()
+        active -= 1
+        lock.unlock()
     }
 
     func waitUntilReleased() {
