@@ -33,41 +33,23 @@ final class MuxyConfig {
     }
 
     func updateConfigValue(_ key: String, value: String) {
-        let entry = "\(key) = \(value)"
-        var content = readGhosttyConfig()
-        var lines = content.components(separatedBy: "\n")
+        writeUpdatedGhosttyConfig(GhosttyConfigFile.settingValue(value, for: key, in: readGhosttyConfig()))
+    }
 
-        if let index = findConfigLineIndex(for: key, in: lines) {
-            lines[index] = entry
-        } else {
-            lines.insert(entry, at: 0)
-        }
+    func removeConfigValue(_ key: String) {
+        writeUpdatedGhosttyConfig(GhosttyConfigFile.removingValue(for: key, in: readGhosttyConfig()))
+    }
 
-        content = lines.joined(separator: "\n")
+    func configValue(for key: String) -> String? {
+        GhosttyConfigFile.value(for: key, in: readGhosttyConfig())
+    }
+
+    private func writeUpdatedGhosttyConfig(_ content: String) {
         do {
             try writeGhosttyConfig(content)
         } catch {
             logger.error("Failed to write config: \(error)")
         }
-    }
-
-    func configValue(for key: String) -> String? {
-        let lines = readGhosttyConfig().components(separatedBy: .newlines)
-        guard let index = findConfigLineIndex(for: key, in: lines) else { return nil }
-        let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
-        let afterKey = trimmed.dropFirst(key.count).trimmingCharacters(in: .whitespaces)
-        return afterKey.dropFirst().trimmingCharacters(in: .whitespaces)
-    }
-
-    private func findConfigLineIndex(for key: String, in lines: [String]) -> Int? {
-        for (i, line) in lines.enumerated() {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix(key) else { continue }
-            let afterKey = trimmed.dropFirst(key.count).trimmingCharacters(in: .whitespaces)
-            guard afterKey.hasPrefix("=") else { continue }
-            return i
-        }
-        return nil
     }
 
     private func seedFromSystemGhosttyIfNeeded() {

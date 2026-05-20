@@ -20,6 +20,10 @@ struct GeneralSettingsView: View {
     private var confirmQuit = true
     @AppStorage(GeneralSettingsKeys.autoCopyTerminalSelection)
     private var autoCopyTerminalSelection = false
+    @State private var muxyConfig = MuxyConfig.shared
+    @State private var optionKeyBehavior = TerminalOptionKeyBehavior(
+        ghosttyConfigValue: MuxyConfig.shared.configValue(for: TerminalOptionKeyBehavior.ghosttyConfigKey)
+    )
     @State private var projectPickerDefaultLocationSettings = ProjectPickerDefaultLocationSettingsModel()
     @State private var sentry = SentryService.shared
 
@@ -104,8 +108,27 @@ struct GeneralSettingsView: View {
 
             SettingsSection(
                 "Terminal",
-                footer: "When enabled, releasing the mouse after selecting text in the terminal copies it to the clipboard."
+                footer: "Automatic keeps Ghostty's keyboard-layout default. Option as Alt sends Option-modified keys "
+                    + "to terminal programs, while macOS characters keeps symbols like ≤ and ≥."
             ) {
+                SettingsRow("Option key behavior") {
+                    Picker("", selection: $optionKeyBehavior) {
+                        ForEach(TerminalOptionKeyBehavior.allCases) { behavior in
+                            Text(behavior.title).tag(behavior)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                    .onChange(of: optionKeyBehavior) { _, newValue in
+                        setOptionKeyBehavior(newValue)
+                    }
+                    .onAppear {
+                        optionKeyBehavior = TerminalOptionKeyBehavior(
+                            ghosttyConfigValue: muxyConfig.configValue(for: TerminalOptionKeyBehavior.ghosttyConfigKey)
+                        )
+                    }
+                }
+
                 SettingsToggleRow(
                     label: "Auto-copy selected text",
                     isOn: $autoCopyTerminalSelection
@@ -157,6 +180,15 @@ struct GeneralSettingsView: View {
                 UpdateService.shared.channel = newValue
             }
         )
+    }
+
+    private func setOptionKeyBehavior(_ behavior: TerminalOptionKeyBehavior) {
+        if let configValue = behavior.ghosttyConfigValue {
+            muxyConfig.updateConfigValue(TerminalOptionKeyBehavior.ghosttyConfigKey, value: configValue)
+        } else {
+            muxyConfig.removeConfigValue(TerminalOptionKeyBehavior.ghosttyConfigKey)
+        }
+        GhosttyService.shared.reloadConfig()
     }
 
     private var projectPickerMode: ProjectPickerMode {
