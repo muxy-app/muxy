@@ -47,14 +47,18 @@ actor GitWorktreeService: GitWorktreeListing {
     }
 
     func isGitRepository(_ path: String) async -> Bool {
-        guard let result = try? runGit(repoPath: path, arguments: ["rev-parse", "--is-inside-work-tree"]) else {
+        guard let result = try? await GitProcessRunner.runGit(
+            repoPath: path,
+            arguments: ["rev-parse", "--is-inside-work-tree"]
+        )
+        else {
             return false
         }
         return result.status == 0 && result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
     }
 
     func hasUncommittedChanges(worktreePath: String) async -> Bool {
-        guard let result = try? runGit(
+        guard let result = try? await GitProcessRunner.runGit(
             repoPath: worktreePath,
             arguments: ["status", "--porcelain=1", "--untracked-files=all"]
         )
@@ -66,7 +70,10 @@ actor GitWorktreeService: GitWorktreeListing {
     }
 
     func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord] {
-        let result = try runGit(repoPath: repoPath, arguments: ["worktree", "list", "--porcelain"])
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["worktree", "list", "--porcelain"]
+        )
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
                 result.stderr.isEmpty ? "Failed to list worktrees." : result.stderr
@@ -105,7 +112,7 @@ actor GitWorktreeService: GitWorktreeListing {
         } else {
             args += ["--", path, branch]
         }
-        let result = try runGit(repoPath: repoPath, arguments: args)
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args)
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
                 result.stderr.isEmpty ? "Failed to add worktree." : result.stderr
@@ -117,7 +124,7 @@ actor GitWorktreeService: GitWorktreeListing {
         var args: [String] = ["worktree", "remove"]
         if force { args.append("--force") }
         args += ["--", path]
-        let result = try runGit(repoPath: repoPath, arguments: args)
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args)
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
                 result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
@@ -128,7 +135,7 @@ actor GitWorktreeService: GitWorktreeListing {
     func deleteBranch(repoPath: String, branch: String, force: Bool = true) async throws {
         try Self.validateBranchName(branch)
         let args = ["branch", force ? "-D" : "-d", "--", branch]
-        let result = try runGit(repoPath: repoPath, arguments: args)
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args)
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
                 result.stderr.isEmpty ? "Failed to delete branch \(branch)." : result.stderr
@@ -188,31 +195,5 @@ actor GitWorktreeService: GitWorktreeListing {
         }
         flush()
         return records
-    }
-
-    private struct GitRunResult {
-        let status: Int32
-        let stdout: String
-        let stderr: String
-    }
-
-    private func runGit(repoPath: String, arguments: [String]) throws -> GitRunResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git", "-C", repoPath] + arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        try process.run()
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-        return GitRunResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
 }

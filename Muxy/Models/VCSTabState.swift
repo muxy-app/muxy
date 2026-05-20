@@ -1211,7 +1211,7 @@ final class VCSTabState {
         }
     }
 
-    private func showStatus(_ message: String, isError: Bool) {
+    func showStatus(_ message: String, isError: Bool) {
         if isError {
             statusMessage = message
             statusIsError = true
@@ -1322,6 +1322,84 @@ final class VCSTabState {
                 showStatus(errorText(error), isError: true)
             }
         }
+    }
+
+    func createWorktreeForPullRequest(
+        _ item: GitRepositoryService.PRListItem,
+        project: Project,
+        defaultParentPath: String?
+    ) async throws -> Worktree {
+        guard checkingOutPRNumber == nil else {
+            throw PRCheckoutError.alreadyInProgress
+        }
+        checkingOutPRNumber = item.number
+        defer { checkingOutPRNumber = nil }
+
+        let localBranch = item.headBranch.isEmpty ? "pr-\(item.number)" : item.headBranch
+        let slug = Self.directorySlug(from: localBranch)
+        let worktreeDirectory = WorktreeLocationResolver.worktreeDirectory(
+            for: project,
+            slug: slug,
+            defaultParentPath: defaultParentPath
+        )
+        let parentDirectory = URL(fileURLWithPath: worktreeDirectory)
+            .deletingLastPathComponent()
+            .path
+
+        try await GitProcessRunner.offMainThrowing {
+            if FileManager.default.fileExists(atPath: worktreeDirectory) {
+                throw PRCheckoutError.worktreeExists(path: worktreeDirectory)
+            }
+            try FileManager.default.createDirectory(
+                atPath: parentDirectory,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+        }
+
+        try await git.fetchPullRequestRef(
+            repoPath: project.path,
+            number: item.number,
+            localBranch: localBranch
+        )
+
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: project.path,
+            path: worktreeDirectory,
+            branch: localBranch,
+            createBranch: false
+        )
+
+        return Worktree(
+            name: localBranch,
+            path: worktreeDirectory,
+            branch: localBranch,
+            ownsBranch: true,
+            isPrimary: false
+        )
+    }
+
+    enum PRCheckoutError: LocalizedError {
+        case alreadyInProgress
+        case worktreeExists(path: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .alreadyInProgress:
+                "Another PR checkout is already in progress."
+            case let .worktreeExists(path):
+                "A worktree already exists at \(path)."
+            }
+        }
+    }
+
+    private static func directorySlug(from name: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let scalars = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        let collapsed = String(scalars)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+        return collapsed.isEmpty ? UUID().uuidString : collapsed
     }
 
     private func rescheduleAutoSync() {

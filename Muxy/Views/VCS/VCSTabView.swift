@@ -14,6 +14,9 @@ struct VCSTabView: View {
     @State private var showCreateBranchSheet = false
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
+    @State private var pendingCheckoutPRInNewWorktree: GitRepositoryService.PRListItem?
+    @AppStorage(GeneralSettingsKeys.defaultWorktreeParentPath)
+    private var defaultWorktreeParentPath = ""
     private var commitEnabled: Bool {
         state.hasStagedChanges && !state.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -86,6 +89,11 @@ struct VCSTabView: View {
             guard number != nil, let pr = pendingCheckoutPR else { return }
             pendingCheckoutPR = nil
             presentCheckoutPRConfirmation(pr: pr)
+        }
+        .onChange(of: pendingCheckoutPRInNewWorktree?.number) { _, number in
+            guard number != nil, let pr = pendingCheckoutPRInNewWorktree else { return }
+            pendingCheckoutPRInNewWorktree = nil
+            checkoutPRInNewWorktree(pr: pr)
         }
         .alert(
             "Error",
@@ -510,6 +518,7 @@ struct VCSTabView: View {
                     showDiscardAllConfirmation: $showDiscardAllConfirmation,
                     pendingDiscardPath: $pendingDiscardPath,
                     pendingCheckoutPR: $pendingCheckoutPR,
+                    pendingCheckoutPRInNewWorktree: $pendingCheckoutPRInNewWorktree,
                     onOpenInEditor: openFileInEditor,
                     onOpenDiff: openDiffInTab
                 )
@@ -834,6 +843,28 @@ struct VCSTabView: View {
         alert.beginSheetModal(for: window) { response in
             if response == .alertFirstButtonReturn {
                 state.checkoutPullRequest(pr)
+            }
+        }
+    }
+
+    private func checkoutPRInNewWorktree(pr: GitRepositoryService.PRListItem) {
+        guard let project = owningProject else {
+            state.showStatus("Project not found for this worktree.", isError: true)
+            return
+        }
+        let parentPath = defaultWorktreeParentPath
+        Task { @MainActor in
+            do {
+                let worktree = try await state.createWorktreeForPullRequest(
+                    pr,
+                    project: project,
+                    defaultParentPath: parentPath
+                )
+                worktreeStore.add(worktree, to: project.id)
+                appState.selectWorktree(projectID: project.id, worktree: worktree)
+                ToastState.shared.show("Checked out PR #\(pr.number) in new worktree")
+            } catch {
+                state.showStatus(error.localizedDescription, isError: true)
             }
         }
     }
@@ -1379,6 +1410,7 @@ private struct SectionSplitLayout: View {
     @Binding var showDiscardAllConfirmation: Bool
     @Binding var pendingDiscardPath: String?
     @Binding var pendingCheckoutPR: GitRepositoryService.PRListItem?
+    @Binding var pendingCheckoutPRInNewWorktree: GitRepositoryService.PRListItem?
     let onOpenInEditor: (String) -> Void
     let onOpenDiff: (String, Bool) -> Void
 
@@ -1572,7 +1604,8 @@ private struct SectionSplitLayout: View {
                 sectionHeader(for: .pullRequests, collapsed: false)
                 PullRequestsListView(
                     state: state,
-                    onCheckout: { pr in pendingCheckoutPR = pr }
+                    onCheckout: { pr in pendingCheckoutPR = pr },
+                    onCheckoutInNewWorktree: { pr in pendingCheckoutPRInNewWorktree = pr }
                 )
             }
             .frame(height: height)

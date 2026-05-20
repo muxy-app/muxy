@@ -4,6 +4,7 @@ import SwiftUI
 struct PullRequestsListView: View {
     @Bindable var state: VCSTabState
     let onCheckout: (GitRepositoryService.PRListItem) -> Void
+    let onCheckoutInNewWorktree: (GitRepositoryService.PRListItem) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -112,7 +113,8 @@ struct PullRequestsListView: View {
                         PullRequestRow(
                             pr: pr,
                             isCheckingOut: state.checkingOutPRNumber == pr.number,
-                            onCheckout: { onCheckout(pr) }
+                            onCheckout: { onCheckout(pr) },
+                            onCheckoutInNewWorktree: { onCheckoutInNewWorktree(pr) }
                         )
                         Rectangle().fill(MuxyTheme.border).frame(height: 1)
                     }
@@ -165,6 +167,7 @@ struct PullRequestRow: View {
     let pr: GitRepositoryService.PRListItem
     let isCheckingOut: Bool
     let onCheckout: () -> Void
+    let onCheckoutInNewWorktree: () -> Void
 
     @State private var hovered = false
 
@@ -253,7 +256,18 @@ struct PullRequestRow: View {
     }
 
     private var checkoutButton: some View {
-        Button(action: onCheckout) {
+        Menu {
+            Button {
+                onCheckout()
+            } label: {
+                Label("Checkout here", systemImage: "arrow.down.to.line")
+            }
+            Button {
+                onCheckoutInNewWorktree()
+            } label: {
+                Label("Checkout in new worktree", systemImage: "square.stack.3d.up")
+            }
+        } label: {
             HStack(spacing: UIMetrics.scaled(3)) {
                 if isCheckingOut {
                     ProgressView().controlSize(.mini)
@@ -263,6 +277,8 @@ struct PullRequestRow: View {
                 }
                 Text("Checkout")
                     .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: UIMetrics.fontMicro, weight: .bold))
             }
             .foregroundStyle(MuxyTheme.fg)
             .padding(.horizontal, UIMetrics.spacing4)
@@ -270,7 +286,9 @@ struct PullRequestRow: View {
             .background(MuxyTheme.bg, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .disabled(isCheckingOut)
     }
 }
