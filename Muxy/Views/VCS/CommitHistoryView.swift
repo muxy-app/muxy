@@ -37,6 +37,7 @@ struct CommitHistoryView: View {
                 CommitRow(
                     commit: commit,
                     currentBranch: state.branchName,
+                    remoteWebURL: state.remoteWebURL,
                     onCheckout: { state.switchBranch($0) },
                     onCheckoutDetached: { state.checkoutDetached($0) },
                     onCherryPick: { state.cherryPick($0) },
@@ -119,6 +120,7 @@ private struct NamePrompt: Identifiable {
 private struct CommitRow: View {
     let commit: GitCommit
     let currentBranch: String?
+    let remoteWebURL: URL?
     let onCheckout: (String) -> Void
     let onCheckoutDetached: (String) -> Void
     let onCherryPick: (String) -> Void
@@ -254,6 +256,13 @@ private struct CommitRow: View {
         Button("Copy Commit Message") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(commit.subject, forType: .string)
+        }
+
+        if let remoteWebURL {
+            Button("Open on GitHub") {
+                let url = remoteWebURL.appendingPathComponent("commit/\(commit.hash)")
+                NSWorkspace.shared.open(url)
+            }
         }
 
         Divider()
