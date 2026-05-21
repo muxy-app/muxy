@@ -4,15 +4,26 @@ import SwiftUI
 enum SidebarLayout {
     static var collapsedWidth: CGFloat { UIMetrics.sidebarCollapsedWidth }
     static var expandedWidth: CGFloat { UIMetrics.sidebarExpandedWidth }
+    static var minExpandedWidth: CGFloat { UIMetrics.sidebarExpandedMinWidth }
+    static var maxExpandedWidth: CGFloat { UIMetrics.sidebarExpandedMaxWidth }
     static var width: CGFloat { UIMetrics.sidebarCollapsedWidth }
+
+    static func clampExpandedWidth(_ value: CGFloat) -> CGFloat {
+        min(max(value, minExpandedWidth), maxExpandedWidth)
+    }
 
     static func resolvedWidth(
         expanded: Bool,
         collapsedStyle: SidebarCollapsedStyle,
-        expandedStyle: SidebarExpandedStyle
+        expandedStyle: SidebarExpandedStyle,
+        expandedCustomWidth: CGFloat? = nil
     ) -> CGFloat {
         if expanded {
-            return expandedStyle == .wide ? expandedWidth : collapsedWidth
+            guard expandedStyle == .wide else { return collapsedWidth }
+            if let expandedCustomWidth {
+                return clampExpandedWidth(expandedCustomWidth)
+            }
+            return expandedWidth
         }
         return collapsedStyle == .hidden ? 0 : collapsedWidth
     }
