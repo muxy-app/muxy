@@ -21,6 +21,7 @@ struct ImageViewerRepresentable: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
+        scrollView.postsFrameChangedNotifications = true
         scrollView.onUserZoom = { [state] newScale in
             guard abs(state.scale - newScale) > Self.magnificationEpsilon else { return }
             state.scale = newScale
@@ -48,6 +49,12 @@ struct ImageViewerRepresentable: NSViewRepresentable {
             name: NSScrollView.willStartLiveMagnifyNotification,
             object: scrollView
         )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.scrollViewFrameDidChange(_:)),
+            name: NSView.frameDidChangeNotification,
+            object: scrollView
+        )
 
         return scrollView
     }
@@ -65,7 +72,9 @@ struct ImageViewerRepresentable: NSViewRepresentable {
             }
         }
 
-        if context.coordinator.needsInitialFit, applyFit(scrollView: scrollView, imageView: imageView) {
+        if context.coordinator.needsInitialFit,
+           context.coordinator.fitImage(scrollView: scrollView, imageView: imageView)
+        {
             context.coordinator.needsInitialFit = false
         }
 
@@ -76,7 +85,7 @@ struct ImageViewerRepresentable: NSViewRepresentable {
         }
 
         if context.coordinator.lastFitTrigger != state.fitTrigger,
-           applyFit(scrollView: scrollView, imageView: imageView)
+           context.coordinator.fitImage(scrollView: scrollView, imageView: imageView)
         {
             context.coordinator.lastFitTrigger = state.fitTrigger
         }
@@ -92,19 +101,6 @@ struct ImageViewerRepresentable: NSViewRepresentable {
             return
         }
         imageView.frame = CGRect(origin: .zero, size: image.size)
-    }
-
-    @discardableResult
-    private func applyFit(scrollView: NSScrollView, imageView: NSImageView) -> Bool {
-        guard let image = imageView.image, image.size.width > 0, image.size.height > 0 else { return false }
-        let bounds = scrollView.bounds.size
-        guard bounds.width > 0, bounds.height > 0 else { return false }
-        let fit = min(bounds.width / image.size.width, bounds.height / image.size.height, 1.0)
-        scrollView.magnification = fit
-        if abs(state.scale - fit) > Self.magnificationEpsilon {
-            state.scale = fit
-        }
-        return true
     }
 
     final class ZoomableScrollView: NSScrollView {
@@ -170,6 +166,27 @@ struct ImageViewerRepresentable: NSViewRepresentable {
             let newScale = scrollView.magnification
             guard abs(state.scale - newScale) > ImageViewerRepresentable.magnificationEpsilon else { return }
             state.scale = newScale
+        }
+
+        @objc func scrollViewFrameDidChange(_ notification: Notification) {
+            guard needsInitialFit else { return }
+            guard let scrollView, let imageView else { return }
+            if fitImage(scrollView: scrollView, imageView: imageView) {
+                needsInitialFit = false
+            }
+        }
+
+        @discardableResult
+        func fitImage(scrollView: NSScrollView, imageView: NSImageView) -> Bool {
+            guard let image = imageView.image, image.size.width > 0, image.size.height > 0 else { return false }
+            let bounds = scrollView.bounds.size
+            guard bounds.width > 0, bounds.height > 0 else { return false }
+            let fit = min(bounds.width / image.size.width, bounds.height / image.size.height, 1.0)
+            scrollView.magnification = fit
+            if abs(state.scale - fit) > ImageViewerRepresentable.magnificationEpsilon {
+                state.scale = fit
+            }
+            return true
         }
     }
 }
