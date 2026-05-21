@@ -190,6 +190,33 @@ struct GitPRParserTests {
         }
     }
 
+    @Suite("parsePRCheckoutInfo")
+    struct PRCheckoutInfoParsing {
+        @Test("parses head repository checkout metadata")
+        func parsesCheckoutMetadata() throws {
+            let json = """
+            {
+              "number": 42,
+              "headRefName": "feature/fork-pr",
+              "headRepository": {
+                "nameWithOwner": "alice/repo"
+              }
+            }
+            """
+
+            let info = try #require(GitPRParser.parsePRCheckoutInfo(json))
+
+            #expect(info.number == 42)
+            #expect(info.headBranch == "feature/fork-pr")
+            #expect(info.headRepositoryNameWithOwner == "alice/repo")
+        }
+
+        @Test("missing head repository returns nil")
+        func missingHeadRepository() {
+            #expect(GitPRParser.parsePRCheckoutInfo(#"{"number":1,"headRefName":"feature"}"#) == nil)
+        }
+    }
+
     @Suite("parsePRInfoMatchingHeadSha")
     struct PRInfoMatchingHeadSha {
         @Test("matches PR by head SHA case-insensitively when branch matches")
