@@ -8,6 +8,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "ProjectStore")
 final class ProjectStore {
     private(set) var projects: [Project] = []
     private let persistence: any ProjectPersisting
+    var onProjectRemoved: ((UUID) -> Void)?
 
     init(persistence: any ProjectPersisting) {
         self.persistence = persistence
@@ -25,6 +26,7 @@ final class ProjectStore {
         }
         projects.removeAll { $0.id == id }
         save()
+        onProjectRemoved?(id)
     }
 
     func rename(id: UUID, to newName: String) {

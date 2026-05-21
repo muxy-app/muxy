@@ -7,6 +7,7 @@ struct MuxyCommands: Commands {
     let appState: AppState
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
+    let projectGroupStore: ProjectGroupStore
     let keyBindings: KeyBindingStore
     let commandShortcuts: CommandShortcutStore
     let config: MuxyConfig
@@ -50,8 +51,20 @@ struct MuxyCommands: Commands {
             appState: appState,
             projectStore: projectStore,
             worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore,
             ghostty: ghostty
         )
+    }
+
+    private func refreshActiveProjectWorktrees() {
+        guard let project = activeProject else { return }
+        Task { @MainActor in
+            await WorktreeRefreshHelper.refresh(
+                project: project,
+                appState: appState,
+                worktreeStore: worktreeStore
+            )
+        }
     }
 
     private func performShortcutAction(_ action: ShortcutAction) {
@@ -100,6 +113,13 @@ struct MuxyCommands: Commands {
                 Label("Reload Configuration", systemImage: "arrow.clockwise")
             }
             .shortcut(for: .reloadConfig, store: keyBindings)
+
+            Button {
+                refreshActiveProjectWorktrees()
+            } label: {
+                Label("Refresh Worktrees", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .disabled(activeProject == nil)
 
             Divider()
 
