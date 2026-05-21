@@ -56,6 +56,17 @@ struct MuxyCommands: Commands {
         )
     }
 
+    private func refreshActiveProjectWorktrees() {
+        guard let project = activeProject else { return }
+        Task { @MainActor in
+            await WorktreeRefreshHelper.refresh(
+                project: project,
+                appState: appState,
+                worktreeStore: worktreeStore
+            )
+        }
+    }
+
     private func performShortcutAction(_ action: ShortcutAction) {
         _ = shortcutDispatcher.perform(action, activeProject: activeProject) { project in
             VCSDisplayMode.current.route(
@@ -102,6 +113,13 @@ struct MuxyCommands: Commands {
                 Label("Reload Configuration", systemImage: "arrow.clockwise")
             }
             .shortcut(for: .reloadConfig, store: keyBindings)
+
+            Button {
+                refreshActiveProjectWorktrees()
+            } label: {
+                Label("Refresh Worktrees", systemImage: "arrow.triangle.2.circlepath")
+            }
+            .disabled(activeProject == nil)
 
             Divider()
 
