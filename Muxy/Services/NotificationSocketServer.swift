@@ -11,6 +11,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.muxy.notificationSocket")
     var openProjectHandler: (@Sendable (String) -> Void)?
     var splitActionHandler: (@Sendable (SplitDirection, String?) -> Void)?
+    var jsonRequestHandler: (@Sendable (Data) async -> Data)?
 
     static var socketPath: String {
         MuxyFileStorage.appSupportDirectory()
@@ -114,9 +115,49 @@ final class NotificationSocketServer: @unchecked Sendable {
 
         guard !data.isEmpty else { return }
 
+        let trimmed = data.trimmingWhitespace()
+        if trimmed.first == UInt8(ascii: "{") {
+            let response = processJSONRequest(trimmed)
+            writeResponse(fd: fd, data: response)
+            return
+        }
+
         for line in data.split(separator: UInt8(ascii: "\n")) {
             processMessage(Data(line))
         }
+    }
+
+    private func processJSONRequest(_ data: Data) -> Data {
+        guard let handler = jsonRequestHandler else {
+            return Self.jsonResponse(["ok": false, "error": "No handler registered"])
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var responseData = Self.jsonResponse(["ok": false, "error": "Timeout"])
+
+        Task { @Sendable in
+            responseData = await handler(data)
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+        return responseData
+    }
+
+    private func writeResponse(fd: Int32, data: Data) {
+        data.withUnsafeBytes { buffer in
+            guard let ptr = buffer.baseAddress else { return }
+            var offset = 0
+            while offset < buffer.count {
+                let written = Darwin.write(fd, ptr.advanced(by: offset), buffer.count - offset)
+                if written <= 0 { break }
+                offset += written
+            }
+        }
+    }
+
+    static func jsonResponse(_ dict: [String: Any]) -> Data {
+        (try? JSONSerialization.data(withJSONObject: dict)) ?? Data("{\"ok\":false}".utf8)
     }
 
     private func processMessage(_ data: Data) {
@@ -227,5 +268,20 @@ final class NotificationSocketServer: @unchecked Sendable {
     private func cleanup() {
         acceptSource?.cancel()
         acceptSource = nil
+    }
+}
+
+private extension Data {
+    func trimmingWhitespace() -> Data {
+        var start = startIndex
+        var end = endIndex
+        let whitespace: Set<UInt8> = [0x20, 0x09, 0x0A, 0x0D]
+        while start < end, whitespace.contains(self[start]) {
+            start += 1
+        }
+        while end > start, whitespace.contains(self[end - 1]) {
+            end -= 1
+        }
+        return subdata(in: start ..< end)
     }
 }

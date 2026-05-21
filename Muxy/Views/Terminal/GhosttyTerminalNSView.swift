@@ -1040,6 +1040,42 @@ final class GhosttyTerminalNSView: NSView {
         }
     }
 
+    func readScreenText(lastLines: Int = 50) -> String {
+        guard let surface else { return "" }
+        var out = ghostty_cells_s()
+        guard ghostty_surface_read_cells(surface, &out) else { return "" }
+        defer { ghostty_surface_free_cells(surface, &out) }
+
+        let cols = Int(out.cols)
+        let rows = Int(out.rows)
+        guard cols > 0, rows > 0, let cells = out.cells else { return "" }
+
+        var lines: [String] = []
+        for row in 0 ..< rows {
+            var line = ""
+            for col in 0 ..< cols {
+                let cell = cells[row * cols + col]
+                let cp = cell.codepoint
+                if cp == 0 {
+                    line.append(" ")
+                } else if let scalar = Unicode.Scalar(cp) {
+                    line.append(Character(scalar))
+                } else {
+                    line.append(" ")
+                }
+            }
+            lines.append(line)
+        }
+
+        while lines.last?.allSatisfy({ $0 == " " }) == true {
+            lines.removeLast()
+        }
+
+        let trimmed = lines.map { $0.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
+        let result = trimmed.suffix(lastLines)
+        return result.joined(separator: "\n")
+    }
+
     func submitRichInput(text: String) {
         guard !text.isEmpty else { return }
         let sanitized = text.replacingOccurrences(of: "\u{1B}[201~", with: "")

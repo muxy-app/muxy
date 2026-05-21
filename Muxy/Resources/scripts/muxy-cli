@@ -1,17 +1,23 @@
 #!/bin/bash
 # Muxy CLI wrapper
 # Usage:
-#   muxy <path>              - Open a folder in Muxy
-#   muxy split-right [cmd]   - Split the focused pane horizontally, optionally run a command
-#   muxy split-down [cmd]    - Split the focused pane vertically, optionally run a command
+#   muxy <path>                        - Open a folder in Muxy
+#   muxy split-right [cmd]             - Split horizontally, optionally run a command (returns pane ID)
+#   muxy split-down [cmd]              - Split vertically, optionally run a command (returns pane ID)
+#   muxy send --pane <id> <text>       - Send text to a pane (use \n for newline)
+#   muxy send-keys --pane <id> <key>   - Send special key (Escape, Enter, Tab, Ctrl+C, etc.)
+#   muxy read-screen --pane <id> [--lines N] - Read terminal content
+#   muxy close-pane --pane <id>        - Close a pane
+#   muxy rename-pane --pane <id> <title> - Rename a pane tab
+#   muxy list-panes [--json]           - List all panes
 
 COMMAND="$1"
+SOCKET="$HOME/Library/Application Support/Muxy/muxy.sock"
 
 send_socket_message() {
     local message="$1"
-    local socket="$HOME/Library/Application Support/Muxy/muxy.sock"
-    if [ ! -e "$socket" ]; then
-        echo "Error: Muxy is not running"
+    if [ ! -e "$SOCKET" ]; then
+        echo "Error: Muxy is not running" >&2
         exit 1
     fi
     python3 -c "
@@ -21,33 +27,180 @@ s.connect(sys.argv[1])
 s.sendall((sys.argv[2] + '\\n').encode())
 s.shutdown(socket.SHUT_WR)
 s.close()
-" "$socket" "$message" 2>/dev/null
+" "$SOCKET" "$message" 2>/dev/null
+}
+
+send_json_request() {
+    local json="$1"
+    if [ ! -e "$SOCKET" ]; then
+        echo "Error: Muxy is not running" >&2
+        exit 1
+    fi
+    python3 -c "
+import socket, sys, json
+
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect(sys.argv[1])
+s.sendall(sys.argv[2].encode())
+s.shutdown(socket.SHUT_WR)
+
+response = b''
+while True:
+    chunk = s.recv(4096)
+    if not chunk:
+        break
+    response += chunk
+s.close()
+
+if not response:
+    print(json.dumps({'ok': False, 'error': 'No response from Muxy'}))
+    sys.exit(1)
+
+try:
+    data = json.loads(response)
+    if not data.get('ok', False):
+        print(data.get('error', 'Unknown error'), file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(data))
+except json.JSONDecodeError:
+    print('Error: Invalid response from Muxy', file=sys.stderr)
+    sys.exit(1)
+" "$SOCKET" "$json" 2>/dev/null
 }
 
 case "$COMMAND" in
     split-right)
-        if [ -n "$2" ]; then
-            shift
-            send_socket_message "split-right|$*"
+        shift
+        if [ -n "$1" ]; then
+            CMD_ESCAPED=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$*")
+            RESP=$(send_json_request "{\"cmd\":\"split\",\"direction\":\"right\",\"command\":$CMD_ESCAPED}")
         else
-            send_socket_message "split-right"
+            RESP=$(send_json_request '{"cmd":"split","direction":"right"}')
         fi
+        echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('paneID',''))" 2>/dev/null
         exit 0
         ;;
     split-down)
-        if [ -n "$2" ]; then
-            shift
-            send_socket_message "split-down|$*"
+        shift
+        if [ -n "$1" ]; then
+            CMD_ESCAPED=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$*")
+            RESP=$(send_json_request "{\"cmd\":\"split\",\"direction\":\"down\",\"command\":$CMD_ESCAPED}")
         else
-            send_socket_message "split-down"
+            RESP=$(send_json_request '{"cmd":"split","direction":"down"}')
+        fi
+        echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('paneID',''))" 2>/dev/null
+        exit 0
+        ;;
+    send)
+        shift
+        PANE_ID=""
+        TEXT=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --pane) PANE_ID="$2"; shift 2 ;;
+                *) TEXT="$1"; shift ;;
+            esac
+        done
+        if [ -z "$PANE_ID" ] || [ -z "$TEXT" ]; then
+            echo "Usage: muxy send --pane <id> <text>" >&2
+            exit 1
+        fi
+        TEXT_ESCAPED=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$TEXT")
+        send_json_request "{\"cmd\":\"send\",\"pane\":\"$PANE_ID\",\"text\":$TEXT_ESCAPED}" > /dev/null
+        exit 0
+        ;;
+    send-keys)
+        shift
+        PANE_ID=""
+        KEY=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --pane) PANE_ID="$2"; shift 2 ;;
+                *) KEY="$1"; shift ;;
+            esac
+        done
+        if [ -z "$PANE_ID" ] || [ -z "$KEY" ]; then
+            echo "Usage: muxy send-keys --pane <id> <key>" >&2
+            exit 1
+        fi
+        KEY_ESCAPED=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$KEY")
+        send_json_request "{\"cmd\":\"send-keys\",\"pane\":\"$PANE_ID\",\"key\":$KEY_ESCAPED}" > /dev/null
+        exit 0
+        ;;
+    read-screen)
+        shift
+        PANE_ID=""
+        LINES=50
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --pane) PANE_ID="$2"; shift 2 ;;
+                --lines) LINES="$2"; shift 2 ;;
+                *) shift ;;
+            esac
+        done
+        if [ -z "$PANE_ID" ]; then
+            echo "Usage: muxy read-screen --pane <id> [--lines N]" >&2
+            exit 1
+        fi
+        RESP=$(send_json_request "{\"cmd\":\"read-screen\",\"pane\":\"$PANE_ID\",\"lines\":$LINES}")
+        echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('content',''))" 2>/dev/null
+        exit 0
+        ;;
+    close-pane)
+        shift
+        PANE_ID=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --pane) PANE_ID="$2"; shift 2 ;;
+                *) shift ;;
+            esac
+        done
+        if [ -z "$PANE_ID" ]; then
+            echo "Usage: muxy close-pane --pane <id>" >&2
+            exit 1
+        fi
+        send_json_request "{\"cmd\":\"close-pane\",\"pane\":\"$PANE_ID\"}" > /dev/null
+        exit 0
+        ;;
+    rename-pane)
+        shift
+        PANE_ID=""
+        TITLE=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --pane) PANE_ID="$2"; shift 2 ;;
+                *) TITLE="$1"; shift ;;
+            esac
+        done
+        if [ -z "$PANE_ID" ] || [ -z "$TITLE" ]; then
+            echo "Usage: muxy rename-pane --pane <id> <title>" >&2
+            exit 1
+        fi
+        TITLE_ESCAPED=$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$TITLE")
+        send_json_request "{\"cmd\":\"rename-pane\",\"pane\":\"$PANE_ID\",\"title\":$TITLE_ESCAPED}" > /dev/null
+        exit 0
+        ;;
+    list-panes)
+        shift
+        RESP=$(send_json_request '{"cmd":"list-panes"}')
+        if [ "$1" = "--json" ] || [ "${PREV_ARG:-}" = "--json" ]; then
+            echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('panes',[]),indent=2))" 2>/dev/null
+        else
+            echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('panes',[]),indent=2))" 2>/dev/null
         fi
         exit 0
         ;;
     ""|--help|-h)
         echo "Usage:"
-        echo "  muxy <path>              Open a folder in Muxy (e.g. muxy .)"
-        echo "  muxy split-right [cmd]   Split the focused pane horizontally, optionally run a command"
-        echo "  muxy split-down [cmd]    Split the focused pane vertically, optionally run a command"
+        echo "  muxy <path>                        Open a folder in Muxy"
+        echo "  muxy split-right [cmd]             Split horizontally (returns pane ID)"
+        echo "  muxy split-down [cmd]              Split vertically (returns pane ID)"
+        echo "  muxy send --pane <id> <text>       Send text to a pane"
+        echo "  muxy send-keys --pane <id> <key>   Send special key (Escape, Enter, Tab, Ctrl+C)"
+        echo "  muxy read-screen --pane <id> [--lines N]  Read terminal content"
+        echo "  muxy close-pane --pane <id>        Close a pane"
+        echo "  muxy rename-pane --pane <id> <title>  Rename a pane tab"
+        echo "  muxy list-panes [--json]           List all panes"
         exit 1
         ;;
 esac
@@ -81,7 +234,6 @@ ENCODED_PATH="$(percent_encode "$TARGET_DIR")"
 open "muxy://open?path=${ENCODED_PATH}" 2>/dev/null \
     || open -b com.muxy.app "$TARGET_DIR" 2>/dev/null \
     || {
-        SOCKET="$HOME/Library/Application Support/Muxy/muxy.sock"
         if [ -e "$SOCKET" ]; then
             printf 'open-project|%s\n' "$TARGET_DIR" | nc -U "$SOCKET" 2>/dev/null
         fi

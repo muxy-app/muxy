@@ -90,6 +90,9 @@ struct MuxyApp: App {
                             )))
                         }
                     }
+                    NotificationSocketServer.shared.jsonRequestHandler = { [appState] requestData in
+                        await SocketCommandHandler.handleRequest(requestData, appState: appState)
+                    }
                     MobileServerService.shared.configure { server in
                         let delegate = RemoteServerDelegate(
                             appState: appState,
