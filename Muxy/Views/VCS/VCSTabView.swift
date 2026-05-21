@@ -855,12 +855,12 @@ struct VCSTabView: View {
         let parentPath = defaultWorktreeParentPath
         Task { @MainActor in
             do {
-                let worktree = try await state.createWorktreeForPullRequest(
+                let worktree = try await state.checkoutPullRequestInNewWorktree(
                     pr,
                     project: project,
-                    defaultParentPath: parentPath
+                    defaultParentPath: parentPath,
+                    worktreeStore: worktreeStore
                 )
-                worktreeStore.add(worktree, to: project.id)
                 appState.selectWorktree(projectID: project.id, worktree: worktree)
                 ToastState.shared.show("Checked out PR #\(pr.number) in new worktree")
             } catch {

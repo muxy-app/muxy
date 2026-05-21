@@ -1312,7 +1312,11 @@ final class VCSTabState {
             guard let self else { return }
             defer { checkingOutPRNumber = nil }
             do {
-                try await git.checkoutPullRequest(repoPath: projectPath, number: item.number)
+                try await git.checkoutPullRequest(
+                    repoPath: projectPath,
+                    number: item.number,
+                    headBranch: item.headBranch
+                )
                 guard !Task.isCancelled else { return }
                 ToastState.shared.show("Checked out PR #\(item.number)")
                 commits = []
@@ -1324,10 +1328,11 @@ final class VCSTabState {
         }
     }
 
-    func createWorktreeForPullRequest(
+    func checkoutPullRequestInNewWorktree(
         _ item: GitRepositoryService.PRListItem,
         project: Project,
-        defaultParentPath: String?
+        defaultParentPath: String?,
+        worktreeStore: WorktreeStore
     ) async throws -> Worktree {
         guard checkingOutPRNumber == nil else {
             throw PRCheckoutError.alreadyInProgress
@@ -1357,26 +1362,33 @@ final class VCSTabState {
             )
         }
 
-        try await git.fetchPullRequestRef(
-            repoPath: project.path,
-            number: item.number,
-            localBranch: localBranch
-        )
-
-        try await GitWorktreeService.shared.addWorktree(
-            repoPath: project.path,
-            path: worktreeDirectory,
-            branch: localBranch,
-            createBranch: false
-        )
-
-        return Worktree(
+        let worktree = Worktree(
             name: localBranch,
             path: worktreeDirectory,
             branch: localBranch,
             ownsBranch: true,
             isPrimary: false
         )
+        worktreeStore.add(worktree, to: project.id)
+
+        do {
+            try await git.fetchPullRequestRef(
+                repoPath: project.path,
+                number: item.number,
+                localBranch: localBranch
+            )
+            try await GitWorktreeService.shared.addWorktree(
+                repoPath: project.path,
+                path: worktreeDirectory,
+                branch: localBranch,
+                createBranch: false
+            )
+        } catch {
+            worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            throw error
+        }
+
+        return worktree
     }
 
     enum PRCheckoutError: LocalizedError {

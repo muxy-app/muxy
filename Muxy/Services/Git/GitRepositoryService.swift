@@ -357,7 +357,7 @@ struct GitRepositoryService {
         return GitPRParser.parsePRList(result.stdout)
     }
 
-    func checkoutPullRequest(repoPath: String, number: Int) async throws {
+    func checkoutPullRequest(repoPath: String, number: Int, headBranch: String? = nil) async throws {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
             throw PRCreateError.ghNotInstalled
         }
@@ -370,7 +370,8 @@ struct GitRepositoryService {
             return
         }
 
-        let localBranch = "pr-\(number)"
+        let trimmedHead = headBranch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let localBranch = trimmedHead.isEmpty ? "pr-\(number)" : trimmedHead
         try await fetchPullRequestRef(repoPath: repoPath, number: number, localBranch: localBranch)
         let checkoutResult = try await GitProcessRunner.runGit(
             repoPath: repoPath,
