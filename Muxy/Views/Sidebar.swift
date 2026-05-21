@@ -44,6 +44,7 @@ struct Sidebar: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
     let expanded: Bool
+    let expandedCustomWidth: CGFloat
     @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
 
@@ -73,7 +74,12 @@ struct Sidebar: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxHeight: .infinity, alignment: .bottom)
-        .frame(width: isHidden ? 0 : (isWide ? SidebarLayout.expandedWidth : SidebarLayout.collapsedWidth))
+        .frame(width: SidebarLayout.resolvedWidth(
+            expanded: expanded,
+            collapsedStyle: collapsedStyle,
+            expandedStyle: expandedStyle,
+            expandedCustomWidth: expandedCustomWidth
+        ))
         .opacity(isHidden ? 0 : 1)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Sidebar")
