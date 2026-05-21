@@ -79,20 +79,56 @@ private struct ImageViewerBreadcrumb: View {
 
             Spacer()
 
-            IconButton(symbol: "arrow.up.left.and.arrow.down.right.magnifyingglass", size: 11, accessibilityLabel: "Fit to Window") {
+            IconButton(symbol: "minus.magnifyingglass", size: 12, accessibilityLabel: "Zoom Out") {
+                state.zoomOut()
+            }
+            .help("Zoom Out")
+            .disabled(!state.isLoaded || !state.canZoomOut)
+
+            IconButton(symbol: "plus.magnifyingglass", size: 12, accessibilityLabel: "Zoom In") {
+                state.zoomIn()
+            }
+            .help("Zoom In")
+            .disabled(!state.isLoaded || !state.canZoomIn)
+
+            IconButton(symbol: "arrow.up.left.and.down.right.magnifyingglass", size: 12, accessibilityLabel: "Fit to Window") {
                 state.requestFitToWindow()
             }
             .help("Fit to Window")
             .disabled(!state.isLoaded)
 
-            IconButton(symbol: "1.magnifyingglass", size: 11, accessibilityLabel: "Actual Size") {
+            ImageViewerActualSizeButton {
                 state.requestActualSize()
             }
-            .help("Actual Size (100%)")
             .disabled(!state.isLoaded)
         }
         .padding(.horizontal, UIMetrics.spacing5)
         .frame(height: UIMetrics.scaled(32))
         .background(MuxyTheme.bg)
+    }
+}
+
+private struct ImageViewerActualSizeButton: View {
+    let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text("1:1")
+                .font(.system(size: UIMetrics.scaled(11), weight: .semibold, design: .monospaced))
+                .foregroundStyle(foreground)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help("Actual Size (100%)")
+        .accessibilityLabel("Actual Size")
+    }
+
+    private var foreground: Color {
+        if !isEnabled { return MuxyTheme.fgDim }
+        return hovered ? MuxyTheme.fg : MuxyTheme.fgMuted
     }
 }

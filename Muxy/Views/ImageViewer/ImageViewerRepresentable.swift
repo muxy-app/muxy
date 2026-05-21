@@ -4,8 +4,6 @@ import SwiftUI
 struct ImageViewerRepresentable: NSViewRepresentable {
     @Bindable var state: ImageViewerTabState
 
-    private static let minMagnification: CGFloat = 0.05
-    private static let maxMagnification: CGFloat = 40.0
     private static let magnificationEpsilon: CGFloat = 0.0001
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -14,8 +12,8 @@ struct ImageViewerRepresentable: NSViewRepresentable {
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.allowsMagnification = true
-        scrollView.minMagnification = Self.minMagnification
-        scrollView.maxMagnification = Self.maxMagnification
+        scrollView.minMagnification = ImageViewerTabState.minScale
+        scrollView.maxMagnification = ImageViewerTabState.maxScale
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
         scrollView.borderType = .noBorder
@@ -156,11 +154,13 @@ struct ImageViewerRepresentable: NSViewRepresentable {
             NotificationCenter.default.removeObserver(self)
         }
 
-        @objc func willStartLiveMagnify(_ notification: Notification) {
+        @objc
+        func willStartLiveMagnify(_ notification: Notification) {
             isUserMagnifying = true
         }
 
-        @objc func didEndLiveMagnify(_ notification: Notification) {
+        @objc
+        func didEndLiveMagnify(_ notification: Notification) {
             isUserMagnifying = false
             guard let scrollView else { return }
             let newScale = scrollView.magnification
@@ -168,7 +168,8 @@ struct ImageViewerRepresentable: NSViewRepresentable {
             state.scale = newScale
         }
 
-        @objc func scrollViewFrameDidChange(_ notification: Notification) {
+        @objc
+        func scrollViewFrameDidChange(_ notification: Notification) {
             guard needsInitialFit else { return }
             guard let scrollView, let imageView else { return }
             if fitImage(scrollView: scrollView, imageView: imageView) {

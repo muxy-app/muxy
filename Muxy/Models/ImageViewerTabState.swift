@@ -5,6 +5,10 @@ import UniformTypeIdentifiers
 @MainActor
 @Observable
 final class ImageViewerTabState: Identifiable {
+    static let minScale: CGFloat = 0.05
+    static let maxScale: CGFloat = 40.0
+    static let zoomStep: CGFloat = 1.25
+
     let id = UUID()
     let projectPath: String
     private(set) var filePath: String
@@ -47,6 +51,17 @@ final class ImageViewerTabState: Identifiable {
     func requestActualSize() {
         scale = 1.0
     }
+
+    func zoomIn() {
+        scale = min(Self.maxScale, scale * Self.zoomStep)
+    }
+
+    func zoomOut() {
+        scale = max(Self.minScale, scale / Self.zoomStep)
+    }
+
+    var canZoomIn: Bool { scale < Self.maxScale }
+    var canZoomOut: Bool { scale > Self.minScale }
 
     func updateFilePath(_ newPath: String) {
         guard filePath != newPath else { return }
