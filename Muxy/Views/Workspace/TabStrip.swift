@@ -358,6 +358,10 @@ private struct TabCell: View {
         measuredWidth < Self.titleHideThreshold
     }
 
+    private var hasClosableSiblings: Bool {
+        closableOthersCount > 0 || closableLeftCount > 0 || closableRightCount > 0
+    }
+
     private var tabColor: Color? {
         ProjectIconColor.color(for: tab.colorID)
     }
@@ -508,9 +512,11 @@ private struct TabCell: View {
                 Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") {
                     onTogglePin()
                 }
-                if !tab.isPinned {
+                if !tab.isPinned || hasClosableSiblings {
                     Divider()
-                    Button("Close Tab") { onClose() }
+                    if !tab.isPinned {
+                        Button("Close Tab") { onClose() }
+                    }
                     Button("Close Other Tabs") { onCloseOthers() }
                         .disabled(closableOthersCount == 0)
                     Button("Close Tabs to the Left") { onCloseLeft() }
