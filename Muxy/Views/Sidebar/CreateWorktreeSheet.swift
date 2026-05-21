@@ -22,6 +22,7 @@ struct CreateWorktreeSheet: View {
     @State private var selectedParentPath: String?
     @State private var usesProjectLocation = false
     @State private var availableBranches: [String] = []
+    @State private var selectedBaseBranch: String = ""
     @State private var setupCommands: [String] = []
     @State private var runSetup = false
     @State private var inProgress = false
@@ -54,6 +55,16 @@ struct CreateWorktreeSheet: View {
                         .onChange(of: branchName) { _, newValue in
                             branchNameEdited = newValue != name
                         }
+                }
+                VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
+                    Text("Base Branch").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
+                    Picker("", selection: $selectedBaseBranch) {
+                        ForEach(availableBranches, id: \.self) { branch in
+                            Text(branch).tag(branch)
+                        }
+                    }
+                    .labelsHidden()
+                    .disabled(availableBranches.isEmpty)
                 }
             } else {
                 VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
@@ -248,11 +259,21 @@ struct CreateWorktreeSheet: View {
 
     private func loadBranches() async {
         do {
-            let branches = try await gitRepository.listBranches(repoPath: project.path)
+            async let branchesValue = gitRepository.listBranches(repoPath: project.path)
+            async let defaultValue = gitRepository.defaultBranch(repoPath: project.path)
+            let branches = try await branchesValue
+            let resolvedDefault = await defaultValue
             await MainActor.run {
                 availableBranches = branches
                 if selectedExistingBranch.isEmpty {
                     selectedExistingBranch = branches.first ?? ""
+                }
+                if selectedBaseBranch.isEmpty {
+                    if let resolvedDefault, branches.contains(resolvedDefault) {
+                        selectedBaseBranch = resolvedDefault
+                    } else {
+                        selectedBaseBranch = branches.first ?? ""
+                    }
                 }
             }
         } catch {
@@ -297,12 +318,16 @@ struct CreateWorktreeSheet: View {
             return
         }
 
+        let trimmedBase = selectedBaseBranch.trimmingCharacters(in: .whitespaces)
+        let baseBranch: String? = createNewBranch && !trimmedBase.isEmpty ? trimmedBase : nil
+
         do {
             try await gitWorktree.addWorktree(
                 repoPath: project.path,
                 path: worktreeDirectory,
                 branch: branch,
-                createBranch: createNewBranch
+                createBranch: createNewBranch,
+                baseBranch: baseBranch
             )
         } catch {
             inProgress = false

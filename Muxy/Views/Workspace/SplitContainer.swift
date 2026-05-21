@@ -33,40 +33,26 @@ struct SplitContainer: View {
                 child(branch.first)
                     .frame(width: h ? first : nil, height: h ? nil : first)
 
-                Color.clear
-                    .frame(width: h ? 1 : nil, height: h ? nil : 1)
-                    .overlay(Rectangle().fill(MuxyTheme.border))
-                    .overlay {
-                        Color.clear
-                            .frame(width: h ? UIMetrics.scaled(5) : nil, height: h ? nil : UIMetrics.scaled(5))
-                            .contentShape(Rectangle())
-                            .gesture(
-                                DragGesture(minimumDistance: 1)
-                                    .onChanged { v in
-                                        let pos = h ? v.location.x : v.location.y
-                                        let origin = h ? v.startLocation.x : v.startLocation.y
-                                        let startPos = total * branch.ratio
-                                        let newPos = startPos + (pos - origin)
-                                        branch.ratio = min(max(newPos / total, 0.15), 0.85)
-                                    }
-                            )
-                            .onHover { on in
-                                if on { (h ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push() } else { NSCursor.pop() }
-                            }
+                ResizeHandle(axis: h ? .horizontal : .vertical) { v in
+                    let pos = h ? v.location.x : v.location.y
+                    let origin = h ? v.startLocation.x : v.startLocation.y
+                    let startPos = total * branch.ratio
+                    let newPos = startPos + (pos - origin)
+                    branch.ratio = min(max(newPos / total, 0.15), 0.85)
+                }
+                .accessibilityLabel(h ? "Horizontal Split Divider" : "Vertical Split Divider")
+                .accessibilityValue("Split ratio: \(Int(branch.ratio * 100))%")
+                .accessibilityAdjustableAction { direction in
+                    let step: CGFloat = 0.05
+                    switch direction {
+                    case .increment:
+                        branch.ratio = min(branch.ratio + step, 0.85)
+                    case .decrement:
+                        branch.ratio = max(branch.ratio - step, 0.15)
+                    @unknown default:
+                        break
                     }
-                    .accessibilityLabel(h ? "Horizontal Split Divider" : "Vertical Split Divider")
-                    .accessibilityValue("Split ratio: \(Int(branch.ratio * 100))%")
-                    .accessibilityAdjustableAction { direction in
-                        let step: CGFloat = 0.05
-                        switch direction {
-                        case .increment:
-                            branch.ratio = min(branch.ratio + step, 0.85)
-                        case .decrement:
-                            branch.ratio = max(branch.ratio - step, 0.15)
-                        @unknown default:
-                            break
-                        }
-                    }
+                }
 
                 child(branch.second)
                     .frame(width: h ? second : nil, height: h ? nil : second)

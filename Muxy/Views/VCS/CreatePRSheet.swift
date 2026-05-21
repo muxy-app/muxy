@@ -14,6 +14,7 @@ struct CreatePRForm: View {
     let context: Context
     let inProgress: Bool
     let errorMessage: String?
+    @Binding var draft: VCSTabState.PRFormDraft
     let onLoadRemoteBranches: () -> Void
     let onSubmit: (
         _ baseBranch: String,
@@ -30,6 +31,7 @@ struct CreatePRForm: View {
     @State private var isGeneratingAI = false
     @State private var aiError: String?
     @State private var aiTask: Task<Void, Never>?
+    @FocusState private var titleFocused: Bool
 
     private var availableBaseBranches: [String] {
         if !context.remoteBranches.isEmpty {
@@ -41,28 +43,16 @@ struct CreatePRForm: View {
         return context.localBranches
     }
 
-    @State private var baseBranch: String = ""
-    @State private var title: String = ""
-    @State private var bodyText: String = ""
-    @State private var newBranchName: String = ""
-    @State private var userEditedBranchName = false
-    @State private var includeAll = true
-    @State private var draft = false
-    @State private var didApplyDefaults = false
-    @State private var initialCurrentBranch: String?
-    @State private var advanced = false
-    @FocusState private var titleFocused: Bool
-
     private var currentBranchSnapshot: String {
-        initialCurrentBranch ?? context.currentBranch
+        draft.initialCurrentBranch ?? context.currentBranch
     }
 
     private var trimmedTitle: String {
-        title.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var trimmedBranchName: String {
-        newBranchName.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft.newBranchName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var hasAnyChanges: Bool {
@@ -70,17 +60,17 @@ struct CreatePRForm: View {
     }
 
     private var needsNewBranch: Bool {
-        !baseBranch.isEmpty && baseBranch == currentBranchSnapshot
+        !draft.baseBranch.isEmpty && draft.baseBranch == currentBranchSnapshot
     }
 
     private var includeMode: VCSTabState.PRIncludeMode {
         if !hasAnyChanges { return .none }
-        return includeAll ? .all : .stagedOnly
+        return draft.includeAll ? .all : .stagedOnly
     }
 
     private var canSubmit: Bool {
         if trimmedTitle.isEmpty { return false }
-        if baseBranch.isEmpty { return false }
+        if draft.baseBranch.isEmpty { return false }
         if needsNewBranch, trimmedBranchName.isEmpty { return false }
         return true
     }
@@ -91,7 +81,7 @@ struct CreatePRForm: View {
             titleField
             descriptionField
 
-            if advanced {
+            if draft.advanced {
                 targetBranchField
                 if needsNewBranch {
                     newBranchField
@@ -103,7 +93,7 @@ struct CreatePRForm: View {
 
             HStack(spacing: UIMetrics.spacing5) {
                 advancedToggle
-                if advanced {
+                if draft.advanced {
                     draftToggle
                 }
                 Spacer(minLength: 0)
@@ -118,14 +108,14 @@ struct CreatePRForm: View {
         .background(MuxyTheme.bg)
         .onAppear(perform: applyDefaults)
         .onChange(of: availableBaseBranches) { _, newList in
-            if !baseBranch.isEmpty, !newList.contains(baseBranch) {
-                baseBranch = ""
+            if !draft.baseBranch.isEmpty, !newList.contains(draft.baseBranch) {
+                draft.baseBranch = ""
             }
             applyDefaults()
         }
-        .onChange(of: title) { _, newValue in
-            guard !userEditedBranchName else { return }
-            newBranchName = Self.slugify(newValue)
+        .onChange(of: draft.title) { _, newValue in
+            guard !draft.userEditedBranchName else { return }
+            draft.newBranchName = Self.slugify(newValue)
         }
     }
 
@@ -177,7 +167,7 @@ struct CreatePRForm: View {
             } else {
                 Menu {
                     ForEach(availableBaseBranches, id: \.self) { branch in
-                        Button(branch) { baseBranch = branch }
+                        Button(branch) { draft.baseBranch = branch }
                     }
                     Divider()
                     Button {
@@ -198,7 +188,7 @@ struct CreatePRForm: View {
                         Image(systemName: "arrow.triangle.branch")
                             .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                             .foregroundStyle(MuxyTheme.fgDim)
-                        Text(baseBranch.isEmpty ? "Select branch" : baseBranch)
+                        Text(draft.baseBranch.isEmpty ? "Select branch" : draft.baseBranch)
                             .font(.system(size: UIMetrics.fontBody, design: .monospaced))
                             .foregroundStyle(MuxyTheme.fg)
                             .lineLimit(1)
@@ -230,7 +220,7 @@ struct CreatePRForm: View {
                 }
             }
             ThemedTextField(
-                text: $title,
+                text: $draft.title,
                 placeholder: "Short summary of the change",
                 monospaced: false,
                 onSubmit: { if canSubmit, !inProgress { submit() } }
@@ -275,20 +265,20 @@ struct CreatePRForm: View {
 
     private func generateWithAI() {
         guard let onGenerateAI else { return }
-        guard !baseBranch.isEmpty else {
+        guard !draft.baseBranch.isEmpty else {
             aiError = "Select a target branch first."
             return
         }
         isGeneratingAI = true
         aiError = nil
-        let base = baseBranch
+        let base = draft.baseBranch
         aiTask?.cancel()
         aiTask = Task { @MainActor in
             do {
-                let draft = try await onGenerateAI(base)
+                let aiDraft = try await onGenerateAI(base)
                 guard !Task.isCancelled else { return }
-                title = draft.title
-                bodyText = draft.body
+                draft.title = aiDraft.title
+                draft.body = aiDraft.body
                 isGeneratingAI = false
                 aiTask = nil
             } catch is CancellationError {
@@ -312,7 +302,7 @@ struct CreatePRForm: View {
     private var descriptionField: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
             fieldLabel("Description")
-            TextEditor(text: $bodyText)
+            TextEditor(text: $draft.body)
                 .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fg)
                 .scrollContentBackground(.hidden)
@@ -327,14 +317,14 @@ struct CreatePRForm: View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
             fieldLabel("New Branch")
             ThemedTextField(
-                text: $newBranchName,
+                text: $draft.newBranchName,
                 placeholder: "branch-name",
                 monospaced: true
             )
-            .onChange(of: newBranchName) { _, newValue in
-                guard !userEditedBranchName else { return }
-                if newValue != Self.slugify(title) {
-                    userEditedBranchName = true
+            .onChange(of: draft.newBranchName) { _, newValue in
+                guard !draft.userEditedBranchName else { return }
+                if newValue != Self.slugify(draft.title) {
+                    draft.userEditedBranchName = true
                 }
             }
             Text("A new branch will be created from \(currentBranchSnapshot) for this pull request.")
@@ -356,12 +346,12 @@ struct CreatePRForm: View {
 
     private func includeRadio(label: String, value: Bool) -> some View {
         Button {
-            includeAll = value
+            draft.includeAll = value
         } label: {
             HStack(spacing: UIMetrics.spacing3) {
-                Image(systemName: includeAll == value ? "largecircle.fill.circle" : "circle")
+                Image(systemName: draft.includeAll == value ? "largecircle.fill.circle" : "circle")
                     .font(.system(size: UIMetrics.fontBody))
-                    .foregroundStyle(includeAll == value ? MuxyTheme.accent : MuxyTheme.fgDim)
+                    .foregroundStyle(draft.includeAll == value ? MuxyTheme.accent : MuxyTheme.fgDim)
                 Text(label)
                     .font(.system(size: UIMetrics.fontFootnote))
                     .foregroundStyle(MuxyTheme.fg)
@@ -373,10 +363,10 @@ struct CreatePRForm: View {
 
     private var advancedToggle: some View {
         Button {
-            advanced.toggle()
+            draft.advanced.toggle()
         } label: {
             HStack(spacing: UIMetrics.spacing2) {
-                Image(systemName: advanced ? "chevron.up" : "chevron.down")
+                Image(systemName: draft.advanced ? "chevron.up" : "chevron.down")
                     .font(.system(size: UIMetrics.fontXS, weight: .bold))
                 Text("Advanced")
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
@@ -389,7 +379,7 @@ struct CreatePRForm: View {
     }
 
     private var draftToggle: some View {
-        Toggle(isOn: $draft) {
+        Toggle(isOn: $draft.draft) {
             Text("Create as draft")
                 .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fg)
@@ -454,18 +444,14 @@ struct CreatePRForm: View {
     }
 
     private func applyDefaults() {
-        if initialCurrentBranch == nil {
-            initialCurrentBranch = context.currentBranch
+        if draft.initialCurrentBranch == nil {
+            draft.initialCurrentBranch = context.currentBranch
         }
-        if baseBranch.isEmpty {
-            baseBranch = context.defaultBranch
+        if draft.baseBranch.isEmpty {
+            draft.baseBranch = context.defaultBranch
                 ?? availableBaseBranches.first(where: { $0 != currentBranchSnapshot })
                 ?? availableBaseBranches.first
                 ?? ""
-        }
-        if !didApplyDefaults {
-            includeAll = true
-            didApplyDefaults = true
         }
         titleFocused = true
     }
@@ -474,7 +460,7 @@ struct CreatePRForm: View {
         let strategy: VCSTabState.PRBranchStrategy = needsNewBranch
             ? .createNew(name: trimmedBranchName)
             : .useCurrent
-        onSubmit(baseBranch, trimmedTitle, bodyText, strategy, includeMode, draft)
+        onSubmit(draft.baseBranch, trimmedTitle, draft.body, strategy, includeMode, draft.draft)
     }
 
     private static func slugify(_ title: String) -> String {

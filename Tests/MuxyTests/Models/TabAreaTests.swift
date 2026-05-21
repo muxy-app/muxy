@@ -58,6 +58,64 @@ struct TabAreaTests {
         #expect(area.activeTabID == activeTabID)
     }
 
+    @Test("restoreClosedTerminalTab creates terminal tab with saved command")
+    func restoreClosedTerminalTab() {
+        let area = TabArea(projectPath: testPath)
+        let snapshot = ClosedTerminalTabSnapshot(
+            id: UUID(),
+            projectID: UUID(),
+            worktreeID: UUID(),
+            areaID: area.id,
+            projectPath: testPath,
+            title: "nvim",
+            customTitle: "Editor",
+            colorID: "blue",
+            workingDirectory: "/tmp/test/Sources",
+            startupCommand: nil,
+            lastSubmittedCommand: "nvim Package.swift",
+            closedSequence: 1,
+            closedAt: Date()
+        )
+
+        area.restoreClosedTerminalTab(snapshot)
+
+        let tab = area.activeTab
+        let pane = tab?.content.pane
+        #expect(area.tabs.count == 2)
+        #expect(tab?.customTitle == "Editor")
+        #expect(tab?.colorID == "blue")
+        #expect(pane?.projectPath == testPath)
+        #expect(pane?.currentWorkingDirectory == "/tmp/test/Sources")
+        #expect(pane?.startupCommand == "nvim Package.swift")
+        #expect(pane?.startupCommandInteractive == true)
+    }
+
+    @Test("restoreClosedTerminalTab preserves AI command")
+    func restoreClosedTerminalTabPreservesAICommand() {
+        let area = TabArea(projectPath: testPath)
+        let snapshot = ClosedTerminalTabSnapshot(
+            id: UUID(),
+            projectID: UUID(),
+            worktreeID: UUID(),
+            areaID: area.id,
+            projectPath: testPath,
+            title: "Codex",
+            customTitle: nil,
+            colorID: nil,
+            workingDirectory: "/tmp/test",
+            startupCommand: nil,
+            lastSubmittedCommand: "codex",
+            closedSequence: 1,
+            closedAt: Date()
+        )
+
+        area.restoreClosedTerminalTab(snapshot)
+
+        let pane = area.activeTab?.content.pane
+        #expect(pane?.startupCommand == "codex")
+        #expect(pane?.startupCommandInteractive == true)
+    }
+
     @Test("createVCSTab adds tab with VCS content")
     func createVCSTab() {
         let area = TabArea(projectPath: testPath)

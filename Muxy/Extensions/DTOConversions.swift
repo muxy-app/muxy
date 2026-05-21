@@ -88,6 +88,7 @@ extension TerminalTab.Kind {
         case .vcs: .vcs
         case .editor: .editor
         case .diffViewer: .diffViewer
+        case .imageViewer: .imageViewer
         }
     }
 }

@@ -22,7 +22,7 @@ final class FileTreeState {
         let token: UUID
     }
 
-    let rootPath: String
+    private(set) var rootPath: String
     private(set) var rootEntries: [FileTreeEntry] = []
     private(set) var children: [String: [FileTreeEntry]] = [:]
     private(set) var expanded: Set<String> = []
@@ -63,6 +63,24 @@ final class FileTreeState {
         hasLoadedRoot = true
         reloadRoot()
         refreshStatuses()
+    }
+
+    func setRootPath(_ newPath: String) {
+        guard newPath != rootPath else { return }
+        rootPath = newPath
+        rootEntries = []
+        children = [:]
+        expanded = []
+        loadingPaths = []
+        statuses = [:]
+        dirHasChange = []
+        selectedFilePath = nil
+        selectedPaths = []
+        selectionAnchorPath = nil
+        pendingScrollTarget = nil
+        hasLoadedRoot = false
+        installWatcher()
+        loadRootIfNeeded()
     }
 
     func refresh() {

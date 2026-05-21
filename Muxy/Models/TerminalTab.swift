@@ -8,6 +8,7 @@ final class TerminalTab: Identifiable {
         case vcs
         case editor
         case diffViewer
+        case imageViewer
     }
 
     enum Content {
@@ -15,6 +16,7 @@ final class TerminalTab: Identifiable {
         case vcs(VCSTabState)
         case editor(EditorTabState)
         case diffViewer(DiffViewerTabState)
+        case imageViewer(ImageViewerTabState)
 
         var kind: Kind {
             switch self {
@@ -22,6 +24,7 @@ final class TerminalTab: Identifiable {
             case .vcs: .vcs
             case .editor: .editor
             case .diffViewer: .diffViewer
+            case .imageViewer: .imageViewer
             }
         }
 
@@ -45,17 +48,23 @@ final class TerminalTab: Identifiable {
             return state
         }
 
+        var imageViewerState: ImageViewerTabState? {
+            guard case let .imageViewer(state) = self else { return nil }
+            return state
+        }
+
         var projectPath: String {
             switch self {
             case let .terminal(pane): pane.projectPath
             case let .vcs(state): state.projectPath
             case let .editor(state): state.projectPath
             case let .diffViewer(state): state.projectPath
+            case let .imageViewer(state): state.projectPath
             }
         }
     }
 
-    let id = UUID()
+    let id: UUID
     var customTitle: String?
     var colorID: String?
     var isPinned: Bool = false
@@ -76,35 +85,49 @@ final class TerminalTab: Identifiable {
             return state.displayTitle
         case let .diffViewer(state):
             return state.displayTitle
+        case let .imageViewer(state):
+            return state.displayTitle
         }
     }
 
     init(pane: TerminalPaneState) {
+        id = UUID()
         content = .terminal(pane)
     }
 
     init(vcsState: VCSTabState) {
+        id = UUID()
         content = .vcs(vcsState)
     }
 
     init(editorState: EditorTabState) {
+        id = UUID()
         content = .editor(editorState)
     }
 
     init(diffViewerState: DiffViewerTabState) {
+        id = UUID()
         content = .diffViewer(diffViewerState)
     }
 
-    init(restoring snapshot: TerminalTabSnapshot) {
+    init(imageViewerState: ImageViewerTabState) {
+        id = UUID()
+        content = .imageViewer(imageViewerState)
+    }
+
+    init(restoring snapshot: TerminalTabSnapshot, restoredSession: TerminalSessionSnapshot? = nil) {
+        id = snapshot.id
         customTitle = snapshot.customTitle
         colorID = snapshot.colorID
         isPinned = snapshot.isPinned
         switch snapshot.kind {
         case .terminal:
             content = .terminal(TerminalPaneState(
+                id: snapshot.paneID ?? UUID(),
                 projectPath: snapshot.projectPath,
                 title: snapshot.paneTitle,
-                initialWorkingDirectory: snapshot.currentWorkingDirectory
+                initialWorkingDirectory: restoredSession?.workingDirectory ?? snapshot.currentWorkingDirectory,
+                restoredSession: restoredSession
             ))
         case .vcs:
             content = .vcs(VCSStateStore.shared.state(for: snapshot.projectPath))
@@ -116,18 +139,26 @@ final class TerminalTab: Identifiable {
             }
         case .diffViewer:
             content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
+        case .imageViewer:
+            if let filePath = snapshot.filePath {
+                content = .imageViewer(ImageViewerTabState(projectPath: snapshot.projectPath, filePath: filePath))
+            } else {
+                content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
+            }
         }
     }
 
     func snapshot() -> TerminalTabSnapshot {
         TerminalTabSnapshot(
             kind: content.kind,
+            id: id,
             customTitle: customTitle,
             colorID: colorID,
             isPinned: isPinned,
             projectPath: content.projectPath,
             paneTitle: content.pane?.title,
-            filePath: content.editorState?.filePath,
+            paneID: content.pane?.id,
+            filePath: content.editorState?.filePath ?? content.imageViewerState?.filePath,
             currentWorkingDirectory: content.pane?.currentWorkingDirectory
         )
     }

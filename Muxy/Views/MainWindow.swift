@@ -29,6 +29,7 @@ struct MainWindow: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(GhosttyService.self) private var ghostty
     @Environment(\.openWindow) private var openWindow
     @State private var dragCoordinator = TabDragCoordinator()
@@ -91,6 +92,8 @@ struct MainWindow: View {
     @State private var fileTreePanelVisible = false
     @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
     @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
+    @State private var fileTreeLastTerminalPaths: [WorktreeKey: String] = [:]
+    @AppStorage(GeneralSettingsKeys.fileTreeSource) private var fileTreeSourceRaw = FileTreeSourcePreference.defaultValue.rawValue
     @State private var richInputPanelVisible = false
     @State private var panelToRestoreAfterRichInput: SidePanelKind?
     @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = .init(RichInputPanelLayout.defaultWidth)
@@ -104,6 +107,7 @@ struct MainWindow: View {
     @State private var showQuickOpen = false
     @State private var showFindInFiles = false
     @State private var showWorktreeSwitcher = false
+    @State private var showProjectPicker = false
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
@@ -126,7 +130,7 @@ struct MainWindow: View {
         .overlay(alignment: .topLeading) {
             titleBarNavigationOverlay
         }
-        .environment(\.overlayActive, showQuickOpen || showFindInFiles || showWorktreeSwitcher || overlayAnimatingOut)
+        .environment(\.overlayActive, showQuickOpen || showFindInFiles || showWorktreeSwitcher || showProjectPicker || overlayAnimatingOut)
         .overlay(alignment: .bottom) {
             if voiceRecording.isPanelVisible {
                 VoiceRecordingPanel(state: voiceRecording, autoSend: recordingAutoSend)
@@ -215,13 +219,40 @@ struct MainWindow: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.98)))
             }
         }
+        .overlay {
+            if showProjectPicker {
+                ProjectPickerOverlay(
+                    projectPaths: projectStore.projects.map(\.path),
+                    onConfirm: { path, createIfMissing in
+                        ProjectOpenService.confirmProjectPathResult(
+                            path,
+                            appState: appState,
+                            projectStore: projectStore,
+                            worktreeStore: worktreeStore,
+                            createIfMissing: createIfMissing
+                        )
+                    },
+                    onChooseFinder: {
+                        ProjectOpenService.openProject(
+                            appState: appState,
+                            projectStore: projectStore,
+                            worktreeStore: worktreeStore
+                        )
+                    },
+                    onDismiss: { showProjectPicker = false }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
         .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
         .animation(.easeInOut(duration: 0.15), value: showFindInFiles)
         .animation(.easeInOut(duration: 0.15), value: showWorktreeSwitcher)
+        .animation(.easeInOut(duration: 0.15), value: showProjectPicker)
         .modifier(OverlayExitTracker(
             showQuickOpen: showQuickOpen,
             showFindInFiles: showFindInFiles,
             showWorktreeSwitcher: showWorktreeSwitcher,
+            showProjectPicker: showProjectPicker,
             onAnimatingOut: { overlayAnimatingOut = $0 }
         ))
         .animation(.easeInOut(duration: 0.2), value: ToastState.shared.message != nil)
@@ -241,6 +272,9 @@ struct MainWindow: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .findInFiles)) { _ in
             showFindInFiles.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openProjectPicker)) { _ in
+            showProjectPicker = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .switchWorktree)) { _ in
             showWorktreeSwitcher.toggle()
@@ -269,6 +303,16 @@ struct MainWindow: View {
                 ensureFileTreeState(for: project)
             }
         }
+        .modifier(FileTreeSourceObserver(
+            activeTerminalCWD: activeTerminalPane?.currentWorkingDirectory,
+            activeTerminalID: activeTerminalPane?.id,
+            sourceRaw: fileTreeSourceRaw,
+            onTerminalChange: refreshFileTreeRootForActiveTerminal,
+            onSourceChange: {
+                guard let project = activeProject else { return }
+                ensureFileTreeState(for: project)
+            }
+        ))
         .modifier(FileTreeSelectionSync(
             filePath: activeEditorFilePath,
             panelVisible: fileTreePanelVisible,
@@ -808,6 +852,7 @@ struct MainWindow: View {
             appState: appState,
             projectStore: projectStore,
             worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore,
             ghostty: ghostty
         )
     }
@@ -968,44 +1013,24 @@ struct MainWindow: View {
                         appState.handleFileMoved(from: oldPath, to: newPath)
                     }
                 )
-                .id(treeState.rootPath)
+                .id(activeFileTreeIdentity)
                 .frame(width: CGFloat(fileTreePanelWidth))
             }
         }
     }
 
     private func sidePanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        Rectangle().fill(MuxyTheme.border).frame(width: 1)
-            .accessibilityHidden(true)
-            .overlay {
-                Color.clear
-                    .frame(width: UIMetrics.scaled(5))
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 1)
-                            .onChanged { v in onDrag(v.translation.width) }
-                    )
-                    .onHover { on in
-                        if on { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
-                    }
-            }
+        ResizeHandle(axis: .horizontal) { v in
+            onDrag(v.translation.width)
+        }
+        .accessibilityHidden(true)
     }
 
     private func bottomPanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            .accessibilityHidden(true)
-            .overlay {
-                Color.clear
-                    .frame(height: UIMetrics.scaled(5))
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 1)
-                            .onChanged { v in onDrag(v.translation.height) }
-                    )
-                    .onHover { on in
-                        if on { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
-                    }
-            }
+        ResizeHandle(axis: .vertical) { v in
+            onDrag(v.translation.height)
+        }
+        .accessibilityHidden(true)
     }
 
     private var activeFileTreeState: FileTreeState? {
@@ -1015,11 +1040,41 @@ struct MainWindow: View {
         return fileTreeStates[key]
     }
 
+    private var activeFileTreeIdentity: WorktreeKey? {
+        guard let project = activeProject else { return nil }
+        return appState.activeWorktreeKey(for: project.id)
+    }
+
     private func ensureFileTreeState(for project: Project) {
         guard let key = appState.activeWorktreeKey(for: project.id) else { return }
-        let path = activeWorktreePath(for: project)
-        if let existing = fileTreeStates[key], existing.rootPath == path { return }
+        let path = resolvedFileTreeRoot(for: project, key: key)
+        if let existing = fileTreeStates[key] {
+            existing.setRootPath(path)
+            return
+        }
         fileTreeStates[key] = FileTreeState(rootPath: path)
+    }
+
+    private var fileTreeSource: FileTreeSourcePreference {
+        FileTreeSourcePreference(rawValue: fileTreeSourceRaw) ?? .projectBase
+    }
+
+    private func resolvedFileTreeRoot(for project: Project, key: WorktreeKey) -> String {
+        let base = activeWorktreePath(for: project)
+        guard fileTreeSource == .activeTerminal else { return base }
+        if let cwd = appState.activeTab(for: project.id)?.content.pane?.currentWorkingDirectory {
+            fileTreeLastTerminalPaths[key] = cwd
+            return cwd
+        }
+        return fileTreeLastTerminalPaths[key] ?? base
+    }
+
+    private func refreshFileTreeRootForActiveTerminal() {
+        guard fileTreeSource == .activeTerminal,
+              fileTreePanelVisible,
+              let project = activeProject
+        else { return }
+        ensureFileTreeState(for: project)
     }
 
     private var activeEditorState: EditorTabState? {
@@ -1052,6 +1107,7 @@ struct MainWindow: View {
     private func pruneFileTreeStates() {
         let validKeys = validVCSKeys()
         fileTreeStates = fileTreeStates.filter { validKeys.contains($0.key) }
+        fileTreeLastTerminalPaths = fileTreeLastTerminalPaths.filter { validKeys.contains($0.key) }
         richInputStates = richInputStates.filter { validKeys.contains($0.key) }
     }
 
@@ -1389,6 +1445,21 @@ private struct FileTreeSelectionSync: ViewModifier {
     }
 }
 
+private struct FileTreeSourceObserver: ViewModifier {
+    let activeTerminalCWD: String?
+    let activeTerminalID: UUID?
+    let sourceRaw: String
+    let onTerminalChange: () -> Void
+    let onSourceChange: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: activeTerminalCWD) { _, _ in onTerminalChange() }
+            .onChange(of: activeTerminalID) { _, _ in onTerminalChange() }
+            .onChange(of: sourceRaw) { _, _ in onSourceChange() }
+    }
+}
+
 private struct NavigationArrowButton: View {
     let symbol: String
     let isEnabled: Bool
@@ -1658,6 +1729,7 @@ private struct OverlayExitTracker: ViewModifier {
     let showQuickOpen: Bool
     let showFindInFiles: Bool
     let showWorktreeSwitcher: Bool
+    let showProjectPicker: Bool
     let onAnimatingOut: (Bool) -> Void
 
     func body(content: Content) -> some View {
@@ -1665,6 +1737,7 @@ private struct OverlayExitTracker: ViewModifier {
             .onChange(of: showQuickOpen) { _, visible in trackExit(visible) }
             .onChange(of: showFindInFiles) { _, visible in trackExit(visible) }
             .onChange(of: showWorktreeSwitcher) { _, visible in trackExit(visible) }
+            .onChange(of: showProjectPicker) { _, visible in trackExit(visible) }
     }
 
     private func trackExit(_ visible: Bool) {

@@ -114,24 +114,34 @@ final class SentryService {
             options.enableSwizzling = true
             options.enableUncaughtNSExceptionReporting = true
             options.attachStacktrace = true
+            options.appHangTimeoutInterval = appHangTimeoutInterval
             options.beforeSend = { event in
                 event.user = nil
                 event.serverName = nil
-                if isModalAlertHang(event) { return nil }
+                if shouldDropAppHang(event) { return nil }
                 return event
             }
         }
     }
 
-    nonisolated static func isModalAlertHang(_ event: Event) -> Bool {
-        guard event.exceptions?.contains(where: { $0.type == "App Hanging" }) == true else {
+    nonisolated static let appHangTimeoutInterval: TimeInterval = 5
+
+    nonisolated static func shouldDropAppHang(_ event: Event) -> Bool {
+        guard let exceptions = event.exceptions,
+              exceptions.contains(where: { $0.type == "App Hanging" })
+        else {
             return false
         }
-        let frames = event.exceptions?.flatMap { $0.stacktrace?.frames ?? [] } ?? []
-        return frames.contains { frame in
-            guard let function = frame.function else { return false }
-            return modalAlertFrameSignatures.contains { function.contains($0) }
+        let frames = exceptions.flatMap { $0.stacktrace?.frames ?? [] }
+        if frames.contains(where: { isModalAlertFrame($0) }) {
+            return true
         }
+        return !frames.contains(where: { $0.inApp?.boolValue == true })
+    }
+
+    nonisolated private static func isModalAlertFrame(_ frame: Frame) -> Bool {
+        guard let function = frame.function else { return false }
+        return modalAlertFrameSignatures.contains { function.contains($0) }
     }
 
     nonisolated private static let modalAlertFrameSignatures: [String] = [

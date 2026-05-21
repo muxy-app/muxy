@@ -208,9 +208,9 @@ struct GitRepositoryService {
         return result
     }
 
-    private static let prInfoJSONFields =
+    static let prInfoJSONFields =
         "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,isCrossRepository"
-    private static let prInfoJSONFieldsWithHeadRefOid = prInfoJSONFields + ",headRefOid"
+    static let prInfoJSONFieldsWithHeadRefOid = prInfoJSONFields + ",headRefOid,headRefName"
 
     func pullRequestInfo(repoPath: String, branch: String, headSha: String? = nil) async -> PRInfo? {
         if case let .found(info) = await pullRequestInfoResult(
@@ -357,7 +357,7 @@ struct GitRepositoryService {
         return GitPRParser.parsePRList(result.stdout)
     }
 
-    func checkoutPullRequest(repoPath: String, number: Int) async throws {
+    func checkoutPullRequest(repoPath: String, number: Int, headBranch: String? = nil) async throws {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
             throw PRCreateError.ghNotInstalled
         }
@@ -370,20 +370,9 @@ struct GitRepositoryService {
             return
         }
 
-        let localBranch = "pr-\(number)"
-        let refspec = "refs/pull/\(number)/head:\(localBranch)"
-        let fetchResult = try await GitProcessRunner.runGit(
-            repoPath: repoPath,
-            arguments: ["fetch", "origin", refspec, "--force"]
-        )
-        if fetchResult.status != 0 {
-            let message = ghResult.stderr.isEmpty ? ghResult.stdout : ghResult.stderr
-            throw PRCreateError.commandFailed(
-                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? "Failed to checkout pull request."
-                    : message.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
+        let trimmedHead = headBranch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let localBranch = trimmedHead.isEmpty ? "pr-\(number)" : trimmedHead
+        try await fetchPullRequestRef(repoPath: repoPath, number: number, localBranch: localBranch)
         let checkoutResult = try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["checkout", localBranch]
@@ -393,6 +382,22 @@ struct GitRepositoryService {
             throw PRCreateError.commandFailed(
                 message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? "Failed to checkout pull request."
+                    : message.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+    }
+
+    func fetchPullRequestRef(repoPath: String, number: Int, localBranch: String) async throws {
+        let refspec = "refs/pull/\(number)/head:\(localBranch)"
+        let fetchResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["fetch", "origin", refspec, "--force"]
+        )
+        guard fetchResult.status == 0 else {
+            let message = fetchResult.stderr.isEmpty ? fetchResult.stdout : fetchResult.stderr
+            throw PRCreateError.commandFailed(
+                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Failed to fetch pull request ref."
                     : message.trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }
@@ -1006,6 +1011,112 @@ struct GitRepositoryService {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to pull." : result.stderr)
         }
         GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+    }
+
+    func mergeBaseIntoCurrentBranch(repoPath: String, baseBranch: String) async throws {
+        let trimmed = baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
+        else {
+            throw GitError.commandFailed("Invalid base branch name.")
+        }
+
+        let statusResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["status", "--porcelain=1", "--untracked-files=no"]
+        )
+        if statusResult.status == 0,
+           !statusResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+            throw GitError.commandFailed("Commit or stash your changes before updating the branch.")
+        }
+
+        let fetchResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["fetch", "origin", trimmed]
+        )
+        guard fetchResult.status == 0 else {
+            throw GitError.commandFailed(
+                fetchResult.stderr.isEmpty ? "Failed to fetch origin/\(trimmed)." : fetchResult.stderr
+            )
+        }
+
+        let mergeResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["merge", "--no-edit", "origin/\(trimmed)"]
+        )
+        guard mergeResult.status == 0 else {
+            _ = try? await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["merge", "--abort"])
+            let detail = mergeResult.stderr.isEmpty ? mergeResult.stdout : mergeResult.stderr
+            let trimmedDetail = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw GitError.commandFailed(
+                trimmedDetail.isEmpty
+                    ? "Could not merge origin/\(trimmed) — resolve conflicts manually."
+                    : "Could not merge origin/\(trimmed): \(trimmedDetail)"
+            )
+        }
+
+        let pushResult = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["push"])
+        guard pushResult.status == 0 else {
+            throw GitError.commandFailed(
+                pushResult.stderr.isEmpty ? "Merged locally but failed to push." : pushResult.stderr
+            )
+        }
+        GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+    }
+
+    @discardableResult
+    func fastForwardBranch(repoPath: String, branch: String) async -> Bool {
+        let trimmed = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
+        else { return false }
+
+        let headResult = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["symbolic-ref", "--quiet", "--short", "HEAD"]
+        )
+        let currentBranch = headResult?.stdout.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        let success: Bool
+        if currentBranch == trimmed {
+            let result = try? await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["pull", "--ff-only"])
+            success = result?.status == 0
+        } else {
+            success = await fastForwardInactiveBranch(repoPath: repoPath, branch: trimmed)
+        }
+        if success {
+            GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath, branch: trimmed)
+        }
+        return success
+    }
+
+    private func fastForwardInactiveBranch(repoPath: String, branch: String) async -> Bool {
+        let localRef = "refs/heads/\(branch)"
+        let remoteRef = "refs/remotes/origin/\(branch)"
+        let fetchResult = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["fetch", "origin", "refs/heads/\(branch):\(remoteRef)"]
+        )
+        guard fetchResult?.status == 0 else { return false }
+
+        let localExistsResult = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["show-ref", "--verify", "--quiet", localRef]
+        )
+        if localExistsResult?.status == 0 {
+            let ancestorResult = try? await GitProcessRunner.runGit(
+                repoPath: repoPath,
+                arguments: ["merge-base", "--is-ancestor", branch, remoteRef]
+            )
+            guard ancestorResult?.status == 0 else { return false }
+        }
+
+        let updateResult = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["update-ref", localRef, remoteRef]
+        )
+        return updateResult?.status == 0
     }
 
     func listBranches(repoPath: String) async throws -> [String] {

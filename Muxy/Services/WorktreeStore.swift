@@ -184,11 +184,12 @@ final class WorktreeStore {
         }
 
         try? FileManager.default.removeItem(atPath: worktree.path)
+        guard !worktree.isExternallyManaged else { return }
         removeParentDirectoryIfEmpty(for: worktree.path)
     }
 
     static func cleanupOnDisk(for project: Project, knownWorktrees: [Worktree]) async {
-        let secondaryWorktrees = knownWorktrees.filter(\.canBeRemoved)
+        let secondaryWorktrees = knownWorktrees.filter { $0.canBeRemoved && !$0.isExternallyManaged }
         for worktree in secondaryWorktrees {
             await cleanupOnDisk(worktree: worktree, repoPath: project.path)
         }

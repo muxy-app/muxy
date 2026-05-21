@@ -40,7 +40,7 @@ struct Worktree: Identifiable, Codable, Hashable {
     }
 
     var canBeRemoved: Bool {
-        !isPrimary && !isExternallyManaged
+        !isPrimary
     }
 
     private enum CodingKeys: String, CodingKey {

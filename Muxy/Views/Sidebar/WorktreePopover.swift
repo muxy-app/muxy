@@ -11,8 +11,6 @@ struct WorktreePopover: View {
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
 
-    @State private var isRefreshing = false
-
     private var worktrees: [Worktree] {
         worktreeStore.list(for: project.id)
     }
@@ -64,21 +62,6 @@ struct WorktreePopover: View {
     private var footerActions: [PopoverFooterAction] {
         guard isGitRepo else { return [] }
         return [
-            PopoverFooterAction(
-                title: "Refresh Worktrees",
-                icon: "arrow.clockwise",
-                isBusy: isRefreshing,
-                action: {
-                    Task {
-                        await WorktreeRefreshHelper.refresh(
-                            project: project,
-                            appState: appState,
-                            worktreeStore: worktreeStore,
-                            isRefreshing: $isRefreshing
-                        )
-                    }
-                }
-            ),
             PopoverFooterAction(
                 title: "New Worktree…",
                 icon: "plus.square.dashed",
@@ -220,8 +203,6 @@ private struct WorktreePopoverRow: View {
                 Button("Remove", role: .destructive, action: onRemove)
             } else {
                 Button("Rename") { startRename() }
-                Divider()
-                Text("External worktree").font(.system(size: UIMetrics.fontFootnote))
             }
         }
     }

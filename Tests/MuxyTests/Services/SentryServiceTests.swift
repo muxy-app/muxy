@@ -98,46 +98,59 @@ struct SentryServiceTests {
         #expect(!service.needsPrompt)
     }
 
-    @Test("isModalAlertHang ignores non-hang events")
-    func isModalAlertHangIgnoresNonHang() {
-        let event = makeEvent(type: "NSException", frames: ["runModal"])
-        #expect(!SentryService.isModalAlertHang(event))
+    @Test("shouldDropAppHang ignores non-hang events")
+    func shouldDropAppHangIgnoresNonHang() {
+        let event = makeEvent(type: "NSException", frames: [("runModal", false)])
+        #expect(!SentryService.shouldDropAppHang(event))
     }
 
-    @Test("isModalAlertHang ignores hangs without a modal frame")
-    func isModalAlertHangIgnoresUnrelatedHang() {
+    @Test("shouldDropAppHang drops hangs with no in-app frames")
+    func shouldDropAppHangDropsSystemOnlyHang() {
         let event = makeEvent(
             type: "App Hanging",
-            frames: ["mach_msg2_trap", "SecTrustEvaluateIfNecessary"]
+            frames: [("mach_msg2_trap", false), ("CA::Transaction::commit", false)]
         )
-        #expect(!SentryService.isModalAlertHang(event))
+        #expect(SentryService.shouldDropAppHang(event))
     }
 
-    @Test("isModalAlertHang matches NSAlert runModal frames")
-    func isModalAlertHangMatchesAlertRunModal() {
+    @Test("shouldDropAppHang keeps hangs that include an in-app frame")
+    func shouldDropAppHangKeepsInAppHang() {
         let event = makeEvent(
             type: "App Hanging",
-            frames: ["objc_msgSend", "-[NSApplication runModalForWindow:]", "-[NSAlert runModal]"]
+            frames: [("mach_msg2_trap", false), ("Muxy.someWorkload", true)]
         )
-        #expect(SentryService.isModalAlertHang(event))
+        #expect(!SentryService.shouldDropAppHang(event))
     }
 
-    @Test("isModalAlertHang matches NSOpenPanel frames")
-    func isModalAlertHangMatchesOpenPanel() {
+    @Test("shouldDropAppHang drops NSAlert runModal frames even with in-app frames")
+    func shouldDropAppHangDropsAlertRunModal() {
         let event = makeEvent(
             type: "App Hanging",
-            frames: ["-[NSOpenPanel runModal]"]
+            frames: [
+                ("Muxy.presentAlert", true),
+                ("-[NSApplication runModalForWindow:]", false),
+                ("-[NSAlert runModal]", false),
+            ]
         )
-        #expect(SentryService.isModalAlertHang(event))
+        #expect(SentryService.shouldDropAppHang(event))
     }
 
-    @Test("isModalAlertHang matches modal loop frames")
-    func isModalAlertHangMatchesDoModalLoop() {
+    @Test("shouldDropAppHang drops NSOpenPanel modal frames")
+    func shouldDropAppHangDropsOpenPanel() {
         let event = makeEvent(
             type: "App Hanging",
-            frames: ["-[NSApplication _doModalLoop:peek:]"]
+            frames: [("Muxy.pickFile", true), ("-[NSOpenPanel runModal]", false)]
         )
-        #expect(SentryService.isModalAlertHang(event))
+        #expect(SentryService.shouldDropAppHang(event))
+    }
+
+    @Test("shouldDropAppHang drops modal loop frames")
+    func shouldDropAppHangDropsDoModalLoop() {
+        let event = makeEvent(
+            type: "App Hanging",
+            frames: [("Muxy.something", true), ("-[NSApplication _doModalLoop:peek:]", false)]
+        )
+        #expect(SentryService.shouldDropAppHang(event))
     }
 
     @Test("environment is derived from the injected defaults' update channel")
@@ -155,10 +168,11 @@ struct SentryServiceTests {
         #expect(capturedEnvironments == ["beta"])
     }
 
-    private func makeEvent(type: String, frames functionNames: [String]) -> Event {
-        let frames: [Frame] = functionNames.map { name in
+    private func makeEvent(type: String, frames functionFrames: [(name: String, inApp: Bool)]) -> Event {
+        let frames: [Frame] = functionFrames.map { entry in
             let frame = Frame()
-            frame.function = name
+            frame.function = entry.name
+            frame.inApp = NSNumber(value: entry.inApp)
             return frame
         }
         let stacktrace = SentryStacktrace(frames: frames, registers: [:])

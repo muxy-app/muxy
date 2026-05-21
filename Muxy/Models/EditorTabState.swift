@@ -529,7 +529,8 @@ final class EditorTabState: Identifiable {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             DispatchQueue.global(qos: .utility).async {
                 do {
-                    try text.write(toFile: path, atomically: true, encoding: .utf8)
+                    let destination = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+                    try text.write(toFile: destination, atomically: true, encoding: .utf8)
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)

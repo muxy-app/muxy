@@ -10,11 +10,12 @@ struct VCSTabView: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var showDiscardAllConfirmation = false
     @State private var pendingDiscardPath: String?
-    @State private var showCreateWorktreeSheet = false
     @State private var showCreateBranchSheet = false
-    @State private var showInlinePRForm = false
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
+    @State private var pendingCheckoutPRInNewWorktree: GitRepositoryService.PRListItem?
+    @AppStorage(GeneralSettingsKeys.defaultWorktreeParentPath)
+    private var defaultWorktreeParentPath = ""
     private var commitEnabled: Bool {
         state.hasStagedChanges && !state.commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -88,6 +89,11 @@ struct VCSTabView: View {
             pendingCheckoutPR = nil
             presentCheckoutPRConfirmation(pr: pr)
         }
+        .onChange(of: pendingCheckoutPRInNewWorktree?.number) { _, number in
+            guard number != nil, let pr = pendingCheckoutPRInNewWorktree else { return }
+            pendingCheckoutPRInNewWorktree = nil
+            checkoutPRInNewWorktree(pr: pr)
+        }
         .alert(
             "Error",
             isPresented: Binding(
@@ -106,13 +112,15 @@ struct VCSTabView: View {
     private var header: some View {
         HStack(spacing: 0) {
             HStack(spacing: UIMetrics.spacing3) {
-                worktreeBranchPicker
+                branchPicker
 
                 PRPill(
                     state: state,
                     onRequestCreate: { requestOpenPR() },
                     onRequestMerge: { prInfo, method in performMerge(prInfo: prInfo, method: method) },
-                    onRequestClose: { prInfo in pendingClosePR = prInfo }
+                    onRequestClose: { prInfo in pendingClosePR = prInfo },
+                    onRequestCleanup: { prInfo in presentManualCleanupConfirmation(prInfo: prInfo) },
+                    canCleanup: state.branchName != nil
                 )
             }
             .padding(.leading, UIMetrics.spacing4)
@@ -142,14 +150,6 @@ struct VCSTabView: View {
         }
         .frame(height: UIMetrics.scaled(32))
         .background(MuxyTheme.bg)
-        .sheet(isPresented: $showCreateWorktreeSheet) {
-            if let project = owningProject {
-                CreateWorktreeSheet(project: project) { result in
-                    showCreateWorktreeSheet = false
-                    handleCreateWorktreeResult(result, project: project)
-                }
-            }
-        }
         .sheet(isPresented: $showCreateBranchSheet) {
             CreateBranchSheet(
                 currentBranch: state.branchName,
@@ -160,37 +160,24 @@ struct VCSTabView: View {
                 onCancel: { showCreateBranchSheet = false }
             )
         }
-        .onChange(of: state.pullRequestInfo?.number) { _, number in
-            guard number != nil, showInlinePRForm else { return }
-            showInlinePRForm = false
-        }
     }
 
     private func requestOpenPR() {
         state.openPullRequestError = nil
         state.loadBranches()
-        showInlinePRForm = true
+        state.showInlinePRForm = true
     }
 
-    @ViewBuilder
-    private var worktreeBranchPicker: some View {
-        if let project = owningProject {
-            WorktreeBranchPicker(
-                project: project,
-                isGitRepo: state.isGitRepo,
-                currentBranch: state.branchName,
-                branches: state.branches,
-                isLoadingBranches: state.isLoadingBranches,
-                activeWorktree: activeWorktreeForTab,
-                onSelectBranch: { state.switchBranch($0) },
-                onRefreshBranches: { state.loadBranches() },
-                onCreateBranch: { showCreateBranchSheet = true },
-                onDeleteBranch: { branch in presentDeleteBranchConfirmation(branch) },
-                onRequestCreateWorktree: { showCreateWorktreeSheet = true }
-            )
-            .environment(appState)
-            .environment(worktreeStore)
-        }
+    private var branchPicker: some View {
+        BranchPicker(
+            currentBranch: state.branchName,
+            branches: state.branches,
+            isLoading: state.isLoadingBranches,
+            onSelect: { state.switchBranch($0) },
+            onRefresh: { state.loadBranches() },
+            onCreateBranch: { showCreateBranchSheet = true },
+            onDeleteBranch: { branch in presentDeleteBranchConfirmation(branch) }
+        )
     }
 
     private func performMerge(prInfo: GitRepositoryService.PRInfo, method: GitRepositoryService.PRMergeMethod) {
@@ -243,6 +230,7 @@ struct VCSTabView: View {
         let worktree = activeWorktreeForTab
         let defaultBranch = state.defaultBranch
         let isWorktreeMerge = worktree.map { !$0.isPrimary } ?? false
+        let baseBranch = prInfo.baseBranch
         state.mergePullRequest(method: method, deleteBranch: !isWorktreeMerge) { _, mergedBranch in
             ToastState.shared.show("Merged PR #\(prInfo.number)")
             Task { @MainActor in
@@ -250,9 +238,71 @@ struct VCSTabView: View {
                     mergedBranch: mergedBranch,
                     project: project,
                     worktree: worktree,
-                    defaultBranch: defaultBranch
+                    defaultBranch: defaultBranch,
+                    baseBranch: baseBranch
                 )
             }
+        }
+    }
+
+    private func performManualCleanup(prInfo: GitRepositoryService.PRInfo) {
+        guard let mergedBranch = state.branchName, !mergedBranch.isEmpty else { return }
+        let project = owningProject
+        let worktree = activeWorktreeForTab
+        let defaultBranch = state.defaultBranch
+        let baseBranch = prInfo.baseBranch
+        Task { @MainActor in
+            await cleanupAfterMerge(
+                mergedBranch: mergedBranch,
+                project: project,
+                worktree: worktree,
+                defaultBranch: defaultBranch,
+                baseBranch: baseBranch
+            )
+            ToastState.shared.show("Cleaned up PR #\(prInfo.number)")
+        }
+    }
+
+    private func presentManualCleanupConfirmation(prInfo: GitRepositoryService.PRInfo) {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+              window.attachedSheet == nil
+        else { return }
+
+        let worktree = activeWorktreeForTab
+        let isWorktreeCleanup = worktree.map(\.canBeRemoved) ?? false
+        let branch = state.branchName ?? ""
+        let hasChanges = state.hasAnyChanges
+
+        let messageText = "Clean up after PR #\(prInfo.number)?"
+        let worktreeWarning = """
+        This will remove the worktree and delete branch "\(branch)". \
+        Uncommitted changes in this worktree will be lost permanently.
+        """
+        let branchWarning = """
+        This will switch to the default branch and delete branch "\(branch)". \
+        Uncommitted changes on this branch will no longer belong to any branch.
+        """
+        let worktreeClean = "This will remove the worktree and delete branch \"\(branch)\"."
+        let branchClean = "This will switch to the default branch and delete branch \"\(branch)\"."
+        let informativeText: String = if isWorktreeCleanup {
+            hasChanges ? worktreeWarning : worktreeClean
+        } else {
+            hasChanges ? branchWarning : branchClean
+        }
+
+        let alert = NSAlert()
+        alert.messageText = messageText
+        alert.informativeText = informativeText
+        alert.alertStyle = hasChanges ? .critical : .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "Clean Up")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.keyEquivalent = ""
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            performManualCleanup(prInfo: prInfo)
         }
     }
 
@@ -293,19 +343,47 @@ struct VCSTabView: View {
         mergedBranch: String,
         project: Project?,
         worktree: Worktree?,
-        defaultBranch: String?
+        defaultBranch: String?,
+        baseBranch: String
     ) async {
         if let project, let worktree, worktree.canBeRemoved {
-            removeWorktreeAfterMerge(project: project, worktree: worktree, mergedBranch: mergedBranch)
+            removeWorktreeAfterMerge(
+                project: project,
+                worktree: worktree,
+                mergedBranch: mergedBranch,
+                defaultBranch: defaultBranch,
+                baseBranch: baseBranch
+            )
             return
         }
 
         if let defaultBranch, defaultBranch != mergedBranch {
             await state.switchBranchAndRefresh(defaultBranch)
         }
+        let repoPath = state.projectPath
+        let branchToDelete = mergedBranch
+        if !branchToDelete.isEmpty, branchToDelete != defaultBranch {
+            try? await GitWorktreeService.shared.deleteBranch(repoPath: repoPath, branch: branchToDelete)
+            try? await GitRepositoryService().deleteRemoteBranch(repoPath: repoPath, branch: branchToDelete)
+            state.loadBranches()
+        }
+        let pulled = await Self.fastForwardAfterMerge(
+            repoPath: repoPath,
+            defaultBranch: defaultBranch,
+            baseBranch: baseBranch
+        )
+        if !pulled.isEmpty {
+            state.refresh()
+        }
     }
 
-    private func removeWorktreeAfterMerge(project: Project, worktree: Worktree, mergedBranch: String) {
+    private func removeWorktreeAfterMerge(
+        project: Project,
+        worktree: Worktree,
+        mergedBranch: String,
+        defaultBranch: String?,
+        baseBranch: String
+    ) {
         let repoPath = project.path
         let remaining = worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.isPrimary }) ?? remaining.first
@@ -324,7 +402,39 @@ struct VCSTabView: View {
                 repoPath: repoPath,
                 branch: mergedBranch
             )
+            await Self.fastForwardAfterMerge(
+                repoPath: repoPath,
+                defaultBranch: defaultBranch,
+                baseBranch: baseBranch
+            )
         }
+    }
+
+    @discardableResult
+    private static func fastForwardAfterMerge(
+        repoPath: String,
+        defaultBranch: String?,
+        baseBranch: String
+    ) async -> [String] {
+        let git = GitRepositoryService()
+        var pulled: [String] = []
+        if let defaultBranch, !defaultBranch.isEmpty,
+           await git.fastForwardBranch(repoPath: repoPath, branch: defaultBranch)
+        {
+            pulled.append(defaultBranch)
+        }
+        let trimmedBase = baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedBase.isEmpty, trimmedBase != defaultBranch,
+           await git.fastForwardBranch(repoPath: repoPath, branch: trimmedBase)
+        {
+            pulled.append(trimmedBase)
+        }
+        if !pulled.isEmpty {
+            await MainActor.run {
+                ToastState.shared.show("Pulled \(pulled.joined(separator: ", "))")
+            }
+        }
+        return pulled
     }
 
     private func presentClosePRConfirmation(prInfo: GitRepositoryService.PRInfo) {
@@ -348,25 +458,6 @@ struct VCSTabView: View {
         }
     }
 
-    private func handleCreateWorktreeResult(_ result: CreateWorktreeResult, project: Project) {
-        switch result {
-        case let .created(worktree, runSetup):
-            appState.selectWorktree(projectID: project.id, worktree: worktree)
-            if runSetup,
-               let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
-            {
-                Task {
-                    await WorktreeSetupRunner.run(
-                        sourceProjectPath: project.path,
-                        paneID: paneID
-                    )
-                }
-            }
-        case .cancelled:
-            break
-        }
-    }
-
     @ViewBuilder
     private var content: some View {
         if state.isLoadingFiles {
@@ -379,7 +470,7 @@ struct VCSTabView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 0) {
-                if showInlinePRForm {
+                if state.showInlinePRForm {
                     createPRForm
                 } else {
                     commitArea
@@ -390,6 +481,7 @@ struct VCSTabView: View {
                     showDiscardAllConfirmation: $showDiscardAllConfirmation,
                     pendingDiscardPath: $pendingDiscardPath,
                     pendingCheckoutPR: $pendingCheckoutPR,
+                    pendingCheckoutPRInNewWorktree: $pendingCheckoutPRInNewWorktree,
                     onOpenInEditor: openFileInEditor,
                     onOpenDiff: openDiffInTab
                 )
@@ -410,6 +502,7 @@ struct VCSTabView: View {
             ),
             inProgress: state.isOpeningPullRequest,
             errorMessage: state.openPullRequestError,
+            draft: $state.prFormDraft,
             onLoadRemoteBranches: { state.loadRemoteBranches() },
             onSubmit: { base, title, body, branchStrategy, includeMode, draft in
                 ToastState.shared.show("Creating pull request…")
@@ -426,7 +519,7 @@ struct VCSTabView: View {
             },
             onCancel: {
                 state.openPullRequestError = nil
-                showInlinePRForm = false
+                state.resetPRForm()
             },
             onGenerateAI: { base in
                 let path = state.projectPath
@@ -717,6 +810,28 @@ struct VCSTabView: View {
         }
     }
 
+    private func checkoutPRInNewWorktree(pr: GitRepositoryService.PRListItem) {
+        guard let project = owningProject else {
+            state.showStatus("Project not found for this worktree.", isError: true)
+            return
+        }
+        let parentPath = defaultWorktreeParentPath
+        Task { @MainActor in
+            do {
+                let worktree = try await state.checkoutPullRequestInNewWorktree(
+                    pr,
+                    project: project,
+                    defaultParentPath: parentPath,
+                    worktreeStore: worktreeStore
+                )
+                appState.selectWorktree(projectID: project.id, worktree: worktree)
+                ToastState.shared.show("Checked out PR #\(pr.number) in new worktree")
+            } catch {
+                state.showStatus(error.localizedDescription, isError: true)
+            }
+        }
+    }
+
     private func openFileInEditor(_ relativePath: String) {
         guard let projectID = appState.activeProjectID else { return }
         let fullPath = state.projectPath.hasSuffix("/")
@@ -782,6 +897,8 @@ struct PRPill: View {
     let onRequestCreate: () -> Void
     let onRequestMerge: (GitRepositoryService.PRInfo, GitRepositoryService.PRMergeMethod) -> Void
     let onRequestClose: (GitRepositoryService.PRInfo) -> Void
+    let onRequestCleanup: (GitRepositoryService.PRInfo) -> Void
+    let canCleanup: Bool
 
     @State private var showPRPopover = false
 
@@ -859,6 +976,7 @@ struct PRPill: View {
             PRPopover(
                 state: state,
                 info: info,
+                canCleanup: canCleanup,
                 onMerge: { method in
                     let needsConfirmation = state.hasAnyChanges
                         || info.checks.status == .failure
@@ -872,6 +990,10 @@ struct PRPill: View {
                     showPRPopover = false
                     onRequestClose(info)
                 },
+                onCleanup: {
+                    showPRPopover = false
+                    onRequestCleanup(info)
+                },
                 onOpenInBrowser: {
                     showPRPopover = false
                     if let url = URL(string: info.url) {
@@ -880,6 +1002,9 @@ struct PRPill: View {
                 },
                 onRefresh: {
                     state.refreshPullRequest()
+                },
+                onUpdateBranch: {
+                    state.updatePullRequestBranch()
                 }
             )
         }
@@ -949,10 +1074,13 @@ struct PRPill: View {
 struct PRPopover: View {
     @Bindable var state: VCSTabState
     let info: GitRepositoryService.PRInfo
+    let canCleanup: Bool
     let onMerge: (GitRepositoryService.PRMergeMethod) -> Void
     let onClose: () -> Void
+    let onCleanup: () -> Void
     let onOpenInBrowser: () -> Void
     let onRefresh: () -> Void
+    let onUpdateBranch: () -> Void
 
     @State private var mergeMethod: GitRepositoryService.PRMergeMethod = .squash
 
@@ -991,7 +1119,7 @@ struct PRPopover: View {
 
             VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
                 infoRow(label: "Base", value: info.baseBranch)
-                if let label = mergeableLabel {
+                if let label = PRMergeabilityPresentation.make(info: info) {
                     infoRow(
                         label: "Mergeable",
                         value: label.text,
@@ -1019,7 +1147,50 @@ struct PRPopover: View {
             }
             .buttonStyle(.plain)
 
+            if info.state == .merged, canCleanup {
+                Button(action: onCleanup) {
+                    HStack(spacing: UIMetrics.spacing3) {
+                        Image(systemName: "trash")
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .bold))
+                        Text("Cleanup")
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(MuxyTheme.bg)
+                    .padding(.horizontal, UIMetrics.spacing4)
+                    .padding(.vertical, UIMetrics.spacing3)
+                    .frame(maxWidth: .infinity)
+                    .background(MuxyTheme.accent, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                }
+                .buttonStyle(.plain)
+                .help("Remove the worktree or delete the local branch for this merged PR")
+            }
+
             if info.state == .open {
+                if info.mergeStateStatus == .behind, !info.isCrossRepository {
+                    Button(action: onUpdateBranch) {
+                        HStack(spacing: UIMetrics.spacing3) {
+                            if state.isUpdatingPullRequestBranch {
+                                ProgressView().controlSize(.mini)
+                            } else {
+                                Image(systemName: "arrow.down.circle")
+                                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                            }
+                            Text(state.isUpdatingPullRequestBranch ? "Updating…" : "Update branch")
+                                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                            Spacer(minLength: 0)
+                        }
+                        .foregroundStyle(MuxyTheme.fg)
+                        .padding(.horizontal, UIMetrics.spacing4)
+                        .padding(.vertical, UIMetrics.spacing3)
+                        .frame(maxWidth: .infinity)
+                        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(state.isUpdatingPullRequestBranch)
+                    .help("Merge \(info.baseBranch) into this branch")
+                }
+
                 SegmentedPicker(
                     selection: $mergeMethod,
                     options: GitRepositoryService.PRMergeMethod.allCases.map { ($0, $0.shortLabel) }
@@ -1116,28 +1287,6 @@ struct PRPopover: View {
         }
     }
 
-    private var mergeableLabel: (text: String, color: Color)? {
-        switch info.mergeStateStatus {
-        case .dirty:
-            return ("Conflicts", MuxyTheme.diffRemoveFg)
-        case .behind:
-            return ("Behind base", MuxyTheme.diffRemoveFg)
-        case .blocked:
-            return ("Blocked", MuxyTheme.diffRemoveFg)
-        case .draft:
-            return ("Draft", MuxyTheme.fgMuted)
-        case .clean,
-             .hasHooks:
-            return ("Yes", MuxyTheme.diffAddFg)
-        case .unstable:
-            return ("Yes (checks failing)", MuxyTheme.diffAddFg)
-        case .unknown:
-            if info.mergeable == true { return ("Yes", MuxyTheme.diffAddFg) }
-            if info.mergeable == false { return ("Conflicts", MuxyTheme.diffRemoveFg) }
-            return nil
-        }
-    }
-
     @ViewBuilder
     private var checksRow: some View {
         switch info.checks.status {
@@ -1224,6 +1373,7 @@ private struct SectionSplitLayout: View {
     @Binding var showDiscardAllConfirmation: Bool
     @Binding var pendingDiscardPath: String?
     @Binding var pendingCheckoutPR: GitRepositoryService.PRListItem?
+    @Binding var pendingCheckoutPRInNewWorktree: GitRepositoryService.PRListItem?
     let onOpenInEditor: (String) -> Void
     let onOpenDiff: (String, Bool) -> Void
 
@@ -1340,47 +1490,35 @@ private struct SectionSplitLayout: View {
         totalHeight: CGFloat,
         allSections: [SectionKind]
     ) -> some View {
-        Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            .overlay {
-                Color.clear
-                    .frame(height: UIMetrics.scaled(5))
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 1)
-                            .onChanged { v in
-                                guard totalHeight > 0 else { return }
-                                let delta = v.translation.height / totalHeight
+        ResizeHandle(axis: .vertical) { v in
+            guard totalHeight > 0 else { return }
+            let delta = v.translation.height / totalHeight
 
-                                guard let aboveIdx = allSections.firstIndex(of: above),
-                                      let belowIdx = allSections.firstIndex(of: below)
-                                else { return }
+            guard let aboveIdx = allSections.firstIndex(of: above),
+                  let belowIdx = allSections.firstIndex(of: below)
+            else { return }
 
-                                var ratios = state.sectionRatios
-                                if ratios.count < allSections.count {
-                                    let fill = 1.0 / CGFloat(allSections.count)
-                                    ratios.append(contentsOf: Array(repeating: fill, count: allSections.count - ratios.count))
-                                }
-                                guard aboveIdx < ratios.count, belowIdx < ratios.count else { return }
-                                let minRatio: CGFloat = 0.08
-
-                                ratios[aboveIdx] += delta
-                                ratios[belowIdx] -= delta
-
-                                ratios[aboveIdx] = max(minRatio, ratios[aboveIdx])
-                                ratios[belowIdx] = max(minRatio, ratios[belowIdx])
-
-                                let sum = ratios.reduce(0, +)
-                                if sum > 0 {
-                                    ratios = ratios.map { $0 / sum }
-                                }
-
-                                state.sectionRatios = ratios
-                            }
-                    )
-                    .onHover { on in
-                        if on { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
-                    }
+            var ratios = state.sectionRatios
+            if ratios.count < allSections.count {
+                let fill = 1.0 / CGFloat(allSections.count)
+                ratios.append(contentsOf: Array(repeating: fill, count: allSections.count - ratios.count))
             }
+            guard aboveIdx < ratios.count, belowIdx < ratios.count else { return }
+            let minRatio: CGFloat = 0.08
+
+            ratios[aboveIdx] += delta
+            ratios[belowIdx] -= delta
+
+            ratios[aboveIdx] = max(minRatio, ratios[aboveIdx])
+            ratios[belowIdx] = max(minRatio, ratios[belowIdx])
+
+            let sum = ratios.reduce(0, +)
+            if sum > 0 {
+                ratios = ratios.map { $0 / sum }
+            }
+
+            state.sectionRatios = ratios
+        }
     }
 
     @ViewBuilder
@@ -1429,7 +1567,8 @@ private struct SectionSplitLayout: View {
                 sectionHeader(for: .pullRequests, collapsed: false)
                 PullRequestsListView(
                     state: state,
-                    onCheckout: { pr in pendingCheckoutPR = pr }
+                    onCheckout: { pr in pendingCheckoutPR = pr },
+                    onCheckoutInNewWorktree: { pr in pendingCheckoutPRInNewWorktree = pr }
                 )
             }
             .frame(height: height)

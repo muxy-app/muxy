@@ -11,6 +11,7 @@ struct FileTreeView: View {
     @State private var commands: FileTreeCommands
     @State private var hasKeyboardFocus = false
     @State private var focusToken = 0
+    @State private var hasRequestedInitialFocus = false
 
     init(
         state: FileTreeState,
@@ -84,7 +85,10 @@ struct FileTreeView: View {
         .contentShape(Rectangle())
         .task(id: state.rootPath) {
             state.loadRootIfNeeded()
-            requestKeyboardFocus()
+            if !hasRequestedInitialFocus {
+                hasRequestedInitialFocus = true
+                requestKeyboardFocus()
+            }
         }
         .alert(
             "Move \(commands.deleteAlertKind()) to Trash?",

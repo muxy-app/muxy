@@ -15,12 +15,14 @@ struct AppEnvironment {
     let projectPersistence: any ProjectPersisting
     let workspacePersistence: any WorkspacePersisting
     let worktreePersistence: any WorktreePersisting
+    let projectGroupPersistence: any ProjectGroupPersisting
 
     static let live = Self(
         selectionStore: UserDefaultsActiveProjectSelectionStore(),
         terminalViews: TerminalViewRegistry.shared,
         projectPersistence: FileProjectPersistence(),
         workspacePersistence: FileWorkspacePersistence(),
-        worktreePersistence: FileWorktreePersistence()
+        worktreePersistence: FileWorktreePersistence(),
+        projectGroupPersistence: FileProjectGroupPersistence()
     )
 }

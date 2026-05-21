@@ -483,11 +483,19 @@ public struct VCSAddWorktreeParams: Codable, Sendable {
     public let name: String
     public let branch: String
     public let createBranch: Bool
-    public init(projectID: UUID, name: String, branch: String, createBranch: Bool) {
+    public let baseBranch: String?
+    public init(
+        projectID: UUID,
+        name: String,
+        branch: String,
+        createBranch: Bool,
+        baseBranch: String? = nil
+    ) {
         self.projectID = projectID
         self.name = name
         self.branch = branch
         self.createBranch = createBranch
+        self.baseBranch = baseBranch
     }
 }
 
@@ -497,6 +505,18 @@ public struct VCSRemoveWorktreeParams: Codable, Sendable {
     public init(projectID: UUID, worktreeID: UUID) {
         self.projectID = projectID
         self.worktreeID = worktreeID
+    }
+}
+
+public struct VCSGetDiffParams: Codable, Sendable {
+    public let projectID: UUID
+    public let filePath: String
+    public let forceFull: Bool
+
+    public init(projectID: UUID, filePath: String, forceFull: Bool = false) {
+        self.projectID = projectID
+        self.filePath = filePath
+        self.forceFull = forceFull
     }
 }
 

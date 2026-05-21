@@ -5,52 +5,49 @@ import Testing
 
 @Suite("TextSearchService")
 struct TextSearchServiceTests {
-    @Test("parses ripgrep match line")
-    func parsesMatch() throws {
-        let line = #"{"type":"match","data":{"path":{"text":"/proj/src/foo.swift"},"lines":{"text":"  let answer = 42\n"},"line_number":12,"absolute_offset":120,"submatches":[{"match":{"text":"answer"},"start":6,"end":12}]}}"#
-        let match = try #require(TextSearchService.parseLine(line, projectPath: "/proj"))
+    @Test("parses a vimgrep line")
+    func parsesVimgrepLine() throws {
+        let line: Substring = "/proj/src/foo.swift:12:7:  let answer = 42"
+        let match = try #require(TextSearchService.parseVimgrepLine(
+            line, projectPath: "/proj", patternByteLength: 6
+        ))
 
         #expect(match.absolutePath == "/proj/src/foo.swift")
         #expect(match.relativePath == "src/foo.swift")
         #expect(match.lineNumber == 12)
         #expect(match.lineText == "  let answer = 42")
-        #expect(match.matchStart == 6)
-        #expect(match.matchEnd == 12)
+        #expect(match.matchByteStart == 6)
+        #expect(match.matchByteLength == 6)
         #expect(match.column == 7)
-    }
-
-    @Test("returns nil for non-match types")
-    func ignoresBeginAndEnd() throws {
-        let begin = #"{"type":"begin","data":{"path":{"text":"/proj/x"}}}"#
-        let end = #"{"type":"end","data":{"path":{"text":"/proj/x"},"stats":{}}}"#
-        #expect(TextSearchService.parseLine(begin, projectPath: "/proj") == nil)
-        #expect(TextSearchService.parseLine(end, projectPath: "/proj") == nil)
     }
 
     @Test("falls back to absolute path when not under project")
     func absoluteWhenOutsideProject() throws {
-        let line = #"{"type":"match","data":{"path":{"text":"/other/foo.swift"},"lines":{"text":"hit\n"},"line_number":1,"absolute_offset":0,"submatches":[{"match":{"text":"hit"},"start":0,"end":3}]}}"#
-        let match = try #require(TextSearchService.parseLine(line, projectPath: "/proj"))
+        let line: Substring = "/other/foo.swift:1:1:hit"
+        let match = try #require(TextSearchService.parseVimgrepLine(
+            line, projectPath: "/proj", patternByteLength: 3
+        ))
         #expect(match.relativePath == "/other/foo.swift")
     }
 
-    @Test("computes column for multibyte characters")
-    func multibyteColumn() {
-        let column = TextSearchService.columnFromUTF8Offset(4, in: "héllo world")
-        #expect(column == 4)
+    @Test("preserves text containing colons")
+    func keepsColonsInLineText() throws {
+        let line: Substring = "/proj/x.swift:3:5:    a: Int = 1"
+        let match = try #require(TextSearchService.parseVimgrepLine(
+            line, projectPath: "/proj", patternByteLength: 1
+        ))
+        #expect(match.lineText == "    a: Int = 1")
+        #expect(match.column == 5)
     }
 
-    @Test("parses Korean ripgrep match offsets")
-    func parsesKoreanMatchOffsets() throws {
-        let line = #"{"type":"match","data":{"path":{"text":"/proj/greeting.md"},"lines":{"text":"안녕하세요\n"},"line_number":1,"absolute_offset":0,"submatches":[{"match":{"text":"안녕"},"start":0,"end":6}]}}"#
-        let match = try #require(TextSearchService.parseLine(line, projectPath: "/proj"))
-
-        #expect(match.relativePath == "greeting.md")
-        #expect(match.lineNumber == 1)
-        #expect(match.lineText == "안녕하세요")
-        #expect(match.matchStart == 0)
-        #expect(match.matchEnd == 6)
-        #expect(match.column == 1)
+    @Test("clamps match length to remaining bytes on the line")
+    func clampsLength() throws {
+        let line: Substring = "/proj/x.swift:1:5:abcd"
+        let match = try #require(TextSearchService.parseVimgrepLine(
+            line, projectPath: "/proj", patternByteLength: 100
+        ))
+        #expect(match.matchByteStart == 4)
+        #expect(match.matchByteLength == 0)
     }
 
     @Test("searches Korean text through ripgrep")
@@ -64,15 +61,36 @@ struct TextSearchServiceTests {
         #expect(matches.contains { $0.lineText == "안녕하세요" })
     }
 
-    @Test("keeps regex search semantics")
-    func keepsRegexSearchSemantics() async throws {
+    @Test("treats query as a literal (no regex)")
+    func literalQuery() async throws {
         guard TextSearchService.ripgrepExecutableURL() != nil else { return }
         let directory = try makeSearchFixture()
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let matches = await TextSearchService.search(query: "foo.*bar", in: directory.path)
+        #expect(matches.isEmpty)
 
-        #expect(matches.contains { $0.lineText == "foo123bar" })
+        let literal = await TextSearchService.search(query: "foo123bar", in: directory.path)
+        #expect(literal.contains { $0.lineText == "foo123bar" })
+    }
+
+    @Test("starting a new search cancels the in-flight one")
+    func newSearchCancelsPrevious() async throws {
+        guard TextSearchService.ripgrepExecutableURL() != nil else { return }
+        let directory = try makeSearchFixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let coordinator = SearchCoordinator()
+        async let first = TextSearchService.search(
+            query: "foo123bar", in: directory.path, coordinator: coordinator
+        )
+        async let second = TextSearchService.search(
+            query: "안녕", in: directory.path, coordinator: coordinator
+        )
+        let (firstResults, secondResults) = await (first, second)
+
+        #expect(secondResults.contains { $0.lineText == "안녕하세요" })
+        #expect(firstResults.isEmpty || firstResults.contains { $0.lineText == "foo123bar" })
     }
 
     private func makeSearchFixture() throws -> URL {

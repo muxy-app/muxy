@@ -55,6 +55,18 @@ final class VCSTabState {
         let draft: Bool
     }
 
+    struct PRFormDraft: Equatable {
+        var title: String = ""
+        var body: String = ""
+        var baseBranch: String = ""
+        var newBranchName: String = ""
+        var userEditedBranchName: Bool = false
+        var includeAll: Bool = true
+        var draft: Bool = false
+        var advanced: Bool = false
+        var initialCurrentBranch: String?
+    }
+
     let projectPath: String
     var files: [GitStatusFile] = []
     var mode: ViewMode = .unified
@@ -83,11 +95,14 @@ final class VCSTabState {
     var isMergingPullRequest = false
     var isClosingPullRequest = false
     var isRefreshingPullRequest = false
+    var isUpdatingPullRequestBranch = false
     var hasFetchedPullRequestInfo = false
     private(set) var isGitRepo = false
     private(set) var remoteWebURL: URL?
 
     var commitMessage = ""
+    var prFormDraft = PRFormDraft()
+    var showInlinePRForm = false
     var branches: [String] = []
     var isCommitting = false
     var isPushing = false
@@ -980,6 +995,11 @@ final class VCSTabState {
         }
     }
 
+    func resetPRForm() {
+        prFormDraft = PRFormDraft()
+        showInlinePRForm = false
+    }
+
     func openPullRequest(_ request: PRCreateRequest) {
         let trimmedTitle = request.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBase = request.baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1050,6 +1070,7 @@ final class VCSTabState {
 
         pullRequestInfo = info
         commits = []
+        resetPRForm()
         ToastState.shared.show("Pull request #\(info.number) opened")
         loadBranches()
         performRefresh(incremental: false)
@@ -1146,6 +1167,29 @@ final class VCSTabState {
         }
     }
 
+    func updatePullRequestBranch() {
+        guard let info = pullRequestInfo, !isUpdatingPullRequestBranch else { return }
+        guard !info.isCrossRepository else {
+            showStatus("Branch lives on a fork — update it locally.", isError: true)
+            return
+        }
+        guard let branch = branchName else { return }
+        isUpdatingPullRequestBranch = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { isUpdatingPullRequestBranch = false }
+            do {
+                try await git.mergeBaseIntoCurrentBranch(repoPath: projectPath, baseBranch: info.baseBranch)
+                guard !Task.isCancelled, branchName == branch else { return }
+                ToastState.shared.show("Merged \(info.baseBranch) into \(branch)")
+                refreshPullRequest()
+            } catch {
+                guard !Task.isCancelled else { return }
+                showStatus(errorText(error), isError: true)
+            }
+        }
+    }
+
     func switchBranchAndRefresh(_ name: String) async {
         do {
             try await git.switchBranch(repoPath: projectPath, branch: name)
@@ -1167,7 +1211,7 @@ final class VCSTabState {
         }
     }
 
-    private func showStatus(_ message: String, isError: Bool) {
+    func showStatus(_ message: String, isError: Bool) {
         if isError {
             statusMessage = message
             statusIsError = true
@@ -1268,7 +1312,11 @@ final class VCSTabState {
             guard let self else { return }
             defer { checkingOutPRNumber = nil }
             do {
-                try await git.checkoutPullRequest(repoPath: projectPath, number: item.number)
+                try await git.checkoutPullRequest(
+                    repoPath: projectPath,
+                    number: item.number,
+                    headBranch: item.headBranch
+                )
                 guard !Task.isCancelled else { return }
                 ToastState.shared.show("Checked out PR #\(item.number)")
                 commits = []
@@ -1278,6 +1326,92 @@ final class VCSTabState {
                 showStatus(errorText(error), isError: true)
             }
         }
+    }
+
+    func checkoutPullRequestInNewWorktree(
+        _ item: GitRepositoryService.PRListItem,
+        project: Project,
+        defaultParentPath: String?,
+        worktreeStore: WorktreeStore
+    ) async throws -> Worktree {
+        guard checkingOutPRNumber == nil else {
+            throw PRCheckoutError.alreadyInProgress
+        }
+        checkingOutPRNumber = item.number
+        defer { checkingOutPRNumber = nil }
+
+        let localBranch = item.headBranch.isEmpty ? "pr-\(item.number)" : item.headBranch
+        let slug = Self.directorySlug(from: localBranch)
+        let worktreeDirectory = WorktreeLocationResolver.worktreeDirectory(
+            for: project,
+            slug: slug,
+            defaultParentPath: defaultParentPath
+        )
+        let parentDirectory = URL(fileURLWithPath: worktreeDirectory)
+            .deletingLastPathComponent()
+            .path
+
+        try await GitProcessRunner.offMainThrowing {
+            if FileManager.default.fileExists(atPath: worktreeDirectory) {
+                throw PRCheckoutError.worktreeExists(path: worktreeDirectory)
+            }
+            try FileManager.default.createDirectory(
+                atPath: parentDirectory,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+        }
+
+        let worktree = Worktree(
+            name: localBranch,
+            path: worktreeDirectory,
+            branch: localBranch,
+            ownsBranch: true,
+            isPrimary: false
+        )
+        worktreeStore.add(worktree, to: project.id)
+
+        do {
+            try await git.fetchPullRequestRef(
+                repoPath: project.path,
+                number: item.number,
+                localBranch: localBranch
+            )
+            try await GitWorktreeService.shared.addWorktree(
+                repoPath: project.path,
+                path: worktreeDirectory,
+                branch: localBranch,
+                createBranch: false
+            )
+        } catch {
+            worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            throw error
+        }
+
+        return worktree
+    }
+
+    enum PRCheckoutError: LocalizedError {
+        case alreadyInProgress
+        case worktreeExists(path: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .alreadyInProgress:
+                "Another PR checkout is already in progress."
+            case let .worktreeExists(path):
+                "A worktree already exists at \(path)."
+            }
+        }
+    }
+
+    private static func directorySlug(from name: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let scalars = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        let collapsed = String(scalars)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+        return collapsed.isEmpty ? UUID().uuidString : collapsed
     }
 
     private func rescheduleAutoSync() {

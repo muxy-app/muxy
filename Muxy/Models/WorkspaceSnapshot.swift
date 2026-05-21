@@ -99,41 +99,49 @@ struct TabAreaSnapshot: Codable {
 
 struct TerminalTabSnapshot: Codable {
     let kind: TerminalTab.Kind
+    let id: UUID
     let customTitle: String?
     let colorID: String?
     let isPinned: Bool
     let projectPath: String
     let paneTitle: String
+    let paneID: UUID?
     let filePath: String?
     let currentWorkingDirectory: String?
 
     init(
         kind: TerminalTab.Kind,
+        id: UUID = UUID(),
         customTitle: String?,
         colorID: String?,
         isPinned: Bool,
         projectPath: String,
         paneTitle: String?,
+        paneID: UUID? = nil,
         filePath: String? = nil,
         currentWorkingDirectory: String? = nil
     ) {
         self.kind = kind
+        self.id = id
         self.customTitle = customTitle
         self.colorID = colorID
         self.isPinned = isPinned
         self.projectPath = projectPath
         self.paneTitle = paneTitle ?? "Terminal"
+        self.paneID = paneID
         self.filePath = filePath
         self.currentWorkingDirectory = currentWorkingDirectory
     }
 
     private enum CodingKeys: String, CodingKey {
         case kind
+        case id
         case customTitle
         case colorID
         case isPinned
         case projectPath
         case paneTitle
+        case paneID
         case filePath
         case currentWorkingDirectory
     }
@@ -141,11 +149,13 @@ struct TerminalTabSnapshot: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         kind = try container.decodeIfPresent(TerminalTab.Kind.self, forKey: .kind) ?? .terminal
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
         colorID = try container.decodeIfPresent(String.self, forKey: .colorID)
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
         projectPath = try container.decode(String.self, forKey: .projectPath)
         paneTitle = try container.decodeIfPresent(String.self, forKey: .paneTitle) ?? "Terminal"
+        paneID = try container.decodeIfPresent(UUID.self, forKey: .paneID)
         filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
         currentWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .currentWorkingDirectory)
     }
@@ -162,7 +172,8 @@ enum WorkspaceRestorer {
     static func restoreAll(
         from snapshots: [WorkspaceSnapshot],
         projects: [Project],
-        worktrees: [UUID: [Worktree]]
+        worktrees: [UUID: [Worktree]],
+        sessionsByPaneID: [UUID: TerminalSessionSnapshot] = [:]
     ) -> [RestoredWorkspace] {
         let projectByID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
         var results: [RestoredWorkspace] = []
@@ -170,7 +181,7 @@ enum WorkspaceRestorer {
             guard projectByID[snapshot.projectID] != nil else { continue }
             let worktreeList = worktrees[snapshot.projectID] ?? []
             guard let targetWorktree = resolveWorktree(for: snapshot, in: worktreeList) else { continue }
-            let root = restoreSplitNode(from: snapshot.root)
+            let root = restoreSplitNode(from: snapshot.root, sessionsByPaneID: sessionsByPaneID)
             let areas = root.allAreas()
             guard !areas.isEmpty else { continue }
             let focusedID: UUID = if let areaID = snapshot.focusedAreaID, root.findArea(id: areaID) != nil {
@@ -219,13 +230,16 @@ enum WorkspaceRestorer {
         return snapshots
     }
 
-    private static func restoreSplitNode(from snapshot: SplitNodeSnapshot) -> SplitNode {
+    private static func restoreSplitNode(
+        from snapshot: SplitNodeSnapshot,
+        sessionsByPaneID: [UUID: TerminalSessionSnapshot]
+    ) -> SplitNode {
         switch snapshot {
         case let .tabArea(areaSnapshot):
-            return .tabArea(TabArea(restoring: areaSnapshot))
+            return .tabArea(TabArea(restoring: areaSnapshot, sessionsByPaneID: sessionsByPaneID))
         case let .split(branchSnapshot):
-            let first = restoreSplitNode(from: branchSnapshot.first)
-            let second = restoreSplitNode(from: branchSnapshot.second)
+            let first = restoreSplitNode(from: branchSnapshot.first, sessionsByPaneID: sessionsByPaneID)
+            let second = restoreSplitNode(from: branchSnapshot.second, sessionsByPaneID: sessionsByPaneID)
             let direction: SplitDirection = switch branchSnapshot.direction {
             case .horizontal: .horizontal
             case .vertical: .vertical

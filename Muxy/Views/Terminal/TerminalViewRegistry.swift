@@ -39,6 +39,7 @@ final class TerminalViewRegistry {
     func removeView(for paneID: UUID) {
         guard let view = views.removeValue(forKey: paneID) else { return }
         paneIDs.removeValue(forKey: ObjectIdentifier(view))
+        TerminalCommandTracker.shared.removePane(paneID)
         view.tearDown()
     }
 
