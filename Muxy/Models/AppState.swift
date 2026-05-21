@@ -37,6 +37,7 @@ final class AppState {
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String, suppressInitialFocus: Bool)
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
         case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
+        case createImageViewerTab(projectID: UUID, areaID: UUID?, filePath: String)
         case restoreClosedTerminalTab(projectID: UUID, areaID: UUID?, snapshot: ClosedTerminalTabSnapshot)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
@@ -290,6 +291,10 @@ final class AppState {
         line: Int? = nil,
         column: Int = 1
     ) {
+        if ImageViewerTabState.canOpen(filePath: filePath) {
+            openImageFile(filePath, projectID: projectID)
+            return
+        }
         let settings = EditorSettings.shared
         if settings.defaultEditor == .terminalCommand {
             let command = settings.externalEditorCommand.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -318,6 +323,16 @@ final class AppState {
                 }
             }
         }
+    }
+
+    func openImageFile(_ filePath: String, projectID: UUID) {
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { $0.content.imageViewerState?.filePath == filePath }) {
+                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                return
+            }
+        }
+        dispatch(.createImageViewerTab(projectID: projectID, areaID: nil, filePath: filePath))
     }
 
     func openMarkdownLinkTarget(_ filePath: String, projectID: UUID, fragment: String?) {
@@ -367,12 +382,20 @@ final class AppState {
         for (_, root) in workspaceRoots {
             for area in root.allAreas() {
                 for tab in area.tabs {
-                    guard let editorState = tab.content.editorState else { continue }
-                    let currentPath = editorState.filePath
-                    if currentPath == oldPath {
-                        editorState.updateFilePath(newPath)
-                    } else if currentPath.hasPrefix(oldPrefix) {
-                        editorState.updateFilePath(newPath + "/" + String(currentPath.dropFirst(oldPrefix.count)))
+                    if let editorState = tab.content.editorState {
+                        let currentPath = editorState.filePath
+                        if currentPath == oldPath {
+                            editorState.updateFilePath(newPath)
+                        } else if currentPath.hasPrefix(oldPrefix) {
+                            editorState.updateFilePath(newPath + "/" + String(currentPath.dropFirst(oldPrefix.count)))
+                        }
+                    } else if let imageState = tab.content.imageViewerState {
+                        let currentPath = imageState.filePath
+                        if currentPath == oldPath {
+                            imageState.updateFilePath(newPath)
+                        } else if currentPath.hasPrefix(oldPrefix) {
+                            imageState.updateFilePath(newPath + "/" + String(currentPath.dropFirst(oldPrefix.count)))
+                        }
                     }
                 }
             }
