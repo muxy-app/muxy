@@ -29,6 +29,7 @@ enum SidebarLayout {
 struct Sidebar: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
     let expanded: Bool
@@ -78,15 +79,21 @@ struct Sidebar: View {
         .help(shortcutTooltip("Add Project", for: .openProject))
     }
 
+    private var displayedProjects: [Project] {
+        projectGroupStore.filteredProjects(from: projectStore.projects)
+    }
+
     private var projectList: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: UIMetrics.spacing2) {
-                ForEach(Array(projectStore.projects.enumerated()), id: \.element.id) { index, project in
+            LazyVStack(spacing: UIMetrics.spacing3) {
+                WorkspaceSwitcher(isWide: isWide)
+
+                ForEach(Array(displayedProjects.enumerated()), id: \.element.id) { offset, project in
                     Group {
                         if isWide {
                             ExpandedProjectRow(
                                 project: project,
-                                shortcutIndex: index < 9 ? index + 1 : nil,
+                                shortcutIndex: offset < 9 ? offset + 1 : nil,
                                 isAnyDragging: dragState.draggedID != nil,
                                 onSelect: { select(project) },
                                 onRemove: { remove(project) },
@@ -97,7 +104,7 @@ struct Sidebar: View {
                         } else {
                             ProjectRow(
                                 project: project,
-                                shortcutIndex: index < 9 ? index + 1 : nil,
+                                shortcutIndex: offset < 9 ? offset + 1 : nil,
                                 isAnyDragging: dragState.draggedID != nil,
                                 onSelect: { select(project) },
                                 onRemove: { remove(project) },
@@ -119,6 +126,7 @@ struct Sidebar: View {
                     }
                     .gesture(projectDragGesture(for: project))
                 }
+
                 addButton
             }
             .padding(.horizontal, isWide ? UIMetrics.spacing3 : UIMetrics.spacing4)

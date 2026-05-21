@@ -218,6 +218,8 @@ private struct TabContentView: View {
             EditorPane(state: editorState, focused: focused, onFocus: onFocus)
         case let .diffViewer(diffState):
             DiffViewerPane(state: diffState, focused: focused, onFocus: onFocus)
+        case let .imageViewer(imageState):
+            ImageViewerPane(state: imageState, focused: focused, onFocus: onFocus)
         }
     }
 }

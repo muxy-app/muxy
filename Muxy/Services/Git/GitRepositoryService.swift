@@ -357,7 +357,7 @@ struct GitRepositoryService {
         return GitPRParser.parsePRList(result.stdout)
     }
 
-    func checkoutPullRequest(repoPath: String, number: Int) async throws {
+    func checkoutPullRequest(repoPath: String, number: Int, headBranch: String? = nil) async throws {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
             throw PRCreateError.ghNotInstalled
         }
@@ -370,20 +370,9 @@ struct GitRepositoryService {
             return
         }
 
-        let localBranch = "pr-\(number)"
-        let refspec = "refs/pull/\(number)/head:\(localBranch)"
-        let fetchResult = try await GitProcessRunner.runGit(
-            repoPath: repoPath,
-            arguments: ["fetch", "origin", refspec, "--force"]
-        )
-        if fetchResult.status != 0 {
-            let message = ghResult.stderr.isEmpty ? ghResult.stdout : ghResult.stderr
-            throw PRCreateError.commandFailed(
-                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? "Failed to checkout pull request."
-                    : message.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
+        let trimmedHead = headBranch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let localBranch = trimmedHead.isEmpty ? "pr-\(number)" : trimmedHead
+        try await fetchPullRequestRef(repoPath: repoPath, number: number, localBranch: localBranch)
         let checkoutResult = try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["checkout", localBranch]
@@ -393,6 +382,22 @@ struct GitRepositoryService {
             throw PRCreateError.commandFailed(
                 message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? "Failed to checkout pull request."
+                    : message.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+    }
+
+    func fetchPullRequestRef(repoPath: String, number: Int, localBranch: String) async throws {
+        let refspec = "refs/pull/\(number)/head:\(localBranch)"
+        let fetchResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["fetch", "origin", refspec, "--force"]
+        )
+        guard fetchResult.status == 0 else {
+            let message = fetchResult.stderr.isEmpty ? fetchResult.stdout : fetchResult.stderr
+            throw PRCreateError.commandFailed(
+                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Failed to fetch pull request ref."
                     : message.trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }
