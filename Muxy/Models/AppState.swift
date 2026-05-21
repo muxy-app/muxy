@@ -12,6 +12,7 @@ final class AppState {
         let areaID: UUID
         let direction: SplitDirection
         let position: SplitPosition
+        var command: String?
     }
 
     struct DiffViewerRequest {

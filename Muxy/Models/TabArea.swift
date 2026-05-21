@@ -17,6 +17,20 @@ final class TabArea: Identifiable {
         activeTabID = tab.id
     }
 
+    init(projectPath: String, command: String?) {
+        id = UUID()
+        self.projectPath = projectPath
+        let wrappedCommand = command.map { "(\($0)); exec \"$0\" -l" }
+        let pane = TerminalPaneState(
+            projectPath: projectPath,
+            startupCommand: wrappedCommand,
+            startupCommandInteractive: wrappedCommand != nil
+        )
+        let tab = TerminalTab(pane: pane)
+        tabs.append(tab)
+        activeTabID = tab.id
+    }
+
     init(projectPath: String, existingTab tab: TerminalTab) {
         id = UUID()
         self.projectPath = projectPath
