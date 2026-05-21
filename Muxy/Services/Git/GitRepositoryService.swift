@@ -394,7 +394,7 @@ struct GitRepositoryService {
         try await preparePullRequestBranch(repoPath: repoPath, checkout: checkout)
         let result = try await GitProcessRunner.runGit(
             repoPath: repoPath,
-            arguments: ["switch", localBranchName(for: checkout)]
+            arguments: ["switch", Self.localPullRequestBranchName(for: checkout)]
         )
         try requireSuccess(result, fallbackMessage: "Failed to checkout pull request.")
     }
@@ -405,7 +405,7 @@ struct GitRepositoryService {
         }
         let checkout = try await pullRequestCheckoutInfo(ghPath: ghPath, repoPath: repoPath, number: number)
         try await preparePullRequestBranch(repoPath: repoPath, checkout: checkout)
-        let branch = localBranchName(for: checkout)
+        let branch = Self.localPullRequestBranchName(for: checkout)
         try await GitWorktreeService.shared.addWorktree(
             repoPath: repoPath,
             path: path,
@@ -434,7 +434,7 @@ struct GitRepositoryService {
 
     private func preparePullRequestBranch(repoPath: String, checkout: PRCheckoutInfo) async throws {
         let remote = try await ensurePullRequestRemote(repoPath: repoPath, checkout: checkout)
-        let branch = localBranchName(for: checkout)
+        let branch = Self.localPullRequestBranchName(for: checkout)
         let fetchResult = try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["fetch", remote, "refs/heads/\(checkout.headBranch):refs/remotes/\(remote)/\(checkout.headBranch)"]
@@ -458,7 +458,7 @@ struct GitRepositoryService {
     }
 
     private func ensurePullRequestRemote(repoPath: String, checkout: PRCheckoutInfo) async throws -> String {
-        let remote = remoteName(for: checkout)
+        let remote = Self.pullRequestRemoteName(for: checkout)
         if await remoteExists(repoPath: repoPath, remote: remote) {
             return remote
         }
@@ -484,19 +484,26 @@ struct GitRepositoryService {
         return result.stdout.split(separator: "\n").contains { $0 == remote }
     }
 
-    private func localBranchName(for checkout: PRCheckoutInfo) -> String {
+    static func localPullRequestBranchName(for checkout: PRCheckoutInfo) -> String {
         "pr/\(checkout.number)/\(safeRefComponent(checkout.headBranch))"
     }
 
-    private func remoteName(for checkout: PRCheckoutInfo) -> String {
+    static func pullRequestRemoteName(for checkout: PRCheckoutInfo) -> String {
         "pr-\(checkout.number)-\(safeRefComponent(checkout.headRepositoryNameWithOwner).replacingOccurrences(of: "/", with: "-"))"
     }
 
-    private func safeRefComponent(_ value: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._/-"))
+    private static func safeRefComponent(_ value: String) -> String {
+        let segments = value
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map { safeRefSegment(String($0)) }
+            .filter { !$0.isEmpty }
+        return segments.isEmpty ? "head" : segments.joined(separator: "/")
+    }
+
+    private static func safeRefSegment(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
         let scalars = value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
-        let collapsed = String(scalars).split(separator: "-", omittingEmptySubsequences: true).joined(separator: "-")
-        return collapsed.isEmpty ? "head" : collapsed
+        return String(scalars).split(separator: "-", omittingEmptySubsequences: true).joined(separator: "-")
     }
 
     private func requireSuccess(_ result: GitProcessResult, fallbackMessage: String) throws {

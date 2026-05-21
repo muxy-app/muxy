@@ -215,6 +215,13 @@ struct GitPRParserTests {
         func missingHeadRepository() {
             #expect(GitPRParser.parsePRCheckoutInfo(#"{"number":1,"headRefName":"feature"}"#) == nil)
         }
+
+        @Test("empty checkout metadata returns nil")
+        func emptyCheckoutMetadata() {
+            let json = #"{"number":1,"headRefName":"","headRepository":{"nameWithOwner":""}}"#
+
+            #expect(GitPRParser.parsePRCheckoutInfo(json) == nil)
+        }
     }
 
     @Suite("parsePRInfoMatchingHeadSha")
