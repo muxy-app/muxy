@@ -114,7 +114,7 @@ struct ImageViewerRepresentable: NSViewRepresentable {
             let factor = 1.0 + event.scrollingDeltaY * Self.mouseWheelSensitivity
             let proposed = magnification * factor
             let clamped = max(minMagnification, min(maxMagnification, proposed))
-            guard abs(clamped - magnification) > 0.0001 else { return }
+            guard abs(clamped - magnification) > ImageViewerRepresentable.magnificationEpsilon else { return }
             let anchor = convert(event.locationInWindow, from: nil)
             setMagnification(clamped, centeredAt: anchor)
             onUserZoom?(clamped)
