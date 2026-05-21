@@ -38,6 +38,7 @@ enum EditorMarkdownScrollDriver {
 @Observable
 final class EditorTabState: Identifiable {
     private static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd"]
+    private static let htmlExtensions: Set<String> = ["html", "htm"]
 
     let id = UUID()
     let projectPath: String
@@ -77,6 +78,7 @@ final class EditorTabState: Identifiable {
     var largeFileSize: Int64 = 0
     var backingStore: TextBackingStore?
     var markdownViewMode: EditorMarkdownViewMode = .code
+    var htmlViewMode: EditorMarkdownViewMode = .code
     var markdownScrollPosition: CGFloat = 0
     var markdownScrollSyncEnabled = true
     var markdownScrollDriver: EditorMarkdownScrollDriver = .editor
@@ -129,6 +131,10 @@ final class EditorTabState: Identifiable {
         Self.markdownExtensions.contains(fileExtension)
     }
 
+    var isHTMLFile: Bool {
+        Self.htmlExtensions.contains(fileExtension)
+    }
+
     @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     private enum FileLoadEvent {
@@ -156,6 +162,9 @@ final class EditorTabState: Identifiable {
         self.filePath = filePath
         if isMarkdownFile {
             markdownViewMode = .preview
+        }
+        if isHTMLFile {
+            htmlViewMode = .preview
         }
         syntaxHighlighter = Self.makeSyntaxHighlighter(for: filePath)
         installFileWatcher()

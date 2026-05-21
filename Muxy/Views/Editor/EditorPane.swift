@@ -36,6 +36,9 @@ struct EditorPane: View {
             if state.isMarkdownFile, state.markdownViewMode == .preview {
                 state.markdownViewMode = .code
             }
+            if state.isHTMLFile, state.htmlViewMode == .preview {
+                state.htmlViewMode = .code
+            }
             if !state.currentSelection.isEmpty {
                 state.searchNeedle = state.currentSelection
             }
@@ -105,9 +108,26 @@ struct EditorPane: View {
                     markdownPreviewContainer
                 }
             }
+        } else if state.isHTMLFile {
+            switch state.htmlViewMode {
+            case .code:
+                codeEditorContainer
+            case .preview:
+                htmlPreviewContainer
+            case .split:
+                HSplitView {
+                    codeEditorContainer
+                    htmlPreviewContainer
+                }
+            }
         } else {
             codeEditorContainer
         }
+    }
+
+    private var htmlPreviewContainer: some View {
+        HTMLPreviewWebView(filePath: state.filePath)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var codeEditorContainer: some View {
@@ -263,7 +283,9 @@ struct EditorPane: View {
     }
 
     private var showsCodeEditor: Bool {
-        !state.isMarkdownFile || state.markdownViewMode != .preview
+        if state.isMarkdownFile { return state.markdownViewMode != .preview }
+        if state.isHTMLFile { return state.htmlViewMode != .preview }
+        return true
     }
 
     private var externalChangeBanner: some View {
@@ -346,27 +368,31 @@ struct EditorPane: View {
 
 private struct EditorMarkdownModePicker: View {
     @Binding var mode: EditorMarkdownViewMode
-    @Binding var scrollSyncEnabled: Bool
+    var scrollSyncEnabled: Binding<Bool>?
+    let fileTypeLabel: String
+    var supportsKeyboardShortcut = true
 
     var body: some View {
         HStack(spacing: UIMetrics.spacing1) {
-            if mode == .split {
+            if mode == .split, let scrollSyncEnabled {
                 Button {
-                    scrollSyncEnabled.toggle()
+                    scrollSyncEnabled.wrappedValue.toggle()
                 } label: {
                     Image(systemName: "arrow.up.and.down")
                         .font(.system(size: UIMetrics.fontCaption, weight: .medium))
-                        .foregroundStyle(scrollSyncEnabled ? MuxyTheme.accent : MuxyTheme.fg)
+                        .foregroundStyle(scrollSyncEnabled.wrappedValue ? MuxyTheme.accent : MuxyTheme.fg)
                         .frame(width: UIMetrics.scaled(22), height: UIMetrics.controlSmall)
                         .background(
                             RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
-                                .fill(scrollSyncEnabled ? MuxyTheme.surface : Color.clear)
+                                .fill(scrollSyncEnabled.wrappedValue ? MuxyTheme.surface : Color.clear)
                         )
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(scrollSyncEnabled ? "Disable Scroll Sync" : "Enable Scroll Sync")
-                .accessibilityLabel(scrollSyncEnabled ? "Disable Markdown Scroll Sync" : "Enable Markdown Scroll Sync")
+                .help(scrollSyncEnabled.wrappedValue ? "Disable Scroll Sync" : "Enable Scroll Sync")
+                .accessibilityLabel(
+                    scrollSyncEnabled.wrappedValue ? "Disable Markdown Scroll Sync" : "Enable Markdown Scroll Sync"
+                )
 
                 Rectangle()
                     .fill(MuxyTheme.border)
@@ -388,7 +414,7 @@ private struct EditorMarkdownModePicker: View {
                 }
                 .buttonStyle(.plain)
                 .help(helpText(for: candidate, currentMode: mode))
-                .accessibilityLabel("Markdown \(candidate.title) View")
+                .accessibilityLabel("\(fileTypeLabel) \(candidate.title) View")
             }
         }
         .padding(UIMetrics.spacing1)
@@ -401,7 +427,7 @@ private struct EditorMarkdownModePicker: View {
     }
 
     private func helpText(for candidate: EditorMarkdownViewMode, currentMode: EditorMarkdownViewMode) -> String {
-        guard currentMode == .preview else { return candidate.title }
+        guard supportsKeyboardShortcut, currentMode == .preview else { return candidate.title }
         switch candidate {
         case .code: return "\(candidate.title) (E)"
         case .split: return "\(candidate.title) (⇧E)"
@@ -447,7 +473,16 @@ private struct EditorBreadcrumb: View {
             if state.isMarkdownFile {
                 EditorMarkdownModePicker(
                     mode: $state.markdownViewMode,
-                    scrollSyncEnabled: $state.markdownScrollSyncEnabled
+                    scrollSyncEnabled: $state.markdownScrollSyncEnabled,
+                    fileTypeLabel: "Markdown"
+                )
+                .padding(.trailing, UIMetrics.spacing3)
+            } else if state.isHTMLFile {
+                EditorMarkdownModePicker(
+                    mode: $state.htmlViewMode,
+                    scrollSyncEnabled: nil,
+                    fileTypeLabel: "HTML",
+                    supportsKeyboardShortcut: false
                 )
                 .padding(.trailing, UIMetrics.spacing3)
             }

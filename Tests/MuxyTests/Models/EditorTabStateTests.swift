@@ -21,6 +21,39 @@ struct EditorTabStateTests {
         #expect(state.markdownScrollSyncEnabled)
     }
 
+    @Test("isHTMLFile recognizes html extensions")
+    func isHTMLFileRecognizesHTMLExtensions() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        for (name, expected) in [
+            ("page.html", true),
+            ("page.htm", true),
+            ("notes.md", false),
+            ("notes.txt", false),
+        ] {
+            let fileURL = tempDirectory.appendingPathComponent(name)
+            try "<html></html>".write(to: fileURL, atomically: true, encoding: .utf8)
+            let state = EditorTabState(projectPath: tempDirectory.path, filePath: fileURL.path)
+            #expect(state.isHTMLFile == expected)
+        }
+    }
+
+    @Test("html tabs default to preview mode")
+    func htmlTabsDefaultToPreviewMode() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let fileURL = tempDirectory.appendingPathComponent("page.html")
+        try "<html></html>".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let state = EditorTabState(projectPath: tempDirectory.path, filePath: fileURL.path)
+
+        #expect(state.isHTMLFile)
+        #expect(state.htmlViewMode == .preview)
+    }
+
     @Test("reloadFromDisk picks up external file changes")
     func reloadFromDiskPicksUpExternalChanges() async throws {
         let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
