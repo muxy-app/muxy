@@ -114,10 +114,12 @@ struct MainWindow: View {
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
+    @AppStorage("muxy.sidebarExpandedCustomWidth") private var sidebarExpandedCustomWidth: Double = .init(SidebarLayout.expandedWidth)
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
     @AppStorage(RecordingPreferences.autoSendKey) private var recordingAutoSend = RecordingPreferences.defaultAutoSend
     @AppStorage(RecordingPreferences.languageKey) private var recordingLanguage = RecordingPreferences.defaultLanguage
     @State private var voiceRecording = VoiceRecordingState.shared
+    @State private var sidebarResizeStartWidth: CGFloat?
     @MainActor private var trafficLightWidth: CGFloat { UIMetrics.scaled(75) }
 
     var body: some View {
@@ -337,7 +339,10 @@ struct MainWindow: View {
                     .accessibilityHidden(true)
             }
 
-            Sidebar(expanded: sidebarExpanded)
+            Sidebar(
+                expanded: sidebarExpanded,
+                expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
+            )
         }
         .frame(width: leftNavigationWidth, alignment: .leading)
         .clipped()
@@ -348,6 +353,11 @@ struct MainWindow: View {
                     .frame(width: 1)
                     .padding(.top, leftNavigationBorderTopPadding)
                     .accessibilityHidden(true)
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if sidebarIsResizable {
+                sidebarResizeHandle
             }
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -759,8 +769,13 @@ struct MainWindow: View {
         SidebarLayout.resolvedWidth(
             expanded: sidebarExpanded,
             collapsedStyle: sidebarCollapsedStyle,
-            expandedStyle: sidebarExpandedStyle
+            expandedStyle: sidebarExpandedStyle,
+            expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
         )
+    }
+
+    private var sidebarIsResizable: Bool {
+        SidebarLayout.isWide(expanded: sidebarExpanded, expandedStyle: sidebarExpandedStyle)
     }
 
     private var leftNavigationWidth: CGFloat {
@@ -1002,6 +1017,22 @@ struct MainWindow: View {
                 .frame(width: CGFloat(fileTreePanelWidth))
             }
         }
+    }
+
+    private var sidebarResizeHandle: some View {
+        ResizeHandle(
+            axis: .horizontal,
+            onEnd: { sidebarResizeStartWidth = nil },
+            onDrag: { value in
+                let start = sidebarResizeStartWidth ?? CGFloat(sidebarExpandedCustomWidth)
+                if sidebarResizeStartWidth == nil {
+                    sidebarResizeStartWidth = start
+                }
+                sidebarExpandedCustomWidth = Double(SidebarLayout.clampExpandedWidth(start + value.translation.width))
+            }
+        )
+        .padding(.top, leftNavigationBorderTopPadding)
+        .accessibilityHidden(true)
     }
 
     private func sidePanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
