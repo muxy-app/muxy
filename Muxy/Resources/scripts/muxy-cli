@@ -1,14 +1,58 @@
 #!/bin/bash
-# Muxy CLI wrapper - Usage: muxy /path/to/project
-# Opens a folder in Muxy app
+# Muxy CLI wrapper
+# Usage:
+#   muxy <path>              - Open a folder in Muxy
+#   muxy split-right [cmd]   - Split the focused pane horizontally, optionally run a command
+#   muxy split-down [cmd]    - Split the focused pane vertically, optionally run a command
 
-TARGET_DIR="$1"
+COMMAND="$1"
 
-if [ -z "$TARGET_DIR" ]; then
-    echo "Usage: muxy <path>"
-    echo "       muxy ."
-    exit 1
-fi
+send_socket_message() {
+    local message="$1"
+    local socket="$HOME/Library/Application Support/Muxy/muxy.sock"
+    if [ ! -e "$socket" ]; then
+        echo "Error: Muxy is not running"
+        exit 1
+    fi
+    python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect(sys.argv[1])
+s.sendall((sys.argv[2] + '\\n').encode())
+s.shutdown(socket.SHUT_WR)
+s.close()
+" "$socket" "$message" 2>/dev/null
+}
+
+case "$COMMAND" in
+    split-right)
+        if [ -n "$2" ]; then
+            shift
+            send_socket_message "split-right|$*"
+        else
+            send_socket_message "split-right"
+        fi
+        exit 0
+        ;;
+    split-down)
+        if [ -n "$2" ]; then
+            shift
+            send_socket_message "split-down|$*"
+        else
+            send_socket_message "split-down"
+        fi
+        exit 0
+        ;;
+    ""|--help|-h)
+        echo "Usage:"
+        echo "  muxy <path>              Open a folder in Muxy (e.g. muxy .)"
+        echo "  muxy split-right [cmd]   Split the focused pane horizontally, optionally run a command"
+        echo "  muxy split-down [cmd]    Split the focused pane vertically, optionally run a command"
+        exit 1
+        ;;
+esac
+
+TARGET_DIR="$COMMAND"
 
 case "$TARGET_DIR" in
     ~*) TARGET_DIR="${HOME}${TARGET_DIR:1}" ;;

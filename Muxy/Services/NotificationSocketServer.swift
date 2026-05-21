@@ -10,6 +10,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private var acceptSource: DispatchSourceRead?
     private let queue = DispatchQueue(label: "app.muxy.notificationSocket")
     var openProjectHandler: (@Sendable (String) -> Void)?
+    var splitActionHandler: (@Sendable (SplitDirection, String?) -> Void)?
 
     static var socketPath: String {
         MuxyFileStorage.appSupportDirectory()
@@ -133,6 +134,20 @@ final class NotificationSocketServer: @unchecked Sendable {
             }
             logger.info("Received open-project request via socket")
             openProjectHandler?(path)
+            return
+        }
+
+        if message == "split-right" || message.hasPrefix("split-right|") {
+            let command = message.hasPrefix("split-right|") ? String(message.dropFirst("split-right|".count)) : nil
+            logger.info("Received split-right request via socket")
+            splitActionHandler?(.horizontal, command)
+            return
+        }
+
+        if message == "split-down" || message.hasPrefix("split-down|") {
+            let command = message.hasPrefix("split-down|") ? String(message.dropFirst("split-down|".count)) : nil
+            logger.info("Received split-down request via socket")
+            splitActionHandler?(.vertical, command)
             return
         }
 
