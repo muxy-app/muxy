@@ -10,7 +10,6 @@ struct VCSTabView: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var showDiscardAllConfirmation = false
     @State private var pendingDiscardPath: String?
-    @State private var showCreateWorktreeSheet = false
     @State private var showCreateBranchSheet = false
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
@@ -113,7 +112,7 @@ struct VCSTabView: View {
     private var header: some View {
         HStack(spacing: 0) {
             HStack(spacing: UIMetrics.spacing3) {
-                worktreeBranchPicker
+                branchPicker
 
                 PRPill(
                     state: state,
@@ -151,14 +150,6 @@ struct VCSTabView: View {
         }
         .frame(height: UIMetrics.scaled(32))
         .background(MuxyTheme.bg)
-        .sheet(isPresented: $showCreateWorktreeSheet) {
-            if let project = owningProject {
-                CreateWorktreeSheet(project: project) { result in
-                    showCreateWorktreeSheet = false
-                    handleCreateWorktreeResult(result, project: project)
-                }
-            }
-        }
         .sheet(isPresented: $showCreateBranchSheet) {
             CreateBranchSheet(
                 currentBranch: state.branchName,
@@ -177,25 +168,16 @@ struct VCSTabView: View {
         state.showInlinePRForm = true
     }
 
-    @ViewBuilder
-    private var worktreeBranchPicker: some View {
-        if let project = owningProject {
-            WorktreeBranchPicker(
-                project: project,
-                isGitRepo: state.isGitRepo,
-                currentBranch: state.branchName,
-                branches: state.branches,
-                isLoadingBranches: state.isLoadingBranches,
-                activeWorktree: activeWorktreeForTab,
-                onSelectBranch: { state.switchBranch($0) },
-                onRefreshBranches: { state.loadBranches() },
-                onCreateBranch: { showCreateBranchSheet = true },
-                onDeleteBranch: { branch in presentDeleteBranchConfirmation(branch) },
-                onRequestCreateWorktree: { showCreateWorktreeSheet = true }
-            )
-            .environment(appState)
-            .environment(worktreeStore)
-        }
+    private var branchPicker: some View {
+        BranchPicker(
+            currentBranch: state.branchName,
+            branches: state.branches,
+            isLoading: state.isLoadingBranches,
+            onSelect: { state.switchBranch($0) },
+            onRefresh: { state.loadBranches() },
+            onCreateBranch: { showCreateBranchSheet = true },
+            onDeleteBranch: { branch in presentDeleteBranchConfirmation(branch) }
+        )
     }
 
     private func performMerge(prInfo: GitRepositoryService.PRInfo, method: GitRepositoryService.PRMergeMethod) {
@@ -473,25 +455,6 @@ struct VCSTabView: View {
         alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else { return }
             state.closePullRequest {}
-        }
-    }
-
-    private func handleCreateWorktreeResult(_ result: CreateWorktreeResult, project: Project) {
-        switch result {
-        case let .created(worktree, runSetup):
-            appState.selectWorktree(projectID: project.id, worktree: worktree)
-            if runSetup,
-               let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
-            {
-                Task {
-                    await WorktreeSetupRunner.run(
-                        sourceProjectPath: project.path,
-                        paneID: paneID
-                    )
-                }
-            }
-        case .cancelled:
-            break
         }
     }
 
