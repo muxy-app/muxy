@@ -83,18 +83,8 @@ struct MuxyApp: App {
                             appDelegate.handleOpenProjectPath(path)
                         }
                     }
-                    NotificationSocketServer.shared.splitActionHandler = { [appState, projectStore, worktreeStore] direction, command in
-                        Task { @MainActor in
-                            guard let projectID = appState.activeProjectID else { return }
-                            guard let area = appState.focusedArea(for: projectID) else { return }
-                            appState.dispatch(.splitArea(.init(
-                                projectID: projectID,
-                                areaID: area.id,
-                                direction: direction,
-                                position: .second,
-                                command: command
-                            )))
-                        }
+                    NotificationSocketServer.shared.commandHandler = { [appState] message in
+                        await SocketCommandHandler.handleRequest(message, appState: appState)
                     }
                     MobileServerService.shared.configure { server in
                         let delegate = RemoteServerDelegate(

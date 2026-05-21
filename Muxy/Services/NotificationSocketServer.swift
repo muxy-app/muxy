@@ -10,7 +10,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private var acceptSource: DispatchSourceRead?
     private let queue = DispatchQueue(label: "app.muxy.notificationSocket")
     var openProjectHandler: (@Sendable (String) -> Void)?
-    var splitActionHandler: (@Sendable (SplitDirection, String?) -> Void)?
+    var commandHandler: (@Sendable (String) async -> String)?
 
     static var socketPath: String {
         MuxyFileStorage.appSupportDirectory()
@@ -97,6 +97,11 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     private static let maxMessageSize = 65536
 
+    private static let commandPrefixes = [
+        "split-right", "split-down", "send|", "send-keys|",
+        "read-screen|", "close-pane|", "rename-pane|", "list-panes",
+    ]
+
     private func handleClient(_ fd: Int32) {
         defer { close(fd) }
 
@@ -112,10 +117,47 @@ final class NotificationSocketServer: @unchecked Sendable {
             }
         }
 
-        guard !data.isEmpty else { return }
+        guard !data.isEmpty,
+              let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !message.isEmpty
+        else { return }
 
-        for line in data.split(separator: UInt8(ascii: "\n")) {
-            processMessage(Data(line))
+        if Self.commandPrefixes.contains(where: { message.hasPrefix($0) }) {
+            let response = processCommand(message)
+            writeResponse(fd: fd, text: response)
+            return
+        }
+
+        processMessage(Data(message.utf8))
+    }
+
+    private func processCommand(_ message: String) -> String {
+        guard let handler = commandHandler else {
+            return "error:no handler registered"
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var response = "error:timeout"
+
+        Task { @Sendable in
+            response = await handler(message)
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+        return response
+    }
+
+    private func writeResponse(fd: Int32, text: String) {
+        let data = Data(text.utf8)
+        data.withUnsafeBytes { buffer in
+            guard let ptr = buffer.baseAddress else { return }
+            var offset = 0
+            while offset < buffer.count {
+                let written = Darwin.write(fd, ptr.advanced(by: offset), buffer.count - offset)
+                if written <= 0 { break }
+                offset += written
+            }
         }
     }
 
@@ -138,16 +180,12 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
 
         if message == "split-right" || message.hasPrefix("split-right|") {
-            let command = message.hasPrefix("split-right|") ? String(message.dropFirst("split-right|".count)) : nil
-            logger.info("Received split-right request via socket")
-            splitActionHandler?(.horizontal, command)
+            logger.info("Received legacy split-right request via socket")
             return
         }
 
         if message == "split-down" || message.hasPrefix("split-down|") {
-            let command = message.hasPrefix("split-down|") ? String(message.dropFirst("split-down|".count)) : nil
-            logger.info("Received split-down request via socket")
-            splitActionHandler?(.vertical, command)
+            logger.info("Received legacy split-down request via socket")
             return
         }
 
