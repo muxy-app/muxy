@@ -5,6 +5,7 @@ struct ShortcutActionDispatcher {
     let appState: AppState
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
+    let projectGroupStore: ProjectGroupStore?
     let ghostty: GhosttyService
     let notificationCenter: NotificationCenter
 
@@ -12,14 +13,21 @@ struct ShortcutActionDispatcher {
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore? = nil,
         ghostty: GhosttyService,
         notificationCenter: NotificationCenter = .default
     ) {
         self.appState = appState
         self.projectStore = projectStore
         self.worktreeStore = worktreeStore
+        self.projectGroupStore = projectGroupStore
         self.ghostty = ghostty
         self.notificationCenter = notificationCenter
+    }
+
+    private var navigableProjects: [Project] {
+        guard let projectGroupStore else { return projectStore.projects }
+        return projectGroupStore.filteredProjects(from: projectStore.projects)
     }
 
     func perform(_ action: ShortcutAction, activeProject: Project?, openVCS: (Project) -> Void) -> Bool {
@@ -30,7 +38,7 @@ struct ShortcutActionDispatcher {
         }
 
         if let index = action.projectSelectionIndex {
-            appState.selectProjectByIndex(index, projects: projectStore.projects, worktrees: worktreeStore.worktrees)
+            appState.selectProjectByIndex(index, projects: navigableProjects, worktrees: worktreeStore.worktrees)
             return true
         }
 
@@ -122,10 +130,10 @@ struct ShortcutActionDispatcher {
             ghostty.reloadConfig()
             return true
         case .nextProject:
-            appState.selectNextProject(projects: projectStore.projects, worktrees: worktreeStore.worktrees)
+            appState.selectNextProject(projects: navigableProjects, worktrees: worktreeStore.worktrees)
             return true
         case .previousProject:
-            appState.selectPreviousProject(projects: projectStore.projects, worktrees: worktreeStore.worktrees)
+            appState.selectPreviousProject(projects: navigableProjects, worktrees: worktreeStore.worktrees)
             return true
         case .findInTerminal:
             notificationCenter.post(name: .findInTerminal, object: nil)

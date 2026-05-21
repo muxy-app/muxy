@@ -7,6 +7,7 @@ struct MuxyCommands: Commands {
     let appState: AppState
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
+    let projectGroupStore: ProjectGroupStore
     let keyBindings: KeyBindingStore
     let commandShortcuts: CommandShortcutStore
     let config: MuxyConfig
@@ -50,6 +51,7 @@ struct MuxyCommands: Commands {
             appState: appState,
             projectStore: projectStore,
             worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore,
             ghostty: ghostty
         )
     }

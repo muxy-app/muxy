@@ -14,6 +14,7 @@ struct ExpandedProjectRow: View {
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
 
     @AppStorage(GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch)
     private var autoExpandWorktrees = false
@@ -82,6 +83,10 @@ struct ExpandedProjectRow: View {
                 Divider()
                 Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
                 Button("New Worktree…") { showCreateWorktreeSheet = true }
+            }
+            if !projectGroupStore.groups.isEmpty {
+                Divider()
+                ProjectGroupMembershipMenu(project: project)
             }
             Divider()
             Button("Remove Project", role: .destructive, action: onRemove)
