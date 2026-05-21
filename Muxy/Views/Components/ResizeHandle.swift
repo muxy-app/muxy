@@ -8,6 +8,7 @@ struct ResizeHandle: View {
     }
 
     let axis: Axis
+    var onEnd: (() -> Void)?
     let onDrag: (DragGesture.Value) -> Void
     @State private var hovering = false
     @GestureState private var dragging = false
@@ -26,19 +27,26 @@ struct ResizeHandle: View {
                     )
                     .contentShape(Rectangle())
                     .gesture(
-                        DragGesture(minimumDistance: 1)
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
                             .updating($dragging) { _, state, _ in state = true }
                             .onChanged { value in
                                 cursor.set()
                                 onDrag(value)
                             }
+                            .onEnded { _ in
+                                onEnd?()
+                            }
                     )
-                    .onHover { on in
-                        hovering = on
-                        if on {
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active:
+                            hovering = true
                             cursor.set()
-                        } else if !dragging {
-                            NSCursor.arrow.set()
+                        case .ended:
+                            hovering = false
+                            if !dragging {
+                                NSCursor.arrow.set()
+                            }
                         }
                     }
             }
