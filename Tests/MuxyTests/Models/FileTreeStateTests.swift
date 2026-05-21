@@ -275,6 +275,107 @@ struct FileTreeStateTests {
         #expect(entry?.isDirectory == false)
     }
 
+    @Test("isIgnoredFile flags a dotfile")
+    func isIgnoredFileFlagsDotfile() {
+        let state = FileTreeState(rootPath: "/tmp")
+
+        #expect(state.isIgnoredFile(makeEntry(name: ".github", isDirectory: true)))
+    }
+
+    @Test("isIgnoredFile flags built-in noise names")
+    func isIgnoredFileFlagsBuiltInNoise() {
+        let state = FileTreeState(rootPath: "/tmp")
+
+        #expect(state.isIgnoredFile(makeEntry(name: "node_modules", isDirectory: true)))
+        #expect(state.isIgnoredFile(makeEntry(name: "yarn.lock", isDirectory: false)))
+    }
+
+    @Test("isIgnoredFile flags a git-ignored entry")
+    func isIgnoredFileFlagsGitIgnored() {
+        let state = FileTreeState(rootPath: "/tmp")
+
+        #expect(state.isIgnoredFile(makeEntry(name: "build.log", isDirectory: false, isIgnored: true)))
+    }
+
+    @Test("isIgnoredFile keeps a normal file")
+    func isIgnoredFileKeepsNormalFile() {
+        let state = FileTreeState(rootPath: "/tmp")
+
+        #expect(!state.isIgnoredFile(makeEntry(name: "README.md", isDirectory: false)))
+    }
+
+    @Test("hideIgnoredFiles persists across instances via injected defaults")
+    func hideIgnoredFilesPersistsAcrossInstances() throws {
+        let (defaults, suiteName) = try makeIsolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = FileTreeState(rootPath: "/tmp", defaults: defaults)
+        #expect(!first.hideIgnoredFiles)
+        first.hideIgnoredFiles = true
+
+        let second = FileTreeState(rootPath: "/tmp", defaults: defaults)
+        #expect(second.hideIgnoredFiles)
+    }
+
+    @Test("hideIgnoredFiles filters dotfiles and built-in noise from the root")
+    func hideIgnoredFilesFiltersRoot() async throws {
+        let fixture = try NoiseFixture()
+        defer { fixture.cleanup() }
+        let (defaults, suiteName) = try makeIsolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let state = FileTreeState(rootPath: fixture.rootPath, defaults: defaults)
+        state.loadRootIfNeeded()
+        try await waitForRootLoaded(state)
+
+        #expect(Set(state.visibleRootEntries().map(\.name))
+            == [".config", ".hidden.txt", "node_modules", "visible.txt"])
+
+        state.hideIgnoredFiles = true
+
+        #expect(state.visibleRootEntries().map(\.name) == ["visible.txt"])
+    }
+
+    @Test("revealFile keeps a filtered entry and its parent visible")
+    func revealFileExemptsSelectedPath() async throws {
+        let fixture = try NoiseFixture()
+        defer { fixture.cleanup() }
+        let (defaults, suiteName) = try makeIsolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let state = FileTreeState(rootPath: fixture.rootPath, defaults: defaults)
+        state.loadRootIfNeeded()
+        try await waitForRootLoaded(state)
+        state.hideIgnoredFiles = true
+
+        state.revealFile(at: fixture.path(".config/app.json"))
+        try await waitForChildrenLoaded(state, of: fixture.path(".config"))
+
+        let visibleNames = state.flatVisibleRows().compactMap { row -> String? in
+            if case let .entry(entry, _) = row { return entry.name }
+            return nil
+        }
+        #expect(visibleNames.contains(".config"))
+        #expect(visibleNames.contains("app.json"))
+        #expect(visibleNames.contains("visible.txt"))
+        #expect(!visibleNames.contains("node_modules"))
+    }
+
+    private func makeIsolatedDefaults() throws -> (defaults: UserDefaults, suiteName: String) {
+        let suiteName = "FileTreeStateTests-\(UUID().uuidString)"
+        return (try #require(UserDefaults(suiteName: suiteName)), suiteName)
+    }
+
+    private func makeEntry(name: String, isDirectory: Bool, isIgnored: Bool = false) -> FileTreeEntry {
+        FileTreeEntry(
+            name: name,
+            absolutePath: "/tmp/\(name)",
+            relativePath: name,
+            isDirectory: isDirectory,
+            isIgnored: isIgnored
+        )
+    }
+
     private func waitForRootLoaded(_ state: FileTreeState) async throws {
         for _ in 0 ..< 400 {
             if !state.visibleRootEntries().isEmpty { return }
@@ -320,6 +421,50 @@ private final class TreeFixture {
         )
         try "two".write(
             to: rootURL.appendingPathComponent("file-2.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    func path(_ relative: String) -> String {
+        rootURL.appendingPathComponent(relative).path
+    }
+
+    func cleanup() {
+        try? FileManager.default.removeItem(at: rootURL)
+    }
+}
+
+@MainActor
+private final class NoiseFixture {
+    let rootURL: URL
+
+    var rootPath: String { rootURL.path }
+
+    init() throws {
+        let fm = FileManager.default
+        rootURL = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: rootURL.appendingPathComponent("node_modules"),
+            withIntermediateDirectories: true
+        )
+        try fm.createDirectory(
+            at: rootURL.appendingPathComponent(".config"),
+            withIntermediateDirectories: true
+        )
+        try "{}".write(
+            to: rootURL.appendingPathComponent(".config/app.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "secret".write(
+            to: rootURL.appendingPathComponent(".hidden.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "visible".write(
+            to: rootURL.appendingPathComponent("visible.txt"),
             atomically: true,
             encoding: .utf8
         )

@@ -22,6 +22,18 @@ final class FileTreeState {
         let token: UUID
     }
 
+    private static let builtInNoiseNames: Set<String> = [
+        "node_modules",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "bun.lockb",
+        "Cargo.lock",
+        "Package.resolved",
+    ]
+
+    private static let hideIgnoredFilesDefaultsKey = "muxy.fileTreeHideIgnoredFiles"
+
     private(set) var rootPath: String
     private(set) var rootEntries: [FileTreeEntry] = []
     private(set) var children: [String: [FileTreeEntry]] = [:]
@@ -31,6 +43,12 @@ final class FileTreeState {
     private(set) var statuses: [String: FileStatus] = [:]
     private(set) var dirHasChange: Set<String> = []
     var showOnlyChanges = false
+    var hideIgnoredFiles: Bool {
+        didSet {
+            defaults.set(hideIgnoredFiles, forKey: Self.hideIgnoredFilesDefaultsKey)
+        }
+    }
+
     var selectedFilePath: String?
     var selectedPaths: Set<String> = []
     var selectionAnchorPath: String?
@@ -41,13 +59,16 @@ final class FileTreeState {
     var dropHighlightPath: String?
     private(set) var pendingScrollTarget: String?
 
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var watcher: FileSystemWatcher?
     @ObservationIgnored nonisolated(unsafe) private var remoteChangeObserver: NSObjectProtocol?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
 
-    init(rootPath: String) {
+    init(rootPath: String, defaults: UserDefaults = .standard) {
         self.rootPath = rootPath
+        self.defaults = defaults
+        hideIgnoredFiles = defaults.bool(forKey: Self.hideIgnoredFilesDefaultsKey)
         observeRepoChanges()
         installWatcher()
     }
@@ -133,19 +154,37 @@ final class FileTreeState {
     }
 
     func visibleRootEntries() -> [FileTreeEntry] {
-        guard showOnlyChanges else { return rootEntries }
-        return rootEntries.filter { entryHasChanges($0) }
+        filterVisible(rootEntries)
     }
 
     func visibleChildren(of entry: FileTreeEntry) -> [FileTreeEntry]? {
         guard let entries = children[entry.absolutePath] else { return nil }
-        guard showOnlyChanges else { return entries }
-        return entries.filter { entryHasChanges($0) }
+        return filterVisible(entries)
+    }
+
+    private func isOnSelectedPath(_ entry: FileTreeEntry) -> Bool {
+        guard let selected = selectedFilePath else { return false }
+        return FileSystemOperations.isInside(path: selected, ancestor: entry.absolutePath)
+    }
+
+    private func filterVisible(_ entries: [FileTreeEntry]) -> [FileTreeEntry] {
+        guard showOnlyChanges || hideIgnoredFiles else { return entries }
+        return entries.filter { entry in
+            if showOnlyChanges, !entryHasChanges(entry) { return false }
+            if hideIgnoredFiles, isIgnoredFile(entry), !isOnSelectedPath(entry) { return false }
+            return true
+        }
     }
 
     func entryHasChanges(_ entry: FileTreeEntry) -> Bool {
         if entry.isDirectory { return dirHasChange.contains(entry.absolutePath) }
         return statuses[entry.absolutePath] != nil
+    }
+
+    func isIgnoredFile(_ entry: FileTreeEntry) -> Bool {
+        if entry.isIgnored { return true }
+        if entry.name.hasPrefix(".") { return true }
+        return Self.builtInNoiseNames.contains(entry.name)
     }
 
     func selectOnly(_ path: String) {

@@ -153,6 +153,15 @@ struct FileTreeView: View {
                     state.showOnlyChanges.toggle()
                 }
                 .help(state.showOnlyChanges ? "Show All Files" : "Show Only Changed Files")
+                IconButton(
+                    symbol: state.hideIgnoredFiles ? "eye.slash" : "eye",
+                    color: state.hideIgnoredFiles ? MuxyTheme.accent : MuxyTheme.fgMuted,
+                    hoverColor: state.hideIgnoredFiles ? MuxyTheme.accent : MuxyTheme.fg,
+                    accessibilityLabel: "Hide Ignored Files"
+                ) {
+                    state.hideIgnoredFiles.toggle()
+                }
+                .help(state.hideIgnoredFiles ? "Show Ignored Files" : "Hide Ignored Files")
             }
         }
         .frame(height: UIMetrics.scaled(32))
