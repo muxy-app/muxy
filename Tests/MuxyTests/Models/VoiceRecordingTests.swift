@@ -64,6 +64,18 @@ struct VoiceRecorderHelperTests {
         #expect(second.transcript == "Open the file and add tests")
     }
 
+    @Test("Transcript merge appends reset phrase with same first word")
+    func transcriptMergeAppendsResetPhraseWithSameFirstWord() {
+        let first = VoiceRecorder.mergeTranscript(committed: "", partial: "", incoming: "Open the file")
+        let second = VoiceRecorder.mergeTranscript(
+            committed: first.committed,
+            partial: first.partial,
+            incoming: "Open settings"
+        )
+
+        #expect(second.transcript == "Open the file Open settings")
+    }
+
     @Test("Transcript merge replaces early corrected partials")
     func transcriptMergeReplacesEarlyCorrectedPartials() {
         let first = VoiceRecorder.mergeTranscript(committed: "", partial: "", incoming: "The more")

@@ -294,8 +294,10 @@ final class VoiceRecorder {
         guard !partial.isEmpty, !incoming.hasPrefix(partial) else { return false }
         let partialWords = words(in: partial)
         let incomingWords = words(in: incoming)
-        guard partialWords.count > 1 else { return false }
-        return partialWords.first != incomingWords.first
+        guard partialWords.count > 1, !incomingWords.isEmpty else { return false }
+        guard partialWords.first == incomingWords.first else { return true }
+        guard partialWords.count > 2, incomingWords.count > 1 else { return false }
+        return partialWords[1] != incomingWords[1]
     }
 
     nonisolated private static func words(in text: String) -> [String] {
