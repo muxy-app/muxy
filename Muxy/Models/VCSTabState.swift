@@ -308,7 +308,6 @@ final class VCSTabState {
         }
         isRefreshing = true
         pendingRefresh = false
-        errorMessage = nil
 
         let refreshSignpost = GitSignpost.begin("performRefresh", incremental ? "incremental" : "full")
 
@@ -413,6 +412,9 @@ final class VCSTabState {
                 let listChanged = files.map(\.path) != newFiles.map(\.path) || !changedPaths.isEmpty
                 if listChanged {
                     files = newFiles
+                }
+                if errorMessage != nil {
+                    errorMessage = nil
                 }
                 isLoadingFiles = false
                 hasCompletedInitialLoad = true
