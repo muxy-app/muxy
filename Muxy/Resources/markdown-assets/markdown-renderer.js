@@ -61,6 +61,93 @@
             .replace(/'/g, '&#39;');
     }
 
+    function extractFrontmatter(content) {
+        var normalized = String(content || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        var lines = normalized.split('\n');
+        if (lines.length < 3 || lines[0].trim() !== '---') {
+            return {
+                frontmatter: null,
+                body: content,
+                lineOffset: 0
+            };
+        }
+        for (var i = 1; i < lines.length; i++) {
+            if (lines[i].trim() === '---') {
+                return {
+                    frontmatter: parseFrontmatterRows(lines.slice(1, i)),
+                    body: lines.slice(i + 1).join('\n'),
+                    lineOffset: i + 1
+                };
+            }
+        }
+        return {
+            frontmatter: null,
+            body: content,
+            lineOffset: 0
+        };
+    }
+
+    function parseFrontmatterRows(lines) {
+        var rows = [];
+        var pending = null;
+        lines.forEach(function (line) {
+            if (!line.trim()) {
+                return;
+            }
+            var match = line.match(/^([^:#][^:]*):\s*(.*)$/);
+            if (match) {
+                pending = {
+                    key: match[1].trim(),
+                    value: normalizeFrontmatterValue(match[2].trim())
+                };
+                rows.push(pending);
+                return;
+            }
+            if (pending && /^\s+/.test(line)) {
+                pending.value = pending.value ? pending.value + '\n' + line.trim() : line.trim();
+                return;
+            }
+            rows.push({
+                key: '',
+                value: line.trim()
+            });
+            pending = null;
+        });
+        return rows;
+    }
+
+    function normalizeFrontmatterValue(value) {
+        return String(value || '')
+            .replace(/^['"]|['"]$/g, '')
+            .trim();
+    }
+
+    function renderFrontmatter(frontmatter) {
+        if (!frontmatter || !frontmatter.length) {
+            return null;
+        }
+        var details = document.createElement('details');
+        details.className = 'muxy-frontmatter';
+        details.open = true;
+        var summary = document.createElement('summary');
+        summary.textContent = 'Frontmatter';
+        details.appendChild(summary);
+        var grid = document.createElement('div');
+        grid.className = 'muxy-frontmatter-grid';
+        frontmatter.forEach(function (row) {
+            var key = document.createElement('div');
+            key.className = 'muxy-frontmatter-key';
+            key.textContent = row.key || 'Raw';
+            var value = document.createElement('div');
+            value.className = 'muxy-frontmatter-value';
+            value.textContent = row.value || '';
+            grid.appendChild(key);
+            grid.appendChild(value);
+        });
+        details.appendChild(grid);
+        return details;
+    }
+
     function sanitizeURL(rawValue, options) {
         var value = String(rawValue || '').trim();
         if (!value) {
@@ -409,11 +496,12 @@
         return i;
     }
 
-    function parseSyncAnchors(content) {
+    function parseSyncAnchors(content, lineOffset) {
         var lines = content.split(/\r?\n/);
         var anchors = [];
         var i = 0;
         var sequence = 0;
+        var offset = Number(lineOffset || 0);
         while (i < lines.length) {
             if (!(lines[i] || '').trim()) {
                 i += 1;
@@ -426,8 +514,8 @@
             anchors.push({
                 id: 'muxy-anchor-' + String(sequence),
                 kind: kind,
-                startLine: startLine,
-                endLine: Math.max(startLine, endLine)
+                startLine: startLine + offset,
+                endLine: Math.max(startLine, endLine) + offset
             });
             sequence += 1;
             i = end + 1;
@@ -667,7 +755,8 @@
     }
 
     async function renderMarkdown(content) {
-        var anchors = parseSyncAnchors(content);
+        var preparedMarkdown = extractFrontmatter(content);
+        var anchors = parseSyncAnchors(preparedMarkdown.body, preparedMarkdown.lineOffset);
         if (!_markedConfigured) {
             marked.use({
                 walkTokens: function (token) {
@@ -700,7 +789,7 @@
         });
 
         var diagramMap = {};
-        content = content.replace(/```mermaid\s*\r?\n([\s\S]*?)```/g, function (match, code) {
+        content = preparedMarkdown.body.replace(/```mermaid\s*\r?\n([\s\S]*?)```/g, function (match, code) {
             var id = 'mermaid-' + Object.keys(diagramMap).length;
             diagramMap[id] = code.trim();
             return '<div class="mermaid" id="' + id + '" data-muxy-mermaid="true"></div>';
@@ -716,6 +805,10 @@
         preserveExistingImages(markdownRoot, nextRoot);
 
         var fragment = document.createDocumentFragment();
+        var frontmatterElement = renderFrontmatter(preparedMarkdown.frontmatter);
+        if (frontmatterElement) {
+            fragment.appendChild(frontmatterElement);
+        }
         while (nextRoot.firstChild) {
             fragment.appendChild(nextRoot.firstChild);
         }
