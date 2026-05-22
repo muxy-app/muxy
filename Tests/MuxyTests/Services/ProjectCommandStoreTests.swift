@@ -19,7 +19,26 @@ struct ProjectCommandStoreTests {
         store.run(command, projectID: projectID, tabID: UUID(), areaID: UUID(), paneID: paneID)
         store.removeRun(paneID: paneID)
 
-        #expect(store.runs[command.id] == nil)
+        #expect(store.run(for: command.id, projectID: projectID) == nil)
+    }
+
+    @Test("runs are scoped by project and command")
+    func runsAreScopedByProjectAndCommand() {
+        let store = ProjectCommandStore(
+            persistence: ProjectCommandPersistenceStub(),
+            discovery: ProjectCommandDiscovery(providers: [])
+        )
+        let command = ProjectCommand(id: "npm:test", name: "test", command: "npm run test", source: .npm)
+        let firstProjectID = UUID()
+        let secondProjectID = UUID()
+        let firstPaneID = UUID()
+        let secondPaneID = UUID()
+
+        store.run(command, projectID: firstProjectID, tabID: UUID(), areaID: UUID(), paneID: firstPaneID)
+        store.run(command, projectID: secondProjectID, tabID: UUID(), areaID: UUID(), paneID: secondPaneID)
+
+        #expect(store.run(for: command.id, projectID: firstProjectID)?.paneID == firstPaneID)
+        #expect(store.run(for: command.id, projectID: secondProjectID)?.paneID == secondPaneID)
     }
 
     @Test("delete hides discovered command")

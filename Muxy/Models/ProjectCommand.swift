@@ -21,6 +21,11 @@ struct ProjectCommand: Codable, Identifiable, Equatable, Hashable {
     var source: Source
 }
 
+struct ProjectCommandRunKey: Equatable, Hashable {
+    let projectID: UUID
+    let commandID: String
+}
+
 struct ProjectCommandRun: Equatable {
     enum State: Equatable {
         case running

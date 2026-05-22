@@ -61,18 +61,18 @@ struct ExpandedProjectRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             projectHeader
-            if worktreesExpanded, isGitRepo {
+            if worktreesExpanded {
                 expandedSections
             }
         }
         .task(id: project.path) {
             isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
-            if autoExpandWorktrees, isActive, isGitRepo {
+            if autoExpandWorktrees, isActive {
                 worktreesExpanded = true
             }
         }
         .onChange(of: isActive) { _, active in
-            guard autoExpandWorktrees, active, isGitRepo else { return }
+            guard autoExpandWorktrees, active else { return }
             withAnimation(.easeInOut(duration: 0.15)) {
                 worktreesExpanded = true
             }
@@ -168,9 +168,7 @@ struct ExpandedProjectRow: View {
 
             Spacer(minLength: UIMetrics.spacing2)
 
-            if isGitRepo {
-                worktreeChevron
-            }
+            projectChevron
         }
         .padding(UIMetrics.spacing2)
         .background(headerBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
@@ -188,7 +186,7 @@ struct ExpandedProjectRow: View {
         }
         .onTapGesture {
             guard !isAnyDragging else { return }
-            if isActive, isGitRepo {
+            if isActive {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     worktreesExpanded.toggle()
                 }
@@ -205,7 +203,7 @@ struct ExpandedProjectRow: View {
         }
     }
 
-    private var worktreeChevron: some View {
+    private var projectChevron: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.15)) {
                 worktreesExpanded.toggle()
@@ -220,7 +218,7 @@ struct ExpandedProjectRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(worktreesExpanded ? "Collapse Worktrees" : "Expand Worktrees")
+        .accessibilityLabel(worktreesExpanded ? "Collapse Project" : "Expand Project")
     }
 
     private var projectIcon: some View {
@@ -300,7 +298,9 @@ struct ExpandedProjectRow: View {
     private var expandedSections: some View {
         VStack(spacing: 0) {
             commandList
-            worktreeList
+            if isGitRepo {
+                worktreeList
+            }
         }
         .padding(.top, UIMetrics.spacing2)
     }
@@ -317,7 +317,7 @@ struct ExpandedProjectRow: View {
                 ForEach(projectCommands) { command in
                     ProjectCommandRow(
                         command: command,
-                        run: projectCommandStore.runs[command.id],
+                        run: projectCommandStore.run(for: command.id, projectID: project.id),
                         active: activeCommandID == command.id,
                         onActivate: { activate(command) },
                         onRun: { run(command) },
@@ -505,12 +505,12 @@ struct ExpandedProjectRow: View {
 
     private func activate(_ command: ProjectCommand) {
         activeCommandID = command.id
-        guard let run = projectCommandStore.runs[command.id] else { return }
+        guard let run = projectCommandStore.run(for: command.id, projectID: project.id) else { return }
         appState.selectTab(projectID: run.projectID, areaID: run.areaID, tabID: run.tabID)
     }
 
     private func restart(_ command: ProjectCommand) {
-        guard let run = projectCommandStore.runs[command.id] else {
+        guard let run = projectCommandStore.run(for: command.id, projectID: project.id) else {
             run(command)
             return
         }
@@ -519,9 +519,9 @@ struct ExpandedProjectRow: View {
     }
 
     private func requestStop(_ command: ProjectCommand) {
-        guard let run = projectCommandStore.runs[command.id] else { return }
+        guard let run = projectCommandStore.run(for: command.id, projectID: project.id) else { return }
         appState.interruptCommandTab(paneID: run.paneID)
-        projectCommandStore.markStopped(command.id)
+        projectCommandStore.markStopped(command.id, projectID: project.id)
     }
 
     private func delete(_ command: ProjectCommand) {
@@ -610,7 +610,7 @@ private struct ProjectCommandRow: View {
             Button("Restart", action: onRestart)
                 .disabled(run == nil)
             Button("Stop", action: onStop)
-                .disabled(run == nil)
+                .disabled(!isRunning)
             Divider()
             Button("Delete", role: .destructive, action: onDelete)
         }

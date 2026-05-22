@@ -1,5 +1,8 @@
 import Foundation
 import Observation
+import os
+
+private let logger = Logger(subsystem: "app.muxy", category: "ProjectCommandStore")
 
 @MainActor
 @Observable
@@ -8,7 +11,7 @@ final class ProjectCommandStore {
     private let discovery: ProjectCommandDiscovery
     private var manualCommands: [UUID: [ProjectCommand]]
     private var hiddenDiscoveredCommandIDs: [UUID: Set<String>]
-    private(set) var runs: [String: ProjectCommandRun] = [:]
+    private(set) var runs: [ProjectCommandRunKey: ProjectCommandRun] = [:]
 
     init(
         persistence: any ProjectCommandPersisting = FileProjectCommandPersistence(),
@@ -51,7 +54,7 @@ final class ProjectCommandStore {
             hiddenDiscoveredCommandIDs[projectID, default: []].insert(command.id)
             saveHiddenDiscoveredCommandIDs()
         }
-        runs.removeValue(forKey: command.id)
+        runs.removeValue(forKey: ProjectCommandRunKey(projectID: projectID, commandID: command.id))
     }
 
     func loadDiscoveredCommands(from project: Project) {
@@ -64,7 +67,7 @@ final class ProjectCommandStore {
     }
 
     func run(_ command: ProjectCommand, projectID: UUID, tabID: UUID, areaID: UUID, paneID: UUID) {
-        runs[command.id] = ProjectCommandRun(
+        runs[ProjectCommandRunKey(projectID: projectID, commandID: command.id)] = ProjectCommandRun(
             commandID: command.id,
             projectID: projectID,
             tabID: tabID,
@@ -74,18 +77,23 @@ final class ProjectCommandStore {
         )
     }
 
+    func run(for commandID: String, projectID: UUID) -> ProjectCommandRun? {
+        runs[ProjectCommandRunKey(projectID: projectID, commandID: commandID)]
+    }
+
     func replaceRun(_ run: ProjectCommandRun) {
-        runs[run.commandID] = run
+        runs[ProjectCommandRunKey(projectID: run.projectID, commandID: run.commandID)] = run
     }
 
-    func markStopped(_ commandID: String) {
-        guard var run = runs[commandID] else { return }
+    func markStopped(_ commandID: String, projectID: UUID) {
+        let key = ProjectCommandRunKey(projectID: projectID, commandID: commandID)
+        guard var run = runs[key] else { return }
         run.state = .stopped
-        runs[commandID] = run
+        runs[key] = run
     }
 
-    func removeRun(_ commandID: String) {
-        runs.removeValue(forKey: commandID)
+    func removeRun(_ commandID: String, projectID: UUID) {
+        runs.removeValue(forKey: ProjectCommandRunKey(projectID: projectID, commandID: commandID))
     }
 
     func removeRun(paneID: UUID) {
@@ -94,11 +102,19 @@ final class ProjectCommandStore {
     }
 
     private func saveManualCommands() {
-        try? persistence.saveManualCommands(manualCommands)
+        do {
+            try persistence.saveManualCommands(manualCommands)
+        } catch {
+            logger.error("Failed to save manual project commands: \(error)")
+        }
     }
 
     private func saveHiddenDiscoveredCommandIDs() {
-        try? persistence.saveHiddenDiscoveredCommandIDs(hiddenDiscoveredCommandIDs)
+        do {
+            try persistence.saveHiddenDiscoveredCommandIDs(hiddenDiscoveredCommandIDs)
+        } catch {
+            logger.error("Failed to save hidden discovered project commands: \(error)")
+        }
     }
 }
 
