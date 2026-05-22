@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
+    private var surfaceFocused: Bool?
     private let workingDirectory: String
     private let command: String?
     private let commandInteractive: Bool
@@ -163,7 +164,7 @@ final class GhosttyTerminalNSView: NSView {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        ghostty_surface_set_focus(surface, isFocused)
+        syncSurfaceFocus()
 
         if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
             RemoteTerminalStreamer.shared.attach(paneID: paneID, surface: surface)
@@ -180,6 +181,7 @@ final class GhosttyTerminalNSView: NSView {
             ghostty_surface_free(surface)
         }
         surface = nil
+        surfaceFocused = nil
     }
 
     func tearDown() {
@@ -377,13 +379,25 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func notifySurfaceFocused() {
-        guard let surface else { return }
-        ghostty_surface_set_focus(surface, true)
+        setSurfaceFocused(true)
     }
 
     func notifySurfaceUnfocused() {
-        guard let surface else { return }
-        ghostty_surface_set_focus(surface, false)
+        setSurfaceFocused(false)
+    }
+
+    private func syncSurfaceFocus() {
+        setSurfaceFocused(!overlayActive && (window?.firstResponder === self || window?.firstResponder === inputContext))
+    }
+
+    private func setSurfaceFocused(_ focused: Bool) {
+        guard let surface else {
+            surfaceFocused = nil
+            return
+        }
+        guard surfaceFocused != focused else { return }
+        ghostty_surface_set_focus(surface, focused)
+        surfaceFocused = focused
     }
 
     override var acceptsFirstResponder: Bool { !overlayActive }
@@ -391,9 +405,7 @@ final class GhosttyTerminalNSView: NSView {
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
         if result {
-            if let surface {
-                ghostty_surface_set_focus(surface, true)
-            }
+            setSurfaceFocused(true)
             if !isFocused {
                 DispatchQueue.main.async { [weak self] in
                     self?.onFocus?()
@@ -405,8 +417,8 @@ final class GhosttyTerminalNSView: NSView {
 
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
-        if result, let surface {
-            ghostty_surface_set_focus(surface, false)
+        if result {
+            setSurfaceFocused(false)
         }
         return result
     }
@@ -575,7 +587,7 @@ final class GhosttyTerminalNSView: NSView {
         let alreadyFirstResponder = window?.firstResponder === self
         window?.makeFirstResponder(self)
         if alreadyFirstResponder {
-            ghostty_surface_set_focus(surface, true)
+            setSurfaceFocused(true)
             DispatchQueue.main.async { [weak self] in
                 self?.onFocus?()
             }
@@ -1231,7 +1243,6 @@ extension GhosttyTerminalNSView {
                 NSApp.activate()
                 self.window?.makeKeyAndOrderFront(nil)
                 self.window?.makeFirstResponder(self)
-                self.notifySurfaceFocused()
                 self.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
             }
         }
