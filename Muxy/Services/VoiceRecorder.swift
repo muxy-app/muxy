@@ -11,6 +11,12 @@ enum VoiceRecorderError: Error {
     case engineFailure(String)
 }
 
+struct TranscriptMergeResult {
+    let committed: String
+    let partial: String
+    let transcript: String
+}
+
 @MainActor
 @Observable
 final class VoiceRecorder {
@@ -33,6 +39,8 @@ final class VoiceRecorder {
     @ObservationIgnored private var transcriptSink: TranscriptSink?
     @ObservationIgnored private var inputDeviceObserver: AudioInputDeviceObserver?
     @ObservationIgnored private var captureSink: AudioCaptureSink?
+    @ObservationIgnored private var committedTranscript = ""
+    @ObservationIgnored private var currentPartialTranscript = ""
 
     func start(locale: Locale) throws {
         guard let recognizer = SFSpeechRecognizer(locale: locale),
@@ -68,7 +76,7 @@ final class VoiceRecorder {
         observeInputDeviceChanges()
         let transcriptSink = TranscriptSink { [weak self] text in
             guard let self else { return }
-            self.transcript = text
+            self.updateTranscript(with: text)
         }
         self.transcriptSink = transcriptSink
         task = Self.startRecognitionTaskNonisolated(
@@ -89,6 +97,8 @@ final class VoiceRecorder {
         accumulatedBeforePause = 0
         elapsed = 0
         level = 0
+        committedTranscript = ""
+        currentPartialTranscript = ""
         transcript = ""
         isRecording = true
         isPaused = false
@@ -237,6 +247,61 @@ final class VoiceRecorder {
     private func tick() {
         guard let startedAt else { return }
         elapsed = accumulatedBeforePause + Date().timeIntervalSince(startedAt)
+    }
+
+    private func updateTranscript(with text: String) {
+        let updated = Self.mergeTranscript(
+            committed: committedTranscript,
+            partial: currentPartialTranscript,
+            incoming: text
+        )
+        committedTranscript = updated.committed
+        currentPartialTranscript = updated.partial
+        transcript = updated.transcript
+    }
+
+    nonisolated static func mergeTranscript(committed: String, partial: String, incoming: String) -> TranscriptMergeResult {
+        let cleanedIncoming = incoming.trimmingCharacters(in: .whitespacesAndNewlines)
+        var updatedCommitted = committed
+        var updatedPartial = partial
+
+        if cleanedIncoming.isEmpty {
+            updatedCommitted = joinedTranscript(committed, partial)
+            updatedPartial = ""
+        } else if shouldCommitPartial(partial, before: cleanedIncoming) {
+            updatedCommitted = joinedTranscript(committed, partial)
+            updatedPartial = cleanedIncoming
+        } else {
+            updatedPartial = cleanedIncoming
+        }
+
+        return TranscriptMergeResult(
+            committed: updatedCommitted,
+            partial: updatedPartial,
+            transcript: joinedTranscript(updatedCommitted, updatedPartial)
+        )
+    }
+
+    nonisolated private static func joinedTranscript(_ leading: String, _ trailing: String) -> String {
+        let cleanedLeading = leading.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedTrailing = trailing.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedLeading.isEmpty else { return cleanedTrailing }
+        guard !cleanedTrailing.isEmpty else { return cleanedLeading }
+        return "\(cleanedLeading) \(cleanedTrailing)"
+    }
+
+    nonisolated private static func shouldCommitPartial(_ partial: String, before incoming: String) -> Bool {
+        guard !partial.isEmpty, !incoming.hasPrefix(partial) else { return false }
+        let partialWords = words(in: partial)
+        let incomingWords = words(in: incoming)
+        guard partialWords.count > 1 else { return false }
+        return partialWords.first != incomingWords.first
+    }
+
+    nonisolated private static func words(in text: String) -> [String] {
+        text.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
     }
 
     nonisolated static func averagePower(in samples: UnsafeBufferPointer<Float>) -> Float {

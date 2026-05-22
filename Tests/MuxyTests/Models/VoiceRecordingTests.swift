@@ -34,6 +34,52 @@ struct VoiceRecorderHelperTests {
 
         #expect(power > -7 && power < -5)
     }
+
+    @Test("Transcript merge keeps earlier text when recognition restarts")
+    func transcriptMergeKeepsEarlierTextWhenRecognitionRestarts() {
+        let first = VoiceRecorder.mergeTranscript(committed: "", partial: "", incoming: "Open the file")
+        let pause = VoiceRecorder.mergeTranscript(
+            committed: first.committed,
+            partial: first.partial,
+            incoming: ""
+        )
+        let second = VoiceRecorder.mergeTranscript(
+            committed: pause.committed,
+            partial: pause.partial,
+            incoming: "and add tests"
+        )
+
+        #expect(second.transcript == "Open the file and add tests")
+    }
+
+    @Test("Transcript merge appends a new phrase after partial reset")
+    func transcriptMergeAppendsNewPhraseAfterPartialReset() {
+        let first = VoiceRecorder.mergeTranscript(committed: "", partial: "", incoming: "Open the file")
+        let second = VoiceRecorder.mergeTranscript(
+            committed: first.committed,
+            partial: first.partial,
+            incoming: "and add tests"
+        )
+
+        #expect(second.transcript == "Open the file and add tests")
+    }
+
+    @Test("Transcript merge replaces early corrected partials")
+    func transcriptMergeReplacesEarlyCorrectedPartials() {
+        let first = VoiceRecorder.mergeTranscript(committed: "", partial: "", incoming: "The more")
+        let second = VoiceRecorder.mergeTranscript(
+            committed: first.committed,
+            partial: first.partial,
+            incoming: "The more I continue"
+        )
+        let third = VoiceRecorder.mergeTranscript(
+            committed: second.committed,
+            partial: second.partial,
+            incoming: "The more I continue the stable sounds like"
+        )
+
+        #expect(third.transcript == "The more I continue the stable sounds like")
+    }
 }
 
 @Suite("VoiceRecordingPanel formatting")
