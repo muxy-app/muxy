@@ -101,6 +101,14 @@ struct KeyBindingTests {
         #expect(combos[.renameTab] == KeyCombo(key: "t", shift: true, option: true))
     }
 
+    @Test("Source Control uses Cmd+Y by default")
+    func sourceControlUsesCommandYByDefault() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.openVCSTab] == KeyCombo(key: "y", command: true))
+        #expect(!KeyBinding.defaults.contains { $0.combo == KeyCombo(key: "k", command: true) })
+        #expect(!KeyBinding.defaults.contains { $0.combo == KeyCombo(key: "j", command: true) })
+    }
+
     @Test("KeyBinding Codable round-trip")
     func codableRoundTrip() throws {
         let binding = KeyBinding(

@@ -285,7 +285,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .cycleNextTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, control: true)),
         Self(action: .cyclePreviousTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
-        Self(action: .openVCSTab, combo: KeyCombo(key: "k", command: true)),
+        Self(action: .openVCSTab, combo: KeyCombo(key: "y", command: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),
         Self(action: .nextTab, combo: KeyCombo(key: "]", command: true)),

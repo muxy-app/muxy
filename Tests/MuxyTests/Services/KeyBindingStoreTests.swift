@@ -38,6 +38,23 @@ struct KeyBindingStoreTests {
         #expect(store.action(for: event, scopes: [.mainWindow]) == nil)
     }
 
+    @Test("action can be assigned and reset")
+    func actionCanBeAssignedAndReset() {
+        let persistence = StubKeyBindingPersistence(bindings: KeyBinding.defaults)
+        let store = KeyBindingStore(persistence: persistence)
+        let combo = KeyCombo(key: "u", command: true)
+
+        #expect(store.combo(for: .openVCSTab) == KeyCombo(key: "y", command: true))
+
+        store.updateBinding(action: .openVCSTab, combo: combo)
+
+        #expect(store.combo(for: .openVCSTab) == combo)
+
+        store.resetBinding(action: .openVCSTab)
+
+        #expect(store.combo(for: .openVCSTab) == KeyCombo(key: "y", command: true))
+    }
+
     private func keyEvent(
         characters: String,
         charactersIgnoringModifiers: String,

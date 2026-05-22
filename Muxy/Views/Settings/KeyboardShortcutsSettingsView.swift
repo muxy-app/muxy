@@ -427,7 +427,7 @@ private struct ShortcutRow: View {
             }
 
             Button(action: onStartRecording) {
-                Text(combo.displayString)
+                Text(combo.isAssigned ? combo.displayString : "Unassigned")
                     .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium, design: .rounded))
                     .foregroundStyle(SettingsStyle.foreground)
                     .padding(.horizontal, 8)
