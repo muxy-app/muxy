@@ -49,6 +49,9 @@ final class GhosttyTerminalNSView: NSView {
     private var currentKeyEvent: NSEvent?
     private var commandSelectorCalled = false
     private var inputTrackingDecisionCache: (expiresAt: Date, canRecord: Bool)?
+    private var surfaceCStringPointers: [UnsafeMutablePointer<CChar>] = []
+    private var surfaceEnvVarPointer: UnsafeMutablePointer<ghostty_env_var_s>?
+    private var surfaceEnvVarCount = 0
 
     init(
         workingDirectory: String,
@@ -114,17 +117,19 @@ final class GhosttyTerminalNSView: NSView {
         config.scale_factor = Double(window?.backingScaleFactor ?? 2.0)
         config.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
 
-        var cStrings: [UnsafeMutablePointer<CChar>] = []
-        defer { cStrings.forEach { free($0) } }
+        cleanupSurfaceConfigPointers()
 
         var cEnvVars: [ghostty_env_var_s] = []
+        guard let workingDirectoryPointer = strdup(workingDirectory) else { return }
+        surfaceCStringPointers.append(workingDirectoryPointer)
+        config.working_directory = UnsafePointer(workingDirectoryPointer)
+
         if let command,
            let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(interactive: commandInteractive)),
            let commandKey = strdup(TerminalLaunchCommand.environmentKey),
            let commandValue = strdup(command)
         {
-            cStrings.append(loginWrapped)
-            cStrings.append(contentsOf: [commandKey, commandValue])
+            surfaceCStringPointers.append(contentsOf: [loginWrapped, commandKey, commandValue])
             cEnvVars.append(ghostty_env_var_s(key: commandKey, value: commandValue))
             config.command = UnsafePointer(loginWrapped)
             config.wait_after_command = false
@@ -132,21 +137,23 @@ final class GhosttyTerminalNSView: NSView {
 
         for pair in envVars {
             guard let ck = strdup(pair.key), let cv = strdup(pair.value) else { continue }
-            cStrings.append(contentsOf: [ck, cv])
+            surfaceCStringPointers.append(contentsOf: [ck, cv])
             cEnvVars.append(ghostty_env_var_s(key: ck, value: cv))
         }
 
-        workingDirectory.withCString { cwd in
-            config.working_directory = cwd
-            if !cEnvVars.isEmpty {
-                cEnvVars.withUnsafeMutableBufferPointer { buffer in
-                    config.env_vars = buffer.baseAddress
-                    config.env_var_count = buffer.count
-                    surface = ghostty_surface_new(app, &config)
-                }
-            } else {
-                surface = ghostty_surface_new(app, &config)
-            }
+        if !cEnvVars.isEmpty {
+            let envVarPointer = UnsafeMutablePointer<ghostty_env_var_s>.allocate(capacity: cEnvVars.count)
+            envVarPointer.initialize(from: cEnvVars, count: cEnvVars.count)
+            surfaceEnvVarPointer = envVarPointer
+            surfaceEnvVarCount = cEnvVars.count
+            config.env_vars = envVarPointer
+            config.env_var_count = cEnvVars.count
+        }
+
+        surface = ghostty_surface_new(app, &config)
+
+        if surface == nil {
+            cleanupSurfaceConfigPointers()
         }
 
         guard let surface else { return }
@@ -182,6 +189,7 @@ final class GhosttyTerminalNSView: NSView {
         }
         surface = nil
         surfaceFocused = nil
+        cleanupSurfaceConfigPointers()
     }
 
     func tearDown() {
@@ -220,6 +228,16 @@ final class GhosttyTerminalNSView: NSView {
         if let surface {
             ghostty_surface_free(surface)
         }
+        cleanupSurfaceConfigPointers()
+    }
+
+    private func cleanupSurfaceConfigPointers() {
+        surfaceEnvVarPointer?.deinitialize(count: surfaceEnvVarCount)
+        surfaceEnvVarPointer?.deallocate()
+        surfaceEnvVarPointer = nil
+        surfaceEnvVarCount = 0
+        surfaceCStringPointers.forEach { free($0) }
+        surfaceCStringPointers.removeAll()
     }
 
     nonisolated(unsafe) private var screenChangeObserver: NSObjectProtocol?
