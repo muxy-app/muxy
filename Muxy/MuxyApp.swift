@@ -234,6 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
         SentryService.shared.start()
+        NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         setAppIcon()
@@ -411,6 +412,7 @@ struct WindowConfigurator: NSViewRepresentable {
             w.styleMask.insert(.fullSizeContentView)
             w.isMovable = false
             w.isMovableByWindowBackground = false
+            Self.disableWindowTabbing(for: w)
             Self.applyWindowBackground(w)
             Self.repositionTrafficLights(in: w)
             Self.hideTitlebarDecorationView(in: w)
@@ -432,6 +434,10 @@ struct WindowConfigurator: NSViewRepresentable {
         window.backgroundColor = .clear
         window.contentView?.wantsLayer = true
         window.contentView?.layer?.backgroundColor = MuxyTheme.nsBg.cgColor
+    }
+
+    static func disableWindowTabbing(for window: NSWindow) {
+        window.tabbingMode = .disallowed
     }
 
     static func neutralizeSafeAreaInsets(in window: NSWindow) {
