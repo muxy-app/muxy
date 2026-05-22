@@ -88,7 +88,7 @@ enum GitProcessRunner {
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }
-        let paths = (searchPaths + currentPaths).reduce(into: [String]()) { result, path in
+        let paths = (currentPaths + searchPaths).reduce(into: [String]()) { result, path in
             if !result.contains(path) { result.append(path) }
         }
         return paths.joined(separator: ":")

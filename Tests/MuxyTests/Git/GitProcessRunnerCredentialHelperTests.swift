@@ -32,7 +32,7 @@ struct GitProcessRunnerCredentialHelperTests {
 
         #expect(environment["GIT_OPTIONAL_LOCKS"] == "0")
         #expect(
-            environment["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+            environment["PATH"] == "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin"
         )
     }
 
@@ -41,7 +41,7 @@ struct GitProcessRunnerCredentialHelperTests {
         let environment = GitProcessRunner.processEnvironment(["PATH": "/custom/bin:/usr/bin"])
 
         #expect(
-            environment["PATH"] == "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/custom/bin"
+            environment["PATH"] == "/custom/bin:/usr/bin:/opt/homebrew/bin:/usr/local/bin:/bin:/usr/sbin:/sbin"
         )
     }
 }
