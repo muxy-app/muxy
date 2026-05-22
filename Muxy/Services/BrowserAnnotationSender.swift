@@ -3,38 +3,99 @@ import Foundation
 
 @MainActor
 enum BrowserAnnotationSender {
-    static func send(
-        annotation: BrowserAnnotation,
-        from session: BrowserSession,
-        appState: AppState,
-        markSent: () -> Void
-    ) {
-        let markdown = renderMarkdown(annotation: annotation)
-        guard let target = resolveTerminalTarget(session: session, appState: appState) else {
-            copyToClipboard(markdown)
-            return
-        }
-        focus(target: target, appState: appState)
-        guard let view = TerminalViewRegistry.shared.existingView(for: target.paneID) else {
-            copyToClipboard(markdown)
-            return
-        }
-        inject(markdown: markdown, into: view)
-        markSent()
+    enum Target: Equatable {
+        case richInput(worktreeKey: WorktreeKey)
+        case terminal(TerminalTarget)
     }
 
-    private struct TerminalTarget {
+    struct TerminalTarget: Equatable {
         let projectID: UUID
         let areaID: UUID
         let tabID: UUID
         let paneID: UUID
     }
 
-    private static func resolveTerminalTarget(session: BrowserSession, appState: AppState) -> TerminalTarget? {
-        if let target = resolveFromOwningArea(browserTabID: session.id, appState: appState) {
-            return target
+    static func send(
+        annotation: BrowserAnnotation,
+        from session: BrowserSession,
+        appState: AppState,
+        markSent: () -> Void
+    ) {
+        send(
+            annotation: annotation,
+            from: session,
+            appState: appState,
+            controller: RichInputController.shared,
+            markSent: markSent
+        )
+    }
+
+    static func send(
+        annotation: BrowserAnnotation,
+        from session: BrowserSession,
+        appState: AppState,
+        controller: RichInputController,
+        markSent: () -> Void
+    ) {
+        let markdown = renderMarkdown(annotation: annotation)
+        guard let target = resolveTarget(session: session, appState: appState, controller: controller) else {
+            copyToClipboard(markdown)
+            return
         }
-        return resolveFromActiveProject(appState: appState)
+        switch target {
+        case let .richInput(worktreeKey):
+            controller.appendMarkdown(markdown, for: worktreeKey)
+            markSent()
+        case let .terminal(terminalTarget):
+            focus(target: terminalTarget, appState: appState)
+            guard let view = TerminalViewRegistry.shared.existingView(for: terminalTarget.paneID) else {
+                copyToClipboard(markdown)
+                return
+            }
+            inject(markdown: markdown, into: view)
+            markSent()
+        }
+    }
+
+    static func resolveTarget(
+        session: BrowserSession,
+        appState: AppState,
+        controller: RichInputController
+    ) -> Target? {
+        let browserWorktreeKey = locateOwningWorktreeKey(browserTabID: session.id, appState: appState)
+            ?? appState.activeProjectID.flatMap { appState.activeWorktreeKey(for: $0) }
+        if controller.isPanelVisible,
+           let worktreeKey = browserWorktreeKey,
+           controller.existingState(for: worktreeKey) != nil
+        {
+            return .richInput(worktreeKey: worktreeKey)
+        }
+        if let worktreeKey = browserWorktreeKey,
+           let pane = appState.lastActiveTerminalPane(for: worktreeKey)
+        {
+            return .terminal(TerminalTarget(
+                projectID: worktreeKey.projectID,
+                areaID: pane.areaID,
+                tabID: pane.tabID,
+                paneID: pane.paneID
+            ))
+        }
+        if let terminal = resolveFromOwningArea(browserTabID: session.id, appState: appState) {
+            return .terminal(terminal)
+        }
+        if let terminal = resolveFromActiveProject(appState: appState) {
+            return .terminal(terminal)
+        }
+        return nil
+    }
+
+    static func locateOwningWorktreeKey(browserTabID: UUID, appState: AppState) -> WorktreeKey? {
+        for (key, root) in appState.workspaceRoots where root.allAreas().contains(where: { area in
+            area.tabs.contains(where: { $0.id == browserTabID })
+        }) {
+            return key
+        }
+        return nil
     }
 
     private static func resolveFromOwningArea(browserTabID: UUID, appState: AppState) -> TerminalTarget? {

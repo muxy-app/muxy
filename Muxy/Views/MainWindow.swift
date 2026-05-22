@@ -94,7 +94,7 @@ struct MainWindow: View {
     @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
     @State private var fileTreeLastTerminalPaths: [WorktreeKey: String] = [:]
     @AppStorage(GeneralSettingsKeys.fileTreeSource) private var fileTreeSourceRaw = FileTreeSourcePreference.defaultValue.rawValue
-    @State private var richInputPanelVisible = false
+    @State private var richInputController = RichInputController.shared
     @State private var panelToRestoreAfterRichInput: SidePanelKind?
     @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = .init(RichInputPanelLayout.defaultWidth)
     @AppStorage("muxy.richInputPanelHeight") private var richInputPanelHeight: Double = .init(RichInputPanelLayout.defaultHeight)
@@ -103,7 +103,6 @@ struct MainWindow: View {
     @AppStorage(RichInputPreferences.positionKey) private var richInputPosition: RichInputPanelPosition = RichInputPreferences
         .defaultPosition
     @AppStorage(RichInputPreferences.broadcastKey) private var richInputBroadcast = RichInputPreferences.defaultBroadcast
-    @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
     @State private var showQuickOpen = false
     @State private var showFindInFiles = false
     @State private var showWorktreeSwitcher = false
@@ -447,7 +446,7 @@ struct MainWindow: View {
             .overlay(alignment: .bottom) {
                 floatingBottomRichInputOverlay
             }
-            .animation(.easeInOut(duration: 0.2), value: richInputPanelVisible)
+            .animation(.easeInOut(duration: 0.2), value: richInputController.isPanelVisible)
 
             bottomDockedRichInputPanel
 
@@ -456,7 +455,7 @@ struct MainWindow: View {
                     activePane: activeTerminalPane,
                     activeWorktree: activeProject.flatMap { resolvedActiveWorktree(for: $0) },
                     isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
-                    richInputVisible: richInputPanelVisible,
+                    richInputVisible: richInputController.isPanelVisible,
                     richInputFontSize: $richInputFontSize
                 )
             }
@@ -919,7 +918,7 @@ struct MainWindow: View {
     }
 
     private func isRichInputVisible(floating: Bool, at position: RichInputPanelPosition) -> Bool {
-        richInputPanelVisible
+        richInputController.isPanelVisible
             && richInputFloating == floating
             && richInputPosition == position
             && activeRichInputState != nil
@@ -1099,7 +1098,7 @@ struct MainWindow: View {
         let validKeys = validVCSKeys()
         fileTreeStates = fileTreeStates.filter { validKeys.contains($0.key) }
         fileTreeLastTerminalPaths = fileTreeLastTerminalPaths.filter { validKeys.contains($0.key) }
-        richInputStates = richInputStates.filter { validKeys.contains($0.key) }
+        richInputController.prune(validKeys: validKeys)
     }
 
     private func toggleAttachedVCSPanel() {
@@ -1144,13 +1143,7 @@ struct MainWindow: View {
         guard let project = activeProject,
               let key = appState.activeWorktreeKey(for: project.id)
         else { return nil }
-        if let existing = richInputStates[key] { return existing }
-        let new = RichInputState()
-        if let draft = RichInputDraftStore.shared.draft(for: key) {
-            new.apply(draft)
-        }
-        richInputStates[key] = new
-        return new
+        return richInputController.state(for: key)
     }
 
     private var activeRichInputPaneID: UUID? {
@@ -1164,7 +1157,7 @@ struct MainWindow: View {
 
     private func toggleRichInputPanel() {
         guard let richInputState = activeRichInputState else { return }
-        guard richInputPanelVisible else {
+        guard richInputController.isPanelVisible else {
             if richInputReplacesRightSidePanel {
                 if vcsPanelVisible {
                     panelToRestoreAfterRichInput = .vcs
@@ -1178,7 +1171,7 @@ struct MainWindow: View {
             } else {
                 panelToRestoreAfterRichInput = nil
             }
-            richInputPanelVisible = true
+            richInputController.isPanelVisible = true
             richInputState.focusVersion += 1
             return
         }
@@ -1194,7 +1187,7 @@ struct MainWindow: View {
     }
 
     private func closeRichInputPanel() {
-        richInputPanelVisible = false
+        richInputController.isPanelVisible = false
         let panelToRestore = panelToRestoreAfterRichInput
         panelToRestoreAfterRichInput = nil
         switch panelToRestore {

@@ -118,4 +118,158 @@ struct BrowserAnnotationSenderTests {
         let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
         #expect(markdown.count < BrowserAnnotationSanitizer.maxCommentLength + 1024)
     }
+
+    @Test("routes to rich input when the panel is visible and a state exists for the worktree")
+    func routesToRichInputWhenPanelVisible() {
+        let harness = RoutingHarness.makeWithTerminalAndBrowser()
+        harness.controller.isPanelVisible = true
+        _ = harness.controller.state(for: harness.key)
+
+        let target = BrowserAnnotationSender.resolveTarget(
+            session: harness.browserSession,
+            appState: harness.appState,
+            controller: harness.controller
+        )
+
+        #expect(target == .richInput(worktreeKey: harness.key))
+    }
+
+    @Test("routes to last active terminal pane when rich input is hidden")
+    func routesToLastActiveTerminalWhenRichInputHidden() {
+        let harness = RoutingHarness.makeWithTerminalAndBrowser()
+
+        let target = BrowserAnnotationSender.resolveTarget(
+            session: harness.browserSession,
+            appState: harness.appState,
+            controller: harness.controller
+        )
+
+        guard case let .terminal(terminal) = target else {
+            Issue.record("Expected terminal target, got \(String(describing: target))")
+            return
+        }
+        #expect(terminal.paneID == harness.terminalPaneID)
+        #expect(terminal.areaID == harness.area.id)
+        #expect(terminal.tabID == harness.terminalTabID)
+    }
+
+    @Test("falls back to owning area when no last active terminal is tracked")
+    func fallsBackToOwningAreaWhenNoLastActive() {
+        let harness = RoutingHarness.makeWithTerminalAndBrowser()
+        harness.appState.lastActiveTerminalPaneID.removeValue(forKey: harness.key)
+
+        let target = BrowserAnnotationSender.resolveTarget(
+            session: harness.browserSession,
+            appState: harness.appState,
+            controller: harness.controller
+        )
+
+        guard case let .terminal(terminal) = target else {
+            Issue.record("Expected terminal fallback, got \(String(describing: target))")
+            return
+        }
+        #expect(terminal.paneID == harness.terminalPaneID)
+        #expect(terminal.areaID == harness.area.id)
+    }
+
+    @Test("rich input takes precedence over last active terminal when panel is visible")
+    func richInputBeatsLastActiveTerminal() {
+        let harness = RoutingHarness.makeWithTerminalAndBrowser()
+        harness.controller.isPanelVisible = true
+        _ = harness.controller.state(for: harness.key)
+
+        let target = BrowserAnnotationSender.resolveTarget(
+            session: harness.browserSession,
+            appState: harness.appState,
+            controller: harness.controller
+        )
+
+        #expect(target == .richInput(worktreeKey: harness.key))
+    }
+
+    @Test("rich input panel visibility without a created state does not steal routing")
+    func richInputWithoutStateFallsThroughToTerminal() {
+        let harness = RoutingHarness.makeWithTerminalAndBrowser()
+        harness.controller.isPanelVisible = true
+
+        let target = BrowserAnnotationSender.resolveTarget(
+            session: harness.browserSession,
+            appState: harness.appState,
+            controller: harness.controller
+        )
+
+        guard case let .terminal(terminal) = target else {
+            Issue.record("Expected terminal fallback when no rich-input state exists")
+            return
+        }
+        #expect(terminal.paneID == harness.terminalPaneID)
+    }
+}
+
+@MainActor
+private struct RoutingHarness {
+    let appState: AppState
+    let controller: RichInputController
+    let key: WorktreeKey
+    let area: TabArea
+    let terminalPaneID: UUID
+    let terminalTabID: UUID
+    let browserSession: BrowserSession
+
+    static func makeWithTerminalAndBrowser() -> RoutingHarness {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let area = TabArea(projectPath: "/tmp/test")
+        guard let terminalTab = area.activeTab,
+              let terminalPane = terminalTab.content.pane
+        else {
+            fatalError("TabArea init is expected to seed an initial terminal tab")
+        }
+        let browserSession = BrowserSession(
+            projectPath: "/tmp/test",
+            initialURL: "https://example.com"
+        )
+        area.insertExistingTab(TerminalTab(browserSession: browserSession))
+
+        let appState = AppState(
+            selectionStore: RoutingSelectionStoreStub(),
+            terminalViews: RoutingTerminalViewRemovingStub(),
+            workspacePersistence: RoutingWorkspacePersistenceStub()
+        )
+        appState.activeProjectID = projectID
+        appState.activeWorktreeID[projectID] = worktreeID
+        appState.workspaceRoots[key] = .tabArea(area)
+        appState.focusedAreaID[key] = area.id
+        appState.lastActiveTerminalPaneID[key] = terminalPane.id
+
+        return RoutingHarness(
+            appState: appState,
+            controller: RichInputController(),
+            key: key,
+            area: area,
+            terminalPaneID: terminalPane.id,
+            terminalTabID: terminalTab.id,
+            browserSession: browserSession
+        )
+    }
+}
+
+private final class RoutingWorkspacePersistenceStub: WorkspacePersisting {
+    func loadWorkspaces() throws -> [WorkspaceSnapshot] { [] }
+    func saveWorkspaces(_: [WorkspaceSnapshot]) throws {}
+}
+
+@MainActor
+private final class RoutingSelectionStoreStub: ActiveProjectSelectionStoring {
+    func loadActiveProjectID() -> UUID? { nil }
+    func saveActiveProjectID(_: UUID?) {}
+    func loadActiveWorktreeIDs() -> [UUID: UUID] { [:] }
+    func saveActiveWorktreeIDs(_: [UUID: UUID]) {}
+}
+
+@MainActor
+private final class RoutingTerminalViewRemovingStub: TerminalViewRemoving {
+    func removeView(for _: UUID) {}
+    func needsConfirmQuit(for _: UUID) -> Bool { false }
 }

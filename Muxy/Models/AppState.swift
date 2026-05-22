@@ -91,6 +91,7 @@ final class AppState {
     var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
     var pendingSaveErrorMessage: String?
+    var lastActiveTerminalPaneID: [WorktreeKey: UUID] = [:]
     let navigation = NavigationHistory()
     private var focusHistory: [WorktreeKey: [UUID]] = [:]
 
@@ -124,6 +125,7 @@ final class AppState {
             workspaceRoots[entry.key] = entry.root
             focusedAreaID[entry.key] = entry.focusedAreaID
         }
+        captureLastActiveTerminals()
 
         let savedWorktreeIDs = selectionStore.loadActiveWorktreeIDs()
         for project in projects {
@@ -715,6 +717,8 @@ final class AppState {
     }
 
     func dispatch(_ action: Action) {
+        captureLastActiveTerminals()
+
         switch action {
         case let .focusPaneLeft(projectID),
              let .focusPaneRight(projectID),
@@ -777,6 +781,9 @@ final class AppState {
         for paneID in effects.paneIDsToRemove {
             terminalViews.removeView(for: paneID)
             TerminalProgressStore.shared.resetPane(paneID)
+            for key in lastActiveTerminalPaneID.keys where lastActiveTerminalPaneID[key] == paneID {
+                lastActiveTerminalPaneID.removeValue(forKey: key)
+            }
         }
 
         if !effects.projectIDsToRemove.isEmpty {
@@ -805,8 +812,42 @@ final class AppState {
             TerminalProgressStore.shared.clearCompletion(for: activePaneID)
         }
 
+        captureLastActiveTerminals()
+
         saveWorkspaces()
         saveSelection()
+    }
+
+    private func captureLastActiveTerminals() {
+        for (key, areaID) in focusedAreaID {
+            guard let root = workspaceRoots[key],
+                  let area = root.findArea(id: areaID),
+                  let tab = area.activeTab,
+                  let pane = tab.content.pane
+            else { continue }
+            lastActiveTerminalPaneID[key] = pane.id
+        }
+    }
+
+    struct ResolvedTerminalPane: Equatable {
+        let areaID: UUID
+        let tabID: UUID
+        let paneID: UUID
+    }
+
+    func lastActiveTerminalPane(for worktreeKey: WorktreeKey) -> ResolvedTerminalPane? {
+        guard let paneID = lastActiveTerminalPaneID[worktreeKey],
+              let root = workspaceRoots[worktreeKey]
+        else { return nil }
+        for area in root.allAreas() {
+            for tab in area.tabs {
+                if let pane = tab.content.pane, pane.id == paneID {
+                    return ResolvedTerminalPane(areaID: area.id, tabID: tab.id, paneID: pane.id)
+                }
+            }
+        }
+        lastActiveTerminalPaneID.removeValue(forKey: worktreeKey)
+        return nil
     }
 
     func goBack() {
