@@ -358,6 +358,10 @@ private struct TabCell: View {
         measuredWidth < Self.titleHideThreshold
     }
 
+    private var hasClosableSiblings: Bool {
+        closableOthersCount > 0 || closableLeftCount > 0 || closableRightCount > 0
+    }
+
     private var tabColor: Color? {
         ProjectIconColor.color(for: tab.colorID)
     }
@@ -508,9 +512,11 @@ private struct TabCell: View {
                 Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") {
                     onTogglePin()
                 }
-                if !tab.isPinned {
+                if !tab.isPinned || hasClosableSiblings {
                     Divider()
-                    Button("Close Tab") { onClose() }
+                    if !tab.isPinned {
+                        Button("Close Tab") { onClose() }
+                    }
                     Button("Close Other Tabs") { onCloseOthers() }
                         .disabled(closableOthersCount == 0)
                     Button("Close Tabs to the Left") { onCloseLeft() }
@@ -626,6 +632,7 @@ private struct TabCell: View {
         case .vcs: label += ", Source Control"
         case .editor: label += ", Editor"
         case .diffViewer: label += ", Diff Viewer"
+        case .imageViewer: label += ", Image Viewer"
         }
         if tab.isPinned { label += ", Pinned" }
         if hasUnread { label += ", Unread" }
@@ -641,19 +648,25 @@ private struct TabCell: View {
         } else if tab.isPinned {
             Image(systemName: "pin.fill")
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-        } else if tab.kind == .vcs {
-            FileDiffIcon()
-                .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
-        } else if tab.kind == .editor {
-            Image(systemName: "pencil.line")
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-        } else if tab.kind == .diffViewer {
-            Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
         } else {
-            Image(systemName: "terminal")
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            switch tab.kind {
+            case .terminal:
+                Image(systemName: "terminal")
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            case .vcs:
+                FileDiffIcon()
+                    .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
+            case .editor:
+                Image(systemName: "pencil.line")
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            case .diffViewer:
+                Image(systemName: "rectangle.split.2x1")
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            case .imageViewer:
+                Image(systemName: "photo")
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            }
         }
     }
 }

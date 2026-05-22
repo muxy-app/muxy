@@ -146,8 +146,8 @@ final class NotificationStore {
 
     private func playSound() {
         let soundName = Self.defaults.string(forKey: "muxy.notifications.sound") ?? NotificationSound.funk.rawValue
-        guard soundName != NotificationSound.none.rawValue else { return }
-        NSSound(named: .init(soundName))?.play()
+        guard let sound = NotificationSound.playableSound(for: soundName) else { return }
+        NotificationSoundPlayer.shared.play(sound)
     }
 
     func markAsRead(_ id: UUID) {

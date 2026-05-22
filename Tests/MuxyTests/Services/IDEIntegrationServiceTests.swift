@@ -342,6 +342,35 @@ struct IDEIntegrationServiceTests {
         #expect(app?.group == .editor)
     }
 
+    @Test("classifies Antigravity IDE by curated bundle identifier")
+    func classifiesAntigravityIDEByCuratedBundleIdentifier() {
+        let metadata = IDEIntegrationService.AppMetadata(
+            bundleIdentifier: "com.google.antigravity-ide",
+            displayName: "Antigravity IDE",
+            executableName: "Antigravity IDE",
+            category: nil,
+            appURL: URL(fileURLWithPath: "/Applications/Antigravity IDE.app")
+        )
+
+        let app = IDEIntegrationService.ideApplication(from: metadata)
+
+        #expect(app?.displayName == "Antigravity IDE")
+        #expect(app?.group == .otherTool)
+    }
+
+    @Test("does not classify standalone Antigravity product as an IDE target")
+    func doesNotClassifyStandaloneAntigravityProduct() {
+        let metadata = IDEIntegrationService.AppMetadata(
+            bundleIdentifier: "com.google.antigravity",
+            displayName: "Antigravity",
+            executableName: "Antigravity",
+            category: nil,
+            appURL: URL(fileURLWithPath: "/Applications/Antigravity.app")
+        )
+
+        #expect(IDEIntegrationService.ideApplication(from: metadata) == nil)
+    }
+
     @Test("does not classify JetBrains Toolbox as an IDE target")
     func doesNotClassifyJetBrainsToolbox() {
         let metadata = IDEIntegrationService.AppMetadata(
@@ -383,9 +412,9 @@ struct IDEIntegrationServiceTests {
             group: .editor
             ),
             IDEIntegrationService.IDEApplication(
-                bundleIdentifier: "com.google.antigravity",
-                displayName: "Antigravity",
-                appURL: URL(fileURLWithPath: "/Applications/Antigravity.app"),
+                bundleIdentifier: "com.google.antigravity-ide",
+                displayName: "Antigravity IDE",
+                appURL: URL(fileURLWithPath: "/Applications/Antigravity IDE.app"),
                 symbolName: "sparkles",
                 rank: 82,
                 group: .otherTool
@@ -394,6 +423,6 @@ struct IDEIntegrationServiceTests {
 
         let sorted = apps.sorted(by: IDEIntegrationService.compareInstalledApps)
 
-        #expect(sorted.map(\.displayName) == ["VS Code", "PhpStorm", "Antigravity", "Air"])
+        #expect(sorted.map(\.displayName) == ["VS Code", "PhpStorm", "Antigravity IDE", "Air"])
     }
 }

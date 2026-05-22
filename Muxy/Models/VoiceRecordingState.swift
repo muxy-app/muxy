@@ -14,7 +14,11 @@ final class VoiceRecordingState {
 
     @ObservationIgnored private var capturedResponder: NSResponder?
 
-    private init() {}
+    private init() {
+        recorder.onFailure = { [weak self] message in
+            self?.errorMessage = message
+        }
+    }
 
     func present(languageIdentifier: String) {
         guard !isPanelVisible else { return }

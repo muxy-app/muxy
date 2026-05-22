@@ -20,6 +20,12 @@ final class AppState {
         let isStaged: Bool
     }
 
+    struct CreatedCommandTab: Equatable {
+        let tabID: UUID
+        let areaID: UUID
+        let paneID: UUID
+    }
+
     enum Action {
         case selectProject(projectID: UUID, worktreeID: UUID, worktreePath: String)
         case selectWorktree(projectID: UUID, worktreeID: UUID, worktreePath: String)
@@ -37,6 +43,7 @@ final class AppState {
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String, suppressInitialFocus: Bool)
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
         case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
+        case createImageViewerTab(projectID: UUID, areaID: UUID?, filePath: String)
         case restoreClosedTerminalTab(projectID: UUID, areaID: UUID?, snapshot: ClosedTerminalTabSnapshot)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
@@ -64,6 +71,7 @@ final class AppState {
     private let workspacePersistence: any WorkspacePersisting
     private let terminalSessions: any TerminalSessionStoring
     var onProjectsEmptied: (([UUID]) -> Void)?
+    var onPaneClosed: ((UUID) -> Void)?
 
     var activeProjectID: UUID?
 
@@ -279,6 +287,54 @@ final class AppState {
         ))
     }
 
+    func createProjectCommandTab(projectID: UUID, name: String, command: String) -> CreatedCommandTab? {
+        dispatch(.createCommandTab(projectID: projectID, areaID: nil, name: name, command: command))
+        guard let key = activeWorktreeKey(for: projectID),
+              let areaID = focusedAreaID[key],
+              let area = workspaceRoots[key]?.findArea(id: areaID),
+              let tab = area.activeTab,
+              let pane = tab.content.pane
+        else { return nil }
+        return CreatedCommandTab(tabID: tab.id, areaID: area.id, paneID: pane.id)
+    }
+
+    func selectTab(projectID: UUID, areaID: UUID, tabID: UUID) {
+        dispatch(.selectTab(projectID: projectID, areaID: areaID, tabID: tabID))
+    }
+
+    func interruptCommandTab(paneID: UUID) {
+        TerminalViewRegistry.shared.view(for: paneID)?.sendRemoteBytes(TerminalControlBytes.interrupt)
+    }
+
+    func restartCommandTab(_ run: ProjectCommandRun, command: ProjectCommand) -> ProjectCommandRun? {
+        selectTab(projectID: run.projectID, areaID: run.areaID, tabID: run.tabID)
+        guard let view = TerminalViewRegistry.shared.view(for: run.paneID) else {
+            return createProjectCommandTab(projectID: run.projectID, name: command.name, command: command.command).map {
+                ProjectCommandRun(
+                    commandID: command.id,
+                    projectID: run.projectID,
+                    tabID: $0.tabID,
+                    areaID: $0.areaID,
+                    paneID: $0.paneID,
+                    state: .running
+                )
+            }
+        }
+        view.sendRemoteBytes(TerminalControlBytes.interrupt)
+        view.sendText("clear")
+        view.sendReturnKey()
+        view.sendText(command.command)
+        view.sendReturnKey()
+        return ProjectCommandRun(
+            commandID: command.id,
+            projectID: run.projectID,
+            tabID: run.tabID,
+            areaID: run.areaID,
+            paneID: run.paneID,
+            state: .running
+        )
+    }
+
     func createVCSTab(projectID: UUID) {
         dispatch(.createVCSTab(projectID: projectID, areaID: nil))
     }
@@ -290,6 +346,14 @@ final class AppState {
         line: Int? = nil,
         column: Int = 1
     ) {
+        if EditorTabState.usesHTMLPreview(filePath: filePath) {
+            openBuiltInEditorFile(filePath, projectID: projectID, preserveFocus: preserveFocus, line: line, column: column)
+            return
+        }
+        if ImageViewerTabState.canOpen(filePath: filePath) {
+            openImageFile(filePath, projectID: projectID)
+            return
+        }
         let settings = EditorSettings.shared
         if settings.defaultEditor == .terminalCommand {
             let command = settings.externalEditorCommand.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -298,6 +362,16 @@ final class AppState {
                 return
             }
         }
+        openBuiltInEditorFile(filePath, projectID: projectID, preserveFocus: preserveFocus, line: line, column: column)
+    }
+
+    private func openBuiltInEditorFile(
+        _ filePath: String,
+        projectID: UUID,
+        preserveFocus: Bool,
+        line: Int?,
+        column: Int
+    ) {
         for area in allAreas(for: projectID) {
             if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
                 dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
@@ -318,6 +392,16 @@ final class AppState {
                 }
             }
         }
+    }
+
+    func openImageFile(_ filePath: String, projectID: UUID) {
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { $0.content.imageViewerState?.filePath == filePath }) {
+                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                return
+            }
+        }
+        dispatch(.createImageViewerTab(projectID: projectID, areaID: nil, filePath: filePath))
     }
 
     func openMarkdownLinkTarget(_ filePath: String, projectID: UUID, fragment: String?) {
@@ -367,12 +451,20 @@ final class AppState {
         for (_, root) in workspaceRoots {
             for area in root.allAreas() {
                 for tab in area.tabs {
-                    guard let editorState = tab.content.editorState else { continue }
-                    let currentPath = editorState.filePath
-                    if currentPath == oldPath {
-                        editorState.updateFilePath(newPath)
-                    } else if currentPath.hasPrefix(oldPrefix) {
-                        editorState.updateFilePath(newPath + "/" + String(currentPath.dropFirst(oldPrefix.count)))
+                    if let editorState = tab.content.editorState {
+                        let currentPath = editorState.filePath
+                        if currentPath == oldPath {
+                            editorState.updateFilePath(newPath)
+                        } else if currentPath.hasPrefix(oldPrefix) {
+                            editorState.updateFilePath(newPath + "/" + String(currentPath.dropFirst(oldPrefix.count)))
+                        }
+                    } else if let imageState = tab.content.imageViewerState {
+                        let currentPath = imageState.filePath
+                        if currentPath == oldPath {
+                            imageState.updateFilePath(newPath)
+                        } else if currentPath.hasPrefix(oldPrefix) {
+                            imageState.updateFilePath(newPath + "/" + String(currentPath.dropFirst(oldPrefix.count)))
+                        }
                     }
                 }
             }
@@ -735,6 +827,7 @@ final class AppState {
         for paneID in effects.paneIDsToRemove {
             terminalViews.removeView(for: paneID)
             TerminalProgressStore.shared.resetPane(paneID)
+            onPaneClosed?(paneID)
         }
 
         if !effects.projectIDsToRemove.isEmpty {

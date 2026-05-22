@@ -18,6 +18,12 @@ enum NotificationSound: String, CaseIterable, Identifiable {
     case tink = "Tink"
 
     var id: String { rawValue }
+
+    static func playableSound(for value: String?) -> NotificationSound? {
+        guard let value else { return .funk }
+        guard let sound = NotificationSound(rawValue: value), sound != NotificationSound.none else { return nil }
+        return sound
+    }
 }
 
 enum ToastPosition: String, CaseIterable, Identifiable {

@@ -7,10 +7,12 @@ enum EditorSearchNavigationDirection {
     case previous
 }
 
-enum EditorMarkdownViewMode: String, CaseIterable {
+enum EditorMarkdownViewMode: String, Codable, CaseIterable, Identifiable {
     case code
     case preview
     case split
+
+    var id: String { rawValue }
 
     var title: String {
         switch self {
@@ -38,6 +40,8 @@ enum EditorMarkdownScrollDriver {
 @Observable
 final class EditorTabState: Identifiable {
     private static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd"]
+    private static let htmlExtensions: Set<String> = ["html", "htm"]
+    private static let svgExtensions: Set<String> = ["svg"]
 
     let id = UUID()
     let projectPath: String
@@ -77,6 +81,7 @@ final class EditorTabState: Identifiable {
     var largeFileSize: Int64 = 0
     var backingStore: TextBackingStore?
     var markdownViewMode: EditorMarkdownViewMode = .code
+    var htmlViewMode: EditorMarkdownViewMode = .code
     var markdownScrollPosition: CGFloat = 0
     var markdownScrollSyncEnabled = true
     var markdownScrollDriver: EditorMarkdownScrollDriver = .editor
@@ -129,6 +134,23 @@ final class EditorTabState: Identifiable {
         Self.markdownExtensions.contains(fileExtension)
     }
 
+    var isHTMLFile: Bool {
+        Self.htmlExtensions.contains(fileExtension)
+    }
+
+    var isSVGFile: Bool {
+        Self.svgExtensions.contains(fileExtension)
+    }
+
+    var usesHTMLPreview: Bool {
+        isHTMLFile || isSVGFile
+    }
+
+    static func usesHTMLPreview(filePath: String) -> Bool {
+        let ext = URL(fileURLWithPath: filePath).pathExtension.lowercased()
+        return htmlExtensions.contains(ext) || svgExtensions.contains(ext)
+    }
+
     @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     private enum FileLoadEvent {
@@ -151,11 +173,21 @@ final class EditorTabState: Identifiable {
         }
     }
 
-    init(projectPath: String, filePath: String) {
+    init(
+        projectPath: String,
+        filePath: String,
+        defaultHTMLViewMode: EditorMarkdownViewMode = EditorSettings.defaultHTMLViewMode
+    ) {
         self.projectPath = projectPath
         self.filePath = filePath
         if isMarkdownFile {
             markdownViewMode = .preview
+        }
+        if isHTMLFile {
+            htmlViewMode = defaultHTMLViewMode
+        }
+        if isSVGFile {
+            htmlViewMode = .preview
         }
         syntaxHighlighter = Self.makeSyntaxHighlighter(for: filePath)
         installFileWatcher()

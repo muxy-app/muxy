@@ -8,6 +8,7 @@ final class TerminalTab: Identifiable {
         case vcs
         case editor
         case diffViewer
+        case imageViewer
     }
 
     enum Content {
@@ -15,6 +16,7 @@ final class TerminalTab: Identifiable {
         case vcs(VCSTabState)
         case editor(EditorTabState)
         case diffViewer(DiffViewerTabState)
+        case imageViewer(ImageViewerTabState)
 
         var kind: Kind {
             switch self {
@@ -22,6 +24,7 @@ final class TerminalTab: Identifiable {
             case .vcs: .vcs
             case .editor: .editor
             case .diffViewer: .diffViewer
+            case .imageViewer: .imageViewer
             }
         }
 
@@ -45,12 +48,18 @@ final class TerminalTab: Identifiable {
             return state
         }
 
+        var imageViewerState: ImageViewerTabState? {
+            guard case let .imageViewer(state) = self else { return nil }
+            return state
+        }
+
         var projectPath: String {
             switch self {
             case let .terminal(pane): pane.projectPath
             case let .vcs(state): state.projectPath
             case let .editor(state): state.projectPath
             case let .diffViewer(state): state.projectPath
+            case let .imageViewer(state): state.projectPath
             }
         }
     }
@@ -76,6 +85,8 @@ final class TerminalTab: Identifiable {
             return state.displayTitle
         case let .diffViewer(state):
             return state.displayTitle
+        case let .imageViewer(state):
+            return state.displayTitle
         }
     }
 
@@ -99,6 +110,11 @@ final class TerminalTab: Identifiable {
         content = .diffViewer(diffViewerState)
     }
 
+    init(imageViewerState: ImageViewerTabState) {
+        id = UUID()
+        content = .imageViewer(imageViewerState)
+    }
+
     init(restoring snapshot: TerminalTabSnapshot, restoredSession: TerminalSessionSnapshot? = nil) {
         id = snapshot.id
         customTitle = snapshot.customTitle
@@ -117,12 +133,26 @@ final class TerminalTab: Identifiable {
             content = .vcs(VCSStateStore.shared.state(for: snapshot.projectPath))
         case .editor:
             if let filePath = snapshot.filePath {
-                content = .editor(EditorTabState(projectPath: snapshot.projectPath, filePath: filePath))
+                content = .editor(EditorTabState(
+                    projectPath: snapshot.projectPath,
+                    filePath: filePath,
+                    defaultHTMLViewMode: EditorSettings.shared.htmlDefaultViewMode
+                ))
             } else {
                 content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
             }
         case .diffViewer:
             content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
+        case .imageViewer:
+            if let filePath = snapshot.filePath {
+                if EditorTabState.usesHTMLPreview(filePath: filePath) {
+                    content = .editor(EditorTabState(projectPath: snapshot.projectPath, filePath: filePath))
+                } else {
+                    content = .imageViewer(ImageViewerTabState(projectPath: snapshot.projectPath, filePath: filePath))
+                }
+            } else {
+                content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
+            }
         }
     }
 
@@ -136,7 +166,7 @@ final class TerminalTab: Identifiable {
             projectPath: content.projectPath,
             paneTitle: content.pane?.title,
             paneID: content.pane?.id,
-            filePath: content.editorState?.filePath,
+            filePath: content.editorState?.filePath ?? content.imageViewerState?.filePath,
             currentWorkingDirectory: content.pane?.currentWorkingDirectory
         )
     }

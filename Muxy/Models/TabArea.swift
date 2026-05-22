@@ -106,7 +106,11 @@ final class TabArea: Identifiable {
             selectTab(existing.id)
             return
         }
-        let editorState = EditorTabState(projectPath: projectPath, filePath: filePath)
+        let editorState = EditorTabState(
+            projectPath: projectPath,
+            filePath: filePath,
+            defaultHTMLViewMode: EditorSettings.shared.htmlDefaultViewMode
+        )
         editorState.suppressInitialFocus = suppressInitialFocus
         insertTab(TerminalTab(editorState: editorState))
     }
@@ -123,6 +127,17 @@ final class TabArea: Identifiable {
             vcs: vcs,
             filePath: filePath,
             isStaged: isStaged
+        )))
+    }
+
+    func createImageViewerTab(filePath: String) {
+        if let existing = tabs.first(where: { $0.content.imageViewerState?.filePath == filePath }) {
+            selectTab(existing.id)
+            return
+        }
+        insertTab(TerminalTab(imageViewerState: ImageViewerTabState(
+            projectPath: projectPath,
+            filePath: filePath
         )))
     }
 

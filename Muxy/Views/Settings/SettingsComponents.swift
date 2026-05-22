@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+extension EnvironmentValues {
+    @Entry var settingsSearchQuery: String = ""
+
+    @Entry var settingsCategory: SettingsCategory?
+}
+
 enum SettingsMetrics {
     static let horizontalPadding: CGFloat = 12
     static let verticalPadding: CGFloat = 12
@@ -14,6 +20,37 @@ enum SettingsMetrics {
     static let controlWidth: CGFloat = 210
 }
 
+enum SettingsStyle {
+    @MainActor static var background: Color { MuxyTheme.bg }
+    @MainActor static var foreground: Color { MuxyTheme.fg }
+    @MainActor static var mutedForeground: Color { MuxyTheme.fgMuted }
+    @MainActor static var dimForeground: Color { MuxyTheme.fgDim }
+    @MainActor static var surface: Color { MuxyTheme.surface }
+    @MainActor static var elevatedSurface: Color { MuxyTheme.surface.opacity(1.45) }
+    @MainActor static var sidebarBackground: Color {
+        Color(nsColor: MuxyTheme.nsBg.blended(withFraction: 0.08, of: .black) ?? MuxyTheme.nsBg)
+    }
+
+    @MainActor static var hover: Color { MuxyTheme.hover }
+    @MainActor static var border: Color { MuxyTheme.border }
+    @MainActor static var accent: Color { MuxyTheme.accent }
+    @MainActor static var accentSoft: Color { MuxyTheme.accentSoft }
+    @MainActor static var warning: Color { MuxyTheme.warning }
+    @MainActor static var destructive: Color { MuxyTheme.diffRemoveFg }
+    @MainActor static var destructiveSoft: Color { MuxyTheme.diffRemoveBg }
+    @MainActor static var nsBackground: NSColor { MuxyTheme.nsBg }
+    @MainActor static var nsForeground: NSColor { MuxyTheme.nsFg }
+    @MainActor static var mutedNSForeground: NSColor { MuxyTheme.nsFgMuted }
+}
+
+struct SettingsDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(SettingsStyle.border)
+            .frame(height: 1)
+    }
+}
+
 struct SettingsContainer<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -24,10 +61,14 @@ struct SettingsContainer<Content: View>: View {
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
+        .background(SettingsStyle.background)
     }
 }
 
 struct SettingsSection<Content: View>: View {
+    @Environment(\.settingsSearchQuery) private var searchQuery
+    @Environment(\.settingsCategory) private var category
+
     let title: String
     let footer: String?
     let showsDivider: Bool
@@ -46,28 +87,30 @@ struct SettingsSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, SettingsMetrics.horizontalPadding)
-                .padding(.top, SettingsMetrics.sectionHeaderTopPadding)
-                .padding(.bottom, SettingsMetrics.sectionHeaderBottomPadding)
-
-            content
-
-            if let footer {
-                Text(footer)
-                    .font(.system(size: SettingsMetrics.footnoteFontSize))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        if SettingsCatalog.sectionMatches(query: searchQuery, category: category, section: title) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title)
+                    .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .semibold))
+                    .foregroundStyle(SettingsStyle.mutedForeground)
                     .padding(.horizontal, SettingsMetrics.horizontalPadding)
-                    .padding(.top, SettingsMetrics.sectionFooterTopPadding)
-                    .padding(.bottom, SettingsMetrics.sectionFooterBottomPadding)
-            }
+                    .padding(.top, SettingsMetrics.sectionHeaderTopPadding)
+                    .padding(.bottom, SettingsMetrics.sectionHeaderBottomPadding)
 
-            if showsDivider {
-                Divider().padding(.horizontal, SettingsMetrics.horizontalPadding)
+                content
+
+                if let footer {
+                    Text(footer)
+                        .font(.system(size: SettingsMetrics.footnoteFontSize))
+                        .foregroundStyle(SettingsStyle.mutedForeground)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+                        .padding(.top, SettingsMetrics.sectionFooterTopPadding)
+                        .padding(.bottom, SettingsMetrics.sectionFooterBottomPadding)
+                }
+
+                if showsDivider {
+                    SettingsDivider().padding(.horizontal, SettingsMetrics.horizontalPadding)
+                }
             }
         }
     }
@@ -86,6 +129,7 @@ struct SettingsRow<Content: View>: View {
         HStack {
             Text(label)
                 .font(.system(size: SettingsMetrics.labelFontSize))
+                .foregroundStyle(SettingsStyle.foreground)
             Spacer()
             content
         }
@@ -129,6 +173,20 @@ struct SettingsPickerRow<Option: CaseIterable & Identifiable & RawRepresentable>
 }
 
 extension View {
+    func settingsTextInput(width: CGFloat? = nil, maxWidth: CGFloat? = nil, minHeight: CGFloat? = nil) -> some View {
+        textFieldStyle(.plain)
+            .foregroundStyle(SettingsStyle.foreground)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(width: width)
+            .frame(maxWidth: maxWidth, minHeight: minHeight)
+            .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(SettingsStyle.border, lineWidth: 1)
+            )
+    }
+
     func resetsSettingsFocusOnOutsideClick() -> some View {
         background(SettingsFocusResetView())
     }

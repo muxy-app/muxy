@@ -86,9 +86,11 @@ fi
 TRIPLE="${ARCH}-apple-macosx14.0"
 BUILD_NUMBER=$(git -C "$PROJECT_ROOT" rev-list --count HEAD)
 APP_BUNDLE="$BUILD_DIR/Muxy.app"
+DSYM_BUNDLE="$BUILD_DIR/Muxy-${VERSION}-${ARCH}.app.dSYM"
 DMG_NAME="Muxy-${VERSION}-${ARCH}.dmg"
 
 rm -rf "$APP_BUNDLE"
+rm -rf "$DSYM_BUNDLE"
 
 echo "==> Building for $ARCH ($TRIPLE)"
 cd "$PROJECT_ROOT"
@@ -102,6 +104,9 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 
 cp "$SPM_BUILD_DIR/Muxy" "$APP_BUNDLE/Contents/MacOS/Muxy"
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP_BUNDLE/Contents/MacOS/Muxy"
+
+echo "==> Generating dSYM"
+xcrun dsymutil "$APP_BUNDLE/Contents/MacOS/Muxy" -o "$DSYM_BUNDLE"
 
 echo "==> Stripping local and debug symbols"
 strip -Sx "$APP_BUNDLE/Contents/MacOS/Muxy"

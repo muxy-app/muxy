@@ -126,6 +126,14 @@ enum WorkspaceReducer {
                 state: &state
             )
 
+        case let .createImageViewerTab(projectID, areaID, filePath):
+            TabReducer.createImageViewerTab(
+                projectID: projectID,
+                areaID: areaID,
+                filePath: filePath,
+                state: &state
+            )
+
         case let .restoreClosedTerminalTab(projectID, areaID, snapshot):
             TabReducer.restoreClosedTerminalTab(
                 projectID: projectID,
