@@ -128,7 +128,7 @@ enum SettingsJSONStore {
         var settings: [String: Any] = [:]
         for (key, value) in dictionary {
             if isSpecialJSONSetting(key) {
-                settings[key] = value
+                settings[key] = try validatedSpecialValue(value, key: key)
                 continue
             }
             guard let item = itemsByKey[key] else { continue }
@@ -283,6 +283,27 @@ enum SettingsJSONStore {
         }
     }
 
+    private static func validatedSpecialValue(_ value: Any, key: String) throws -> Any {
+        switch key {
+        case "shortcuts.app":
+            guard let bindings = keyBindings(from: value), !bindings.isEmpty else { throw SettingsJSONError.invalidValue(key) }
+        case "shortcuts.customCommands":
+            guard let configuration = commandShortcutConfiguration(from: value), isValidKeyCombo(configuration.prefixCombo),
+                  configuration.shortcuts.allSatisfy({ isValidKeyCombo($0.combo) })
+            else { throw SettingsJSONError.invalidValue(key) }
+        case "ai.providers",
+             "aiUsage.providers":
+            guard let values = value as? [String: Any], values.values.allSatisfy({ $0 is Bool }) else {
+                throw SettingsJSONError.invalidValue(key)
+            }
+        case "mobile.approvedDevices":
+            guard (codableValue(from: value) as [ApprovedDevice]?) != nil else { throw SettingsJSONError.invalidValue(key) }
+        default:
+            throw SettingsJSONError.invalidValue(key)
+        }
+        return value
+    }
+
     private static func applySpecialSetting(key: String, value: Any) -> Bool {
         switch key {
         case SentryConsent.storageKey:
@@ -309,27 +330,27 @@ enum SettingsJSONStore {
                 ProjectPickerDefaultLocation.setCustomPath(value)
             }
         case "shortcuts.app":
-            guard let bindings = keyBindings(from: value) else { return false }
+            guard let bindings = keyBindings(from: value) else { return true }
             KeyBindingStore.shared.replaceBindings(bindings)
         case "shortcuts.customCommands":
-            guard let configuration = commandShortcutConfiguration(from: value) else { return false }
+            guard let configuration = commandShortcutConfiguration(from: value) else { return true }
             CommandShortcutStore.shared.replaceConfiguration(configuration)
         case "ai.providers":
-            guard let values = value as? [String: Any] else { return false }
+            guard let values = value as? [String: Any] else { return true }
             for provider in AIProviderRegistry.shared.providers {
                 guard let enabled = values[provider.id] as? Bool else { continue }
                 provider.isEnabled = enabled
             }
             AIProviderRegistry.shared.installAll()
         case "aiUsage.providers":
-            guard let values = value as? [String: Any] else { return false }
+            guard let values = value as? [String: Any] else { return true }
             for provider in AIUsageProviderCatalog.providers {
                 guard let enabled = values[provider.id] as? Bool else { continue }
                 AIUsageProviderTrackingStore.setTracked(enabled, providerID: provider.id)
             }
             AIUsageService.shared.recomposeSnapshots()
         case "mobile.approvedDevices":
-            guard let devices: [ApprovedDevice] = codableValue(from: value) else { return false }
+            guard let devices: [ApprovedDevice] = codableValue(from: value) else { return true }
             ApprovedDevicesStore.shared.replaceDevices(devices)
         default:
             return false
@@ -404,10 +425,20 @@ enum SettingsJSONStore {
 
     private static func keyBindings(from value: Any) -> [KeyBinding]? {
         guard let dictionary = value as? [String: Any] else { return nil }
-        return dictionary.compactMap { key, value in
-            guard let action = ShortcutAction(rawValue: key), let combo: KeyCombo = codableValue(from: value) else { return nil }
-            return KeyBinding(action: action, combo: combo)
+        var bindings: [KeyBinding] = []
+        for (key, value) in dictionary {
+            guard let action = ShortcutAction(rawValue: key), let combo: KeyCombo = codableValue(from: value), isValidKeyCombo(combo) else {
+                return nil
+            }
+            bindings.append(KeyBinding(action: action, combo: combo))
         }
+        return bindings
+    }
+
+    private static func isValidKeyCombo(_ combo: KeyCombo) -> Bool {
+        !combo.key.isEmpty
+            && KeyCombo.normalized(key: combo.key) == combo.key
+            && KeyCombo.normalized(modifiers: combo.modifiers) == combo.modifiers
     }
 
     private static func commandShortcutsJSONObject(_ configuration: CommandShortcutConfiguration) -> Any {

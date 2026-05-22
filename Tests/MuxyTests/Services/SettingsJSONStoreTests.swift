@@ -45,6 +45,53 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func invalidSpecialValueDoesNotWriteSettings() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "ai.providers": []
+            }
+            """)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+
+        #expect(savedText == originalText)
+    }
+
+    @Test
+    func invalidAppShortcutsDoNotReplaceBindings() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        let originalBindings = KeyBindingStore.shared.bindings
+        defer {
+            KeyBindingStore.shared.replaceBindings(originalBindings)
+            snapshot.restore()
+        }
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "shortcuts.app": {
+                "unknownAction": {}
+              }
+            }
+            """)
+        }
+
+        #expect(KeyBindingStore.shared.bindings.count == originalBindings.count)
+        for binding in originalBindings {
+            let current = KeyBindingStore.shared.bindings.first { $0.action == binding.action }
+            #expect(current?.combo == binding.combo)
+        }
+    }
+
+    @Test
     func omittedKnownSettingsRemainUnchanged() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [MobileServerService.portKey])
         defer { snapshot.restore() }
