@@ -10,10 +10,6 @@ struct BranchPicker: View {
     let onDeleteBranch: ((String) -> Void)?
     @State private var showPopover = false
 
-    private var branchItems: [BranchItem] {
-        branches.map { BranchItem(name: $0) }
-    }
-
     var body: some View {
         Button {
             onRefresh()

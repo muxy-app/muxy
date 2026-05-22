@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct NotificationSettingsView: View {
@@ -40,8 +39,8 @@ struct NotificationSettingsView: View {
     }
 
     private func previewSound(_ value: String) {
-        guard let sound = NotificationSound(rawValue: value), sound != .none else { return }
-        NSSound(named: .init(sound.rawValue))?.play()
+        guard let sound = NotificationSound.playableSound(for: value) else { return }
+        NotificationSoundPlayer.shared.play(sound)
     }
 }
 

@@ -110,6 +110,18 @@ struct EditorSettingsView: View {
             }
         }
 
+        SettingsSection("HTML") {
+            SettingsRow("Default View") {
+                Picker("", selection: $settings.htmlDefaultViewMode) {
+                    ForEach(EditorMarkdownViewMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+            }
+        }
+
         SettingsSection(
             "Rich Input",
             footer: "Inline File Path keeps multiple images perfectly ordered with text and Enter. "

@@ -24,7 +24,7 @@ struct TerminalPane: View {
             .onReceive(NotificationCenter.default.publisher(for: .refocusActiveTerminal)) { _ in
                 guard focused, visible else { return }
                 let view = TerminalViewRegistry.shared.existingView(for: state.id)
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak view] in
                     view?.window?.makeFirstResponder(view)
                 }
             }
@@ -68,7 +68,7 @@ struct TerminalPane: View {
                     onClose: {
                         let view = TerminalViewRegistry.shared.existingView(for: state.id)
                         view?.endSearch()
-                        DispatchQueue.main.async {
+                        DispatchQueue.main.async { [weak view] in
                             view?.window?.makeFirstResponder(view)
                         }
                     }
@@ -170,8 +170,8 @@ struct TerminalBridge: NSViewRepresentable {
         configureProgressCallback(view)
         context.coordinator.wasFocused = focused
         if focused, !overlayActive {
-            view.notifySurfaceFocused()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak view] in
+                guard let view else { return }
                 view.window?.makeFirstResponder(view)
             }
         } else {
@@ -220,8 +220,8 @@ struct TerminalBridge: NSViewRepresentable {
                 nsView.notifySurfaceUnfocused()
             }
         } else if focused, !wasFocused || wasOverlayActive {
-            nsView.notifySurfaceFocused()
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak nsView] in
+                guard let nsView else { return }
                 nsView.window?.makeFirstResponder(nsView)
             }
         } else if !focused, wasFocused {

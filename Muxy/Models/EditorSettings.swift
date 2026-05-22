@@ -31,6 +31,7 @@ final class EditorSettings {
     static let maxMarkdownPreviewFontScale: CGFloat = 2.5
     static let markdownPreviewBaseFontSize: CGFloat = 14
     static let markdownPreviewZoomStep: CGFloat = 0.1
+    static let defaultHTMLViewMode: EditorMarkdownViewMode = .code
 
     static let defaultLineHeightMultiplier: CGFloat = 1.2
     static let minLineHeightMultiplier: CGFloat = 1.1
@@ -46,6 +47,7 @@ final class EditorSettings {
     var externalEditorCommand: String = "vim" { didSet { save() } }
     var markdownPreviewFontFamily: String = EditorSettings.defaultMarkdownPreviewFontFamily { didSet { save() } }
     var markdownPreviewFontScale: CGFloat = EditorSettings.defaultMarkdownPreviewFontScale { didSet { save() } }
+    var htmlDefaultViewMode: EditorMarkdownViewMode = EditorSettings.defaultHTMLViewMode { didSet { save() } }
     var highlightCurrentLine: Bool = true { didSet { save() } }
     var lineWrapping: Bool = false { didSet { save() } }
     var showLineNumbers: Bool = true { didSet { save() } }
@@ -144,6 +146,7 @@ final class EditorSettings {
         externalEditorCommand = "vim"
         markdownPreviewFontFamily = Self.defaultMarkdownPreviewFontFamily
         markdownPreviewFontScale = Self.defaultMarkdownPreviewFontScale
+        htmlDefaultViewMode = Self.defaultHTMLViewMode
         highlightCurrentLine = true
         lineWrapping = false
         showLineNumbers = true
@@ -164,6 +167,7 @@ final class EditorSettings {
             defaultEditor = snapshot.defaultEditor ?? snapshot.quickOpenEditor ?? .builtIn
             externalEditorCommand = snapshot.externalEditorCommand ?? "vim"
             markdownPreviewFontFamily = snapshot.markdownPreviewFontFamily ?? Self.defaultMarkdownPreviewFontFamily
+            htmlDefaultViewMode = snapshot.htmlDefaultViewMode ?? Self.defaultHTMLViewMode
             let loadedScale = snapshot.markdownPreviewFontScale ?? Self.defaultMarkdownPreviewFontScale
             markdownPreviewFontScale = min(
                 max(loadedScale, Self.minMarkdownPreviewFontScale),
@@ -202,6 +206,7 @@ final class EditorSettings {
                 externalEditorCommand: externalEditorCommand,
                 markdownPreviewFontFamily: markdownPreviewFontFamily,
                 markdownPreviewFontScale: markdownPreviewFontScale,
+                htmlDefaultViewMode: htmlDefaultViewMode,
                 highlightCurrentLine: highlightCurrentLine,
                 lineWrapping: lineWrapping,
                 showLineNumbers: showLineNumbers,
@@ -224,6 +229,7 @@ private struct Snapshot: Codable {
     let externalEditorCommand: String?
     let markdownPreviewFontFamily: String?
     let markdownPreviewFontScale: CGFloat?
+    let htmlDefaultViewMode: EditorMarkdownViewMode?
     let highlightCurrentLine: Bool?
     let lineWrapping: Bool?
     let showLineNumbers: Bool?
