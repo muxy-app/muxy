@@ -144,6 +144,24 @@ struct SentryServiceTests {
         #expect(SentryService.shouldDropAppHang(event))
     }
 
+    @Test("shouldDropAppHang drops NSSavePanel modal frames")
+    func shouldDropAppHangDropsSavePanel() {
+        let event = makeEvent(
+            type: "App Hanging",
+            frames: [("ProjectOpenService.openProject", true), ("-[NSSavePanel runModal]", false)]
+        )
+        #expect(SentryService.shouldDropAppHang(event))
+    }
+
+    @Test("shouldDropAppHang drops NSAlert frames without runModal")
+    func shouldDropAppHangDropsAlertFrameWithoutRunModal() {
+        let event = makeEvent(
+            type: "App Hanging",
+            frames: [("CLIAccessor.alert", true), ("-[NSAlert layout]", false)]
+        )
+        #expect(SentryService.shouldDropAppHang(event))
+    }
+
     @Test("shouldDropAppHang drops modal loop frames")
     func shouldDropAppHangDropsDoModalLoop() {
         let event = makeEvent(

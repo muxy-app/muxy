@@ -133,7 +133,11 @@ final class TerminalTab: Identifiable {
             content = .vcs(VCSStateStore.shared.state(for: snapshot.projectPath))
         case .editor:
             if let filePath = snapshot.filePath {
-                content = .editor(EditorTabState(projectPath: snapshot.projectPath, filePath: filePath))
+                content = .editor(EditorTabState(
+                    projectPath: snapshot.projectPath,
+                    filePath: filePath,
+                    defaultHTMLViewMode: EditorSettings.shared.htmlDefaultViewMode
+                ))
             } else {
                 content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
             }
@@ -141,7 +145,11 @@ final class TerminalTab: Identifiable {
             content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
         case .imageViewer:
             if let filePath = snapshot.filePath {
-                content = .imageViewer(ImageViewerTabState(projectPath: snapshot.projectPath, filePath: filePath))
+                if EditorTabState.usesHTMLPreview(filePath: filePath) {
+                    content = .editor(EditorTabState(projectPath: snapshot.projectPath, filePath: filePath))
+                } else {
+                    content = .imageViewer(ImageViewerTabState(projectPath: snapshot.projectPath, filePath: filePath))
+                }
             } else {
                 content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
             }

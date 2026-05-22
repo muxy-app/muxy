@@ -10,6 +10,11 @@ private final class CodeEditorTextView: NSTextView {
     var onRedoRequest: (() -> Bool)?
     var canUndoRequest: (() -> Bool)?
     var canRedoRequest: (() -> Bool)?
+    var usesNativeUndo = true
+
+    override var undoManager: UndoManager? {
+        usesNativeUndo ? super.undoManager : nil
+    }
 
     override func paste(_ sender: Any?) {
         pasteAsPlainText(sender)
@@ -833,8 +838,11 @@ struct CodeEditorView: NSViewRepresentable {
 
         func enterViewportMode(scrollView: NSScrollView) {
             guard let store = state.backingStore, let textView else { return }
-            textView.allowsUndo = false
             textView.undoManager?.removeAllActions()
+            textView.allowsUndo = false
+            if let codeTextView = textView as? CodeEditorTextView {
+                codeTextView.usesNativeUndo = false
+            }
             textView.usesFindBar = false
             clearViewportHistory()
 

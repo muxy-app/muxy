@@ -13,15 +13,25 @@ struct VoiceRecordingPanel: View {
     var body: some View {
         VStack(spacing: UIMetrics.spacing3) {
             transcriptChip
-            mainPanel
-            keyboardHints
+            if state.recorder.isRecording {
+                mainPanel
+                keyboardHints
+            } else if state.errorMessage != nil {
+                errorActions
+            }
         }
         .padding(.bottom, UIMetrics.scaled(48))
         .background(VoicePanelFocusTrap(
             isFocused: $isFocused,
-            onFinish: { state.finish(autoSend: autoSend) },
+            onFinish: {
+                guard state.recorder.isRecording else { return }
+                state.finish(autoSend: autoSend)
+            },
             onCancel: { state.cancel() },
-            onTogglePause: { state.togglePause() }
+            onTogglePause: {
+                guard state.recorder.isRecording else { return }
+                state.togglePause()
+            }
         ))
         .onAppear { pulse = true }
         .accessibilityElement(children: .contain)
@@ -61,7 +71,7 @@ struct VoiceRecordingPanel: View {
             Text(message)
                 .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.diffRemoveFg)
-                .lineLimit(2)
+                .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if !state.recorder.transcript.isEmpty {
@@ -144,6 +154,19 @@ struct VoiceRecordingPanel: View {
                 state.finish(autoSend: autoSend)
             }
         }
+    }
+
+    private var errorActions: some View {
+        Button("Close") {
+            state.cancel()
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+        .foregroundStyle(MuxyTheme.fg)
+        .padding(.horizontal, UIMetrics.spacing5)
+        .padding(.vertical, UIMetrics.spacing3)
+        .background(MuxyTheme.surface, in: Capsule())
+        .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))
     }
 
     private var keyboardHints: some View {
