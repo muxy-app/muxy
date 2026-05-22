@@ -204,12 +204,12 @@ struct GeneralSettingsView: View {
         HStack(spacing: 7) {
             Image(systemName: defaultWorktreeParentPath.isEmpty ? "internaldrive" : "folder")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SettingsStyle.mutedForeground)
                 .frame(width: 15)
 
             Text(defaultWorktreeLocationText)
                 .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
-                .foregroundStyle(defaultWorktreeParentPath.isEmpty ? .secondary : .primary)
+                .foregroundStyle(defaultWorktreeParentPath.isEmpty ? SettingsStyle.mutedForeground : SettingsStyle.foreground)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -218,10 +218,10 @@ struct GeneralSettingsView: View {
         .padding(.horizontal, 9)
         .frame(minWidth: 170, maxWidth: .infinity, alignment: .leading)
         .frame(height: 22)
-        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
+        .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(.quaternary.opacity(0.7), lineWidth: 1)
+                .stroke(SettingsStyle.border, lineWidth: 1)
         )
     }
 

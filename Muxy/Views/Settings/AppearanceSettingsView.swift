@@ -116,7 +116,8 @@ struct AppearanceSettingsView: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+            .foregroundStyle(SettingsStyle.foreground)
+            .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
         .popover(isPresented: isPresented) {

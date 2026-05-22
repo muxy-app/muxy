@@ -70,6 +70,7 @@ final class UIScale {
         guard !isLoading else { return }
         do {
             try store.save(Snapshot(preset: preset))
+            SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
         } catch {
             logger.error("Failed to save UI scale settings: \(error.localizedDescription)")
         }

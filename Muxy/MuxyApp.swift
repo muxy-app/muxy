@@ -43,6 +43,7 @@ struct MuxyApp: App {
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
         _vcsWorktreeAutoRefresher = State(initialValue: vcsWorktreeAutoRefresher)
+        SettingsJSONStore.beginAutomaticUserSettingsSync()
     }
 
     var body: some Scene {
@@ -144,22 +145,20 @@ struct MuxyApp: App {
                 .preferredColorScheme(MuxyTheme.colorScheme)
         }
         .defaultSize(width: 820, height: 580)
-
-        Settings {
-            SettingsView()
-                .preferredColorScheme(MuxyTheme.colorScheme)
-        }
     }
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var onTerminate: (() -> Void)?
     var hasUnsavedEditorTabs: (() -> [EditorTabState])?
     var openProjectFromPath: ((String) -> Void)?
 
     private var pendingOpenPaths: [String] = []
     private var systemAppearanceObserver: NSObjectProtocol?
+    private var settingsObserver: NSObjectProtocol?
+    private var settingsThemeObserver: NSObjectProtocol?
+    private weak var settingsWindow: NSWindow?
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -249,6 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AIProviderRegistry.shared.installAll()
         _ = AIUsageSettingsStore.isUsageEnabled()
         DiagnosticsMenuController.shared.install()
+        observeSettingsRequests()
 
         consumeLaunchArguments()
     }
@@ -353,6 +353,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DistributedNotificationCenter.default().removeObserver(observer)
             systemAppearanceObserver = nil
         }
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+            self.settingsObserver = nil
+        }
+        if let settingsThemeObserver {
+            NotificationCenter.default.removeObserver(settingsThemeObserver)
+            self.settingsThemeObserver = nil
+        }
         onTerminate?()
         NotificationStore.shared.saveToDisk()
         NotificationSocketServer.shared.stop()
@@ -360,6 +368,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MobileServerService.shared.stopForTermination()
             RichInputDraftStore.shared.flush()
         }
+    }
+
+    @MainActor
+    private func observeSettingsRequests() {
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: .openSettingsModal,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.presentSettingsModal()
+            }
+        }
+        settingsThemeObserver = NotificationCenter.default.addObserver(
+            forName: .themeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.settingsWindow?.backgroundColor = MuxyTheme.nsBg
+            }
+        }
+    }
+
+    @MainActor
+    private func presentSettingsModal() {
+        if let settingsWindow {
+            settingsWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+        guard let parent = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        let host = NSHostingController(
+            rootView: SettingsView()
+                .frame(width: 980, height: 680)
+                .preferredColorScheme(MuxyTheme.colorScheme)
+        )
+        let window = SettingsModalWindow(contentViewController: host)
+        window.title = "Settings"
+        window.styleMask = [.titled, .closable]
+        window.isOpaque = true
+        window.backgroundColor = MuxyTheme.nsBg
+        window.delegate = self
+        settingsWindow = window
+        parent.beginSheet(window) { [weak self, weak window] _ in
+            guard self?.settingsWindow === window else { return }
+            self?.settingsWindow = nil
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSWindow === settingsWindow else { return }
+        settingsWindow = nil
     }
 
     @MainActor
@@ -391,6 +451,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+}
+
+private final class SettingsModalWindow: NSWindow {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "w"
+        {
+            close()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        close()
+    }
+
+    override func close() {
+        guard let sheetParent else {
+            super.close()
+            return
+        }
+        sheetParent.endSheet(self)
     }
 }
 
