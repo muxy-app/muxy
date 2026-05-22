@@ -224,11 +224,10 @@ if [ -n "$COMMAND" ] && [ "$COMMAND" != "split-right" ] && [ "$COMMAND" != "spli
 
     ENCODED_PATH="$(percent_encode "$TARGET_DIR")"
 
+    if [ -e "$SOCKET" ] && printf '%s' "open-project|$TARGET_DIR" | nc -U "$SOCKET" 2>/dev/null; then
+        exit 0
+    fi
+
     open "muxy://open?path=${ENCODED_PATH}" 2>/dev/null \
-        || open -b com.muxy.app "$TARGET_DIR" 2>/dev/null \
-        || {
-            if [ -e "$SOCKET" ]; then
-                send_message "open-project|$TARGET_DIR"
-            fi
-        }
+        || open -b com.muxy.app "$TARGET_DIR" 2>/dev/null
 fi

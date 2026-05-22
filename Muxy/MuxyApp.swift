@@ -85,11 +85,6 @@ struct MuxyApp: App {
                         )
                     }
                     appDelegate.flushPendingOpens()
-                    NotificationSocketServer.shared.openProjectHandler = { [appDelegate] path in
-                        Task { @MainActor in
-                            appDelegate.handleOpenProjectPath(path)
-                        }
-                    }
                     NotificationSocketServer.shared.commandHandler = { [appState] message in
                         await SocketCommandHandler.handleRequest(message, appState: appState)
                     }
@@ -256,12 +251,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         observeSystemAppearanceChanges()
         UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
+        NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                self?.handleOpenProjectPath(path)
+            }
+        }
         NotificationSocketServer.shared.start()
         AIProviderRegistry.shared.installAll()
         _ = AIUsageSettingsStore.isUsageEnabled()
         DiagnosticsMenuController.shared.install()
         observeSettingsRequests()
-
         consumeLaunchArguments()
     }
 
