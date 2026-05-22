@@ -11,10 +11,10 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
     static let contentWorld: WKContentWorld = .world(name: "muxyBrowserBridge")
 
     weak var webView: BrowserWKWebView?
-    private let state: BrowserTabState
+    private let session: BrowserSession
 
-    init(state: BrowserTabState) {
-        self.state = state
+    init(session: BrowserSession) {
+        self.session = session
     }
 
     nonisolated func userContentController(
@@ -47,7 +47,7 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
     }
 
     private func handlePicked(_ body: [String: Any]) {
-        guard state.inspectorMode != .off else { return }
+        guard session.inspector.inspectorMode != .off else { return }
         guard let selector = sanitizedString(
             body["selector"],
             maxLength: BrowserAnnotationSanitizer.maxSelectorLength
@@ -65,11 +65,11 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
         let url = sanitizedString(
             body["url"],
             maxLength: BrowserAnnotationSanitizer.maxURLLength
-        ) ?? state.currentURL
+        ) ?? session.nav.currentURL
         let title = sanitizedString(
             body["title"],
             maxLength: BrowserAnnotationSanitizer.maxTitleLength
-        ) ?? state.pageTitle
+        ) ?? session.nav.pageTitle
 
         let rect = parseRect(body["rect"])
         let viewport = parseViewport(body["viewport"])
@@ -86,17 +86,17 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
             viewportHeight: viewport.height
         )
 
-        state.addAnnotation(annotation)
-        state.computedStyleSeeds[annotation.id] = computed
+        session.inspector.addAnnotation(annotation)
+        session.inspector.computedStyleSeeds[annotation.id] = computed
 
-        if state.inspectorMode == .style {
-            state.showsStyleInspector = true
+        if session.inspector.inspectorMode == .style {
+            session.inspector.showsStyleInspector = true
         }
     }
 
     private func handleHovered(_ body: [String: Any]) {
-        guard state.inspectorMode != .off else { return }
-        state.hoveredSelector = sanitizedString(
+        guard session.inspector.inspectorMode != .off else { return }
+        session.inspector.hoveredSelector = sanitizedString(
             body["selector"],
             maxLength: BrowserAnnotationSanitizer.maxSelectorLength
         )
@@ -104,7 +104,7 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
 
     private func handleScrolled(_ body: [String: Any]) {
         guard let y = body["y"] as? Double else { return }
-        state.scrollY = y
+        session.nav.scrollY = y
     }
 
     private func handleTitleChanged(_ body: [String: Any]) {
@@ -113,7 +113,7 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
             maxLength: BrowserAnnotationSanitizer.maxTitleLength
         )
         else { return }
-        state.pageTitle = title
+        session.nav.pageTitle = title
     }
 
     private func sanitizedString(_ value: Any?, maxLength: Int) -> String? {

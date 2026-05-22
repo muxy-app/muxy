@@ -1,15 +1,15 @@
 import SwiftUI
 
 struct StyleInspectorPopover: View {
-    @Bindable var state: BrowserTabState
+    @Bindable var session: BrowserSession
     let annotationID: UUID
 
     private var annotation: BrowserAnnotation? {
-        state.annotations.first(where: { $0.id == annotationID })
+        session.inspector.annotations.first(where: { $0.id == annotationID })
     }
 
     private var computedSeed: [String: String] {
-        state.computedStyleSeeds[annotationID] ?? [:]
+        session.inspector.computedStyleSeeds[annotationID] ?? [:]
     }
 
     var body: some View {
@@ -27,7 +27,7 @@ struct StyleInspectorPopover: View {
                 VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
                     ForEach(StyleOverride.Property.allCases) { property in
                         StylePropertyRow(
-                            state: state,
+                            session: session,
                             annotationID: annotationID,
                             property: property,
                             originalValue: computedSeed[property.cssName] ?? ""
@@ -43,7 +43,7 @@ struct StyleInspectorPopover: View {
 }
 
 private struct StylePropertyRow: View {
-    @Bindable var state: BrowserTabState
+    @Bindable var session: BrowserSession
     let annotationID: UUID
     let property: StyleOverride.Property
     let originalValue: String
@@ -51,7 +51,7 @@ private struct StylePropertyRow: View {
     @State private var draftValue: String = ""
 
     private var existingOverride: StyleOverride? {
-        state.annotations
+        session.inspector.annotations
             .first(where: { $0.id == annotationID })?
             .styleOverrides
             .first(where: { $0.property == property })
@@ -67,7 +67,7 @@ private struct StylePropertyRow: View {
                 if existingOverride != nil {
                     Button {
                         if let override = existingOverride {
-                            state.removeStyleOverride(id: override.id, for: annotationID)
+                            session.removeStyleOverride(id: override.id, for: annotationID)
                             draftValue = ""
                         }
                     } label: {
@@ -109,12 +109,12 @@ private struct StylePropertyRow: View {
     }
 
     private func commit() {
-        guard let annotation = state.annotations.first(where: { $0.id == annotationID }) else { return }
+        guard let annotation = session.inspector.annotations.first(where: { $0.id == annotationID }) else { return }
         let trimmed = draftValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let sanitized = BrowserAnnotationSanitizer.sanitizeStyleValue(trimmed)
         if sanitized.isEmpty {
             if let override = existingOverride {
-                state.removeStyleOverride(id: override.id, for: annotationID)
+                session.removeStyleOverride(id: override.id, for: annotationID)
             }
             draftValue = ""
             return
@@ -127,6 +127,6 @@ private struct StylePropertyRow: View {
             originalValue: originalValue,
             value: sanitized
         )
-        state.upsertStyleOverride(override, for: annotationID)
+        session.upsertStyleOverride(override, for: annotationID)
     }
 }

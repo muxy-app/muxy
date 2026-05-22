@@ -5,12 +5,12 @@ import Foundation
 enum BrowserAnnotationSender {
     static func send(
         annotation: BrowserAnnotation,
-        from state: BrowserTabState,
+        from session: BrowserSession,
         appState: AppState,
         markSent: () -> Void
     ) {
         let markdown = renderMarkdown(annotation: annotation)
-        guard let target = resolveTerminalTarget(state: state, appState: appState) else {
+        guard let target = resolveTerminalTarget(session: session, appState: appState) else {
             copyToClipboard(markdown)
             return
         }
@@ -30,8 +30,8 @@ enum BrowserAnnotationSender {
         let paneID: UUID
     }
 
-    private static func resolveTerminalTarget(state: BrowserTabState, appState: AppState) -> TerminalTarget? {
-        if let target = resolveFromOwningArea(browserTabID: state.id, appState: appState) {
+    private static func resolveTerminalTarget(session: BrowserSession, appState: AppState) -> TerminalTarget? {
+        if let target = resolveFromOwningArea(browserTabID: session.id, appState: appState) {
             return target
         }
         return resolveFromActiveProject(appState: appState)

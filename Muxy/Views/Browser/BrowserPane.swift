@@ -1,20 +1,20 @@
 import SwiftUI
 
 struct BrowserPane: View {
-    @Bindable var state: BrowserTabState
+    @Bindable var session: BrowserSession
     let focused: Bool
     let onFocus: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            BrowserChrome(state: state)
+            BrowserChrome(session: session)
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            BrowserProgressBar(progress: state.estimatedProgress, isLoading: state.isLoading)
+            BrowserProgressBar(progress: session.nav.estimatedProgress, isLoading: session.nav.isLoading)
             HStack(spacing: 0) {
                 content
-                if state.showsAnnotationsPanel {
+                if session.inspector.showsAnnotationsPanel {
                     Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                    BrowserAnnotationsPanel(state: state)
+                    BrowserAnnotationsPanel(session: session)
                         .frame(width: UIMetrics.scaled(280))
                 }
             }
@@ -26,10 +26,10 @@ struct BrowserPane: View {
 
     @ViewBuilder
     private var content: some View {
-        if let error = state.lastErrorMessage {
+        if let error = session.nav.lastErrorMessage {
             errorView(error)
         } else {
-            BrowserWebView(state: state)
+            BrowserWebView(session: session)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -42,7 +42,7 @@ struct BrowserPane: View {
             Text(message)
                 .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            Button("Retry") { state.requestReload() }
+            Button("Retry") { session.requestReload() }
                 .buttonStyle(.plain)
                 .padding(.horizontal, UIMetrics.spacing4)
                 .padding(.vertical, UIMetrics.spacing2)
@@ -54,56 +54,56 @@ struct BrowserPane: View {
 }
 
 private struct BrowserChrome: View {
-    @Bindable var state: BrowserTabState
+    @Bindable var session: BrowserSession
     @Environment(AppState.self) private var appState
     @State private var addressFieldText: String = ""
     @FocusState private var addressFieldFocused: Bool
 
     var body: some View {
         HStack(spacing: UIMetrics.spacing3) {
-            IconButton(symbol: "chevron.left", accessibilityLabel: "Back") { state.requestBack() }
+            IconButton(symbol: "chevron.left", accessibilityLabel: "Back") { session.requestBack() }
                 .help("Back")
-                .disabled(!state.canGoBack)
-            IconButton(symbol: "chevron.right", accessibilityLabel: "Forward") { state.requestForward() }
+                .disabled(!session.nav.canGoBack)
+            IconButton(symbol: "chevron.right", accessibilityLabel: "Forward") { session.requestForward() }
                 .help("Forward")
-                .disabled(!state.canGoForward)
+                .disabled(!session.nav.canGoForward)
             IconButton(
-                symbol: state.isLoading ? "xmark" : "arrow.clockwise",
-                accessibilityLabel: state.isLoading ? "Stop" : "Reload"
+                symbol: session.nav.isLoading ? "xmark" : "arrow.clockwise",
+                accessibilityLabel: session.nav.isLoading ? "Stop" : "Reload"
             ) {
-                if state.isLoading {
-                    state.requestStop()
+                if session.nav.isLoading {
+                    session.requestStop()
                 } else {
-                    state.requestReload()
+                    session.requestReload()
                 }
             }
-            .help(state.isLoading ? "Stop" : "Reload")
+            .help(session.nav.isLoading ? "Stop" : "Reload")
 
             BrowserAddressField(
                 text: $addressFieldText,
-                isLoading: state.isLoading,
-                scheme: state.currentURLScheme,
+                isLoading: session.nav.isLoading,
+                scheme: session.nav.currentURLScheme,
                 isFocused: $addressFieldFocused,
                 onSubmit: {
-                    state.requestNavigate(to: addressFieldText)
+                    session.requestNavigate(to: addressFieldText)
                     addressFieldFocused = false
                 }
             )
 
-            BookmarkMenu(state: state)
+            BookmarkMenu(session: session)
 
-            BrowserInspectorToggle(state: state)
+            BrowserInspectorToggle(session: session)
 
             Menu {
-                Button("Zoom In") { state.zoomIn() }
+                Button("Zoom In") { session.zoomIn() }
                     .keyboardShortcut("=", modifiers: [.command])
-                Button("Zoom Out") { state.zoomOut() }
+                Button("Zoom Out") { session.zoomOut() }
                     .keyboardShortcut("-", modifiers: [.command])
-                Button("Actual Size") { state.resetZoom() }
+                Button("Actual Size") { session.resetZoom() }
                     .keyboardShortcut("0", modifiers: [.command])
                 Divider()
                 Button("Open in System Browser") {
-                    if let url = URL(string: state.currentURL) {
+                    if let url = URL(string: session.nav.currentURL) {
                         NSWorkspace.shared.open(url)
                     }
                 }
@@ -122,8 +122,8 @@ private struct BrowserChrome: View {
         .padding(.horizontal, UIMetrics.spacing5)
         .frame(height: UIMetrics.scaled(36))
         .background(MuxyTheme.bg)
-        .onAppear { addressFieldText = state.currentURL }
-        .onChange(of: state.currentURL) { _, newValue in
+        .onAppear { addressFieldText = session.nav.currentURL }
+        .onChange(of: session.nav.currentURL) { _, newValue in
             if !addressFieldFocused {
                 addressFieldText = newValue
             }
@@ -208,7 +208,7 @@ private struct BrowserProgressBar: View {
 }
 
 private struct BrowserInspectorToggle: View {
-    @Bindable var state: BrowserTabState
+    @Bindable var session: BrowserSession
 
     var body: some View {
         HStack(spacing: 0) {
@@ -226,49 +226,49 @@ private struct BrowserInspectorToggle: View {
         .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
     }
 
-    private func inspectorButton(mode: BrowserTabState.InspectorMode, symbol: String, title: String) -> some View {
+    private func inspectorButton(mode: BrowserInspectorState.Mode, symbol: String, title: String) -> some View {
         Button {
-            state.setInspectorMode(state.inspectorMode == mode ? .off : mode)
+            session.setInspectorMode(session.inspector.inspectorMode == mode ? .off : mode)
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: UIMetrics.scaled(12), weight: .semibold))
-                .foregroundStyle(state.inspectorMode == mode ? MuxyTheme.accent : MuxyTheme.fgMuted)
+                .foregroundStyle(session.inspector.inspectorMode == mode ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(state.inspectorMode == mode ? "Disable \(title)" : "Enable \(title)")
+        .help(session.inspector.inspectorMode == mode ? "Disable \(title)" : "Enable \(title)")
         .accessibilityLabel(title)
     }
 }
 
 private struct BookmarkMenu: View {
-    @Bindable var state: BrowserTabState
+    @Bindable var session: BrowserSession
     private let bookmarkStore = BrowserBookmarkStore.shared
 
     var body: some View {
         Menu {
             Button {
                 let bookmark = BrowserBookmark(
-                    title: state.pageTitle.isEmpty ? state.currentURL : state.pageTitle,
-                    url: state.currentURL
+                    title: session.nav.pageTitle.isEmpty ? session.nav.currentURL : session.nav.pageTitle,
+                    url: session.nav.currentURL
                 )
-                bookmarkStore.add(bookmark, projectPath: state.projectPath)
+                bookmarkStore.add(bookmark, projectPath: session.projectPath)
             } label: {
                 Label("Bookmark This Page", systemImage: "bookmark.fill")
             }
-            .disabled(state.currentURL.isEmpty || state.currentURL == BrowserTabState.defaultURL)
+            .disabled(session.nav.currentURL.isEmpty || session.nav.currentURL == BrowserSession.defaultURL)
 
             Divider()
 
-            let bookmarks = bookmarkStore.bookmarks(for: state.projectPath)
+            let bookmarks = bookmarkStore.bookmarks(for: session.projectPath)
             if bookmarks.isEmpty {
                 Button("No Bookmarks") {}
                     .disabled(true)
             } else {
                 ForEach(bookmarks) { bookmark in
                     Button {
-                        state.requestNavigate(to: bookmark.url)
+                        session.requestNavigate(to: bookmark.url)
                     } label: {
                         VStack(alignment: .leading) {
                             Text(bookmark.title)
@@ -282,7 +282,7 @@ private struct BookmarkMenu: View {
                 Menu("Remove Bookmark") {
                     ForEach(bookmarks) { bookmark in
                         Button(bookmark.title) {
-                            bookmarkStore.remove(id: bookmark.id, projectPath: state.projectPath)
+                            bookmarkStore.remove(id: bookmark.id, projectPath: session.projectPath)
                         }
                     }
                 }

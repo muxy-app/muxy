@@ -18,7 +18,7 @@ final class TerminalTab: Identifiable {
         case editor(EditorTabState)
         case diffViewer(DiffViewerTabState)
         case imageViewer(ImageViewerTabState)
-        case browser(BrowserTabState)
+        case browser(BrowserSession)
 
         var kind: Kind {
             switch self {
@@ -56,9 +56,9 @@ final class TerminalTab: Identifiable {
             return state
         }
 
-        var browserState: BrowserTabState? {
-            guard case let .browser(state) = self else { return nil }
-            return state
+        var browserSession: BrowserSession? {
+            guard case let .browser(session) = self else { return nil }
+            return session
         }
 
         var projectPath: String {
@@ -68,7 +68,7 @@ final class TerminalTab: Identifiable {
             case let .editor(state): state.projectPath
             case let .diffViewer(state): state.projectPath
             case let .imageViewer(state): state.projectPath
-            case let .browser(state): state.projectPath
+            case let .browser(session): session.projectPath
             }
         }
     }
@@ -96,8 +96,8 @@ final class TerminalTab: Identifiable {
             return state.displayTitle
         case let .imageViewer(state):
             return state.displayTitle
-        case let .browser(state):
-            return state.displayTitle
+        case let .browser(session):
+            return session.nav.displayTitle
         }
     }
 
@@ -126,9 +126,9 @@ final class TerminalTab: Identifiable {
         content = .imageViewer(imageViewerState)
     }
 
-    init(browserState: BrowserTabState) {
-        id = browserState.id
-        content = .browser(browserState)
+    init(browserSession: BrowserSession) {
+        id = browserSession.id
+        content = .browser(browserSession)
     }
 
     init(restoring snapshot: TerminalTabSnapshot, restoredSession: TerminalSessionSnapshot? = nil) {
@@ -170,8 +170,8 @@ final class TerminalTab: Identifiable {
                 content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
             }
         case .browser:
-            let initialURL = snapshot.browserURL ?? BrowserTabState.homeURL
-            content = .browser(BrowserTabState(
+            let initialURL = snapshot.browserURL ?? BrowserSession.homeURL
+            content = .browser(BrowserSession(
                 id: snapshot.id,
                 projectPath: snapshot.projectPath,
                 initialURL: initialURL,
@@ -193,9 +193,9 @@ final class TerminalTab: Identifiable {
             paneID: content.pane?.id,
             filePath: content.editorState?.filePath ?? content.imageViewerState?.filePath,
             currentWorkingDirectory: content.pane?.currentWorkingDirectory,
-            browserURL: content.browserState?.currentURL,
-            browserScrollY: content.browserState?.scrollY,
-            browserZoom: content.browserState?.zoom
+            browserURL: content.browserSession?.nav.currentURL,
+            browserScrollY: content.browserSession?.nav.scrollY,
+            browserZoom: content.browserSession?.nav.zoom
         )
     }
 }

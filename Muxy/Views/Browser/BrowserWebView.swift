@@ -20,16 +20,16 @@ final class BrowserWKWebView: WKWebView {
 }
 
 struct BrowserWebView: NSViewRepresentable {
-    let state: BrowserTabState
+    let session: BrowserSession
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(state: state)
+        Coordinator(session: session)
     }
 
     func makeNSView(context: Context) -> BrowserWKWebView {
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
-        config.websiteDataStore = BrowserSession.dataStore
+        config.websiteDataStore = WKWebsiteDataStore.default()
 
         let userContent = WKUserContentController()
         if let script = BrowserUserScripts.documentEndScript() {
@@ -55,12 +55,13 @@ struct BrowserWebView: NSViewRepresentable {
         context.coordinator.webView = webView
         context.coordinator.bridge.webView = webView
         context.coordinator.installObservers()
+        context.coordinator.startConsumingCommands()
 
         webView.onReload = { [weak webView] in
             webView?.reload()
         }
 
-        if let url = state.resolvedURL ?? URL(string: state.currentURL),
+        if let url = session.nav.resolvedURL ?? URL(string: session.nav.currentURL),
            BrowserURLNormalizer.isAllowedNavigationURL(url)
         {
             webView.load(URLRequest(url: url))
@@ -69,9 +70,7 @@ struct BrowserWebView: NSViewRepresentable {
         return webView
     }
 
-    func updateNSView(_ webView: BrowserWKWebView, context: Context) {
-        context.coordinator.sync(state: state, into: webView)
-    }
+    func updateNSView(_: BrowserWKWebView, context _: Context) {}
 
     static func dismantleNSView(_ webView: BrowserWKWebView, coordinator: Coordinator) {
         coordinator.tearDown(webView: webView)
@@ -82,16 +81,8 @@ struct BrowserWebView: NSViewRepresentable {
         weak var webView: BrowserWKWebView?
         let bridge: BrowserBridge
 
-        private let state: BrowserTabState
-        private var lastNavigationVersion: Int = 0
-        private var lastReloadVersion: Int = 0
-        private var lastStopVersion: Int = 0
-        private var lastBackVersion: Int = 0
-        private var lastForwardVersion: Int = 0
-        private var lastZoomVersion: Int = 0
-        private var lastScrollRestoreVersion: Int = 0
-        private var lastInspectorModeVersion: Int = 0
-        private var lastStyleOverridesVersion: Int = 0
+        private let session: BrowserSession
+        private var commandTask: Task<Void, Never>?
         private var loadingObservation: NSKeyValueObservation?
         private var progressObservation: NSKeyValueObservation?
         private var canGoBackObservation: NSKeyValueObservation?
@@ -99,9 +90,9 @@ struct BrowserWebView: NSViewRepresentable {
         private var titleObservation: NSKeyValueObservation?
         private var urlObservation: NSKeyValueObservation?
 
-        init(state: BrowserTabState) {
-            self.state = state
-            bridge = BrowserBridge(state: state)
+        init(session: BrowserSession) {
+            self.session = session
+            bridge = BrowserBridge(session: session)
         }
 
         func installObservers() {
@@ -109,43 +100,56 @@ struct BrowserWebView: NSViewRepresentable {
             loadingObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor in
                     guard let self else { return }
-                    self.state.isLoading = webView.isLoading
+                    self.session.nav.isLoading = webView.isLoading
                 }
             }
             progressObservation = webView.observe(\.estimatedProgress, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor in
                     guard let self else { return }
-                    self.state.estimatedProgress = webView.estimatedProgress
+                    self.session.nav.estimatedProgress = webView.estimatedProgress
                 }
             }
             canGoBackObservation = webView.observe(\.canGoBack, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor in
                     guard let self else { return }
-                    self.state.canGoBack = webView.canGoBack
+                    self.session.nav.canGoBack = webView.canGoBack
                 }
             }
             canGoForwardObservation = webView.observe(\.canGoForward, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor in
                     guard let self else { return }
-                    self.state.canGoForward = webView.canGoForward
+                    self.session.nav.canGoForward = webView.canGoForward
                 }
             }
             titleObservation = webView.observe(\.title, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor in
                     guard let self, let title = webView.title else { return }
-                    self.state.pageTitle = title
+                    self.session.nav.pageTitle = title
                 }
             }
             urlObservation = webView.observe(\.url, options: [.new]) { [weak self] _, _ in
                 Task { @MainActor in
                     guard let self, let url = webView.url else { return }
-                    self.state.currentURL = url.absoluteString
-                    self.state.pendingURL = url.absoluteString
+                    self.session.nav.currentURL = url.absoluteString
+                    self.session.nav.pendingURL = url.absoluteString
+                }
+            }
+        }
+
+        func startConsumingCommands() {
+            commandTask?.cancel()
+            let stream = session.commands.stream
+            commandTask = Task { @MainActor [weak self] in
+                for await command in stream {
+                    guard let self else { return }
+                    self.handle(command: command)
                 }
             }
         }
 
         func tearDown(webView: BrowserWKWebView) {
+            commandTask?.cancel()
+            commandTask = nil
             webView.configuration.userContentController.removeScriptMessageHandler(
                 forName: BrowserBridge.messageName,
                 contentWorld: BrowserBridge.contentWorld
@@ -158,57 +162,37 @@ struct BrowserWebView: NSViewRepresentable {
             urlObservation = nil
         }
 
-        func sync(state: BrowserTabState, into webView: BrowserWKWebView) {
-            if state.navigationRequestVersion != lastNavigationVersion {
-                lastNavigationVersion = state.navigationRequestVersion
-                if let url = state.resolvedURL, BrowserURLNormalizer.isAllowedNavigationURL(url) {
-                    webView.load(URLRequest(url: url))
-                }
-            }
-            if state.reloadRequestVersion != lastReloadVersion {
-                lastReloadVersion = state.reloadRequestVersion
+        private func handle(command: BrowserWebViewCommand) {
+            guard let webView else { return }
+            switch command {
+            case let .navigate(url):
+                webView.load(URLRequest(url: url))
+            case .reload:
                 webView.reload()
-            }
-            if state.stopRequestVersion != lastStopVersion {
-                lastStopVersion = state.stopRequestVersion
+            case .stop:
                 webView.stopLoading()
-            }
-            if state.backRequestVersion != lastBackVersion {
-                lastBackVersion = state.backRequestVersion
+            case .back:
                 webView.goBack()
-            }
-            if state.forwardRequestVersion != lastForwardVersion {
-                lastForwardVersion = state.forwardRequestVersion
+            case .forward:
                 webView.goForward()
-            }
-            if state.zoomRequestVersion != lastZoomVersion {
-                lastZoomVersion = state.zoomRequestVersion
-                webView.pageZoom = state.zoom
-            }
-            if state.scrollRestoreRequestVersion != lastScrollRestoreVersion {
-                lastScrollRestoreVersion = state.scrollRestoreRequestVersion
-                if let y = state.pendingScrollRestore {
-                    evaluateInBridgeWorld(
-                        "window.__muxyBrowserAPI && window.__muxyBrowserAPI.scrollTo(\(y));",
-                        in: webView
-                    )
-                }
-            }
-            if state.inspectorModeVersion != lastInspectorModeVersion {
-                lastInspectorModeVersion = state.inspectorModeVersion
+            case let .setZoom(value):
+                webView.pageZoom = value
+            case let .scrollTo(y):
                 evaluateInBridgeWorld(
-                    "window.__muxyBrowserAPI && window.__muxyBrowserAPI.setMode('\(state.inspectorMode.rawValue)');",
+                    "window.__muxyBrowserAPI && window.__muxyBrowserAPI.scrollTo(\(y));",
                     in: webView
                 )
-            }
-            if state.styleOverridesVersion != lastStyleOverridesVersion {
-                lastStyleOverridesVersion = state.styleOverridesVersion
-                pushStyleOverrides(state: state, into: webView)
+            case let .setInspectorMode(mode):
+                evaluateInBridgeWorld(
+                    "window.__muxyBrowserAPI && window.__muxyBrowserAPI.setMode('\(mode.rawValue)');",
+                    in: webView
+                )
+            case let .applyStyleOverrides(overrides):
+                pushStyleOverrides(overrides: overrides, into: webView)
             }
         }
 
-        private func pushStyleOverrides(state: BrowserTabState, into webView: WKWebView) {
-            let overrides = state.aggregatedStyleOverrides()
+        private func pushStyleOverrides(overrides: [StyleOverride], into webView: WKWebView) {
             let grouped = Dictionary(grouping: overrides, by: \.selector)
             let rulesPayload = grouped.map { selector, items -> [String: Any] in
                 [
@@ -240,7 +224,7 @@ struct BrowserWebView: NSViewRepresentable {
             guard let url = navigationAction.request.url else { return .cancel }
             guard BrowserURLNormalizer.isAllowedNavigationURL(url) else {
                 Task { @MainActor in
-                    state.handleNavigationFailed(message: "Blocked navigation to \(url.scheme ?? "unknown") URL")
+                    session.nav.handleNavigationFailed(message: "Blocked navigation to \(url.scheme ?? "unknown") URL")
                 }
                 return .cancel
             }
@@ -249,40 +233,40 @@ struct BrowserWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
             Task { @MainActor in
-                let url = webView.url?.absoluteString ?? state.currentURL
+                let url = webView.url?.absoluteString ?? session.nav.currentURL
                 let title = webView.title ?? ""
-                self.state.handleNavigationFinished(
+                self.session.nav.handleNavigationFinished(
                     url: url,
                     title: title,
                     canGoBack: webView.canGoBack,
                     canGoForward: webView.canGoForward
                 )
-                if let pending = self.state.pendingScrollRestore {
+                if let pending = self.session.nav.pendingScrollRestore {
                     self.evaluateInBridgeWorld("window.scrollTo(0, \(pending));", in: webView)
-                    self.state.pendingScrollRestore = nil
+                    self.session.nav.pendingScrollRestore = nil
                 }
-                if self.state.inspectorMode != .off {
+                if self.session.inspector.inspectorMode != .off {
                     self.evaluateInBridgeWorld(
-                        "window.__muxyBrowserAPI && window.__muxyBrowserAPI.setMode('\(self.state.inspectorMode.rawValue)');",
+                        "window.__muxyBrowserAPI && window.__muxyBrowserAPI.setMode('\(self.session.inspector.inspectorMode.rawValue)');",
                         in: webView
                     )
                 }
-                let overrides = self.state.aggregatedStyleOverrides()
+                let overrides = self.session.inspector.aggregatedStyleOverrides()
                 if !overrides.isEmpty {
-                    self.pushStyleOverrides(state: self.state, into: webView)
+                    self.pushStyleOverrides(overrides: overrides, into: webView)
                 }
             }
         }
 
         func webView(_: WKWebView, didFail _: WKNavigation!, withError error: Error) {
             Task { @MainActor in
-                self.state.handleNavigationFailed(message: error.localizedDescription)
+                self.session.nav.handleNavigationFailed(message: error.localizedDescription)
             }
         }
 
         func webView(_: WKWebView, didFailProvisionalNavigation _: WKNavigation!, withError error: Error) {
             Task { @MainActor in
-                self.state.handleNavigationFailed(message: error.localizedDescription)
+                self.session.nav.handleNavigationFailed(message: error.localizedDescription)
             }
         }
 
@@ -299,11 +283,6 @@ struct BrowserWebView: NSViewRepresentable {
             return nil
         }
     }
-}
-
-@MainActor
-enum BrowserSession {
-    static let dataStore: WKWebsiteDataStore = .default()
 }
 
 @MainActor

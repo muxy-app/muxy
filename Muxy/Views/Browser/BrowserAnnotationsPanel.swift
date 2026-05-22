@@ -1,13 +1,13 @@
 import SwiftUI
 
 struct BrowserAnnotationsPanel: View {
-    @Bindable var state: BrowserTabState
+    @Bindable var session: BrowserSession
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            if state.annotations.isEmpty {
+            if session.inspector.annotations.isEmpty {
                 emptyState
             } else {
                 list
@@ -26,7 +26,7 @@ struct BrowserAnnotationsPanel: View {
                 .foregroundStyle(MuxyTheme.fg)
             Spacer()
             Button {
-                state.showsAnnotationsPanel = false
+                session.inspector.showsAnnotationsPanel = false
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
@@ -58,8 +58,8 @@ struct BrowserAnnotationsPanel: View {
     private var list: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: UIMetrics.spacing3) {
-                ForEach(state.annotations) { annotation in
-                    AnnotationRow(state: state, annotationID: annotation.id)
+                ForEach(session.inspector.annotations) { annotation in
+                    AnnotationRow(session: session, annotationID: annotation.id)
                 }
             }
             .padding(UIMetrics.spacing4)
@@ -68,14 +68,14 @@ struct BrowserAnnotationsPanel: View {
 }
 
 private struct AnnotationRow: View {
-    @Bindable var state: BrowserTabState
+    @Bindable var session: BrowserSession
     let annotationID: UUID
     @Environment(AppState.self) private var appState
     @State private var draftComment: String = ""
     @State private var showsStylePopover = false
 
     private var annotation: BrowserAnnotation? {
-        state.annotations.first(where: { $0.id == annotationID })
+        session.inspector.annotations.first(where: { $0.id == annotationID })
     }
 
     var body: some View {
@@ -98,12 +98,12 @@ private struct AnnotationRow: View {
                     }
                     .buttonStyle(.plain)
                     .popover(isPresented: $showsStylePopover, arrowEdge: .leading) {
-                        StyleInspectorPopover(state: state, annotationID: annotationID)
+                        StyleInspectorPopover(session: session, annotationID: annotationID)
                     }
                     .help("Style controls")
 
                     Button {
-                        state.removeAnnotation(id: annotationID)
+                        session.inspector.removeAnnotation(id: annotationID)
                     } label: {
                         Image(systemName: "trash")
                             .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
@@ -133,7 +133,7 @@ private struct AnnotationRow: View {
                     get: { draftComment.isEmpty && !annotation.comment.isEmpty ? annotation.comment : draftComment },
                     set: { newValue in
                         draftComment = newValue
-                        state.updateComment(annotationID: annotationID, comment: newValue)
+                        session.inspector.updateComment(annotationID: annotationID, comment: newValue)
                     }
                 ))
                 .font(.system(size: UIMetrics.fontFootnote))
@@ -151,9 +151,9 @@ private struct AnnotationRow: View {
                     Button("Send to Terminal") {
                         BrowserAnnotationSender.send(
                             annotation: annotation,
-                            from: state,
+                            from: session,
                             appState: appState,
-                            markSent: { state.markAnnotationSent(annotationID) }
+                            markSent: { session.inspector.markAnnotationSent(annotationID) }
                         )
                     }
                     .buttonStyle(.plain)

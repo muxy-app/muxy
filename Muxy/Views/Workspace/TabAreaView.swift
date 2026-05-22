@@ -220,8 +220,8 @@ private struct TabContentView: View {
             DiffViewerPane(state: diffState, focused: focused, onFocus: onFocus)
         case let .imageViewer(imageState):
             ImageViewerPane(state: imageState, focused: focused, onFocus: onFocus)
-        case let .browser(browserState):
-            BrowserPane(state: browserState, focused: focused, onFocus: onFocus)
+        case let .browser(session):
+            BrowserPane(session: session, focused: focused, onFocus: onFocus)
         }
     }
 }

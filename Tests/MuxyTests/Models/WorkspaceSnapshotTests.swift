@@ -367,8 +367,8 @@ struct WorkspaceSnapshotTests {
         #expect(decoded.browserZoom == 1.25)
     }
 
-    @Test("TerminalTab restoring browser snapshot rebuilds BrowserTabState")
-    func browserTabStateRestoresFromSnapshot() {
+    @Test("TerminalTab restoring browser snapshot rebuilds BrowserSession")
+    func browserSessionRestoresFromSnapshot() {
         let snapshot = TerminalTabSnapshot(
             kind: .browser,
             customTitle: nil,
@@ -381,10 +381,10 @@ struct WorkspaceSnapshotTests {
             browserZoom: 1.5
         )
         let tab = TerminalTab(restoring: snapshot)
-        let browser = tab.content.browserState
-        #expect(browser != nil)
-        #expect(browser?.currentURL == "https://example.com")
-        #expect(browser?.scrollY == 120)
-        #expect(browser?.zoom == 1.5)
+        let session = tab.content.browserSession
+        #expect(session != nil)
+        #expect(session?.nav.currentURL == "https://example.com")
+        #expect(session?.nav.scrollY == 120)
+        #expect(session?.nav.zoom == 1.5)
     }
 }
