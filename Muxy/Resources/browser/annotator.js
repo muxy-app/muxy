@@ -136,9 +136,6 @@
         STATE.hoveredEl = el;
         var rect = el.getBoundingClientRect();
         paintHighlight(rect);
-        postMessage('hovered', {
-            selector: buildSelector(el),
-        });
     }
 
     function handleMouseLeave() {
@@ -194,10 +191,13 @@
         postMessage('titleChanged', { title: document.title });
     }
 
+    var ALLOWED_MODES = { off: true, pick: true };
+
     function setMode(mode) {
-        STATE.mode = mode;
-        document.documentElement.setAttribute('data-muxy-mode', mode);
-        if (mode === 'off') {
+        var normalized = ALLOWED_MODES[mode] ? mode : 'off';
+        STATE.mode = normalized;
+        document.documentElement.setAttribute('data-muxy-mode', normalized);
+        if (normalized === 'off') {
             STATE.hoveredEl = null;
             hideHighlight();
         }

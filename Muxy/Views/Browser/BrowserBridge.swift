@@ -35,8 +35,6 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
         switch name {
         case "picked":
             handlePicked(body)
-        case "hovered":
-            handleHovered(body)
         case "scrolled":
             handleScrolled(body)
         case "titleChanged":
@@ -88,18 +86,6 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
 
         session.inspector.addAnnotation(annotation)
         session.inspector.computedStyleSeeds[annotation.id] = computed
-
-        if session.inspector.inspectorMode == .style {
-            session.inspector.showsStyleInspector = true
-        }
-    }
-
-    private func handleHovered(_ body: [String: Any]) {
-        guard session.inspector.inspectorMode != .off else { return }
-        session.inspector.hoveredSelector = sanitizedString(
-            body["selector"],
-            maxLength: BrowserAnnotationSanitizer.maxSelectorLength
-        )
     }
 
     private func handleScrolled(_ body: [String: Any]) {

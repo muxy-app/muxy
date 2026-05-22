@@ -210,35 +210,24 @@ private struct BrowserProgressBar: View {
 private struct BrowserInspectorToggle: View {
     @Bindable var session: BrowserSession
 
-    var body: some View {
-        HStack(spacing: 0) {
-            inspectorButton(
-                mode: .annotate,
-                symbol: "bubble.left.and.bubble.right",
-                title: "Annotate"
-            )
-            inspectorButton(
-                mode: .style,
-                symbol: "paintbrush",
-                title: "Style"
-            )
-        }
-        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
-    }
+    private var isActive: Bool { session.inspector.inspectorMode == .pick }
 
-    private func inspectorButton(mode: BrowserInspectorState.Mode, symbol: String, title: String) -> some View {
+    var body: some View {
         Button {
-            session.setInspectorMode(session.inspector.inspectorMode == mode ? .off : mode)
+            session.setInspectorMode(isActive ? .off : .pick)
         } label: {
-            Image(systemName: symbol)
+            Image(systemName: "cursorarrow.click")
                 .font(.system(size: UIMetrics.scaled(12), weight: .semibold))
-                .foregroundStyle(session.inspector.inspectorMode == mode ? MuxyTheme.accent : MuxyTheme.fgMuted)
+                .foregroundStyle(isActive ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
                 .contentShape(Rectangle())
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
         }
         .buttonStyle(.plain)
-        .help(session.inspector.inspectorMode == mode ? "Disable \(title)" : "Enable \(title)")
-        .accessibilityLabel(title)
+        .help(isActive ? "Stop inspecting" : "Inspect an element to comment or restyle")
+        .accessibilityLabel("Inspect")
+        .accessibilityHint("Click an element on the page to add a comment or edit its styles")
+        .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
 }
 

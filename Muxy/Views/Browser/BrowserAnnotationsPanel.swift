@@ -18,10 +18,10 @@ struct BrowserAnnotationsPanel: View {
 
     private var header: some View {
         HStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: "bubble.left.and.bubble.right")
+            Image(systemName: "square.dashed")
                 .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            Text("Annotations")
+            Text("Elements")
                 .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
             Spacer()
@@ -35,7 +35,7 @@ struct BrowserAnnotationsPanel: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Hide annotations panel")
+            .accessibilityLabel("Hide elements panel")
         }
         .padding(.horizontal, UIMetrics.spacing4)
         .frame(height: UIMetrics.scaled(28))
@@ -46,7 +46,7 @@ struct BrowserAnnotationsPanel: View {
             Image(systemName: "cursorarrow.click")
                 .font(.system(size: UIMetrics.fontTitle))
                 .foregroundStyle(MuxyTheme.fgDim)
-            Text("Toggle annotate mode and click an element to leave feedback.")
+            Text("Turn on Inspect and click an element to comment or restyle it.")
                 .font(.system(size: UIMetrics.fontFootnote))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -92,7 +92,7 @@ private struct AnnotationRow: View {
                     Button {
                         showsStylePopover = true
                     } label: {
-                        Image(systemName: "slider.horizontal.3")
+                        Image(systemName: "paintbrush")
                             .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                             .foregroundStyle(MuxyTheme.fgMuted)
                     }
@@ -100,7 +100,8 @@ private struct AnnotationRow: View {
                     .popover(isPresented: $showsStylePopover, arrowEdge: .leading) {
                         StyleInspectorPopover(session: session, annotationID: annotationID)
                     }
-                    .help("Style controls")
+                    .help("Edit styles")
+                    .accessibilityLabel("Edit styles")
 
                     Button {
                         session.inspector.removeAnnotation(id: annotationID)

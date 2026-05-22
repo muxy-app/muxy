@@ -5,34 +5,26 @@ import Foundation
 final class BrowserInspectorState {
     enum Mode: String {
         case off
-        case annotate
-        case style
+        case pick
     }
 
     var inspectorMode: Mode = .off
-    var hoveredSelector: String?
 
     var annotations: [BrowserAnnotation] = []
-    var selectedAnnotationID: UUID?
-    var draftAnnotationID: UUID?
     var computedStyleSeeds: [UUID: [String: String]] = [:]
 
     var showsAnnotationsPanel: Bool = false
-    var showsStyleInspector: Bool = false
 
     @discardableResult
     func addAnnotation(_ annotation: BrowserAnnotation) -> BrowserAnnotation {
         annotations.append(annotation)
-        selectedAnnotationID = annotation.id
-        draftAnnotationID = annotation.id
         showsAnnotationsPanel = true
         return annotation
     }
 
     func removeAnnotation(id: UUID) {
         annotations.removeAll { $0.id == id }
-        if selectedAnnotationID == id { selectedAnnotationID = nil }
-        if draftAnnotationID == id { draftAnnotationID = nil }
+        computedStyleSeeds.removeValue(forKey: id)
     }
 
     func updateComment(annotationID: UUID, comment: String) {

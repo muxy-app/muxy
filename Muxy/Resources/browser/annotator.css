@@ -10,12 +10,10 @@
     display: none;
 }
 
-html[data-muxy-mode="annotate"],
-html[data-muxy-mode="style"] {
+html[data-muxy-mode="pick"] {
     cursor: crosshair !important;
 }
 
-html[data-muxy-mode="annotate"] *,
-html[data-muxy-mode="style"] * {
+html[data-muxy-mode="pick"] * {
     cursor: crosshair !important;
 }
