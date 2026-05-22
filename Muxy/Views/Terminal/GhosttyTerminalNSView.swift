@@ -43,7 +43,7 @@ final class GhosttyTerminalNSView: NSView {
 
     private var _markedText: String = ""
     private var _markedRange: NSRange = .init(location: NSNotFound, length: 0)
-    private var _selectedRange: NSRange = .init(location: NSNotFound, length: 0)
+    private var _selectedRange: NSRange = .init(location: 0, length: 0)
 
     private var keyTextAccumulator: [String] = []
     private var currentKeyEvent: NSEvent?
@@ -1283,8 +1283,8 @@ extension GhosttyTerminalNSView: @preconcurrency NSTextInputClient {
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         let text = (string as? String) ?? (string as? NSAttributedString)?.string ?? ""
         _markedText = text
-        _markedRange = text.isEmpty ? NSRange(location: NSNotFound, length: 0) : NSRange(location: 0, length: text.count)
-        _selectedRange = selectedRange
+        _markedRange = text.isEmpty ? NSRange(location: NSNotFound, length: 0) : NSRange(location: 0, length: text.utf16.count)
+        _selectedRange = clampedMarkedRange(selectedRange)
 
         if currentKeyEvent == nil {
             syncPreedit()
@@ -1295,6 +1295,7 @@ extension GhosttyTerminalNSView: @preconcurrency NSTextInputClient {
         guard hasMarkedText() else { return }
         _markedText = ""
         _markedRange = NSRange(location: NSNotFound, length: 0)
+        _selectedRange = NSRange(location: 0, length: 0)
         syncPreedit()
     }
 
@@ -1311,11 +1312,17 @@ extension GhosttyTerminalNSView: @preconcurrency NSTextInputClient {
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
-        nil
+        guard hasMarkedText() else {
+            actualRange?.pointee = NSRange(location: 0, length: 0)
+            return range.location == 0 && range.length == 0 ? NSAttributedString(string: "") : nil
+        }
+        guard let safeRange = intersection(range, with: _markedRange) else { return nil }
+        actualRange?.pointee = safeRange
+        return NSAttributedString(string: (_markedText as NSString).substring(with: safeRange))
     }
 
     func validAttributesForMarkedText() -> [NSAttributedString.Key] {
-        [.underlineStyle, .backgroundColor]
+        []
     }
 
     func characterIndex(for point: NSPoint) -> Int {
@@ -1329,5 +1336,20 @@ extension GhosttyTerminalNSView: @preconcurrency NSTextInputClient {
         let viewPt = NSPoint(x: x, y: bounds.height - y)
         let screenPt = window?.convertPoint(toScreen: convert(viewPt, to: nil)) ?? viewPt
         return NSRect(x: screenPt.x, y: screenPt.y - h, width: w, height: h)
+    }
+
+    private func clampedMarkedRange(_ range: NSRange) -> NSRange {
+        guard range.location != NSNotFound else { return NSRange(location: 0, length: 0) }
+        let length = _markedText.utf16.count
+        let location = min(range.location, length)
+        return NSRange(location: location, length: min(range.length, length - location))
+    }
+
+    private func intersection(_ range: NSRange, with otherRange: NSRange) -> NSRange? {
+        guard range.location != NSNotFound, otherRange.location != NSNotFound else { return nil }
+        let start = max(range.location, otherRange.location)
+        let end = min(range.location + range.length, otherRange.location + otherRange.length)
+        guard start <= end else { return nil }
+        return NSRange(location: start, length: end - start)
     }
 }
