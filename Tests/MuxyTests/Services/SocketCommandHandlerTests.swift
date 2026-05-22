@@ -34,9 +34,18 @@ struct SocketCommandHandlerTests {
     @Test("split-right with command returns new pane ID")
     func splitWithCommandReturnsNewPaneID() async {
         let appState = makeAppState()
-        let result = await SocketCommandHandler.handleRequest("split-right|echo hello", appState: appState)
+        let result = await SocketCommandHandler.handleRequest("split-right||echo hello", appState: appState)
         #expect(!result.hasPrefix("error:"))
         #expect(UUID(uuidString: result) != nil)
+    }
+
+    @Test("split-right preserves commands containing pipes")
+    func splitPreservesCommandPipes() async {
+        let appState = makeAppState()
+        let result = await SocketCommandHandler.handleRequest("split-right||echo a | wc", appState: appState)
+        let paneID = UUID(uuidString: result)
+        #expect(paneID != nil)
+        #expect(paneID.flatMap { pane(with: $0, appState: appState)?.startupCommand } == "(echo a | wc); exec \"$0\" -l")
     }
 
     @Test("split fails without active project")
@@ -124,9 +133,20 @@ struct SocketCommandHandlerTests {
     func splitWithFromPane() async {
         let appState = makeAppState()
         let firstPaneID = appState.workspaceRoots.values.first!.allAreas().first!.tabs.first!.content.pane!.id
-        let result = await SocketCommandHandler.handleRequest("split-right||" + firstPaneID.uuidString, appState: appState)
+        let result = await SocketCommandHandler.handleRequest("split-right|" + firstPaneID.uuidString + "|", appState: appState)
         #expect(!result.hasPrefix("error:"))
         #expect(UUID(uuidString: result) != nil)
+    }
+
+    private func pane(with paneID: UUID, appState: AppState) -> TerminalPaneState? {
+        for root in appState.workspaceRoots.values {
+            for area in root.allAreas() {
+                for tab in area.tabs where tab.content.pane?.id == paneID {
+                    return tab.content.pane
+                }
+            }
+        }
+        return nil
     }
 
     private func makeAppState(

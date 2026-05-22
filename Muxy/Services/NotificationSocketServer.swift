@@ -97,9 +97,9 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     private static let maxMessageSize = 65536
 
-    private static let commandPrefixes = [
-        "split-right", "split-down", "send|", "send-keys|",
-        "read-screen|", "close-pane|", "rename-pane|", "list-panes",
+    private static let commandNames = [
+        "split-right", "split-down", "send", "send-keys",
+        "read-screen", "close-pane", "rename-pane", "list-panes",
     ]
 
     private func handleClient(_ fd: Int32) {
@@ -118,17 +118,26 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
 
         guard !data.isEmpty,
-              let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !message.isEmpty
+              let message = String(data: data, encoding: .utf8)
         else { return }
 
-        if Self.commandPrefixes.contains(where: { message.hasPrefix($0) }) {
-            let response = processCommand(message)
+        let commandMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isCommandMessage(commandMessage) {
+            let response = processCommand(commandMessage)
             writeResponse(fd: fd, text: response)
             return
         }
 
-        processMessage(Data(message.utf8))
+        for line in data.split(separator: UInt8(ascii: "\n")) {
+            processMessage(Data(line))
+        }
+    }
+
+    private func isCommandMessage(_ message: String) -> Bool {
+        guard let command = message.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).first else {
+            return false
+        }
+        return Self.commandNames.contains(String(command))
     }
 
     private func processCommand(_ message: String) -> String {
@@ -144,7 +153,9 @@ final class NotificationSocketServer: @unchecked Sendable {
             semaphore.signal()
         }
 
-        semaphore.wait()
+        guard semaphore.wait(timeout: .now() + .seconds(5)) == .success else {
+            return "error:timeout"
+        }
         return response
     }
 

@@ -13,13 +13,11 @@ enum SocketCommandHandler {
 
         switch cmd {
         case "split-right":
-            let command = parts.count >= 2 ? parts[1] : nil
-            let fromPane = parts.count >= 3 ? parts[2] : nil
-            return handleSplit(direction: .horizontal, command: command, fromPane: fromPane, appState: appState)
+            let request = parseSplitRequest(parts: parts)
+            return handleSplit(direction: .horizontal, command: request.command, fromPane: request.fromPane, appState: appState)
         case "split-down":
-            let command = parts.count >= 2 ? parts[1] : nil
-            let fromPane = parts.count >= 3 ? parts[2] : nil
-            return handleSplit(direction: .vertical, command: command, fromPane: fromPane, appState: appState)
+            let request = parseSplitRequest(parts: parts)
+            return handleSplit(direction: .vertical, command: request.command, fromPane: request.fromPane, appState: appState)
         case "send":
             guard parts.count >= 3 else { return "error:usage send|paneID|text" }
             return await handleSend(paneIDStr: parts[1], text: parts.dropFirst(2).joined(separator: "|"), appState: appState)
@@ -41,6 +39,20 @@ enum SocketCommandHandler {
         default:
             return "error:unknown command \(cmd)"
         }
+    }
+
+    private static func parseSplitRequest(parts: [String]) -> (fromPane: String?, command: String?) {
+        guard parts.count >= 2 else { return (nil, nil) }
+        let firstValue = parts[1]
+        let firstValueIsPane = firstValue.isEmpty || UUID(uuidString: firstValue) != nil
+        if firstValueIsPane {
+            let command = parts.count >= 3 ? parts.dropFirst(2).joined(separator: "|") : nil
+            return (firstValue, command)
+        }
+        if parts.count >= 3, let fromPane = parts.last, UUID(uuidString: fromPane) != nil {
+            return (fromPane, parts.dropFirst(1).dropLast().joined(separator: "|"))
+        }
+        return (nil, parts.dropFirst(1).joined(separator: "|"))
     }
 
     private static func handleSplit(direction: SplitDirection, command: String?, fromPane: String?, appState: AppState) -> String {

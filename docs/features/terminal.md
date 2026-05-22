@@ -25,6 +25,10 @@ Most Ghostty options work — fonts, colors, padding, keybinds, shell integratio
 
 Muxy tracks the cwd via Ghostty's shell integration (OSC 7). The directory is persisted in workspace snapshots so newly recreated tabs land in the same folder when applicable.
 
+## Muxy CLI
+
+Use the `muxy` command to open projects and control panes from a shell or automation script. See [Muxy CLI](muxy-cli.md).
+
 ## Custom command shortcuts
 
 Define reusable shell command shortcuts in **Settings → Keyboard Shortcuts → Custom Commands**:

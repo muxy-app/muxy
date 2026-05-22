@@ -2,8 +2,8 @@
 # Muxy CLI wrapper
 # Usage:
 #   muxy <path>                              Open a folder in Muxy
-#   muxy split-right [cmd]                   Split horizontally (returns pane ID)
-#   muxy split-down [cmd]                    Split vertically (returns pane ID)
+#   muxy split-right [--from <id>] [cmd...]  Split horizontally (returns pane ID)
+#   muxy split-down [--from <id>] [cmd...]   Split vertically (returns pane ID)
 #   muxy send --pane <id> <text>             Send text to a pane
 #   muxy send-keys --pane <id> <key>         Send special key (Escape, Enter, Tab, Ctrl+C)
 #   muxy read-screen --pane <id> [--lines N] Read terminal content
@@ -50,15 +50,23 @@ case "$COMMAND" in
     split-right)
         shift
         FROM=""
-        CMD=""
+        CMD_ARGS=()
         while [[ $# -gt 0 ]]; do
             case $1 in
-                --from) FROM="$2"; shift 2 ;;
-                *) CMD="$1"; shift ;;
+                --from)
+                    if [ $# -lt 2 ]; then
+                        echo "Usage: muxy split-right [--from <id>] [cmd...]" >&2
+                        exit 1
+                    fi
+                    FROM="$2"
+                    shift 2
+                    ;;
+                *) CMD_ARGS+=("$1"); shift ;;
             esac
         done
+        CMD="${CMD_ARGS[*]}"
         if [ -n "$CMD" ] || [ -n "$FROM" ]; then
-            send_command "split-right|$CMD|$FROM"
+            send_command "split-right|$FROM|$CMD"
         else
             send_command "split-right"
         fi
@@ -66,15 +74,23 @@ case "$COMMAND" in
     split-down)
         shift
         FROM=""
-        CMD=""
+        CMD_ARGS=()
         while [[ $# -gt 0 ]]; do
             case $1 in
-                --from) FROM="$2"; shift 2 ;;
-                *) CMD="$1"; shift ;;
+                --from)
+                    if [ $# -lt 2 ]; then
+                        echo "Usage: muxy split-down [--from <id>] [cmd...]" >&2
+                        exit 1
+                    fi
+                    FROM="$2"
+                    shift 2
+                    ;;
+                *) CMD_ARGS+=("$1"); shift ;;
             esac
         done
+        CMD="${CMD_ARGS[*]}"
         if [ -n "$CMD" ] || [ -n "$FROM" ]; then
-            send_command "split-down|$CMD|$FROM"
+            send_command "split-down|$FROM|$CMD"
         else
             send_command "split-down"
         fi
@@ -165,8 +181,8 @@ case "$COMMAND" in
     ""|--help|-h)
         echo "Usage:"
         echo "  muxy <path>                              Open a folder in Muxy"
-        echo "  muxy split-right [cmd]                   Split horizontally (returns pane ID)"
-        echo "  muxy split-down [cmd]                    Split vertically (returns pane ID)"
+        echo "  muxy split-right [--from <id>] [cmd...]  Split horizontally (returns pane ID)"
+        echo "  muxy split-down [--from <id>] [cmd...]   Split vertically (returns pane ID)"
         echo "  muxy send --pane <id> <text>             Send text to a pane"
         echo "  muxy send-keys --pane <id> <key>         Send special key (Escape, Enter, Tab, Ctrl+C)"
         echo "  muxy read-screen --pane <id> [--lines N] Read terminal content"
