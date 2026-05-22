@@ -37,6 +37,12 @@ struct GitRepositoryService {
         let isCrossRepository: Bool
     }
 
+    struct PRCheckoutInfo: Equatable {
+        let number: Int
+        let headBranch: String
+        let headRepositoryNameWithOwner: String
+    }
+
     struct PRListItem: Equatable, Identifiable {
         let number: Int
         let title: String
@@ -211,6 +217,7 @@ struct GitRepositoryService {
     static let prInfoJSONFields =
         "url,number,state,isDraft,baseRefName,mergeable,mergeStateStatus,statusCheckRollup,isCrossRepository"
     static let prInfoJSONFieldsWithHeadRefOid = prInfoJSONFields + ",headRefOid,headRefName"
+    static let prCheckoutJSONFields = "number,headRefName,headRepository"
 
     func pullRequestInfo(repoPath: String, branch: String, headSha: String? = nil) async -> PRInfo? {
         if case let .found(info) = await pullRequestInfoResult(
@@ -227,6 +234,16 @@ struct GitRepositoryService {
         headSha: String? = nil
     ) async -> PRFetchResult {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return .failed }
+
+        if let number = await configuredPullRequestNumber(repoPath: repoPath, branch: branch) {
+            let configuredResult = await ghPRView(
+                ghPath: ghPath,
+                repoPath: repoPath,
+                argument: String(number),
+                jsonFields: Self.prInfoJSONFields
+            )
+            if case let .found(info) = configuredResult { return .found(info) }
+        }
 
         let viewResult = await ghPRView(ghPath: ghPath, repoPath: repoPath, jsonFields: Self.prInfoJSONFields)
         if case let .found(info) = viewResult { return .found(info) }
@@ -306,6 +323,18 @@ struct GitRepositoryService {
         return .noPR
     }
 
+    private func configuredPullRequestNumber(repoPath: String, branch: String) async -> Int? {
+        guard !branch.isEmpty,
+              branch.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
+        else { return nil }
+        let result = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["config", "--get", "branch.\(branch).muxy-pr-number"]
+        )
+        guard let result, result.status == 0 else { return nil }
+        return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     private func ghErrorIndicatesNoPR(stderr: String) -> Bool {
         let lowered = stderr.lowercased()
         return lowered.contains("no pull requests found")
@@ -357,49 +386,131 @@ struct GitRepositoryService {
         return GitPRParser.parsePRList(result.stdout)
     }
 
-    func checkoutPullRequest(repoPath: String, number: Int, headBranch: String? = nil) async throws {
+    func checkoutPullRequest(repoPath: String, number: Int, headBranch _: String? = nil) async throws {
         guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
             throw PRCreateError.ghNotInstalled
         }
-        let ghResult = try await GitProcessRunner.runCommand(
-            executable: ghPath,
-            arguments: ["pr", "checkout", String(number)],
-            workingDirectory: repoPath
-        )
-        if ghResult.status == 0 {
-            return
-        }
-
-        let trimmedHead = headBranch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let localBranch = trimmedHead.isEmpty ? "pr-\(number)" : trimmedHead
-        try await fetchPullRequestRef(repoPath: repoPath, number: number, localBranch: localBranch)
-        let checkoutResult = try await GitProcessRunner.runGit(
+        let checkout = try await pullRequestCheckoutInfo(ghPath: ghPath, repoPath: repoPath, number: number)
+        try await preparePullRequestBranch(repoPath: repoPath, checkout: checkout)
+        let result = try await GitProcessRunner.runGit(
             repoPath: repoPath,
-            arguments: ["checkout", localBranch]
+            arguments: ["switch", Self.localPullRequestBranchName(for: checkout)]
         )
-        guard checkoutResult.status == 0 else {
-            let message = checkoutResult.stderr.isEmpty ? checkoutResult.stdout : checkoutResult.stderr
-            throw PRCreateError.commandFailed(
-                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? "Failed to checkout pull request."
-                    : message.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
+        try requireSuccess(result, fallbackMessage: "Failed to checkout pull request.")
     }
 
-    func fetchPullRequestRef(repoPath: String, number: Int, localBranch: String) async throws {
-        let refspec = "refs/pull/\(number)/head:\(localBranch)"
+    func createPullRequestWorktree(repoPath: String, path: String, number: Int) async throws -> String {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+            throw PRCreateError.ghNotInstalled
+        }
+        let checkout = try await pullRequestCheckoutInfo(ghPath: ghPath, repoPath: repoPath, number: number)
+        try await preparePullRequestBranch(repoPath: repoPath, checkout: checkout)
+        let branch = Self.localPullRequestBranchName(for: checkout)
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repoPath,
+            path: path,
+            branch: branch,
+            createBranch: false
+        )
+        return branch
+    }
+
+    private func pullRequestCheckoutInfo(
+        ghPath: String,
+        repoPath: String,
+        number: Int
+    ) async throws -> PRCheckoutInfo {
+        let result = try await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: ["pr", "view", String(number), "--json", Self.prCheckoutJSONFields],
+            workingDirectory: repoPath
+        )
+        try requireSuccess(result, fallbackMessage: "Failed to read pull request.")
+        guard let checkout = GitPRParser.parsePRCheckoutInfo(result.stdout) else {
+            throw PRCreateError.commandFailed("Failed to read pull request checkout metadata.")
+        }
+        return checkout
+    }
+
+    private func preparePullRequestBranch(repoPath: String, checkout: PRCheckoutInfo) async throws {
+        let remote = try await ensurePullRequestRemote(repoPath: repoPath, checkout: checkout)
+        let branch = Self.localPullRequestBranchName(for: checkout)
         let fetchResult = try await GitProcessRunner.runGit(
             repoPath: repoPath,
-            arguments: ["fetch", "origin", refspec, "--force"]
+            arguments: ["fetch", remote, "refs/heads/\(checkout.headBranch):refs/remotes/\(remote)/\(checkout.headBranch)"]
         )
-        guard fetchResult.status == 0 else {
-            let message = fetchResult.stderr.isEmpty ? fetchResult.stdout : fetchResult.stderr
-            throw PRCreateError.commandFailed(
-                message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? "Failed to fetch pull request ref."
-                    : message.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
+        try requireSuccess(fetchResult, fallbackMessage: "Failed to fetch pull request branch.")
+
+        let refExists = await localBranchExists(repoPath: repoPath, branch: branch)
+        let startPoint = "refs/remotes/\(remote)/\(checkout.headBranch)"
+        let branchResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: refExists ? ["branch", "--set-upstream-to=\(remote)/\(checkout.headBranch)", branch]
+                : ["branch", "--track", branch, startPoint]
+        )
+        try requireSuccess(branchResult, fallbackMessage: "Failed to prepare pull request branch.")
+
+        let configResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["config", "branch.\(branch).muxy-pr-number", String(checkout.number)]
+        )
+        try requireSuccess(configResult, fallbackMessage: "Failed to store pull request metadata.")
+    }
+
+    private func ensurePullRequestRemote(repoPath: String, checkout: PRCheckoutInfo) async throws -> String {
+        let remote = Self.pullRequestRemoteName(for: checkout)
+        if await remoteExists(repoPath: repoPath, remote: remote) {
+            return remote
+        }
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["remote", "add", remote, "https://github.com/\(checkout.headRepositoryNameWithOwner).git"]
+        )
+        try requireSuccess(result, fallbackMessage: "Failed to add pull request remote.")
+        return remote
+    }
+
+    private func localBranchExists(repoPath: String, branch: String) async -> Bool {
+        let result = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["show-ref", "--verify", "--quiet", "refs/heads/\(branch)"]
+        )
+        return result?.status == 0
+    }
+
+    private func remoteExists(repoPath: String, remote: String) async -> Bool {
+        let result = try? await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["remote"])
+        guard let result, result.status == 0 else { return false }
+        return result.stdout.split(separator: "\n").contains { $0 == remote }
+    }
+
+    static func localPullRequestBranchName(for checkout: PRCheckoutInfo) -> String {
+        "pr/\(checkout.number)/\(safeRefComponent(checkout.headBranch))"
+    }
+
+    static func pullRequestRemoteName(for checkout: PRCheckoutInfo) -> String {
+        "pr-\(checkout.number)-\(safeRefComponent(checkout.headRepositoryNameWithOwner).replacingOccurrences(of: "/", with: "-"))"
+    }
+
+    private static func safeRefComponent(_ value: String) -> String {
+        let segments = value
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map { safeRefSegment(String($0)) }
+            .filter { !$0.isEmpty }
+        return segments.isEmpty ? "head" : segments.joined(separator: "/")
+    }
+
+    private static func safeRefSegment(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+        let scalars = value.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        return String(scalars).split(separator: "-", omittingEmptySubsequences: true).joined(separator: "-")
+    }
+
+    private func requireSuccess(_ result: GitProcessResult, fallbackMessage: String) throws {
+        guard result.status == 0 else {
+            let message = result.stderr.isEmpty ? result.stdout : result.stderr
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw PRCreateError.commandFailed(trimmed.isEmpty ? fallbackMessage : trimmed)
         }
     }
 
@@ -987,6 +1098,14 @@ struct GitRepositoryService {
     }
 
     func push(repoPath: String) async throws {
+        if let result = try await pushPullRequestBranch(repoPath: repoPath) {
+            guard result.status == 0 else {
+                throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to push." : result.stderr)
+            }
+            GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+            return
+        }
+
         let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["push"])
         guard result.status == 0 else {
             if result.stderr.contains("has no upstream branch") {
@@ -995,6 +1114,25 @@ struct GitRepositoryService {
             throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to push." : result.stderr)
         }
         GitMetadataCache.shared.invalidatePRInfo(repoPath: repoPath)
+    }
+
+    private func pushPullRequestBranch(repoPath: String) async throws -> GitProcessResult? {
+        let branch = try await currentBranch(repoPath: repoPath)
+        guard await configuredPullRequestNumber(repoPath: repoPath, branch: branch) != nil else { return nil }
+        let upstreamResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]
+        )
+        guard upstreamResult.status == 0 else { return nil }
+        let upstream = upstreamResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let separator = upstream.firstIndex(of: "/") else { return nil }
+        let remote = String(upstream[..<separator])
+        let remoteBranch = String(upstream[upstream.index(after: separator)...])
+        guard !remote.isEmpty, !remoteBranch.isEmpty else { return nil }
+        return try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["push", remote, "HEAD:refs/heads/\(remoteBranch)"]
+        )
     }
 
     func pushSetUpstream(repoPath: String, branch: String) async throws {

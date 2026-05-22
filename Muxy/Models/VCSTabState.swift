@@ -1340,7 +1340,7 @@ final class VCSTabState {
         checkingOutPRNumber = item.number
         defer { checkingOutPRNumber = nil }
 
-        let localBranch = item.headBranch.isEmpty ? "pr-\(item.number)" : item.headBranch
+        let localBranch = item.headBranch.isEmpty ? "pr-\(item.number)" : "pr/\(item.number)/\(item.headBranch)"
         let slug = Self.directorySlug(from: localBranch)
         let worktreeDirectory = WorktreeLocationResolver.worktreeDirectory(
             for: project,
@@ -1362,29 +1362,24 @@ final class VCSTabState {
             )
         }
 
-        let worktree = Worktree(
+        var worktree = Worktree(
             name: localBranch,
             path: worktreeDirectory,
             branch: localBranch,
             ownsBranch: true,
             isPrimary: false
         )
-        worktreeStore.add(worktree, to: project.id)
 
         do {
-            try await git.fetchPullRequestRef(
-                repoPath: project.path,
-                number: item.number,
-                localBranch: localBranch
-            )
-            try await GitWorktreeService.shared.addWorktree(
+            let branch = try await git.createPullRequestWorktree(
                 repoPath: project.path,
                 path: worktreeDirectory,
-                branch: localBranch,
-                createBranch: false
+                number: item.number
             )
+            worktree.name = branch
+            worktree.branch = branch
+            worktreeStore.add(worktree, to: project.id)
         } catch {
-            worktreeStore.remove(worktreeID: worktree.id, from: project.id)
             throw error
         }
 
