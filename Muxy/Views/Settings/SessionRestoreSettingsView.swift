@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SessionRestoreSettingsView: View {
-    @AppStorage(SessionRestorePreferences.enabledKey) private var enabled = true
+    @AppStorage(SessionRestorePreferences.enabledKey) private var enabled = SessionRestorePreferences.defaultIsEnabled
     @State private var excludedCommands = SessionRestorePreferences.excludedCommandsText
 
     var body: some View {
