@@ -44,8 +44,6 @@ final class DevServerSniffer {
         "flask run",
         "fastapi dev",
         "uvicorn",
-        "go run",
-        "cargo run",
         "hugo server",
         "jekyll serve",
         "dotnet watch",
@@ -53,16 +51,20 @@ final class DevServerSniffer {
         "deno task",
     ]
 
+    private static let globalScopeKey = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1))
+
     var probeURL: @MainActor (URL, @escaping @MainActor (Bool) -> Void) -> Void = DevServerSniffer.defaultProbe
     var onDetect: ((String, UUID?) -> Void)?
 
     private var activeProbes: Set<UUID> = []
-    private var detectedURLs: Set<String> = []
+    private var detectedURLsByScope: [UUID: Set<String>] = [:]
 
     private init() {}
 
     func observe(command: String, paneID: UUID? = nil) {
         guard isDevServerCommand(command) else { return }
+        let scope = paneID ?? Self.globalScopeKey
+        detectedURLsByScope[scope] = []
         let probeID = UUID()
         activeProbes.insert(probeID)
         Task { @MainActor in
@@ -86,14 +88,15 @@ final class DevServerSniffer {
         let totalAttempts = 6
         let initialDelay: UInt64 = 1_500_000_000
         let intervalDelay: UInt64 = 2_000_000_000
+        let scope = paneID ?? Self.globalScopeKey
 
         try? await Task.sleep(nanoseconds: initialDelay)
 
         for _ in 0 ..< totalAttempts {
             guard activeProbes.contains(probeID) else { return }
-            if let url = await probeAvailableURL(), !detectedURLs.contains(url) {
+            if let url = await probeAvailableURL(scope: scope) {
                 activeProbes.remove(probeID)
-                detectedURLs.insert(url)
+                detectedURLsByScope[scope, default: []].insert(url)
                 onDetect?(url, paneID)
                 var userInfo: [String: Any] = [DevServerSnifferKeys.urlKey: url]
                 if let paneID { userInfo[DevServerSnifferKeys.paneIDKey] = paneID }
@@ -111,12 +114,24 @@ final class DevServerSniffer {
 
     func reset() {
         activeProbes.removeAll()
-        detectedURLs.removeAll()
+        detectedURLsByScope.removeAll()
     }
 
-    private func probeAvailableURL() async -> String? {
+    func resetScope(paneID: UUID?) {
+        let scope = paneID ?? Self.globalScopeKey
+        detectedURLsByScope.removeValue(forKey: scope)
+    }
+
+    func detectedURLs(paneID: UUID?) -> Set<String> {
+        let scope = paneID ?? Self.globalScopeKey
+        return detectedURLsByScope[scope] ?? []
+    }
+
+    private func probeAvailableURL(scope: UUID) async -> String? {
+        let alreadyDetected = detectedURLsByScope[scope] ?? []
         for port in Self.candidatePorts {
             let urlString = "http://localhost:\(port)"
+            guard !alreadyDetected.contains(urlString) else { continue }
             guard let url = URL(string: urlString) else { continue }
             if await isReachable(url: url) {
                 return urlString

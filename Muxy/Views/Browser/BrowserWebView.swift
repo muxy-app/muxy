@@ -38,11 +38,16 @@ struct BrowserWebView: NSViewRepresentable {
         if let css = BrowserUserScripts.documentStartCSS() {
             userContent.addUserScript(css)
         }
-        userContent.add(context.coordinator.bridge, name: BrowserBridge.messageName)
+        userContent.add(
+            context.coordinator.bridge,
+            contentWorld: BrowserBridge.contentWorld,
+            name: BrowserBridge.messageName
+        )
         config.userContentController = userContent
 
         let webView = BrowserWKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
+        webView.allowsLinkPreview = false
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
@@ -55,7 +60,9 @@ struct BrowserWebView: NSViewRepresentable {
             webView?.reload()
         }
 
-        if let url = state.resolvedURL ?? URL(string: state.currentURL) {
+        if let url = state.resolvedURL ?? URL(string: state.currentURL),
+           BrowserURLNormalizer.isAllowedNavigationURL(url)
+        {
             webView.load(URLRequest(url: url))
         }
 
@@ -78,6 +85,7 @@ struct BrowserWebView: NSViewRepresentable {
         private let state: BrowserTabState
         private var lastNavigationVersion: Int = 0
         private var lastReloadVersion: Int = 0
+        private var lastStopVersion: Int = 0
         private var lastBackVersion: Int = 0
         private var lastForwardVersion: Int = 0
         private var lastZoomVersion: Int = 0
@@ -93,7 +101,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         init(state: BrowserTabState) {
             self.state = state
-            bridge = BrowserBridge(state: state, projectPath: state.projectPath)
+            bridge = BrowserBridge(state: state)
         }
 
         func installObservers() {
@@ -138,7 +146,10 @@ struct BrowserWebView: NSViewRepresentable {
         }
 
         func tearDown(webView: BrowserWKWebView) {
-            webView.configuration.userContentController.removeScriptMessageHandler(forName: BrowserBridge.messageName)
+            webView.configuration.userContentController.removeScriptMessageHandler(
+                forName: BrowserBridge.messageName,
+                contentWorld: BrowserBridge.contentWorld
+            )
             loadingObservation = nil
             progressObservation = nil
             canGoBackObservation = nil
@@ -150,13 +161,17 @@ struct BrowserWebView: NSViewRepresentable {
         func sync(state: BrowserTabState, into webView: BrowserWKWebView) {
             if state.navigationRequestVersion != lastNavigationVersion {
                 lastNavigationVersion = state.navigationRequestVersion
-                if let url = state.resolvedURL {
+                if let url = state.resolvedURL, BrowserURLNormalizer.isAllowedNavigationURL(url) {
                     webView.load(URLRequest(url: url))
                 }
             }
             if state.reloadRequestVersion != lastReloadVersion {
                 lastReloadVersion = state.reloadRequestVersion
                 webView.reload()
+            }
+            if state.stopRequestVersion != lastStopVersion {
+                lastStopVersion = state.stopRequestVersion
+                webView.stopLoading()
             }
             if state.backRequestVersion != lastBackVersion {
                 lastBackVersion = state.backRequestVersion
@@ -173,13 +188,17 @@ struct BrowserWebView: NSViewRepresentable {
             if state.scrollRestoreRequestVersion != lastScrollRestoreVersion {
                 lastScrollRestoreVersion = state.scrollRestoreRequestVersion
                 if let y = state.pendingScrollRestore {
-                    webView.evaluateJavaScript("window.__muxyBrowserAPI && window.__muxyBrowserAPI.scrollTo(\(y));")
+                    evaluateInBridgeWorld(
+                        "window.__muxyBrowserAPI && window.__muxyBrowserAPI.scrollTo(\(y));",
+                        in: webView
+                    )
                 }
             }
             if state.inspectorModeVersion != lastInspectorModeVersion {
                 lastInspectorModeVersion = state.inspectorModeVersion
-                webView.evaluateJavaScript(
-                    "window.__muxyBrowserAPI && window.__muxyBrowserAPI.setMode('\(state.inspectorMode.rawValue)');"
+                evaluateInBridgeWorld(
+                    "window.__muxyBrowserAPI && window.__muxyBrowserAPI.setMode('\(state.inspectorMode.rawValue)');",
+                    in: webView
                 )
             }
             if state.styleOverridesVersion != lastStyleOverridesVersion {
@@ -200,9 +219,32 @@ struct BrowserWebView: NSViewRepresentable {
             guard let data = try? JSONSerialization.data(withJSONObject: rulesPayload),
                   let json = String(data: data, encoding: .utf8)
             else { return }
-            webView.evaluateJavaScript(
-                "window.__muxyBrowserAPI && window.__muxyBrowserAPI.applyOverrides(\(json));"
+            evaluateInBridgeWorld(
+                "window.__muxyBrowserAPI && window.__muxyBrowserAPI.applyOverrides(\(json));",
+                in: webView
             )
+        }
+
+        private func evaluateInBridgeWorld(_ script: String, in webView: WKWebView) {
+            webView.evaluateJavaScript(script, in: nil, in: BrowserBridge.contentWorld) { result in
+                if case let .failure(error) = result {
+                    browserLogger.error("Bridge eval failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+
+        func webView(
+            _: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction
+        ) async -> WKNavigationActionPolicy {
+            guard let url = navigationAction.request.url else { return .cancel }
+            guard BrowserURLNormalizer.isAllowedNavigationURL(url) else {
+                Task { @MainActor in
+                    state.handleNavigationFailed(message: "Blocked navigation to \(url.scheme ?? "unknown") URL")
+                }
+                return .cancel
+            }
+            return .allow
         }
 
         func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
@@ -216,12 +258,13 @@ struct BrowserWebView: NSViewRepresentable {
                     canGoForward: webView.canGoForward
                 )
                 if let pending = self.state.pendingScrollRestore {
-                    webView.evaluateJavaScript("window.scrollTo(0, \(pending));")
+                    self.evaluateInBridgeWorld("window.scrollTo(0, \(pending));", in: webView)
                     self.state.pendingScrollRestore = nil
                 }
                 if self.state.inspectorMode != .off {
-                    webView.evaluateJavaScript(
-                        "window.__muxyBrowserAPI && window.__muxyBrowserAPI.setMode('\(self.state.inspectorMode.rawValue)');"
+                    self.evaluateInBridgeWorld(
+                        "window.__muxyBrowserAPI && window.__muxyBrowserAPI.setMode('\(self.state.inspectorMode.rawValue)');",
+                        in: webView
                     )
                 }
                 let overrides = self.state.aggregatedStyleOverrides()
@@ -249,9 +292,10 @@ struct BrowserWebView: NSViewRepresentable {
             for navigationAction: WKNavigationAction,
             windowFeatures _: WKWindowFeatures
         ) -> WKWebView? {
-            if let url = navigationAction.request.url {
-                webView.load(URLRequest(url: url))
-            }
+            guard let url = navigationAction.request.url,
+                  BrowserURLNormalizer.isAllowedNavigationURL(url)
+            else { return nil }
+            webView.load(URLRequest(url: url))
             return nil
         }
     }
@@ -274,7 +318,8 @@ enum BrowserUserScripts {
         return WKUserScript(
             source: source,
             injectionTime: .atDocumentEnd,
-            forMainFrameOnly: true
+            forMainFrameOnly: true,
+            in: BrowserBridge.contentWorld
         )
     }
 
@@ -296,7 +341,8 @@ enum BrowserUserScripts {
         return WKUserScript(
             source: injected,
             injectionTime: .atDocumentStart,
-            forMainFrameOnly: true
+            forMainFrameOnly: true,
+            in: BrowserBridge.contentWorld
         )
     }
 

@@ -5,10 +5,22 @@ import Testing
 
 @Suite("BrowserURLNormalizer")
 struct BrowserURLNormalizerTests {
-    @Test("preserves explicit scheme")
-    func preservesExplicitScheme() {
+    @Test("preserves explicit https scheme")
+    func preservesHTTPSScheme() {
         let url = BrowserURLNormalizer.normalize("https://example.com")
         #expect(url?.absoluteString == "https://example.com")
+    }
+
+    @Test("preserves explicit http scheme")
+    func preservesHTTPScheme() {
+        let url = BrowserURLNormalizer.normalize("http://example.com")
+        #expect(url?.absoluteString == "http://example.com")
+    }
+
+    @Test("preserves about:blank")
+    func preservesAboutBlank() {
+        let url = BrowserURLNormalizer.normalize("about:blank")
+        #expect(url?.absoluteString == "about:blank")
     }
 
     @Test("prepends http for localhost")
@@ -40,5 +52,41 @@ struct BrowserURLNormalizerTests {
     func rejectsEmpty() {
         #expect(BrowserURLNormalizer.normalize("") == nil)
         #expect(BrowserURLNormalizer.normalize("   ") == nil)
+    }
+
+    @Test("rejects javascript scheme")
+    func rejectsJavaScriptScheme() {
+        #expect(BrowserURLNormalizer.normalize("javascript:alert(1)") == nil)
+        #expect(BrowserURLNormalizer.normalize("JavaScript:alert(1)") == nil)
+    }
+
+    @Test("rejects data scheme")
+    func rejectsDataScheme() {
+        #expect(BrowserURLNormalizer.normalize("data:text/html,<script>alert(1)</script>") == nil)
+    }
+
+    @Test("rejects file scheme")
+    func rejectsFileScheme() {
+        #expect(BrowserURLNormalizer.normalize("file:///etc/passwd") == nil)
+    }
+
+    @Test("isAllowedNavigationURL only permits web schemes and about:blank")
+    func navigationAllowlist() {
+        guard let https = URL(string: "https://example.com"),
+              let http = URL(string: "http://example.com"),
+              let blank = URL(string: "about:blank"),
+              let file = URL(string: "file:///etc/passwd"),
+              let dataURL = URL(string: "data:text/html,abc"),
+              let javascript = URL(string: "javascript:alert(1)")
+        else {
+            Issue.record("Failed to build URLs")
+            return
+        }
+        #expect(BrowserURLNormalizer.isAllowedNavigationURL(https))
+        #expect(BrowserURLNormalizer.isAllowedNavigationURL(http))
+        #expect(BrowserURLNormalizer.isAllowedNavigationURL(blank))
+        #expect(!BrowserURLNormalizer.isAllowedNavigationURL(file))
+        #expect(!BrowserURLNormalizer.isAllowedNavigationURL(dataURL))
+        #expect(!BrowserURLNormalizer.isAllowedNavigationURL(javascript))
     }
 }

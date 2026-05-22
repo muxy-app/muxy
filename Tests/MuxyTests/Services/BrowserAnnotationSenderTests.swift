@@ -55,4 +55,67 @@ struct BrowserAnnotationSenderTests {
         let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
         #expect(markdown.contains("- style override: background-color: rgb(0, 0, 0) → #fff"))
     }
+
+    @Test("strips terminal control sequences from page-supplied fields")
+    func stripsTerminalControlSequences() {
+        let annotation = BrowserAnnotation(
+            selector: "a\u{1B}[2K",
+            xpath: "x\u{07}",
+            textSnippet: "evil\u{1B}[201~payload",
+            rect: .zero,
+            pageURL: "https://example.com\u{1B}",
+            pageTitle: "title\u{07}",
+            viewportWidth: 0,
+            viewportHeight: 0,
+            comment: "comment\u{1B}[31m\nstill ok"
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+
+        #expect(!markdown.contains("\u{1B}"))
+        #expect(!markdown.contains("\u{07}"))
+        #expect(!markdown.contains("\u{7F}"))
+    }
+
+    @Test("escapes backticks in inline code so a page cannot break out of code spans")
+    func escapesBackticksInInlineCode() {
+        let annotation = BrowserAnnotation(
+            selector: "main`; rm -rf /; echo `",
+            xpath: "/html/body`evil`",
+            textSnippet: "",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 0,
+            viewportHeight: 0
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+
+        let selectorLine = markdown
+            .split(whereSeparator: \.isNewline)
+            .first(where: { $0.hasPrefix("- selector: ") }) ?? ""
+        let xpathLine = markdown
+            .split(whereSeparator: \.isNewline)
+            .first(where: { $0.hasPrefix("- xpath: ") }) ?? ""
+        #expect(selectorLine.filter { $0 == "`" }.count == 2)
+        #expect(xpathLine.filter { $0 == "`" }.count == 2)
+    }
+
+    @Test("caps oversized comment input")
+    func capsOversizedComment() {
+        let annotation = BrowserAnnotation(
+            selector: ".x",
+            xpath: "",
+            textSnippet: "",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 0,
+            viewportHeight: 0,
+            comment: String(repeating: "a", count: BrowserAnnotationSanitizer.maxCommentLength + 256)
+        )
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+        #expect(markdown.count < BrowserAnnotationSanitizer.maxCommentLength + 1024)
+    }
 }

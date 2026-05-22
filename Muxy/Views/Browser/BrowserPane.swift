@@ -71,13 +71,18 @@ private struct BrowserChrome: View {
                 symbol: state.isLoading ? "xmark" : "arrow.clockwise",
                 accessibilityLabel: state.isLoading ? "Stop" : "Reload"
             ) {
-                state.requestReload()
+                if state.isLoading {
+                    state.requestStop()
+                } else {
+                    state.requestReload()
+                }
             }
             .help(state.isLoading ? "Stop" : "Reload")
 
             BrowserAddressField(
                 text: $addressFieldText,
                 isLoading: state.isLoading,
+                scheme: state.currentURLScheme,
                 isFocused: $addressFieldFocused,
                 onSubmit: {
                     state.requestNavigate(to: addressFieldText)
@@ -129,6 +134,7 @@ private struct BrowserChrome: View {
 private struct BrowserAddressField: View {
     @Binding var text: String
     let isLoading: Bool
+    let scheme: String?
     var isFocused: FocusState<Bool>.Binding
     let onSubmit: () -> Void
 
@@ -138,9 +144,10 @@ private struct BrowserAddressField: View {
                 ProgressView()
                     .controlSize(.mini)
             } else {
-                Image(systemName: "lock.fill")
+                Image(systemName: securityIcon)
                     .font(.system(size: UIMetrics.fontCaption))
-                    .foregroundStyle(MuxyTheme.fgDim)
+                    .foregroundStyle(securityIconTint)
+                    .help(securityIconHelp)
             }
             TextField("URL or search", text: $text)
                 .textFieldStyle(.plain)
@@ -157,6 +164,26 @@ private struct BrowserAddressField: View {
             RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                 .strokeBorder(isFocused.wrappedValue ? MuxyTheme.accent : MuxyTheme.border, lineWidth: 1)
         )
+    }
+
+    private var securityIcon: String {
+        switch scheme {
+        case "https": "lock.fill"
+        case "http": "lock.open"
+        default: "globe"
+        }
+    }
+
+    private var securityIconTint: Color {
+        scheme == "https" ? MuxyTheme.fgDim : MuxyTheme.warning
+    }
+
+    private var securityIconHelp: String {
+        switch scheme {
+        case "https": "Secure connection"
+        case "http": "Connection is not secure"
+        default: "Connection status unknown"
+        }
     }
 }
 

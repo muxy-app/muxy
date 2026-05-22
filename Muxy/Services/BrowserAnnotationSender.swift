@@ -31,58 +31,60 @@ enum BrowserAnnotationSender {
     }
 
     private static func resolveTerminalTarget(state: BrowserTabState, appState: AppState) -> TerminalTarget? {
-        let candidateProjectIDs = candidateProjectIDs(for: state, appState: appState)
-        for projectID in candidateProjectIDs {
-            if let target = findTerminalTarget(projectID: projectID, appState: appState) {
-                return target
-            }
-        }
-        return nil
-    }
-
-    private static func candidateProjectIDs(for _: BrowserTabState, appState: AppState) -> [UUID] {
-        var ordered: [UUID] = []
-        if let activeID = appState.activeProjectID {
-            ordered.append(activeID)
-        }
-        for key in appState.workspaceRoots.keys where !ordered.contains(key.projectID) {
-            ordered.append(key.projectID)
-        }
-        return ordered
-    }
-
-    private static func findTerminalTarget(projectID: UUID, appState: AppState) -> TerminalTarget? {
-        let focusedArea = appState.focusedArea(for: projectID)
-        let areas = appState.allAreas(for: projectID)
-
-        if let area = focusedArea,
-           let target = preferActiveTerminal(in: area, projectID: projectID)
-        {
+        if let target = resolveFromOwningArea(browserTabID: state.id, appState: appState) {
             return target
         }
+        return resolveFromActiveProject(appState: appState)
+    }
 
-        for area in areas {
-            if let target = preferActiveTerminal(in: area, projectID: projectID) {
+    private static func resolveFromOwningArea(browserTabID: UUID, appState: AppState) -> TerminalTarget? {
+        for (key, root) in appState.workspaceRoots {
+            let areas = root.allAreas()
+            guard let owningArea = areas.first(where: { area in
+                area.tabs.contains(where: { $0.id == browserTabID })
+            })
+            else { continue }
+            if let target = firstTerminal(in: owningArea, projectID: key.projectID) {
                 return target
             }
-        }
-
-        for area in areas {
-            for tab in area.tabs {
-                if let pane = tab.content.pane {
-                    return TerminalTarget(projectID: projectID, areaID: area.id, tabID: tab.id, paneID: pane.id)
+            for sibling in areas where sibling.id != owningArea.id {
+                if let target = firstTerminal(in: sibling, projectID: key.projectID) {
+                    return target
                 }
             }
         }
         return nil
     }
 
-    private static func preferActiveTerminal(in area: TabArea, projectID: UUID) -> TerminalTarget? {
-        guard let activeTabID = area.activeTabID,
-              let activeTab = area.tabs.first(where: { $0.id == activeTabID }),
-              let pane = activeTab.content.pane
-        else { return nil }
-        return TerminalTarget(projectID: projectID, areaID: area.id, tabID: activeTab.id, paneID: pane.id)
+    private static func resolveFromActiveProject(appState: AppState) -> TerminalTarget? {
+        guard let projectID = appState.activeProjectID else { return nil }
+        let areas = appState.allAreas(for: projectID)
+        if let focused = appState.focusedArea(for: projectID),
+           let target = firstTerminal(in: focused, projectID: projectID)
+        {
+            return target
+        }
+        for area in areas {
+            if let target = firstTerminal(in: area, projectID: projectID) {
+                return target
+            }
+        }
+        return nil
+    }
+
+    private static func firstTerminal(in area: TabArea, projectID: UUID) -> TerminalTarget? {
+        if let activeTabID = area.activeTabID,
+           let activeTab = area.tabs.first(where: { $0.id == activeTabID }),
+           let pane = activeTab.content.pane
+        {
+            return TerminalTarget(projectID: projectID, areaID: area.id, tabID: activeTab.id, paneID: pane.id)
+        }
+        for tab in area.tabs {
+            if let pane = tab.content.pane {
+                return TerminalTarget(projectID: projectID, areaID: area.id, tabID: tab.id, paneID: pane.id)
+            }
+        }
+        return nil
     }
 
     private static func focus(target: TerminalTarget, appState: AppState) {
@@ -95,10 +97,9 @@ enum BrowserAnnotationSender {
     }
 
     private static func inject(markdown: String, into view: GhosttyTerminalNSView) {
-        let sanitized = markdown.replacingOccurrences(of: "\u{1B}[201~", with: "")
         var payload = Data()
         payload.append(TerminalControlBytes.bracketedPasteStart)
-        payload.append(Data(sanitized.utf8))
+        payload.append(Data(markdown.utf8))
         payload.append(TerminalControlBytes.bracketedPasteEnd)
         view.sendRemoteBytes(payload)
         view.window?.makeFirstResponder(view)
@@ -113,16 +114,33 @@ enum BrowserAnnotationSender {
 
     static func renderMarkdown(annotation: BrowserAnnotation) -> String {
         var lines: [String] = []
-        lines.append("@muxy-browser: \(annotation.pageURL)")
-        if !annotation.pageTitle.isEmpty {
-            lines.append("- page: \(annotation.pageTitle)")
+        let url = BrowserAnnotationSanitizer.sanitizeURLString(annotation.pageURL)
+        lines.append("@muxy-browser: \(url)")
+        let title = BrowserAnnotationSanitizer.sanitizeSingleLine(
+            annotation.pageTitle,
+            maxLength: BrowserAnnotationSanitizer.maxTitleLength
+        )
+        if !title.isEmpty {
+            lines.append("- page: \(title)")
         }
-        lines.append("- selector: `\(annotation.selector)`")
-        if !annotation.xpath.isEmpty {
-            lines.append("- xpath: `\(annotation.xpath)`")
+        let selector = BrowserAnnotationSanitizer.sanitizeMarkdownInlineCode(
+            annotation.selector,
+            maxLength: BrowserAnnotationSanitizer.maxSelectorLength
+        )
+        lines.append("- selector: `\(selector)`")
+        let xpath = BrowserAnnotationSanitizer.sanitizeMarkdownInlineCode(
+            annotation.xpath,
+            maxLength: BrowserAnnotationSanitizer.maxXPathLength
+        )
+        if !xpath.isEmpty {
+            lines.append("- xpath: `\(xpath)`")
         }
-        if !annotation.textSnippet.isEmpty {
-            lines.append("- text: \"\(annotation.textSnippet)\"")
+        let snippet = BrowserAnnotationSanitizer.sanitizeSingleLine(
+            annotation.textSnippet,
+            maxLength: BrowserAnnotationSanitizer.maxTextSnippetLength
+        )
+        if !snippet.isEmpty {
+            lines.append("- text: \"\(snippet)\"")
         }
         let bbox = String(
             format: "(x=%.0f, y=%.0f, w=%.0f, h=%.0f)",
@@ -136,9 +154,19 @@ enum BrowserAnnotationSender {
         lines.append("- viewport: \(viewport)")
         for override in annotation.styleOverrides {
             let original = override.originalValue.isEmpty ? "default" : override.originalValue
-            lines.append("- style override: \(override.property.cssName): \(original) → \(override.value)")
+            let sanitizedOriginal = BrowserAnnotationSanitizer.sanitizeSingleLine(
+                original,
+                maxLength: BrowserAnnotationSanitizer.maxStyleValueLength
+            )
+            let sanitizedValue = BrowserAnnotationSanitizer.sanitizeSingleLine(
+                override.value,
+                maxLength: BrowserAnnotationSanitizer.maxStyleValueLength
+            )
+            lines.append("- style override: \(override.property.cssName): \(sanitizedOriginal) → \(sanitizedValue)")
         }
-        let comment = annotation.comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        let comment = BrowserAnnotationSanitizer
+            .sanitizeMultiLine(annotation.comment, maxLength: BrowserAnnotationSanitizer.maxCommentLength)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if !comment.isEmpty {
             lines.append("- comment: \"\(comment)\"")
         }

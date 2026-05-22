@@ -41,11 +41,11 @@ final class BrowserTabState: Identifiable {
     var computedStyleSeeds: [UUID: [String: String]] = [:]
 
     var showsAnnotationsPanel: Bool = false
-    var showsBookmarksPopover: Bool = false
     var showsStyleInspector: Bool = false
 
     var navigationRequestVersion: Int = 0
     var reloadRequestVersion: Int = 0
+    var stopRequestVersion: Int = 0
     var backRequestVersion: Int = 0
     var forwardRequestVersion: Int = 0
     var zoomRequestVersion: Int = 0
@@ -80,6 +80,10 @@ final class BrowserTabState: Identifiable {
         BrowserURLNormalizer.normalize(pendingURL)
     }
 
+    var currentURLScheme: String? {
+        URL(string: currentURL)?.scheme?.lowercased()
+    }
+
     func requestNavigate(to rawString: String) {
         let trimmed = rawString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -89,6 +93,12 @@ final class BrowserTabState: Identifiable {
 
     func requestReload() {
         reloadRequestVersion &+= 1
+    }
+
+    func requestStop() {
+        stopRequestVersion &+= 1
+        isLoading = false
+        estimatedProgress = 0
     }
 
     func requestBack() {

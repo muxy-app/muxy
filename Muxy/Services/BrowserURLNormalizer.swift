@@ -1,30 +1,44 @@
 import Foundation
 
 enum BrowserURLNormalizer {
-    private static let recognizedSchemes: Set<String> = ["http", "https", "file", "about", "data"]
+    static let webSchemes: Set<String> = ["http", "https"]
+    static let aboutBlank = "about:blank"
 
     static func normalize(_ input: String) -> URL? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
+        if trimmed.lowercased() == aboutBlank, let url = URL(string: aboutBlank) {
+            return url
+        }
+
         if let url = URL(string: trimmed),
-           let scheme = url.scheme?.lowercased(),
-           recognizedSchemes.contains(scheme)
+           let scheme = url.scheme?.lowercased()
+        {
+            if webSchemes.contains(scheme) { return url }
+            if isBlockedScheme(scheme) { return nil }
+        }
+
+        if looksLikeURL(trimmed),
+           let url = URL(string: "http://\(trimmed)")
         {
             return url
         }
 
-        if looksLikeURL(trimmed) {
-            if let url = URL(string: "http://\(trimmed)") {
-                return url
-            }
+        guard let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return nil
         }
+        return URL(string: "https://duckduckgo.com/?q=\(encoded)")
+    }
 
-        if let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
-            return URL(string: "https://duckduckgo.com/?q=\(encoded)")
-        }
+    static func isAllowedNavigationURL(_ url: URL) -> Bool {
+        if url.absoluteString.lowercased() == aboutBlank { return true }
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return webSchemes.contains(scheme)
+    }
 
-        return nil
+    private static func isBlockedScheme(_ scheme: String) -> Bool {
+        scheme == "javascript" || scheme == "data" || scheme == "file"
     }
 
     private static func looksLikeURL(_ candidate: String) -> Bool {

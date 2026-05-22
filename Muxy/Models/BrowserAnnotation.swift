@@ -17,7 +17,6 @@ struct BrowserAnnotation: Identifiable, Equatable {
     var viewportHeight: CGFloat
     var comment: String
     var styleOverrides: [StyleOverride]
-    var screenshotPNG: Data?
     var createdAt: Date
     var status: Status
 
@@ -33,7 +32,6 @@ struct BrowserAnnotation: Identifiable, Equatable {
         viewportHeight: CGFloat,
         comment: String = "",
         styleOverrides: [StyleOverride] = [],
-        screenshotPNG: Data? = nil,
         createdAt: Date = Date(),
         status: Status = .draft
     ) {
@@ -48,7 +46,6 @@ struct BrowserAnnotation: Identifiable, Equatable {
         self.viewportHeight = viewportHeight
         self.comment = comment
         self.styleOverrides = styleOverrides
-        self.screenshotPNG = screenshotPNG
         self.createdAt = createdAt
         self.status = status
     }

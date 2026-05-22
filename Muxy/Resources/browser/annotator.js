@@ -3,14 +3,13 @@
     if (window.__muxyBrowserBridgeInstalled) return;
     window.__muxyBrowserBridgeInstalled = true;
 
-    const STATE = {
+    var STATE = {
         mode: 'off',
         hoveredEl: null,
         highlightEl: null,
-        overlayStyleEl: null,
+        appliedTargets: [],
         suppressedSelectors: new Set([
             '#muxy-browser-highlight',
-            '#muxy-browser-style-overlay',
         ]),
     };
 
@@ -21,28 +20,18 @@
                 payload: payload || {},
             });
         } catch (err) {
-            // bridge not yet attached
+            return;
         }
     }
 
     function ensureHighlight() {
         if (STATE.highlightEl) return STATE.highlightEl;
-        const el = document.createElement('div');
+        var el = document.createElement('div');
         el.id = 'muxy-browser-highlight';
         el.setAttribute('data-muxy-overlay', '');
         document.documentElement.appendChild(el);
         STATE.highlightEl = el;
         return el;
-    }
-
-    function ensureStyleOverlay() {
-        if (STATE.overlayStyleEl) return STATE.overlayStyleEl;
-        const styleEl = document.createElement('style');
-        styleEl.id = 'muxy-browser-style-overlay';
-        styleEl.setAttribute('data-muxy-overlay', '');
-        document.documentElement.appendChild(styleEl);
-        STATE.overlayStyleEl = styleEl;
-        return styleEl;
     }
 
     function hideHighlight() {
@@ -51,7 +40,7 @@
     }
 
     function paintHighlight(rect) {
-        const el = ensureHighlight();
+        var el = ensureHighlight();
         el.style.display = 'block';
         el.style.top = (rect.top + window.scrollY) + 'px';
         el.style.left = (rect.left + window.scrollX) + 'px';
@@ -61,7 +50,7 @@
 
     function isOverlayElement(el) {
         if (!el) return true;
-        let cursor = el;
+        var cursor = el;
         while (cursor) {
             if (cursor.hasAttribute && cursor.hasAttribute('data-muxy-overlay')) return true;
             cursor = cursor.parentElement;
@@ -74,26 +63,26 @@
         if (el.id && /^[A-Za-z][A-Za-z0-9_-]*$/.test(el.id)) {
             return '#' + el.id;
         }
-        const parts = [];
-        let cursor = el;
+        var parts = [];
+        var cursor = el;
         while (cursor && cursor.nodeType === 1 && parts.length < 6) {
-            let segment = cursor.nodeName.toLowerCase();
+            var segment = cursor.nodeName.toLowerCase();
             if (cursor.id && /^[A-Za-z][A-Za-z0-9_-]*$/.test(cursor.id)) {
                 segment = segment + '#' + cursor.id;
                 parts.unshift(segment);
                 break;
             }
-            const classes = (cursor.getAttribute && cursor.getAttribute('class') || '')
+            var classes = (cursor.getAttribute && cursor.getAttribute('class') || '')
                 .trim()
                 .split(/\s+/)
                 .filter(function (c) { return c && /^[A-Za-z_-][A-Za-z0-9_-]*$/.test(c); })
                 .slice(0, 2);
             if (classes.length) segment += '.' + classes.join('.');
-            const parent = cursor.parentElement;
+            var parent = cursor.parentElement;
             if (parent) {
-                const siblings = Array.from(parent.children).filter(function (s) { return s.nodeName === cursor.nodeName; });
+                var siblings = Array.from(parent.children).filter(function (s) { return s.nodeName === cursor.nodeName; });
                 if (siblings.length > 1) {
-                    const index = siblings.indexOf(cursor) + 1;
+                    var index = siblings.indexOf(cursor) + 1;
                     segment += ':nth-of-type(' + index + ')';
                 }
             }
@@ -105,12 +94,12 @@
 
     function buildXPath(el) {
         if (!(el instanceof Element)) return '';
-        const parts = [];
-        let cursor = el;
+        var parts = [];
+        var cursor = el;
         while (cursor && cursor.nodeType === 1 && cursor.nodeName.toLowerCase() !== 'html') {
-            const name = cursor.nodeName.toLowerCase();
-            let index = 1;
-            let sibling = cursor.previousElementSibling;
+            var name = cursor.nodeName.toLowerCase();
+            var index = 1;
+            var sibling = cursor.previousElementSibling;
             while (sibling) {
                 if (sibling.nodeName === cursor.nodeName) index += 1;
                 sibling = sibling.previousElementSibling;
@@ -123,13 +112,13 @@
 
     function textSnippet(el) {
         if (!el || !el.textContent) return '';
-        const trimmed = el.textContent.replace(/\s+/g, ' ').trim();
+        var trimmed = el.textContent.replace(/\s+/g, ' ').trim();
         if (trimmed.length <= 80) return trimmed;
         return trimmed.slice(0, 77) + '…';
     }
 
     function elementUnderPointer(event) {
-        let el = event.target;
+        var el = event.target;
         if (isOverlayElement(el)) {
             el = document.elementFromPoint(event.clientX, event.clientY);
         }
@@ -138,14 +127,14 @@
 
     function handleMouseMove(event) {
         if (STATE.mode === 'off') return;
-        const el = elementUnderPointer(event);
+        var el = elementUnderPointer(event);
         if (!el || isOverlayElement(el)) {
             hideHighlight();
             return;
         }
         if (el === STATE.hoveredEl) return;
         STATE.hoveredEl = el;
-        const rect = el.getBoundingClientRect();
+        var rect = el.getBoundingClientRect();
         paintHighlight(rect);
         postMessage('hovered', {
             selector: buildSelector(el),
@@ -159,12 +148,12 @@
 
     function handleClick(event) {
         if (STATE.mode === 'off') return;
-        const el = elementUnderPointer(event);
+        var el = elementUnderPointer(event);
         if (!el || isOverlayElement(el)) return;
         event.preventDefault();
         event.stopPropagation();
-        const rect = el.getBoundingClientRect();
-        const computed = window.getComputedStyle(el);
+        var rect = el.getBoundingClientRect();
+        var computed = window.getComputedStyle(el);
         postMessage('picked', {
             selector: buildSelector(el),
             xpath: buildXPath(el),
@@ -214,23 +203,80 @@
         }
     }
 
+    var ALLOWED_PROPERTIES = new Set([
+        'font-family',
+        'font-size',
+        'font-weight',
+        'color',
+        'background-color',
+        'padding-top',
+        'padding-right',
+        'padding-bottom',
+        'padding-left',
+        'margin-top',
+        'margin-right',
+        'margin-bottom',
+        'margin-left',
+        'border-radius',
+    ]);
+
+    function clearAppliedOverrides() {
+        for (var i = 0; i < STATE.appliedTargets.length; i++) {
+            var entry = STATE.appliedTargets[i];
+            try {
+                for (var j = 0; j < entry.properties.length; j++) {
+                    entry.element.style.removeProperty(entry.properties[j]);
+                }
+            } catch (err) {
+                continue;
+            }
+        }
+        STATE.appliedTargets = [];
+    }
+
     function applyOverrides(rules) {
-        const styleEl = ensureStyleOverlay();
-        styleEl.textContent = rules
-            .map(function (rule) {
-                return rule.selector + ' { ' + rule.declarations.map(function (decl) {
-                    return decl.property + ': ' + decl.value + ' !important;';
-                }).join(' ') + ' }';
-            })
-            .join('\n');
+        clearAppliedOverrides();
+        if (!Array.isArray(rules)) return;
+        for (var i = 0; i < rules.length; i++) {
+            var rule = rules[i];
+            if (!rule || typeof rule.selector !== 'string') continue;
+            var elements;
+            try {
+                elements = document.querySelectorAll(rule.selector);
+            } catch (err) {
+                continue;
+            }
+            var props = [];
+            var declarations = Array.isArray(rule.declarations) ? rule.declarations : [];
+            for (var d = 0; d < declarations.length; d++) {
+                var decl = declarations[d];
+                if (!decl || typeof decl.property !== 'string' || typeof decl.value !== 'string') continue;
+                if (!ALLOWED_PROPERTIES.has(decl.property)) continue;
+                props.push({ name: decl.property, value: decl.value });
+            }
+            if (props.length === 0) continue;
+            for (var e = 0; e < elements.length; e++) {
+                var element = elements[e];
+                if (isOverlayElement(element)) continue;
+                for (var p = 0; p < props.length; p++) {
+                    try {
+                        element.style.setProperty(props[p].name, props[p].value, 'important');
+                    } catch (err) {
+                        continue;
+                    }
+                }
+                STATE.appliedTargets.push({
+                    element: element,
+                    properties: props.map(function (item) { return item.name; }),
+                });
+            }
+        }
     }
 
     window.__muxyBrowserAPI = {
         setMode: setMode,
         applyOverrides: applyOverrides,
-        clearOverrides: function () {
-            if (STATE.overlayStyleEl) STATE.overlayStyleEl.textContent = '';
-        },
+        clearOverrides: clearAppliedOverrides,
         scrollTo: function (y) {
             window.scrollTo(0, y);
         },
@@ -250,7 +296,7 @@
         document.addEventListener('DOMContentLoaded', postTitle);
     }
 
-    const titleObserver = new MutationObserver(postTitle);
-    const titleEl = document.querySelector('title');
+    var titleObserver = new MutationObserver(postTitle);
+    var titleEl = document.querySelector('title');
     if (titleEl) titleObserver.observe(titleEl, { childList: true });
 })();

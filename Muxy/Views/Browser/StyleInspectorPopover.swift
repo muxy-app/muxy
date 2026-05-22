@@ -111,18 +111,21 @@ private struct StylePropertyRow: View {
     private func commit() {
         guard let annotation = state.annotations.first(where: { $0.id == annotationID }) else { return }
         let trimmed = draftValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
+        let sanitized = BrowserAnnotationSanitizer.sanitizeStyleValue(trimmed)
+        if sanitized.isEmpty {
             if let override = existingOverride {
                 state.removeStyleOverride(id: override.id, for: annotationID)
             }
+            draftValue = ""
             return
         }
+        draftValue = sanitized
         let override = StyleOverride(
             id: existingOverride?.id ?? UUID(),
             selector: annotation.selector,
             property: property,
             originalValue: originalValue,
-            value: trimmed
+            value: sanitized
         )
         state.upsertStyleOverride(override, for: annotationID)
     }
