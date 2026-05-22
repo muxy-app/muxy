@@ -201,26 +201,23 @@ final class VoiceRecorder {
 
     private func configureCaptureSession(sink: AudioCaptureSink) throws {
         captureSession.beginConfiguration()
+        defer { captureSession.commitConfiguration() }
         captureSession.inputs.forEach { captureSession.removeInput($0) }
         captureSession.outputs.forEach { captureSession.removeOutput($0) }
         guard let device = AVCaptureDevice.default(for: .audio) else {
-            captureSession.commitConfiguration()
             throw VoiceRecorderError.engineFailure("No microphone input is available.")
         }
         let input = try AVCaptureDeviceInput(device: device)
         guard captureSession.canAddInput(input) else {
-            captureSession.commitConfiguration()
             throw VoiceRecorderError.engineFailure("The selected microphone cannot be used.")
         }
         let output = AVCaptureAudioDataOutput()
         output.setSampleBufferDelegate(sink, queue: captureQueue)
         guard captureSession.canAddOutput(output) else {
-            captureSession.commitConfiguration()
             throw VoiceRecorderError.engineFailure("Microphone audio output cannot be used.")
         }
         captureSession.addInput(input)
         captureSession.addOutput(output)
-        captureSession.commitConfiguration()
     }
 
     private func startElapsedTimer() {
