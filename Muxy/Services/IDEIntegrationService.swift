@@ -523,7 +523,7 @@ final class IDEIntegrationService: ObservableObject {
     nonisolated private static let aiCompanionBundleIdentifiers: Set<String> = [
         "com.openai.codex",
         "ai.opencode.desktop",
-        "com.google.antigravity",
+        "com.google.antigravity-ide",
         "com.jetbrains.air",
     ]
 
@@ -577,7 +577,7 @@ final class IDEIntegrationService: ObservableObject {
         "org.aquamacs.Aquamacs": .init(symbolName: "text.cursor", rank: 33, group: .editor),
         "com.openai.codex": .init(symbolName: "sparkles.rectangle.stack", rank: 80, group: .otherTool),
         "ai.opencode.desktop": .init(symbolName: "chevron.left.forwardslash.chevron.right", rank: 81, group: .otherTool),
-        "com.google.antigravity": .init(symbolName: "sparkles", rank: 82, group: .otherTool),
+        "com.google.antigravity-ide": .init(symbolName: "sparkles", rank: 82, group: .otherTool),
         "com.jetbrains.air": .init(symbolName: "sparkles", rank: 84, group: .otherTool),
     ]
 

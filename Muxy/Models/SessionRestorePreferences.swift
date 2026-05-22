@@ -5,11 +5,12 @@ enum SessionRestorePreferences {
     static let excludedCommandsKey = "muxy.sessionRestore.excludedCommands"
 
     static let maxSnapshots = 200
+    static let defaultIsEnabled = false
 
     static var isEnabled: Bool {
         get {
             let defaults = UserDefaults.standard
-            if defaults.object(forKey: enabledKey) == nil { return true }
+            if defaults.object(forKey: enabledKey) == nil { return defaultIsEnabled }
             return defaults.bool(forKey: enabledKey)
         }
         set { UserDefaults.standard.set(newValue, forKey: enabledKey) }
