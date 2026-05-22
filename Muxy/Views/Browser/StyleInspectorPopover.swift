@@ -40,21 +40,72 @@ struct StyleInspectorPopover: View {
                 }
                 .padding(.vertical, UIMetrics.spacing2)
             }
-            .frame(width: UIMetrics.scaled(232), height: UIMetrics.scaled(340))
+            .frame(height: UIMetrics.scaled(340))
         }
+        .frame(width: UIMetrics.scaled(232))
         .padding(UIMetrics.spacing4)
     }
 
     private var header: some View {
+        let fullSelector = annotation?.selector ?? ""
+        let segments = fullSelector.components(separatedBy: " > ")
+        let leaf = segments.last ?? ""
+        let ancestorPath = segments.dropLast().joined(separator: " > ")
+        return VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
+            HStack(spacing: UIMetrics.spacing2) {
+                Text("Style Overrides")
+                    .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fg)
+                Spacer(minLength: 0)
+                copySelectorButton(selector: fullSelector)
+            }
+            selectorDisplay(leaf: leaf, ancestorPath: ancestorPath, fullSelector: fullSelector)
+        }
+    }
+
+    private func selectorDisplay(
+        leaf: String,
+        ancestorPath: String,
+        fullSelector: String
+    ) -> some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-            Text("Style Overrides")
-                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
+            Text(leaf.isEmpty ? "—" : leaf)
+                .font(.system(size: UIMetrics.fontCaption, weight: .medium, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fg)
-            Text(annotation?.selector ?? "")
-                .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
-                .foregroundStyle(MuxyTheme.fgDim)
-                .lineLimit(1)
-                .truncationMode(.middle)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+                .help(fullSelector)
+            if !ancestorPath.isEmpty {
+                Text(ancestorPath)
+                    .font(.system(size: UIMetrics.fontXS, design: .monospaced))
+                    .foregroundStyle(MuxyTheme.fgDim)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .help(fullSelector)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func copySelectorButton(selector: String) -> some View {
+        if !selector.isEmpty {
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(selector, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: UIMetrics.fontXS, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Copy selector")
+            .accessibilityLabel("Copy selector")
         }
     }
 
