@@ -626,6 +626,7 @@ private struct TabCell: View {
         case .vcs: label += ", Source Control"
         case .editor: label += ", Editor"
         case .diffViewer: label += ", Diff Viewer"
+        case .imageViewer: label += ", Image Viewer"
         }
         if tab.isPinned { label += ", Pinned" }
         if hasUnread { label += ", Unread" }
@@ -641,19 +642,25 @@ private struct TabCell: View {
         } else if tab.isPinned {
             Image(systemName: "pin.fill")
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-        } else if tab.kind == .vcs {
-            FileDiffIcon()
-                .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
-        } else if tab.kind == .editor {
-            Image(systemName: "pencil.line")
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-        } else if tab.kind == .diffViewer {
-            Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
         } else {
-            Image(systemName: "terminal")
-                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            switch tab.kind {
+            case .terminal:
+                Image(systemName: "terminal")
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            case .vcs:
+                FileDiffIcon()
+                    .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
+            case .editor:
+                Image(systemName: "pencil.line")
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            case .diffViewer:
+                Image(systemName: "rectangle.split.2x1")
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            case .imageViewer:
+                Image(systemName: "photo")
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            }
         }
     }
 }
