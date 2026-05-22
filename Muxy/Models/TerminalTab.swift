@@ -9,6 +9,7 @@ final class TerminalTab: Identifiable {
         case editor
         case diffViewer
         case imageViewer
+        case browser
     }
 
     enum Content {
@@ -17,6 +18,7 @@ final class TerminalTab: Identifiable {
         case editor(EditorTabState)
         case diffViewer(DiffViewerTabState)
         case imageViewer(ImageViewerTabState)
+        case browser(BrowserTabState)
 
         var kind: Kind {
             switch self {
@@ -25,6 +27,7 @@ final class TerminalTab: Identifiable {
             case .editor: .editor
             case .diffViewer: .diffViewer
             case .imageViewer: .imageViewer
+            case .browser: .browser
             }
         }
 
@@ -53,6 +56,11 @@ final class TerminalTab: Identifiable {
             return state
         }
 
+        var browserState: BrowserTabState? {
+            guard case let .browser(state) = self else { return nil }
+            return state
+        }
+
         var projectPath: String {
             switch self {
             case let .terminal(pane): pane.projectPath
@@ -60,6 +68,7 @@ final class TerminalTab: Identifiable {
             case let .editor(state): state.projectPath
             case let .diffViewer(state): state.projectPath
             case let .imageViewer(state): state.projectPath
+            case let .browser(state): state.projectPath
             }
         }
     }
@@ -87,6 +96,8 @@ final class TerminalTab: Identifiable {
             return state.displayTitle
         case let .imageViewer(state):
             return state.displayTitle
+        case let .browser(state):
+            return state.displayTitle
         }
     }
 
@@ -113,6 +124,11 @@ final class TerminalTab: Identifiable {
     init(imageViewerState: ImageViewerTabState) {
         id = UUID()
         content = .imageViewer(imageViewerState)
+    }
+
+    init(browserState: BrowserTabState) {
+        id = browserState.id
+        content = .browser(browserState)
     }
 
     init(restoring snapshot: TerminalTabSnapshot, restoredSession: TerminalSessionSnapshot? = nil) {
@@ -153,6 +169,15 @@ final class TerminalTab: Identifiable {
             } else {
                 content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
             }
+        case .browser:
+            let initialURL = snapshot.browserURL ?? BrowserTabState.homeURL
+            content = .browser(BrowserTabState(
+                id: snapshot.id,
+                projectPath: snapshot.projectPath,
+                initialURL: initialURL,
+                scrollY: snapshot.browserScrollY ?? 0,
+                zoom: snapshot.browserZoom ?? 1.0
+            ))
         }
     }
 
@@ -167,7 +192,10 @@ final class TerminalTab: Identifiable {
             paneTitle: content.pane?.title,
             paneID: content.pane?.id,
             filePath: content.editorState?.filePath ?? content.imageViewerState?.filePath,
-            currentWorkingDirectory: content.pane?.currentWorkingDirectory
+            currentWorkingDirectory: content.pane?.currentWorkingDirectory,
+            browserURL: content.browserState?.currentURL,
+            browserScrollY: content.browserState?.scrollY,
+            browserZoom: content.browserState?.zoom
         )
     }
 }

@@ -102,6 +102,7 @@ final class TerminalCommandTracker {
         buffers[paneID] = ""
         guard !command.isEmpty else { return }
         pendingCommands[paneID] = command
+        DevServerSniffer.shared.observe(command: command, paneID: paneID)
     }
 
     private func markBufferUnreliable(paneID: UUID) {

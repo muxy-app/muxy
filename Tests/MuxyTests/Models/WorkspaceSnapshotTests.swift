@@ -344,4 +344,47 @@ struct WorkspaceSnapshotTests {
         #expect(restored.tabs.count == area.tabs.count)
         #expect(restored.tabs[0].isPinned == true)
     }
+
+    @Test("Browser tab snapshot round-trip preserves URL, scrollY and zoom")
+    func browserTabSnapshotRoundTrip() throws {
+        let snapshot = TerminalTabSnapshot(
+            kind: .browser,
+            customTitle: "Preview",
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: nil,
+            browserURL: "http://localhost:5173",
+            browserScrollY: 320,
+            browserZoom: 1.25
+        )
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(TerminalTabSnapshot.self, from: data)
+
+        #expect(decoded.kind == .browser)
+        #expect(decoded.browserURL == "http://localhost:5173")
+        #expect(decoded.browserScrollY == 320)
+        #expect(decoded.browserZoom == 1.25)
+    }
+
+    @Test("TerminalTab restoring browser snapshot rebuilds BrowserTabState")
+    func browserTabStateRestoresFromSnapshot() {
+        let snapshot = TerminalTabSnapshot(
+            kind: .browser,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: nil,
+            browserURL: "https://example.com",
+            browserScrollY: 120,
+            browserZoom: 1.5
+        )
+        let tab = TerminalTab(restoring: snapshot)
+        let browser = tab.content.browserState
+        #expect(browser != nil)
+        #expect(browser?.currentURL == "https://example.com")
+        #expect(browser?.scrollY == 120)
+        #expect(browser?.zoom == 1.5)
+    }
 }

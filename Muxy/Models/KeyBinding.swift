@@ -64,6 +64,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case navigateForward
     case toggleMaximizePane
     case toggleVoiceRecording
+    case newBrowserTab
 
     static let allCases: [Self] = [
         .newTab,
@@ -121,6 +122,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .navigateForward,
         .toggleMaximizePane,
         .toggleVoiceRecording,
+        .newBrowserTab,
     ]
 
     var id: String { rawValue }
@@ -203,6 +205,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
         case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
         case .toggleMaximizePane: ShortcutMetadata(displayName: "Toggle Maximize Pane", category: "Panes", scope: .mainWindow)
+        case .newBrowserTab: ShortcutMetadata(displayName: "New Browser Tab", category: "Tabs", scope: .mainWindow)
         }
     }
 
@@ -325,5 +328,6 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),
         Self(action: .toggleMaximizePane, combo: KeyCombo(key: KeyCombo.returnKey, command: true, option: true)),
         Self(action: .toggleVoiceRecording, combo: KeyCombo(key: "i", command: true, shift: true)),
+        Self(action: .newBrowserTab, combo: KeyCombo(key: "b", command: true, shift: true)),
     ]
 }

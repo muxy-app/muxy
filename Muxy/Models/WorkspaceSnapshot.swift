@@ -108,6 +108,9 @@ struct TerminalTabSnapshot: Codable {
     let paneID: UUID?
     let filePath: String?
     let currentWorkingDirectory: String?
+    let browserURL: String?
+    let browserScrollY: Double?
+    let browserZoom: Double?
 
     init(
         kind: TerminalTab.Kind,
@@ -119,7 +122,10 @@ struct TerminalTabSnapshot: Codable {
         paneTitle: String?,
         paneID: UUID? = nil,
         filePath: String? = nil,
-        currentWorkingDirectory: String? = nil
+        currentWorkingDirectory: String? = nil,
+        browserURL: String? = nil,
+        browserScrollY: Double? = nil,
+        browserZoom: Double? = nil
     ) {
         self.kind = kind
         self.id = id
@@ -131,6 +137,9 @@ struct TerminalTabSnapshot: Codable {
         self.paneID = paneID
         self.filePath = filePath
         self.currentWorkingDirectory = currentWorkingDirectory
+        self.browserURL = browserURL
+        self.browserScrollY = browserScrollY
+        self.browserZoom = browserZoom
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -144,6 +153,9 @@ struct TerminalTabSnapshot: Codable {
         case paneID
         case filePath
         case currentWorkingDirectory
+        case browserURL
+        case browserScrollY
+        case browserZoom
     }
 
     init(from decoder: Decoder) throws {
@@ -158,6 +170,9 @@ struct TerminalTabSnapshot: Codable {
         paneID = try container.decodeIfPresent(UUID.self, forKey: .paneID)
         filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
         currentWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .currentWorkingDirectory)
+        browserURL = try container.decodeIfPresent(String.self, forKey: .browserURL)
+        browserScrollY = try container.decodeIfPresent(Double.self, forKey: .browserScrollY)
+        browserZoom = try container.decodeIfPresent(Double.self, forKey: .browserZoom)
     }
 }
 

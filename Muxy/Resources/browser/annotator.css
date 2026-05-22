@@ -1,0 +1,21 @@
+#muxy-browser-highlight {
+    position: absolute;
+    z-index: 2147483646;
+    pointer-events: none;
+    box-sizing: border-box;
+    background: rgba(64, 156, 255, 0.18);
+    border: 2px solid rgba(64, 156, 255, 0.9);
+    border-radius: 4px;
+    transition: top 60ms ease-out, left 60ms ease-out, width 60ms ease-out, height 60ms ease-out;
+    display: none;
+}
+
+html[data-muxy-mode="annotate"],
+html[data-muxy-mode="style"] {
+    cursor: crosshair !important;
+}
+
+html[data-muxy-mode="annotate"] *,
+html[data-muxy-mode="style"] * {
+    cursor: crosshair !important;
+}

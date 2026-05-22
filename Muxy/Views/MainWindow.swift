@@ -272,6 +272,12 @@ struct MainWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
         }
+        .modifier(BrowserNotificationListeners(
+            onCreateBrowserTab: { url in
+                guard let projectID = appState.activeProjectID else { return }
+                appState.createBrowserTab(projectID: projectID, initialURL: url)
+            }
+        ))
         .background(WindowOpenReceiver(openWindow: openWindow))
         .modifier(SidePanelNotificationListeners(
             onToggleAttachedVCS: { toggleAttachedVCSPanel() },
@@ -1625,6 +1631,23 @@ private struct SidePanelNotificationListeners: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleVoiceRecording)) { _ in
                 onToggleVoiceRecording()
+            }
+    }
+}
+
+private struct BrowserNotificationListeners: ViewModifier {
+    let onCreateBrowserTab: (String?) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .createBrowserTabRequested)) { notification in
+                let url = notification.userInfo?[DevServerSnifferKeys.urlKey] as? String
+                onCreateBrowserTab(url)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .devServerDetected)) { notification in
+                guard let url = notification.userInfo?[DevServerSnifferKeys.urlKey] as? String else { return }
+                ToastState.shared.show("Dev server detected: \(url) — opening browser tab")
+                onCreateBrowserTab(url)
             }
     }
 }

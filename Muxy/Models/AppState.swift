@@ -38,6 +38,7 @@ final class AppState {
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
         case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
         case createImageViewerTab(projectID: UUID, areaID: UUID?, filePath: String)
+        case createBrowserTab(projectID: UUID, areaID: UUID?, initialURL: String?)
         case restoreClosedTerminalTab(projectID: UUID, areaID: UUID?, snapshot: ClosedTerminalTabSnapshot)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
@@ -282,6 +283,10 @@ final class AppState {
 
     func createVCSTab(projectID: UUID) {
         dispatch(.createVCSTab(projectID: projectID, areaID: nil))
+    }
+
+    func createBrowserTab(projectID: UUID, initialURL: String? = nil) {
+        dispatch(.createBrowserTab(projectID: projectID, areaID: nil, initialURL: initialURL))
     }
 
     func openFile(

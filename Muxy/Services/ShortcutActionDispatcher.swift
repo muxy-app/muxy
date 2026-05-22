@@ -184,6 +184,14 @@ struct ShortcutActionDispatcher {
             else { return false }
             appState.toggleMaximize(areaID: areaID, for: projectID)
             return true
+        case .newBrowserTab:
+            guard let projectID = appState.activeProjectID else { return false }
+            if appState.workspaceRoot(for: projectID) == nil {
+                guard let worktree = resolveActiveWorktree(for: projectID) else { return false }
+                appState.selectWorktree(projectID: projectID, worktree: worktree)
+            }
+            appState.createBrowserTab(projectID: projectID)
+            return true
         case .toggleVoiceRecording,
              .selectTab1,
              .selectTab2,

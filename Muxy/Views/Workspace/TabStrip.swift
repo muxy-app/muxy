@@ -102,8 +102,14 @@ struct PaneTabStrip: View {
                     .help(shortcutTooltip("Split Right", for: .splitRight))
                 IconButton(symbol: "square.split.1x2", accessibilityLabel: "Split Down") { onSplit(.vertical) }
                     .help(shortcutTooltip("Split Down", for: .splitDown))
-                IconButton(symbol: "plus", accessibilityLabel: "New Tab") { onCreateTab() }
-                    .help(shortcutTooltip("New Tab", for: .newTab))
+                NewTabMenuButton(
+                    onNewTerminal: onCreateTab,
+                    onNewBrowser: {
+                        NotificationCenter.default.post(name: .createBrowserTabRequested, object: nil)
+                    },
+                    newTerminalTooltip: shortcutTooltip("New Tab", for: .newTab),
+                    newBrowserTooltip: shortcutTooltip("New Browser Tab", for: .newBrowserTab)
+                )
                 if showVCSButton {
                     IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
                         NotificationCenter.default.post(name: .quickOpen, object: nil)
@@ -633,6 +639,7 @@ private struct TabCell: View {
         case .editor: label += ", Editor"
         case .diffViewer: label += ", Diff Viewer"
         case .imageViewer: label += ", Image Viewer"
+        case .browser: label += ", Browser"
         }
         if tab.isPinned { label += ", Pinned" }
         if hasUnread { label += ", Unread" }
@@ -666,7 +673,46 @@ private struct TabCell: View {
             case .imageViewer:
                 Image(systemName: "photo")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            case .browser:
+                Image(systemName: "globe")
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             }
         }
+    }
+}
+
+private struct NewTabMenuButton: View {
+    let onNewTerminal: () -> Void
+    let onNewBrowser: () -> Void
+    let newTerminalTooltip: String
+    let newBrowserTooltip: String
+
+    var body: some View {
+        Menu {
+            Button {
+                onNewTerminal()
+            } label: {
+                Label("New Terminal Tab", systemImage: "terminal")
+            }
+            Button {
+                onNewBrowser()
+            } label: {
+                Label("New Browser Tab", systemImage: "globe")
+            }
+            .help(newBrowserTooltip)
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+                .contentShape(Rectangle())
+        } primaryAction: {
+            onNewTerminal()
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(newTerminalTooltip)
     }
 }

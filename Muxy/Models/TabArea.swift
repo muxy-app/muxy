@@ -141,6 +141,17 @@ final class TabArea: Identifiable {
         )))
     }
 
+    func createBrowserTab(initialURL: String? = nil) {
+        let resolvedURL = initialURL?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let target = resolvedURL.flatMap { $0.isEmpty ? nil : $0 } ?? BrowserTabState.homeURL
+        if let existing = tabs.first(where: { $0.content.browserState?.currentURL == target }) {
+            selectTab(existing.id)
+            return
+        }
+        let state = BrowserTabState(projectPath: projectPath, initialURL: target)
+        insertTab(TerminalTab(browserState: state))
+    }
+
     func createExternalEditorTab(filePath: String, command: String) {
         if let existing = tabs.first(where: { $0.content.pane?.externalEditorFilePath == filePath }) {
             selectTab(existing.id)

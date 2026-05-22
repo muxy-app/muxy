@@ -25,6 +25,7 @@ extension Notification.Name {
     static let externalDragHoverChanged = Notification.Name("MuxyExternalDragHoverChanged")
     static let toggleRichInput = Notification.Name("MuxyToggleRichInput")
     static let toggleVoiceRecording = Notification.Name("MuxyToggleVoiceRecording")
+    static let createBrowserTabRequested = Notification.Name("MuxyCreateBrowserTabRequested")
 }
 
 enum ExternalDragHoverUserInfoKey {
