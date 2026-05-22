@@ -41,6 +41,7 @@ final class ImageViewerTabState: Identifiable {
     static func canOpen(filePath: String) -> Bool {
         let ext = URL(fileURLWithPath: filePath).pathExtension.lowercased()
         guard !ext.isEmpty else { return false }
+        guard ext != "svg" else { return false }
         return UTType(filenameExtension: ext)?.conforms(to: .image) == true
     }
 

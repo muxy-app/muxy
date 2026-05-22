@@ -9,6 +9,7 @@ struct EditorPane: View {
     @Environment(GhosttyService.self) private var ghostty
     @State private var editorSettings = EditorSettings.shared
     @FocusState private var markdownPreviewFocused: Bool
+    @FocusState private var htmlPreviewFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,7 +37,7 @@ struct EditorPane: View {
             if state.isMarkdownFile, state.markdownViewMode == .preview {
                 state.markdownViewMode = .code
             }
-            if state.isHTMLFile, state.htmlViewMode == .preview {
+            if state.usesHTMLPreview, state.htmlViewMode == .preview {
                 state.htmlViewMode = .code
             }
             if !state.currentSelection.isEmpty {
@@ -108,7 +109,7 @@ struct EditorPane: View {
                     markdownPreviewContainer
                 }
             }
-        } else if state.isHTMLFile {
+        } else if state.usesHTMLPreview {
             switch state.htmlViewMode {
             case .code:
                 codeEditorContainer
@@ -126,8 +127,21 @@ struct EditorPane: View {
     }
 
     private var htmlPreviewContainer: some View {
-        HTMLPreviewWebView(filePath: state.filePath)
+        HTMLPreviewWebView(filePath: state.filePath, backgroundColor: EditorThemePalette.active.background)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .focusable(focused)
+            .focusEffectDisabled()
+            .focused($htmlPreviewFocused)
+            .onKeyPress(keys: ["e", "E"]) { press in
+                guard state.usesHTMLPreview, state.htmlViewMode == .preview else { return .ignored }
+                let disallowed: EventModifiers = [.command, .control, .option]
+                guard press.modifiers.isDisjoint(with: disallowed) else { return .ignored }
+                state.htmlViewMode = press.modifiers.contains(.shift) ? .split : .code
+                return .handled
+            }
+            .onAppear { acquireHTMLPreviewFocusIfNeeded() }
+            .onChange(of: focused) { _, _ in acquireHTMLPreviewFocusIfNeeded() }
+            .onChange(of: state.htmlViewMode) { _, _ in acquireHTMLPreviewFocusIfNeeded() }
     }
 
     private var codeEditorContainer: some View {
@@ -197,7 +211,7 @@ struct EditorPane: View {
         .focusable(focused)
         .focusEffectDisabled()
         .focused($markdownPreviewFocused)
-        .onKeyPress(keys: ["e"]) { press in
+        .onKeyPress(keys: ["e", "E"]) { press in
             guard state.markdownViewMode == .preview else { return .ignored }
             let disallowed: EventModifiers = [.command, .control, .option]
             guard press.modifiers.isDisjoint(with: disallowed) else { return .ignored }
@@ -242,6 +256,15 @@ struct EditorPane: View {
         markdownPreviewFocused = true
     }
 
+    private func acquireHTMLPreviewFocusIfNeeded() {
+        guard focused, state.usesHTMLPreview, state.htmlViewMode == .preview else { return }
+        if state.suppressInitialFocus {
+            state.suppressInitialFocus = false
+            return
+        }
+        htmlPreviewFocused = true
+    }
+
     private var renderedMarkdownContent: String {
         _ = state.previewRefreshVersion
         return state.backingStore?.fullText() ?? ""
@@ -284,7 +307,7 @@ struct EditorPane: View {
 
     private var showsCodeEditor: Bool {
         if state.isMarkdownFile { return state.markdownViewMode != .preview }
-        if state.isHTMLFile { return state.htmlViewMode != .preview }
+        if state.usesHTMLPreview { return state.htmlViewMode != .preview }
         return true
     }
 
@@ -477,12 +500,12 @@ private struct EditorBreadcrumb: View {
                     fileTypeLabel: "Markdown"
                 )
                 .padding(.trailing, UIMetrics.spacing3)
-            } else if state.isHTMLFile {
+            } else if state.usesHTMLPreview {
                 EditorMarkdownModePicker(
                     mode: $state.htmlViewMode,
                     scrollSyncEnabled: nil,
-                    fileTypeLabel: "HTML",
-                    supportsKeyboardShortcut: false
+                    fileTypeLabel: state.isSVGFile ? "SVG" : "HTML",
+                    supportsKeyboardShortcut: true
                 )
                 .padding(.trailing, UIMetrics.spacing3)
             }

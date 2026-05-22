@@ -291,6 +291,10 @@ final class AppState {
         line: Int? = nil,
         column: Int = 1
     ) {
+        if EditorTabState.usesHTMLPreview(filePath: filePath) {
+            openBuiltInEditorFile(filePath, projectID: projectID, preserveFocus: preserveFocus, line: line, column: column)
+            return
+        }
         if ImageViewerTabState.canOpen(filePath: filePath) {
             openImageFile(filePath, projectID: projectID)
             return
@@ -303,6 +307,16 @@ final class AppState {
                 return
             }
         }
+        openBuiltInEditorFile(filePath, projectID: projectID, preserveFocus: preserveFocus, line: line, column: column)
+    }
+
+    private func openBuiltInEditorFile(
+        _ filePath: String,
+        projectID: UUID,
+        preserveFocus: Bool,
+        line: Int?,
+        column: Int
+    ) {
         for area in allAreas(for: projectID) {
             if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
                 dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
