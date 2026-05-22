@@ -47,8 +47,7 @@ struct AIAssistantSettingsView: View {
                 if provider != .custom {
                     SettingsRow("Model (optional)") {
                         TextField("Default", text: modelBinding)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: SettingsMetrics.controlWidth)
+                            .settingsTextInput(width: SettingsMetrics.controlWidth)
                     }
                 } else {
                     customCommandRow
@@ -91,8 +90,7 @@ struct AIAssistantSettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             SettingsRow("Command") {
                 TextField("e.g. mytool --quiet", text: $customCommand)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: SettingsMetrics.controlWidth)
+                    .settingsTextInput(width: SettingsMetrics.controlWidth)
             }
             Text(
                 "Runs through your interactive login shell so PATH and aliases resolve. "
@@ -100,7 +98,7 @@ struct AIAssistantSettingsView: View {
                     + "Provide arguments that make the tool emit only the response (no banners or progress)."
             )
             .font(.system(size: SettingsMetrics.footnoteFontSize))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(SettingsStyle.mutedForeground)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, SettingsMetrics.horizontalPadding)
             .padding(.bottom, 4)
@@ -115,10 +113,7 @@ struct AIAssistantSettingsView: View {
             TextEditor(text: text)
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
                 .scrollContentBackground(.hidden)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
-                .frame(height: 120)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                .settingsTextInput(minHeight: 120)
                 .padding(.horizontal, SettingsMetrics.horizontalPadding)
 
             HStack {

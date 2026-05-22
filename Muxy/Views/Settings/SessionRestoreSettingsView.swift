@@ -34,14 +34,7 @@ struct SessionRestoreSettingsView: View {
                 TextEditor(text: $excludedCommands)
                     .font(.system(size: 12, design: .monospaced))
                     .scrollContentBackground(.hidden)
-                    .frame(minHeight: 180)
-                    .padding(8)
-                    .background(MuxyTheme.bg)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(MuxyTheme.border, lineWidth: 1)
-                    )
+                    .settingsTextInput(minHeight: 180)
                     .padding(.horizontal, SettingsMetrics.horizontalPadding)
                     .padding(.vertical, SettingsMetrics.rowVerticalPadding)
                     .onChange(of: excludedCommands) { _, value in

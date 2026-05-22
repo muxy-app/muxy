@@ -37,6 +37,11 @@ final class KeyBindingStore {
         save()
     }
 
+    func replaceBindings(_ newBindings: [KeyBinding]) {
+        bindings = newBindings
+        save()
+    }
+
     func resetBinding(action: ShortcutAction) {
         guard let defaultBinding = KeyBinding.defaults.first(where: { $0.action == action }) else { return }
         updateBinding(action: defaultBinding.action, combo: defaultBinding.combo)
@@ -84,6 +89,7 @@ final class KeyBindingStore {
     private func save() {
         do {
             try persistence.saveBindings(bindings)
+            SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
         } catch {
             logger.error("Failed to save key bindings: \(error.localizedDescription)")
         }

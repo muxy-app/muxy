@@ -45,7 +45,7 @@ struct RecordingSettingsView: View {
             SettingsRow("Language") {
                 Text("None available")
                     .font(.system(size: SettingsMetrics.labelFontSize))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SettingsStyle.mutedForeground)
             }
         } else {
             SettingsRow("Language") {

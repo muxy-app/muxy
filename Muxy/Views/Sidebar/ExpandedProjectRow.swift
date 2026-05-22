@@ -15,6 +15,7 @@ struct ExpandedProjectRow: View {
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
+    @Environment(ProjectCommandStore.self) private var projectCommandStore
 
     @AppStorage(GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch)
     private var autoExpandWorktrees = false
@@ -28,6 +29,10 @@ struct ExpandedProjectRow: View {
     @State private var worktreesExpanded = false
     @State private var isRefreshingWorktrees = false
     @State private var showColorPicker = false
+    @State private var showAddCommandSheet = false
+    @State private var commandsSectionExpanded = true
+    @State private var worktreesSectionExpanded = true
+    @State private var activeCommandID: String?
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -45,6 +50,10 @@ struct ExpandedProjectRow: View {
         worktrees.first { $0.id == activeWorktreeID }
     }
 
+    private var projectCommands: [ProjectCommand] {
+        projectCommandStore.commands(for: project)
+    }
+
     private var displayLetter: String {
         String(project.name.prefix(1)).uppercased()
     }
@@ -52,18 +61,18 @@ struct ExpandedProjectRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             projectHeader
-            if worktreesExpanded, isGitRepo {
-                worktreeList
+            if worktreesExpanded {
+                expandedSections
             }
         }
         .task(id: project.path) {
             isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
-            if autoExpandWorktrees, isActive, isGitRepo {
+            if autoExpandWorktrees, isActive {
                 worktreesExpanded = true
             }
         }
         .onChange(of: isActive) { _, active in
-            guard autoExpandWorktrees, active, isGitRepo else { return }
+            guard autoExpandWorktrees, active else { return }
             withAnimation(.easeInOut(duration: 0.15)) {
                 worktreesExpanded = true
             }
@@ -95,6 +104,17 @@ struct ExpandedProjectRow: View {
             CreateWorktreeSheet(project: project) { result in
                 showCreateWorktreeSheet = false
                 handleCreateWorktreeResult(result)
+            }
+        }
+        .sheet(isPresented: $showAddCommandSheet) {
+            AddProjectCommandSheet { name, command in
+                showAddCommandSheet = false
+                projectCommandStore.addManualCommand(name: name, command: command, to: project.id)
+            } onLoadFromProject: {
+                showAddCommandSheet = false
+                projectCommandStore.loadDiscoveredCommands(from: project)
+            } onCancel: {
+                showAddCommandSheet = false
             }
         }
         .sheet(item: $logoCropImage) { item in
@@ -148,9 +168,7 @@ struct ExpandedProjectRow: View {
 
             Spacer(minLength: UIMetrics.spacing2)
 
-            if isGitRepo {
-                worktreeChevron
-            }
+            projectChevron
         }
         .padding(UIMetrics.spacing2)
         .background(headerBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
@@ -168,7 +186,7 @@ struct ExpandedProjectRow: View {
         }
         .onTapGesture {
             guard !isAnyDragging else { return }
-            if isActive, isGitRepo {
+            if isActive {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     worktreesExpanded.toggle()
                 }
@@ -185,7 +203,7 @@ struct ExpandedProjectRow: View {
         }
     }
 
-    private var worktreeChevron: some View {
+    private var projectChevron: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.15)) {
                 worktreesExpanded.toggle()
@@ -200,7 +218,7 @@ struct ExpandedProjectRow: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(worktreesExpanded ? "Collapse Worktrees" : "Expand Worktrees")
+        .accessibilityLabel(worktreesExpanded ? "Collapse Project" : "Expand Project")
     }
 
     private var projectIcon: some View {
@@ -239,34 +257,78 @@ struct ExpandedProjectRow: View {
 
     private var worktreeList: some View {
         VStack(spacing: UIMetrics.scaled(1)) {
-            ForEach(worktrees) { worktree in
-                ExpandedWorktreeRow(
-                    projectID: project.id,
-                    worktree: worktree,
-                    selected: worktree.id == activeWorktreeID,
-                    projectActive: isActive,
-                    onSelect: {
-                        appState.selectWorktree(projectID: project.id, worktree: worktree)
-                    },
-                    onRename: { newName in
-                        worktreeStore.rename(
-                            worktreeID: worktree.id,
-                            in: project.id,
-                            to: newName
-                        )
-                    },
-                    onRemove: worktree.canBeRemoved ? {
-                        Task { await requestRemove(worktree: worktree) }
-                    } : nil
-                )
-            }
+            SidebarSectionHeader(
+                title: "Worktrees",
+                symbol: "square.stack.3d.up",
+                expanded: worktreesSectionExpanded,
+                onToggle: { worktreesSectionExpanded.toggle() }
+            )
 
-            ExpandedNewWorktreeButton {
-                showCreateWorktreeSheet = true
+            if worktreesSectionExpanded {
+                ForEach(worktrees) { worktree in
+                    ExpandedWorktreeRow(
+                        projectID: project.id,
+                        worktree: worktree,
+                        selected: worktree.id == activeWorktreeID,
+                        onSelect: {
+                            appState.selectWorktree(projectID: project.id, worktree: worktree)
+                        },
+                        onRename: { newName in
+                            worktreeStore.rename(
+                                worktreeID: worktree.id,
+                                in: project.id,
+                                to: newName
+                            )
+                        },
+                        onRemove: worktree.canBeRemoved ? {
+                            Task { await requestRemove(worktree: worktree) }
+                        } : nil
+                    )
+                }
+
+                ExpandedNewWorktreeButton {
+                    showCreateWorktreeSheet = true
+                }
             }
         }
         .padding(.top, UIMetrics.spacing1)
-        .padding(.bottom, UIMetrics.spacing2)
+        .padding(.bottom, UIMetrics.spacing1)
+    }
+
+    private var expandedSections: some View {
+        VStack(spacing: 0) {
+            commandList
+            if isGitRepo {
+                worktreeList
+            }
+        }
+        .padding(.top, UIMetrics.spacing2)
+    }
+
+    private var commandList: some View {
+        VStack(spacing: UIMetrics.scaled(1)) {
+            SidebarSectionHeader(
+                title: "Commands",
+                symbol: "command",
+                expanded: commandsSectionExpanded,
+                onToggle: { commandsSectionExpanded.toggle() }
+            )
+            if commandsSectionExpanded {
+                ForEach(projectCommands) { command in
+                    ProjectCommandRow(
+                        command: command,
+                        run: projectCommandStore.run(for: command.id, projectID: project.id),
+                        active: activeCommandID == command.id,
+                        onActivate: { activate(command) },
+                        onRun: { run(command) },
+                        onRestart: { restart(command) },
+                        onStop: { requestStop(command) },
+                        onDelete: { delete(command) }
+                    )
+                }
+                ExpandedAddCommandButton { showAddCommandSheet = true }
+            }
+        }
     }
 
     private var projectHeaderAccessibilityLabel: String {
@@ -423,13 +485,276 @@ struct ExpandedProjectRow: View {
             isRefreshing: $isRefreshingWorktrees
         )
     }
+
+    private func run(_ command: ProjectCommand) {
+        guard let created = appState.createProjectCommandTab(
+            projectID: project.id,
+            name: command.name,
+            command: command.command
+        )
+        else { return }
+        activeCommandID = command.id
+        projectCommandStore.run(
+            command,
+            projectID: project.id,
+            tabID: created.tabID,
+            areaID: created.areaID,
+            paneID: created.paneID
+        )
+    }
+
+    private func activate(_ command: ProjectCommand) {
+        activeCommandID = command.id
+        guard let run = projectCommandStore.run(for: command.id, projectID: project.id) else { return }
+        appState.selectTab(projectID: run.projectID, areaID: run.areaID, tabID: run.tabID)
+    }
+
+    private func restart(_ command: ProjectCommand) {
+        guard let run = projectCommandStore.run(for: command.id, projectID: project.id) else {
+            run(command)
+            return
+        }
+        guard let replacement = appState.restartCommandTab(run, command: command) else { return }
+        projectCommandStore.replaceRun(replacement)
+    }
+
+    private func requestStop(_ command: ProjectCommand) {
+        guard let run = projectCommandStore.run(for: command.id, projectID: project.id) else { return }
+        appState.interruptCommandTab(paneID: run.paneID)
+        projectCommandStore.markStopped(command.id, projectID: project.id)
+    }
+
+    private func delete(_ command: ProjectCommand) {
+        if activeCommandID == command.id {
+            activeCommandID = nil
+        }
+        projectCommandStore.delete(command, from: project.id)
+    }
+}
+
+private struct SidebarSectionHeader: View {
+    let title: String
+    let symbol: String
+    let expanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: UIMetrics.spacing3) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: UIMetrics.fontXS, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fgMuted.opacity(0.75))
+                    .rotationEffect(.degrees(expanded ? 0 : -90))
+                    .animation(.easeInOut(duration: 0.15), value: expanded)
+                    .frame(width: UIMetrics.iconXS)
+
+                Image(systemName: symbol)
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .frame(width: UIMetrics.iconMD)
+
+                Text(title.uppercased())
+                    .font(.system(size: UIMetrics.fontMicro, weight: .bold))
+                    .tracking(1.4)
+                    .foregroundStyle(MuxyTheme.fgMuted)
+
+                Rectangle()
+                    .fill(MuxyTheme.border.opacity(0.8))
+                    .frame(height: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, UIMetrics.spacing3)
+        .padding(.trailing, UIMetrics.spacing4)
+        .padding(.top, UIMetrics.spacing2)
+        .padding(.bottom, expanded ? UIMetrics.spacing3 : UIMetrics.spacing2)
+        .accessibilityLabel(expanded ? "Collapse \(title)" : "Expand \(title)")
+    }
+}
+
+private struct ProjectCommandRow: View {
+    let command: ProjectCommand
+    let run: ProjectCommandRun?
+    let active: Bool
+    let onActivate: () -> Void
+    let onRun: () -> Void
+    let onRestart: () -> Void
+    let onStop: () -> Void
+    let onDelete: () -> Void
+    @State private var hovered = false
+
+    private var isRunning: Bool {
+        run?.state == .running
+    }
+
+    var body: some View {
+        ProjectItem(
+            title: command.name,
+            color: active || isRunning ? MuxyTheme.accent : MuxyTheme.fg,
+            onTap: onActivate,
+            trailing: { hovered in
+                Button(action: isRunning ? onStop : onRun) {
+                    Image(systemName: isRunning ? "stop.fill" : "play.fill")
+                        .font(.system(size: UIMetrics.fontMicro, weight: .semibold))
+                        .foregroundStyle(isRunning ? MuxyTheme.fg : MuxyTheme.accent)
+                        .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
+                }
+                .buttonStyle(.plain)
+                .opacity(hovered || isRunning ? 1 : 0)
+                .accessibilityHidden(!hovered && !isRunning)
+                .accessibilityLabel(isRunning ? "Stop Command" : "Run Command")
+            }
+        )
+        .contextMenu {
+            Button("Run", action: onRun)
+            Button("Restart", action: onRestart)
+                .disabled(run == nil)
+            Button("Stop", action: onStop)
+                .disabled(!isRunning)
+            Divider()
+            Button("Delete", role: .destructive, action: onDelete)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(command.name)
+    }
+}
+
+@MainActor
+private enum ProjectItemLayout {
+    static var leadingPadding: CGFloat { UIMetrics.spacing9 }
+    static var trailingPadding: CGFloat { UIMetrics.spacing4 }
+}
+
+private struct ProjectItem<Trailing: View>: View {
+    let title: String
+    var badge: String?
+    var color: Color
+    let onTap: () -> Void
+    @ViewBuilder let trailing: (Bool) -> Trailing
+    @State private var hovered = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: UIMetrics.spacing3) {
+            HStack(spacing: UIMetrics.spacing2) {
+                Text(title)
+                    .font(.system(size: UIMetrics.fontBody, weight: .regular))
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                if let badge {
+                    ProjectItemBadge(title: badge)
+                }
+            }
+
+            Spacer(minLength: UIMetrics.spacing1)
+
+            trailing(hovered)
+        }
+        .padding(.leading, ProjectItemLayout.leadingPadding)
+        .padding(.trailing, ProjectItemLayout.trailingPadding)
+        .padding(.vertical, UIMetrics.scaled(5))
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        .onHover { hovered = $0 }
+        .onTapGesture(perform: onTap)
+    }
+
+    private var rowBackground: AnyShapeStyle {
+        if hovered { return AnyShapeStyle(MuxyTheme.hover) }
+        return AnyShapeStyle(Color.clear)
+    }
+}
+
+private struct ProjectItemBadge: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: UIMetrics.fontMicro, weight: .bold))
+            .tracking(0.4)
+            .foregroundStyle(MuxyTheme.fg)
+            .padding(.horizontal, UIMetrics.spacing2)
+            .padding(.vertical, UIMetrics.scaled(1))
+            .background(MuxyTheme.surface, in: Capsule())
+    }
+}
+
+private struct ExpandedAddCommandButton: View {
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: UIMetrics.spacing3) {
+                Image(systemName: "plus")
+                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
+                    .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
+                Text("Add Command")
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
+                Spacer()
+            }
+            .padding(.leading, ProjectItemLayout.leadingPadding)
+            .padding(.trailing, ProjectItemLayout.trailingPadding)
+            .padding(.vertical, UIMetrics.scaled(5))
+            .background(hovered ? MuxyTheme.hover : Color.clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+            .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .accessibilityLabel("Add Command")
+    }
+}
+
+private struct AddProjectCommandSheet: View {
+    let onAdd: (String, String) -> Void
+    let onLoadFromProject: () -> Void
+    let onCancel: () -> Void
+    @State private var name = ""
+    @State private var command = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing4) {
+            Text("Add Command")
+                .font(.system(size: UIMetrics.fontTitle, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+
+            TextField("Name", text: $name)
+                .textFieldStyle(.roundedBorder)
+
+            TextField("Command", text: $command)
+                .textFieldStyle(.roundedBorder)
+                .focused($focused)
+                .onSubmit { submit() }
+
+            HStack {
+                Button("Load from Project", action: onLoadFromProject)
+
+                Spacer()
+                Button("Cancel", action: onCancel)
+                Button("Add", action: submit)
+                    .disabled(command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(UIMetrics.spacing6)
+        .frame(width: UIMetrics.scaled(360))
+        .onAppear { focused = true }
+    }
+
+    private func submit() {
+        guard !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        onAdd(name, command)
+    }
 }
 
 private struct ExpandedWorktreeRow: View {
     let projectID: UUID
     let worktree: Worktree
     let selected: Bool
-    let projectActive: Bool
     let onSelect: () -> Void
     let onRename: (String) -> Void
     let onRemove: (() -> Void)?
@@ -452,51 +777,35 @@ private struct ExpandedWorktreeRow: View {
     }
 
     var body: some View {
-        HStack(spacing: UIMetrics.spacing3) {
-            leadingIndicator
-
+        Group {
             if isRenaming {
-                TextField("", text: $renameText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
-                    .foregroundStyle(MuxyTheme.fg)
-                    .focused($renameFieldFocused)
-                    .onSubmit { commitRename() }
-                    .onExitCommand { cancelRename() }
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: UIMetrics.spacing2) {
-                        Text(displayName)
-                            .font(.system(size: UIMetrics.fontBody, weight: activeStyle ? .semibold : .regular))
-                            .foregroundStyle(MuxyTheme.fg)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                HStack(spacing: UIMetrics.spacing3) {
+                    leadingIndicator
 
-                        if worktree.isPrimary {
-                            PrimaryBadge()
-                        }
-                    }
+                    TextField("", text: $renameText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                        .foregroundStyle(MuxyTheme.fg)
+                        .focused($renameFieldFocused)
+                        .onSubmit { commitRename() }
+                        .onExitCommand { cancelRename() }
 
-                    if let branch = branchLabel {
-                        Text(branch)
-                            .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
-                            .foregroundStyle(MuxyTheme.fg)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
+                    Spacer(minLength: UIMetrics.spacing1)
                 }
+                .padding(.horizontal, UIMetrics.spacing4)
+                .padding(.vertical, UIMetrics.scaled(7))
+                .background(rowBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+                .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+                .onHover { hovered = $0 }
+            } else {
+                ProjectItem(
+                    title: displayName,
+                    color: itemColor,
+                    onTap: onSelect,
+                    trailing: { _ in EmptyView() }
+                )
+                .onHover { hovered = $0 }
             }
-
-            Spacer(minLength: UIMetrics.spacing1)
-        }
-        .padding(.horizontal, UIMetrics.spacing4)
-        .padding(.vertical, UIMetrics.scaled(7))
-        .background(rowBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
-        .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
-        .onHover { hovered = $0 }
-        .onTapGesture {
-            guard !isRenaming else { return }
-            onSelect()
         }
         .contextMenu {
             if worktree.isPrimary {
@@ -537,10 +846,12 @@ private struct ExpandedWorktreeRow: View {
         .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
     }
 
-    private var activeStyle: Bool { selected && projectActive }
+    private var itemColor: Color {
+        if selected { return MuxyTheme.accent }
+        return MuxyTheme.fg
+    }
 
     private var rowBackground: AnyShapeStyle {
-        if activeStyle { return AnyShapeStyle(MuxyTheme.accentSoft) }
         if hovered { return AnyShapeStyle(MuxyTheme.hover) }
         return AnyShapeStyle(Color.clear)
     }
@@ -571,31 +882,22 @@ private struct ExpandedNewWorktreeButton: View {
             HStack(spacing: UIMetrics.spacing3) {
                 Image(systemName: "plus")
                     .font(.system(size: UIMetrics.fontCaption, weight: .medium))
-                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
+                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
                     .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
                 Text("New Worktree")
                     .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
-                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fg)
+                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
                 Spacer()
             }
-            .padding(.horizontal, UIMetrics.spacing4)
+            .padding(.leading, ProjectItemLayout.leadingPadding)
+            .padding(.trailing, ProjectItemLayout.trailingPadding)
             .padding(.vertical, UIMetrics.scaled(5))
+            .background(hovered ? MuxyTheme.hover : Color.clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+            .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
         .accessibilityLabel("New Worktree")
-    }
-}
-
-private struct PrimaryBadge: View {
-    var body: some View {
-        Text("PRIMARY")
-            .font(.system(size: UIMetrics.fontMicro, weight: .bold))
-            .tracking(0.4)
-            .foregroundStyle(MuxyTheme.fg)
-            .padding(.horizontal, UIMetrics.spacing2)
-            .padding(.vertical, UIMetrics.scaled(1))
-            .background(MuxyTheme.surface, in: Capsule())
     }
 }
 

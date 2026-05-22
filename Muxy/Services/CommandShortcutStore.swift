@@ -125,6 +125,12 @@ final class CommandShortcutStore {
         updatePrefixCombo(CommandShortcutConfiguration().prefixCombo)
     }
 
+    func replaceConfiguration(_ configuration: CommandShortcutConfiguration) {
+        prefixCombo = configuration.prefixCombo
+        shortcuts = configuration.shortcuts.map(shortcutWithDefaultModifier)
+        save()
+    }
+
     func activateLayer() {
         isLayerActive = true
         layerResetTask?.cancel()
@@ -202,6 +208,7 @@ final class CommandShortcutStore {
                 prefixCombo: prefixCombo,
                 shortcuts: shortcuts
             ))
+            SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
         } catch {
             commandShortcutLogger.error("Failed to save command shortcuts: \(error.localizedDescription)")
         }

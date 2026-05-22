@@ -413,9 +413,16 @@ final class GhosttyTerminalNSView: NSView {
             surfaceFocused = nil
             return
         }
-        guard surfaceFocused != focused else { return }
+        guard Self.shouldApplySurfaceFocusChange(previous: surfaceFocused, next: focused) else {
+            surfaceFocused = focused
+            return
+        }
         ghostty_surface_set_focus(surface, focused)
         surfaceFocused = focused
+    }
+
+    static func shouldApplySurfaceFocusChange(previous: Bool?, next: Bool) -> Bool {
+        previous != next && (next || previous != nil)
     }
 
     override var acceptsFirstResponder: Bool { !overlayActive }

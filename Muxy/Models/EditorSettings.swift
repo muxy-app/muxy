@@ -215,6 +215,7 @@ final class EditorSettings {
                 richInputLineHeightMultiplier: richInputLineHeightMultiplier,
                 richInputImageStrategy: richInputImageStrategy
             ))
+            SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
         } catch {
             logger.error("Failed to save editor settings: \(error.localizedDescription)")
         }
