@@ -70,6 +70,7 @@ struct BrowserAnnotationsPanel: View {
 private struct AnnotationRow: View {
     @Bindable var state: BrowserTabState
     let annotationID: UUID
+    @Environment(AppState.self) private var appState
     @State private var draftComment: String = ""
     @State private var showsStylePopover = false
 
@@ -151,6 +152,7 @@ private struct AnnotationRow: View {
                         BrowserAnnotationSender.send(
                             annotation: annotation,
                             from: state,
+                            appState: appState,
                             markSent: { state.markAnnotationSent(annotationID) }
                         )
                     }
