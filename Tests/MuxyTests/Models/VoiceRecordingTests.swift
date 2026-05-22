@@ -26,6 +26,14 @@ struct VoiceRecorderHelperTests {
         #expect(VoiceRecorder.normalize(power: .nan) == 0)
         #expect(VoiceRecorder.normalize(power: -.infinity) == 0)
     }
+
+    @Test("average power handles float samples")
+    func averagePowerHandlesFloatSamples() {
+        let samples: [Float] = [0.5, -0.5, 0.5, -0.5]
+        let power = samples.withUnsafeBufferPointer { VoiceRecorder.averagePower(in: $0) }
+
+        #expect(power > -7 && power < -5)
+    }
 }
 
 @Suite("VoiceRecordingPanel formatting")

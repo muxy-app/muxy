@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreAudio
 import Foundation
 import os
 import Speech
@@ -18,8 +19,10 @@ final class VoiceRecorder {
     private(set) var elapsed: TimeInterval = 0
     private(set) var level: Float = 0
     private(set) var transcript: String = ""
+    var onFailure: (@MainActor (String) -> Void)?
 
-    @ObservationIgnored private let engine = AVAudioEngine()
+    @ObservationIgnored private let captureSession = AVCaptureSession()
+    @ObservationIgnored private let captureQueue = DispatchQueue(label: "app.muxy.voice-recorder.capture")
     @ObservationIgnored private var recognizer: SFSpeechRecognizer?
     @ObservationIgnored private var request: SFSpeechAudioBufferRecognitionRequest?
     @ObservationIgnored private var task: SFSpeechRecognitionTask?
@@ -28,6 +31,8 @@ final class VoiceRecorder {
     @ObservationIgnored private var elapsedTimer: Timer?
     @ObservationIgnored private var levelSink: LevelSink?
     @ObservationIgnored private var transcriptSink: TranscriptSink?
+    @ObservationIgnored private var inputDeviceObserver: AudioInputDeviceObserver?
+    @ObservationIgnored private var captureSink: AudioCaptureSink?
 
     func start(locale: Locale) throws {
         guard let recognizer = SFSpeechRecognizer(locale: locale),
@@ -47,26 +52,20 @@ final class VoiceRecorder {
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
         self.request = request
-
         let levelSink = LevelSink { [weak self] normalized in
             guard let self else { return }
             self.level = normalized
         }
         self.levelSink = levelSink
-        Self.installTapNonisolated(on: engine.inputNode, request: request, sink: levelSink)
-
-        engine.prepare()
+        let captureSink = AudioCaptureSink(request: request, sink: levelSink)
+        self.captureSink = captureSink
         do {
-            try engine.start()
+            try configureCaptureSession(sink: captureSink)
         } catch {
-            engine.inputNode.removeTap(onBus: 0)
-            levelSink.detach()
-            self.levelSink = nil
-            self.request = nil
-            self.recognizer = nil
-            throw VoiceRecorderError.engineFailure(error.localizedDescription)
+            teardown()
+            throw error
         }
-
+        observeInputDeviceChanges()
         let transcriptSink = TranscriptSink { [weak self] text in
             guard let self else { return }
             self.transcript = text
@@ -77,6 +76,14 @@ final class VoiceRecorder {
             request: request,
             sink: transcriptSink
         )
+
+        captureQueue.sync {
+            captureSession.startRunning()
+        }
+        guard captureSession.isRunning else {
+            teardown()
+            throw VoiceRecorderError.engineFailure("Microphone capture could not start.")
+        }
 
         startedAt = Date()
         accumulatedBeforePause = 0
@@ -90,7 +97,7 @@ final class VoiceRecorder {
 
     func pause() {
         guard isRecording, !isPaused else { return }
-        engine.pause()
+        captureSink?.setAcceptsBuffers(false)
         if let startedAt {
             accumulatedBeforePause += Date().timeIntervalSince(startedAt)
         }
@@ -102,12 +109,7 @@ final class VoiceRecorder {
 
     func resume() {
         guard isRecording, isPaused else { return }
-        do {
-            try engine.start()
-        } catch {
-            logger.error("Failed to resume engine: \(error.localizedDescription)")
-            return
-        }
+        captureSink?.setAcceptsBuffers(true)
         startedAt = Date()
         isPaused = false
         startElapsedTimer()
@@ -145,16 +147,24 @@ final class VoiceRecorder {
 
     private func teardown() {
         stopElapsedTimer()
-        engine.inputNode.removeTap(onBus: 0)
-        if engine.isRunning {
-            engine.stop()
+        removeInputDeviceObserver()
+        captureSink?.setAcceptsBuffers(false)
+        captureQueue.sync {
+            if captureSession.isRunning {
+                captureSession.stopRunning()
+            }
         }
+        captureSession.beginConfiguration()
+        captureSession.inputs.forEach { captureSession.removeInput($0) }
+        captureSession.outputs.forEach { captureSession.removeOutput($0) }
+        captureSession.commitConfiguration()
         request?.endAudio()
         task?.cancel()
         levelSink?.detach()
         levelSink = nil
         transcriptSink?.detach()
         transcriptSink = nil
+        captureSink = nil
         request = nil
         task = nil
         recognizer = nil
@@ -162,7 +172,55 @@ final class VoiceRecorder {
         accumulatedBeforePause = 0
         isRecording = false
         isPaused = false
+        elapsed = 0
         level = 0
+    }
+
+    private func observeInputDeviceChanges() {
+        removeInputDeviceObserver()
+        let observer = AudioInputDeviceObserver { [weak self] in
+            Task { @MainActor in
+                self?.handleInputDeviceChange()
+            }
+        }
+        observer.start()
+        inputDeviceObserver = observer
+    }
+
+    private func removeInputDeviceObserver() {
+        inputDeviceObserver?.stop()
+        inputDeviceObserver = nil
+    }
+
+    private func handleInputDeviceChange() {
+        guard isRecording else { return }
+        logger.error("Audio input device changed during recording")
+        teardown()
+        onFailure?("Microphone changed. Start recording again to use the new input device.")
+    }
+
+    private func configureCaptureSession(sink: AudioCaptureSink) throws {
+        captureSession.beginConfiguration()
+        captureSession.inputs.forEach { captureSession.removeInput($0) }
+        captureSession.outputs.forEach { captureSession.removeOutput($0) }
+        guard let device = AVCaptureDevice.default(for: .audio) else {
+            captureSession.commitConfiguration()
+            throw VoiceRecorderError.engineFailure("No microphone input is available.")
+        }
+        let input = try AVCaptureDeviceInput(device: device)
+        guard captureSession.canAddInput(input) else {
+            captureSession.commitConfiguration()
+            throw VoiceRecorderError.engineFailure("The selected microphone cannot be used.")
+        }
+        let output = AVCaptureAudioDataOutput()
+        output.setSampleBufferDelegate(sink, queue: captureQueue)
+        guard captureSession.canAddOutput(output) else {
+            captureSession.commitConfiguration()
+            throw VoiceRecorderError.engineFailure("Microphone audio output cannot be used.")
+        }
+        captureSession.addInput(input)
+        captureSession.addOutput(output)
+        captureSession.commitConfiguration()
     }
 
     private func startElapsedTimer() {
@@ -184,16 +242,13 @@ final class VoiceRecorder {
         elapsed = accumulatedBeforePause + Date().timeIntervalSince(startedAt)
     }
 
-    nonisolated static func averagePower(in buffer: AVAudioPCMBuffer) -> Float {
-        guard let channel = buffer.floatChannelData?[0] else { return -160 }
-        let frames = Int(buffer.frameLength)
-        guard frames > 0 else { return -160 }
+    nonisolated static func averagePower(in samples: UnsafeBufferPointer<Float>) -> Float {
+        guard !samples.isEmpty else { return -160 }
         var sum: Float = 0
-        for i in 0 ..< frames {
-            let sample = channel[i]
+        for sample in samples {
             sum += sample * sample
         }
-        let rms = sqrt(sum / Float(frames))
+        let rms = sqrt(sum / Float(samples.count))
         guard rms > 0 else { return -160 }
         return 20 * log10(rms)
     }
@@ -210,21 +265,6 @@ final class VoiceRecorder {
         return recognizer.recognitionTask(with: request, resultHandler: handler)
     }
 
-    nonisolated static func installTapNonisolated(
-        on inputNode: AVAudioInputNode,
-        request: SFSpeechAudioBufferRecognitionRequest,
-        sink: LevelSink
-    ) {
-        inputNode.removeTap(onBus: 0)
-        let requestBox = UncheckedBox(request)
-        let block: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
-            requestBox.value.append(buffer)
-            let normalized = normalize(power: averagePower(in: buffer))
-            sink.publish(normalized)
-        }
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil, block: block)
-    }
-
     nonisolated static func normalize(power db: Float) -> Float {
         let floor: Float = -50
         guard db.isFinite else { return 0 }
@@ -233,10 +273,110 @@ final class VoiceRecorder {
     }
 }
 
-struct UncheckedBox<T>: @unchecked Sendable {
-    let value: T
-    init(_ value: T) {
-        self.value = value
+final class AudioCaptureSink: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private let request: SFSpeechAudioBufferRecognitionRequest
+    private let sink: LevelSink
+    private var acceptsBuffers = true
+
+    init(request: SFSpeechAudioBufferRecognitionRequest, sink: LevelSink) {
+        self.request = request
+        self.sink = sink
+    }
+
+    func setAcceptsBuffers(_ acceptsBuffers: Bool) {
+        lock.lock()
+        self.acceptsBuffers = acceptsBuffers
+        lock.unlock()
+    }
+
+    func captureOutput(
+        _ output: AVCaptureOutput,
+        didOutput sampleBuffer: CMSampleBuffer,
+        from connection: AVCaptureConnection
+    ) {
+        lock.lock()
+        let acceptsBuffers = acceptsBuffers
+        lock.unlock()
+        guard acceptsBuffers else { return }
+        request.appendAudioSampleBuffer(sampleBuffer)
+        sink.publish(VoiceRecorder.normalize(power: Self.averagePower(in: sampleBuffer)))
+    }
+
+    private static func averagePower(in sampleBuffer: CMSampleBuffer) -> Float {
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
+              let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription),
+              streamDescription.pointee.mFormatID == kAudioFormatLinearPCM
+        else {
+            return -160
+        }
+        var audioBufferList = AudioBufferList()
+        var blockBuffer: CMBlockBuffer?
+        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: nil,
+            bufferListOut: &audioBufferList,
+            bufferListSize: MemoryLayout<AudioBufferList>.size,
+            blockBufferAllocator: kCFAllocatorDefault,
+            blockBufferMemoryAllocator: kCFAllocatorDefault,
+            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+            blockBufferOut: &blockBuffer
+        )
+        guard status == noErr, let data = audioBufferList.mBuffers.mData else { return -160 }
+        let byteCount = Int(audioBufferList.mBuffers.mDataByteSize)
+        let flags = streamDescription.pointee.mFormatFlags
+        if flags & kAudioFormatFlagIsFloat != 0, streamDescription.pointee.mBitsPerChannel == 32 {
+            let samples = data.assumingMemoryBound(to: Float.self)
+            return VoiceRecorder.averagePower(in: UnsafeBufferPointer(start: samples, count: byteCount / MemoryLayout<Float>.stride))
+        }
+        if streamDescription.pointee.mBitsPerChannel == 16 {
+            let samples = data.assumingMemoryBound(to: Int16.self)
+            let count = byteCount / MemoryLayout<Int16>.stride
+            var floatSamples = [Float]()
+            floatSamples.reserveCapacity(count)
+            for index in 0 ..< count {
+                floatSamples.append(Float(samples[index]) / Float(Int16.max))
+            }
+            return floatSamples.withUnsafeBufferPointer { VoiceRecorder.averagePower(in: $0) }
+        }
+        return -160
+    }
+}
+
+final class AudioInputDeviceObserver: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "app.muxy.voice-recorder.audio-device")
+    private var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    private let listener: AudioObjectPropertyListenerBlock
+    private var isObserving = false
+
+    init(handler: @escaping @Sendable () -> Void) {
+        listener = { _, _ in handler() }
+    }
+
+    func start() {
+        guard !isObserving else { return }
+        let status = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            queue,
+            listener
+        )
+        isObserving = status == noErr
+    }
+
+    func stop() {
+        guard isObserving else { return }
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            queue,
+            listener
+        )
+        isObserving = false
     }
 }
 
