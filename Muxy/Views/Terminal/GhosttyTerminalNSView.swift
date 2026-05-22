@@ -49,9 +49,9 @@ final class GhosttyTerminalNSView: NSView {
     private var currentKeyEvent: NSEvent?
     private var commandSelectorCalled = false
     private var inputTrackingDecisionCache: (expiresAt: Date, canRecord: Bool)?
-    private var surfaceCStringPointers: [UnsafeMutablePointer<CChar>] = []
-    private var surfaceEnvVarPointer: UnsafeMutablePointer<ghostty_env_var_s>?
-    private var surfaceEnvVarCount = 0
+    nonisolated(unsafe) private var surfaceCStringPointers: [UnsafeMutablePointer<CChar>] = []
+    nonisolated(unsafe) private var surfaceEnvVarPointer: UnsafeMutablePointer<ghostty_env_var_s>?
+    nonisolated(unsafe) private var surfaceEnvVarCount = 0
 
     init(
         workingDirectory: String,
@@ -231,7 +231,7 @@ final class GhosttyTerminalNSView: NSView {
         cleanupSurfaceConfigPointers()
     }
 
-    private func cleanupSurfaceConfigPointers() {
+    nonisolated(unsafe) private func cleanupSurfaceConfigPointers() {
         surfaceEnvVarPointer?.deinitialize(count: surfaceEnvVarCount)
         surfaceEnvVarPointer?.deallocate()
         surfaceEnvVarPointer = nil
