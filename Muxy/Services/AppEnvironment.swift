@@ -16,6 +16,7 @@ struct AppEnvironment {
     let workspacePersistence: any WorkspacePersisting
     let worktreePersistence: any WorktreePersisting
     let projectGroupPersistence: any ProjectGroupPersisting
+    let projectCommandPersistence: any ProjectCommandPersisting
 
     static let live = Self(
         selectionStore: UserDefaultsActiveProjectSelectionStore(),
@@ -23,6 +24,7 @@ struct AppEnvironment {
         projectPersistence: FileProjectPersistence(),
         workspacePersistence: FileWorkspacePersistence(),
         worktreePersistence: FileWorktreePersistence(),
-        projectGroupPersistence: FileProjectGroupPersistence()
+        projectGroupPersistence: FileProjectGroupPersistence(),
+        projectCommandPersistence: FileProjectCommandPersistence()
     )
 }

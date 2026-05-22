@@ -10,6 +10,7 @@ struct MuxyApp: App {
     @State private var projectStore: ProjectStore
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
+    @State private var projectCommandStore: ProjectCommandStore
     @State private var vcsWorktreeAutoRefresher: VCSWorktreeAutoRefresher
     private let updateService = UpdateService.shared
 
@@ -33,6 +34,9 @@ struct MuxyApp: App {
         let projectGroupStore = ProjectGroupStore(
             persistence: environment.projectGroupPersistence
         )
+        let projectCommandStore = ProjectCommandStore(
+            persistence: environment.projectCommandPersistence
+        )
         let vcsWorktreeAutoRefresher = VCSWorktreeAutoRefresher(
             appState: appState,
             projectStore: projectStore,
@@ -42,6 +46,7 @@ struct MuxyApp: App {
         _projectStore = State(initialValue: projectStore)
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
+        _projectCommandStore = State(initialValue: projectCommandStore)
         _vcsWorktreeAutoRefresher = State(initialValue: vcsWorktreeAutoRefresher)
     }
 
@@ -52,6 +57,7 @@ struct MuxyApp: App {
                 .environment(projectStore)
                 .environment(worktreeStore)
                 .environment(projectGroupStore)
+                .environment(projectCommandStore)
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
                 .environment(ThemeService.shared)
@@ -106,6 +112,9 @@ struct MuxyApp: App {
                             projectStore.remove(id: id)
                             worktreeStore.removeProject(id)
                         }
+                    }
+                    appState.onPaneClosed = { [projectCommandStore] paneID in
+                        projectCommandStore.removeRun(paneID: paneID)
                     }
                     projectStore.onProjectRemoved = { [projectGroupStore] projectID in
                         projectGroupStore.removeProjectFromAllGroups(projectID: projectID)
