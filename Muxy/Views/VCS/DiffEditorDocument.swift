@@ -212,6 +212,64 @@ struct DiffEditorGutterLine: Equatable {
     let newLineNumber: Int?
 }
 
+struct SplitDiffPairedRow: Identifiable {
+    enum Kind {
+        case content
+        case hunk
+        case collapsed
+    }
+
+    let id = UUID()
+    let kind: Kind
+    let left: DiffDisplayRow?
+    let right: DiffDisplayRow?
+
+    static func pair(_ rows: [DiffDisplayRow]) -> [SplitDiffPairedRow] {
+        var result: [SplitDiffPairedRow] = []
+        var index = 0
+
+        while index < rows.count {
+            let row = rows[index]
+
+            switch row.kind {
+            case .hunk:
+                result.append(SplitDiffPairedRow(kind: .hunk, left: row, right: nil))
+                index += 1
+            case .collapsed:
+                result.append(SplitDiffPairedRow(kind: .collapsed, left: row, right: nil))
+                index += 1
+            case .context:
+                result.append(SplitDiffPairedRow(kind: .content, left: row, right: row))
+                index += 1
+            case .deletion:
+                var deletions: [DiffDisplayRow] = []
+                while index < rows.count, rows[index].kind == .deletion {
+                    deletions.append(rows[index])
+                    index += 1
+                }
+                var additions: [DiffDisplayRow] = []
+                while index < rows.count, rows[index].kind == .addition {
+                    additions.append(rows[index])
+                    index += 1
+                }
+                let maxCount = max(deletions.count, additions.count)
+                for i in 0 ..< maxCount {
+                    result.append(SplitDiffPairedRow(
+                        kind: .content,
+                        left: i < deletions.count ? deletions[i] : nil,
+                        right: i < additions.count ? additions[i] : nil
+                    ))
+                }
+            case .addition:
+                result.append(SplitDiffPairedRow(kind: .content, left: nil, right: row))
+                index += 1
+            }
+        }
+
+        return result
+    }
+}
+
 struct DiffEditorFileSection {
     let filePath: String
     let cacheKey: String
@@ -221,4 +279,12 @@ struct DiffEditorFileSection {
     let additions: Int
     let deletions: Int
     let isStaged: Bool
+}
+
+func hunkLabel(_ raw: String) -> String {
+    guard raw.count > 2,
+          let closingRange = raw.range(of: "@@", range: raw.index(raw.startIndex, offsetBy: 2) ..< raw.endIndex)
+    else { return raw }
+    let after = raw[closingRange.upperBound...].trimmingCharacters(in: .whitespaces)
+    return after.isEmpty ? raw : after
 }
