@@ -469,10 +469,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 private final class SettingsModalWindow: NSWindow {
     private var outsideClickMonitor: Any?
 
-    deinit {
-        stopOutsideClickMonitor()
-    }
-
     func startOutsideClickMonitor() {
         stopOutsideClickMonitor()
         outsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
