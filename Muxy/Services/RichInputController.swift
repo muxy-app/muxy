@@ -31,9 +31,10 @@ final class RichInputController {
         states = states.filter { validKeys.contains($0.key) }
     }
 
-    func appendMarkdown(_ markdown: String, for key: WorktreeKey) {
+    @discardableResult
+    func appendMarkdown(_ markdown: String, for key: WorktreeKey) -> Bool {
         let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
         let state = state(for: key)
         if state.text.isEmpty {
             state.text = trimmed
@@ -42,5 +43,6 @@ final class RichInputController {
             state.text.append(separator + trimmed)
         }
         state.focusVersion += 1
+        return true
     }
 }

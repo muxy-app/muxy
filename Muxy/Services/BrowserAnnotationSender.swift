@@ -44,7 +44,7 @@ enum BrowserAnnotationSender {
         }
         switch target {
         case let .richInput(worktreeKey):
-            controller.appendMarkdown(markdown, for: worktreeKey)
+            guard controller.appendMarkdown(markdown, for: worktreeKey) else { return }
             markSent()
         case let .terminal(terminalTarget):
             focus(target: terminalTarget, appState: appState)
@@ -62,28 +62,28 @@ enum BrowserAnnotationSender {
         appState: AppState,
         controller: RichInputController
     ) -> Target? {
-        let browserWorktreeKey = locateOwningWorktreeKey(browserTabID: session.id, appState: appState)
-            ?? appState.activeProjectID.flatMap { appState.activeWorktreeKey(for: $0) }
         if controller.isPanelVisible,
-           let worktreeKey = browserWorktreeKey,
-           controller.existingState(for: worktreeKey) != nil
+           let activeProjectID = appState.activeProjectID,
+           let visibleKey = appState.activeWorktreeKey(for: activeProjectID)
         {
-            return .richInput(worktreeKey: worktreeKey)
+            return .richInput(worktreeKey: visibleKey)
         }
-        if let worktreeKey = browserWorktreeKey,
-           let pane = appState.lastActiveTerminalPane(for: worktreeKey)
-        {
+        guard let browserKey = locateOwningWorktreeKey(browserTabID: session.id, appState: appState) else {
+            return nil
+        }
+        if let pane = appState.lastActiveTerminalPane(for: browserKey) {
             return .terminal(TerminalTarget(
-                projectID: worktreeKey.projectID,
+                projectID: browserKey.projectID,
                 areaID: pane.areaID,
                 tabID: pane.tabID,
                 paneID: pane.paneID
             ))
         }
-        if let terminal = resolveFromOwningArea(browserTabID: session.id, appState: appState) {
-            return .terminal(terminal)
-        }
-        if let terminal = resolveFromActiveProject(appState: appState) {
+        if let terminal = firstTerminalInWorktree(
+            browserTabID: session.id,
+            worktreeKey: browserKey,
+            appState: appState
+        ) {
             return .terminal(terminal)
         }
         return nil
@@ -98,35 +98,22 @@ enum BrowserAnnotationSender {
         return nil
     }
 
-    private static func resolveFromOwningArea(browserTabID: UUID, appState: AppState) -> TerminalTarget? {
-        for (key, root) in appState.workspaceRoots {
-            let areas = root.allAreas()
-            guard let owningArea = areas.first(where: { area in
-                area.tabs.contains(where: { $0.id == browserTabID })
-            })
-            else { continue }
-            if let target = firstTerminal(in: owningArea, projectID: key.projectID) {
-                return target
-            }
-            for sibling in areas where sibling.id != owningArea.id {
-                if let target = firstTerminal(in: sibling, projectID: key.projectID) {
-                    return target
-                }
-            }
-        }
-        return nil
-    }
-
-    private static func resolveFromActiveProject(appState: AppState) -> TerminalTarget? {
-        guard let projectID = appState.activeProjectID else { return nil }
-        let areas = appState.allAreas(for: projectID)
-        if let focused = appState.focusedArea(for: projectID),
-           let target = firstTerminal(in: focused, projectID: projectID)
+    private static func firstTerminalInWorktree(
+        browserTabID: UUID,
+        worktreeKey: WorktreeKey,
+        appState: AppState
+    ) -> TerminalTarget? {
+        guard let root = appState.workspaceRoots[worktreeKey] else { return nil }
+        let areas = root.allAreas()
+        if let owningArea = areas.first(where: { area in
+            area.tabs.contains(where: { $0.id == browserTabID })
+        }),
+            let target = firstTerminal(in: owningArea, projectID: worktreeKey.projectID)
         {
             return target
         }
-        for area in areas {
-            if let target = firstTerminal(in: area, projectID: projectID) {
+        for area in areas where !area.tabs.contains(where: { $0.id == browserTabID }) {
+            if let target = firstTerminal(in: area, projectID: worktreeKey.projectID) {
                 return target
             }
         }
@@ -149,12 +136,11 @@ enum BrowserAnnotationSender {
     }
 
     private static func focus(target: TerminalTarget, appState: AppState) {
-        guard let key = appState.activeWorktreeKey(for: target.projectID),
-              let area = appState.workspaceRoots[key]?.findArea(id: target.areaID)
-        else { return }
-        if area.activeTabID != target.tabID {
-            area.selectTab(target.tabID)
-        }
+        appState.dispatch(.selectTab(
+            projectID: target.projectID,
+            areaID: target.areaID,
+            tabID: target.tabID
+        ))
     }
 
     private static func inject(markdown: String, into view: GhosttyTerminalNSView) {
