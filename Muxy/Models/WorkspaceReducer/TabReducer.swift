@@ -93,6 +93,7 @@ enum TabReducer {
         else { return }
         for existingArea in root.allAreas() {
             if let existing = existingArea.tabs.first(where: { $0.content.diffViewerState != nil }) {
+                existing.content.diffViewerState?.setSource(request.source, filePath: request.filePath, isStaged: request.isStaged)
                 if let filePath = request.filePath {
                     existing.content.diffViewerState?.select(filePath: filePath, isStaged: request.isStaged)
                 }
@@ -105,7 +106,8 @@ enum TabReducer {
         area.createDiffViewerTab(
             vcs: request.vcs,
             filePath: request.filePath,
-            isStaged: request.isStaged
+            isStaged: request.isStaged,
+            source: request.source
         )
     }
 

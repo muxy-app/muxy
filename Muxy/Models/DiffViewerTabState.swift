@@ -3,9 +3,30 @@ import Foundation
 @MainActor
 @Observable
 final class DiffViewerTabState: Identifiable {
+    enum Source: Equatable {
+        case workingTree
+        case commit(hash: String, subject: String)
+        case range(baseRef: String, headRef: String, title: String)
+        case pullRequest(number: Int, title: String, baseRef: String, headRef: String)
+
+        var displayTitle: String {
+            switch self {
+            case .workingTree:
+                "Git Diff"
+            case let .commit(hash, subject):
+                subject.isEmpty ? "Commit \(hash.prefix(7))" : subject
+            case let .range(_, _, title):
+                title
+            case let .pullRequest(number, title, _, _):
+                title.isEmpty ? "PR #\(number)" : "#\(number) \(title)"
+            }
+        }
+    }
+
     let id = UUID()
     let vcs: VCSTabState
     let projectPath: String
+    var source: Source
     var mode: VCSTabState.ViewMode
     var selectedFilePath: String?
     var selectedIsStaged = false
@@ -15,9 +36,26 @@ final class DiffViewerTabState: Identifiable {
     var collapsedCacheKeys: Set<String> = []
     var manuallyLoadedCacheKeys: Set<String> = []
     var activeCacheKey: String?
+    var sourceFiles: [GitStatusFile] = []
+    var isLoadingFiles = false
+    var filesError: String?
+    let diffCache = DiffCache()
+    private let git = GitRepositoryService()
 
     var displayTitle: String {
-        "Git Diff"
+        source.displayTitle
+    }
+
+    var files: [GitStatusFile] {
+        source == .workingTree ? vcs.files : sourceFiles
+    }
+
+    var stagedFiles: [GitStatusFile] {
+        source == .workingTree ? vcs.stagedFiles : []
+    }
+
+    var unstagedFiles: [GitStatusFile] {
+        source == .workingTree ? vcs.unstagedFiles : sourceFiles
     }
 
     var selectedDisplayTitle: String {
@@ -30,15 +68,36 @@ final class DiffViewerTabState: Identifiable {
         return Self.cacheKey(filePath: selectedFilePath, isStaged: selectedIsStaged)
     }
 
-    init(vcs: VCSTabState, filePath: String? = nil, isStaged: Bool = false) {
+    init(vcs: VCSTabState, filePath: String? = nil, isStaged: Bool = false, source: Source = .workingTree) {
         self.vcs = vcs
+        self.source = source
         projectPath = vcs.projectPath
         mode = vcs.mode
         selectInitialFile(filePath: filePath, isStaged: isStaged)
     }
 
     func refresh(forceFull: Bool) {
-        loadAllDiffs(forceFull: forceFull)
+        if source == .workingTree {
+            loadAllDiffs(forceFull: forceFull)
+        } else {
+            loadSourceFiles(forceFull: forceFull)
+        }
+    }
+
+    func setSource(_ source: Source, filePath: String? = nil, isStaged: Bool = false) {
+        self.source = source
+        selectedFilePath = nil
+        selectedIsStaged = isStaged
+        activeCacheKey = nil
+        collapsedCacheKeys.removeAll()
+        manuallyLoadedCacheKeys.removeAll()
+        diffCache.clearAll()
+        sourceFiles.removeAll()
+        if source == .workingTree {
+            selectInitialFile(filePath: filePath, isStaged: isStaged)
+        } else {
+            loadSourceFiles(forceFull: false)
+        }
     }
 
     func loadFullDiff(filePath: String, isStaged: Bool) {
@@ -62,10 +121,14 @@ final class DiffViewerTabState: Identifiable {
     }
 
     func loadAllDiffs(forceFull: Bool = false) {
-        for file in vcs.stagedFiles {
+        if source != .workingTree, sourceFiles.isEmpty {
+            loadSourceFiles(forceFull: forceFull)
+            return
+        }
+        for file in stagedFiles {
             loadDiff(filePath: file.path, isStaged: true, forceFull: forceFull)
         }
-        for file in vcs.unstagedFiles {
+        for file in unstagedFiles {
             loadDiff(filePath: file.path, isStaged: false, forceFull: forceFull)
         }
     }
@@ -129,17 +192,17 @@ final class DiffViewerTabState: Identifiable {
 
     func diff() -> DiffCache.LoadedDiff? {
         guard let selectedCacheKey else { return nil }
-        return vcs.diffCache.diff(for: selectedCacheKey)
+        return activeDiffCache.diff(for: selectedCacheKey)
     }
 
     func isLoading() -> Bool {
         guard let selectedCacheKey else { return false }
-        return vcs.diffCache.isLoading(selectedCacheKey)
+        return activeDiffCache.isLoading(selectedCacheKey)
     }
 
     func error() -> String? {
         guard let selectedCacheKey else { return nil }
-        return vcs.diffCache.error(for: selectedCacheKey)
+        return activeDiffCache.error(for: selectedCacheKey)
     }
 
     private func selectInitialFile(filePath: String?, isStaged: Bool) {
@@ -158,6 +221,10 @@ final class DiffViewerTabState: Identifiable {
     }
 
     private func loadDiff(filePath: String, isStaged: Bool, forceFull: Bool) {
+        if source != .workingTree {
+            loadSourceDiff(filePath: filePath, isStaged: isStaged, forceFull: forceFull)
+            return
+        }
         vcs.loadDiffWithHints(
             filePath: filePath,
             hints: diffHints(filePath: filePath, isStaged: isStaged),
@@ -168,19 +235,19 @@ final class DiffViewerTabState: Identifiable {
     }
 
     private var allCacheKeys: Set<String> {
-        Set(vcs.stagedFiles.map { Self.cacheKey(filePath: $0.path, isStaged: true) } +
-            vcs.unstagedFiles.map { Self.cacheKey(filePath: $0.path, isStaged: false) })
+        Set(stagedFiles.map { Self.cacheKey(filePath: $0.path, isStaged: true) } +
+            unstagedFiles.map { Self.cacheKey(filePath: $0.path, isStaged: false) })
     }
 
     private func contains(filePath: String, isStaged: Bool) -> Bool {
         if isStaged {
-            return vcs.stagedFiles.contains { $0.path == filePath }
+            return stagedFiles.contains { $0.path == filePath }
         }
-        return vcs.unstagedFiles.contains { $0.path == filePath }
+        return unstagedFiles.contains { $0.path == filePath }
     }
 
     private func diffHints(filePath: String, isStaged: Bool) -> GitRepositoryService.DiffHints {
-        guard let file = vcs.files.first(where: { $0.path == filePath }) else {
+        guard let file = files.first(where: { $0.path == filePath }) else {
             return GitRepositoryService.DiffHints(hasStaged: isStaged, hasUnstaged: !isStaged, isUntrackedOrNew: false)
         }
         let untrackedOrNew = (file.xStatus == "?" && file.yStatus == "?") || file.xStatus == "A"
@@ -191,7 +258,104 @@ final class DiffViewerTabState: Identifiable {
     }
 
     private func isLargeUnloadedDiff(_ cacheKey: String) -> Bool {
-        vcs.diffCache.diff(for: cacheKey)?.truncated == true && !manuallyLoadedCacheKeys.contains(cacheKey)
+        activeDiffCache.diff(for: cacheKey)?.truncated == true && !manuallyLoadedCacheKeys.contains(cacheKey)
+    }
+
+    private var activeDiffCache: DiffCache {
+        source == .workingTree ? vcs.diffCache : diffCache
+    }
+
+    private func loadSourceFiles(forceFull: Bool) {
+        guard source != .workingTree else { return }
+        isLoadingFiles = true
+        filesError = nil
+        let source = source
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let files = try await sourceFiles(for: source)
+                guard !Task.isCancelled else { return }
+                sourceFiles = files
+                isLoadingFiles = false
+                reconcileSelection()
+                loadAllDiffs(forceFull: forceFull)
+            } catch {
+                guard !Task.isCancelled else { return }
+                sourceFiles = []
+                isLoadingFiles = false
+                filesError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    private func sourceFiles(for source: Source) async throws -> [GitStatusFile] {
+        switch source {
+        case .workingTree:
+            vcs.files
+        case let .commit(hash, _):
+            try await git.changedFiles(repoPath: projectPath, commit: hash)
+        case let .range(baseRef, headRef, _),
+             let .pullRequest(_, _, baseRef, headRef):
+            try await git.changedFiles(
+                repoPath: projectPath,
+                range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef)
+            )
+        }
+    }
+
+    private func loadSourceDiff(filePath: String, isStaged: Bool, forceFull: Bool) {
+        let cacheKey = Self.cacheKey(filePath: filePath, isStaged: isStaged)
+        if !forceFull, diffCache.hasDiff(for: cacheKey) {
+            diffCache.touch(cacheKey)
+            return
+        }
+        if !forceFull, diffCache.isLoading(cacheKey) { return }
+        if forceFull { diffCache.cancelLoad(for: cacheKey) }
+        diffCache.markLoading(cacheKey)
+        let source = source
+        let lineLimit = forceFull ? nil : DiffLoader.previewLineLimit
+        let task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await sourceDiff(filePath: filePath, source: source, lineLimit: lineLimit)
+                guard !Task.isCancelled else { return }
+                diffCache.store(
+                    DiffCache.LoadedDiff(
+                        rows: result.rows,
+                        additions: result.additions,
+                        deletions: result.deletions,
+                        truncated: result.truncated
+                    ),
+                    for: cacheKey,
+                    pinnedPaths: allCacheKeys
+                )
+            } catch {
+                guard !Task.isCancelled else { return }
+                diffCache.storeError((error as? LocalizedError)?.errorDescription ?? error.localizedDescription, for: cacheKey)
+            }
+        }
+        diffCache.registerTask(task, for: cacheKey)
+    }
+
+    private func sourceDiff(
+        filePath: String,
+        source: Source,
+        lineLimit: Int?
+    ) async throws -> GitRepositoryService.PatchAndCompareResult {
+        switch source {
+        case .workingTree:
+            try await git.patchAndCompare(repoPath: projectPath, filePath: filePath, lineLimit: lineLimit)
+        case let .commit(hash, _):
+            try await git.patchAndCompare(repoPath: projectPath, filePath: filePath, commit: hash, lineLimit: lineLimit)
+        case let .range(baseRef, headRef, _),
+             let .pullRequest(_, _, baseRef, headRef):
+            try await git.patchAndCompare(
+                repoPath: projectPath,
+                filePath: filePath,
+                range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef),
+                lineLimit: lineLimit
+            )
+        }
     }
 
     static func cacheKey(filePath: String, isStaged: Bool) -> String {

@@ -483,7 +483,9 @@ struct VCSTabView: View {
                     pendingCheckoutPR: $pendingCheckoutPR,
                     pendingCheckoutPRInNewWorktree: $pendingCheckoutPRInNewWorktree,
                     onOpenInEditor: openFileInEditor,
-                    onOpenDiff: openDiffInTab
+                    onOpenDiff: openDiffInTab,
+                    onOpenCommitDiff: openCommitDiffInTab,
+                    onOpenPullRequestDiff: openPullRequestDiffInTab
                 )
             }
         }
@@ -843,6 +845,29 @@ struct VCSTabView: View {
     private func openDiffInTab(_ relativePath: String, isStaged: Bool) {
         guard let projectID = appState.activeProjectID else { return }
         appState.openDiffViewer(vcs: state, filePath: relativePath, isStaged: isStaged, projectID: projectID)
+    }
+
+    private func openCommitDiffInTab(_ commit: GitCommit) {
+        guard let projectID = appState.activeProjectID else { return }
+        appState.openDiffViewer(
+            vcs: state,
+            source: .commit(hash: commit.hash, subject: commit.subject),
+            projectID: projectID
+        )
+    }
+
+    private func openPullRequestDiffInTab(_ pr: GitRepositoryService.PRListItem) {
+        guard let projectID = appState.activeProjectID else { return }
+        appState.openDiffViewer(
+            vcs: state,
+            source: .pullRequest(
+                number: pr.number,
+                title: pr.title,
+                baseRef: "origin/\(pr.baseBranch)",
+                headRef: pr.headRefOid
+            ),
+            projectID: projectID
+        )
     }
 }
 
@@ -1376,6 +1401,8 @@ private struct SectionSplitLayout: View {
     @Binding var pendingCheckoutPRInNewWorktree: GitRepositoryService.PRListItem?
     let onOpenInEditor: (String) -> Void
     let onOpenDiff: (String, Bool) -> Void
+    let onOpenCommitDiff: (GitCommit) -> Void
+    let onOpenPullRequestDiff: (GitRepositoryService.PRListItem) -> Void
 
     @MainActor private static var sectionHeaderHeight: CGFloat { UIMetrics.scaled(30) }
 
@@ -1558,7 +1585,7 @@ private struct SectionSplitLayout: View {
         case .history:
             VStack(spacing: 0) {
                 sectionHeader(for: .history, collapsed: false)
-                CommitHistoryView(state: state)
+                CommitHistoryView(state: state, onOpenDiff: onOpenCommitDiff)
             }
             .frame(height: height)
 
@@ -1568,7 +1595,8 @@ private struct SectionSplitLayout: View {
                 PullRequestsListView(
                     state: state,
                     onCheckout: { pr in pendingCheckoutPR = pr },
-                    onCheckoutInNewWorktree: { pr in pendingCheckoutPRInNewWorktree = pr }
+                    onCheckoutInNewWorktree: { pr in pendingCheckoutPRInNewWorktree = pr },
+                    onOpenDiff: onOpenPullRequestDiff
                 )
             }
             .frame(height: height)

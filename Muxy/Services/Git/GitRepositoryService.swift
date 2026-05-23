@@ -8,6 +8,13 @@ struct GitRepositoryService {
         let deletions: Int
     }
 
+    struct DiffRange: Equatable {
+        let baseRef: String
+        let headRef: String
+
+        var spec: String { "\(baseRef)...\(headRef)" }
+    }
+
     enum GitError: LocalizedError {
         case notGitRepository
         case noUpstreamBranch
@@ -827,6 +834,35 @@ struct GitRepositoryService {
         }
     }
 
+    func changedFiles(repoPath: String, range: DiffRange) async throws -> [GitStatusFile] {
+        try validateRef(range.baseRef)
+        try validateRef(range.headRef)
+
+        async let nameStatusTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--name-status", "-z", range.spec]
+        )
+        async let numstatTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--numstat", "--no-color", "--no-ext-diff", range.spec]
+        )
+
+        let nameStatusResult = try await nameStatusTask
+        guard nameStatusResult.status == 0 else {
+            _ = try? await numstatTask
+            throw GitError.commandFailed(nameStatusResult.stderr.isEmpty ? "Failed to load changed files." : nameStatusResult.stderr)
+        }
+
+        let statsResult = try await numstatTask
+        let stats = statsResult.status == 0 ? GitStatusParser.parseNumstat(statsResult.stdout) : [:]
+        return Self.parseNameStatus(nameStatusResult.stdoutData, stats: stats)
+    }
+
+    func changedFiles(repoPath: String, commit: String) async throws -> [GitStatusFile] {
+        try validateHash(commit)
+        return try await changedFiles(repoPath: repoPath, range: DiffRange(baseRef: "\(commit)^", headRef: commit))
+    }
+
     private static func countLines(repoPath: String, relativePath: String) -> Int? {
         let fullPath = (repoPath as NSString).appendingPathComponent(relativePath)
         guard let data = FileManager.default.contents(atPath: fullPath),
@@ -905,7 +941,85 @@ struct GitRepositoryService {
         return await Self.parsePatchOffMain(combinedPatch, truncated: combinedTruncated)
     }
 
-    private static func parsePatchOffMain(_ patch: String, truncated: Bool) async -> PatchAndCompareResult {
+    func patchAndCompare(
+        repoPath: String,
+        filePath: String,
+        range: DiffRange,
+        lineLimit: Int?
+    ) async throws -> PatchAndCompareResult {
+        try validatePath(repoPath: repoPath, relativePath: filePath)
+        try validateRef(range.baseRef)
+        try validateRef(range.headRef)
+
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", range.spec, "--", filePath],
+            lineLimit: lineLimit
+        )
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load diff for \(filePath)." : result.stderr)
+        }
+        return await Self.parsePatchOffMain(result.stdout, truncated: result.truncated)
+    }
+
+    func patchAndCompare(
+        repoPath: String,
+        filePath: String,
+        commit: String,
+        lineLimit: Int?
+    ) async throws -> PatchAndCompareResult {
+        try validateHash(commit)
+        return try await patchAndCompare(
+            repoPath: repoPath,
+            filePath: filePath,
+            range: DiffRange(baseRef: "\(commit)^", headRef: commit),
+            lineLimit: lineLimit
+        )
+    }
+
+    private static func parseNameStatus(_ data: Data, stats: [String: NumstatEntry]) -> [GitStatusFile] {
+        guard let decoded = String(data: data, encoding: .utf8), !decoded.isEmpty else { return [] }
+        let tokens = decoded.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+        var files: [GitStatusFile] = []
+        var index = 0
+
+        while index + 1 < tokens.count {
+            let status = tokens[index]
+            let path = tokens[index + 1]
+            let code = status.first ?? "M"
+
+            if code == "R" || code == "C", index + 2 < tokens.count {
+                let newPath = tokens[index + 2]
+                let stat = stats[newPath]
+                files.append(GitStatusFile(
+                    path: newPath,
+                    oldPath: path,
+                    xStatus: code,
+                    yStatus: " ",
+                    additions: stat?.additions,
+                    deletions: stat?.deletions,
+                    isBinary: stat?.isBinary ?? false
+                ))
+                index += 3
+            } else {
+                let stat = stats[path]
+                files.append(GitStatusFile(
+                    path: path,
+                    oldPath: nil,
+                    xStatus: code,
+                    yStatus: " ",
+                    additions: stat?.additions,
+                    deletions: stat?.deletions,
+                    isBinary: stat?.isBinary ?? false
+                ))
+                index += 2
+            }
+        }
+
+        return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    static func parsePatchOffMain(_ patch: String, truncated: Bool) async -> PatchAndCompareResult {
         await GitProcessRunner.offMain {
             let parsed = GitDiffParser.parseRows(patch)
             return PatchAndCompareResult(
@@ -1411,12 +1525,26 @@ struct GitRepositoryService {
 
     private static let hexCharacters = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
 
+    private static let refCharacters = CharacterSet.alphanumerics
+        .union(CharacterSet(charactersIn: "._/@-^"))
+
     private func validateHash(_ hash: String) throws {
         guard !hash.isEmpty,
               hash.count <= 40,
               hash.unicodeScalars.allSatisfy({ Self.hexCharacters.contains($0) })
         else {
             throw GitError.commandFailed("Invalid commit hash.")
+        }
+    }
+
+    private func validateRef(_ ref: String) throws {
+        guard !ref.isEmpty,
+              !ref.hasPrefix("-"),
+              !ref.contains(".."),
+              !ref.contains(" "),
+              ref.unicodeScalars.allSatisfy({ Self.refCharacters.contains($0) })
+        else {
+            throw GitError.commandFailed("Invalid Git ref.")
         }
     }
 

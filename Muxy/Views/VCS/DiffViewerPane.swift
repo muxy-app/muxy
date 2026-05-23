@@ -23,17 +23,23 @@ struct DiffViewerPane: View {
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded { onFocus() })
         .onAppear {
-            if !state.vcs.hasCompletedInitialLoad, !state.vcs.isLoadingFiles {
+            if state.source == .workingTree, !state.vcs.hasCompletedInitialLoad, !state.vcs.isLoadingFiles {
                 state.vcs.refresh()
             }
             state.reconcileSelection()
             state.loadAllDiffs()
         }
         .onChange(of: state.vcs.files) { _, _ in
+            guard state.source == .workingTree else { return }
             state.reconcileSelection()
             state.loadAllDiffs()
         }
         .onChange(of: state.vcs.diffCache.revision) { _, _ in
+            guard state.source == .workingTree else { return }
+            state.reconcileLargeDiffCollapse()
+        }
+        .onChange(of: state.diffCache.revision) { _, _ in
+            guard state.source != .workingTree else { return }
             state.reconcileLargeDiffCollapse()
         }
     }
@@ -69,7 +75,7 @@ struct DiffViewerPane: View {
     private var sections: [DiffEditorFileSection] {
         sectionFiles.map { file, isStaged in
             let cacheKey = DiffViewerTabState.cacheKey(filePath: file.path, isStaged: isStaged)
-            let diff = state.vcs.diffCache.diff(for: cacheKey)
+            let diff = activeDiffCache.diff(for: cacheKey)
             return DiffEditorFileSection(
                 filePath: file.path,
                 cacheKey: cacheKey,
@@ -84,7 +90,7 @@ struct DiffViewerPane: View {
     }
 
     private var sectionFiles: [(GitStatusFile, Bool)] {
-        state.vcs.stagedFiles.map { ($0, true) } + state.vcs.unstagedFiles.map { ($0, false) }
+        state.stagedFiles.map { ($0, true) } + state.unstagedFiles.map { ($0, false) }
     }
 
     private var combinedCacheKey: String {
@@ -94,15 +100,19 @@ struct DiffViewerPane: View {
 
     private var isLoadingAnyDiff: Bool {
         sectionFiles.contains { file, isStaged in
-            state.vcs.diffCache.isLoading(DiffViewerTabState.cacheKey(filePath: file.path, isStaged: isStaged))
+            activeDiffCache.isLoading(DiffViewerTabState.cacheKey(filePath: file.path, isStaged: isStaged))
         }
     }
 
     private var hasTruncatedDiff: Bool {
         sectionFiles.contains { file, isStaged in
             let cacheKey = DiffViewerTabState.cacheKey(filePath: file.path, isStaged: isStaged)
-            return state.vcs.diffCache.diff(for: cacheKey)?.truncated == true
+            return activeDiffCache.diff(for: cacheKey)?.truncated == true
         }
+    }
+
+    private var activeDiffCache: DiffCache {
+        state.source == .workingTree ? state.vcs.diffCache : state.diffCache
     }
 
     private var truncatedBanner: some View {
@@ -139,11 +149,11 @@ private struct DiffViewerBreadcrumb: View {
     @Bindable var state: DiffViewerTabState
 
     private var additions: Int {
-        state.vcs.files.compactMap(\.additions).reduce(0, +)
+        state.files.compactMap(\.additions).reduce(0, +)
     }
 
     private var deletions: Int {
-        state.vcs.files.compactMap(\.deletions).reduce(0, +)
+        state.files.compactMap(\.deletions).reduce(0, +)
     }
 
     var body: some View {
@@ -152,14 +162,14 @@ private struct DiffViewerBreadcrumb: View {
                 .stroke(MuxyTheme.fgDim, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                 .frame(width: UIMetrics.scaled(11), height: UIMetrics.scaled(11))
 
-            Text("Git Diff")
+            Text(state.displayTitle)
                 .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
 
-            Text("\(state.vcs.files.count) files")
+            Text("\(state.files.count) files")
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .padding(.horizontal, UIMetrics.scaled(5))
@@ -544,14 +554,14 @@ private struct DiffViewerSidebar: View {
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    if !state.vcs.stagedFiles.isEmpty {
-                        DiffViewerSidebarSection(state: state, title: "Staged", files: state.vcs.stagedFiles, isStaged: true)
+                    if !state.stagedFiles.isEmpty {
+                        DiffViewerSidebarSection(state: state, title: "Staged", files: state.stagedFiles, isStaged: true)
                     }
-                    DiffViewerSidebarSection(state: state, title: "Changes", files: state.vcs.unstagedFiles, isStaged: false)
+                    DiffViewerSidebarSection(state: state, title: "Changes", files: state.unstagedFiles, isStaged: false)
                 }
             }
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            DiffViewerStats(files: state.vcs.files)
+            DiffViewerStats(files: state.files)
         }
         .background(MuxyTheme.bg)
     }
@@ -566,7 +576,7 @@ private struct DiffViewerSidebar: View {
                 .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
 
-            Text("\(state.vcs.files.count)")
+            Text("\(state.files.count)")
                 .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                 .foregroundStyle(MuxyTheme.bg)
                 .padding(.horizontal, UIMetrics.spacing3)
@@ -575,17 +585,19 @@ private struct DiffViewerSidebar: View {
 
             Spacer(minLength: 0)
 
-            Button {
-                state.vcs.fileListMode = state.vcs.fileListMode == .flat ? .folders : .flat
-            } label: {
-                Image(systemName: state.vcs.fileListMode == .flat ? "folder" : "list.bullet")
-                    .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                    .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
-                    .contentShape(Rectangle())
+            if state.source == .workingTree {
+                Button {
+                    state.vcs.fileListMode = state.vcs.fileListMode == .flat ? .folders : .flat
+                } label: {
+                    Image(systemName: state.vcs.fileListMode == .flat ? "folder" : "list.bullet")
+                        .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                        .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(state.vcs.fileListMode == .flat ? "Switch to Folder View" : "Switch to Flat View")
             }
-            .buttonStyle(.plain)
-            .help(state.vcs.fileListMode == .flat ? "Switch to Folder View" : "Switch to Flat View")
         }
         .padding(.horizontal, UIMetrics.spacing4)
         .frame(height: UIMetrics.scaled(32))
@@ -613,7 +625,7 @@ private struct DiffViewerSidebarSection: View {
                 .padding(.horizontal, UIMetrics.spacing4)
                 .frame(height: UIMetrics.scaled(26))
 
-                if state.vcs.fileListMode == .flat {
+                if state.source != .workingTree || state.vcs.fileListMode == .flat {
                     ForEach(files) { file in
                         DiffViewerSidebarFileRow(state: state, file: file, isStaged: isStaged, displayPath: file.path, depth: 0)
                     }

@@ -5,6 +5,7 @@ struct PullRequestsListView: View {
     @Bindable var state: VCSTabState
     let onCheckout: (GitRepositoryService.PRListItem) -> Void
     let onCheckoutInNewWorktree: (GitRepositoryService.PRListItem) -> Void
+    let onOpenDiff: (GitRepositoryService.PRListItem) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -114,7 +115,8 @@ struct PullRequestsListView: View {
                             pr: pr,
                             isCheckingOut: state.checkingOutPRNumber == pr.number,
                             onCheckout: { onCheckout(pr) },
-                            onCheckoutInNewWorktree: { onCheckoutInNewWorktree(pr) }
+                            onCheckoutInNewWorktree: { onCheckoutInNewWorktree(pr) },
+                            onOpenDiff: { onOpenDiff(pr) }
                         )
                         Rectangle().fill(MuxyTheme.border).frame(height: 1)
                     }
@@ -168,6 +170,7 @@ struct PullRequestRow: View {
     let isCheckingOut: Bool
     let onCheckout: () -> Void
     let onCheckoutInNewWorktree: () -> Void
+    let onOpenDiff: () -> Void
 
     @State private var hovered = false
 
@@ -214,6 +217,11 @@ struct PullRequestRow: View {
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture(perform: onCheckout)
+        .contextMenu {
+            Button("View Diff", action: onOpenDiff)
+            Button("Checkout", action: onCheckout)
+            Button("Checkout in New Worktree", action: onCheckoutInNewWorktree)
+        }
         .help("Checkout PR #\(pr.number)")
     }
 
@@ -257,6 +265,7 @@ struct PullRequestRow: View {
 
     private var checkoutButton: some View {
         Menu {
+            Button("View Diff", action: onOpenDiff)
             Button {
                 onCheckout()
             } label: {
