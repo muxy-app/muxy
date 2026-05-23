@@ -30,6 +30,7 @@ final class BrowserWKWebView: WKWebView {
 
 struct BrowserWebView: NSViewRepresentable {
     let session: BrowserSession
+    let visible: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(session: session)
@@ -85,7 +86,9 @@ struct BrowserWebView: NSViewRepresentable {
         return webView
     }
 
-    func updateNSView(_: BrowserWKWebView, context _: Context) {}
+    func updateNSView(_: BrowserWKWebView, context: Context) {
+        context.coordinator.setVisible(visible)
+    }
 
     static func dismantleNSView(_ webView: BrowserWKWebView, coordinator: Coordinator) {
         coordinator.tearDown(webView: webView)
@@ -98,6 +101,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         private let session: BrowserSession
         private var commandTask: Task<Void, Never>?
+        private var isVisible: Bool = true
         private var loadingObservation: NSKeyValueObservation?
         private var progressObservation: NSKeyValueObservation?
         private var canGoBackObservation: NSKeyValueObservation?
@@ -151,6 +155,13 @@ struct BrowserWebView: NSViewRepresentable {
             }
         }
 
+        func setVisible(_ visible: Bool) {
+            guard isVisible != visible else { return }
+            isVisible = visible
+            guard let webView else { return }
+            applyEffectiveInspectorMode(in: webView)
+        }
+
         func startConsumingCommands() {
             commandTask?.cancel()
             let stream = session.commands.stream
@@ -197,11 +208,8 @@ struct BrowserWebView: NSViewRepresentable {
                     "window.__muxyBrowserAPI && window.__muxyBrowserAPI.scrollTo(\(y));",
                     in: webView
                 )
-            case let .setInspectorMode(mode):
-                evaluateInBridgeWorld(
-                    "window.__muxyBrowserAPI && window.__muxyBrowserAPI.setMode('\(mode.rawValue)');",
-                    in: webView
-                )
+            case .setInspectorMode:
+                applyEffectiveInspectorMode(in: webView)
             case let .applyStyleOverrides(overrides):
                 pushStyleOverrides(overrides: overrides, into: webView)
             case let .find(query, forward):
@@ -237,6 +245,14 @@ struct BrowserWebView: NSViewRepresentable {
             else { return }
             evaluateInBridgeWorld(
                 "window.__muxyBrowserAPI && window.__muxyBrowserAPI.applyOverrides(\(json));",
+                in: webView
+            )
+        }
+
+        private func applyEffectiveInspectorMode(in webView: WKWebView) {
+            let mode: BrowserInspectorState.Mode = isVisible ? session.inspector.inspectorMode : .off
+            evaluateInBridgeWorld(
+                "window.__muxyBrowserAPI && window.__muxyBrowserAPI.setMode('\(mode.rawValue)');",
                 in: webView
             )
         }
@@ -280,10 +296,7 @@ struct BrowserWebView: NSViewRepresentable {
                     self.session.nav.pendingScrollRestore = nil
                 }
                 if self.session.inspector.inspectorMode != .off {
-                    self.evaluateInBridgeWorld(
-                        "window.__muxyBrowserAPI && window.__muxyBrowserAPI.setMode('\(self.session.inspector.inspectorMode.rawValue)');",
-                        in: webView
-                    )
+                    self.applyEffectiveInspectorMode(in: webView)
                 }
                 let overrides = self.session.inspector.aggregatedStyleOverrides()
                 if !overrides.isEmpty {

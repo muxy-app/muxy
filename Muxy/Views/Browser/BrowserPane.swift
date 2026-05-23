@@ -3,6 +3,7 @@ import SwiftUI
 struct BrowserPane: View {
     @Bindable var session: BrowserSession
     let focused: Bool
+    let visible: Bool
     let onFocus: () -> Void
 
     var body: some View {
@@ -29,14 +30,14 @@ struct BrowserPane: View {
         if let error = session.nav.lastErrorMessage {
             errorView(error)
         } else {
-            ZStack(alignment: .top) {
-                BrowserWebView(session: session)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if session.nav.findBar.isVisible {
-                    BrowserFindBar(session: session)
-                        .padding(UIMetrics.spacing3)
+            BrowserWebView(session: session, visible: visible)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .top) {
+                    if session.nav.findBar.isVisible {
+                        BrowserFindBar(session: session)
+                            .padding(UIMetrics.spacing3)
+                    }
                 }
-            }
         }
     }
 

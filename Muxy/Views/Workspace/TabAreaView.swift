@@ -221,7 +221,7 @@ private struct TabContentView: View {
         case let .imageViewer(imageState):
             ImageViewerPane(state: imageState, focused: focused, onFocus: onFocus)
         case let .browser(session):
-            BrowserPane(session: session, focused: focused, onFocus: onFocus)
+            BrowserPane(session: session, focused: focused, visible: visible, onFocus: onFocus)
         }
     }
 }
