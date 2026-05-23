@@ -44,7 +44,7 @@ struct BrowserURLNormalizerTests {
     @Test("falls back to search when input is plain text")
     func fallbackToSearch() {
         let url = BrowserURLNormalizer.normalize("hello world")
-        #expect(url?.host == "duckduckgo.com")
+        #expect(url?.host == "www.google.com")
         #expect(url?.absoluteString.contains("q=hello%20world") == true)
     }
 

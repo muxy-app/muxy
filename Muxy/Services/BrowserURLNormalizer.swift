@@ -28,7 +28,7 @@ enum BrowserURLNormalizer {
         guard let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
             return nil
         }
-        return URL(string: "https://duckduckgo.com/?q=\(encoded)")
+        return URL(string: "https://www.google.com/search?q=\(encoded)")
     }
 
     static func isAllowedNavigationURL(_ url: URL) -> Bool {

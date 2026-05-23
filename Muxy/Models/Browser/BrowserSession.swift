@@ -4,7 +4,7 @@ import Foundation
 @Observable
 final class BrowserSession: Identifiable {
     static let defaultURL = "about:blank"
-    static let homeURL = "https://duckduckgo.com"
+    static let homeURL = "https://www.google.com"
     static let minZoom: Double = 0.25
     static let maxZoom: Double = 4.0
     static let zoomStep: Double = 0.1
