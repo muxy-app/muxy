@@ -92,6 +92,109 @@
         return parts.join(' > ');
     }
 
+    function isUniqueSelector(selector) {
+        try {
+            return document.querySelectorAll(selector).length === 1;
+        } catch (err) {
+            return false;
+        }
+    }
+
+    function classSegment(el) {
+        if (!el || !el.classList) return '';
+        var classes = Array.from(el.classList)
+            .filter(function (c) { return c && /^[A-Za-z_-][A-Za-z0-9_-]*$/.test(c); })
+            .slice(0, 3);
+        if (!classes.length) return '';
+        return el.nodeName.toLowerCase() + '.' + classes.join('.');
+    }
+
+    function buildSelectorMinimal(el) {
+        if (!(el instanceof Element)) return '';
+        if (el.id && /^[A-Za-z][A-Za-z0-9_-]*$/.test(el.id)) {
+            var idSelector = '#' + el.id;
+            if (isUniqueSelector(idSelector)) return idSelector;
+        }
+        var leaf = classSegment(el) || el.nodeName.toLowerCase();
+        if (isUniqueSelector(leaf)) return leaf;
+        var cursor = el.parentElement;
+        var chain = leaf;
+        var depth = 0;
+        while (cursor && cursor.nodeType === 1 && depth < 5) {
+            var ancestor = '';
+            if (cursor.id && /^[A-Za-z][A-Za-z0-9_-]*$/.test(cursor.id)) {
+                ancestor = '#' + cursor.id;
+            } else {
+                ancestor = classSegment(cursor) || cursor.nodeName.toLowerCase();
+            }
+            chain = ancestor + ' ' + chain;
+            if (isUniqueSelector(chain)) return chain;
+            if (ancestor.indexOf('#') === 0) return chain;
+            cursor = cursor.parentElement;
+            depth += 1;
+        }
+        return '';
+    }
+
+    function outerHTMLSnippet(el) {
+        if (!el || typeof el.outerHTML !== 'string') return '';
+        return el.outerHTML;
+    }
+
+    function stylesheetHints(el) {
+        if (!el || typeof el.matches !== 'function') return [];
+        var sheets = document.styleSheets;
+        if (!sheets || !sheets.length) return [];
+        var hits = [];
+        var seen = {};
+        for (var i = 0; i < sheets.length && hits.length < 3; i++) {
+            var sheet = sheets[i];
+            var rules;
+            try {
+                rules = sheet.cssRules;
+            } catch (err) {
+                continue;
+            }
+            if (!rules) continue;
+            var matched = false;
+            for (var r = 0; r < rules.length; r++) {
+                var rule = rules[r];
+                if (!rule || typeof rule.selectorText !== 'string') continue;
+                var selectors = rule.selectorText.split(',');
+                for (var s = 0; s < selectors.length; s++) {
+                    var candidate = selectors[s].trim();
+                    if (!candidate) continue;
+                    try {
+                        if (el.matches(candidate)) { matched = true; break; }
+                    } catch (err) {
+                        continue;
+                    }
+                }
+                if (matched) break;
+            }
+            if (!matched) continue;
+            var href = sheet.href || '';
+            if (!href || seen[href]) continue;
+            seen[href] = true;
+            hits.push(href);
+        }
+        return hits;
+    }
+
+    function documentDirection() {
+        var dir = (document.documentElement && document.documentElement.dir) || '';
+        if (dir) return dir;
+        try {
+            return window.getComputedStyle(document.documentElement).direction || '';
+        } catch (err) {
+            return '';
+        }
+    }
+
+    function documentLanguage() {
+        return (document.documentElement && document.documentElement.lang) || '';
+    }
+
     function buildXPath(el) {
         if (!(el instanceof Element)) return '';
         var parts = [];
@@ -153,13 +256,18 @@
         var computed = window.getComputedStyle(el);
         postMessage('picked', {
             selector: buildSelector(el),
+            selectorMinimal: buildSelectorMinimal(el),
             xpath: buildXPath(el),
             textSnippet: textSnippet(el),
+            outerHTML: outerHTMLSnippet(el),
             rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
             viewport: { width: window.innerWidth, height: window.innerHeight },
             scroll: { x: window.scrollX, y: window.scrollY },
             url: window.location.href,
             title: document.title,
+            dir: documentDirection(),
+            lang: documentLanguage(),
+            stylesheets: stylesheetHints(el),
             computedStyle: {
                 fontFamily: computed.fontFamily,
                 fontSize: computed.fontSize,
@@ -277,6 +385,7 @@
         setMode: setMode,
         applyOverrides: applyOverrides,
         clearOverrides: clearAppliedOverrides,
+        hideHighlight: hideHighlight,
         scrollTo: function (y) {
             window.scrollTo(0, y);
         },

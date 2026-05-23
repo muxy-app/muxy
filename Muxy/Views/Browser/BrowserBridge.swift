@@ -54,6 +54,10 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
         ), !selector.isEmpty
         else { return }
 
+        let selectorMinimal = sanitizedString(
+            body["selectorMinimal"],
+            maxLength: BrowserAnnotationSanitizer.maxSelectorLength
+        ) ?? ""
         let xpath = sanitizedString(
             body["xpath"],
             maxLength: BrowserAnnotationSanitizer.maxXPathLength
@@ -62,6 +66,7 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
             body["textSnippet"],
             maxLength: BrowserAnnotationSanitizer.maxTextSnippetLength
         ) ?? ""
+        let outerHTML = sanitizedOuterHTML(body["outerHTML"])
         let url = sanitizedString(
             body["url"],
             maxLength: BrowserAnnotationSanitizer.maxURLLength
@@ -74,20 +79,37 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
         let rect = parseRect(body["rect"])
         let viewport = parseViewport(body["viewport"])
         let computed = sanitizedComputedStyle(body["computedStyle"])
+        let direction = sanitizedDirection(body["dir"])
+        let language = sanitizedLanguage(body["lang"])
+        let stylesheets = sanitizedStylesheets(body["stylesheets"])
 
         let annotation = BrowserAnnotation(
             selector: selector,
+            selectorMinimal: selectorMinimal,
             xpath: xpath,
             textSnippet: snippet,
+            outerHTML: outerHTML,
             rect: rect,
             pageURL: url,
             pageTitle: title,
             viewportWidth: viewport.width,
-            viewportHeight: viewport.height
+            viewportHeight: viewport.height,
+            documentDir: direction,
+            documentLang: language,
+            stylesheets: stylesheets,
+            computedStyle: computed
         )
 
         session.inspector.addAnnotation(annotation)
-        session.inspector.computedStyleSeeds[annotation.id] = computed
+        if let webView {
+            BrowserAnnotationSnapshotter.capture(
+                annotationID: annotation.id,
+                rect: rect,
+                pageZoom: CGFloat(session.nav.zoom),
+                webView: webView,
+                inspector: session.inspector
+            )
+        }
     }
 
     private func handleScrolled(_ body: [String: Any]) {
@@ -154,5 +176,25 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
             result[cleanedKey] = cleanedValue
         }
         return result
+    }
+
+    private func sanitizedOuterHTML(_ value: Any?) -> String {
+        guard let raw = value as? String else { return "" }
+        return BrowserAnnotationSanitizer.sanitizeOuterHTML(raw)
+    }
+
+    private func sanitizedDirection(_ value: Any?) -> String {
+        guard let raw = value as? String else { return "" }
+        return BrowserAnnotationSanitizer.sanitizeDirection(raw)
+    }
+
+    private func sanitizedLanguage(_ value: Any?) -> String {
+        guard let raw = value as? String else { return "" }
+        return BrowserAnnotationSanitizer.sanitizeLanguageCode(raw)
+    }
+
+    private func sanitizedStylesheets(_ value: Any?) -> [String] {
+        guard let array = value as? [String] else { return [] }
+        return BrowserAnnotationSanitizer.sanitizeStylesheetList(array)
     }
 }

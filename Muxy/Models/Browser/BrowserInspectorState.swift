@@ -11,7 +11,6 @@ final class BrowserInspectorState {
     var inspectorMode: Mode = .off
 
     var annotations: [BrowserAnnotation] = []
-    var computedStyleSeeds: [UUID: [String: String]] = [:]
 
     var showsAnnotationsPanel: Bool = false
 
@@ -23,13 +22,22 @@ final class BrowserInspectorState {
     }
 
     func removeAnnotation(id: UUID) {
-        annotations.removeAll { $0.id == id }
-        computedStyleSeeds.removeValue(forKey: id)
+        if let index = annotations.firstIndex(where: { $0.id == id }) {
+            if let url = annotations[index].screenshotURL {
+                try? FileManager.default.removeItem(at: url)
+            }
+            annotations.remove(at: index)
+        }
     }
 
     func updateComment(annotationID: UUID, comment: String) {
         guard let index = annotations.firstIndex(where: { $0.id == annotationID }) else { return }
         annotations[index].comment = comment
+    }
+
+    func setScreenshotURL(_ url: URL, for annotationID: UUID) {
+        guard let index = annotations.firstIndex(where: { $0.id == annotationID }) else { return }
+        annotations[index].screenshotURL = url
     }
 
     func markAnnotationSent(_ id: UUID) {

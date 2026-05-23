@@ -9,7 +9,7 @@ struct StyleInspectorPopover: View {
     }
 
     private var computedSeed: [String: String] {
-        session.inspector.computedStyleSeeds[annotationID] ?? [:]
+        annotation?.computedStyle ?? [:]
     }
 
     var body: some View {

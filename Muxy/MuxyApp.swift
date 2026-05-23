@@ -252,6 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AIProviderRegistry.shared.installAll()
         _ = AIUsageSettingsStore.isUsageEnabled()
         DiagnosticsMenuController.shared.install()
+        BrowserAnnotationCacheStore.shared.removeAll(olderThan: 7 * 24 * 60 * 60)
 
         consumeLaunchArguments()
     }

@@ -44,17 +44,41 @@ enum BrowserAnnotationSender {
         }
         switch target {
         case let .richInput(worktreeKey):
-            guard controller.appendMarkdown(markdown, for: worktreeKey) else { return }
-            markSent()
+            appendToRichInput(
+                markdown: markdown,
+                screenshotURL: annotation.screenshotURL,
+                worktreeKey: worktreeKey,
+                controller: controller,
+                markSent: markSent
+            )
         case let .terminal(terminalTarget):
             focus(target: terminalTarget, appState: appState)
             guard let view = TerminalViewRegistry.shared.existingView(for: terminalTarget.paneID) else {
                 copyToClipboard(markdown)
                 return
             }
-            inject(markdown: markdown, into: view)
+            inject(markdown: markdown, screenshotURL: annotation.screenshotURL, into: view)
             markSent()
         }
+    }
+
+    private static func appendToRichInput(
+        markdown: String,
+        screenshotURL: URL?,
+        worktreeKey: WorktreeKey,
+        controller: RichInputController,
+        markSent: () -> Void
+    ) {
+        guard let screenshotURL else {
+            guard controller.appendMarkdown(markdown, for: worktreeKey) else { return }
+            markSent()
+            return
+        }
+        let state = controller.state(for: worktreeKey)
+        let placeholder = state.nextImagePlaceholder(for: screenshotURL)
+        let combined = markdown + "\n" + placeholder
+        guard controller.appendMarkdown(combined, for: worktreeKey) else { return }
+        markSent()
     }
 
     static func resolveTarget(
@@ -143,13 +167,32 @@ enum BrowserAnnotationSender {
         ))
     }
 
-    private static func inject(markdown: String, into view: GhosttyTerminalNSView) {
-        var payload = Data()
-        payload.append(TerminalControlBytes.bracketedPasteStart)
-        payload.append(Data(markdown.utf8))
-        payload.append(TerminalControlBytes.bracketedPasteEnd)
-        view.sendRemoteBytes(payload)
-        view.window?.makeFirstResponder(view)
+    private static func inject(
+        markdown: String,
+        screenshotURL: URL?,
+        into view: GhosttyTerminalNSView
+    ) {
+        let segments = buildTerminalSegments(markdown: markdown, screenshotURL: screenshotURL)
+        TerminalSegmentInjector.inject(
+            segments: segments,
+            into: [view],
+            options: .append
+        )
+    }
+
+    private static func buildTerminalSegments(
+        markdown: String,
+        screenshotURL: URL?
+    ) -> [RichInputSubmitter.Segment] {
+        guard let screenshotURL else {
+            return [.text(markdown)]
+        }
+        let combined = markdown + "\n[Image 1]"
+        return RichInputSubmitter.resolveSegments(
+            text: combined,
+            images: [screenshotURL],
+            strategy: EditorSettings.shared.richInputImageStrategy
+        )
     }
 
     private static func copyToClipboard(_ markdown: String) {
@@ -170,11 +213,19 @@ enum BrowserAnnotationSender {
         if !title.isEmpty {
             lines.append("- page: \(title)")
         }
+        appendLocaleLine(annotation: annotation, into: &lines)
         let selector = BrowserAnnotationSanitizer.sanitizeMarkdownInlineCode(
             annotation.selector,
             maxLength: BrowserAnnotationSanitizer.maxSelectorLength
         )
         lines.append("- selector: `\(selector)`")
+        let selectorMinimal = BrowserAnnotationSanitizer.sanitizeMarkdownInlineCode(
+            annotation.selectorMinimal,
+            maxLength: BrowserAnnotationSanitizer.maxSelectorLength
+        )
+        if !selectorMinimal.isEmpty, selectorMinimal != selector {
+            lines.append("- selector_min: `\(selectorMinimal)`")
+        }
         let xpath = BrowserAnnotationSanitizer.sanitizeMarkdownInlineCode(
             annotation.xpath,
             maxLength: BrowserAnnotationSanitizer.maxXPathLength
@@ -197,8 +248,10 @@ enum BrowserAnnotationSender {
             annotation.rect.height
         )
         lines.append("- bbox: \(bbox)")
-        let viewport = String(format: "%.0f×%.0f", annotation.viewportWidth, annotation.viewportHeight)
-        lines.append("- viewport: \(viewport)")
+        lines.append(viewportLine(annotation: annotation))
+        appendComputedStyleSection(annotation: annotation, into: &lines)
+        appendStylesheetSection(annotation: annotation, into: &lines)
+        appendHTMLSection(annotation: annotation, into: &lines)
         for override in annotation.styleOverrides {
             let original = override.originalValue.isEmpty ? "default" : override.originalValue
             let sanitizedOriginal = BrowserAnnotationSanitizer.sanitizeSingleLine(
@@ -211,6 +264,9 @@ enum BrowserAnnotationSender {
             )
             lines.append("- style override: \(override.property.cssName): \(sanitizedOriginal) → \(sanitizedValue)")
         }
+        if let screenshotURL = annotation.screenshotURL {
+            lines.append("- screenshot: \(screenshotURL.path)")
+        }
         let comment = BrowserAnnotationSanitizer
             .sanitizeMultiLine(annotation.comment, maxLength: BrowserAnnotationSanitizer.maxCommentLength)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -218,5 +274,84 @@ enum BrowserAnnotationSender {
             lines.append("- comment: \"\(comment)\"")
         }
         return lines.joined(separator: "\n")
+    }
+
+    private static func appendLocaleLine(annotation: BrowserAnnotation, into lines: inout [String]) {
+        let direction = BrowserAnnotationSanitizer.sanitizeDirection(annotation.documentDir)
+        let language = BrowserAnnotationSanitizer.sanitizeLanguageCode(annotation.documentLang)
+        guard !direction.isEmpty || !language.isEmpty else { return }
+        var fragments: [String] = []
+        if !language.isEmpty { fragments.append(language) }
+        if !direction.isEmpty { fragments.append("dir: \(direction)") }
+        lines.append("- locale: \(fragments.joined(separator: ", "))")
+    }
+
+    private static func viewportLine(annotation: BrowserAnnotation) -> String {
+        let viewport = String(format: "%.0f×%.0f", annotation.viewportWidth, annotation.viewportHeight)
+        let bucket = viewportBucket(width: annotation.viewportWidth)
+        return "- viewport: \(viewport) (\(bucket))"
+    }
+
+    private static func viewportBucket(width: CGFloat) -> String {
+        switch width {
+        case ..<480: "mobile"
+        case ..<768: "mobile-large"
+        case ..<1024: "tablet"
+        case ..<1440: "desktop-narrow"
+        default: "desktop"
+        }
+    }
+
+    private static let computedStyleRenderOrder: [(key: String, label: String)] = [
+        ("fontFamily", "font-family"),
+        ("fontSize", "font-size"),
+        ("fontWeight", "font-weight"),
+        ("color", "color"),
+        ("backgroundColor", "background-color"),
+        ("paddingTop", "padding-top"),
+        ("paddingRight", "padding-right"),
+        ("paddingBottom", "padding-bottom"),
+        ("paddingLeft", "padding-left"),
+        ("marginTop", "margin-top"),
+        ("marginRight", "margin-right"),
+        ("marginBottom", "margin-bottom"),
+        ("marginLeft", "margin-left"),
+        ("borderRadius", "border-radius"),
+    ]
+
+    private static func appendComputedStyleSection(annotation: BrowserAnnotation, into lines: inout [String]) {
+        let computed = annotation.computedStyle
+        guard !computed.isEmpty else { return }
+        var entries: [String] = []
+        for (key, label) in computedStyleRenderOrder {
+            guard let raw = computed[key] else { continue }
+            let cleaned = BrowserAnnotationSanitizer.sanitizeSingleLine(
+                raw,
+                maxLength: BrowserAnnotationSanitizer.maxStyleValueLength
+            )
+            guard !cleaned.isEmpty else { continue }
+            entries.append("    - \(label): \(cleaned)")
+        }
+        guard !entries.isEmpty else { return }
+        lines.append("- computed:")
+        lines.append(contentsOf: entries)
+    }
+
+    private static func appendStylesheetSection(annotation: BrowserAnnotation, into lines: inout [String]) {
+        let sheets = BrowserAnnotationSanitizer.sanitizeStylesheetList(annotation.stylesheets)
+        guard !sheets.isEmpty else { return }
+        lines.append("- stylesheets:")
+        for sheet in sheets {
+            lines.append("    - \(sheet)")
+        }
+    }
+
+    private static func appendHTMLSection(annotation: BrowserAnnotation, into lines: inout [String]) {
+        let html = BrowserAnnotationSanitizer.sanitizeOuterHTML(annotation.outerHTML)
+        guard !html.isEmpty else { return }
+        lines.append("- html:")
+        lines.append("  ```html")
+        lines.append("  \(html)")
+        lines.append("  ```")
     }
 }

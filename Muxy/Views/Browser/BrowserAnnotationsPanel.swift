@@ -46,11 +46,15 @@ struct BrowserAnnotationsPanel: View {
             Image(systemName: "cursorarrow.click")
                 .font(.system(size: UIMetrics.fontTitle))
                 .foregroundStyle(MuxyTheme.fgDim)
-            Text("Turn on Inspect and click an element to comment or restyle it.")
-                .font(.system(size: UIMetrics.fontFootnote))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .padding(.horizontal, UIMetrics.spacing4)
+            Text(
+                "Click an element to capture it. "
+                    + "Add a quick note: what looks wrong, what should it look like, "
+                    + "and any reference file or design."
+            )
+            .font(.system(size: UIMetrics.fontFootnote))
+            .multilineTextAlignment(.center)
+            .foregroundStyle(MuxyTheme.fgMuted)
+            .padding(.horizontal, UIMetrics.spacing4)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -120,6 +124,10 @@ private struct AnnotationRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
+                if let screenshotURL = annotation.screenshotURL {
+                    ScreenshotThumbnail(url: screenshotURL)
+                }
+
                 if !annotation.styleOverrides.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(annotation.styleOverrides) { override in
@@ -130,22 +138,7 @@ private struct AnnotationRow: View {
                     }
                 }
 
-                TextEditor(text: Binding(
-                    get: { draftComment.isEmpty && !annotation.comment.isEmpty ? annotation.comment : draftComment },
-                    set: { newValue in
-                        draftComment = newValue
-                        session.inspector.updateComment(annotationID: annotationID, comment: newValue)
-                    }
-                ))
-                .font(.system(size: UIMetrics.fontFootnote))
-                .frame(minHeight: UIMetrics.scaled(56))
-                .padding(UIMetrics.spacing2)
-                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
-                .overlay(
-                    RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
-                        .strokeBorder(MuxyTheme.border, lineWidth: 1)
-                )
-                .scrollContentBackground(.hidden)
+                commentEditor(annotation: annotation)
 
                 HStack(spacing: UIMetrics.spacing2) {
                     Spacer()
@@ -181,5 +174,77 @@ private struct AnnotationRow: View {
             .fill(annotation.status == .sent ? MuxyTheme.accent : MuxyTheme.warning)
             .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
             .accessibilityLabel(annotation.status == .sent ? "Sent" : "Draft")
+    }
+
+    private func commentEditor(annotation: BrowserAnnotation) -> some View {
+        let binding = Binding(
+            get: { draftComment.isEmpty && !annotation.comment.isEmpty ? annotation.comment : draftComment },
+            set: { newValue in
+                draftComment = newValue
+                session.inspector.updateComment(annotationID: annotationID, comment: newValue)
+            }
+        )
+        let showsPlaceholder = binding.wrappedValue.isEmpty
+        return ZStack(alignment: .topLeading) {
+            TextEditor(text: binding)
+                .font(.system(size: UIMetrics.fontFootnote))
+                .frame(minHeight: UIMetrics.scaled(56))
+                .padding(UIMetrics.spacing2)
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                .overlay(
+                    RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
+                        .strokeBorder(MuxyTheme.border, lineWidth: 1)
+                )
+                .scrollContentBackground(.hidden)
+            if showsPlaceholder {
+                Text("What's wrong? What should it look like? Reference file or design?")
+                    .font(.system(size: UIMetrics.fontFootnote))
+                    .foregroundStyle(MuxyTheme.fgDim)
+                    .padding(.horizontal, UIMetrics.spacing3)
+                    .padding(.vertical, UIMetrics.spacing3)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
+private struct ScreenshotThumbnail: View {
+    let url: URL
+
+    var body: some View {
+        Button {
+            NSWorkspace.shared.open(url)
+        } label: {
+            thumbnailContent
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .help("Open screenshot in Preview")
+        .accessibilityLabel("Open screenshot in Preview")
+    }
+
+    @ViewBuilder
+    private var thumbnailContent: some View {
+        if let image = NSImage(contentsOf: url) {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(maxHeight: UIMetrics.scaled(64))
+                .cornerRadius(UIMetrics.radiusSM)
+                .overlay(
+                    RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
+                        .strokeBorder(MuxyTheme.border, lineWidth: 1)
+                )
+        } else {
+            HStack(spacing: UIMetrics.spacing2) {
+                Image(systemName: "photo")
+                    .foregroundStyle(MuxyTheme.fgDim)
+                Text("Screenshot pending")
+                    .font(.system(size: UIMetrics.fontXS))
+                    .foregroundStyle(MuxyTheme.fgDim)
+            }
+            .frame(height: UIMetrics.scaled(64))
+        }
     }
 }

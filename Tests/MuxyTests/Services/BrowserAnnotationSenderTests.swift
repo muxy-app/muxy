@@ -28,8 +28,202 @@ struct BrowserAnnotationSenderTests {
         #expect(markdown.contains("- xpath: `/html/body/main/header/h1`"))
         #expect(markdown.contains("- text: \"Welcome\""))
         #expect(markdown.contains("- bbox: (x=10, y=20, w=120, h=40)"))
-        #expect(markdown.contains("- viewport: 1440×900"))
+        #expect(markdown.contains("- viewport: 1440×900 (desktop)"))
         #expect(markdown.contains("- comment: \"Make this larger\""))
+    }
+
+    @Test("includes selector_min only when different from selector")
+    func includesSelectorMinimal() {
+        let annotation = BrowserAnnotation(
+            selector: "div > main > header > h1.title:nth-of-type(1)",
+            selectorMinimal: "h1.title",
+            xpath: "",
+            textSnippet: "",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 0,
+            viewportHeight: 0
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+        #expect(markdown.contains("- selector_min: `h1.title`"))
+    }
+
+    @Test("omits selector_min when equal to selector")
+    func omitsSelectorMinimalWhenIdentical() {
+        let annotation = BrowserAnnotation(
+            selector: "h1.title",
+            selectorMinimal: "h1.title",
+            xpath: "",
+            textSnippet: "",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 0,
+            viewportHeight: 0
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+        #expect(!markdown.contains("- selector_min:"))
+    }
+
+    @Test("renders locale line with language and direction")
+    func rendersLocaleLine() {
+        let annotation = BrowserAnnotation(
+            selector: "h1",
+            xpath: "",
+            textSnippet: "",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 0,
+            viewportHeight: 0,
+            documentDir: "rtl",
+            documentLang: "ar"
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+        #expect(markdown.contains("- locale: ar, dir: rtl"))
+    }
+
+    @Test("omits locale line when both direction and language are empty")
+    func omitsLocaleLineWhenEmpty() {
+        let annotation = BrowserAnnotation(
+            selector: "h1",
+            xpath: "",
+            textSnippet: "",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 0,
+            viewportHeight: 0
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+        #expect(!markdown.contains("- locale:"))
+    }
+
+    @Test("renders computed style section in canonical order")
+    func rendersComputedStyleSection() {
+        let annotation = BrowserAnnotation(
+            selector: "button",
+            xpath: "",
+            textSnippet: "",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 0,
+            viewportHeight: 0,
+            computedStyle: [
+                "color": "rgb(0, 0, 0)",
+                "backgroundColor": "rgb(255, 255, 255)",
+                "borderRadius": "50%",
+            ]
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+        #expect(markdown.contains("- computed:"))
+        #expect(markdown.contains("    - color: rgb(0, 0, 0)"))
+        #expect(markdown.contains("    - background-color: rgb(255, 255, 255)"))
+        #expect(markdown.contains("    - border-radius: 50%"))
+    }
+
+    @Test("renders stylesheet hints list")
+    func rendersStylesheetHints() {
+        let annotation = BrowserAnnotation(
+            selector: "button",
+            xpath: "",
+            textSnippet: "",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 0,
+            viewportHeight: 0,
+            stylesheets: [
+                "https://example.com/style.css",
+                "https://example.com/theme.css",
+            ]
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+        #expect(markdown.contains("- stylesheets:"))
+        #expect(markdown.contains("    - https://example.com/style.css"))
+        #expect(markdown.contains("    - https://example.com/theme.css"))
+    }
+
+    @Test("renders html fence with outer HTML snippet")
+    func rendersOuterHTMLBlock() {
+        let annotation = BrowserAnnotation(
+            selector: "button.icon",
+            xpath: "",
+            textSnippet: "",
+            outerHTML: "<button class=\"icon\" aria-label=\"Search\"></button>",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 0,
+            viewportHeight: 0
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+        #expect(markdown.contains("- html:"))
+        #expect(markdown.contains("  ```html"))
+        #expect(markdown.contains("  <button class=\"icon\" aria-label=\"Search\"></button>"))
+        #expect(markdown.contains("  ```"))
+    }
+
+    @Test("renders viewport bucket label for narrow desktop")
+    func viewportBucketForNarrowDesktop() {
+        let annotation = BrowserAnnotation(
+            selector: "h1",
+            xpath: "",
+            textSnippet: "",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 955,
+            viewportHeight: 595
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+        #expect(markdown.contains("- viewport: 955×595 (tablet)"))
+    }
+
+    @Test("renders viewport bucket label for mobile")
+    func viewportBucketForMobile() {
+        let annotation = BrowserAnnotation(
+            selector: "h1",
+            xpath: "",
+            textSnippet: "",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 375,
+            viewportHeight: 800
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+        #expect(markdown.contains("- viewport: 375×800 (mobile)"))
+    }
+
+    @Test("renders screenshot path when URL set")
+    func rendersScreenshotPath() {
+        let url = URL(fileURLWithPath: "/tmp/muxy/screenshot.png")
+        let annotation = BrowserAnnotation(
+            selector: "h1",
+            xpath: "",
+            textSnippet: "",
+            rect: .zero,
+            pageURL: "https://example.com",
+            pageTitle: "",
+            viewportWidth: 0,
+            viewportHeight: 0,
+            screenshotURL: url
+        )
+
+        let markdown = BrowserAnnotationSender.renderMarkdown(annotation: annotation)
+        #expect(markdown.contains("- screenshot: /tmp/muxy/screenshot.png"))
     }
 
     @Test("includes style override lines")

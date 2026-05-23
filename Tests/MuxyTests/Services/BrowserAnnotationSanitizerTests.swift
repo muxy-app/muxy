@@ -61,4 +61,52 @@ struct BrowserAnnotationSanitizerTests {
         #expect(!sanitized.contains("<"))
         #expect(!sanitized.contains(">"))
     }
+
+    @Test("outer HTML sanitizer caps length and neutralizes triple backticks")
+    func sanitizesOuterHTML() {
+        let payload = "<div>\n  hello   world  ```evil```\n</div>"
+        let sanitized = BrowserAnnotationSanitizer.sanitizeOuterHTML(payload)
+        #expect(sanitized.contains("hello world"))
+        #expect(!sanitized.contains("```"))
+    }
+
+    @Test("outer HTML sanitizer hard-caps at max length")
+    func capsOuterHTMLLength() {
+        let big = String(repeating: "a", count: BrowserAnnotationSanitizer.maxOuterHTMLLength + 256)
+        let sanitized = BrowserAnnotationSanitizer.sanitizeOuterHTML(big)
+        #expect(sanitized.count <= BrowserAnnotationSanitizer.maxOuterHTMLLength)
+    }
+
+    @Test("direction sanitizer accepts ltr, rtl, auto and rejects anything else")
+    func sanitizesDirection() {
+        #expect(BrowserAnnotationSanitizer.sanitizeDirection("RTL") == "rtl")
+        #expect(BrowserAnnotationSanitizer.sanitizeDirection("ltr") == "ltr")
+        #expect(BrowserAnnotationSanitizer.sanitizeDirection("auto") == "auto")
+        #expect(BrowserAnnotationSanitizer.sanitizeDirection("up") == "")
+        #expect(BrowserAnnotationSanitizer.sanitizeDirection("rtl; evil") == "")
+    }
+
+    @Test("language sanitizer accepts BCP-47 shapes and rejects malformed input")
+    func sanitizesLanguageCode() {
+        #expect(BrowserAnnotationSanitizer.sanitizeLanguageCode("en") == "en")
+        #expect(BrowserAnnotationSanitizer.sanitizeLanguageCode("en-US") == "en-US")
+        #expect(BrowserAnnotationSanitizer.sanitizeLanguageCode("zh-Hant-TW") == "zh-Hant-TW")
+        #expect(BrowserAnnotationSanitizer.sanitizeLanguageCode("") == "")
+        #expect(BrowserAnnotationSanitizer.sanitizeLanguageCode("en_US") == "")
+        #expect(BrowserAnnotationSanitizer.sanitizeLanguageCode("not a language") == "")
+    }
+
+    @Test("stylesheet sanitizer dedupes, caps count, and clamps url length")
+    func sanitizesStylesheetList() {
+        let inputs = [
+            "https://example.com/a.css",
+            "https://example.com/a.css",
+            "https://example.com/b.css",
+            "https://example.com/c.css",
+            "https://example.com/d.css",
+        ]
+        let sanitized = BrowserAnnotationSanitizer.sanitizeStylesheetList(inputs)
+        #expect(sanitized.count <= BrowserAnnotationSanitizer.maxStylesheetCount)
+        #expect(sanitized.first == "https://example.com/a.css")
+    }
 }

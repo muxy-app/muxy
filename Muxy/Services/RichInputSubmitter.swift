@@ -4,9 +4,6 @@ import UniformTypeIdentifiers
 
 @MainActor
 enum RichInputSubmitter {
-    private static let imagePasteDelay: Duration = .milliseconds(300)
-    private static let initialDelay: Duration = .milliseconds(50)
-
     enum Segment: Equatable {
         case text(String)
         case image(URL)
@@ -37,78 +34,15 @@ enum RichInputSubmitter {
         )
 
         let views = paneIDs.compactMap { TerminalViewRegistry.shared.existingView(for: $0) }
-        guard !views.isEmpty else { return }
-        let hasImageSegment = segments.contains { if case .image = $0 { true } else { false } }
-        let focusTarget = views.count == 1 ? views.first : nil
-
-        if !hasImageSegment {
-            let payload = textOnlyPayload(segments: segments, appendReturn: appendReturn)
-            Task { @MainActor in
-                for view in views {
-                    view.clearTerminalInput()
-                }
-                try? await Task.sleep(for: initialDelay)
-                for view in views {
-                    view.sendRemoteBytes(payload)
-                }
-                if let focusTarget {
-                    focusTarget.window?.makeFirstResponder(focusTarget)
-                }
-            }
-            return
-        }
-
-        Task { @MainActor in
-            for view in views {
-                view.clearTerminalInput()
-            }
-            try? await Task.sleep(for: initialDelay)
-
-            let savedClipboard = SystemPasteboardSnapshot.capture()
-
-            for segment in segments {
-                switch segment {
-                case let .text(chunk):
-                    guard !chunk.isEmpty else { continue }
-                    for view in views {
-                        view.submitRichInput(text: chunk)
-                    }
-                case let .image(url):
-                    for view in views {
-                        view.pasteImageURL(url)
-                    }
-                    try? await Task.sleep(for: imagePasteDelay)
-                }
-            }
-
-            if appendReturn {
-                for view in views {
-                    view.sendRemoteBytes(TerminalControlBytes.carriageReturn)
-                }
-            }
-
-            try? await Task.sleep(for: imagePasteDelay)
-            SystemPasteboardSnapshot.restore(items: savedClipboard)
-
-            if let focusTarget {
-                focusTarget.window?.makeFirstResponder(focusTarget)
-            }
-        }
-    }
-
-    private static func textOnlyPayload(segments: [Segment], appendReturn: Bool) -> Data {
-        var payload = Data()
-        for segment in segments {
-            guard case let .text(chunk) = segment, !chunk.isEmpty else { continue }
-            let sanitized = chunk.replacingOccurrences(of: "\u{1B}[201~", with: "")
-            payload.append(TerminalControlBytes.bracketedPasteStart)
-            payload.append(Data(sanitized.utf8))
-            payload.append(TerminalControlBytes.bracketedPasteEnd)
-        }
-        if appendReturn {
-            payload.append(TerminalControlBytes.carriageReturn)
-        }
-        return payload
+        TerminalSegmentInjector.inject(
+            segments: segments,
+            into: views,
+            options: TerminalSegmentInjector.Options(
+                clearInput: true,
+                appendReturn: appendReturn,
+                focusWhenSingleView: true
+            )
+        )
     }
 
     nonisolated static func resolveSegments(
