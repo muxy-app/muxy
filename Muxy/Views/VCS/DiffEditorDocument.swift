@@ -217,6 +217,7 @@ struct DiffEditorFileSection {
     let cacheKey: String
     let rows: [DiffDisplayRow]
     let isCollapsed: Bool
+    let isLargeUnloaded: Bool
     let additions: Int
     let deletions: Int
     let isStaged: Bool

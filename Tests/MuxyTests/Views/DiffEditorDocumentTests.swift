@@ -64,6 +64,7 @@ struct DiffEditorDocumentTests {
                 cacheKey: "unstaged:Sources/First.swift",
                 rows: firstRows,
                 isCollapsed: false,
+                isLargeUnloaded: false,
                 additions: 1,
                 deletions: 0,
                 isStaged: false
@@ -73,6 +74,7 @@ struct DiffEditorDocumentTests {
                 cacheKey: "staged:Sources/Second.swift",
                 rows: secondRows,
                 isCollapsed: false,
+                isLargeUnloaded: false,
                 additions: 0,
                 deletions: 1,
                 isStaged: true
@@ -96,6 +98,7 @@ struct DiffEditorDocumentTests {
                 cacheKey: "unstaged:Sources/App.swift",
                 rows: [DiffDisplayRow(kind: .addition, oldLineNumber: nil, newLineNumber: 1, oldText: nil, newText: "hidden", text: "+hidden")],
                 isCollapsed: true,
+                isLargeUnloaded: false,
                 additions: 1,
                 deletions: 0,
                 isStaged: false

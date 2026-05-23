@@ -281,51 +281,9 @@ final class DiffGutterView: LineNumberGutterView {
 final class DiffLineStyleExtension: EditorExtension {
     let identifier = "diff-line-style"
 
-    private var rowBackgroundView: DiffRowBackgroundView?
-
-    func didMount(context: EditorRenderContext) {
-        ensureRowBackgroundView(context: context)
-    }
-
-    func willUnmount(context _: EditorRenderContext) {
-        rowBackgroundView?.removeFromSuperview()
-        rowBackgroundView = nil
-    }
-
     func renderViewport(context: EditorRenderContext, lineRange _: Range<Int>) {
         guard let kinds = context.state.diffLineKinds else { return }
-        updateRowBackgrounds(context: context, kinds: kinds)
         applyStyles(context: context, kinds: kinds)
-    }
-
-    func geometryDidChange(context: EditorRenderContext) {
-        guard let kinds = context.state.diffLineKinds else { return }
-        updateRowBackgrounds(context: context, kinds: kinds)
-    }
-
-    private func ensureRowBackgroundView(context: EditorRenderContext) {
-        guard rowBackgroundView == nil else { return }
-        let view = DiffRowBackgroundView()
-        view.frame = context.textView.bounds
-        view.autoresizingMask = [.width, .height]
-        context.textView.addSubview(view, positioned: .above, relativeTo: nil)
-        rowBackgroundView = view
-    }
-
-    private func updateRowBackgrounds(context: EditorRenderContext, kinds: [DiffDisplayRow.Kind]) {
-        ensureRowBackgroundView(context: context)
-        guard let view = rowBackgroundView else { return }
-        if view.superview !== context.textView {
-            view.removeFromSuperview()
-            context.textView.addSubview(view, positioned: .above, relativeTo: nil)
-        }
-        view.frame = context.textView.bounds
-        view.headerLines = Set(kinds.indices.filter { kinds[$0] == .hunk })
-        view.heightMap = context.viewport.heightMap
-        view.lineHeight = max(1, context.viewport.estimatedLineHeight)
-        view.topInset = context.textView.textContainerInset.height
-        view.backgroundColor = (MuxyTheme.nsBg.blended(withFraction: 0.14, of: MuxyTheme.nsFg) ?? MuxyTheme.nsBg).withAlphaComponent(0.42)
-        view.needsDisplay = true
     }
 
     private func applyStyles(context: EditorRenderContext, kinds: [DiffDisplayRow.Kind]) {
@@ -411,32 +369,6 @@ final class DiffLineStyleExtension: EditorExtension {
             )
         case .context:
             break
-        }
-    }
-}
-
-private final class DiffRowBackgroundView: NSView {
-    var headerLines: Set<Int> = []
-    var heightMap: HeightMap?
-    var lineHeight: CGFloat = 1
-    var topInset: CGFloat = 0
-    var backgroundColor = NSColor.clear
-
-    override var isFlipped: Bool { true }
-
-    override func hitTest(_: NSPoint) -> NSView? {
-        nil
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard !headerLines.isEmpty else { return }
-        backgroundColor.setFill()
-        for line in headerLines {
-            let y = topInset + (heightMap?.heightAbove(line: line) ?? CGFloat(line) * lineHeight)
-            let height = max(lineHeight, heightMap?.heightOfLine(line) ?? lineHeight)
-            let rect = NSRect(x: 0, y: y, width: bounds.width, height: height)
-            guard rect.intersects(dirtyRect) else { continue }
-            rect.fill()
         }
     }
 }

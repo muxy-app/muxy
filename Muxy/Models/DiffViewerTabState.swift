@@ -13,6 +13,8 @@ final class DiffViewerTabState: Identifiable {
     var fontSize: CGFloat = 13
     var scrollRequestVersion = 0
     var collapsedCacheKeys: Set<String> = []
+    var manuallyLoadedCacheKeys: Set<String> = []
+    var activeCacheKey: String?
 
     var displayTitle: String {
         "Git Diff"
@@ -39,6 +41,13 @@ final class DiffViewerTabState: Identifiable {
         loadAllDiffs(forceFull: forceFull)
     }
 
+    func loadFullDiff(filePath: String, isStaged: Bool) {
+        let cacheKey = Self.cacheKey(filePath: filePath, isStaged: isStaged)
+        manuallyLoadedCacheKeys.insert(cacheKey)
+        collapsedCacheKeys.remove(cacheKey)
+        loadDiff(filePath: filePath, isStaged: isStaged, forceFull: true)
+    }
+
     func select(filePath: String, isStaged: Bool) {
         guard selectedFilePath != filePath || selectedIsStaged != isStaged else {
             scrollRequestVersion &+= 1
@@ -47,6 +56,7 @@ final class DiffViewerTabState: Identifiable {
         }
         selectedFilePath = filePath
         selectedIsStaged = isStaged
+        activeCacheKey = Self.cacheKey(filePath: filePath, isStaged: isStaged)
         scrollRequestVersion &+= 1
         loadSelectedDiff(forceFull: false)
     }
@@ -74,6 +84,10 @@ final class DiffViewerTabState: Identifiable {
 
     func toggleCollapsed(filePath: String, isStaged: Bool) {
         let cacheKey = Self.cacheKey(filePath: filePath, isStaged: isStaged)
+        if isLargeUnloadedDiff(cacheKey) {
+            loadFullDiff(filePath: filePath, isStaged: isStaged)
+            return
+        }
         if collapsedCacheKeys.contains(cacheKey) {
             collapsedCacheKeys.remove(cacheKey)
         } else {
@@ -86,7 +100,11 @@ final class DiffViewerTabState: Identifiable {
     }
 
     func expandAll() {
-        collapsedCacheKeys.removeAll()
+        collapsedCacheKeys = Set(allCacheKeys.filter(isLargeUnloadedDiff))
+    }
+
+    func reconcileLargeDiffCollapse() {
+        collapsedCacheKeys.formUnion(allCacheKeys.filter(isLargeUnloadedDiff))
     }
 
     func reconcileSelection() {
@@ -165,11 +183,15 @@ final class DiffViewerTabState: Identifiable {
         guard let file = vcs.files.first(where: { $0.path == filePath }) else {
             return GitRepositoryService.DiffHints(hasStaged: isStaged, hasUnstaged: !isStaged, isUntrackedOrNew: false)
         }
+        let untrackedOrNew = (file.xStatus == "?" && file.yStatus == "?") || file.xStatus == "A"
         if isStaged {
-            return GitRepositoryService.DiffHints(hasStaged: true, hasUnstaged: false, isUntrackedOrNew: false)
+            return GitRepositoryService.DiffHints(hasStaged: true, hasUnstaged: false, isUntrackedOrNew: untrackedOrNew)
         }
-        let untracked = file.xStatus == "?" && file.yStatus == "?"
-        return GitRepositoryService.DiffHints(hasStaged: false, hasUnstaged: !untracked, isUntrackedOrNew: untracked)
+        return GitRepositoryService.DiffHints(hasStaged: false, hasUnstaged: !untrackedOrNew, isUntrackedOrNew: untrackedOrNew)
+    }
+
+    private func isLargeUnloadedDiff(_ cacheKey: String) -> Bool {
+        vcs.diffCache.diff(for: cacheKey)?.truncated == true && !manuallyLoadedCacheKeys.contains(cacheKey)
     }
 
     static func cacheKey(filePath: String, isStaged: Bool) -> String {

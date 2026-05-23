@@ -104,6 +104,18 @@ private final class CodeEditorTextView: NSTextView {
     }
 }
 
+private final class CodeEditorScrollView: NSScrollView {
+    var passesScrollWheelToParent = false
+
+    override func scrollWheel(with event: NSEvent) {
+        guard passesScrollWheelToParent else {
+            super.scrollWheel(with: event)
+            return
+        }
+        nextResponder?.scrollWheel(with: event)
+    }
+}
+
 private final class CodeEditorLayoutManager: NSLayoutManager {
     override func setGlyphs(
         _ glyphs: UnsafePointer<CGGlyph>,
@@ -248,6 +260,7 @@ struct CodeEditorView: NSViewRepresentable {
     var synchronizedScrollY: Binding<CGFloat>?
     var scrollToLine: Int?
     var scrollToLineVersion: Int = 0
+    var passesScrollWheelToParent = false
     let onFocus: () -> Void
 
     private var resolvedFont: NSFont {
@@ -267,7 +280,8 @@ struct CodeEditorView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> EditorScrollContainer {
-        let scrollView = NSScrollView()
+        let scrollView = CodeEditorScrollView()
+        scrollView.passesScrollWheelToParent = passesScrollWheelToParent
         scrollView.hasVerticalScroller = showsVerticalScroller
         scrollView.hasHorizontalScroller = !lineWrapping
         scrollView.autoresizingMask = []
@@ -403,6 +417,12 @@ struct CodeEditorView: NSViewRepresentable {
         if scrollView.hasVerticalScroller != showsVerticalScroller {
             scrollView.hasVerticalScroller = showsVerticalScroller
             scrollView.autohidesScrollers = showsVerticalScroller
+        }
+
+        if let scrollView = scrollView as? CodeEditorScrollView,
+           scrollView.passesScrollWheelToParent != passesScrollWheelToParent
+        {
+            scrollView.passesScrollWheelToParent = passesScrollWheelToParent
         }
 
         if state.backingStore != nil, coordinator.viewportState == nil {

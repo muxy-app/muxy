@@ -1492,6 +1492,9 @@ final class VCSTabState {
         if !forceFull, diffCache.isLoading(resolvedCacheKey) {
             return
         }
+        if forceFull {
+            diffCache.cancelLoad(for: resolvedCacheKey)
+        }
         DiffLoader.load(
             DiffLoader.Request(
                 repoPath: projectPath,

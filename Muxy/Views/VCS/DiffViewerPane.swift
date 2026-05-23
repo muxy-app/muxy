@@ -33,6 +33,9 @@ struct DiffViewerPane: View {
             state.reconcileSelection()
             state.loadAllDiffs()
         }
+        .onChange(of: state.vcs.diffCache.revision) { _, _ in
+            state.reconcileLargeDiffCollapse()
+        }
     }
 
     @ViewBuilder
@@ -43,18 +46,7 @@ struct DiffViewerPane: View {
                     truncatedBanner
                     Rectangle().fill(MuxyTheme.border).frame(height: 1)
                 }
-                DiffEditorView(
-                    sections: sections,
-                    projectPath: state.projectPath,
-                    cacheKey: combinedCacheKey,
-                    mode: state.mode,
-                    wordWrap: state.wordWrap,
-                    fontSize: state.fontSize,
-                    scrollTargetCacheKey: state.selectedCacheKey,
-                    scrollRequestVersion: state.scrollRequestVersion
-                )
-                .id(combinedCacheKey)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                DiffCardList(state: state, sections: sections)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(fontShortcuts)
@@ -75,16 +67,17 @@ struct DiffViewerPane: View {
     }
 
     private var sections: [DiffEditorFileSection] {
-        sectionFiles.compactMap { file, isStaged in
+        sectionFiles.map { file, isStaged in
             let cacheKey = DiffViewerTabState.cacheKey(filePath: file.path, isStaged: isStaged)
-            guard let diff = state.vcs.diffCache.diff(for: cacheKey) else { return nil }
+            let diff = state.vcs.diffCache.diff(for: cacheKey)
             return DiffEditorFileSection(
                 filePath: file.path,
                 cacheKey: cacheKey,
-                rows: diff.rows,
+                rows: diff?.rows ?? [],
                 isCollapsed: state.collapsedCacheKeys.contains(cacheKey),
-                additions: diff.additions,
-                deletions: diff.deletions,
+                isLargeUnloaded: diff?.truncated == true && !state.manuallyLoadedCacheKeys.contains(cacheKey),
+                additions: diff?.additions ?? file.additions ?? 0,
+                deletions: diff?.deletions ?? file.deletions ?? 0,
                 isStaged: isStaged
             )
         }
@@ -275,6 +268,273 @@ private struct DiffViewerBreadcrumb: View {
     }
 }
 
+private struct DiffCardList: View {
+    @Bindable var state: DiffViewerTabState
+    let sections: [DiffEditorFileSection]
+    @State private var offsets: [String: CGFloat] = [:]
+
+    private var cardMetrics: DiffCardMetrics {
+        DiffCardMetrics(fontSize: state.fontSize)
+    }
+
+    private var cardSpacing: CGFloat {
+        UIMetrics.spacing8
+    }
+
+    private var contentHeight: CGFloat {
+        let padding = UIMetrics.spacing5 * 2
+        let spacing = cardSpacing * CGFloat(max(0, sections.count - 1))
+        let cardsHeight = sections.reduce(CGFloat(0)) { total, section in
+            total + cardMetrics.cardHeight(for: section)
+        }
+        return padding + spacing + cardsHeight
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: cardSpacing) {
+                        ForEach(sections, id: \.cacheKey) { section in
+                            DiffFileCard(
+                                state: state,
+                                section: section,
+                                cardOffsetY: offsets[section.cacheKey] ?? 0,
+                                viewportHeight: geometry.size.height,
+                                metrics: cardMetrics
+                            )
+                            .id(section.cacheKey)
+                            .background(sectionOffsetReader(section.cacheKey))
+                        }
+                    }
+                    .padding(UIMetrics.spacing5)
+                    .frame(height: contentHeight, alignment: .top)
+                }
+                .coordinateSpace(name: "diff-card-scroll")
+                .onChange(of: state.scrollRequestVersion) { _, _ in
+                    guard let cacheKey = state.selectedCacheKey else { return }
+                    proxy.scrollTo(cacheKey, anchor: .top)
+                }
+                .onPreferenceChange(DiffCardOffsetPreferenceKey.self) { newOffsets in
+                    offsets = newOffsets
+                    let active = activeCacheKey(for: newOffsets)
+                    if state.activeCacheKey != active {
+                        state.activeCacheKey = active
+                    }
+                }
+            }
+        }
+    }
+
+    private func activeCacheKey(for offsets: [String: CGFloat]) -> String? {
+        let probeY = UIMetrics.scaled(48)
+        return sections.first { section in
+            guard let offset = offsets[section.cacheKey] else { return false }
+            return offset <= probeY && offset + cardMetrics.cardHeight(for: section) >= probeY
+        }?.cacheKey
+    }
+
+    private func sectionOffsetReader(_ cacheKey: String) -> some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: DiffCardOffsetPreferenceKey.self,
+                value: [cacheKey: proxy.frame(in: .named("diff-card-scroll")).minY]
+            )
+        }
+    }
+}
+
+private struct DiffFileCard: View {
+    @Bindable var state: DiffViewerTabState
+    let section: DiffEditorFileSection
+    let cardOffsetY: CGFloat
+    let viewportHeight: CGFloat
+    let metrics: DiffCardMetrics
+
+    private var isActive: Bool {
+        state.activeCacheKey == section.cacheKey
+    }
+
+    private var editorHeight: CGFloat {
+        metrics.editorHeight(for: section)
+    }
+
+    private var cardHeight: CGFloat {
+        metrics.cardHeight(for: section)
+    }
+
+    private var usesVirtualBody: Bool {
+        editorHeight > max(viewportHeight * 1.5, UIMetrics.scaled(900))
+    }
+
+    private var editorViewportHeight: CGFloat {
+        min(editorHeight, max(UIMetrics.scaled(160), viewportHeight + UIMetrics.scaled(80)))
+    }
+
+    private var bodyScrollY: CGFloat {
+        guard usesVirtualBody else { return 0 }
+        let headerHeight = UIMetrics.scaled(37)
+        let visibleBodyY = max(0, -cardOffsetY - headerHeight)
+        return min(max(0, editorHeight - editorViewportHeight), visibleBodyY)
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            VStack(spacing: 0) {
+                header
+                if !section.isCollapsed {
+                    Rectangle().fill(MuxyTheme.border).frame(height: metrics.borderHeight)
+                    editorBody
+                }
+            }
+            Color.clear.frame(height: cardHeight)
+        }
+        .frame(height: cardHeight)
+        .background(MuxyTheme.bg, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        .overlay(
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+                .stroke(isActive ? MuxyTheme.accent.opacity(0.45) : MuxyTheme.border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+    }
+
+    @ViewBuilder
+    private var editorBody: some View {
+        if usesVirtualBody {
+            ZStack(alignment: .top) {
+                Color.clear.frame(height: editorHeight)
+                editor(externalScrollY: bodyScrollY)
+                    .frame(height: editorViewportHeight)
+                    .offset(y: bodyScrollY)
+            }
+            .frame(height: editorHeight)
+            .clipped()
+        } else {
+            editor(externalScrollY: nil)
+                .frame(height: editorHeight)
+                .clipped()
+        }
+    }
+
+    private func editor(externalScrollY: CGFloat?) -> some View {
+        SingleDiffEditorView(
+            rows: section.rows,
+            projectPath: state.projectPath,
+            filePath: section.filePath,
+            cacheKey: section.cacheKey,
+            mode: state.mode,
+            wordWrap: state.wordWrap,
+            fontSize: state.fontSize,
+            externalScrollY: externalScrollY,
+            passesScrollWheelToParent: true
+        )
+        .id("\(section.cacheKey):\(state.mode.rawValue):\(state.wordWrap):\(state.fontSize):\(usesVirtualBody)")
+        .frame(maxWidth: .infinity)
+    }
+
+    private var header: some View {
+        HStack(spacing: UIMetrics.spacing3) {
+            Button {
+                state.toggleCollapsed(filePath: section.filePath, isStaged: section.isStaged)
+            } label: {
+                Image(systemName: section.isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
+            }
+            .buttonStyle(.plain)
+
+            FileDiffIcon()
+                .stroke(MuxyTheme.accent, style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
+                .frame(width: UIMetrics.scaled(10), height: UIMetrics.scaled(10))
+
+            Text(section.filePath)
+                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            if section.isStaged {
+                Text("Staged")
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .padding(.horizontal, UIMetrics.scaled(6))
+                    .padding(.vertical, UIMetrics.scaled(1))
+                    .background(MuxyTheme.surface, in: Capsule())
+            }
+
+            if section.additions > 0 {
+                Text("+\(section.additions)")
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(MuxyTheme.diffAddFg)
+            }
+
+            if section.deletions > 0 {
+                Text("-\(section.deletions)")
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(MuxyTheme.diffRemoveFg)
+            }
+
+            if section.isLargeUnloaded {
+                Button("Load diff") {
+                    state.loadFullDiff(filePath: section.filePath, isStaged: section.isStaged)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                .foregroundStyle(MuxyTheme.accent)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, UIMetrics.spacing4)
+        .frame(height: metrics.headerHeight)
+        .background(
+            UnevenRoundedRectangle(
+                topLeadingRadius: UIMetrics.radiusMD,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: UIMetrics.radiusMD
+            )
+            .fill(MuxyTheme.surface)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            state.select(filePath: section.filePath, isStaged: section.isStaged)
+        }
+    }
+}
+
+@MainActor
+private struct DiffCardMetrics {
+    let fontSize: CGFloat
+
+    var headerHeight: CGFloat {
+        UIMetrics.scaled(36)
+    }
+
+    var borderHeight: CGFloat {
+        UIMetrics.scaled(1)
+    }
+
+    func editorHeight(for section: DiffEditorFileSection) -> CGFloat {
+        let lineHeight = max(18, fontSize * 1.45)
+        let rowCount = max(1, section.rows.count)
+        return max(UIMetrics.scaled(80), CGFloat(rowCount) * lineHeight + UIMetrics.scaled(18))
+    }
+
+    func cardHeight(for section: DiffEditorFileSection) -> CGFloat {
+        headerHeight + (section.isCollapsed ? 0 : editorHeight(for: section) + borderHeight)
+    }
+}
+
+private struct DiffCardOffsetPreferenceKey: PreferenceKey {
+    static let defaultValue: [String: CGFloat] = [:]
+
+    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
 private struct DiffViewerSidebar: View {
     @Bindable var state: DiffViewerTabState
 
@@ -423,7 +683,7 @@ private struct DiffViewerSidebarFileRow: View {
     let depth: Int
 
     private var selected: Bool {
-        state.selectedFilePath == file.path && state.selectedIsStaged == isStaged
+        state.activeCacheKey == DiffViewerTabState.cacheKey(filePath: file.path, isStaged: isStaged)
     }
 
     private var statusText: String {

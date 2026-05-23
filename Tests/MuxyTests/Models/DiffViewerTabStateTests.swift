@@ -14,6 +14,10 @@ struct DiffViewerTabStateTests {
         DiffCache.LoadedDiff(rows: [], additions: 1, deletions: 0, truncated: false)
     }
 
+    private func makeTruncatedDiff() -> DiffCache.LoadedDiff {
+        DiffCache.LoadedDiff(rows: [], additions: 1, deletions: 0, truncated: true)
+    }
+
     @Test("cache key separates staged and unstaged variants")
     func cacheKeySeparatesVariants() {
         #expect(DiffViewerTabState.cacheKey(filePath: "Sources/App.swift", isStaged: true) == "staged:Sources/App.swift")
@@ -125,6 +129,7 @@ struct DiffViewerTabStateTests {
         state.select(filePath: filePath, isStaged: false)
 
         #expect(state.scrollRequestVersion == firstVersion + 1)
+        #expect(state.activeCacheKey == cacheKey)
         vcs.diffCache.cancelAll()
     }
 
@@ -147,6 +152,47 @@ struct DiffViewerTabStateTests {
         state.collapseAll()
         #expect(state.isCollapsed(filePath: firstPath, isStaged: false))
         #expect(state.isCollapsed(filePath: secondPath, isStaged: true))
+    }
+
+    @Test("large preview diffs stay collapsed until explicitly loaded")
+    func largePreviewDiffsStayCollapsedUntilExplicitlyLoaded() {
+        let vcs = VCSTabState(projectPath: NSTemporaryDirectory())
+        let state = DiffViewerTabState(vcs: vcs)
+        let filePath = "Sources/Large.swift"
+        let cacheKey = DiffViewerTabState.cacheKey(filePath: filePath, isStaged: false)
+
+        vcs.files = [makeFile(path: filePath, xStatus: " ", yStatus: "M")]
+        vcs.diffCache.store(makeTruncatedDiff(), for: cacheKey, pinnedPaths: [])
+
+        state.reconcileLargeDiffCollapse()
+
+        #expect(state.isCollapsed(filePath: filePath, isStaged: false))
+
+        state.expandAll()
+
+        #expect(state.isCollapsed(filePath: filePath, isStaged: false))
+
+        state.loadFullDiff(filePath: filePath, isStaged: false)
+
+        #expect(!state.isCollapsed(filePath: filePath, isStaged: false))
+        #expect(state.manuallyLoadedCacheKeys.contains(cacheKey))
+        #expect(vcs.diffCache.isLoading(cacheKey))
+        vcs.diffCache.cancelAll()
+    }
+
+    @Test("staged added file loads through new file preview path")
+    func stagedAddedFileLoadsThroughNewFilePreviewPath() {
+        let vcs = VCSTabState(projectPath: NSTemporaryDirectory())
+        let state = DiffViewerTabState(vcs: vcs)
+        let filePath = "Large.txt"
+
+        vcs.files = [makeFile(path: filePath, xStatus: "A", yStatus: " ")]
+
+        state.select(filePath: filePath, isStaged: true)
+
+        let cacheKey = DiffViewerTabState.cacheKey(filePath: filePath, isStaged: true)
+        #expect(vcs.diffCache.isLoading(cacheKey))
+        vcs.diffCache.cancelAll()
     }
 
     @Test("tab area reuses one diff viewer tab per project")
