@@ -35,6 +35,7 @@ flowchart TB
 | [Rich Input](features/rich-input.md) | Multiline prompts, files, images, broadcast send |
 | [Session Restore](features/session-restore.md) | Restore terminal tabs after restart |
 | [Editor](features/editor.md) | Built-in editor, quick open, markdown preview |
+| [In-App Browser](features/in-app-browser.md) | WebKit tab with element inspector and dev-server detection |
 | [Source Control](features/source-control.md) | Git status, diff, branches, pull requests |
 | [File Tree](features/file-tree.md) | Gitignore-aware tree, file ops, drag & drop |
 | [Notifications](features/notifications.md) | OSC sequences, hooks, socket API |
