@@ -109,4 +109,25 @@ struct DiffEditorDocumentTests {
         #expect(document.lineKinds == [.hunk])
         #expect(document.gutterLines[0] == DiffEditorGutterLine(kind: .hunk, oldLineNumber: nil, newLineNumber: nil))
     }
+
+    @Test("long diff lines are clipped for rendering")
+    func longDiffLinesAreClippedForRendering() {
+        let row = DiffDisplayRow(
+            kind: .addition,
+            oldLineNumber: nil,
+            newLineNumber: 1,
+            oldText: nil,
+            newText: String(repeating: "a", count: 20),
+            text: "+"
+        )
+
+        let document = DiffEditorDocument.unified(
+            rows: [row],
+            options: DiffEditorDocument.RenderOptions(maxLineCharacters: 8)
+        )
+
+        #expect(document.text == "aaaaaaaa … [12 chars clipped]")
+        #expect(document.lineKinds == [.addition])
+        #expect(document.gutterLines[0].newLineNumber == 1)
+    }
 }

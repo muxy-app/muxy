@@ -108,11 +108,15 @@ private final class CodeEditorScrollView: NSScrollView {
     var passesScrollWheelToParent = false
 
     override func scrollWheel(with event: NSEvent) {
-        guard passesScrollWheelToParent else {
+        guard passesScrollWheelToParent, shouldForwardScrollWheel(event) else {
             super.scrollWheel(with: event)
             return
         }
         nextResponder?.scrollWheel(with: event)
+    }
+
+    private func shouldForwardScrollWheel(_ event: NSEvent) -> Bool {
+        event.scrollingDeltaX == 0 && !event.modifierFlags.contains(.shift)
     }
 }
 

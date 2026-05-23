@@ -1,12 +1,18 @@
 import Foundation
 
 struct DiffEditorDocument {
+    struct RenderOptions: Equatable {
+        var maxLineCharacters: Int?
+
+        static let full = RenderOptions(maxLineCharacters: nil)
+    }
+
     let text: String
     let lineKinds: [DiffDisplayRow.Kind]
     let gutterLines: [DiffEditorGutterLine]
     let fileLineIndexes: [String: Int]
 
-    static func unified(rows: [DiffDisplayRow]) -> DiffEditorDocument {
+    static func unified(rows: [DiffDisplayRow], options: RenderOptions = .full) -> DiffEditorDocument {
         var lines: [String] = []
         var kinds: [DiffDisplayRow.Kind] = []
         var gutterLines: [DiffEditorGutterLine] = []
@@ -21,11 +27,11 @@ struct DiffEditorDocument {
             case .collapsed:
                 lines.append(row.text)
             case .context:
-                lines.append(contentText(for: row))
+                lines.append(contentText(for: row, options: options))
             case .addition:
-                lines.append(contentText(for: row))
+                lines.append(contentText(for: row, options: options))
             case .deletion:
-                lines.append(contentText(for: row))
+                lines.append(contentText(for: row, options: options))
             }
             kinds.append(row.kind)
             gutterLines.append(DiffEditorGutterLine(
@@ -50,15 +56,18 @@ struct DiffEditorDocument {
         combined(sections: sections, side: .right)
     }
 
-    static func splitLeft(rows: [DiffDisplayRow]) -> DiffEditorDocument {
-        split(rows: rows).left
+    static func splitLeft(rows: [DiffDisplayRow], options: RenderOptions = .full) -> DiffEditorDocument {
+        split(rows: rows, options: options).left
     }
 
-    static func splitRight(rows: [DiffDisplayRow]) -> DiffEditorDocument {
-        split(rows: rows).right
+    static func splitRight(rows: [DiffDisplayRow], options: RenderOptions = .full) -> DiffEditorDocument {
+        split(rows: rows, options: options).right
     }
 
-    private static func split(rows: [DiffDisplayRow]) -> (left: DiffEditorDocument, right: DiffEditorDocument) {
+    private static func split(
+        rows: [DiffDisplayRow],
+        options: RenderOptions = .full
+    ) -> (left: DiffEditorDocument, right: DiffEditorDocument) {
         var leftLines: [String] = []
         var rightLines: [String] = []
         var leftKinds: [DiffDisplayRow.Kind] = []
@@ -94,8 +103,8 @@ struct DiffEditorDocument {
             case .content:
                 let leftRow = paired.left
                 let rightRow = paired.right
-                leftLines.append(leftRow.map(contentText) ?? "")
-                rightLines.append(rightRow.map(contentText) ?? "")
+                leftLines.append(leftRow.map { contentText(for: $0, options: options) } ?? "")
+                rightLines.append(rightRow.map { contentText(for: $0, options: options) } ?? "")
                 leftKinds.append(leftRow?.kind ?? .context)
                 rightKinds.append(rightRow?.kind ?? .context)
                 leftGutterLines.append(DiffEditorGutterLine(
@@ -194,8 +203,8 @@ struct DiffEditorDocument {
         return parts.joined(separator: " ")
     }
 
-    private static func contentText(for row: DiffDisplayRow) -> String {
-        switch row.kind {
+    private static func contentText(for row: DiffDisplayRow, options: RenderOptions) -> String {
+        let text = switch row.kind {
         case .deletion:
             row.oldText ?? ""
         case .addition:
@@ -203,6 +212,17 @@ struct DiffEditorDocument {
         default:
             row.newText ?? row.oldText ?? ""
         }
+        return truncatedText(text, options: options)
+    }
+
+    private static func truncatedText(_ text: String, options: RenderOptions) -> String {
+        guard let maxLineCharacters = options.maxLineCharacters,
+              maxLineCharacters > 0,
+              text.count > maxLineCharacters
+        else { return text }
+        let visible = text.prefix(maxLineCharacters)
+        let hiddenCount = text.count - visible.count
+        return "\(visible) … [\(hiddenCount) chars clipped]"
     }
 }
 

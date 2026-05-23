@@ -291,15 +291,6 @@ private struct DiffCardList: View {
         UIMetrics.spacing8
     }
 
-    private func contentHeight(viewportHeight: CGFloat) -> CGFloat {
-        let padding = UIMetrics.spacing5 * 2
-        let spacing = cardSpacing * CGFloat(sections.count)
-        let cardsHeight = sections.reduce(CGFloat(0)) { total, section in
-            total + cardMetrics.cardHeight(for: section)
-        }
-        return padding + spacing + cardsHeight + bottomScrollSpace(viewportHeight: viewportHeight)
-    }
-
     private func bottomScrollSpace(viewportHeight: CGFloat) -> CGFloat {
         max(0, viewportHeight - activeProbeY)
     }
@@ -312,7 +303,7 @@ private struct DiffCardList: View {
         GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(spacing: cardSpacing) {
+                    LazyVStack(spacing: cardSpacing) {
                         ForEach(sections, id: \.cacheKey) { section in
                             DiffFileCard(
                                 state: state,
@@ -328,7 +319,6 @@ private struct DiffCardList: View {
                             .frame(height: bottomScrollSpace(viewportHeight: geometry.size.height))
                     }
                     .padding(UIMetrics.spacing5)
-                    .frame(height: contentHeight(viewportHeight: geometry.size.height), alignment: .top)
                 }
                 .coordinateSpace(name: "diff-card-scroll")
                 .onChange(of: state.scrollRequestVersion) { _, _ in
@@ -445,11 +435,16 @@ private struct DiffFileCard: View {
             mode: state.mode,
             wordWrap: state.wordWrap,
             fontSize: state.fontSize,
+            maxLineCharacters: maxRenderedCharacters,
             externalScrollY: externalScrollY,
             passesScrollWheelToParent: true
         )
-        .id("\(section.cacheKey):\(state.mode.rawValue):\(state.wordWrap):\(state.fontSize):\(usesVirtualBody)")
+        .id("\(section.cacheKey):\(state.mode.rawValue):\(state.wordWrap):\(state.fontSize):\(usesVirtualBody):\(maxRenderedCharacters)")
         .frame(maxWidth: .infinity)
+    }
+
+    private var maxRenderedCharacters: Int {
+        state.wordWrap ? 1024 : 2048
     }
 
     private var header: some View {
@@ -552,12 +547,18 @@ private struct DiffViewerSidebar: View {
         VStack(spacing: 0) {
             header
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if !state.stagedFiles.isEmpty {
-                        DiffViewerSidebarSection(state: state, title: "Staged", files: state.stagedFiles, isStaged: true)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        if !state.stagedFiles.isEmpty {
+                            DiffViewerSidebarSection(state: state, title: "Staged", files: state.stagedFiles, isStaged: true)
+                        }
+                        DiffViewerSidebarSection(state: state, title: "Changes", files: state.unstagedFiles, isStaged: false)
                     }
-                    DiffViewerSidebarSection(state: state, title: "Changes", files: state.unstagedFiles, isStaged: false)
+                }
+                .onChange(of: state.activeCacheKey) { _, cacheKey in
+                    guard let cacheKey else { return }
+                    proxy.scrollTo(cacheKey, anchor: .center)
                 }
             }
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
@@ -748,6 +749,7 @@ private struct DiffViewerSidebarFileRow: View {
         .frame(height: UIMetrics.scaled(30))
         .background(selected ? MuxyTheme.surface : Color.clear)
         .contentShape(Rectangle())
+        .id(DiffViewerTabState.cacheKey(filePath: file.path, isStaged: isStaged))
         .onTapGesture {
             state.select(filePath: file.path, isStaged: isStaged)
         }

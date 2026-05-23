@@ -8,6 +8,7 @@ struct SingleDiffEditorView: View {
     let mode: VCSTabState.ViewMode
     let wordWrap: Bool
     let fontSize: CGFloat
+    let maxLineCharacters: Int?
     let externalScrollY: CGFloat?
     let passesScrollWheelToParent: Bool
 
@@ -26,6 +27,7 @@ struct SingleDiffEditorView: View {
         mode: VCSTabState.ViewMode,
         wordWrap: Bool,
         fontSize: CGFloat,
+        maxLineCharacters: Int? = nil,
         externalScrollY: CGFloat? = nil,
         passesScrollWheelToParent: Bool = false
     ) {
@@ -36,6 +38,7 @@ struct SingleDiffEditorView: View {
         self.mode = mode
         self.wordWrap = wordWrap
         self.fontSize = fontSize
+        self.maxLineCharacters = maxLineCharacters
         self.externalScrollY = externalScrollY
         self.passesScrollWheelToParent = passesScrollWheelToParent
         _unifiedState = State(initialValue: Self.makeState(projectPath: projectPath, filePath: filePath))
@@ -72,18 +75,22 @@ struct SingleDiffEditorView: View {
         DiffEditorSignature(
             cacheKey: cacheKey,
             mode: mode,
-            rows: "\(rows.count):\(rows.first?.id.uuidString ?? ""):\(rows.last?.id.uuidString ?? "")"
+            rows: "\(rows.count):\(rows.first?.id.uuidString ?? ""):\(rows.last?.id.uuidString ?? ""):\(maxLineCharacters ?? 0)"
         )
     }
 
     private func syncDocument() {
         switch mode {
         case .unified:
-            apply(DiffEditorDocument.unified(rows: rows), to: unifiedState)
+            apply(DiffEditorDocument.unified(rows: rows, options: renderOptions), to: unifiedState)
         case .split:
-            apply(DiffEditorDocument.splitLeft(rows: rows), to: leftState)
-            apply(DiffEditorDocument.splitRight(rows: rows), to: rightState)
+            apply(DiffEditorDocument.splitLeft(rows: rows, options: renderOptions), to: leftState)
+            apply(DiffEditorDocument.splitRight(rows: rows, options: renderOptions), to: rightState)
         }
+    }
+
+    private var renderOptions: DiffEditorDocument.RenderOptions {
+        DiffEditorDocument.RenderOptions(maxLineCharacters: maxLineCharacters)
     }
 
     private func apply(_ document: DiffEditorDocument, to state: EditorTabState) {
