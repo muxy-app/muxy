@@ -8,7 +8,7 @@ sequenceDiagram
   participant S as Server
 
   C->>S: { type: request, payload: { id, method, params } }
-  S-->>C: { type: response, payload: { id, result | error } }
+  S-->>C: { type: response, payload: { id, result or error } }
   Note over S,C: Server may push events at any time after auth
   S--)C: { type: event, payload: { event, data } }
 ```

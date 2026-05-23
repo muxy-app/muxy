@@ -201,6 +201,44 @@ enum MarkdownRenderer {
                 .markdown-body ul, .markdown-body ol { padding-left: 2em; margin: 16px 0; }
                 .markdown-body li { margin: 4px 0; }
                 .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+                .muxy-frontmatter {
+                    border: 1px solid var(--border);
+                    border-radius: 6px;
+                    background: var(--code-bg);
+                    margin: 0 0 20px 0;
+                    overflow: hidden;
+                }
+                .muxy-frontmatter summary {
+                    cursor: pointer;
+                    color: var(--fg);
+                    font-weight: 600;
+                    padding: 8px 12px;
+                    user-select: none;
+                }
+                .muxy-frontmatter-grid {
+                    display: grid;
+                    grid-template-columns: minmax(120px, 0.32fr) minmax(0, 1fr);
+                    border-top: 1px solid var(--border);
+                }
+                .muxy-frontmatter-key,
+                .muxy-frontmatter-value {
+                    padding: 7px 12px;
+                    border-bottom: 1px solid var(--border);
+                    min-width: 0;
+                    overflow-wrap: anywhere;
+                }
+                .muxy-frontmatter-key {
+                    color: var(--muted);
+                    font-weight: 600;
+                    background: var(--row-alt);
+                }
+                .muxy-frontmatter-value {
+                    color: var(--fg);
+                    white-space: pre-wrap;
+                }
+                .muxy-frontmatter-grid :nth-last-child(-n + 2) {
+                    border-bottom: none;
+                }
                 .mermaid {
                     width: 100%;
                     margin: 16px 0;

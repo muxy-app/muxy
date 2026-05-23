@@ -1,4 +1,4 @@
-# Remote Server API
+# Remote Server Overview
 
 Muxy embeds a WebSocket server that lets external clients connect to the desktop app over the local network — for mobile companions, dashboards, and custom integrations.
 

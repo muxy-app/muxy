@@ -10,6 +10,7 @@ struct MuxyApp: App {
     @State private var projectStore: ProjectStore
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
+    @State private var projectCommandStore: ProjectCommandStore
     @State private var vcsWorktreeAutoRefresher: VCSWorktreeAutoRefresher
     @State private var browserDevServerAutoOpener: BrowserDevServerAutoOpener
     private let updateService = UpdateService.shared
@@ -34,6 +35,9 @@ struct MuxyApp: App {
         let projectGroupStore = ProjectGroupStore(
             persistence: environment.projectGroupPersistence
         )
+        let projectCommandStore = ProjectCommandStore(
+            persistence: environment.projectCommandPersistence
+        )
         let vcsWorktreeAutoRefresher = VCSWorktreeAutoRefresher(
             appState: appState,
             projectStore: projectStore,
@@ -44,8 +48,10 @@ struct MuxyApp: App {
         _projectStore = State(initialValue: projectStore)
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
+        _projectCommandStore = State(initialValue: projectCommandStore)
         _vcsWorktreeAutoRefresher = State(initialValue: vcsWorktreeAutoRefresher)
         _browserDevServerAutoOpener = State(initialValue: browserDevServerAutoOpener)
+        SettingsJSONStore.beginAutomaticUserSettingsSync()
     }
 
     var body: some Scene {
@@ -55,6 +61,7 @@ struct MuxyApp: App {
                 .environment(projectStore)
                 .environment(worktreeStore)
                 .environment(projectGroupStore)
+                .environment(projectCommandStore)
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
                 .environment(ThemeService.shared)
@@ -81,10 +88,8 @@ struct MuxyApp: App {
                         )
                     }
                     appDelegate.flushPendingOpens()
-                    NotificationSocketServer.shared.openProjectHandler = { [appDelegate] path in
-                        Task { @MainActor in
-                            appDelegate.handleOpenProjectPath(path)
-                        }
+                    NotificationSocketServer.shared.commandHandler = { [appState] message in
+                        await SocketCommandHandler.handleRequest(message, appState: appState)
                     }
                     MobileServerService.shared.configure { server in
                         let delegate = RemoteServerDelegate(
@@ -109,6 +114,9 @@ struct MuxyApp: App {
                             projectStore.remove(id: id)
                             worktreeStore.removeProject(id)
                         }
+                    }
+                    appState.onPaneClosed = { [projectCommandStore] paneID in
+                        projectCommandStore.removeRun(paneID: paneID)
                     }
                     projectStore.onProjectRemoved = { [projectGroupStore] projectID in
                         projectGroupStore.removeProjectFromAllGroups(projectID: projectID)
@@ -147,22 +155,20 @@ struct MuxyApp: App {
                 .preferredColorScheme(MuxyTheme.colorScheme)
         }
         .defaultSize(width: 820, height: 580)
-
-        Settings {
-            SettingsView()
-                .preferredColorScheme(MuxyTheme.colorScheme)
-        }
     }
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var onTerminate: (() -> Void)?
     var hasUnsavedEditorTabs: (() -> [EditorTabState])?
     var openProjectFromPath: ((String) -> Void)?
 
     private var pendingOpenPaths: [String] = []
     private var systemAppearanceObserver: NSObjectProtocol?
+    private var settingsObserver: NSObjectProtocol?
+    private var settingsThemeObserver: NSObjectProtocol?
+    private weak var settingsWindow: NSWindow?
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -248,12 +254,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeSystemAppearanceChanges()
         UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
+        NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                self?.handleOpenProjectPath(path)
+            }
+        }
         NotificationSocketServer.shared.start()
         AIProviderRegistry.shared.installAll()
         _ = AIUsageSettingsStore.isUsageEnabled()
         DiagnosticsMenuController.shared.install()
         BrowserAnnotationCacheStore.shared.removeAll(olderThan: 7 * 24 * 60 * 60)
-
+        observeSettingsRequests()
         consumeLaunchArguments()
     }
 
@@ -357,6 +368,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DistributedNotificationCenter.default().removeObserver(observer)
             systemAppearanceObserver = nil
         }
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+            self.settingsObserver = nil
+        }
+        if let settingsThemeObserver {
+            NotificationCenter.default.removeObserver(settingsThemeObserver)
+            self.settingsThemeObserver = nil
+        }
         onTerminate?()
         NotificationStore.shared.saveToDisk()
         NotificationSocketServer.shared.stop()
@@ -364,6 +383,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MobileServerService.shared.stopForTermination()
             RichInputDraftStore.shared.flush()
         }
+    }
+
+    @MainActor
+    private func observeSettingsRequests() {
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: .openSettingsModal,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.presentSettingsModal()
+            }
+        }
+        settingsThemeObserver = NotificationCenter.default.addObserver(
+            forName: .themeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.settingsWindow?.backgroundColor = MuxyTheme.nsBg
+            }
+        }
+    }
+
+    @MainActor
+    private func presentSettingsModal() {
+        if let settingsWindow {
+            settingsWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+        guard let parent = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        let host = NSHostingController(
+            rootView: SettingsView()
+                .frame(width: 980, height: 680)
+                .preferredColorScheme(MuxyTheme.colorScheme)
+        )
+        let window = SettingsModalWindow(contentViewController: host)
+        window.title = "Settings"
+        window.styleMask = [.titled, .closable]
+        window.isOpaque = true
+        window.backgroundColor = MuxyTheme.nsBg
+        window.delegate = self
+        settingsWindow = window
+        parent.beginSheet(window) { [weak self, weak window] _ in
+            guard self?.settingsWindow === window else { return }
+            self?.settingsWindow = nil
+        }
+        window.startOutsideClickMonitor()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSWindow === settingsWindow else { return }
+        settingsWindow = nil
     }
 
     @MainActor
@@ -395,6 +467,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+}
+
+private final class SettingsModalWindow: NSWindow {
+    private var outsideClickMonitor: Any?
+
+    func startOutsideClickMonitor() {
+        stopOutsideClickMonitor()
+        outsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, let sheetParent, event.window === sheetParent else { return event }
+            close()
+            return nil
+        }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "w"
+        {
+            close()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        close()
+    }
+
+    override func close() {
+        stopOutsideClickMonitor()
+        guard let sheetParent else {
+            super.close()
+            return
+        }
+        sheetParent.endSheet(self)
+    }
+
+    private func stopOutsideClickMonitor() {
+        guard let outsideClickMonitor else { return }
+        NSEvent.removeMonitor(outsideClickMonitor)
+        self.outsideClickMonitor = nil
     }
 }
 

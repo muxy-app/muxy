@@ -135,24 +135,7 @@ struct FileTreeView: View {
                 .padding(.leading, UIMetrics.spacing5)
             Spacer(minLength: 0)
             ToolbarIconStrip {
-                IconButton(
-                    symbol: "arrow.clockwise",
-                    color: MuxyTheme.fgMuted,
-                    hoverColor: MuxyTheme.fg,
-                    accessibilityLabel: "Refresh"
-                ) {
-                    state.refresh()
-                }
-                .help("Refresh")
-                IconButton(
-                    symbol: state.showOnlyChanges ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle",
-                    color: state.showOnlyChanges ? MuxyTheme.accent : MuxyTheme.fgMuted,
-                    hoverColor: state.showOnlyChanges ? MuxyTheme.accent : MuxyTheme.fg,
-                    accessibilityLabel: "Show Only Changes"
-                ) {
-                    state.showOnlyChanges.toggle()
-                }
-                .help(state.showOnlyChanges ? "Show All Files" : "Show Only Changed Files")
+                FileTreeOptionsMenu(state: state)
             }
         }
         .frame(height: UIMetrics.scaled(32))
@@ -265,6 +248,52 @@ struct FileTreeView: View {
 
     private func requestKeyboardFocus() {
         focusToken &+= 1
+    }
+}
+
+private struct FileTreeOptionsMenu: View {
+    @Bindable var state: FileTreeState
+    @State private var hovered = false
+
+    var body: some View {
+        Menu {
+            Button {
+                state.refresh()
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+
+            Divider()
+
+            Toggle("Show Only Changed Files", isOn: showOnlyChangedFiles)
+            Toggle("Hide Ignored Files", isOn: hideIgnoredFiles)
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
+                .foregroundStyle(hovered ? MuxyTheme.fg : MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .onHover { hovered = $0 }
+        .accessibilityLabel("File Tree Options")
+        .help("File tree options")
+    }
+
+    private var showOnlyChangedFiles: Binding<Bool> {
+        Binding(
+            get: { state.showOnlyChanges },
+            set: { state.showOnlyChanges = $0 }
+        )
+    }
+
+    private var hideIgnoredFiles: Binding<Bool> {
+        Binding(
+            get: { state.hideIgnoredFiles },
+            set: { state.hideIgnoredFiles = $0 }
+        )
     }
 }
 

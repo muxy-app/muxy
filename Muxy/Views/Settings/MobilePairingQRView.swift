@@ -25,7 +25,7 @@ struct MobilePairingQRView: View {
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
+                .strokeBorder(SettingsStyle.border, lineWidth: 1)
         )
         .onAppear(perform: rebuildIfNeeded)
         .onChange(of: uriString) { _, _ in rebuildIfNeeded() }
@@ -54,7 +54,7 @@ struct MobilePairingQRView: View {
                 .resizable()
                 .scaledToFit()
                 .padding(size * 0.2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(SettingsStyle.dimForeground)
         }
         .frame(width: size, height: size)
     }

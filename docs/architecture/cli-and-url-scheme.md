@@ -6,7 +6,7 @@ External callers can open a project in Muxy through four coordinated paths, all 
 flowchart TB
   CLI["muxy /path<br/>shell wrapper"] --> URL
   CLI --> AE[Apple Events<br/>open -b com.muxy.app]
-  CLI --> Sock["socket: open-project|<path>"]
+  CLI --> Sock["socket: open-project with path"]
   URL["muxy://open?path=…"] --> Delegate
   AE --> Delegate
   Sock --> Server[NotificationSocketServer]
@@ -24,7 +24,7 @@ flowchart TB
 
 | Path | Behavior |
 | --- | --- |
-| `muxy` shell wrapper | `Muxy/Resources/scripts/muxy-cli`, installed to `/usr/local/bin/muxy` via `CLIAccessor.installCLI`. Resolves to an absolute directory and tries, in order via `\|\|` chaining: open `muxy://open?path=<percent-encoded>`, fall back to `open -b com.muxy.app`, finally pipe `open-project\|<path>` to the Unix socket. A small `python3`/`python` percent-encoder runs without taking a `jq` dependency. |
+| `muxy` shell wrapper | `Muxy/Resources/scripts/muxy-cli`, installed to `/usr/local/bin/muxy` via `CLIAccessor.installCLI`. Resolves to an absolute directory and sends `open-project\|<path>` to the Unix socket when Muxy is already running. If no running app accepts the socket request, it opens `muxy://open?path=<percent-encoded>` and falls back to `open -b com.muxy.app`. |
 | `muxy://` URL scheme | `AppDelegate.application(_:open:)`. `resolveProjectPath(from:)` parses with `URLComponents`, prefers a `path` query item, falls back to `host + path`, percent-decodes, and standardizes via `URL(fileURLWithPath:).standardizedFileURL.path`. File URLs are accepted; foreign schemes rejected. |
 | Launch arguments | `applicationDidFinishLaunching` reads `CommandLine.arguments[1]` only when the candidate begins with `/` or `~` and resolves to an existing directory — Xcode/test runner flags are not treated as project paths. |
 | Notification socket | `NotificationSocketServer` accepts `open-project\|<path>` in addition to its notification format. It validates the path is an existing directory and dispatches via an injected `openProjectHandler` closure (wired in `MainWindow.onAppear`). |

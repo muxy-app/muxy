@@ -42,6 +42,7 @@ struct ResizeHandle: View {
                         }
                     }
             }
+            .zIndex(1)
     }
 
     private var cursor: NSCursor {

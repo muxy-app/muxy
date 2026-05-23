@@ -25,6 +25,7 @@ flowchart TB
 
 - **Active editor file** is auto-expanded and highlighted via `MuxyTheme.accentSoft`.
 - **Show only changes** filters to entries in the status set; directories without changed descendants are hidden.
+- **Hide ignored files** — the `FileTreeState.hideIgnoredFiles` toggle drops git-ignored entries, dotfiles, and a built-in noise list (`node_modules`, common lockfiles). It composes with **Show only changes** in `filterVisible`; the selected path and its ancestors stay exempt so `revealFile` always reaches the active editor file. The flag persists globally in `UserDefaults` under `muxy.fileTreeHideIgnoredFiles`.
 - **Panel width** persists in `UserDefaults` under `muxy.fileTreeWidth`; expansion state is in-memory only.
 
 ## File operations

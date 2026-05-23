@@ -1,4 +1,4 @@
-# Architecture
+# Architecture Overview
 
 Muxy is a SwiftUI macOS app that uses [libghostty](https://github.com/ghostty-org/ghostty) for terminal emulation and a local-network WebSocket API for companion clients.
 
@@ -37,7 +37,7 @@ flowchart TB
 
 | Page | What's in it |
 | --- | --- |
-| [Overview](overview.md) | Package structure, top-level layout |
+| [Package Overview](package-overview.md) | Package structure, top-level layout |
 | [State Management](state-management.md) | AppState, reducer, persistence, navigation history |
 | [Ghostty Integration](ghostty-integration.md) | GhosttyService, surface lifecycle, runtime events |
 | [Editor Geometry](editor-geometry.md) | HeightMap + scroll-anchor reflow |

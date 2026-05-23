@@ -1,6 +1,6 @@
 # Remote Server (MuxyServer)
 
-The desktop app embeds a WebSocket server (`MuxyRemoteServer`) that exposes workspace state and terminal operations to remote clients (e.g. the MuxyMobile companion app) over the local network. The user-facing wire protocol is documented in [Remote Server feature docs](../../features/remote-server/README.md).
+The desktop app embeds a WebSocket server (`MuxyRemoteServer`) that exposes workspace state and terminal operations to remote clients (e.g. the MuxyMobile companion app) over the local network. The user-facing wire protocol is documented in [Remote Server API docs](../remote-server/overview.md).
 
 ## Architecture
 

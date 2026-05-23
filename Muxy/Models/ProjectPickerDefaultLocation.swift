@@ -37,7 +37,7 @@ struct ProjectPickerDefaultLocationState: Equatable {
 }
 
 enum ProjectPickerDefaultLocation {
-    private static let storageKey = "muxy.projectPicker.defaultDirectory"
+    static let storageKey = "muxy.projectPicker.defaultDirectory"
 
     static var path: String { path(defaults: .standard) }
     static var displayPath: String { displayPath(defaults: .standard) }

@@ -96,6 +96,15 @@ struct MuxyCommands: Commands {
     }
 
     var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button {
+                NotificationCenter.default.post(name: .openSettingsModal, object: nil)
+            } label: {
+                Label("Settings...", systemImage: "gearshape")
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
+
         CommandGroup(after: .appSettings) {
             Button {
                 NSWorkspace.shared.open(

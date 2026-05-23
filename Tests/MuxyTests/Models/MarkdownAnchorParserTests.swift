@@ -89,6 +89,41 @@ struct MarkdownAnchorParserTests {
         #expect(anchors.map(\.endLine) == [3, 5, 7])
     }
 
+    @Test("skips document frontmatter")
+    func skipsDocumentFrontmatter() {
+        let markdown = """
+        ---
+        name: my-awesome-skill
+        description: Use when you want to become more awesome
+        ---
+
+        # Start here
+
+        Install the awesominator from npm.
+        """
+
+        let anchors = MarkdownAnchorParser.parseAnchors(in: markdown)
+
+        #expect(anchors.map(\.kind) == [.heading, .paragraph])
+        #expect(anchors.map(\.startLine) == [6, 8])
+        #expect(anchors.map(\.endLine) == [6, 8])
+    }
+
+    @Test("keeps unterminated frontmatter as markdown")
+    func keepsUnterminatedFrontmatterAsMarkdown() {
+        let markdown = """
+        ---
+        name: draft
+
+        # Start here
+        """
+
+        let anchors = MarkdownAnchorParser.parseAnchors(in: markdown)
+
+        #expect(anchors.map(\.kind) == [.thematicBreak, .paragraph, .heading])
+        #expect(anchors.map(\.startLine) == [1, 2, 4])
+    }
+
     @Test("parses blockquotes and html blocks")
     func parsesBlockquotesAndHTMLBlocks() {
         let markdown = """

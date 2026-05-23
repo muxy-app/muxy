@@ -6,7 +6,7 @@ enum MarkdownAnchorParser {
         guard !lines.isEmpty else { return [] }
 
         var anchors: [MarkdownSyncAnchor] = []
-        var index = 0
+        var index = frontmatterEndIndex(in: lines).map { $0 + 1 } ?? 0
 
         while index < lines.count {
             let line = lines[index]
@@ -99,6 +99,20 @@ enum MarkdownAnchorParser {
             startLine: startIndex + 1,
             endLine: endIndex + 1
         )
+    }
+
+    private static func frontmatterEndIndex(in lines: [String]) -> Int? {
+        guard lines.count >= 3 else { return nil }
+        guard lines[0].trimmingCharacters(in: .whitespaces) == "---" else { return nil }
+
+        for index in 1 ..< lines.count {
+            let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+            if trimmed == "---" {
+                return index
+            }
+        }
+
+        return nil
     }
 
     private static func fenceStart(in trimmed: String) -> FenceStart? {

@@ -1,4 +1,4 @@
-# Layouts
+# Layouts Overview
 
 Muxy can apply named pane/tab layouts to a worktree on demand. Layouts live in-repo under `{Project.path}/.muxy/layouts/` so they can be checked in alongside the project.
 

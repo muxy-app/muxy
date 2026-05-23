@@ -82,6 +82,11 @@ final class ApprovedDevicesStore {
         onRevoke?(deviceID)
     }
 
+    func replaceDevices(_ newDevices: [ApprovedDevice]) {
+        devices = newDevices
+        save()
+    }
+
     static func hash(_ token: String) -> String {
         let digest = SHA256.hash(data: Data(token.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
@@ -101,6 +106,7 @@ final class ApprovedDevicesStore {
     private func save() {
         do {
             try Self.store.save(devices)
+            SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
         } catch {
             logger.error("Failed to save approved devices: \(error)")
         }

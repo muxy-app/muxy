@@ -21,7 +21,7 @@ flowchart TB
 classDiagram
   class Project { id; name; path; icon; color }
   class Worktree { id; name; path; branch; isPrimary }
-  class SplitNode { horizontal | vertical | tabArea }
+  class SplitNode { horizontal, vertical, tabArea }
   class TabArea { id; tabs[]; activeTabID }
   class TerminalTab { id; kind; title; paneID }
   Project "1" --> "*" Worktree

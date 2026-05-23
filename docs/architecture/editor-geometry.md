@@ -8,7 +8,7 @@ The built-in editor is virtualized: only the visible window of lines (± a 500-l
 flowchart TB
   subgraph Pure["Pure model (Muxy/Models)"]
     Oracle["HeightOracle<br/>perLine + perChar formula<br/>calibrated from font + width"]
-    Map["HeightMap<br/>blocks: measured | estimated<br/>heightAbove(line) / lineAtY(y)"]
+    Map["HeightMap<br/>blocks: measured or estimated<br/>heightAbove(line) / lineAtY(y)"]
     Anchor["ScrollAnchor<br/>(line, deltaPixels)"]
   end
 

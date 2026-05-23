@@ -6,18 +6,18 @@ Muxy reads usage / quota data for the user's AI coding tools and surfaces it in 
 
 ```mermaid
 flowchart TB
-  Service[AIUsageService<br/>@Observable @MainActor singleton]
-  Service --> Prefs[AIUsagePreferences<br/>tracking / enabled / global]
-  Service --> Catalog[AIUsageProviderCatalog<br/>from AIProviderRegistry]
-  Service --> Fetch[fetchSnapshots<br/>TaskGroup]
+  UsageService[AIUsageService<br/>Observable MainActor singleton]
+  UsageService --> Prefs[AIUsagePreferences<br/>tracking / enabled / global]
+  UsageService --> Catalog[AIUsageProviderCatalog<br/>from AIProviderRegistry]
+  UsageService --> Fetch[fetchSnapshots<br/>TaskGroup]
   Fetch --> Provider[AIUsageProvider]
   Provider --> Token[AIUsageTokenReader<br/>env / JSON / Keychain]
   Provider --> OAuth[AIUsageOAuth<br/>refresh access token]
   Provider --> Session[AIUsageSession<br/>HTTP + common errors]
   Provider --> Parser["{Provider}UsageParser"]
   Parser --> Rows[AIUsageMetricRow]
-  Service --> Auto[AIUsageAutoTracking]
-  Service --> Compose[SnapshotComposer + RowPolicy]
+  UsageService --> Auto[AIUsageAutoTracking]
+  UsageService --> Compose[SnapshotComposer + RowPolicy]
   Compose --> Footer[SidebarFooter popover]
 ```
 

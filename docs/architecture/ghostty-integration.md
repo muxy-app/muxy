@@ -55,7 +55,7 @@ These are passed via `ghostty_surface_config_s.env_vars` and consumed by the Cla
 
 ## Muxy-specific patches
 
-The fork carries two additive exports used by [Remote Server](remote-server.md) for raw PTY streaming. Details in [Building Ghostty](../building-ghostty.md).
+The fork carries two additive exports used by [Remote Server](remote-server.md) for raw PTY streaming. Details in [Building Ghostty](../developer/building-ghostty.md).
 
 ## NSView pitfalls
 
