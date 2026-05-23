@@ -1629,8 +1629,6 @@ private struct SectionSplitLayout: View {
         switch section {
         case .staged:
             fileListModeToggle
-            diffModeToggle
-            expandCollapseButton(for: state.stagedFiles)
             IconButton(symbol: "minus", accessibilityLabel: "Unstage All") {
                 state.unstageAll()
             }
@@ -1638,8 +1636,6 @@ private struct SectionSplitLayout: View {
 
         case .changes:
             fileListModeToggle
-            diffModeToggle
-            expandCollapseButton(for: state.unstagedFiles)
             IconButton(symbol: "plus", accessibilityLabel: "Stage All") {
                 state.stageAll()
             }
@@ -1669,20 +1665,6 @@ private struct SectionSplitLayout: View {
         }
     }
 
-    private var diffModeToggle: some View {
-        Button {
-            state.mode = state.mode == .unified ? .split : .unified
-        } label: {
-            Image(systemName: state.mode == .unified ? "rectangle.split.2x1" : "rectangle")
-                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(state.mode == .unified ? "Switch to Split View" : "Switch to Unified View")
-    }
-
     private var fileListModeToggle: some View {
         Button {
             state.fileListMode = state.fileListMode == .flat ? .folders : .flat
@@ -1695,22 +1677,6 @@ private struct SectionSplitLayout: View {
         }
         .buttonStyle(.plain)
         .help(state.fileListMode == .flat ? "Switch to Folder View" : "Switch to Flat View")
-    }
-
-    @ViewBuilder
-    private func expandCollapseButton(for files: [GitStatusFile]) -> some View {
-        let anyExpanded = files.contains { state.expandedFilePaths.contains($0.path) }
-        Button {
-            state.setExpanded(files: files, expanded: !anyExpanded)
-        } label: {
-            Image(systemName: anyExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                .font(.system(size: UIMetrics.fontEmphasis, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(anyExpanded ? "Collapse all" : "Expand all")
     }
 
     @ViewBuilder
@@ -1761,7 +1727,6 @@ private struct SectionSplitLayout: View {
         displayPath: String? = nil,
         depth: Int = 0
     ) -> some View {
-        let expanded = state.expandedFilePaths.contains(file.path)
         let stats = state.displayedStats(for: file)
         let statusText = isStaged ? file.stagedStatusText : file.unstagedStatusText
 
@@ -1769,40 +1734,23 @@ private struct SectionSplitLayout: View {
             FileRow(
                 file: file,
                 statusText: statusText,
-                expanded: expanded,
                 stats: stats,
                 isStaged: isStaged,
                 displayPath: displayPath ?? file.path,
                 depth: depth,
-                onToggle: {
-                    onFocus()
-                    state.toggleExpanded(filePath: file.path)
-                },
                 onStage: { state.stageFile(file.path) },
                 onUnstage: { state.unstageFile(file.path) },
                 onDiscard: { pendingDiscardPath = file.path },
                 onOpenInEditor: { onOpenInEditor(file.path) },
-                onOpenDiff: { onOpenDiff(file.path, isStaged) }
+                onOpenDiff: {
+                    onFocus()
+                    onOpenDiff(file.path, isStaged)
+                }
             )
-
-            if expanded {
-                expandedDiff(for: file)
-            }
 
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func expandedDiff(for file: GitStatusFile) -> some View {
-        DiffBodyView(
-            isLoading: state.diffCache.isLoading(file.path),
-            error: state.diffCache.error(for: file.path),
-            diff: state.diffCache.diff(for: file.path),
-            filePath: file.path,
-            mode: state.mode,
-            onLoadFull: { state.loadFullDiff(filePath: file.path) }
-        )
     }
 }
 
@@ -1831,12 +1779,10 @@ private extension Array {
 private struct FileRow: View {
     let file: GitStatusFile
     let statusText: String
-    let expanded: Bool
     let stats: VCSTabState.FileStats
     let isStaged: Bool
     let displayPath: String
     let depth: Int
-    let onToggle: () -> Void
     let onStage: () -> Void
     let onUnstage: () -> Void
     let onDiscard: () -> Void
@@ -1863,11 +1809,6 @@ private struct FileRow: View {
 
     var body: some View {
         HStack(spacing: UIMetrics.spacing4) {
-            Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fgDim)
-                .frame(width: UIMetrics.iconSM)
-
             Text(statusText)
                 .font(.system(size: UIMetrics.fontFootnote, weight: .bold, design: .monospaced))
                 .foregroundStyle(statusColor)
@@ -1911,7 +1852,7 @@ private struct FileRow: View {
         .background(MuxyTheme.bg)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
-        .onTapGesture(perform: onToggle)
+        .onTapGesture(perform: onOpenDiff)
     }
 
     private var actionButtons: some View {

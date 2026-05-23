@@ -80,6 +80,8 @@ final class EditorTabState: Identifiable {
     var hasExternalChange = false
     var largeFileSize: Int64 = 0
     var backingStore: TextBackingStore?
+    var diffLineKinds: [DiffDisplayRow.Kind]?
+    var diffGutterLines: [DiffEditorGutterLine]?
     var markdownViewMode: EditorMarkdownViewMode = .code
     var htmlViewMode: EditorMarkdownViewMode = .code
     var markdownScrollPosition: CGFloat = 0
@@ -192,6 +194,51 @@ final class EditorTabState: Identifiable {
         syntaxHighlighter = Self.makeSyntaxHighlighter(for: filePath)
         installFileWatcher()
         loadFile()
+    }
+
+    init(
+        projectPath: String,
+        filePath: String,
+        readOnlyText: String,
+        diffLineKinds: [DiffDisplayRow.Kind],
+        diffGutterLines: [DiffEditorGutterLine] = []
+    ) {
+        self.projectPath = projectPath
+        self.filePath = filePath
+        isReadOnly = true
+        self.diffLineKinds = diffLineKinds
+        self.diffGutterLines = diffGutterLines
+        let store = TextBackingStore()
+        store.loadFromText(readOnlyText)
+        store.finishLoading()
+        backingStore = store
+        backingStoreVersion = 1
+    }
+
+    func replaceReadOnlyText(
+        _ text: String,
+        filePath: String,
+        diffLineKinds: [DiffDisplayRow.Kind],
+        diffGutterLines: [DiffEditorGutterLine] = []
+    ) {
+        loadTask?.cancel()
+        self.filePath = filePath
+        self.diffLineKinds = diffLineKinds
+        self.diffGutterLines = diffGutterLines
+        isReadOnly = true
+        isLoading = false
+        isIncrementalLoading = false
+        isModified = false
+        awaitingLargeFileConfirmation = false
+        hasExternalChange = false
+        errorMessage = nil
+        syntaxHighlighter = nil
+        let store = backingStore ?? TextBackingStore()
+        store.loadFromText(text)
+        store.finishLoading()
+        backingStore = store
+        backingStoreVersion += 1
+        previewRefreshVersion += 1
     }
 
     func updateFilePath(_ newPath: String) {

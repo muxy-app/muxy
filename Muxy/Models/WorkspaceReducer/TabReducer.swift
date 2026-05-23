@@ -88,8 +88,17 @@ enum TabReducer {
         state: inout WorkspaceState
     ) {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
+              let root = state.workspaceRoots[key],
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
         else { return }
+        for existingArea in root.allAreas() {
+            if let existing = existingArea.tabs.first(where: { $0.content.diffViewerState != nil }) {
+                existing.content.diffViewerState?.select(filePath: request.filePath, isStaged: request.isStaged)
+                FocusReducer.focusArea(existingArea.id, key: key, state: &state)
+                existingArea.selectTab(existing.id)
+                return
+            }
+        }
         FocusReducer.focusArea(area.id, key: key, state: &state)
         area.createDiffViewerTab(
             vcs: request.vcs,
@@ -177,13 +186,16 @@ enum TabReducer {
 
         let areaCount = root.allAreas().count
         if area.tabs.count <= 1, areaCount > 1 {
+            clearDiffViewerCaches(in: area)
             SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
             return
         }
 
+        let tab = area.tabs.first { $0.id == tabID }
         if let paneID = area.closeTab(tabID) {
             effects.paneIDsToRemove.append(paneID)
         }
+        clearDiffViewerCache(for: tab)
 
         guard area.tabs.isEmpty else { return }
         WorkspaceReducerShared.clearWorkspace(key: key, state: &state)
@@ -192,5 +204,16 @@ enum TabReducer {
             state: &state,
             effects: &effects
         )
+    }
+
+    private static func clearDiffViewerCaches(in area: TabArea) {
+        area.tabs.forEach(clearDiffViewerCache(for:))
+    }
+
+    private static func clearDiffViewerCache(for tab: TerminalTab?) {
+        guard let vcs = tab?.content.diffViewerState?.vcs else { return }
+        vcs.diffCache.evict { key in
+            key.hasPrefix("staged:") || key.hasPrefix("unstaged:")
+        }
     }
 }

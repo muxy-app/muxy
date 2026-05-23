@@ -976,15 +976,9 @@ struct GitRepositoryService {
         guard resolvedFull.hasPrefix(resolvedRepo + "/") else {
             throw GitError.commandFailed("File path is outside the repository.")
         }
-        guard let data = FileManager.default.contents(atPath: fullPath),
-              let content = String(data: data, encoding: .utf8)
-        else {
+        guard let fileLines = try readDiffPreviewLines(path: fullPath, lineLimit: lineLimit) else {
             return PatchAndCompareResult(rows: [], truncated: false, additions: 0, deletions: 0)
         }
-
-        let lines = content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-        let effectiveLines = lineLimit.map { min(lines.count, $0) } ?? lines.count
-        let truncated = lineLimit.map { lines.count > $0 } ?? false
 
         var rows: [DiffDisplayRow] = []
         rows.append(DiffDisplayRow(
@@ -993,11 +987,11 @@ struct GitRepositoryService {
             newLineNumber: nil,
             oldText: nil,
             newText: nil,
-            text: "@@ -0,0 +1,\(lines.count) @@ (new file)"
+            text: "@@ -0,0 +1,\(fileLines.lines.count) @@ (new file)"
         ))
 
-        for i in 0 ..< effectiveLines {
-            let line = String(lines[i])
+        for i in 0 ..< fileLines.lines.count {
+            let line = fileLines.lines[i]
             rows.append(DiffDisplayRow(
                 kind: .addition,
                 oldLineNumber: nil,
@@ -1010,10 +1004,51 @@ struct GitRepositoryService {
 
         return PatchAndCompareResult(
             rows: GitDiffParser.collapseContextRows(rows),
-            truncated: truncated,
-            additions: effectiveLines,
+            truncated: fileLines.truncated,
+            additions: fileLines.lines.count,
             deletions: 0
         )
+    }
+
+    private func readDiffPreviewLines(path: String, lineLimit: Int?) throws -> (lines: [String], truncated: Bool)? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+
+        guard let lineLimit else {
+            let data = handle.readDataToEndOfFile()
+            guard let content = String(data: data, encoding: .utf8) else { return nil }
+            return (content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init), false)
+        }
+
+        var lines: [String] = []
+        lines.reserveCapacity(min(lineLimit, 4096))
+        var buffer = Data()
+        let chunkSize = 65536
+
+        while lines.count < lineLimit {
+            let chunk = try handle.read(upToCount: chunkSize) ?? Data()
+            if chunk.isEmpty {
+                if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8) {
+                    lines.append(line)
+                }
+                return (lines, false)
+            }
+
+            for byte in chunk {
+                if byte == 0x0A {
+                    guard let line = String(data: buffer, encoding: .utf8) else { return nil }
+                    lines.append(line)
+                    buffer.removeAll(keepingCapacity: true)
+                    if lines.count == lineLimit {
+                        return (lines, true)
+                    }
+                } else {
+                    buffer.append(byte)
+                }
+            }
+        }
+
+        return (lines, true)
     }
 
     func stageFiles(repoPath: String, paths: [String]) async throws {

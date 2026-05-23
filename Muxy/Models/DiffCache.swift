@@ -71,6 +71,15 @@ final class DiffCache {
         accessOrder.removeAll { $0 == filePath }
     }
 
+    func evict(matching shouldEvict: (String) -> Bool) {
+        let paths = Set(diffsByPath.keys)
+            .union(errorsByPath.keys)
+            .union(tasks.keys)
+            .union(loadingPaths)
+            .filter(shouldEvict)
+        paths.forEach(evict)
+    }
+
     func cancelLoad(for filePath: String) {
         tasks[filePath]?.cancel()
         tasks.removeValue(forKey: filePath)

@@ -97,7 +97,7 @@ struct DiffRenderTheme: @unchecked Sendable {
     }
 
     @MainActor
-    private static func buildRules() -> [DiffHighlightRule] {
+    static func buildRules() -> [DiffHighlightRule] {
         let definitions: [RuleDefinition] = [
             RuleDefinition(pattern: #"'(?:\\.|[^'\\])*'"#, color: MuxyTheme.nsDiffString, options: []),
             RuleDefinition(pattern: #""(?:\\.|[^"\\])*""#, color: MuxyTheme.nsDiffString, options: []),

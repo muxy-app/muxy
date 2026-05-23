@@ -4,8 +4,12 @@ struct DiffBodyView: View {
     let isLoading: Bool
     let error: String?
     let diff: DiffCache.LoadedDiff?
+    let projectPath: String
     let filePath: String
+    let cacheKey: String
     let mode: VCSTabState.ViewMode
+    let wordWrap: Bool
+    let fontSize: CGFloat
     let onLoadFull: (() -> Void)?
     var suppressLeadingTopBorder: Bool = false
 
@@ -28,22 +32,19 @@ struct DiffBodyView: View {
                         Rectangle().fill(MuxyTheme.border).frame(height: 1)
                     }
 
-                    switch mode {
-                    case .unified:
-                        UnifiedDiffView(
-                            rows: diff.rows,
-                            filePath: filePath,
-                            suppressLeadingTopBorder: suppressLeadingTopBorder && !diff.truncated
-                        )
-                    case .split:
-                        SplitDiffView(
-                            rows: diff.rows,
-                            filePath: filePath,
-                            suppressLeadingTopBorder: suppressLeadingTopBorder && !diff.truncated
-                        )
-                    }
+                    DiffEditorView(
+                        rows: diff.rows,
+                        projectPath: projectPath,
+                        filePath: filePath,
+                        cacheKey: cacheKey,
+                        mode: mode,
+                        wordWrap: wordWrap,
+                        fontSize: fontSize
+                    )
+                    .id(cacheKey)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
                 Text("No diff output")
                     .font(.system(size: UIMetrics.fontBody))

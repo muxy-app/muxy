@@ -475,9 +475,9 @@ final class AppState {
     func openDiffViewer(vcs: VCSTabState, filePath: String, isStaged: Bool, projectID: UUID) {
         for area in allAreas(for: projectID) {
             if let tab = area.tabs.first(where: { tab in
-                guard let diff = tab.content.diffViewerState else { return false }
-                return diff.filePath == filePath && diff.isStaged == isStaged
+                tab.content.diffViewerState != nil
             }) {
+                tab.content.diffViewerState?.select(filePath: filePath, isStaged: isStaged)
                 dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
                 return
             }
