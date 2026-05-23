@@ -18,6 +18,13 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func settingsUseWorkflowCategories() {
+        #expect(SettingsCatalog.items.contains { $0.key == GeneralSettingsKeys.fileTreeSource && $0.category == .projects })
+        #expect(SettingsCatalog.items.contains { $0.key == GeneralSettingsKeys.autoCopyTerminalSelection && $0.category == .terminal })
+        #expect(SettingsCatalog.items.contains { $0.key == RecordingPreferences.languageKey && $0.category == .voice })
+    }
+
+    @Test
     func jsonEditableItemsHaveDefaults() {
         #expect(!SettingsCatalog.jsonEditableItems.isEmpty)
         #expect(SettingsCatalog.jsonEditableItems.allSatisfy { $0.defaultValue != nil })

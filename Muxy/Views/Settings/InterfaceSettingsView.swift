@@ -1,12 +1,9 @@
 import SwiftUI
 
-struct AppearanceSettingsView: View {
-    @State private var themeService = ThemeService.shared
+struct InterfaceSettingsView: View {
     @State private var uiScale = UIScale.shared
-    @State private var showLightThemePicker = false
-    @State private var showDarkThemePicker = false
-    @State private var currentLightTheme: String?
-    @State private var currentDarkTheme: String?
+    @AppStorage(GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch)
+    private var autoExpandWorktrees = false
     @AppStorage("muxy.vcsDisplayMode") private var vcsDisplayMode = VCSDisplayMode.attached.rawValue
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyle = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyle = SidebarExpandedStyle.defaultValue.rawValue
@@ -29,24 +26,12 @@ struct AppearanceSettingsView: View {
                 SettingsToggleRow(label: "Show Status Bar", isOn: $showStatusBar)
             }
 
-            SettingsSection("Terminal") {
-                SettingsRow("Light Theme") {
-                    themeButton(
-                        title: currentLightTheme ?? "Default",
-                        isPresented: $showLightThemePicker,
-                        mode: .light
-                    )
-                }
-                SettingsRow("Dark Theme") {
-                    themeButton(
-                        title: currentDarkTheme ?? "Default",
-                        isPresented: $showDarkThemePicker,
-                        mode: .dark
-                    )
-                }
-            }
-
             SettingsSection("Sidebar") {
+                SettingsToggleRow(
+                    label: "Auto-expand worktrees on project switch",
+                    isOn: $autoExpandWorktrees
+                )
+
                 SettingsRow("Collapsed Style") {
                     HStack {
                         Spacer()
@@ -91,43 +76,5 @@ struct AppearanceSettingsView: View {
                 }
             }
         }
-        .task {
-            refreshThemeNames()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in
-            refreshThemeNames()
-        }
-    }
-
-    private func themeButton(
-        title: String,
-        isPresented: Binding<Bool>,
-        mode: ThemePickerMode
-    ) -> some View {
-        Button {
-            isPresented.wrappedValue.toggle()
-        } label: {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.system(size: SettingsMetrics.labelFontSize))
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .foregroundStyle(SettingsStyle.foreground)
-            .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: isPresented) {
-            ThemePicker(mode: mode)
-                .environment(themeService)
-        }
-    }
-
-    private func refreshThemeNames() {
-        currentLightTheme = themeService.currentLightThemeName()
-        currentDarkTheme = themeService.currentDarkThemeName()
     }
 }

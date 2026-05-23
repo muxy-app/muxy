@@ -426,6 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard self?.settingsWindow === window else { return }
             self?.settingsWindow = nil
         }
+        window.startOutsideClickMonitor()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -466,6 +467,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 }
 
 private final class SettingsModalWindow: NSWindow {
+    private var outsideClickMonitor: Any?
+
+    deinit {
+        stopOutsideClickMonitor()
+    }
+
+    func startOutsideClickMonitor() {
+        stopOutsideClickMonitor()
+        outsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, let sheetParent, event.window === sheetParent else { return event }
+            close()
+            return nil
+        }
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
            event.charactersIgnoringModifiers?.lowercased() == "w"
@@ -481,11 +497,18 @@ private final class SettingsModalWindow: NSWindow {
     }
 
     override func close() {
+        stopOutsideClickMonitor()
         guard let sheetParent else {
             super.close()
             return
         }
         sheetParent.endSheet(self)
+    }
+
+    private func stopOutsideClickMonitor() {
+        guard let outsideClickMonitor else { return }
+        NSEvent.removeMonitor(outsideClickMonitor)
+        self.outsideClickMonitor = nil
     }
 }
 

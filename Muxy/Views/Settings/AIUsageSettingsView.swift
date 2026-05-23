@@ -20,7 +20,7 @@ struct AIUsageSettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text("AI Usage")
+                Text("Show usage board in sidebar")
                     .font(.system(size: 12, weight: .medium))
 
                 Spacer()
@@ -34,14 +34,10 @@ struct AIUsageSettingsView: View {
             .padding(.top, 8)
             .padding(.bottom, 6)
 
-            SettingsDivider().padding(.horizontal, 12)
-
-            ScrollView {
-                if usageEnabled {
-                    enabledSettings
-                } else {
-                    disabledSettings
-                }
+            if usageEnabled {
+                enabledSettings
+            } else {
+                disabledSettings
             }
         }
         .onChange(of: usageEnabled) { _, enabled in
@@ -74,7 +70,7 @@ struct AIUsageSettingsView: View {
     private var enabledSettings: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Text("Show")
+                Text("Display Mode")
                     .font(.system(size: 12, weight: .medium))
 
                 Spacer()

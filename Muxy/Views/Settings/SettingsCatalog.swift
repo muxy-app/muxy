@@ -3,31 +3,31 @@ import SwiftUI
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case general
+    case projects
     case appearance
+    case terminal
     case editor
-    case sessions
     case shortcuts
-    case recording
+    case voice
     case notifications
     case mobile
     case ai
-    case aiUsage
     case json
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .general: "General"
-        case .appearance: "Appearance"
+        case .general: "App"
+        case .projects: "Projects"
+        case .appearance: "Interface"
+        case .terminal: "Terminal"
         case .editor: "Editor"
-        case .sessions: "Sessions"
         case .shortcuts: "Shortcuts"
-        case .recording: "Recording"
+        case .voice: "Voice"
         case .notifications: "Notifications"
         case .mobile: "Mobile"
-        case .ai: "AI Assistant"
-        case .aiUsage: "AI Usage"
+        case .ai: "AI"
         case .json: "JSON"
         }
     }
@@ -35,15 +35,15 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     var symbolName: String {
         switch self {
         case .general: "gearshape"
-        case .appearance: "paintbrush"
+        case .projects: "folder"
+        case .appearance: "macwindow"
+        case .terminal: "terminal"
         case .editor: "pencil.line"
-        case .sessions: "clock.arrow.circlepath"
         case .shortcuts: "keyboard"
-        case .recording: "mic"
+        case .voice: "mic"
         case .notifications: "bell"
         case .mobile: "iphone"
         case .ai: "sparkles"
-        case .aiUsage: "chart.bar"
         case .json: "curlybraces"
         }
     }
@@ -102,7 +102,7 @@ enum SettingsCatalog {
             key: GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch,
             title: "Auto-expand Worktrees",
             description: "Automatically reveals worktrees when switching projects.",
-            category: .general,
+            category: .appearance,
             section: "Sidebar",
             defaultValue: false
         ),
@@ -110,7 +110,7 @@ enum SettingsCatalog {
             key: GeneralSettingsKeys.fileTreeSource,
             title: "File Tree Root Directory",
             description: "Controls whether the file tree follows the project or active terminal.",
-            category: .general,
+            category: .projects,
             section: "File Tree",
             defaultValue: FileTreeSourcePreference.defaultValue.rawValue
         ),
@@ -118,7 +118,7 @@ enum SettingsCatalog {
             key: ProjectPickerPreferences.storageKey,
             title: "Project Picker",
             description: "Chooses the picker used when opening projects.",
-            category: .general,
+            category: .projects,
             section: "Projects",
             defaultValue: ProjectPickerMode.custom.rawValue
         ),
@@ -126,7 +126,7 @@ enum SettingsCatalog {
             key: ProjectPickerDefaultLocation.storageKey,
             title: "Project Picker Default Path",
             description: "Sets the default folder for Muxy's project picker.",
-            category: .general,
+            category: .projects,
             section: "Projects",
             defaultValue: "",
             aliases: ["folder", "path", "directory"]
@@ -135,7 +135,7 @@ enum SettingsCatalog {
             key: ProjectLifecyclePreferences.keepOpenWhenNoTabsKey,
             title: "Keep Projects Open",
             description: "Keeps projects in the sidebar after closing the last tab.",
-            category: .general,
+            category: .projects,
             section: "Projects",
             defaultValue: false
         ),
@@ -143,7 +143,7 @@ enum SettingsCatalog {
             key: GeneralSettingsKeys.defaultWorktreeParentPath,
             title: "Default Worktree Path",
             description: "Sets the parent folder for new worktrees.",
-            category: .general,
+            category: .projects,
             section: "Worktrees",
             defaultValue: "",
             aliases: ["folder", "path"]
@@ -152,15 +152,15 @@ enum SettingsCatalog {
             key: GeneralSettingsKeys.autoCopyTerminalSelection,
             title: "Auto-copy Terminal Selection",
             description: "Copies terminal selections when the mouse is released.",
-            category: .general,
-            section: "Terminal",
+            category: .terminal,
+            section: "Selection",
             defaultValue: false
         ),
         SettingsCatalogItem(
             key: TabCloseConfirmationPreferences.confirmRunningProcessKey,
             title: "Confirm Running Process Tab Close",
             description: "Asks before closing a terminal tab with a running process.",
-            category: .general,
+            category: .terminal,
             section: "Tabs",
             defaultValue: true
         ),
@@ -202,16 +202,16 @@ enum SettingsCatalog {
             key: "muxy.theme.light",
             title: "Light Terminal Theme",
             description: "Chooses the terminal theme for light appearance.",
-            category: .appearance,
-            section: "Terminal",
+            category: .terminal,
+            section: "Appearance",
             defaultValue: ThemeService.defaultThemeName
         ),
         SettingsCatalogItem(
             key: "muxy.theme.dark",
             title: "Dark Terminal Theme",
             description: "Chooses the terminal theme for dark appearance.",
-            category: .appearance,
-            section: "Terminal",
+            category: .terminal,
+            section: "Appearance",
             defaultValue: ThemeService.defaultThemeName
         ),
         SettingsCatalogItem(
@@ -380,15 +380,15 @@ enum SettingsCatalog {
             key: SessionRestorePreferences.enabledKey,
             title: "Restore Terminal Sessions",
             description: "Restores terminal sessions when a project opens.",
-            category: .sessions,
-            section: "Restore",
+            category: .terminal,
+            section: "Session Restore",
             defaultValue: SessionRestorePreferences.defaultIsEnabled
         ),
         SettingsCatalogItem(
             key: SessionRestorePreferences.excludedCommandsKey,
             title: "Blocked Commands",
             description: "Commands that are never restored automatically.",
-            category: .sessions,
+            category: .terminal,
             section: "Blocked Commands",
             defaultValue: SessionRestorePreferences.defaultExcludedCommands
         ),
@@ -412,7 +412,7 @@ enum SettingsCatalog {
             key: RecordingPreferences.autoSendKey,
             title: "Press Return After Inserting",
             description: "Presses Return after voice transcription is inserted.",
-            category: .recording,
+            category: .voice,
             section: "Voice Recording",
             defaultValue: RecordingPreferences.defaultAutoSend
         ),
@@ -420,7 +420,7 @@ enum SettingsCatalog {
             key: RecordingPreferences.languageKey,
             title: "Recording Language",
             description: "Chooses the on-device speech recognition language.",
-            category: .recording,
+            category: .voice,
             section: "Language",
             defaultValue: RecordingPreferences.defaultLanguage
         ),
@@ -548,7 +548,7 @@ enum SettingsCatalog {
             key: AIUsageSettingsStore.usageEnabledKey,
             title: "Enable AI Usage",
             description: "Shows the AI usage board in the sidebar.",
-            category: .aiUsage,
+            category: .ai,
             section: "AI Usage",
             defaultValue: false
         ),
@@ -556,32 +556,32 @@ enum SettingsCatalog {
             key: AIUsageSettingsStore.usageDisplayModeKey,
             title: "Usage Display Mode",
             description: "Shows used or remaining AI quota.",
-            category: .aiUsage,
-            section: "Show",
+            category: .ai,
+            section: "AI Usage",
             defaultValue: AIUsageSettingsStore.defaultUsageDisplayMode.rawValue
         ),
         SettingsCatalogItem(
             key: AIUsageSettingsStore.autoRefreshIntervalKey,
             title: "Auto Refresh",
             description: "Controls how often AI usage data refreshes.",
-            category: .aiUsage,
-            section: "Auto Refresh",
+            category: .ai,
+            section: "AI Usage",
             defaultValue: AIUsageSettingsStore.defaultAutoRefreshInterval.rawValue
         ),
         SettingsCatalogItem(
             key: AIUsageSettingsStore.showSecondaryLimitsKey,
             title: "Show Secondary Limits",
             description: "Shows weekly and monthly quotas next to primary usage.",
-            category: .aiUsage,
-            section: "Show Secondary Limits",
+            category: .ai,
+            section: "AI Usage",
             defaultValue: AIUsageSettingsStore.defaultShowSecondaryLimits
         ),
         SettingsCatalogItem(
             key: "aiUsage.providers",
             title: "Tracked Usage Providers",
             description: "Chooses which providers appear on the usage board.",
-            category: .aiUsage,
-            section: "Providers"
+            category: .ai,
+            section: "AI Usage"
         ),
     ]
 
