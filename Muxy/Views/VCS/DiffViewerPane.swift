@@ -303,7 +303,7 @@ private struct DiffCardList: View {
         GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: cardSpacing) {
+                    VStack(spacing: cardSpacing) {
                         ForEach(sections, id: \.cacheKey) { section in
                             DiffFileCard(
                                 state: state,
