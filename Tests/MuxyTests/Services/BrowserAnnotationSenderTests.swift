@@ -232,6 +232,24 @@ struct BrowserAnnotationSenderTests {
         #expect(target == .richInput(worktreeKey: harness.activeKey))
     }
 
+    @Test("routing identifies the owning area by browser session reference, not tab id")
+    func routingMatchesSessionByReferenceIdentity() {
+        let harness = RoutingHarness.makeWithTerminalAndBrowser()
+        let lookalike = BrowserSession(
+            id: harness.browserSession.id,
+            projectPath: "/tmp/test",
+            initialURL: "https://example.com"
+        )
+
+        let target = BrowserAnnotationSender.resolveTarget(
+            session: lookalike,
+            appState: harness.appState,
+            controller: harness.controller
+        )
+
+        #expect(target == nil)
+    }
+
     @Test("send updates AppState focus to the terminal area when routing to a terminal")
     func sendUpdatesAppStateFocusToTerminalArea() {
         let harness = RoutingHarness.makeWithTwoAreasInSameWorktree()

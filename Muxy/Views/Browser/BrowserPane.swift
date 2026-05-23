@@ -29,8 +29,14 @@ struct BrowserPane: View {
         if let error = session.nav.lastErrorMessage {
             errorView(error)
         } else {
-            BrowserWebView(session: session)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ZStack(alignment: .top) {
+                BrowserWebView(session: session)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if session.nav.findBar.isVisible {
+                    BrowserFindBar(session: session)
+                        .padding(UIMetrics.spacing3)
+                }
+            }
         }
     }
 

@@ -10,6 +10,8 @@ enum BrowserWebViewCommand {
     case scrollTo(Double)
     case setInspectorMode(BrowserInspectorState.Mode)
     case applyStyleOverrides([StyleOverride])
+    case find(String, forward: Bool)
+    case clearFind
 }
 
 @MainActor

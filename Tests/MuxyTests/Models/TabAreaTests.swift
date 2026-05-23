@@ -385,4 +385,27 @@ struct TabAreaTests {
         #expect(area.tabs.count == 2)
         #expect(area.tabs[0].id == firstTabID)
     }
+
+    @Test("createBrowserTab always opens a new tab even when an existing tab points to the same URL")
+    func createBrowserTabAlwaysOpensNew() {
+        let area = TabArea(projectPath: testPath)
+        let url = "https://example.com/landing"
+
+        area.createBrowserTab(initialURL: url)
+        area.createBrowserTab(initialURL: url)
+
+        let browserTabs = area.tabs.filter { $0.kind == .browser }
+        #expect(browserTabs.count == 2)
+        let ids = Set(browserTabs.map(\.id))
+        #expect(ids.count == 2)
+        #expect(area.activeTabID == browserTabs.last?.id)
+    }
+
+    @Test("browser tab id is independent from the underlying BrowserSession id")
+    func browserTabIDDecoupledFromSessionID() {
+        let session = BrowserSession(projectPath: testPath, initialURL: "https://example.com")
+        let tab = TerminalTab(browserSession: session)
+        #expect(tab.id != session.id)
+        #expect(tab.content.browserSession === session)
+    }
 }

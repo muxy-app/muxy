@@ -6,7 +6,6 @@ final class BrowserNavigationState {
     var pendingURL: String
     var currentURL: String
     var pageTitle: String = ""
-    var faviconData: Data?
 
     var canGoBack: Bool = false
     var canGoForward: Bool = false
@@ -16,14 +15,21 @@ final class BrowserNavigationState {
 
     var zoom: Double = 1.0
     var scrollY: Double = 0
-    var pendingScrollRestore: Double?
+    var pendingScrollRestore: PendingScrollRestore?
+
+    var findBar = FindBarState()
+
+    struct PendingScrollRestore: Equatable {
+        let url: String
+        let y: Double
+    }
 
     init(initialURL: String, scrollY: Double, zoom: Double) {
         pendingURL = initialURL
         currentURL = initialURL
         self.scrollY = scrollY
         self.zoom = zoom
-        pendingScrollRestore = scrollY > 0 ? scrollY : nil
+        pendingScrollRestore = scrollY > 0 ? PendingScrollRestore(url: initialURL, y: scrollY) : nil
     }
 
     var displayTitle: String {
@@ -38,11 +44,6 @@ final class BrowserNavigationState {
 
     var currentURLScheme: String? {
         URL(string: currentURL)?.scheme?.lowercased()
-    }
-
-    func handleProgress(_ progress: Double, isLoading: Bool) {
-        estimatedProgress = progress
-        self.isLoading = isLoading
     }
 
     func handleNavigationFinished(url: String, title: String, canGoBack: Bool, canGoForward: Bool) {

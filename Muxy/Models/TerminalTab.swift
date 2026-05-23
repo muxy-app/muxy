@@ -127,7 +127,7 @@ final class TerminalTab: Identifiable {
     }
 
     init(browserSession: BrowserSession) {
-        id = browserSession.id
+        id = UUID()
         content = .browser(browserSession)
     }
 
@@ -172,7 +172,6 @@ final class TerminalTab: Identifiable {
         case .browser:
             let initialURL = snapshot.browserURL ?? BrowserSession.homeURL
             content = .browser(BrowserSession(
-                id: snapshot.id,
                 projectPath: snapshot.projectPath,
                 initialURL: initialURL,
                 scrollY: snapshot.browserScrollY ?? 0,

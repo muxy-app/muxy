@@ -144,10 +144,6 @@ final class TabArea: Identifiable {
     func createBrowserTab(initialURL: String? = nil) {
         let resolvedURL = initialURL?.trimmingCharacters(in: .whitespacesAndNewlines)
         let target = resolvedURL.flatMap { $0.isEmpty ? nil : $0 } ?? BrowserSession.homeURL
-        if let existing = tabs.first(where: { $0.content.browserSession?.nav.currentURL == target }) {
-            selectTab(existing.id)
-            return
-        }
         let session = BrowserSession(projectPath: projectPath, initialURL: target)
         insertTab(TerminalTab(browserSession: session))
     }

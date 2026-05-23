@@ -39,6 +39,8 @@ final class BrowserBridge: NSObject, WKScriptMessageHandler {
             handleScrolled(body)
         case "titleChanged":
             handleTitleChanged(body)
+        case "inspectorDismissed":
+            session.setInspectorMode(.off)
         default:
             bridgeLogger.debug("Ignoring unknown bridge message: \(name, privacy: .public)")
         }

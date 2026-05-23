@@ -39,6 +39,7 @@ final class AppState {
         case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
         case createImageViewerTab(projectID: UUID, areaID: UUID?, filePath: String)
         case createBrowserTab(projectID: UUID, areaID: UUID?, initialURL: String?)
+        case createBrowserTabInWorktree(worktreeKey: WorktreeKey, areaID: UUID?, initialURL: String?)
         case restoreClosedTerminalTab(projectID: UUID, areaID: UUID?, snapshot: ClosedTerminalTabSnapshot)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
@@ -213,12 +214,24 @@ final class AppState {
         return workspaceRoots[key]?.allAreas() ?? []
     }
 
+    struct PaneLocation {
+        let worktreeKey: WorktreeKey
+        let areaID: UUID
+        let tab: TerminalTab
+        let pane: TerminalPaneState
+    }
+
     func locatePane(paneID: UUID) -> (worktreeKey: WorktreeKey, pane: TerminalPaneState)? {
+        guard let location = locatePaneTab(paneID: paneID) else { return nil }
+        return (location.worktreeKey, location.pane)
+    }
+
+    func locatePaneTab(paneID: UUID) -> PaneLocation? {
         for (key, root) in workspaceRoots {
             for area in root.allAreas() {
                 for tab in area.tabs {
                     if let pane = tab.content.pane, pane.id == paneID {
-                        return (key, pane)
+                        return PaneLocation(worktreeKey: key, areaID: area.id, tab: tab, pane: pane)
                     }
                 }
             }

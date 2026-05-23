@@ -285,9 +285,19 @@
         },
     };
 
+    function handleKeyDown(event) {
+        if (STATE.mode === 'off') return;
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        setMode('off');
+        postMessage('inspectorDismissed', {});
+    }
+
     document.addEventListener('mousemove', handleMouseMove, true);
     document.addEventListener('mouseleave', handleMouseLeave, true);
     document.addEventListener('click', handleClick, true);
+    document.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('scroll', handleScroll, { passive: true });
 
     if (document.readyState === 'complete' || document.readyState === 'interactive') {

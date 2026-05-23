@@ -142,6 +142,14 @@ enum WorkspaceReducer {
                 state: &state
             )
 
+        case let .createBrowserTabInWorktree(worktreeKey, areaID, initialURL):
+            TabReducer.createBrowserTabInWorktree(
+                worktreeKey: worktreeKey,
+                areaID: areaID,
+                initialURL: initialURL,
+                state: &state
+            )
+
         case let .restoreClosedTerminalTab(projectID, areaID, snapshot):
             TabReducer.restoreClosedTerminalTab(
                 projectID: projectID,

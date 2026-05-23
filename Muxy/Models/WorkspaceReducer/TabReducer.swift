@@ -124,6 +124,17 @@ enum TabReducer {
         area.createBrowserTab(initialURL: initialURL)
     }
 
+    static func createBrowserTabInWorktree(
+        worktreeKey: WorktreeKey,
+        areaID: UUID?,
+        initialURL: String?,
+        state: inout WorkspaceState
+    ) {
+        guard let area = WorkspaceReducerShared.resolveArea(key: worktreeKey, areaID: areaID, state: state) else { return }
+        FocusReducer.focusArea(area.id, key: worktreeKey, state: &state)
+        area.createBrowserTab(initialURL: initialURL)
+    }
+
     static func restoreClosedTerminalTab(
         projectID: UUID,
         areaID: UUID?,

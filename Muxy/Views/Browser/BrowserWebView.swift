@@ -7,13 +7,22 @@ private let browserLogger = Logger(subsystem: "app.muxy", category: "BrowserWebV
 
 final class BrowserWKWebView: WKWebView {
     var onReload: (() -> Void)?
+    var onFindShortcut: (() -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command),
-           event.charactersIgnoringModifiers?.lowercased() == "r"
+           let character = event.charactersIgnoringModifiers?.lowercased()
         {
-            onReload?()
-            return true
+            switch character {
+            case "r":
+                onReload?()
+                return true
+            case "f":
+                onFindShortcut?()
+                return true
+            default:
+                break
+            }
         }
         return super.performKeyEquivalent(with: event)
     }
@@ -29,7 +38,7 @@ struct BrowserWebView: NSViewRepresentable {
     func makeNSView(context: Context) -> BrowserWKWebView {
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
-        config.websiteDataStore = WKWebsiteDataStore.default()
+        config.websiteDataStore = BrowserDataStoreFactory.dataStore()
 
         let userContent = WKUserContentController()
         if let script = BrowserUserScripts.documentEndScript() {
@@ -51,6 +60,9 @@ struct BrowserWebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = BrowserPreferences.inspectable
+        }
 
         context.coordinator.webView = webView
         context.coordinator.bridge.webView = webView
@@ -59,6 +71,9 @@ struct BrowserWebView: NSViewRepresentable {
 
         webView.onReload = { [weak webView] in
             webView?.reload()
+        }
+        webView.onFindShortcut = { [session] in
+            session.presentFindBar()
         }
 
         if let url = session.nav.resolvedURL ?? URL(string: session.nav.currentURL),
@@ -189,6 +204,23 @@ struct BrowserWebView: NSViewRepresentable {
                 )
             case let .applyStyleOverrides(overrides):
                 pushStyleOverrides(overrides: overrides, into: webView)
+            case let .find(query, forward):
+                runFind(query: query, forward: forward, in: webView)
+            case .clearFind:
+                evaluateInBridgeWorld("window.getSelection && window.getSelection().removeAllRanges();", in: webView)
+            }
+        }
+
+        private func runFind(query: String, forward: Bool, in webView: WKWebView) {
+            let configuration = WKFindConfiguration()
+            configuration.backwards = !forward
+            configuration.caseSensitive = false
+            configuration.wraps = true
+            webView.find(query, configuration: configuration) { [weak self] result in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.session.nav.findBar.lastResultFound = result.matchFound
+                }
             }
         }
 
@@ -242,7 +274,9 @@ struct BrowserWebView: NSViewRepresentable {
                     canGoForward: webView.canGoForward
                 )
                 if let pending = self.session.nav.pendingScrollRestore {
-                    self.evaluateInBridgeWorld("window.scrollTo(0, \(pending));", in: webView)
+                    if BrowserURLNormalizer.canonical(pending.url) == BrowserURLNormalizer.canonical(url) {
+                        self.evaluateInBridgeWorld("window.scrollTo(0, \(pending.y));", in: webView)
+                    }
                     self.session.nav.pendingScrollRestore = nil
                 }
                 if self.session.inspector.inspectorMode != .off {

@@ -68,7 +68,7 @@ enum BrowserAnnotationSender {
         {
             return .richInput(worktreeKey: visibleKey)
         }
-        guard let browserKey = locateOwningWorktreeKey(browserTabID: session.id, appState: appState) else {
+        guard let browserKey = locateOwningWorktreeKey(session: session, appState: appState) else {
             return nil
         }
         if let pane = appState.lastActiveTerminalPane(for: browserKey) {
@@ -80,7 +80,7 @@ enum BrowserAnnotationSender {
             ))
         }
         if let terminal = firstTerminalInWorktree(
-            browserTabID: session.id,
+            session: session,
             worktreeKey: browserKey,
             appState: appState
         ) {
@@ -89,9 +89,9 @@ enum BrowserAnnotationSender {
         return nil
     }
 
-    static func locateOwningWorktreeKey(browserTabID: UUID, appState: AppState) -> WorktreeKey? {
+    static func locateOwningWorktreeKey(session: BrowserSession, appState: AppState) -> WorktreeKey? {
         for (key, root) in appState.workspaceRoots where root.allAreas().contains(where: { area in
-            area.tabs.contains(where: { $0.id == browserTabID })
+            area.tabs.contains(where: { $0.content.browserSession === session })
         }) {
             return key
         }
@@ -99,20 +99,20 @@ enum BrowserAnnotationSender {
     }
 
     private static func firstTerminalInWorktree(
-        browserTabID: UUID,
+        session: BrowserSession,
         worktreeKey: WorktreeKey,
         appState: AppState
     ) -> TerminalTarget? {
         guard let root = appState.workspaceRoots[worktreeKey] else { return nil }
         let areas = root.allAreas()
         if let owningArea = areas.first(where: { area in
-            area.tabs.contains(where: { $0.id == browserTabID })
+            area.tabs.contains(where: { $0.content.browserSession === session })
         }),
             let target = firstTerminal(in: owningArea, projectID: worktreeKey.projectID)
         {
             return target
         }
-        for area in areas where !area.tabs.contains(where: { $0.id == browserTabID }) {
+        for area in areas where !area.tabs.contains(where: { $0.content.browserSession === session }) {
             if let target = firstTerminal(in: area, projectID: worktreeKey.projectID) {
                 return target
             }

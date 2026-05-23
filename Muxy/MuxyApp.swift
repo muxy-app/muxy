@@ -11,6 +11,7 @@ struct MuxyApp: App {
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
     @State private var vcsWorktreeAutoRefresher: VCSWorktreeAutoRefresher
+    @State private var browserDevServerAutoOpener: BrowserDevServerAutoOpener
     private let updateService = UpdateService.shared
 
     init() {
@@ -38,11 +39,13 @@ struct MuxyApp: App {
             projectStore: projectStore,
             worktreeStore: worktreeStore
         )
+        let browserDevServerAutoOpener = BrowserDevServerAutoOpener(appState: appState)
         _appState = State(initialValue: appState)
         _projectStore = State(initialValue: projectStore)
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
         _vcsWorktreeAutoRefresher = State(initialValue: vcsWorktreeAutoRefresher)
+        _browserDevServerAutoOpener = State(initialValue: browserDevServerAutoOpener)
     }
 
     var body: some Scene {

@@ -89,4 +89,26 @@ struct BrowserURLNormalizerTests {
         #expect(!BrowserURLNormalizer.isAllowedNavigationURL(dataURL))
         #expect(!BrowserURLNormalizer.isAllowedNavigationURL(javascript))
     }
+
+    @Test("canonical equates trailing slash and fragment variants")
+    func canonicalCollapsesSlashAndFragment() {
+        let a = BrowserURLNormalizer.canonical("https://example.com/article/")
+        let b = BrowserURLNormalizer.canonical("https://example.com/article")
+        let c = BrowserURLNormalizer.canonical("https://example.com/article#section")
+        #expect(a == b)
+        #expect(a == c)
+    }
+
+    @Test("canonical lowercases scheme and host")
+    func canonicalLowercasesSchemeAndHost() {
+        let mixed = BrowserURLNormalizer.canonical("HTTPS://Example.COM/Article")
+        let lower = BrowserURLNormalizer.canonical("https://example.com/Article")
+        #expect(mixed == lower)
+    }
+
+    @Test("canonical distinguishes different paths and query strings")
+    func canonicalKeepsPathAndQueryDistinct() {
+        #expect(BrowserURLNormalizer.canonical("https://example.com/a") != BrowserURLNormalizer.canonical("https://example.com/b"))
+        #expect(BrowserURLNormalizer.canonical("https://example.com/?x=1") != BrowserURLNormalizer.canonical("https://example.com/?x=2"))
+    }
 }

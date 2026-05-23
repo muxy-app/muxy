@@ -4,7 +4,7 @@ import Foundation
 @Observable
 final class BrowserSession: Identifiable {
     static let defaultURL = "about:blank"
-    static let homeURL = "https://www.google.com"
+    static var homeURL: String { BrowserPreferences.homeURL }
     static let minZoom: Double = 0.25
     static let maxZoom: Double = 4.0
     static let zoomStep: Double = 0.1
@@ -18,13 +18,14 @@ final class BrowserSession: Identifiable {
     init(
         id: UUID = UUID(),
         projectPath: String,
-        initialURL: String = BrowserSession.homeURL,
+        initialURL: String? = nil,
         scrollY: Double = 0,
         zoom: Double = 1.0
     ) {
         self.id = id
         self.projectPath = projectPath
-        nav = BrowserNavigationState(initialURL: initialURL, scrollY: scrollY, zoom: zoom)
+        let resolvedInitialURL = initialURL ?? BrowserSession.homeURL
+        nav = BrowserNavigationState(initialURL: resolvedInitialURL, scrollY: scrollY, zoom: zoom)
         inspector = BrowserInspectorState()
         commands = BrowserCommandBus()
     }
@@ -42,8 +43,6 @@ final class BrowserSession: Identifiable {
     }
 
     func requestStop() {
-        nav.isLoading = false
-        nav.estimatedProgress = 0
         commands.send(.stop)
     }
 
@@ -87,6 +86,27 @@ final class BrowserSession: Identifiable {
     func removeStyleOverride(id: UUID, for annotationID: UUID) {
         inspector.removeStyleOverride(id: id, for: annotationID)
         commands.send(.applyStyleOverrides(inspector.aggregatedStyleOverrides()))
+    }
+
+    func presentFindBar() {
+        nav.findBar.isVisible = true
+        nav.findBar.focusVersion &+= 1
+    }
+
+    func dismissFindBar() {
+        nav.findBar.isVisible = false
+        nav.findBar.query = ""
+        nav.findBar.lastResultFound = nil
+        commands.send(.clearFind)
+    }
+
+    func performFind(forward: Bool) {
+        let trimmed = nav.findBar.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            commands.send(.clearFind)
+            return
+        }
+        commands.send(.find(trimmed, forward: forward))
     }
 }
 

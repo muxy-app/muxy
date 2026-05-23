@@ -37,6 +37,22 @@ enum BrowserURLNormalizer {
         return webSchemes.contains(scheme)
     }
 
+    static func canonical(_ urlString: String) -> String {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        guard var components = URLComponents(string: trimmed) else { return trimmed.lowercased() }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        components.fragment = nil
+        if components.path.count > 1, components.path.hasSuffix("/") {
+            components.path.removeLast()
+        }
+        if components.path.isEmpty, components.host != nil {
+            components.path = "/"
+        }
+        return components.string ?? trimmed.lowercased()
+    }
+
     private static func isBlockedScheme(_ scheme: String) -> Bool {
         scheme == "javascript" || scheme == "data" || scheme == "file"
     }
