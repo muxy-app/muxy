@@ -53,6 +53,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case submitRichInput
     case submitRichInputWithoutReturn
     case openVCSTab
+    case openDiffViewerTab
     case quickOpen
     case findInFiles
     case switchWorktree
@@ -110,6 +111,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .submitRichInput,
         .submitRichInputWithoutReturn,
         .openVCSTab,
+        .openDiffViewerTab,
         .quickOpen,
         .findInFiles,
         .switchWorktree,
@@ -184,6 +186,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
                 scope: .richInput
             )
         case .openVCSTab: ShortcutMetadata(displayName: "Source Control", category: "App", scope: .mainWindow)
+        case .openDiffViewerTab: ShortcutMetadata(displayName: "Diff Viewer", category: "App", scope: .mainWindow)
         case .quickOpen: ShortcutMetadata(displayName: "Quick Open", category: "App", scope: .mainWindow)
         case .findInFiles: ShortcutMetadata(displayName: "Find in Files", category: "App", scope: .mainWindow)
         case .switchWorktree: ShortcutMetadata(displayName: "Open Switcher", category: "Project Navigation", scope: .mainWindow)
@@ -286,6 +289,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .cyclePreviousTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
         Self(action: .openVCSTab, combo: KeyCombo(key: "y", command: true)),
+        Self(action: .openDiffViewerTab, combo: KeyCombo(key: "y", command: true, shift: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),
         Self(action: .nextTab, combo: KeyCombo(key: "]", command: true)),

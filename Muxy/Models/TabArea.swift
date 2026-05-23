@@ -129,11 +129,13 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(editorState: editorState))
     }
 
-    func createDiffViewerTab(vcs: VCSTabState, filePath: String, isStaged: Bool) {
+    func createDiffViewerTab(vcs: VCSTabState, filePath: String?, isStaged: Bool) {
         if let existing = tabs.first(where: { tab in
             tab.content.diffViewerState != nil
         }) {
-            existing.content.diffViewerState?.select(filePath: filePath, isStaged: isStaged)
+            if let filePath {
+                existing.content.diffViewerState?.select(filePath: filePath, isStaged: isStaged)
+            }
             selectTab(existing.id)
             return
         }

@@ -509,6 +509,17 @@ struct MainWindow: View {
                 onCreateVCSTab: {
                     openVCS(for: project, preferredAreaID: area.id)
                 },
+                onCreateDiffViewerTab: {
+                    appState.dispatch(.createDiffViewerTab(
+                        projectID: project.id,
+                        areaID: area.id,
+                        request: AppState.DiffViewerRequest(
+                            vcs: VCSStateStore.shared.state(for: area.projectPath),
+                            filePath: nil,
+                            isStaged: false
+                        )
+                    ))
+                },
                 onCloseTab: { tabID in
                     appState.closeTab(tabID, areaID: area.id, projectID: project.id)
                 },

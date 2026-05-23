@@ -148,6 +148,10 @@ struct ShortcutActionDispatcher {
             guard let activeProject else { return false }
             openVCS(activeProject)
             return true
+        case .openDiffViewerTab:
+            guard let activeProject else { return false }
+            appState.openDiffViewer(projectID: activeProject.id)
+            return true
         case .quickOpen:
             notificationCenter.post(name: .quickOpen, object: nil)
             return true

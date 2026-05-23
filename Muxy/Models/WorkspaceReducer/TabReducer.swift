@@ -93,7 +93,9 @@ enum TabReducer {
         else { return }
         for existingArea in root.allAreas() {
             if let existing = existingArea.tabs.first(where: { $0.content.diffViewerState != nil }) {
-                existing.content.diffViewerState?.select(filePath: request.filePath, isStaged: request.isStaged)
+                if let filePath = request.filePath {
+                    existing.content.diffViewerState?.select(filePath: filePath, isStaged: request.isStaged)
+                }
                 FocusReducer.focusArea(existingArea.id, key: key, state: &state)
                 existingArea.selectTab(existing.id)
                 return

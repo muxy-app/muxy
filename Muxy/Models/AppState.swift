@@ -17,7 +17,7 @@ final class AppState {
 
     struct DiffViewerRequest {
         let vcs: VCSTabState
-        let filePath: String
+        let filePath: String?
         let isStaged: Bool
     }
 
@@ -486,6 +486,24 @@ final class AppState {
             projectID: projectID,
             areaID: nil,
             request: DiffViewerRequest(vcs: vcs, filePath: filePath, isStaged: isStaged)
+        ))
+    }
+
+    func openDiffViewer(projectID: UUID) {
+        guard let worktreePath = activeWorktreePath(for: projectID) else { return }
+        let vcs = VCSStateStore.shared.state(for: worktreePath)
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { tab in
+                tab.content.diffViewerState != nil
+            }) {
+                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                return
+            }
+        }
+        dispatch(.createDiffViewerTab(
+            projectID: projectID,
+            areaID: nil,
+            request: DiffViewerRequest(vcs: vcs, filePath: nil, isStaged: false)
         ))
     }
 

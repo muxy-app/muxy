@@ -105,6 +105,7 @@ struct KeyBindingTests {
     func sourceControlUsesCommandYByDefault() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
         #expect(combos[.openVCSTab] == KeyCombo(key: "y", command: true))
+        #expect(combos[.openDiffViewerTab] == KeyCombo(key: "y", command: true, shift: true))
         #expect(!KeyBinding.defaults.contains { $0.combo == KeyCombo(key: "k", command: true) })
         #expect(!KeyBinding.defaults.contains { $0.combo == KeyCombo(key: "j", command: true) })
     }

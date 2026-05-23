@@ -281,13 +281,21 @@ private struct DiffCardList: View {
         UIMetrics.spacing8
     }
 
-    private var contentHeight: CGFloat {
+    private func contentHeight(viewportHeight: CGFloat) -> CGFloat {
         let padding = UIMetrics.spacing5 * 2
-        let spacing = cardSpacing * CGFloat(max(0, sections.count - 1))
+        let spacing = cardSpacing * CGFloat(sections.count)
         let cardsHeight = sections.reduce(CGFloat(0)) { total, section in
             total + cardMetrics.cardHeight(for: section)
         }
-        return padding + spacing + cardsHeight
+        return padding + spacing + cardsHeight + bottomScrollSpace(viewportHeight: viewportHeight)
+    }
+
+    private func bottomScrollSpace(viewportHeight: CGFloat) -> CGFloat {
+        max(0, viewportHeight - activeProbeY)
+    }
+
+    private var activeProbeY: CGFloat {
+        UIMetrics.scaled(48)
     }
 
     var body: some View {
@@ -306,9 +314,11 @@ private struct DiffCardList: View {
                             .id(section.cacheKey)
                             .background(sectionOffsetReader(section.cacheKey))
                         }
+                        Color.clear
+                            .frame(height: bottomScrollSpace(viewportHeight: geometry.size.height))
                     }
                     .padding(UIMetrics.spacing5)
-                    .frame(height: contentHeight, alignment: .top)
+                    .frame(height: contentHeight(viewportHeight: geometry.size.height), alignment: .top)
                 }
                 .coordinateSpace(name: "diff-card-scroll")
                 .onChange(of: state.scrollRequestVersion) { _, _ in
@@ -327,7 +337,7 @@ private struct DiffCardList: View {
     }
 
     private func activeCacheKey(for offsets: [String: CGFloat]) -> String? {
-        let probeY = UIMetrics.scaled(48)
+        let probeY = activeProbeY
         return sections.first { section in
             guard let offset = offsets[section.cacheKey] else { return false }
             return offset <= probeY && offset + cardMetrics.cardHeight(for: section) >= probeY
@@ -434,16 +444,6 @@ private struct DiffFileCard: View {
 
     private var header: some View {
         HStack(spacing: UIMetrics.spacing3) {
-            Button {
-                state.toggleCollapsed(filePath: section.filePath, isStaged: section.isStaged)
-            } label: {
-                Image(systemName: section.isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .bold))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                    .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
-            }
-            .buttonStyle(.plain)
-
             FileDiffIcon()
                 .stroke(MuxyTheme.accent, style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
                 .frame(width: UIMetrics.scaled(10), height: UIMetrics.scaled(10))
@@ -701,23 +701,8 @@ private struct DiffViewerSidebarFileRow: View {
         }
     }
 
-    private var collapsed: Bool {
-        state.isCollapsed(filePath: file.path, isStaged: isStaged)
-    }
-
     var body: some View {
         HStack(spacing: UIMetrics.spacing3) {
-            Button {
-                state.toggleCollapsed(filePath: file.path, isStaged: isStaged)
-            } label: {
-                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
-                    .foregroundStyle(MuxyTheme.fgDim)
-                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
             Text(statusText)
                 .font(.system(size: UIMetrics.fontCaption, weight: .bold, design: .monospaced))
                 .foregroundStyle(statusColor)
@@ -728,7 +713,7 @@ private struct DiffViewerSidebarFileRow: View {
                 .frame(width: UIMetrics.scaled(10), height: UIMetrics.scaled(10))
 
             Text(displayPath)
-                .font(.system(size: UIMetrics.fontFootnote, weight: selected ? .semibold : .medium))
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(selected ? MuxyTheme.fg : MuxyTheme.fgMuted)
                 .lineLimit(1)
                 .truncationMode(.middle)

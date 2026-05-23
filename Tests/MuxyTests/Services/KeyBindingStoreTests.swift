@@ -45,6 +45,7 @@ struct KeyBindingStoreTests {
         let combo = KeyCombo(key: "u", command: true)
 
         #expect(store.combo(for: .openVCSTab) == KeyCombo(key: "y", command: true))
+        #expect(store.combo(for: .openDiffViewerTab) == KeyCombo(key: "y", command: true, shift: true))
 
         store.updateBinding(action: .openVCSTab, combo: combo)
 
