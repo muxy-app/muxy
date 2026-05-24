@@ -858,16 +858,30 @@ struct VCSTabView: View {
 
     private func openPullRequestDiffInTab(_ pr: GitRepositoryService.PRListItem) {
         guard let projectID = appState.activeProjectID else { return }
-        appState.openDiffViewer(
-            vcs: state,
-            source: .pullRequest(
-                number: pr.number,
-                title: pr.title,
-                baseRef: "origin/\(pr.baseBranch)",
-                headRef: pr.headRefOid
-            ),
-            projectID: projectID
-        )
+        Task { @MainActor in
+            let baseRef = "origin/\(pr.baseBranch)"
+            let remote = baseRef.split(separator: "/", maxSplits: 1).first.map(String.init) ?? "origin"
+            let headRef: String
+            do {
+                headRef = try await GitRepositoryService().fetchPullRequestDiffHead(
+                    repoPath: state.projectPath,
+                    number: pr.number,
+                    remote: remote
+                )
+            } catch {
+                return
+            }
+            appState.openDiffViewer(
+                vcs: state,
+                source: .pullRequest(
+                    number: pr.number,
+                    title: pr.title,
+                    baseRef: baseRef,
+                    headRef: headRef
+                ),
+                projectID: projectID
+            )
+        }
     }
 }
 

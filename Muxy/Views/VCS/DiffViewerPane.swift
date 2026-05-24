@@ -328,9 +328,7 @@ private struct DiffCardList: View {
                 .onPreferenceChange(DiffCardOffsetPreferenceKey.self) { newOffsets in
                     offsets = newOffsets
                     let active = activeCacheKey(for: newOffsets)
-                    if state.activeCacheKey != active {
-                        state.activeCacheKey = active
-                    }
+                    state.activateFromDiffScroll(cacheKey: active)
                 }
             }
         }
@@ -449,6 +447,18 @@ private struct DiffFileCard: View {
 
     private var header: some View {
         HStack(spacing: UIMetrics.spacing3) {
+            Button {
+                state.toggleCollapsed(filePath: section.filePath, isStaged: section.isStaged)
+            } label: {
+                Image(systemName: section.isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(section.isCollapsed ? "Expand File" : "Collapse File")
+
             FileDiffIcon()
                 .stroke(MuxyTheme.accent, style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
                 .frame(width: UIMetrics.scaled(10), height: UIMetrics.scaled(10))
@@ -556,8 +566,8 @@ private struct DiffViewerSidebar: View {
                         DiffViewerSidebarSection(state: state, title: "Changes", files: state.unstagedFiles, isStaged: false)
                     }
                 }
-                .onChange(of: state.activeCacheKey) { _, cacheKey in
-                    guard let cacheKey else { return }
+                .onChange(of: state.sidebarScrollRequestVersion) { _, _ in
+                    guard let cacheKey = state.activeCacheKey else { return }
                     proxy.scrollTo(cacheKey, anchor: .center)
                 }
             }

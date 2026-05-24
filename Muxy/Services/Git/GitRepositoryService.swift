@@ -977,6 +977,24 @@ struct GitRepositoryService {
         )
     }
 
+    func fetchPullRequestDiffHead(repoPath: String, number: Int, remote: String) async throws -> String {
+        let localRef = Self.localPullRequestDiffRef(number: number)
+        try validateRef(remote)
+        try validateRef(localRef)
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["fetch", remote, "+refs/pull/\(number)/head:\(localRef)"]
+        )
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to fetch pull request diff." : result.stderr)
+        }
+        return localRef
+    }
+
+    static func localPullRequestDiffRef(number: Int) -> String {
+        "refs/muxy/pull/\(number)/head"
+    }
+
     private static func parseNameStatus(_ data: Data, stats: [String: NumstatEntry]) -> [GitStatusFile] {
         guard let decoded = String(data: data, encoding: .utf8), !decoded.isEmpty else { return [] }
         let tokens = decoded.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)

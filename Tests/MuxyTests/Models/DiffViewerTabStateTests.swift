@@ -133,6 +133,31 @@ struct DiffViewerTabStateTests {
         vcs.diffCache.cancelAll()
     }
 
+    @Test("sidebar auto scroll only follows diff scroll activation")
+    func sidebarAutoScrollOnlyFollowsDiffScrollActivation() {
+        let vcs = VCSTabState(projectPath: NSTemporaryDirectory())
+        let state = DiffViewerTabState(vcs: vcs)
+        let firstPath = "Sources/App.swift"
+        let secondPath = "Sources/Other.swift"
+        let secondCacheKey = DiffViewerTabState.cacheKey(filePath: secondPath, isStaged: false)
+
+        vcs.files = [
+            makeFile(path: firstPath, xStatus: " ", yStatus: "M"),
+            makeFile(path: secondPath, xStatus: " ", yStatus: "M"),
+        ]
+        vcs.diffCache.store(makeDiff(), for: secondCacheKey, pinnedPaths: [])
+
+        state.select(filePath: secondPath, isStaged: false)
+
+        #expect(state.activeCacheKey == secondCacheKey)
+        #expect(state.sidebarScrollRequestVersion == 0)
+
+        state.activateFromDiffScroll(cacheKey: DiffViewerTabState.cacheKey(filePath: firstPath, isStaged: false))
+
+        #expect(state.sidebarScrollRequestVersion == 1)
+        vcs.diffCache.cancelAll()
+    }
+
     @Test("collapse state supports file and global toggles")
     func collapseStateSupportsFileAndGlobalToggles() {
         let vcs = VCSTabState(projectPath: NSTemporaryDirectory())

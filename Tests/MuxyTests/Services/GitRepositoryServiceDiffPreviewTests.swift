@@ -29,4 +29,34 @@ struct GitRepositoryServiceDiffPreviewTests {
         #expect(result.rows.count == 101)
         #expect(result.rows.last?.newLineNumber == 100)
     }
+
+    @Test("staged new file diff reads index content")
+    func stagedNewFileDiffReadsIndexContent() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        _ = try await GitProcessRunner.runGit(repoPath: directory.path, arguments: ["init"])
+        let fileName = "new.txt"
+        let fileURL = directory.appendingPathComponent(fileName)
+        try "staged\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        _ = try await GitProcessRunner.runGit(repoPath: directory.path, arguments: ["add", fileName])
+        try "unstaged\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let result = try await GitRepositoryService().patchAndCompare(
+            repoPath: directory.path,
+            filePath: fileName,
+            lineLimit: nil,
+            hints: GitRepositoryService.DiffHints(hasStaged: true, hasUnstaged: false, isUntrackedOrNew: false)
+        )
+
+        #expect(result.rows.contains { $0.newText == "staged" })
+        #expect(!result.rows.contains { $0.newText == "unstaged" })
+    }
+
+    @Test("pull request diff ref is namespaced by number")
+    func pullRequestDiffRefIsNamespacedByNumber() {
+        #expect(GitRepositoryService.localPullRequestDiffRef(number: 535) == "refs/muxy/pull/535/head")
+    }
 }

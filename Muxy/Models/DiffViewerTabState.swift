@@ -33,6 +33,7 @@ final class DiffViewerTabState: Identifiable {
     var wordWrap = false
     var fontSize: CGFloat = 13
     var scrollRequestVersion = 0
+    var sidebarScrollRequestVersion = 0
     var collapsedCacheKeys: Set<String> = []
     var manuallyLoadedCacheKeys: Set<String> = []
     var activeCacheKey: String?
@@ -118,6 +119,12 @@ final class DiffViewerTabState: Identifiable {
         activeCacheKey = Self.cacheKey(filePath: filePath, isStaged: isStaged)
         scrollRequestVersion &+= 1
         loadSelectedDiff(forceFull: false)
+    }
+
+    func activateFromDiffScroll(cacheKey: String?) {
+        guard activeCacheKey != cacheKey else { return }
+        activeCacheKey = cacheKey
+        sidebarScrollRequestVersion &+= 1
     }
 
     func loadAllDiffs(forceFull: Bool = false) {
@@ -250,7 +257,7 @@ final class DiffViewerTabState: Identifiable {
         guard let file = files.first(where: { $0.path == filePath }) else {
             return GitRepositoryService.DiffHints(hasStaged: isStaged, hasUnstaged: !isStaged, isUntrackedOrNew: false)
         }
-        let untrackedOrNew = (file.xStatus == "?" && file.yStatus == "?") || file.xStatus == "A"
+        let untrackedOrNew = (file.xStatus == "?" && file.yStatus == "?") || (!isStaged && file.xStatus == "A")
         if isStaged {
             return GitRepositoryService.DiffHints(hasStaged: true, hasUnstaged: false, isUntrackedOrNew: untrackedOrNew)
         }
