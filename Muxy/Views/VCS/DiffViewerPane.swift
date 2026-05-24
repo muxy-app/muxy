@@ -169,6 +169,24 @@ private struct DiffViewerBreadcrumb: View {
                 .truncationMode(.middle)
                 .textSelection(.enabled)
 
+            if let sourceLink = state.source.link {
+                Link(destination: sourceLink.url) {
+                    HStack(spacing: UIMetrics.scaled(3)) {
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.system(size: UIMetrics.fontXS, weight: .semibold))
+                        Text(sourceLink.title)
+                            .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    }
+                    .foregroundStyle(MuxyTheme.accent)
+                    .padding(.horizontal, UIMetrics.scaled(6))
+                    .frame(height: UIMetrics.controlSmall)
+                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                    .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("Open \(sourceLink.title)")
+            }
+
             Text("\(state.files.count) files")
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)

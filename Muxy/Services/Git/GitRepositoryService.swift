@@ -1132,13 +1132,13 @@ struct GitRepositoryService {
     }
 
     private func untrackedOrNewFileDiff(repoPath: String, filePath: String, lineLimit: Int?) throws -> PatchAndCompareResult {
-        let fullPath = (repoPath as NSString).appendingPathComponent(filePath)
-        let resolvedRepo = (repoPath as NSString).standardizingPath
-        let resolvedFull = (fullPath as NSString).standardizingPath
-        guard resolvedFull.hasPrefix(resolvedRepo + "/") else {
+        let fileURL = URL(fileURLWithPath: repoPath).appendingPathComponent(filePath)
+        let resolvedRepo = URL(fileURLWithPath: repoPath).resolvingSymlinksInPath().standardizedFileURL.path
+        let resolvedFile = fileURL.resolvingSymlinksInPath().standardizedFileURL.path
+        guard resolvedFile.hasPrefix(resolvedRepo + "/") else {
             throw GitError.commandFailed("File path is outside the repository.")
         }
-        guard let fileLines = try readDiffPreviewLines(path: fullPath, lineLimit: lineLimit) else {
+        guard let fileLines = try readDiffPreviewLines(path: fileURL.path, lineLimit: lineLimit) else {
             return PatchAndCompareResult(rows: [], truncated: false, additions: 0, deletions: 0)
         }
 

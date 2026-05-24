@@ -24,6 +24,36 @@ struct DiffViewerTabStateTests {
         #expect(DiffViewerTabState.cacheKey(filePath: "Sources/App.swift", isStaged: false) == "unstaged:Sources/App.swift")
     }
 
+    @Test("commit source title and link include commit")
+    func commitSourceTitleAndLinkIncludeCommit() throws {
+        let url = try #require(URL(string: "https://github.com/muxy-app/muxy/commit/1234567890abcdef"))
+        let source = DiffViewerTabState.Source.commit(DiffViewerTabState.CommitSource(
+            hash: "1234567890abcdef",
+            subject: "Fix diff viewer",
+            webURL: url
+        ))
+
+        #expect(source.displayTitle == "Commit 1234567 Diff")
+        #expect(source.link?.title == "Commit 1234567")
+        #expect(source.link?.url == url)
+    }
+
+    @Test("pull request source title and link include pull request")
+    func pullRequestSourceTitleAndLinkIncludePullRequest() throws {
+        let url = try #require(URL(string: "https://github.com/muxy-app/muxy/pull/535"))
+        let source = DiffViewerTabState.Source.pullRequest(DiffViewerTabState.PullRequestSource(
+            number: 535,
+            title: "New git diff viewer",
+            baseRef: "refs/remotes/origin/main",
+            headRef: "refs/muxy/pull/535/head",
+            webURL: url
+        ))
+
+        #expect(source.displayTitle == "PR #535 Diff")
+        #expect(source.link?.title == "PR #535")
+        #expect(source.link?.url == url)
+    }
+
     @Test("reconcile preserves selected path across staged buckets")
     func reconcilePreservesSelectedPathAcrossStagedBuckets() {
         let vcs = VCSTabState(projectPath: NSTemporaryDirectory())

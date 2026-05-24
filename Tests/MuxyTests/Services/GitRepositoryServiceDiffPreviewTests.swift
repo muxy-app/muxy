@@ -55,6 +55,37 @@ struct GitRepositoryServiceDiffPreviewTests {
         #expect(!result.rows.contains { $0.newText == "unstaged" })
     }
 
+    @Test("untracked symlink outside repository is rejected")
+    func untrackedSymlinkOutsideRepositoryIsRejected() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let outsideDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.removeItem(at: outsideDirectory)
+        }
+
+        let outsideFile = outsideDirectory.appendingPathComponent("secret.txt")
+        try "secret\n".write(to: outsideFile, atomically: true, encoding: .utf8)
+        let symlink = directory.appendingPathComponent("linked.txt")
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: outsideFile)
+
+        do {
+            _ = try await GitRepositoryService().patchAndCompare(
+                repoPath: directory.path,
+                filePath: "linked.txt",
+                lineLimit: nil,
+                hints: GitRepositoryService.DiffHints(hasStaged: false, hasUnstaged: false, isUntrackedOrNew: true)
+            )
+            Issue.record("Expected outside repository symlink to be rejected.")
+        } catch let error as GitRepositoryService.GitError {
+            #expect(error.errorDescription == "File path is outside the repository.")
+        }
+    }
+
     @Test("pull request diff ref is namespaced by number")
     func pullRequestDiffRefIsNamespacedByNumber() {
         #expect(GitRepositoryService.localPullRequestDiffRef(number: 535) == "refs/muxy/pull/535/head")

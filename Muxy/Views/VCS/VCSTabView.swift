@@ -851,7 +851,11 @@ struct VCSTabView: View {
         guard let projectID = appState.activeProjectID else { return }
         appState.openDiffViewer(
             vcs: state,
-            source: .commit(hash: commit.hash, subject: commit.subject),
+            source: .commit(DiffViewerTabState.CommitSource(
+                hash: commit.hash,
+                subject: commit.subject,
+                webURL: state.remoteWebURL?.appendingPathComponent("commit/\(commit.hash)")
+            )),
             projectID: projectID
         )
     }
@@ -875,12 +879,13 @@ struct VCSTabView: View {
             }
             appState.openDiffViewer(
                 vcs: state,
-                source: .pullRequest(
+                source: .pullRequest(DiffViewerTabState.PullRequestSource(
                     number: pr.number,
                     title: pr.title,
                     baseRef: baseRef,
-                    headRef: headRef
-                ),
+                    headRef: headRef,
+                    webURL: URL(string: pr.url)
+                )),
                 projectID: projectID
             )
         }

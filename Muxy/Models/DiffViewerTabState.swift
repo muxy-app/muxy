@@ -3,22 +3,52 @@ import Foundation
 @MainActor
 @Observable
 final class DiffViewerTabState: Identifiable {
+    struct CommitSource: Equatable {
+        let hash: String
+        let subject: String
+        let webURL: URL?
+
+        var shortHash: String {
+            String(hash.prefix(7))
+        }
+    }
+
+    struct PullRequestSource: Equatable {
+        let number: Int
+        let title: String
+        let baseRef: String
+        let headRef: String
+        let webURL: URL?
+    }
+
     enum Source: Equatable {
         case workingTree
-        case commit(hash: String, subject: String)
+        case commit(CommitSource)
         case range(baseRef: String, headRef: String, title: String)
-        case pullRequest(number: Int, title: String, baseRef: String, headRef: String)
+        case pullRequest(PullRequestSource)
 
         var displayTitle: String {
             switch self {
             case .workingTree:
                 "Git Diff"
-            case let .commit(hash, subject):
-                subject.isEmpty ? "Commit \(hash.prefix(7))" : subject
+            case let .commit(commit):
+                "Commit \(commit.shortHash) Diff"
             case let .range(_, _, title):
                 title
-            case let .pullRequest(number, title, _, _):
-                title.isEmpty ? "PR #\(number)" : "#\(number) \(title)"
+            case let .pullRequest(pullRequest):
+                "PR #\(pullRequest.number) Diff"
+            }
+        }
+
+        var link: (title: String, url: URL)? {
+            switch self {
+            case .workingTree,
+                 .range:
+                nil
+            case let .commit(commit):
+                commit.webURL.map { ("Commit \(commit.shortHash)", $0) }
+            case let .pullRequest(pullRequest):
+                pullRequest.webURL.map { ("PR #\(pullRequest.number)", $0) }
             }
         }
     }
@@ -299,13 +329,17 @@ final class DiffViewerTabState: Identifiable {
         switch source {
         case .workingTree:
             vcs.files
-        case let .commit(hash, _):
-            try await git.changedFiles(repoPath: projectPath, commit: hash)
-        case let .range(baseRef, headRef, _),
-             let .pullRequest(_, _, baseRef, headRef):
+        case let .commit(commit):
+            try await git.changedFiles(repoPath: projectPath, commit: commit.hash)
+        case let .range(baseRef, headRef, _):
             try await git.changedFiles(
                 repoPath: projectPath,
                 range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef)
+            )
+        case let .pullRequest(pullRequest):
+            try await git.changedFiles(
+                repoPath: projectPath,
+                range: GitRepositoryService.DiffRange(baseRef: pullRequest.baseRef, headRef: pullRequest.headRef)
             )
         }
     }
@@ -352,14 +386,20 @@ final class DiffViewerTabState: Identifiable {
         switch source {
         case .workingTree:
             try await git.patchAndCompare(repoPath: projectPath, filePath: filePath, lineLimit: lineLimit)
-        case let .commit(hash, _):
-            try await git.patchAndCompare(repoPath: projectPath, filePath: filePath, commit: hash, lineLimit: lineLimit)
-        case let .range(baseRef, headRef, _),
-             let .pullRequest(_, _, baseRef, headRef):
+        case let .commit(commit):
+            try await git.patchAndCompare(repoPath: projectPath, filePath: filePath, commit: commit.hash, lineLimit: lineLimit)
+        case let .range(baseRef, headRef, _):
             try await git.patchAndCompare(
                 repoPath: projectPath,
                 filePath: filePath,
                 range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef),
+                lineLimit: lineLimit
+            )
+        case let .pullRequest(pullRequest):
+            try await git.patchAndCompare(
+                repoPath: projectPath,
+                filePath: filePath,
+                range: GitRepositoryService.DiffRange(baseRef: pullRequest.baseRef, headRef: pullRequest.headRef),
                 lineLimit: lineLimit
             )
         }
