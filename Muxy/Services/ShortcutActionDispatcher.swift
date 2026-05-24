@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 @MainActor
 struct ShortcutActionDispatcher {
@@ -173,6 +173,10 @@ struct ShortcutActionDispatcher {
         case .toggleAIUsage:
             guard AIUsageSettingsStore.isUsageEnabled() else { return false }
             notificationCenter.post(name: .toggleAIUsage, object: nil)
+            return true
+        case .toggleFullScreen:
+            guard let window = NSApp.keyWindow else { return false }
+            window.toggleFullScreen(nil)
             return true
         case .navigateBack:
             guard appState.navigation.canGoBack else { return false }

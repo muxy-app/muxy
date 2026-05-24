@@ -94,6 +94,12 @@ struct KeyBindingTests {
         #expect(combos[.toggleMaximizePane] == KeyCombo(key: KeyCombo.returnKey, command: true, option: true))
     }
 
+    @Test("KeyBinding.defaults includes full screen shortcut")
+    func defaultsIncludesFullScreenShortcut() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.toggleFullScreen] == KeyCombo(key: "f", command: true, control: true))
+    }
+
     @Test("KeyBinding.defaults uses browser reopen shortcut")
     func defaultsIncludesReopenClosedTerminalTabShortcut() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })

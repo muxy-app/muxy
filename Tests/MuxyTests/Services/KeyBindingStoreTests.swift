@@ -56,6 +56,19 @@ struct KeyBindingStoreTests {
         #expect(store.combo(for: .openVCSTab) == KeyCombo(key: "y", command: true))
     }
 
+    @Test("action resolves full screen shortcut")
+    func actionResolvesFullScreenShortcut() throws {
+        let store = KeyBindingStore(persistence: StubKeyBindingPersistence(bindings: KeyBinding.defaults))
+        let event = try keyEvent(
+            characters: "f",
+            charactersIgnoringModifiers: "f",
+            keyCode: 3,
+            modifiers: [.command, .control]
+        )
+
+        #expect(store.action(for: event, scopes: [.mainWindow]) == .toggleFullScreen)
+    }
+
     private func keyEvent(
         characters: String,
         charactersIgnoringModifiers: String,

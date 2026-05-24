@@ -450,6 +450,12 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.toggleAIUsage)
             }
             .shortcut(for: .toggleAIUsage, store: keyBindings)
+
+            Button("Toggle Full Screen") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.toggleFullScreen)
+            }
+            .shortcut(for: .toggleFullScreen, store: keyBindings)
         }
 
         CommandGroup(replacing: .help) {

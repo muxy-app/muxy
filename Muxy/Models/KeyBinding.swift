@@ -61,6 +61,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case toggleSidebar
     case toggleFileTree
     case toggleAIUsage
+    case toggleFullScreen
     case navigateBack
     case navigateForward
     case toggleMaximizePane
@@ -119,6 +120,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .toggleSidebar,
         .toggleFileTree,
         .toggleAIUsage,
+        .toggleFullScreen,
         .navigateBack,
         .navigateForward,
         .toggleMaximizePane,
@@ -194,6 +196,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
         case .toggleFileTree: ShortcutMetadata(displayName: "Toggle File Tree", category: "App", scope: .mainWindow)
         case .toggleAIUsage: ShortcutMetadata(displayName: "Toggle AI Usage", category: "App", scope: .mainWindow)
+        case .toggleFullScreen: ShortcutMetadata(displayName: "Toggle Full Screen", category: "App", scope: .mainWindow)
         case .navigateBack: ShortcutMetadata(displayName: "Navigate Back", category: "Navigation", scope: .mainWindow)
         case .navigateForward: ShortcutMetadata(displayName: "Navigate Forward", category: "Navigation", scope: .mainWindow)
         case .toggleVoiceRecording: ShortcutMetadata(
@@ -325,6 +328,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .toggleFileTree, combo: KeyCombo(key: "e", command: true)),
         Self(action: .toggleAIUsage, combo: KeyCombo(key: "l", command: true)),
+        Self(action: .toggleFullScreen, combo: KeyCombo(key: "f", command: true, control: true)),
         Self(action: .navigateBack, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, control: true)),
         Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),
         Self(action: .toggleMaximizePane, combo: KeyCombo(key: KeyCombo.returnKey, command: true, option: true)),

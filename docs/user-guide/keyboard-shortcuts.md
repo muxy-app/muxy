@@ -64,6 +64,7 @@ Mouse side buttons (3 / 4) and three‑finger horizontal trackpad swipes also na
 | Toggle Sidebar | `Cmd+B` |
 | Toggle File Tree | `Cmd+E` |
 | Toggle AI Usage | `Cmd+L` |
+| Toggle Full Screen | `Cmd+Ctrl+F` |
 | Theme Picker | `Cmd+Shift+K` |
 | Reload Configuration | `Cmd+Shift+R` |
 
