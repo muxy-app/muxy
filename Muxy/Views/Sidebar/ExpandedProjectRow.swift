@@ -10,6 +10,7 @@ struct ExpandedProjectRow: View {
     let onRemove: () -> Void
     let onRename: (String) -> Void
     let onSetLogo: (String?) -> Void
+    let onSetIcon: (String?) -> Void
     let onSetIconColor: (String?) -> Void
 
     @Environment(AppState.self) private var appState
@@ -33,6 +34,7 @@ struct ExpandedProjectRow: View {
     @State private var commandsSectionExpanded = true
     @State private var worktreesSectionExpanded = true
     @State private var activeCommandID: String?
+    @State private var showSymbolPicker = false
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -81,6 +83,10 @@ struct ExpandedProjectRow: View {
             Button("Set Logo...") { pickLogoImage() }
             if project.logo != nil {
                 Button("Remove Logo") { onSetLogo(nil) }
+            }
+            Button("Set Icon...") { showSymbolPicker = true }
+            if project.icon != nil {
+                Button("Remove Icon") { onSetIcon(nil) }
             }
             Button("Set Icon Color...") { showColorPicker = true }
             if project.iconColor != nil {
@@ -142,6 +148,12 @@ struct ExpandedProjectRow: View {
             ProjectIconColorPicker(selectedID: project.iconColor) { id in
                 onSetIconColor(id)
                 showColorPicker = false
+            }
+        }
+        .popover(isPresented: $showSymbolPicker, arrowEdge: .trailing) {
+            SFSymbolPicker(selectedName: project.icon) { name in
+                onSetIcon(name)
+                showSymbolPicker = false
             }
         }
     }
@@ -235,6 +247,10 @@ struct ExpandedProjectRow: View {
                     .scaledToFill()
                     .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
                     .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+            } else if let iconName = project.icon {
+                Image(systemName: iconName)
+                    .font(.system(size: UIMetrics.fontTitleLarge, weight: .medium))
+                    .foregroundStyle(letterForeground)
             } else {
                 Text(displayLetter)
                     .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
