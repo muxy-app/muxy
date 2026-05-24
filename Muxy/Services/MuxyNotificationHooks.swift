@@ -40,15 +40,16 @@ enum MuxyNotificationHooks {
         let path = url.path
         guard FileManager.default.fileExists(atPath: path) else { return nil }
 
-        if !FileManager.default.isExecutableFile(atPath: path) {
-            do {
-                try FileManager.default.setAttributes(
-                    [.posixPermissions: FilePermissions.executable],
-                    ofItemAtPath: path
-                )
-            } catch {
-                logger.error("Failed to set executable permission on \(path): \(error.localizedDescription)")
-                return nil
+        if ext == "sh" || ext == "js" {
+            if !FileManager.default.isExecutableFile(atPath: path) {
+                do {
+                    try FileManager.default.setAttributes(
+                        [.posixPermissions: FilePermissions.executable],
+                        ofItemAtPath: path
+                    )
+                } catch {
+                    logger.error("Failed to set executable permission on \(path): \(error.localizedDescription)")
+                }
             }
         }
 

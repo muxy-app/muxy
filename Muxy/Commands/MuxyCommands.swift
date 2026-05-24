@@ -405,14 +405,6 @@ struct MuxyCommands: Commands {
 
             Divider()
 
-            Button("Open Switcher...") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.switchWorktree)
-            }
-            .shortcut(for: .switchWorktree, store: keyBindings)
-
-            Divider()
-
             Button("Next Project") {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.nextProject)

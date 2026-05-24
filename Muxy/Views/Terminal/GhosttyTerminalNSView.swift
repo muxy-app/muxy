@@ -9,6 +9,7 @@ final class GhosttyTerminalNSView: NSView {
     private let workingDirectory: String
     private let command: String?
     private let commandInteractive: Bool
+    private let commandClosesOnExit: Bool
     var envVars: [(key: String, value: String)] = []
     var onTitleChange: ((String) -> Void)?
     var onWorkingDirectoryChange: ((String) -> Void)?
@@ -38,7 +39,7 @@ final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private var occlusionObserver: NSObjectProtocol?
 
     var closesOnCommandExit: Bool {
-        command != nil
+        command != nil && commandClosesOnExit
     }
 
     private var _markedText: String = ""
@@ -56,11 +57,13 @@ final class GhosttyTerminalNSView: NSView {
     init(
         workingDirectory: String,
         command: String? = nil,
-        commandInteractive: Bool = false
+        commandInteractive: Bool = false,
+        closesOnCommandExit: Bool = true
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.commandInteractive = commandInteractive
+        commandClosesOnExit = closesOnCommandExit
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -125,7 +128,10 @@ final class GhosttyTerminalNSView: NSView {
         config.working_directory = UnsafePointer(workingDirectoryPointer)
 
         if let command,
-           let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(interactive: commandInteractive)),
+           let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
+               interactive: commandInteractive,
+               keepsShellOpen: !commandClosesOnExit
+           )),
            let commandKey = strdup(TerminalLaunchCommand.environmentKey),
            let commandValue = strdup(command)
         {

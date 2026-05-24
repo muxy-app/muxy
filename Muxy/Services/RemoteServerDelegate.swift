@@ -298,7 +298,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             for: paneID,
             workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
             command: pane.startupCommand,
-            commandInteractive: pane.startupCommandInteractive
+            commandInteractive: pane.startupCommandInteractive,
+            closesOnCommandExit: pane.closesOnStartupCommandExit
         )
         if view.envVars.isEmpty {
             view.envVars = TerminalEnvVarBuilder.build(paneID: paneID, worktreeKey: location.worktreeKey)

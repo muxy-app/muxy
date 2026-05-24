@@ -25,4 +25,45 @@ struct ProjectStatusBarTests {
         let path = String(repeating: "a", count: 40)
         #expect(ProjectStatusBar.truncatePath(path, maxCharacters: 40) == path)
     }
+
+    @Test("non terminal tabs use active worktree context")
+    func fallbackContextUsesActiveWorktree() {
+        let worktree = Worktree(
+            name: "feature",
+            path: "/Projects/muxy-worktrees/feature",
+            branch: "feature/status-bar",
+            isPrimary: false
+        )
+
+        let context = ProjectStatusBar.statusContext(
+            activePane: nil,
+            activeWorktree: worktree,
+            fallbackProjectPath: "/Projects/muxy"
+        )
+
+        #expect(context?.path == "/Projects/muxy-worktrees/feature")
+        #expect(context?.worktreeName == "feature")
+        #expect(context?.branch == "feature/status-bar")
+    }
+
+    @Test("terminal tabs prefer pane path")
+    func terminalContextPrefersPanePath() {
+        let pane = TerminalPaneState(projectPath: "/Projects/muxy", initialWorkingDirectory: "/Projects/muxy/Muxy")
+        let worktree = Worktree(
+            name: "feature",
+            path: "/Projects/muxy-worktrees/feature",
+            branch: "feature/status-bar",
+            isPrimary: false
+        )
+
+        let context = ProjectStatusBar.statusContext(
+            activePane: pane,
+            activeWorktree: worktree,
+            fallbackProjectPath: nil
+        )
+
+        #expect(context?.path == "/Projects/muxy/Muxy")
+        #expect(context?.worktreeName == "feature")
+        #expect(context?.branch == "feature/status-bar")
+    }
 }

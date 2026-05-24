@@ -46,6 +46,18 @@ struct TabAreaTests {
         #expect(area.activeTab?.kind == .terminal)
         #expect(pane?.title == "Server")
         #expect(pane?.startupCommand == "npm run dev")
+        #expect(pane?.closesOnStartupCommandExit == true)
+    }
+
+    @Test("createCommandTab can keep shell open after command")
+    func createCommandTabKeepsShellOpen() {
+        let area = TabArea(projectPath: testPath)
+        area.createCommandTab(name: "Status", command: "git status", closesOnCommandExit: false)
+
+        let pane = area.activeTab?.content.pane
+        #expect(area.tabs.count == 2)
+        #expect(pane?.startupCommand == "git status")
+        #expect(pane?.closesOnStartupCommandExit == false)
     }
 
     @Test("createCommandTab ignores empty command")

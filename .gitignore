@@ -10,6 +10,7 @@ DerivedData/
 .env
 GhosttyKit.xcframework
 GhosttyKit/ghostty.h
+GhosttyKit/GhosttyKit
 Muxy/Resources/ghostty
 !Muxy/Resources/ghostty/themes
 !Muxy/Resources/ghostty/themes/**

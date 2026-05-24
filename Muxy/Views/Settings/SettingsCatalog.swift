@@ -520,6 +520,14 @@ enum SettingsCatalog {
             defaultValue: ""
         ),
         SettingsCatalogItem(
+            key: AIAssistantSettings.piModelKey,
+            title: "Pi Model",
+            description: "Optional Pi model override.",
+            category: .ai,
+            section: "Provider",
+            defaultValue: ""
+        ),
+        SettingsCatalogItem(
             key: AIAssistantSettings.customCommandKey,
             title: "Custom AI Command",
             description: "Command used when the custom AI provider is selected.",

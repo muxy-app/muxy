@@ -110,6 +110,16 @@ struct KeyBindingTests {
         #expect(!KeyBinding.defaults.contains { $0.combo == KeyCombo(key: "j", command: true) })
     }
 
+    @Test("KeyBinding.defaults includes scoped omnibox shortcuts")
+    func defaultsIncludesScopedOmniboxShortcuts() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.terminalOmnibox] == KeyCombo(key: "o", command: true, option: true))
+        #expect(combos[.terminalOmniboxProjects] == KeyCombo(key: "p", command: true, option: true))
+        #expect(combos[.terminalOmniboxWorktrees] == KeyCombo(key: "w", command: true, option: true))
+        #expect(combos[.terminalOmniboxCommands] == KeyCombo(key: "c", command: true, option: true))
+        #expect(combos[.terminalOmniboxHistory] == KeyCombo(key: "h", command: true, option: true))
+    }
+
     @Test("KeyBinding Codable round-trip")
     func codableRoundTrip() throws {
         let binding = KeyBinding(
