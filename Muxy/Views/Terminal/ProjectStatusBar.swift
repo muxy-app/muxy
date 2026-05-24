@@ -2,8 +2,15 @@ import AppKit
 import SwiftUI
 
 struct ProjectStatusBar: View {
+    struct StatusContext: Equatable {
+        let path: String
+        let worktreeName: String?
+        let branch: String?
+    }
+
     let activePane: TerminalPaneState?
     let activeWorktree: Worktree?
+    let fallbackProjectPath: String?
     let isInteractive: Bool
     let richInputVisible: Bool
     @Binding var richInputFontSize: Double
@@ -18,13 +25,13 @@ struct ProjectStatusBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if let pane = activePane {
-                pathButton(pane)
-                if let worktree = activeWorktree {
+            if let statusContext {
+                pathButton(statusContext.path)
+                if let worktreeName = statusContext.worktreeName {
                     separator
-                    worktreeLabel(worktree)
+                    worktreeLabel(worktreeName)
                 }
-                if let branch = pane.branchObserver.branch {
+                if let branch = statusContext.branch {
                     separator
                     branchLabel(branch)
                 }
@@ -53,8 +60,39 @@ struct ProjectStatusBar: View {
         .accessibilityLabel("Status bar")
     }
 
-    private func pathButton(_ pane: TerminalPaneState) -> some View {
-        let fullPath = pane.currentWorkingDirectory ?? pane.projectPath
+    private var statusContext: StatusContext? {
+        Self.statusContext(
+            activePane: activePane,
+            activeWorktree: activeWorktree,
+            fallbackProjectPath: fallbackProjectPath
+        )
+    }
+
+    static func statusContext(
+        activePane: TerminalPaneState?,
+        activeWorktree: Worktree?,
+        fallbackProjectPath: String?
+    ) -> StatusContext? {
+        guard let path = activePane?.currentWorkingDirectory
+            ?? activePane?.projectPath
+            ?? activeWorktree?.path
+            ?? fallbackProjectPath
+        else { return nil }
+        return StatusContext(
+            path: path,
+            worktreeName: activeWorktree?.name,
+            branch: nonEmpty(activePane?.branchObserver.branch) ?? nonEmpty(activeWorktree?.branch)
+        )
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty
+        else { return nil }
+        return trimmed
+    }
+
+    private func pathButton(_ fullPath: String) -> some View {
         let displayPath = abbreviatePath(fullPath)
         let truncated = ProjectStatusBar.truncatePath(displayPath, maxCharacters: ProjectStatusBar.pathMaxCharacters)
         return Button {
@@ -78,17 +116,17 @@ struct ProjectStatusBar: View {
         }
     }
 
-    private func worktreeLabel(_ worktree: Worktree) -> some View {
+    private func worktreeLabel(_ worktreeName: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: "square.stack.3d.up")
                 .font(.system(size: 10, weight: .semibold))
-            Text(worktree.name)
+            Text(worktreeName)
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
         .foregroundStyle(MuxyTheme.fgMuted)
-        .help("Worktree: \(worktree.name)")
+        .help("Worktree: \(worktreeName)")
     }
 
     private func branchLabel(_ branch: String) -> some View {

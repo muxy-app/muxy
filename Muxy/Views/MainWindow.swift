@@ -386,6 +386,7 @@ struct MainWindow: View {
                 ProjectStatusBar(
                     activePane: activeTerminalPane,
                     activeWorktree: activeProject.flatMap { resolvedActiveWorktree(for: $0) },
+                    fallbackProjectPath: activeProject.map { activeWorktreePath(for: $0) },
                     isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
                     richInputVisible: richInputPanelVisible,
                     richInputFontSize: $richInputFontSize
