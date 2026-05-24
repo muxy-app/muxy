@@ -601,6 +601,36 @@ struct GitRepositoryService {
         return url
     }
 
+    func githubRemoteName(repoPath: String) async -> String? {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
+        let repoResult = try? await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            workingDirectory: repoPath
+        )
+        guard let repoResult, repoResult.status == 0 else { return nil }
+        let nameWithOwner = repoResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !nameWithOwner.isEmpty else { return nil }
+
+        let remoteResult = try? await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["remote", "-v"])
+        guard let remoteResult, remoteResult.status == 0 else { return nil }
+        return Self.githubRemoteName(fromRemoteList: remoteResult.stdout, nameWithOwner: nameWithOwner)
+    }
+
+    static func githubRemoteName(fromRemoteList remoteList: String, nameWithOwner: String) -> String? {
+        let normalizedTarget = nameWithOwner.lowercased()
+        for line in remoteList.split(separator: "\n") {
+            let parts = line.split(whereSeparator: \.isWhitespace)
+            guard parts.count >= 2 else { continue }
+            let remote = String(parts[0])
+            guard let path = webURL(fromRemoteURL: String(parts[1]))?.path.dropFirst().lowercased() else { continue }
+            if path == normalizedTarget {
+                return remote
+            }
+        }
+        return nil
+    }
+
     static func webURL(fromRemoteURL raw: String) -> URL? {
         guard !raw.isEmpty else { return nil }
         var value = raw

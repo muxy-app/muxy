@@ -158,6 +158,22 @@ struct DiffViewerTabStateTests {
         vcs.diffCache.cancelAll()
     }
 
+    @Test("source diffs reconcile against source files")
+    func sourceDiffsReconcileAgainstSourceFiles() {
+        let vcs = VCSTabState(projectPath: NSTemporaryDirectory())
+        let state = DiffViewerTabState(vcs: vcs)
+        state.source = .range(baseRef: "main", headRef: "feature", title: "Feature")
+        vcs.files = [makeFile(path: "WorkingTree.swift", xStatus: " ", yStatus: "M")]
+        state.sourceFiles = [makeFile(path: "SourceDiff.swift", xStatus: "M", yStatus: " ")]
+
+        state.reconcileSelection()
+
+        #expect(state.selectedFilePath == "SourceDiff.swift")
+        #expect(state.selectedIsStaged == false)
+        vcs.diffCache.cancelAll()
+        state.diffCache.cancelAll()
+    }
+
     @Test("collapse state supports file and global toggles")
     func collapseStateSupportsFileAndGlobalToggles() {
         let vcs = VCSTabState(projectPath: NSTemporaryDirectory())

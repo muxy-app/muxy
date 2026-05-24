@@ -186,11 +186,11 @@ final class DiffViewerTabState: Identifiable {
             select(filePath: selectedFilePath, isStaged: !selectedIsStaged)
             return
         }
-        if let first = vcs.stagedFiles.first {
+        if let first = stagedFiles.first {
             select(filePath: first.path, isStaged: true)
             return
         }
-        if let first = vcs.unstagedFiles.first {
+        if let first = unstagedFiles.first {
             select(filePath: first.path, isStaged: false)
             return
         }

@@ -59,4 +59,16 @@ struct GitRepositoryServiceDiffPreviewTests {
     func pullRequestDiffRefIsNamespacedByNumber() {
         #expect(GitRepositoryService.localPullRequestDiffRef(number: 535) == "refs/muxy/pull/535/head")
     }
+
+    @Test("github remote name resolves matching owner repository")
+    func githubRemoteNameResolvesMatchingOwnerRepository() {
+        let remotes = """
+        upstream\tgit@github.com:owner/repo.git (fetch)
+        upstream\tgit@github.com:owner/repo.git (push)
+        origin\tgit@github.com:fork/repo.git (fetch)
+        origin\tgit@github.com:fork/repo.git (push)
+        """
+
+        #expect(GitRepositoryService.githubRemoteName(fromRemoteList: remotes, nameWithOwner: "owner/repo") == "upstream")
+    }
 }
