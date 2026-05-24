@@ -291,8 +291,11 @@ final class DiffLineStyleExtension: EditorExtension {
         guard storageLength > 0 else { return }
 
         let fullRange = NSRange(location: 0, length: storageLength)
-        context.layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
         context.layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
+        let preservesSyntaxForeground = context.state.syntaxHighlighter != nil
+        if !preservesSyntaxForeground {
+            context.layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
+        }
 
         let viewportStart = context.viewport.viewportStartLine
         var runKind: DiffDisplayRow.Kind?
@@ -315,39 +318,73 @@ final class DiffLineStyleExtension: EditorExtension {
                 continue
             }
 
-            flushRun(kind: runKind, start: runStart, end: runEnd, layoutManager: context.layoutManager)
+            flushRun(
+                kind: runKind,
+                start: runStart,
+                end: runEnd,
+                preservesSyntaxForeground: preservesSyntaxForeground,
+                layoutManager: context.layoutManager
+            )
             runKind = kind
             runStart = start
             runEnd = end
         }
 
-        flushRun(kind: runKind, start: runStart, end: runEnd, layoutManager: context.layoutManager)
+        flushRun(
+            kind: runKind,
+            start: runStart,
+            end: runEnd,
+            preservesSyntaxForeground: preservesSyntaxForeground,
+            layoutManager: context.layoutManager
+        )
     }
 
-    private func flushRun(kind: DiffDisplayRow.Kind?, start: Int?, end: Int, layoutManager: NSLayoutManager) {
+    private func flushRun(
+        kind: DiffDisplayRow.Kind?,
+        start: Int?,
+        end: Int,
+        preservesSyntaxForeground: Bool,
+        layoutManager: NSLayoutManager
+    ) {
         guard let kind, let start, end > start else { return }
         applyStyle(
             kind: kind,
             range: NSRange(location: start, length: end - start),
+            preservesSyntaxForeground: preservesSyntaxForeground,
             layoutManager: layoutManager
         )
     }
 
-    private func applyStyle(kind: DiffDisplayRow.Kind, range: NSRange, layoutManager: NSLayoutManager) {
+    private func applyStyle(
+        kind: DiffDisplayRow.Kind,
+        range: NSRange,
+        preservesSyntaxForeground: Bool,
+        layoutManager: NSLayoutManager
+    ) {
         switch kind {
         case .addition:
-            layoutManager.addTemporaryAttribute(.foregroundColor, value: MuxyTheme.nsDiffAdd, forCharacterRange: range)
             layoutManager.addTemporaryAttribute(
                 .backgroundColor,
                 value: MuxyTheme.nsDiffAdd.withAlphaComponent(0.14),
                 forCharacterRange: range
             )
+            applyFallbackForeground(
+                MuxyTheme.nsDiffAdd,
+                range: range,
+                preservesSyntaxForeground: preservesSyntaxForeground,
+                layoutManager: layoutManager
+            )
         case .deletion:
-            layoutManager.addTemporaryAttribute(.foregroundColor, value: MuxyTheme.nsDiffRemove, forCharacterRange: range)
             layoutManager.addTemporaryAttribute(
                 .backgroundColor,
                 value: MuxyTheme.nsDiffRemove.withAlphaComponent(0.14),
                 forCharacterRange: range
+            )
+            applyFallbackForeground(
+                MuxyTheme.nsDiffRemove,
+                range: range,
+                preservesSyntaxForeground: preservesSyntaxForeground,
+                layoutManager: layoutManager
             )
         case .hunk:
             layoutManager.addTemporaryAttribute(.foregroundColor, value: MuxyTheme.nsDiffHunk, forCharacterRange: range)
@@ -370,5 +407,15 @@ final class DiffLineStyleExtension: EditorExtension {
         case .context:
             break
         }
+    }
+
+    private func applyFallbackForeground(
+        _ color: NSColor,
+        range: NSRange,
+        preservesSyntaxForeground: Bool,
+        layoutManager: NSLayoutManager
+    ) {
+        guard !preservesSyntaxForeground else { return }
+        layoutManager.addTemporaryAttribute(.foregroundColor, value: color, forCharacterRange: range)
     }
 }

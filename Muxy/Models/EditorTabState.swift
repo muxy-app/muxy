@@ -208,6 +208,7 @@ final class EditorTabState: Identifiable {
         isReadOnly = true
         self.diffLineKinds = diffLineKinds
         self.diffGutterLines = diffGutterLines
+        syntaxHighlighter = Self.makeSyntaxHighlighter(for: filePath)
         let store = TextBackingStore()
         store.loadFromText(readOnlyText)
         store.finishLoading()
@@ -232,7 +233,7 @@ final class EditorTabState: Identifiable {
         awaitingLargeFileConfirmation = false
         hasExternalChange = false
         errorMessage = nil
-        syntaxHighlighter = nil
+        syntaxHighlighter = Self.makeSyntaxHighlighter(for: filePath)
         let store = backingStore ?? TextBackingStore()
         store.loadFromText(text)
         store.finishLoading()

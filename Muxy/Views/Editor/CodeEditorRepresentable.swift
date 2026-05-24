@@ -740,6 +740,9 @@ struct CodeEditorView: NSViewRepresentable {
             var loaded: [EditorExtension] = []
             if state.diffLineKinds != nil {
                 loaded.append(DiffGutterExtension(host: self))
+                if state.syntaxHighlighter != nil {
+                    loaded.append(SyntaxHighlightExtension(coordinator: self))
+                }
                 loaded.append(DiffLineStyleExtension())
             } else {
                 loaded.append(SyntaxHighlightExtension(coordinator: self))
