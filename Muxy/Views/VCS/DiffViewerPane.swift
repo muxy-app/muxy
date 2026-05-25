@@ -838,7 +838,7 @@ private struct DiffViewerSidebarFileRow: View {
     }
 
     private var statusText: String {
-        isStaged ? file.stagedStatusText : file.unstagedStatusText
+        file.displayStatusText(isStaged: isStaged)
     }
 
     private var statusColor: Color {

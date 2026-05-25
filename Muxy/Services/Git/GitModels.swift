@@ -106,6 +106,14 @@ struct GitStatusFile: Identifiable, Hashable {
         }
         return String(yStatus)
     }
+
+    func displayStatusText(isStaged: Bool) -> String {
+        let status = isStaged ? stagedStatusText : unstagedStatusText
+        if status.trimmingCharacters(in: .whitespaces).isEmpty {
+            return statusText
+        }
+        return status
+    }
 }
 
 struct GitCommit: Identifiable {
