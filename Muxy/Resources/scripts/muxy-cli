@@ -209,7 +209,7 @@ case "$COMMAND" in
     switch-worktree)
         shift
         PROJECT=""
-        TARGET=""
+        TARGET_ARGS=()
         while [[ $# -gt 0 ]]; do
             case $1 in
                 --project)
@@ -217,12 +217,14 @@ case "$COMMAND" in
                         echo "Usage: muxy switch-worktree <name|id|path> [--project <name|id|path>]" >&2
                         exit 1
                     fi
-                    PROJECT="$2"
-                    shift 2
+                    shift
+                    PROJECT="$*"
+                    break
                     ;;
-                *) TARGET="$1"; shift ;;
+                *) TARGET_ARGS+=("$1"); shift ;;
             esac
         done
+        TARGET="${TARGET_ARGS[*]}"
         if [ -z "$TARGET" ]; then
             echo "Usage: muxy switch-worktree <name|id|path> [--project <name|id|path>]" >&2
             exit 1

@@ -222,6 +222,15 @@ struct SocketCommandHandlerTests {
         #expect(area.activeTabID == firstTabID)
     }
 
+    @Test("switch-tab reports invalid index")
+    func switchTabByInvalidIndex() async {
+        let appState = makeAppState()
+
+        let result = await SocketCommandHandler.handleRequest("switch-tab|99", appState: appState)
+
+        #expect(result.hasPrefix("error:tab not found"))
+    }
+
     @Test("new-tab creates terminal tab")
     func newTab() async {
         let appState = makeAppState()

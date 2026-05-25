@@ -361,6 +361,7 @@ enum SocketCommandHandler {
               let root = appState.workspaceRoots[key]
         else { return "error:no active project" }
         if let index = Int(identifier) {
+            guard tab(at: index, in: root) != nil else { return "error:tab not found \(identifier)" }
             appState.selectTabByIndex(index, projectID: projectID)
             return "ok"
         }
@@ -425,6 +426,18 @@ enum SocketCommandHandler {
         tab.id.uuidString == identifier
             || tab.content.pane?.id.uuidString == identifier
             || tab.title.localizedCaseInsensitiveCompare(identifier) == .orderedSame
+    }
+
+    private static func tab(at index: Int, in root: SplitNode) -> TerminalTab? {
+        guard index >= 0 else { return nil }
+        var currentIndex = 0
+        for area in root.allAreas() {
+            for tab in area.tabs {
+                if currentIndex == index { return tab }
+                currentIndex += 1
+            }
+        }
+        return nil
     }
 
     private static func collectTabs(appState: AppState) -> Set<UUID> {
