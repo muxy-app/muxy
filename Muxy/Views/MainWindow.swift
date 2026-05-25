@@ -1048,11 +1048,11 @@ struct MainWindow: View {
     }
 
     private var sidebarResizeHandle: some View {
-        PanelResizeHandle(
+        panelResize(
             axis: .horizontal,
             edge: .trailing,
-            current: { CGFloat(sidebarExpandedCustomWidth) },
-            apply: { sidebarExpandedCustomWidth = Double(SidebarLayout.clampExpandedWidth($0)) }
+            value: $sidebarExpandedCustomWidth,
+            range: SidebarLayout.minExpandedWidth ... SidebarLayout.maxExpandedWidth
         )
         .padding(.top, leftNavigationBorderTopPadding)
     }
