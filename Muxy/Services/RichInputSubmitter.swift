@@ -12,10 +12,16 @@ enum RichInputSubmitter {
         case image(URL)
     }
 
-    static func submit(richInput: RichInputState, paneIDs: [UUID], appendReturn: Bool) {
+    static func submit(
+        richInput: RichInputState,
+        paneIDs: [UUID],
+        appendReturn: Bool,
+        selectedText: String? = nil
+    ) {
         guard !paneIDs.isEmpty else { return }
-        let body = richInput.text
-        let fileAttachments = richInput.fileAttachments
+        let selectedBody = selectedSubmissionText(selectedText)
+        let body = selectedBody ?? richInput.text
+        let fileAttachments = selectedBody == nil ? richInput.fileAttachments : []
         let imageAttachments = richInput.imageAttachments
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedBody.isEmpty || !fileAttachments.isEmpty || !imageAttachments.isEmpty else { return }
@@ -94,6 +100,12 @@ enum RichInputSubmitter {
                 focusTarget.window?.makeFirstResponder(focusTarget)
             }
         }
+    }
+
+    nonisolated static func selectedSubmissionText(_ selectedText: String?) -> String? {
+        guard let selectedText else { return nil }
+        guard !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return selectedText
     }
 
     private static func textOnlyPayload(segments: [Segment], appendReturn: Bool) -> Data {

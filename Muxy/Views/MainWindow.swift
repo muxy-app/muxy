@@ -961,7 +961,9 @@ struct MainWindow: View {
                 state: richInputState,
                 worktreeKey: worktreeKey,
                 onDismiss: { closeRichInputPanel() },
-                onSubmit: { appendReturn in submitRichInput(richInputState, appendReturn: appendReturn) }
+                onSubmit: { appendReturn, selectedText in
+                    submitRichInput(richInputState, appendReturn: appendReturn, selectedText: selectedText)
+                }
             )
             switch position {
             case .right:
@@ -1248,10 +1250,15 @@ struct MainWindow: View {
         }
     }
 
-    private func submitRichInput(_ richInput: RichInputState, appendReturn: Bool) {
+    private func submitRichInput(_ richInput: RichInputState, appendReturn: Bool, selectedText: String?) {
         let paneIDs = richInputBroadcast ? visibleTerminalPaneIDs() : [activeRichInputPaneID].compactMap(\.self)
         guard !paneIDs.isEmpty else { return }
-        RichInputSubmitter.submit(richInput: richInput, paneIDs: paneIDs, appendReturn: appendReturn)
+        RichInputSubmitter.submit(
+            richInput: richInput,
+            paneIDs: paneIDs,
+            appendReturn: appendReturn,
+            selectedText: selectedText
+        )
     }
 
     private func visibleTerminalPaneIDs() -> [UUID] {
