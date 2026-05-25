@@ -1,8 +1,8 @@
 # Muxy CLI
 
-The `muxy` command lets you open projects and control Muxy panes from a terminal or automation script.
+The `muxy` command lets you open projects and control Muxy workspaces from a terminal or automation script.
 
-Use it for quick project launching, scripted split layouts, sending input to panes, reading visible terminal output, and closing or renaming panes without switching back to the UI.
+Use it for quick project launching, switching projects or worktrees, scripted split layouts, tab navigation, sending input to panes, reading visible terminal output, and closing or renaming panes without switching back to the UI.
 
 ## Install
 
@@ -31,6 +31,71 @@ muxy ~/Developer/my-app
 ```
 
 If the project is already open, Muxy selects the existing project instead of creating a duplicate.
+
+## Project and worktree control
+
+Project and worktree commands talk to the running Muxy app through a local Unix socket. Muxy must be open.
+
+### List and switch projects
+
+List projects:
+
+```bash
+muxy list-projects
+```
+
+Output is tab-separated:
+
+```text
+<project-id>  <name>  <path>  <active>
+```
+
+Switch to a project by name, ID, or path:
+
+```bash
+muxy switch-project "My App"
+muxy switch-project ~/Developer/my-app
+```
+
+### List and switch worktrees
+
+List worktrees for the active project:
+
+```bash
+muxy list-worktrees
+```
+
+List worktrees for a specific project:
+
+```bash
+muxy list-worktrees "My App"
+```
+
+Output is tab-separated:
+
+```text
+<worktree-id>  <name>  <path>  <branch>  <active>
+```
+
+Switch to a worktree by name, ID, path, or branch:
+
+```bash
+muxy switch-worktree feature/login
+muxy switch-worktree "Feature Login"
+```
+
+Switch to a worktree in a specific project:
+
+```bash
+muxy switch-worktree "Feature Login" --project "My App"
+```
+
+Refresh worktrees from Git:
+
+```bash
+muxy refresh-worktrees
+muxy refresh-worktrees "My App"
+```
 
 ## Pane control
 
@@ -142,6 +207,44 @@ Close a pane:
 muxy close-pane --pane "$PANE"
 ```
 
+## Tab control
+
+Tab commands talk to the running Muxy app through a local Unix socket. Muxy must be open.
+
+### List tabs
+
+```bash
+muxy list-tabs
+```
+
+Output is tab-separated:
+
+```text
+<index>  <tab-id>  <kind>  <title>  <active>
+```
+
+### Switch and create tabs
+
+Switch tabs by index, ID, or title:
+
+```bash
+muxy switch-tab 0
+muxy switch-tab "Server Logs"
+```
+
+Create a new terminal tab:
+
+```bash
+muxy new-tab
+```
+
+Move through tabs:
+
+```bash
+muxy next-tab
+muxy previous-tab
+```
+
 ## Example workflow
 
 Create a small development layout:
@@ -173,6 +276,9 @@ Muxy listens on:
 
 The socket is private to your user. It does not grant extra privileges, but any process already running as your user can use it while Muxy is open to:
 
+- list and switch projects
+- list, switch, or refresh worktrees
+- list, switch, or create tabs
 - list panes
 - read visible terminal text
 - send text or supported control keys
