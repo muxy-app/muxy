@@ -126,6 +126,9 @@ struct MainWindow: View {
     var body: some View {
         HStack(spacing: 0) {
             leftNavigationColumn
+            if sidebarIsResizable {
+                sidebarResizeHandle
+            }
             mainWorkspaceColumn
         }
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
@@ -285,16 +288,11 @@ struct MainWindow: View {
         .clipped()
         .background(MuxyTheme.bg)
         .overlay(alignment: .trailing) {
-            if leftNavigationWidth > 0 {
+            if leftNavigationWidth > 0, !sidebarIsResizable {
                 Rectangle().fill(MuxyTheme.border)
                     .frame(width: 1)
                     .padding(.top, leftNavigationBorderTopPadding)
                     .accessibilityHidden(true)
-            }
-        }
-        .overlay(alignment: .trailing) {
-            if sidebarIsResizable {
-                sidebarResizeHandle
             }
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -1059,9 +1057,7 @@ struct MainWindow: View {
             onEnd: { sidebarResizeStartWidth = nil },
             onDrag: { value in
                 let start = sidebarResizeStartWidth ?? CGFloat(sidebarExpandedCustomWidth)
-                if sidebarResizeStartWidth == nil {
-                    sidebarResizeStartWidth = start
-                }
+                sidebarResizeStartWidth = start
                 sidebarExpandedCustomWidth = Double(SidebarLayout.clampExpandedWidth(start + value.translation.width))
             }
         )

@@ -21,6 +21,8 @@ struct SplitContainer: View {
     var showMaximizeButton = false
     var onToggleMaximize: ((UUID) -> Void)?
 
+    @State private var dragStartRatio: CGFloat?
+
     var body: some View {
         GeometryReader { geo in
             let h = branch.direction == .horizontal
@@ -34,13 +36,17 @@ struct SplitContainer: View {
                 child(branch.first)
                     .frame(width: h ? first : nil, height: h ? nil : first)
 
-                ResizeHandle(axis: h ? .horizontal : .vertical) { v in
-                    let pos = h ? v.location.x : v.location.y
-                    let origin = h ? v.startLocation.x : v.startLocation.y
-                    let startPos = total * branch.ratio
-                    let newPos = startPos + (pos - origin)
-                    branch.ratio = min(max(newPos / total, 0.15), 0.85)
-                }
+                ResizeHandle(
+                    axis: h ? .horizontal : .vertical,
+                    onEnd: { dragStartRatio = nil },
+                    onDrag: { v in
+                        guard total > 0 else { return }
+                        let start = dragStartRatio ?? branch.ratio
+                        dragStartRatio = start
+                        let delta = (h ? v.translation.width : v.translation.height) / total
+                        branch.ratio = min(max(start + delta, 0.15), 0.85)
+                    }
+                )
                 .accessibilityLabel(h ? "Horizontal Split Divider" : "Vertical Split Divider")
                 .accessibilityValue("Split ratio: \(Int(branch.ratio * 100))%")
                 .accessibilityAdjustableAction { direction in
