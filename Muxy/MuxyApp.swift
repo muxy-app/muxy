@@ -228,6 +228,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let window = Self.mainAppWindow() {
+            sender.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
+        return false
+    }
+
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
         SentryService.shared.start()
@@ -266,6 +278,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
               isDirectory.boolValue
         else { return }
         handleOpenProjectPath(expanded)
+    }
+
+    static func mainAppWindow(excluding excludedWindow: NSWindow? = nil) -> NSWindow? {
+        NSApp.windows.first { window in
+            window !== excludedWindow && window.identifier == ShortcutContext.mainWindowIdentifier
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -512,6 +530,7 @@ struct WindowConfigurator: NSViewRepresentable {
         DispatchQueue.main.async {
             guard let w = v.window else { return }
             w.identifier = ShortcutContext.mainWindowIdentifier
+            if Self.closeDuplicateMainWindow(w) { return }
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.styleMask.insert(.fullSizeContentView)
@@ -543,6 +562,13 @@ struct WindowConfigurator: NSViewRepresentable {
 
     static func disableWindowTabbing(for window: NSWindow) {
         window.tabbingMode = .disallowed
+    }
+
+    static func closeDuplicateMainWindow(_ window: NSWindow) -> Bool {
+        guard let existingWindow = AppDelegate.mainAppWindow(excluding: window) else { return false }
+        existingWindow.makeKeyAndOrderFront(nil)
+        window.close()
+        return true
     }
 
     static func neutralizeSafeAreaInsets(in window: NSWindow) {
