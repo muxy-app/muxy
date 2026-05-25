@@ -58,21 +58,46 @@ struct ResizeHandle: View {
     }
 }
 
-struct PanelResizeHandle: View {
+struct AnchoredResizeHandle<Anchor>: View {
     let axis: ResizeHandle.Axis
-    let current: () -> CGFloat
-    let apply: (CGFloat) -> Void
-    @State private var startValue: CGFloat?
+    let captureAnchor: () -> Anchor
+    let onTranslate: (Anchor, CGFloat) -> Void
+    @State private var anchor: Anchor?
 
     var body: some View {
         ResizeHandle(
             axis: axis,
-            onEnd: { startValue = nil },
+            onEnd: { anchor = nil },
             onDrag: { value in
-                let start = startValue ?? current()
-                if startValue == nil { startValue = start }
-                let translation = axis == .horizontal ? value.translation.width : value.translation.height
-                apply(start - translation)
+                let current = anchor ?? captureAnchor()
+                anchor = current
+                let delta = axis == .horizontal ? value.translation.width : value.translation.height
+                onTranslate(current, delta)
+            }
+        )
+    }
+}
+
+struct PanelResizeHandle: View {
+    enum Edge {
+        case leading
+        case trailing
+        case top
+        case bottom
+    }
+
+    let axis: ResizeHandle.Axis
+    var edge: Edge = .leading
+    let current: () -> CGFloat
+    let apply: (CGFloat) -> Void
+
+    var body: some View {
+        AnchoredResizeHandle(
+            axis: axis,
+            captureAnchor: current,
+            onTranslate: { start, delta in
+                let signed = (edge == .leading || edge == .top) ? -delta : delta
+                apply(start + signed)
             }
         )
         .accessibilityHidden(true)

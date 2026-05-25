@@ -1425,8 +1425,6 @@ private struct SectionSplitLayout: View {
     let onOpenCommitDiff: (GitCommit) -> Void
     let onOpenPullRequestDiff: (GitRepositoryService.PRListItem) -> Void
 
-    @State private var dragStartRatios: [CGFloat]?
-
     @MainActor private static var sectionHeaderHeight: CGFloat { UIMetrics.scaled(30) }
 
     private var hasStaged: Bool { !state.stagedFiles.isEmpty }
@@ -1540,24 +1538,24 @@ private struct SectionSplitLayout: View {
         totalHeight: CGFloat,
         allSections: [SectionKind]
     ) -> some View {
-        ResizeHandle(
+        AnchoredResizeHandle(
             axis: .vertical,
-            onEnd: { dragStartRatios = nil },
-            onDrag: { v in
-                guard totalHeight > 0 else { return }
-                guard let aboveIdx = allSections.firstIndex(of: above),
-                      let belowIdx = allSections.firstIndex(of: below)
-                else { return }
-
-                var baseline = dragStartRatios ?? state.sectionRatios
+            captureAnchor: {
+                var baseline = state.sectionRatios
                 if baseline.count < allSections.count {
                     let fill = 1.0 / CGFloat(allSections.count)
                     baseline.append(contentsOf: Array(repeating: fill, count: allSections.count - baseline.count))
                 }
-                dragStartRatios = baseline
+                return baseline
+            },
+            onTranslate: { baseline, translation in
+                guard totalHeight > 0 else { return }
+                guard let aboveIdx = allSections.firstIndex(of: above),
+                      let belowIdx = allSections.firstIndex(of: below),
+                      aboveIdx < baseline.count, belowIdx < baseline.count
+                else { return }
 
-                guard aboveIdx < baseline.count, belowIdx < baseline.count else { return }
-                let delta = v.translation.height / totalHeight
+                let delta = translation / totalHeight
                 let minRatio: CGFloat = 0.08
 
                 var ratios = baseline
