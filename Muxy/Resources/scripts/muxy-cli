@@ -20,7 +20,7 @@ send_message() {
         echo "Error: Muxy is not running" >&2
         exit 1
     fi
-    printf '%s' "$message" | nc -U "$SOCKET"
+    printf '%s\n' "$message" | nc -U "$SOCKET"
 }
 
 send_command() {
@@ -30,7 +30,7 @@ send_command() {
         exit 1
     fi
     local response
-    response=$(printf '%s' "$message" | nc -U "$SOCKET" 2>/dev/null)
+    response=$(printf '%s\n' "$message" | nc -U "$SOCKET" 2>/dev/null)
     if [ -z "$response" ]; then
         echo "Error: no response from Muxy" >&2
         exit 1
@@ -224,7 +224,7 @@ if [ -n "$COMMAND" ] && [ "$COMMAND" != "split-right" ] && [ "$COMMAND" != "spli
 
     ENCODED_PATH="$(percent_encode "$TARGET_DIR")"
 
-    if [ -e "$SOCKET" ] && printf '%s' "open-project|$TARGET_DIR" | nc -U "$SOCKET" 2>/dev/null; then
+    if [ -e "$SOCKET" ] && printf '%s\n' "open-project|$TARGET_DIR" | nc -U "$SOCKET" 2>/dev/null; then
         exit 0
     fi
 

@@ -115,6 +115,9 @@ final class NotificationSocketServer: @unchecked Sendable {
                 logger.warning("Client exceeded max message size (\(Self.maxMessageSize) bytes), dropping")
                 return
             }
+            if data.contains(UInt8(ascii: "\n")) {
+                break
+            }
         }
 
         guard !data.isEmpty,
