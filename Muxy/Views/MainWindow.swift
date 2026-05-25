@@ -361,7 +361,7 @@ struct MainWindow: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .animation(.easeInOut(duration: 0.2), value: leftNavigationWidth)
+        .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
 
     private var mainWorkspaceColumn: some View {

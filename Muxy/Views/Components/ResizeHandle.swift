@@ -17,7 +17,7 @@ struct ResizeHandle: View {
 
     var body: some View {
         Rectangle()
-            .fill(active ? MuxyTheme.accent : MuxyTheme.border)
+            .fill(active ? MuxyTheme.accent : Color.clear)
             .frame(width: axis == .horizontal ? 1 : nil, height: axis == .vertical ? 1 : nil)
             .overlay {
                 Color.clear
