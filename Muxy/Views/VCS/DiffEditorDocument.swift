@@ -296,6 +296,8 @@ struct DiffEditorFileSection {
     let rows: [DiffDisplayRow]
     let isCollapsed: Bool
     let isLargeUnloaded: Bool
+    let isLoading: Bool
+    let errorMessage: String?
     let additions: Int
     let deletions: Int
     let isStaged: Bool

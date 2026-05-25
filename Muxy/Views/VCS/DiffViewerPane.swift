@@ -27,11 +27,13 @@ struct DiffViewerPane: View {
                 state.vcs.refresh()
             }
             state.reconcileSelection()
+            state.reconcileLargeDiffCollapse()
             state.loadAllDiffs()
         }
         .onChange(of: state.vcs.files) { _, _ in
             guard state.source == .workingTree else { return }
             state.reconcileSelection()
+            state.reconcileLargeDiffCollapse()
             state.loadAllDiffs()
         }
         .onChange(of: state.vcs.diffCache.revision) { _, _ in
@@ -56,7 +58,7 @@ struct DiffViewerPane: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(fontShortcuts)
-        } else if isLoadingAnyDiff {
+        } else if state.isLoadingFiles || isLoadingAnyDiff {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -82,8 +84,10 @@ struct DiffViewerPane: View {
                 rows: diff?.rows ?? [],
                 isCollapsed: state.collapsedCacheKeys.contains(cacheKey),
                 isLargeUnloaded: diff?.truncated == true && !state.manuallyLoadedCacheKeys.contains(cacheKey),
-                additions: diff?.additions ?? file.additions ?? 0,
-                deletions: diff?.deletions ?? file.deletions ?? 0,
+                isLoading: activeDiffCache.isLoading(cacheKey),
+                errorMessage: activeDiffCache.error(for: cacheKey),
+                additions: diff?.additions ?? file.additions(isStaged: isStaged) ?? 0,
+                deletions: diff?.deletions ?? file.deletions(isStaged: isStaged) ?? 0,
                 isStaged: isStaged
             )
         }
@@ -149,11 +153,17 @@ private struct DiffViewerBreadcrumb: View {
     @Bindable var state: DiffViewerTabState
 
     private var additions: Int {
-        state.files.compactMap(\.additions).reduce(0, +)
+        state.stagedFiles.compactMap { $0.additions(isStaged: true) }.reduce(0, +)
+            + state.unstagedFiles.compactMap { $0.additions(isStaged: false) }.reduce(0, +)
     }
 
     private var deletions: Int {
-        state.files.compactMap(\.deletions).reduce(0, +)
+        state.stagedFiles.compactMap { $0.deletions(isStaged: true) }.reduce(0, +)
+            + state.unstagedFiles.compactMap { $0.deletions(isStaged: false) }.reduce(0, +)
+    }
+
+    private var diffFileCount: Int {
+        state.stagedFiles.count + state.unstagedFiles.count
     }
 
     var body: some View {
@@ -187,7 +197,7 @@ private struct DiffViewerBreadcrumb: View {
                 .help("Open \(sourceLink.title)")
             }
 
-            Text("\(state.files.count) files")
+            Text("\(diffFileCount) files")
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .padding(.horizontal, UIMetrics.scaled(5))
@@ -321,7 +331,7 @@ private struct DiffCardList: View {
         GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(spacing: cardSpacing) {
+                    LazyVStack(spacing: cardSpacing) {
                         ForEach(sections, id: \.cacheKey) { section in
                             DiffFileCard(
                                 state: state,
@@ -394,14 +404,27 @@ private struct DiffFileCard: View {
     }
 
     private var editorViewportHeight: CGFloat {
-        min(editorHeight, max(UIMetrics.scaled(160), viewportHeight + UIMetrics.scaled(80)))
+        DiffVirtualRenderWindow(
+            editorHeight: editorHeight,
+            viewportHeight: viewportHeight,
+            visibleBodyY: visibleBodyY,
+            minimumHeight: UIMetrics.scaled(160)
+        ).height
+    }
+
+    private var visibleBodyY: CGFloat {
+        guard usesVirtualBody else { return 0 }
+        let headerHeight = UIMetrics.scaled(37)
+        return max(0, -cardOffsetY - headerHeight)
     }
 
     private var bodyScrollY: CGFloat {
-        guard usesVirtualBody else { return 0 }
-        let headerHeight = UIMetrics.scaled(37)
-        let visibleBodyY = max(0, -cardOffsetY - headerHeight)
-        return min(max(0, editorHeight - editorViewportHeight), visibleBodyY)
+        DiffVirtualRenderWindow(
+            editorHeight: editorHeight,
+            viewportHeight: viewportHeight,
+            visibleBodyY: visibleBodyY,
+            minimumHeight: UIMetrics.scaled(160)
+        ).offsetY
     }
 
     var body: some View {
@@ -410,7 +433,11 @@ private struct DiffFileCard: View {
                 header
                 if !section.isCollapsed {
                     Rectangle().fill(MuxyTheme.border).frame(height: metrics.borderHeight)
-                    editorBody
+                    GeometryReader { proxy in
+                        let frame = proxy.frame(in: .named("diff-card-scroll"))
+                        editorBody(shouldRender: shouldRenderBody(frame: frame))
+                    }
+                    .frame(height: editorHeight)
                 }
             }
             Color.clear.frame(height: cardHeight)
@@ -425,8 +452,16 @@ private struct DiffFileCard: View {
     }
 
     @ViewBuilder
-    private var editorBody: some View {
-        if usesVirtualBody {
+    private func editorBody(shouldRender: Bool) -> some View {
+        if !shouldRender {
+            Color.clear
+        } else if section.isLoading, section.rows.isEmpty {
+            loadingBody
+        } else if let errorMessage = section.errorMessage, section.rows.isEmpty {
+            messageBody(errorMessage)
+        } else if section.rows.isEmpty {
+            emptyBody
+        } else if usesVirtualBody {
             ZStack(alignment: .top) {
                 Color.clear.frame(height: editorHeight)
                 editor(externalScrollY: bodyScrollY)
@@ -440,6 +475,52 @@ private struct DiffFileCard: View {
                 .frame(height: editorHeight)
                 .clipped()
         }
+    }
+
+    private func shouldRenderBody(frame: CGRect) -> Bool {
+        let overscan = viewportHeight
+        return frame.maxY >= -overscan && frame.minY <= viewportHeight + overscan
+    }
+
+    private var loadingBody: some View {
+        HStack(spacing: UIMetrics.spacing3) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Loading diff")
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                .foregroundStyle(MuxyTheme.fgMuted)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyBody: some View {
+        VStack(spacing: UIMetrics.spacing4) {
+            Text("Diff did not load")
+                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+                .foregroundStyle(MuxyTheme.fgMuted)
+
+            Button("Load diff") {
+                state.loadDiff(filePath: section.filePath, isStaged: section.isStaged)
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+            .foregroundStyle(MuxyTheme.accent)
+            .padding(.horizontal, UIMetrics.spacing4)
+            .frame(height: UIMetrics.controlSmall)
+            .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func messageBody(_ message: String) -> some View {
+        Text(message)
+            .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
+            .foregroundStyle(MuxyTheme.diffRemoveFg)
+            .lineLimit(3)
+            .multilineTextAlignment(.center)
+            .padding(UIMetrics.spacing5)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func editor(externalScrollY: CGFloat?) -> some View {
@@ -532,8 +613,23 @@ private struct DiffFileCard: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            state.select(filePath: section.filePath, isStaged: section.isStaged)
+            state.toggleCollapsed(filePath: section.filePath, isStaged: section.isStaged)
         }
+    }
+}
+
+struct DiffVirtualRenderWindow {
+    let editorHeight: CGFloat
+    let viewportHeight: CGFloat
+    let visibleBodyY: CGFloat
+    let minimumHeight: CGFloat
+
+    var height: CGFloat {
+        min(editorHeight, max(minimumHeight, viewportHeight * 3))
+    }
+
+    var offsetY: CGFloat {
+        min(max(0, editorHeight - height), max(0, visibleBodyY - viewportHeight))
     }
 }
 
@@ -590,7 +686,7 @@ private struct DiffViewerSidebar: View {
                 }
             }
             Rectangle().fill(MuxyTheme.border).frame(height: 1)
-            DiffViewerStats(files: state.files)
+            DiffViewerStats(stagedFiles: state.stagedFiles, unstagedFiles: state.unstagedFiles)
         }
         .background(MuxyTheme.bg)
     }
@@ -605,7 +701,7 @@ private struct DiffViewerSidebar: View {
                 .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
 
-            Text("\(state.files.count)")
+            Text("\(state.stagedFiles.count + state.unstagedFiles.count)")
                 .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                 .foregroundStyle(MuxyTheme.bg)
                 .padding(.horizontal, UIMetrics.spacing3)
@@ -655,7 +751,7 @@ private struct DiffViewerSidebarSection: View {
                 .frame(height: UIMetrics.scaled(26))
 
                 if state.source != .workingTree || state.vcs.fileListMode == .flat {
-                    ForEach(files) { file in
+                    ForEach(files, id: \.path) { file in
                         DiffViewerSidebarFileRow(state: state, file: file, isStaged: isStaged, displayPath: file.path, depth: 0)
                     }
                 } else {
@@ -761,12 +857,12 @@ private struct DiffViewerSidebarFileRow: View {
 
             Spacer(minLength: 0)
 
-            if let additions = file.additions, additions > 0 {
+            if let additions = file.additions(isStaged: isStaged), additions > 0 {
                 Text("+\(additions)")
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
                     .foregroundStyle(MuxyTheme.diffAddFg)
             }
-            if let deletions = file.deletions, deletions > 0 {
+            if let deletions = file.deletions(isStaged: isStaged), deletions > 0 {
                 Text("-\(deletions)")
                     .font(.system(size: UIMetrics.fontCaption, weight: .semibold, design: .monospaced))
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
@@ -785,19 +881,26 @@ private struct DiffViewerSidebarFileRow: View {
 }
 
 private struct DiffViewerStats: View {
-    let files: [GitStatusFile]
+    let stagedFiles: [GitStatusFile]
+    let unstagedFiles: [GitStatusFile]
 
     private var additions: Int {
-        files.compactMap(\.additions).reduce(0, +)
+        stagedFiles.compactMap { $0.additions(isStaged: true) }.reduce(0, +)
+            + unstagedFiles.compactMap { $0.additions(isStaged: false) }.reduce(0, +)
     }
 
     private var deletions: Int {
-        files.compactMap(\.deletions).reduce(0, +)
+        stagedFiles.compactMap { $0.deletions(isStaged: true) }.reduce(0, +)
+            + unstagedFiles.compactMap { $0.deletions(isStaged: false) }.reduce(0, +)
+    }
+
+    private var fileCount: Int {
+        stagedFiles.count + unstagedFiles.count
     }
 
     var body: some View {
         VStack(spacing: UIMetrics.spacing3) {
-            statRow("Files", value: "\(files.count)", color: MuxyTheme.fg)
+            statRow("Files", value: "\(fileCount)", color: MuxyTheme.fg)
             statRow("Additions", value: "+\(additions)", color: MuxyTheme.diffAddFg)
             statRow("Deletions", value: "-\(deletions)", color: MuxyTheme.diffRemoveFg)
         }

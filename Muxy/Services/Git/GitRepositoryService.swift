@@ -839,17 +839,46 @@ struct GitRepositoryService {
             repoPath: repoPath,
             arguments: ["-c", "core.quotepath=false", "diff", "HEAD", "--numstat", "--no-color", "--no-ext-diff"]
         )
+        async let stagedNumstatTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--cached", "--numstat", "--no-color", "--no-ext-diff"]
+        )
+        async let unstagedNumstatTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--numstat", "--no-color", "--no-ext-diff"]
+        )
 
         let statusResult = try await statusTask
         guard statusResult.status == 0 else {
             _ = try? await numstatTask
+            _ = try? await stagedNumstatTask
+            _ = try? await unstagedNumstatTask
             throw GitError.commandFailed(statusResult.stderr.isEmpty ? "Failed to load Git status." : statusResult.stderr)
         }
 
         let numstatResult = try await numstatTask
+        let stagedNumstatResult = try await stagedNumstatTask
+        let unstagedNumstatResult = try await unstagedNumstatTask
         let stats = numstatResult.status == 0 ? GitStatusParser.parseNumstat(numstatResult.stdout) : [:]
+        let stagedStats = stagedNumstatResult.status == 0 ? GitStatusParser.parseNumstat(stagedNumstatResult.stdout) : [:]
+        let unstagedStats = unstagedNumstatResult.status == 0 ? GitStatusParser.parseNumstat(unstagedNumstatResult.stdout) : [:]
 
         return GitStatusParser.parseStatusPorcelain(statusResult.stdoutData, stats: stats).map { file in
+            let staged = stagedStats[file.path]
+            let unstaged = unstagedStats[file.path]
+            let file = GitStatusFile(
+                path: file.path,
+                oldPath: file.oldPath,
+                xStatus: file.xStatus,
+                yStatus: file.yStatus,
+                additions: file.additions,
+                deletions: file.deletions,
+                stagedAdditions: staged?.additions,
+                stagedDeletions: staged?.deletions,
+                unstagedAdditions: unstaged?.additions,
+                unstagedDeletions: unstaged?.deletions,
+                isBinary: file.isBinary || staged?.isBinary == true || unstaged?.isBinary == true
+            )
             guard file.additions == nil, file.xStatus == "?" || file.xStatus == "A" else { return file }
             let lineCount = Self.countLines(repoPath: repoPath, relativePath: file.path)
             return GitStatusFile(
@@ -859,6 +888,10 @@ struct GitRepositoryService {
                 yStatus: file.yStatus,
                 additions: lineCount,
                 deletions: 0,
+                stagedAdditions: file.stagedAdditions,
+                stagedDeletions: file.stagedDeletions,
+                unstagedAdditions: file.unstagedAdditions,
+                unstagedDeletions: file.unstagedDeletions,
                 isBinary: file.isBinary
             )
         }

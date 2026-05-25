@@ -13,7 +13,37 @@ struct GitStatusFile: Identifiable, Hashable {
     let yStatus: Character
     let additions: Int?
     let deletions: Int?
+    let stagedAdditions: Int?
+    let stagedDeletions: Int?
+    let unstagedAdditions: Int?
+    let unstagedDeletions: Int?
     let isBinary: Bool
+
+    init(
+        path: String,
+        oldPath: String?,
+        xStatus: Character,
+        yStatus: Character,
+        additions: Int?,
+        deletions: Int?,
+        stagedAdditions: Int? = nil,
+        stagedDeletions: Int? = nil,
+        unstagedAdditions: Int? = nil,
+        unstagedDeletions: Int? = nil,
+        isBinary: Bool
+    ) {
+        self.path = path
+        self.oldPath = oldPath
+        self.xStatus = xStatus
+        self.yStatus = yStatus
+        self.additions = additions
+        self.deletions = deletions
+        self.stagedAdditions = stagedAdditions
+        self.stagedDeletions = stagedDeletions
+        self.unstagedAdditions = unstagedAdditions
+        self.unstagedDeletions = unstagedDeletions
+        self.isBinary = isBinary
+    }
 
     var id: String { path }
 
@@ -25,6 +55,20 @@ struct GitStatusFile: Identifiable, Hashable {
     var isUnstaged: Bool {
         let unstaged: Set<Character> = ["M", "D", "?"]
         return unstaged.contains(yStatus) || (xStatus == "?" && yStatus == "?")
+    }
+
+    func additions(isStaged: Bool) -> Int? {
+        if isStaged {
+            return stagedAdditions ?? additions
+        }
+        return unstagedAdditions ?? additions
+    }
+
+    func deletions(isStaged: Bool) -> Int? {
+        if isStaged {
+            return stagedDeletions ?? deletions
+        }
+        return unstagedDeletions ?? deletions
     }
 
     var statusText: String {

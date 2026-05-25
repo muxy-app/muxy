@@ -91,6 +91,7 @@ final class DiffCache {
     }
 
     func registerTask(_ task: Task<Void, Never>, for filePath: String) {
+        tasks[filePath]?.cancel()
         tasks[filePath] = task
     }
 
@@ -113,6 +114,12 @@ final class DiffCache {
 
     nonisolated func cancelAll() {
         tasks.values.forEach { $0.cancel() }
+    }
+
+    func cancelAndClearLoading() {
+        tasks.values.forEach { $0.cancel() }
+        tasks.removeAll()
+        loadingPaths.removeAll()
     }
 
     private func enforceCap(pinnedPaths: Set<String>) {

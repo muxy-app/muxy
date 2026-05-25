@@ -16,8 +16,9 @@ final class DiffViewerTabState: Identifiable {
     struct PullRequestSource: Equatable {
         let number: Int
         let title: String
-        let baseRef: String
-        let headRef: String
+        let baseRef: String?
+        let headRef: String?
+        let baseBranch: String?
         let webURL: URL?
     }
 
@@ -61,7 +62,7 @@ final class DiffViewerTabState: Identifiable {
     var selectedFilePath: String?
     var selectedIsStaged = false
     var wordWrap = false
-    var fontSize: CGFloat = 13
+    var fontSize: CGFloat = DiffViewerTabState.loadPersistedFontSize()
     var scrollRequestVersion = 0
     var sidebarScrollRequestVersion = 0
     var collapsedCacheKeys: Set<String> = []
@@ -72,6 +73,13 @@ final class DiffViewerTabState: Identifiable {
     var filesError: String?
     let diffCache = DiffCache()
     private let git = GitRepositoryService()
+    private var sourceFilesTask: Task<Void, Never>?
+    private var pendingScrollCacheKey: String?
+    static let fontSizeDefaultsKey = "muxy.diffViewer.fontSize"
+    private static let defaultFontSize: CGFloat = 13
+    private static let minFontSize: CGFloat = 9
+    private static let maxFontSize: CGFloat = 28
+    private static var instances: [WeakDiffViewerTabState] = []
 
     var displayTitle: String {
         source.displayTitle
@@ -104,6 +112,7 @@ final class DiffViewerTabState: Identifiable {
         self.source = source
         projectPath = vcs.projectPath
         mode = vcs.mode
+        Self.register(self)
         selectInitialFile(filePath: filePath, isStaged: isStaged)
     }
 
@@ -116,10 +125,12 @@ final class DiffViewerTabState: Identifiable {
     }
 
     func setSource(_ source: Source, filePath: String? = nil, isStaged: Bool = false) {
+        cancelSourceLoads()
         self.source = source
         selectedFilePath = nil
         selectedIsStaged = isStaged
         activeCacheKey = nil
+        pendingScrollCacheKey = nil
         collapsedCacheKeys.removeAll()
         manuallyLoadedCacheKeys.removeAll()
         diffCache.clearAll()
@@ -131,6 +142,14 @@ final class DiffViewerTabState: Identifiable {
         }
     }
 
+    func prepareForClose() {
+        cancelSourceLoads()
+        diffCache.clearAll()
+        vcs.diffCache.evict { key in
+            key.hasPrefix("staged:") || key.hasPrefix("unstaged:")
+        }
+    }
+
     func loadFullDiff(filePath: String, isStaged: Bool) {
         let cacheKey = Self.cacheKey(filePath: filePath, isStaged: isStaged)
         manuallyLoadedCacheKeys.insert(cacheKey)
@@ -138,20 +157,32 @@ final class DiffViewerTabState: Identifiable {
         loadDiff(filePath: filePath, isStaged: isStaged, forceFull: true)
     }
 
+    func loadDiff(filePath: String, isStaged: Bool) {
+        loadDiff(filePath: filePath, isStaged: isStaged, forceFull: false)
+    }
+
     func select(filePath: String, isStaged: Bool) {
+        let cacheKey = Self.cacheKey(filePath: filePath, isStaged: isStaged)
         guard selectedFilePath != filePath || selectedIsStaged != isStaged else {
+            activeCacheKey = cacheKey
+            pendingScrollCacheKey = cacheKey
             scrollRequestVersion &+= 1
             loadSelectedDiff(forceFull: false)
             return
         }
         selectedFilePath = filePath
         selectedIsStaged = isStaged
-        activeCacheKey = Self.cacheKey(filePath: filePath, isStaged: isStaged)
+        activeCacheKey = cacheKey
+        pendingScrollCacheKey = cacheKey
         scrollRequestVersion &+= 1
         loadSelectedDiff(forceFull: false)
     }
 
     func activateFromDiffScroll(cacheKey: String?) {
+        if let pendingScrollCacheKey {
+            guard cacheKey == pendingScrollCacheKey else { return }
+            self.pendingScrollCacheKey = nil
+        }
         guard activeCacheKey != cacheKey else { return }
         activeCacheKey = cacheKey
         sidebarScrollRequestVersion &+= 1
@@ -171,11 +202,11 @@ final class DiffViewerTabState: Identifiable {
     }
 
     func adjustFontSize(by delta: CGFloat) {
-        fontSize = min(28, max(9, fontSize + delta))
+        Self.storeFontSize(fontSize + delta)
     }
 
     func resetFontSize() {
-        fontSize = 13
+        Self.storeFontSize(Self.defaultFontSize)
     }
 
     func isCollapsed(filePath: String, isStaged: Bool) -> Bool {
@@ -204,7 +235,9 @@ final class DiffViewerTabState: Identifiable {
     }
 
     func reconcileLargeDiffCollapse() {
-        collapsedCacheKeys.formUnion(allCacheKeys.filter(isLargeUnloadedDiff))
+        collapsedCacheKeys.formUnion(allCacheKeys.filter { cacheKey in
+            isLargeUnloadedDiff(cacheKey) || isEstimatedLargeDiff(cacheKey)
+        })
     }
 
     func reconcileSelection() {
@@ -287,33 +320,69 @@ final class DiffViewerTabState: Identifiable {
         guard let file = files.first(where: { $0.path == filePath }) else {
             return GitRepositoryService.DiffHints(hasStaged: isStaged, hasUnstaged: !isStaged, isUntrackedOrNew: false)
         }
-        let untrackedOrNew = (file.xStatus == "?" && file.yStatus == "?") || (!isStaged && file.xStatus == "A")
-        if isStaged {
-            return GitRepositoryService.DiffHints(hasStaged: true, hasUnstaged: false, isUntrackedOrNew: untrackedOrNew)
-        }
-        return GitRepositoryService.DiffHints(hasStaged: false, hasUnstaged: !untrackedOrNew, isUntrackedOrNew: untrackedOrNew)
+        return DiffHintPolicy.hints(file: file, isStaged: isStaged)
     }
 
     private func isLargeUnloadedDiff(_ cacheKey: String) -> Bool {
         activeDiffCache.diff(for: cacheKey)?.truncated == true && !manuallyLoadedCacheKeys.contains(cacheKey)
     }
 
+    private func isEstimatedLargeDiff(_ cacheKey: String) -> Bool {
+        guard !activeDiffCache.hasDiff(for: cacheKey) else { return false }
+        let isStaged = cacheKey.hasPrefix("staged:")
+        guard let file = files.first(where: { Self.cacheKey(filePath: $0.path, isStaged: isStaged) == cacheKey })
+        else {
+            return false
+        }
+        return DiffCollapsePolicy.shouldCollapseByDefault(file, isStaged: isStaged)
+    }
+
     private var activeDiffCache: DiffCache {
         source == .workingTree ? vcs.diffCache : diffCache
     }
 
+    private static func register(_ state: DiffViewerTabState) {
+        instances.removeAll { $0.value == nil }
+        instances.append(WeakDiffViewerTabState(value: state))
+    }
+
+    private static func loadPersistedFontSize() -> CGFloat {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: fontSizeDefaultsKey) != nil else { return defaultFontSize }
+        return clampedFontSize(CGFloat(defaults.double(forKey: fontSizeDefaultsKey)))
+    }
+
+    private static func storeFontSize(_ fontSize: CGFloat) {
+        let fontSize = clampedFontSize(fontSize)
+        UserDefaults.standard.set(Double(fontSize), forKey: fontSizeDefaultsKey)
+        instances.removeAll { $0.value == nil }
+        for instance in instances {
+            instance.value?.fontSize = fontSize
+        }
+    }
+
+    private static func clampedFontSize(_ fontSize: CGFloat) -> CGFloat {
+        min(maxFontSize, max(minFontSize, fontSize))
+    }
+
     private func loadSourceFiles(forceFull: Bool) {
         guard source != .workingTree else { return }
+        sourceFilesTask?.cancel()
+        diffCache.cancelAndClearLoading()
         isLoadingFiles = true
         filesError = nil
         let source = source
-        Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             do {
-                let files = try await sourceFiles(for: source)
+                let resolvedSource = try await resolvedSource(source)
+                guard !Task.isCancelled else { return }
+                self.source = resolvedSource
+                let files = try await sourceFiles(for: resolvedSource)
                 guard !Task.isCancelled else { return }
                 sourceFiles = files
                 isLoadingFiles = false
+                reconcileLargeDiffCollapse()
                 reconcileSelection()
                 loadAllDiffs(forceFull: forceFull)
             } catch {
@@ -323,23 +392,47 @@ final class DiffViewerTabState: Identifiable {
                 filesError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
+        sourceFilesTask = task
+    }
+
+    private func resolvedSource(_ source: Source) async throws -> Source {
+        guard case let .pullRequest(pullRequest) = source,
+              pullRequest.baseRef == nil || pullRequest.headRef == nil
+        else { return source }
+
+        let remote = await git.githubRemoteName(repoPath: projectPath) ?? "origin"
+        let baseRef = pullRequest.baseRef ?? "refs/remotes/\(remote)/\(pullRequest.baseBranch ?? "main")"
+        let headRef = try await git.fetchPullRequestDiffHead(
+            repoPath: projectPath,
+            number: pullRequest.number,
+            remote: remote
+        )
+        return .pullRequest(PullRequestSource(
+            number: pullRequest.number,
+            title: pullRequest.title,
+            baseRef: baseRef,
+            headRef: headRef,
+            baseBranch: pullRequest.baseBranch,
+            webURL: pullRequest.webURL
+        ))
     }
 
     private func sourceFiles(for source: Source) async throws -> [GitStatusFile] {
         switch source {
         case .workingTree:
-            vcs.files
+            return vcs.files
         case let .commit(commit):
-            try await git.changedFiles(repoPath: projectPath, commit: commit.hash)
+            return try await git.changedFiles(repoPath: projectPath, commit: commit.hash)
         case let .range(baseRef, headRef, _):
-            try await git.changedFiles(
+            return try await git.changedFiles(
                 repoPath: projectPath,
                 range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef)
             )
         case let .pullRequest(pullRequest):
-            try await git.changedFiles(
+            guard let baseRef = pullRequest.baseRef, let headRef = pullRequest.headRef else { return [] }
+            return try await git.changedFiles(
                 repoPath: projectPath,
-                range: GitRepositoryService.DiffRange(baseRef: pullRequest.baseRef, headRef: pullRequest.headRef)
+                range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef)
             )
         }
     }
@@ -378,34 +471,101 @@ final class DiffViewerTabState: Identifiable {
         diffCache.registerTask(task, for: cacheKey)
     }
 
+    private func cancelSourceLoads() {
+        sourceFilesTask?.cancel()
+        sourceFilesTask = nil
+        diffCache.cancelAndClearLoading()
+        isLoadingFiles = false
+    }
+
     private func sourceDiff(
         filePath: String,
         source: Source,
         lineLimit: Int?
     ) async throws -> GitRepositoryService.PatchAndCompareResult {
-        switch source {
-        case .workingTree:
-            try await git.patchAndCompare(repoPath: projectPath, filePath: filePath, lineLimit: lineLimit)
-        case let .commit(commit):
-            try await git.patchAndCompare(repoPath: projectPath, filePath: filePath, commit: commit.hash, lineLimit: lineLimit)
-        case let .range(baseRef, headRef, _):
-            try await git.patchAndCompare(
-                repoPath: projectPath,
-                filePath: filePath,
-                range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef),
-                lineLimit: lineLimit
-            )
-        case let .pullRequest(pullRequest):
-            try await git.patchAndCompare(
-                repoPath: projectPath,
-                filePath: filePath,
-                range: GitRepositoryService.DiffRange(baseRef: pullRequest.baseRef, headRef: pullRequest.headRef),
-                lineLimit: lineLimit
-            )
+        try await DiffLoadGate.shared.enter()
+        do {
+            try Task.checkCancellation()
+            switch source {
+            case .workingTree:
+                let result = try await git.patchAndCompare(repoPath: projectPath, filePath: filePath, lineLimit: lineLimit)
+                await DiffLoadGate.shared.leave()
+                return result
+            case let .commit(commit):
+                let result = try await git.patchAndCompare(
+                    repoPath: projectPath,
+                    filePath: filePath,
+                    commit: commit.hash,
+                    lineLimit: lineLimit
+                )
+                await DiffLoadGate.shared.leave()
+                return result
+            case let .range(baseRef, headRef, _):
+                let result = try await git.patchAndCompare(
+                    repoPath: projectPath,
+                    filePath: filePath,
+                    range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef),
+                    lineLimit: lineLimit
+                )
+                await DiffLoadGate.shared.leave()
+                return result
+            case let .pullRequest(pullRequest):
+                guard let baseRef = pullRequest.baseRef, let headRef = pullRequest.headRef else {
+                    await DiffLoadGate.shared.leave()
+                    return GitRepositoryService.PatchAndCompareResult(rows: [], truncated: false, additions: 0, deletions: 0)
+                }
+                let result = try await git.patchAndCompare(
+                    repoPath: projectPath,
+                    filePath: filePath,
+                    range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef),
+                    lineLimit: lineLimit
+                )
+                await DiffLoadGate.shared.leave()
+                return result
+            }
+        } catch {
+            await DiffLoadGate.shared.leave()
+            throw error
         }
     }
 
     static func cacheKey(filePath: String, isStaged: Bool) -> String {
         "\(isStaged ? "staged" : "unstaged"):\(filePath)"
+    }
+}
+
+private struct WeakDiffViewerTabState {
+    weak var value: DiffViewerTabState?
+}
+
+actor DiffLoadGate {
+    static let shared = DiffLoadGate(limit: 4)
+
+    private let limit: Int
+    private var active = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        self.limit = limit
+    }
+
+    func enter() async throws {
+        if active < limit {
+            active += 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+        try Task.checkCancellation()
+    }
+
+    func leave() {
+        guard !waiters.isEmpty else {
+            active -= 1
+            return
+        }
+        let continuation = waiters.removeFirst()
+        continuation.resume()
     }
 }

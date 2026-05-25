@@ -11,6 +11,9 @@ private final class CodeEditorTextView: NSTextView {
     var canUndoRequest: (() -> Bool)?
     var canRedoRequest: (() -> Bool)?
     var usesNativeUndo = true
+    var diffLineKinds: [DiffDisplayRow.Kind]?
+    var diffViewportStartLine = 0
+    var diffLineStartOffsets: [Int] = []
 
     override var undoManager: UndoManager? {
         usesNativeUndo ? super.undoManager : nil
@@ -18,6 +21,11 @@ private final class CodeEditorTextView: NSTextView {
 
     override func paste(_ sender: Any?) {
         pasteAsPlainText(sender)
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawDiffLineBackgrounds(in: rect)
     }
 
     @objc
@@ -44,6 +52,60 @@ private final class CodeEditorTextView: NSTextView {
             return canRedoRequest()
         }
         return super.validateUserInterfaceItem(item)
+    }
+
+    private func drawDiffLineBackgrounds(in dirtyRect: NSRect) {
+        guard let diffLineKinds,
+              !diffLineKinds.isEmpty,
+              let layoutManager,
+              let textContainer
+        else { return }
+
+        let glyphRange = layoutManager.glyphRange(forBoundingRect: dirtyRect, in: textContainer)
+        guard glyphRange.length > 0 else { return }
+        let origin = textContainerOrigin
+        layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, glyphRange, _ in
+            let characterIndex = layoutManager.characterIndexForGlyph(at: glyphRange.location)
+            let localLine = self.localLine(containing: characterIndex)
+            let globalLine = self.diffViewportStartLine + localLine
+            guard globalLine < diffLineKinds.count else { return }
+            let color = self.diffBackgroundColor(for: diffLineKinds[globalLine])
+            guard color.alphaComponent > 0 else { return }
+            color.setFill()
+            let y = usedRect.minY + origin.y
+            let height = max(usedRect.height, 1)
+            NSRect(x: dirtyRect.minX, y: y, width: max(self.bounds.width, dirtyRect.maxX) - dirtyRect.minX, height: height).fill()
+        }
+    }
+
+    private func localLine(containing characterIndex: Int) -> Int {
+        guard !diffLineStartOffsets.isEmpty else { return 0 }
+        var low = 0
+        var high = diffLineStartOffsets.count - 1
+        while low <= high {
+            let mid = (low + high) / 2
+            if diffLineStartOffsets[mid] <= characterIndex {
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return max(0, high)
+    }
+
+    private func diffBackgroundColor(for kind: DiffDisplayRow.Kind) -> NSColor {
+        switch kind {
+        case .addition:
+            MuxyTheme.nsDiffAdd.withAlphaComponent(0.14)
+        case .deletion:
+            MuxyTheme.nsDiffRemove.withAlphaComponent(0.14)
+        case .hunk:
+            MuxyTheme.nsDiffHunk.withAlphaComponent(0.12)
+        case .collapsed:
+            EditorThemePalette.active.foreground.withAlphaComponent(0.08)
+        case .context:
+            .clear
+        }
     }
 
     override func scrollRangeToVisible(_ range: NSRange) {
@@ -307,6 +369,7 @@ struct CodeEditorView: NSViewRepresentable {
         layoutManager.addTextContainer(textContainer)
 
         let textView = CodeEditorTextView(frame: NSRect(origin: .zero, size: scrollView.contentSize), textContainer: textContainer)
+        textView.diffLineKinds = state.diffLineKinds
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -1063,6 +1126,11 @@ struct CodeEditorView: NSViewRepresentable {
                 lastRenderedBackingStoreVersion = state.backingStoreVersion
                 needsViewportTextReload = false
                 rebuildLineStartOffsetsForViewport()
+            }
+            if let textView = textView as? CodeEditorTextView {
+                textView.diffLineKinds = state.diffLineKinds
+                textView.diffViewportStartLine = viewport.viewportStartLine
+                textView.diffLineStartOffsets = lineStartOffsets
             }
             let font = resolvedFont
             if let storage = textView.textStorage, storage.length > 0 {

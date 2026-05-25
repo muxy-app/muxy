@@ -10,6 +10,10 @@ struct DiffViewerTabStateTests {
         GitStatusFile(path: path, oldPath: nil, xStatus: xStatus, yStatus: yStatus, additions: 1, deletions: 0, isBinary: false)
     }
 
+    private func makeFile(path: String, xStatus: Character, yStatus: Character, additions: Int, deletions: Int) -> GitStatusFile {
+        GitStatusFile(path: path, oldPath: nil, xStatus: xStatus, yStatus: yStatus, additions: additions, deletions: deletions, isBinary: false)
+    }
+
     private func makeDiff() -> DiffCache.LoadedDiff {
         DiffCache.LoadedDiff(rows: [], additions: 1, deletions: 0, truncated: false)
     }
@@ -46,6 +50,7 @@ struct DiffViewerTabStateTests {
             title: "New git diff viewer",
             baseRef: "refs/remotes/origin/main",
             headRef: "refs/muxy/pull/535/head",
+            baseBranch: "main",
             webURL: url
         ))
 
@@ -133,15 +138,27 @@ struct DiffViewerTabStateTests {
         vcs.diffCache.cancelAll()
     }
 
-    @Test("font size is diff specific and resettable")
-    func fontSizeIsDiffSpecificAndResettable() {
-        let state = DiffViewerTabState(vcs: VCSTabState(projectPath: NSTemporaryDirectory()))
+    @Test("font size is shared and persisted across diff viewers")
+    func fontSizeIsSharedAndPersistedAcrossDiffViewers() {
+        UserDefaults.standard.removeObject(forKey: DiffViewerTabState.fontSizeDefaultsKey)
+        let first = DiffViewerTabState(vcs: VCSTabState(projectPath: NSTemporaryDirectory()))
+        let second = DiffViewerTabState(vcs: VCSTabState(projectPath: NSTemporaryDirectory()))
 
-        #expect(state.fontSize == 13)
-        state.adjustFontSize(by: 4)
-        #expect(state.fontSize == 17)
-        state.resetFontSize()
-        #expect(state.fontSize == 13)
+        #expect(first.fontSize == 13)
+        #expect(second.fontSize == 13)
+
+        first.adjustFontSize(by: 4)
+
+        #expect(first.fontSize == 17)
+        #expect(second.fontSize == 17)
+        #expect(UserDefaults.standard.double(forKey: DiffViewerTabState.fontSizeDefaultsKey) == 17)
+        #expect(DiffViewerTabState(vcs: VCSTabState(projectPath: NSTemporaryDirectory())).fontSize == 17)
+
+        second.resetFontSize()
+
+        #expect(first.fontSize == 13)
+        #expect(second.fontSize == 13)
+        UserDefaults.standard.removeObject(forKey: DiffViewerTabState.fontSizeDefaultsKey)
     }
 
     @Test("selecting current file still emits scroll request")
@@ -184,6 +201,12 @@ struct DiffViewerTabStateTests {
 
         state.activateFromDiffScroll(cacheKey: DiffViewerTabState.cacheKey(filePath: firstPath, isStaged: false))
 
+        #expect(state.activeCacheKey == secondCacheKey)
+        #expect(state.sidebarScrollRequestVersion == 0)
+
+        state.activateFromDiffScroll(cacheKey: secondCacheKey)
+        state.activateFromDiffScroll(cacheKey: DiffViewerTabState.cacheKey(filePath: firstPath, isStaged: false))
+
         #expect(state.sidebarScrollRequestVersion == 1)
         vcs.diffCache.cancelAll()
     }
@@ -200,6 +223,28 @@ struct DiffViewerTabStateTests {
 
         #expect(state.selectedFilePath == "SourceDiff.swift")
         #expect(state.selectedIsStaged == false)
+        vcs.diffCache.cancelAll()
+        state.diffCache.cancelAll()
+    }
+
+    @Test("prepareForClose clears source and working tree diff loads")
+    func prepareForCloseClearsSourceAndWorkingTreeDiffLoads() {
+        let vcs = VCSTabState(projectPath: NSTemporaryDirectory())
+        let state = DiffViewerTabState(vcs: vcs)
+        let sourceKey = DiffViewerTabState.cacheKey(filePath: "SourceDiff.swift", isStaged: false)
+        let workingTreeKey = DiffViewerTabState.cacheKey(filePath: "WorkingTree.swift", isStaged: false)
+
+        state.diffCache.markLoading(sourceKey)
+        state.diffCache.store(makeDiff(), for: sourceKey, pinnedPaths: [])
+        vcs.diffCache.store(makeDiff(), for: workingTreeKey, pinnedPaths: [])
+        vcs.diffCache.store(makeDiff(), for: "WorkingTree.swift", pinnedPaths: [])
+
+        state.prepareForClose()
+
+        #expect(!state.diffCache.hasDiff(for: sourceKey))
+        #expect(!state.diffCache.isLoading(sourceKey))
+        #expect(!vcs.diffCache.hasDiff(for: workingTreeKey))
+        #expect(vcs.diffCache.hasDiff(for: "WorkingTree.swift"))
         vcs.diffCache.cancelAll()
         state.diffCache.cancelAll()
     }
@@ -248,6 +293,19 @@ struct DiffViewerTabStateTests {
         #expect(!state.isCollapsed(filePath: filePath, isStaged: false))
         #expect(state.manuallyLoadedCacheKeys.contains(cacheKey))
         #expect(vcs.diffCache.isLoading(cacheKey))
+        vcs.diffCache.cancelAll()
+    }
+
+    @Test("large diff stats collapse before preview loads")
+    func largeDiffStatsCollapseBeforePreviewLoads() {
+        let vcs = VCSTabState(projectPath: NSTemporaryDirectory())
+        let state = DiffViewerTabState(vcs: vcs)
+        let filePath = "Generated.swift"
+
+        vcs.files = [makeFile(path: filePath, xStatus: " ", yStatus: "M", additions: 900, deletions: 100)]
+        state.reconcileLargeDiffCollapse()
+
+        #expect(state.isCollapsed(filePath: filePath, isStaged: false))
         vcs.diffCache.cancelAll()
     }
 

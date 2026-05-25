@@ -213,9 +213,6 @@ enum TabReducer {
     }
 
     private static func clearDiffViewerCache(for tab: TerminalTab?) {
-        guard let vcs = tab?.content.diffViewerState?.vcs else { return }
-        vcs.diffCache.evict { key in
-            key.hasPrefix("staged:") || key.hasPrefix("unstaged:")
-        }
+        tab?.content.diffViewerState?.prepareForClose()
     }
 }
