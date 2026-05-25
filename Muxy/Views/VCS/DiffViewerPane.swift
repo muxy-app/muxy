@@ -536,8 +536,22 @@ private struct DiffFileCard: View {
             externalScrollY: externalScrollY,
             passesScrollWheelToParent: true
         )
-        .id("\(section.cacheKey):\(state.mode.rawValue):\(state.wordWrap):\(state.fontSize):\(usesVirtualBody):\(maxRenderedCharacters)")
+        .id(editorIdentity)
         .frame(maxWidth: .infinity)
+    }
+
+    private var editorIdentity: String {
+        [
+            section.cacheKey,
+            state.mode.rawValue,
+            String(state.wordWrap),
+            String(describing: state.fontSize),
+            String(usesVirtualBody),
+            String(maxRenderedCharacters),
+            String(section.rows.count),
+            section.rows.first?.id.uuidString ?? "empty",
+            section.rows.last?.id.uuidString ?? "empty",
+        ].joined(separator: ":")
     }
 
     private var maxRenderedCharacters: Int {

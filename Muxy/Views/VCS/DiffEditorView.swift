@@ -14,6 +14,7 @@ struct SingleDiffEditorView: View {
 
     @State private var editorSettings = EditorSettings.shared
     @State private var themeRevision = 0
+    @State private var documentRevision = 0
     @State private var splitScrollY: CGFloat = 0
     @State private var unifiedState: EditorTabState
     @State private var leftState: EditorTabState
@@ -100,6 +101,7 @@ struct SingleDiffEditorView: View {
             diffLineKinds: document.lineKinds,
             diffGutterLines: document.gutterLines
         )
+        documentRevision &+= 1
     }
 
     private func editor(state: EditorTabState, scrollY: Binding<CGFloat>?) -> some View {
@@ -110,7 +112,7 @@ struct SingleDiffEditorView: View {
             fontSizeOverride: fontSize,
             showLineNumbers: false,
             lineWrapping: wordWrap,
-            themeVersion: GhosttyService.shared.configVersion + themeRevision,
+            themeVersion: GhosttyService.shared.configVersion + themeRevision + documentRevision,
             showsVerticalScroller: false,
             focused: false,
             searchNeedle: "",
