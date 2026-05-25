@@ -21,4 +21,12 @@ struct WindowConfiguratorTests {
 
         #expect(!delegate.applicationShouldOpenUntitledFile(NSApp))
     }
+
+    @Test("allows auxiliary windows to close")
+    func allowsAuxiliaryWindowsToClose() {
+        let delegate = AppDelegate()
+        let window = NSWindow()
+
+        #expect(delegate.windowShouldClose(window))
+    }
 }

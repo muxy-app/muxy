@@ -443,6 +443,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         settingsWindow = nil
     }
 
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard sender.identifier == ShortcutContext.mainWindowIdentifier else { return true }
+        NSApp.terminate(nil)
+        return false
+    }
+
     @MainActor
     private func observeSystemAppearanceChanges() {
         if let observer = systemAppearanceObserver {
