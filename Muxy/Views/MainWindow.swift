@@ -979,24 +979,28 @@ struct MainWindow: View {
             switch position {
             case .right:
                 HStack(spacing: 0) {
-                    sidePanelResizeHandle { delta in
-                        let next = richInputPanelWidth - Double(delta)
-                        richInputPanelWidth = max(
-                            Double(RichInputPanelLayout.minWidth),
-                            min(Double(RichInputPanelLayout.maxWidth), next)
-                        )
-                    }
+                    sidePanelResizeHandle(
+                        current: { CGFloat(richInputPanelWidth) },
+                        apply: { next in
+                            richInputPanelWidth = max(
+                                Double(RichInputPanelLayout.minWidth),
+                                min(Double(RichInputPanelLayout.maxWidth), Double(next))
+                            )
+                        }
+                    )
                     panel.frame(width: CGFloat(richInputPanelWidth))
                 }
             case .bottom:
                 VStack(spacing: 0) {
-                    bottomPanelResizeHandle { delta in
-                        let next = richInputPanelHeight - Double(delta)
-                        richInputPanelHeight = max(
-                            Double(RichInputPanelLayout.minHeight),
-                            min(Double(RichInputPanelLayout.maxHeight), next)
-                        )
-                    }
+                    bottomPanelResizeHandle(
+                        current: { CGFloat(richInputPanelHeight) },
+                        apply: { next in
+                            richInputPanelHeight = max(
+                                Double(RichInputPanelLayout.minHeight),
+                                min(Double(RichInputPanelLayout.maxHeight), Double(next))
+                            )
+                        }
+                    )
                     panel.frame(height: CGFloat(richInputPanelHeight))
                 }
             }
@@ -1009,24 +1013,29 @@ struct MainWindow: View {
             richInputPanelContent(at: .right)
         } else if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
             HStack(spacing: 0) {
-                sidePanelResizeHandle { delta in
-                    vcsPanelWidth = max(
-                        AttachedVCSLayout.minWidth,
-                        min(AttachedVCSLayout.maxWidth, vcsPanelWidth - delta)
-                    )
-                }
+                sidePanelResizeHandle(
+                    current: { vcsPanelWidth },
+                    apply: { next in
+                        vcsPanelWidth = max(
+                            AttachedVCSLayout.minWidth,
+                            min(AttachedVCSLayout.maxWidth, next)
+                        )
+                    }
+                )
                 VCSTabView(state: state, focused: false, onFocus: {})
                     .frame(width: vcsPanelWidth)
             }
         } else if fileTreePanelVisible, let treeState = activeFileTreeState {
             HStack(spacing: 0) {
-                sidePanelResizeHandle { delta in
-                    let next = fileTreePanelWidth - Double(delta)
-                    fileTreePanelWidth = max(
-                        Double(FileTreeLayout.minWidth),
-                        min(Double(FileTreeLayout.maxWidth), next)
-                    )
-                }
+                sidePanelResizeHandle(
+                    current: { CGFloat(fileTreePanelWidth) },
+                    apply: { next in
+                        fileTreePanelWidth = max(
+                            Double(FileTreeLayout.minWidth),
+                            min(Double(FileTreeLayout.maxWidth), Double(next))
+                        )
+                    }
+                )
                 FileTreeView(
                     state: treeState,
                     onOpenFile: { filePath in
@@ -1065,18 +1074,18 @@ struct MainWindow: View {
         .accessibilityHidden(true)
     }
 
-    private func sidePanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        ResizeHandle(axis: .horizontal) { v in
-            onDrag(v.translation.width)
-        }
-        .accessibilityHidden(true)
+    private func sidePanelResizeHandle(
+        current: @escaping () -> CGFloat,
+        apply: @escaping (CGFloat) -> Void
+    ) -> some View {
+        PanelResizeHandle(axis: .horizontal, current: current, apply: apply)
     }
 
-    private func bottomPanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        ResizeHandle(axis: .vertical) { v in
-            onDrag(v.translation.height)
-        }
-        .accessibilityHidden(true)
+    private func bottomPanelResizeHandle(
+        current: @escaping () -> CGFloat,
+        apply: @escaping (CGFloat) -> Void
+    ) -> some View {
+        PanelResizeHandle(axis: .vertical, current: current, apply: apply)
     }
 
     private var activeFileTreeState: FileTreeState? {

@@ -57,3 +57,24 @@ struct ResizeHandle: View {
         axis == .horizontal ? .resizeLeftRight : .resizeUpDown
     }
 }
+
+struct PanelResizeHandle: View {
+    let axis: ResizeHandle.Axis
+    let current: () -> CGFloat
+    let apply: (CGFloat) -> Void
+    @State private var startValue: CGFloat?
+
+    var body: some View {
+        ResizeHandle(
+            axis: axis,
+            onEnd: { startValue = nil },
+            onDrag: { value in
+                let start = startValue ?? current()
+                if startValue == nil { startValue = start }
+                let translation = axis == .horizontal ? value.translation.width : value.translation.height
+                apply(start - translation)
+            }
+        )
+        .accessibilityHidden(true)
+    }
+}
