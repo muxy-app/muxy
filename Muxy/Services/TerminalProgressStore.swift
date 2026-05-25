@@ -11,7 +11,7 @@ final class TerminalProgressStore {
     private(set) var progresses: [UUID: TerminalProgress] = [:]
     private(set) var completionPending: Set<UUID> = []
     private var paneToProject: [UUID: UUID] = [:]
-    nonisolated(unsafe) private var didBecomeActiveObserver: NSObjectProtocol?
+    private var didBecomeActiveObserver: NSObjectProtocol?
 
     init() {
         didBecomeActiveObserver = NotificationCenter.default.addObserver(
@@ -26,8 +26,10 @@ final class TerminalProgressStore {
     }
 
     deinit {
-        if let didBecomeActiveObserver {
-            NotificationCenter.default.removeObserver(didBecomeActiveObserver)
+        MainActor.assumeIsolated {
+            if let didBecomeActiveObserver {
+                NotificationCenter.default.removeObserver(didBecomeActiveObserver)
+            }
         }
     }
 

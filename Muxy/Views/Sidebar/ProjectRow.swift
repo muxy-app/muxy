@@ -22,6 +22,7 @@ struct ProjectRow: View {
     @State private var renameText = ""
     @State private var showWorktreePopover = false
     @State private var isGitRepo = false
+    @State private var isCheckingGitRepo = true
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableImage?
     @State private var isRefreshingWorktrees = false
@@ -34,6 +35,10 @@ struct ProjectRow: View {
 
     private var worktrees: [Worktree] {
         worktreeStore.list(for: project.id)
+    }
+
+    private var hasWorktreeUI: Bool {
+        isGitRepo || worktrees.count > 1
     }
 
     private var displayLetter: String {
@@ -61,7 +66,11 @@ struct ProjectRow: View {
                 onSelect()
             }
             .task(id: project.path) {
+                isCheckingGitRepo = true
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
                 isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
+                isCheckingGitRepo = false
             }
             .contextMenu {
                 Button("Set Logo...") { pickLogoImage() }
@@ -82,6 +91,15 @@ struct ProjectRow: View {
                     Divider()
                     Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
                     Button("New Worktree…") { showCreateWorktreeSheet = true }
+                    if worktrees.count > 1 {
+                        Button("Switch Worktree…") { showWorktreePopover = true }
+                    }
+                } else if isCheckingGitRepo {
+                    Divider()
+                    Button("Loading Worktrees…") {}
+                        .disabled(true)
+                } else if hasWorktreeUI {
+                    Divider()
                     if worktrees.count > 1 {
                         Button("Switch Worktree…") { showWorktreePopover = true }
                     }

@@ -122,11 +122,15 @@ final class TerminalTab: Identifiable {
         isPinned = snapshot.isPinned
         switch snapshot.kind {
         case .terminal:
+            let restoredWorkingDirectory = Self.restoredWorkingDirectory(
+                restoredSession?.workingDirectory ?? snapshot.currentWorkingDirectory,
+                projectPath: snapshot.projectPath
+            )
             content = .terminal(TerminalPaneState(
                 id: snapshot.paneID ?? UUID(),
                 projectPath: snapshot.projectPath,
                 title: snapshot.paneTitle,
-                initialWorkingDirectory: restoredSession?.workingDirectory ?? snapshot.currentWorkingDirectory,
+                initialWorkingDirectory: restoredWorkingDirectory,
                 restoredSession: restoredSession
             ))
         case .vcs:
@@ -169,5 +173,15 @@ final class TerminalTab: Identifiable {
             filePath: content.editorState?.filePath ?? content.imageViewerState?.filePath,
             currentWorkingDirectory: content.pane?.currentWorkingDirectory
         )
+    }
+
+    private static func restoredWorkingDirectory(_ path: String?, projectPath: String) -> String? {
+        guard let path else { return nil }
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        let standardizedProjectPath = URL(fileURLWithPath: projectPath).standardizedFileURL.path
+        guard standardizedPath == standardizedProjectPath || standardizedPath.hasPrefix(standardizedProjectPath + "/") else {
+            return nil
+        }
+        return path
     }
 }

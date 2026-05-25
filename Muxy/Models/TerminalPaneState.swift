@@ -45,7 +45,7 @@ final class TerminalPaneState: Identifiable {
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
         self.externalEditorFilePath = externalEditorFilePath
         self.restoredSession = restoredSession
-        branchObserver.update(repoPath: initialWorkingDirectory ?? projectPath)
+        branchObserver.update(repoPath: initialWorkingDirectory ?? projectPath, refresh: false)
         if let restoredSession {
             let decision = TerminalSessionRestorePolicy.decision(for: restoredSession)
             restoreDecision = decision

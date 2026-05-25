@@ -26,18 +26,21 @@ final class PaneBranchObserver {
         refreshTask?.cancel()
     }
 
-    func update(repoPath path: String?) {
+    func update(repoPath path: String?, refresh: Bool = true) {
         guard repoPath != path else { return }
         repoPath = path
         guard path != nil else {
             branch = nil
             return
         }
-        refresh()
+        if refresh {
+            self.refresh()
+        }
     }
 
     func start() {
         guard pollingTask == nil else { return }
+        refresh()
         let interval = refreshInterval
         pollingTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {

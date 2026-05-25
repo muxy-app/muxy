@@ -11,7 +11,7 @@ struct MuxyApp: App {
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
     @State private var vcsWorktreeAutoRefresher: VCSWorktreeAutoRefresher
-    private let updateService = UpdateService.shared
+    @State private var didStartDeferredServices = false
 
     init() {
         _ = MuxyApp.launchDate
@@ -43,7 +43,6 @@ struct MuxyApp: App {
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
         _vcsWorktreeAutoRefresher = State(initialValue: vcsWorktreeAutoRefresher)
-        SettingsJSONStore.beginAutomaticUserSettingsSync()
     }
 
     var body: some Scene {
@@ -58,6 +57,7 @@ struct MuxyApp: App {
                 .environment(ThemeService.shared)
                 .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
+                    startDeferredServicesIfNeeded()
                     NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore
                     NotificationStore.shared.markAllAsRead()
@@ -143,6 +143,18 @@ struct MuxyApp: App {
                 .preferredColorScheme(MuxyTheme.colorScheme)
         }
         .defaultSize(width: 820, height: 580)
+    }
+
+    private func startDeferredServicesIfNeeded() {
+        guard !didStartDeferredServices else { return }
+        didStartDeferredServices = true
+        Task { @MainActor in
+            await Task.yield()
+            SettingsJSONStore.beginAutomaticUserSettingsSync()
+            try? await Task.sleep(for: .seconds(2))
+            UpdateService.shared.start()
+            AIProviderRegistry.shared.installAll()
+        }
     }
 }
 
@@ -240,7 +252,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ThemeService.shared.applyDefaultThemeIfNeeded()
         ThemeService.shared.migrateToPairedThemeIfNeeded()
         observeSystemAppearanceChanges()
-        UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
         NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
             Task { @MainActor [weak self] in
@@ -248,7 +259,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         NotificationSocketServer.shared.start()
-        AIProviderRegistry.shared.installAll()
         _ = AIUsageSettingsStore.isUsageEnabled()
         DiagnosticsMenuController.shared.install()
         observeSettingsRequests()

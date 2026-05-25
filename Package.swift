@@ -43,12 +43,15 @@ let package = Package(
                 .product(name: "Sentry", package: "sentry-cocoa"),
             ],
             path: "Muxy",
-            exclude: ["Info.plist", "Muxy.entitlements", "Resources/ghostty", "Resources/terminfo", "Resources/rg"],
+            exclude: ["Info.plist", "Muxy.entitlements"],
             resources: [
-                .process("Resources"),
+                .process("Resources/Assets.xcassets"),
                 .copy("Resources/ghostty"),
-                .copy("Resources/terminfo"),
+                .copy("Resources/markdown-assets"),
+                .copy("Resources/ProviderIcons"),
                 .copy("Resources/rg"),
+                .copy("Resources/scripts"),
+                .copy("Resources/terminfo"),
             ],
             linkerSettings: [
                 .unsafeFlags([

@@ -877,9 +877,10 @@ struct MainWindow: View {
     }
 
     private func mountedWorktreeKeys(for project: Project) -> [WorktreeKey] {
-        appState.workspaceRoots.keys
-            .filter { $0.projectID == project.id }
-            .sorted { $0.worktreeID.uuidString < $1.worktreeID.uuidString }
+        guard let activeKey = appState.activeWorktreeKey(for: project.id),
+              appState.workspaceRoots[activeKey] != nil
+        else { return [] }
+        return [activeKey]
     }
 
     private func handleShortcutAction(_ action: ShortcutAction) -> Bool {

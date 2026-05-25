@@ -128,6 +128,41 @@ struct TabAreaTests {
         #expect(pane?.startupCommandInteractive == true)
     }
 
+    @Test("restoring terminal tab ignores stale working directory outside project")
+    func restoringTerminalTabIgnoresOutsideWorkingDirectory() {
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: "~",
+            currentWorkingDirectory: "/tmp"
+        )
+
+        let tab = TerminalTab(restoring: snapshot)
+
+        #expect(tab.content.pane?.projectPath == testPath)
+        #expect(tab.content.pane?.currentWorkingDirectory == nil)
+    }
+
+    @Test("restoring terminal tab keeps working directory inside project")
+    func restoringTerminalTabKeepsInsideWorkingDirectory() {
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: "Sources",
+            currentWorkingDirectory: "/tmp/test/Sources"
+        )
+
+        let tab = TerminalTab(restoring: snapshot)
+
+        #expect(tab.content.pane?.currentWorkingDirectory == "/tmp/test/Sources")
+    }
+
     @Test("createVCSTab adds tab with VCS content")
     func createVCSTab() {
         let area = TabArea(projectPath: testPath)
