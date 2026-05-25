@@ -92,6 +92,29 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func appShortcutsAllowUnassignedBindings() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [])
+        let originalBindings = KeyBindingStore.shared.bindings
+        defer {
+            KeyBindingStore.shared.replaceBindings(originalBindings)
+            snapshot.restore()
+        }
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "shortcuts.app": {
+            "openVCSTab": {
+              "key": "",
+              "modifiers": 0
+            }
+          }
+        }
+        """)
+
+        #expect(KeyBindingStore.shared.combo(for: .openVCSTab) == KeyCombo(key: "", modifiers: 0))
+    }
+
+    @Test
     func omittedKnownSettingsRemainUnchanged() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [MobileServerService.portKey])
         defer { snapshot.restore() }

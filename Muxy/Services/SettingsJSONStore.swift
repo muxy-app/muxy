@@ -427,7 +427,9 @@ enum SettingsJSONStore {
         guard let dictionary = value as? [String: Any] else { return nil }
         var bindings: [KeyBinding] = []
         for (key, value) in dictionary {
-            guard let action = ShortcutAction(rawValue: key), let combo: KeyCombo = codableValue(from: value), isValidKeyCombo(combo) else {
+            guard let action = ShortcutAction(rawValue: key), let combo: KeyCombo = codableValue(from: value),
+                  isValidAppKeyCombo(combo)
+            else {
                 return nil
             }
             bindings.append(KeyBinding(action: action, combo: combo))
@@ -439,6 +441,10 @@ enum SettingsJSONStore {
         !combo.key.isEmpty
             && KeyCombo.normalized(key: combo.key) == combo.key
             && KeyCombo.normalized(modifiers: combo.modifiers) == combo.modifiers
+    }
+
+    private static func isValidAppKeyCombo(_ combo: KeyCombo) -> Bool {
+        !combo.isAssigned || isValidKeyCombo(combo)
     }
 
     private static func commandShortcutsJSONObject(_ configuration: CommandShortcutConfiguration) -> Any {
