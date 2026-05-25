@@ -58,6 +58,12 @@ struct KeyComboTests {
         #expect(combo.displayString == "⌘T")
     }
 
+    @Test("displayString for unassigned shortcut")
+    func displayStringUnassigned() {
+        let combo = KeyCombo(key: "", modifiers: 0)
+        #expect(combo.displayString == "Unassigned")
+    }
+
     @Test("normalized key with bracket keyCodes")
     func normalizedBracketKeyCodes() {
         #expect(KeyCombo.normalized(key: "", keyCode: 33) == "[")

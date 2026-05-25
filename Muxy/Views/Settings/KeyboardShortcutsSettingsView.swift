@@ -165,6 +165,11 @@ struct KeyboardShortcutsSettingsView: View {
                     },
                     onReset: { store.resetBinding(action: action)
                         conflictWarning = nil
+                    },
+                    onUnassign: {
+                        store.updateBinding(action: action, combo: KeyCombo(key: "", modifiers: 0))
+                        recordingAction = nil
+                        conflictWarning = nil
                     }
                 )
             }
@@ -386,6 +391,7 @@ private struct ShortcutRow: View {
     let onRecord: (KeyCombo) -> Void
     let onCancel: () -> Void
     let onReset: () -> Void
+    let onUnassign: () -> Void
     @State private var hovered = false
 
     var body: some View {
@@ -417,6 +423,15 @@ private struct ShortcutRow: View {
     private var comboDisplay: some View {
         HStack(spacing: 6) {
             if hovered {
+                Button(action: onUnassign) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10))
+                        .foregroundStyle(SettingsStyle.mutedForeground)
+                }
+                .buttonStyle(.plain)
+                .disabled(!combo.isAssigned)
+                .accessibilityLabel("Unassign Shortcut")
+
                 Button(action: onReset) {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 10))

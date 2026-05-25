@@ -56,6 +56,24 @@ struct KeyBindingStoreTests {
         #expect(store.combo(for: .openVCSTab) == KeyCombo(key: "y", command: true))
     }
 
+    @Test("action can be unassigned")
+    func actionCanBeUnassigned() throws {
+        let persistence = StubKeyBindingPersistence(bindings: KeyBinding.defaults)
+        let store = KeyBindingStore(persistence: persistence)
+        let combo = KeyCombo(key: "", modifiers: 0)
+        let event = try keyEvent(
+            characters: "y",
+            charactersIgnoringModifiers: "y",
+            keyCode: 16,
+            modifiers: [.command]
+        )
+
+        store.updateBinding(action: .openVCSTab, combo: combo)
+
+        #expect(store.combo(for: .openVCSTab) == combo)
+        #expect(store.action(for: event, scopes: [.mainWindow]) == nil)
+    }
+
     private func keyEvent(
         characters: String,
         charactersIgnoringModifiers: String,

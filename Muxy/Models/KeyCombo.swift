@@ -155,6 +155,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     }
 
     var displayString: String {
+        guard isAssigned else { return "Unassigned" }
+
         var parts = ""
         let flags = nsModifierFlags
         if flags.contains(.control) { parts += "⌃" }
