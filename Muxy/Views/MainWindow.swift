@@ -389,7 +389,7 @@ struct MainWindow: View {
 
             topBarContent
         }
-        .animation(.easeInOut(duration: 0.2), value: mainTitleBarLeadingInset)
+        .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
 
     @ViewBuilder
@@ -409,7 +409,7 @@ struct MainWindow: View {
                         }
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: titleBarNavigationOverlayWidth)
+                .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
         }
     }
 
