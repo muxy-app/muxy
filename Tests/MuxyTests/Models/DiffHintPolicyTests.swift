@@ -4,16 +4,16 @@ import Testing
 
 @Suite("DiffHintPolicy")
 struct DiffHintPolicyTests {
-    @Test("unstaged edits to staged added file diff against index")
-    func unstagedEditsToStagedAddedFileDiffAgainstIndex() {
+    @Test("unstaged side of staged added file uses new file preview path")
+    func unstagedSideOfStagedAddedFileUsesNewFilePreviewPath() {
         let hints = DiffHintPolicy.hints(
             file: makeFile(xStatus: "A", yStatus: "M"),
             isStaged: false
         )
 
         #expect(!hints.hasStaged)
-        #expect(hints.hasUnstaged)
-        #expect(!hints.isUntrackedOrNew)
+        #expect(!hints.hasUnstaged)
+        #expect(hints.isUntrackedOrNew)
     }
 
     @Test("untracked files use new file preview path")

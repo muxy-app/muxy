@@ -1,9 +1,9 @@
 enum DiffHintPolicy {
     static func hints(file: GitStatusFile, isStaged: Bool) -> GitRepositoryService.DiffHints {
-        let isUntracked = file.xStatus == "?" && file.yStatus == "?"
+        let isUntrackedOrNew = (file.xStatus == "?" && file.yStatus == "?") || (!isStaged && file.xStatus == "A")
         if isStaged {
-            return GitRepositoryService.DiffHints(hasStaged: true, hasUnstaged: false, isUntrackedOrNew: isUntracked)
+            return GitRepositoryService.DiffHints(hasStaged: true, hasUnstaged: false, isUntrackedOrNew: isUntrackedOrNew)
         }
-        return GitRepositoryService.DiffHints(hasStaged: false, hasUnstaged: !isUntracked, isUntrackedOrNew: isUntracked)
+        return GitRepositoryService.DiffHints(hasStaged: false, hasUnstaged: !isUntrackedOrNew, isUntrackedOrNew: isUntrackedOrNew)
     }
 }

@@ -541,23 +541,40 @@ private struct WeakDiffViewerTabState {
 actor DiffLoadGate {
     static let shared = DiffLoadGate(limit: 4)
 
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private let limit: Int
     private var active = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [Waiter] = []
 
     init(limit: Int) {
         self.limit = limit
     }
 
     func enter() async throws {
+        try Task.checkCancellation()
         if active < limit {
             active += 1
             return
         }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiters.append(Waiter(id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id: id) }
         }
         try Task.checkCancellation()
+    }
+
+    func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume()
     }
 
     func leave() {
@@ -565,7 +582,7 @@ actor DiffLoadGate {
             active -= 1
             return
         }
-        let continuation = waiters.removeFirst()
-        continuation.resume()
+        let waiter = waiters.removeFirst()
+        waiter.continuation.resume()
     }
 }
