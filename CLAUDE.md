@@ -18,7 +18,6 @@ Run `scripts/checks.sh --fix` after every task.
 ## Top Level Rules
 
 - Security first
-- Native Only
 - Maintainability
 - Scalability
 - Clean Code

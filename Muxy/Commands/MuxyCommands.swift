@@ -235,6 +235,12 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .openVCSTab, store: keyBindings)
 
+            Button("Diff Viewer") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.openDiffViewerTab)
+            }
+            .shortcut(for: .openDiffViewerTab, store: keyBindings)
+
             Button("Quick Open") {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.quickOpen)
@@ -396,14 +402,6 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.toggleRichInput)
             }
             .shortcut(for: .toggleRichInput, store: keyBindings)
-
-            Divider()
-
-            Button("Open Switcher...") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.switchWorktree)
-            }
-            .shortcut(for: .switchWorktree, store: keyBindings)
 
             Divider()
 

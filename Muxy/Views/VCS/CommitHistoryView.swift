@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CommitHistoryView: View {
     @Bindable var state: VCSTabState
+    let onOpenDiff: (GitCommit) -> Void
     @State private var branchNameInput = ""
     @State private var tagNameInput = ""
     @State private var pendingBranchHash: String?
@@ -43,7 +44,8 @@ struct CommitHistoryView: View {
                     onCherryPick: { state.cherryPick($0) },
                     onRevert: { state.revert($0, subject: $1) },
                     onCreateBranch: { pendingBranchHash = $0 },
-                    onCreateTag: { pendingTagHash = $0 }
+                    onCreateTag: { pendingTagHash = $0 },
+                    onOpenDiff: { onOpenDiff(commit) }
                 )
             }
 
@@ -127,6 +129,7 @@ private struct CommitRow: View {
     let onRevert: (String, String) -> Void
     let onCreateBranch: (String) -> Void
     let onCreateTag: (String) -> Void
+    let onOpenDiff: () -> Void
     @State private var hovered = false
 
     private var dotColor: Color {
@@ -183,6 +186,7 @@ private struct CommitRow: View {
         .background(hovered ? MuxyTheme.hover : .clear)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
+        .onTapGesture(count: 2, perform: onOpenDiff)
         .contextMenu { contextMenuItems }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(commitAccessibilityLabel)
@@ -264,6 +268,8 @@ private struct CommitRow: View {
                 NSWorkspace.shared.open(url)
             }
         }
+
+        Button("View Diff", action: onOpenDiff)
 
         Divider()
 

@@ -12,18 +12,14 @@ final class AppState {
         let areaID: UUID
         let direction: SplitDirection
         let position: SplitPosition
+        var command: String?
     }
 
     struct DiffViewerRequest {
         let vcs: VCSTabState
-        let filePath: String
+        let filePath: String?
         let isStaged: Bool
-    }
-
-    struct CreatedCommandTab: Equatable {
-        let tabID: UUID
-        let areaID: UUID
-        let paneID: UUID
+        var source: DiffViewerTabState.Source = .workingTree
     }
 
     enum Action {
@@ -38,7 +34,7 @@ final class AppState {
         )
         case createTab(projectID: UUID, areaID: UUID?)
         case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
-        case createCommandTab(projectID: UUID, areaID: UUID?, name: String, command: String)
+        case createCommandTab(CommandTabRequest)
         case createVCSTab(projectID: UUID, areaID: UUID?)
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String, suppressInitialFocus: Bool)
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
@@ -71,7 +67,6 @@ final class AppState {
     private let workspacePersistence: any WorkspacePersisting
     private let terminalSessions: any TerminalSessionStoring
     var onProjectsEmptied: (([UUID]) -> Void)?
-    var onPaneClosed: ((UUID) -> Void)?
 
     var activeProjectID: UUID?
 
@@ -280,59 +275,26 @@ final class AppState {
 
     func createCommandTab(projectID: UUID, shortcut: CommandShortcut) {
         dispatch(.createCommandTab(
-            projectID: projectID,
-            areaID: nil,
-            name: shortcut.displayName,
-            command: shortcut.trimmedCommand
+            CommandTabRequest(
+                projectID: projectID,
+                areaID: nil,
+                name: shortcut.displayName,
+                command: shortcut.trimmedCommand,
+                closesOnCommandExit: false
+            )
         ))
     }
 
-    func createProjectCommandTab(projectID: UUID, name: String, command: String) -> CreatedCommandTab? {
-        dispatch(.createCommandTab(projectID: projectID, areaID: nil, name: name, command: command))
-        guard let key = activeWorktreeKey(for: projectID),
-              let areaID = focusedAreaID[key],
-              let area = workspaceRoots[key]?.findArea(id: areaID),
-              let tab = area.activeTab,
-              let pane = tab.content.pane
-        else { return nil }
-        return CreatedCommandTab(tabID: tab.id, areaID: area.id, paneID: pane.id)
-    }
-
-    func selectTab(projectID: UUID, areaID: UUID, tabID: UUID) {
-        dispatch(.selectTab(projectID: projectID, areaID: areaID, tabID: tabID))
-    }
-
-    func interruptCommandTab(paneID: UUID) {
-        TerminalViewRegistry.shared.view(for: paneID)?.sendRemoteBytes(TerminalControlBytes.interrupt)
-    }
-
-    func restartCommandTab(_ run: ProjectCommandRun, command: ProjectCommand) -> ProjectCommandRun? {
-        selectTab(projectID: run.projectID, areaID: run.areaID, tabID: run.tabID)
-        guard let view = TerminalViewRegistry.shared.view(for: run.paneID) else {
-            return createProjectCommandTab(projectID: run.projectID, name: command.name, command: command.command).map {
-                ProjectCommandRun(
-                    commandID: command.id,
-                    projectID: run.projectID,
-                    tabID: $0.tabID,
-                    areaID: $0.areaID,
-                    paneID: $0.paneID,
-                    state: .running
-                )
-            }
-        }
-        view.sendRemoteBytes(TerminalControlBytes.interrupt)
-        view.sendText("clear")
-        view.sendReturnKey()
-        view.sendText(command.command)
-        view.sendReturnKey()
-        return ProjectCommandRun(
-            commandID: command.id,
-            projectID: run.projectID,
-            tabID: run.tabID,
-            areaID: run.areaID,
-            paneID: run.paneID,
-            state: .running
-        )
+    func createCommandTab(projectID: UUID, command: String) {
+        dispatch(.createCommandTab(
+            CommandTabRequest(
+                projectID: projectID,
+                areaID: nil,
+                name: command,
+                command: command,
+                closesOnCommandExit: false
+            )
+        ))
     }
 
     func createVCSTab(projectID: UUID) {
@@ -474,9 +436,9 @@ final class AppState {
     func openDiffViewer(vcs: VCSTabState, filePath: String, isStaged: Bool, projectID: UUID) {
         for area in allAreas(for: projectID) {
             if let tab = area.tabs.first(where: { tab in
-                guard let diff = tab.content.diffViewerState else { return false }
-                return diff.filePath == filePath && diff.isStaged == isStaged
+                tab.content.diffViewerState != nil
             }) {
+                tab.content.diffViewerState?.select(filePath: filePath, isStaged: isStaged)
                 dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
                 return
             }
@@ -485,6 +447,32 @@ final class AppState {
             projectID: projectID,
             areaID: nil,
             request: DiffViewerRequest(vcs: vcs, filePath: filePath, isStaged: isStaged)
+        ))
+    }
+
+    func openDiffViewer(vcs: VCSTabState, source: DiffViewerTabState.Source, projectID: UUID) {
+        dispatch(.createDiffViewerTab(
+            projectID: projectID,
+            areaID: nil,
+            request: DiffViewerRequest(vcs: vcs, filePath: nil, isStaged: false, source: source)
+        ))
+    }
+
+    func openDiffViewer(projectID: UUID) {
+        guard let worktreePath = activeWorktreePath(for: projectID) else { return }
+        let vcs = VCSStateStore.shared.state(for: worktreePath)
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { tab in
+                tab.content.diffViewerState != nil
+            }) {
+                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                return
+            }
+        }
+        dispatch(.createDiffViewerTab(
+            projectID: projectID,
+            areaID: nil,
+            request: DiffViewerRequest(vcs: vcs, filePath: nil, isStaged: false)
         ))
     }
 
@@ -600,6 +588,68 @@ final class AppState {
             snapshot: snapshot
         ))
         return true
+    }
+
+    func reopenClosedTerminalTab(id: UUID, projectID: UUID) -> Bool {
+        guard let key = activeWorktreeKey(for: projectID),
+              workspaceRoots[key] != nil,
+              let snapshot = terminalSessions.popClosedTerminalTab(
+                  id: id,
+                  projectID: projectID,
+                  worktreeID: key.worktreeID
+              )
+        else { return false }
+        dispatch(.restoreClosedTerminalTab(
+            projectID: projectID,
+            areaID: focusedAreaID[key],
+            snapshot: snapshot
+        ))
+        return true
+    }
+
+    func openTerminalTabItems(for projectID: UUID) -> [OpenTerminalTabItem] {
+        guard let key = activeWorktreeKey(for: projectID) else { return [] }
+        return allAreas(for: projectID).flatMap { area in
+            area.tabs.compactMap { tab in
+                guard let pane = tab.content.pane else { return nil }
+                let command = TerminalCommandTracker.shared.lastSubmittedCommand(for: pane.id)
+                    ?? pane.startupCommand
+                    ?? pane.activeRestoredCommand
+                return OpenTerminalTabItem(
+                    projectID: projectID,
+                    worktreeID: key.worktreeID,
+                    areaID: area.id,
+                    tabID: tab.id,
+                    title: tab.title,
+                    workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
+                    command: command
+                )
+            }
+        }
+    }
+
+    func allOpenTerminalTabItems(for projectID: UUID) -> [OpenTerminalTabItem] {
+        workspaceRoots
+            .filter { $0.key.projectID == projectID }
+            .flatMap { key, root in
+                root.allAreas().flatMap { area in
+                    area.tabs.compactMap { tab -> OpenTerminalTabItem? in
+                        guard let pane = tab.content.pane else { return nil }
+                        let command = TerminalCommandTracker.shared.lastSubmittedCommand(for: pane.id)
+                            ?? pane.startupCommand
+                            ?? pane.activeRestoredCommand
+                        return OpenTerminalTabItem(
+                            projectID: projectID,
+                            worktreeID: key.worktreeID,
+                            areaID: area.id,
+                            tabID: tab.id,
+                            title: tab.title,
+                            workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
+                            command: command
+                        )
+                    }
+                }
+            }
     }
 
     private func closedTerminalTabSnapshot(tabID: UUID, areaID: UUID, projectID: UUID) -> ClosedTerminalTabSnapshot? {
@@ -827,7 +877,6 @@ final class AppState {
         for paneID in effects.paneIDsToRemove {
             terminalViews.removeView(for: paneID)
             TerminalProgressStore.shared.resetPane(paneID)
-            onPaneClosed?(paneID)
         }
 
         if !effects.projectIDsToRemove.isEmpty {

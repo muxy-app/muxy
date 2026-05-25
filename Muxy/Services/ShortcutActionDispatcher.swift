@@ -148,14 +148,30 @@ struct ShortcutActionDispatcher {
             guard let activeProject else { return false }
             openVCS(activeProject)
             return true
+        case .openDiffViewerTab:
+            guard let activeProject else { return false }
+            appState.openDiffViewer(projectID: activeProject.id)
+            return true
         case .quickOpen:
             notificationCenter.post(name: .quickOpen, object: nil)
             return true
         case .findInFiles:
             notificationCenter.post(name: .findInFiles, object: nil)
             return true
-        case .switchWorktree:
-            notificationCenter.post(name: .switchWorktree, object: nil)
+        case .terminalOmnibox:
+            postTerminalOmnibox(scope: .openTabs)
+            return true
+        case .terminalOmniboxProjects:
+            postTerminalOmnibox(scope: .projects)
+            return true
+        case .terminalOmniboxWorktrees:
+            postTerminalOmnibox(scope: .worktrees)
+            return true
+        case .terminalOmniboxCommands:
+            postTerminalOmnibox(scope: .commandShortcuts)
+            return true
+        case .terminalOmniboxHistory:
+            postTerminalOmnibox(scope: .history)
             return true
         case .saveFile:
             notificationCenter.post(name: .saveActiveEditor, object: nil)
@@ -209,5 +225,13 @@ struct ShortcutActionDispatcher {
 
     private func resolveActiveWorktree(for projectID: UUID) -> Worktree? {
         worktreeStore.preferred(for: projectID, matching: appState.activeWorktreeID[projectID])
+    }
+
+    private func postTerminalOmnibox(scope: TerminalOmniboxLaunchScope) {
+        notificationCenter.post(
+            name: .terminalOmnibox,
+            object: nil,
+            userInfo: ["launchScope": scope.rawValue]
+        )
     }
 }

@@ -10,7 +10,6 @@ struct MuxyApp: App {
     @State private var projectStore: ProjectStore
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
-    @State private var projectCommandStore: ProjectCommandStore
     @State private var vcsWorktreeAutoRefresher: VCSWorktreeAutoRefresher
     private let updateService = UpdateService.shared
 
@@ -34,9 +33,6 @@ struct MuxyApp: App {
         let projectGroupStore = ProjectGroupStore(
             persistence: environment.projectGroupPersistence
         )
-        let projectCommandStore = ProjectCommandStore(
-            persistence: environment.projectCommandPersistence
-        )
         let vcsWorktreeAutoRefresher = VCSWorktreeAutoRefresher(
             appState: appState,
             projectStore: projectStore,
@@ -46,7 +42,6 @@ struct MuxyApp: App {
         _projectStore = State(initialValue: projectStore)
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
-        _projectCommandStore = State(initialValue: projectCommandStore)
         _vcsWorktreeAutoRefresher = State(initialValue: vcsWorktreeAutoRefresher)
         SettingsJSONStore.beginAutomaticUserSettingsSync()
     }
@@ -58,7 +53,6 @@ struct MuxyApp: App {
                 .environment(projectStore)
                 .environment(worktreeStore)
                 .environment(projectGroupStore)
-                .environment(projectCommandStore)
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
                 .environment(ThemeService.shared)
@@ -85,10 +79,8 @@ struct MuxyApp: App {
                         )
                     }
                     appDelegate.flushPendingOpens()
-                    NotificationSocketServer.shared.openProjectHandler = { [appDelegate] path in
-                        Task { @MainActor in
-                            appDelegate.handleOpenProjectPath(path)
-                        }
+                    NotificationSocketServer.shared.commandHandler = { [appState] message in
+                        await SocketCommandHandler.handleRequest(message, appState: appState)
                     }
                     MobileServerService.shared.configure { server in
                         let delegate = RemoteServerDelegate(
@@ -113,9 +105,6 @@ struct MuxyApp: App {
                             projectStore.remove(id: id)
                             worktreeStore.removeProject(id)
                         }
-                    }
-                    appState.onPaneClosed = { [projectCommandStore] paneID in
-                        projectCommandStore.removeRun(paneID: paneID)
                     }
                     projectStore.onProjectRemoved = { [projectGroupStore] projectID in
                         projectGroupStore.removeProjectFromAllGroups(projectID: projectID)
@@ -253,12 +242,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         observeSystemAppearanceChanges()
         UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
+        NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                self?.handleOpenProjectPath(path)
+            }
+        }
         NotificationSocketServer.shared.start()
         AIProviderRegistry.shared.installAll()
         _ = AIUsageSettingsStore.isUsageEnabled()
         DiagnosticsMenuController.shared.install()
         observeSettingsRequests()
-
         consumeLaunchArguments()
     }
 
@@ -424,6 +417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard self?.settingsWindow === window else { return }
             self?.settingsWindow = nil
         }
+        window.startOutsideClickMonitor()
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -464,6 +458,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 }
 
 private final class SettingsModalWindow: NSWindow {
+    private var outsideClickMonitor: Any?
+
+    func startOutsideClickMonitor() {
+        stopOutsideClickMonitor()
+        outsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, let sheetParent, event.window === sheetParent else { return event }
+            close()
+            return nil
+        }
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
            event.charactersIgnoringModifiers?.lowercased() == "w"
@@ -479,11 +484,18 @@ private final class SettingsModalWindow: NSWindow {
     }
 
     override func close() {
+        stopOutsideClickMonitor()
         guard let sheetParent else {
             super.close()
             return
         }
         sheetParent.endSheet(self)
+    }
+
+    private func stopOutsideClickMonitor() {
+        guard let outsideClickMonitor else { return }
+        NSEvent.removeMonitor(outsideClickMonitor)
+        self.outsideClickMonitor = nil
     }
 }
 

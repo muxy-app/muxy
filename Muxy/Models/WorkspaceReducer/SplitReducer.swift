@@ -9,7 +9,8 @@ enum SplitReducer {
         let (newRoot, newAreaID) = root.splitting(
             areaID: request.areaID,
             direction: request.direction,
-            position: request.position
+            position: request.position,
+            command: request.command
         )
         state.workspaceRoots[key] = newRoot
         guard let newAreaID else { return }

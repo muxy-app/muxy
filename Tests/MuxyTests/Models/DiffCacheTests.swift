@@ -47,6 +47,20 @@ struct DiffCacheTests {
         #expect(cache.error(for: "a.swift") == "oops")
     }
 
+    @Test("registerTask keeps existing load alive")
+    func registerTaskKeepsExistingLoadAlive() {
+        let cache = DiffCache()
+        let first = Task<Void, Never> {}
+        let second = Task<Void, Never> {}
+
+        cache.registerTask(first, for: "a.swift")
+        cache.registerTask(second, for: "a.swift")
+
+        #expect(!first.isCancelled)
+        first.cancel()
+        second.cancel()
+    }
+
     @Test("evict removes diff, error, loading, and access order entry")
     func evictRemovesAll() {
         let cache = DiffCache()

@@ -56,10 +56,6 @@ private struct ProviderToggleRow: View {
 
     var body: some View {
         HStack {
-            Image(systemName: provider.iconName)
-                .font(.system(size: 10))
-                .foregroundStyle(SettingsStyle.mutedForeground)
-                .frame(width: 16)
             Text(provider.displayName)
                 .font(.system(size: SettingsMetrics.labelFontSize))
             Spacer()

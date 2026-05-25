@@ -15,7 +15,8 @@ Only one of the file tree or attached VCS panel is visible at a time — opening
 ## What it shows
 
 - Lazy-loaded directories — children load when you expand a folder.
-- `.gitignore` is respected via `git check-ignore`. Toggle ignored files in the panel header.
+- `.gitignore` is respected via `git check-ignore`.
+- **Hide ignored files** — a panel-header toggle that hides git-ignored entries, dotfiles, `node_modules`, and lockfiles. Off by default; the choice is remembered across sessions. The file open in the editor stays visible even when it matches a rule.
 - **Show only changes** filters to files with git changes.
 - The active editor file is highlighted; its parent folders auto-expand.
 

@@ -10,6 +10,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private var acceptSource: DispatchSourceRead?
     private let queue = DispatchQueue(label: "app.muxy.notificationSocket")
     var openProjectHandler: (@Sendable (String) -> Void)?
+    var commandHandler: (@Sendable (String) async -> String)?
 
     static var socketPath: String {
         MuxyFileStorage.appSupportDirectory()
@@ -96,6 +97,11 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     private static let maxMessageSize = 65536
 
+    private static let commandNames = [
+        "split-right", "split-down", "send", "send-keys",
+        "read-screen", "close-pane", "rename-pane", "list-panes",
+    ]
+
     private func handleClient(_ fd: Int32) {
         defer { close(fd) }
 
@@ -111,10 +117,58 @@ final class NotificationSocketServer: @unchecked Sendable {
             }
         }
 
-        guard !data.isEmpty else { return }
+        guard !data.isEmpty,
+              let message = String(data: data, encoding: .utf8)
+        else { return }
+
+        let commandMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isCommandMessage(commandMessage) {
+            let response = processCommand(commandMessage)
+            writeResponse(fd: fd, text: response)
+            return
+        }
 
         for line in data.split(separator: UInt8(ascii: "\n")) {
             processMessage(Data(line))
+        }
+    }
+
+    private func isCommandMessage(_ message: String) -> Bool {
+        guard let command = message.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).first else {
+            return false
+        }
+        return Self.commandNames.contains(String(command))
+    }
+
+    private func processCommand(_ message: String) -> String {
+        guard let handler = commandHandler else {
+            return "error:no handler registered"
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var response = "error:timeout"
+
+        Task { @Sendable in
+            response = await handler(message)
+            semaphore.signal()
+        }
+
+        guard semaphore.wait(timeout: .now() + .seconds(5)) == .success else {
+            return "error:timeout"
+        }
+        return response
+    }
+
+    private func writeResponse(fd: Int32, text: String) {
+        let data = Data(text.utf8)
+        data.withUnsafeBytes { buffer in
+            guard let ptr = buffer.baseAddress else { return }
+            var offset = 0
+            while offset < buffer.count {
+                let written = Darwin.write(fd, ptr.advanced(by: offset), buffer.count - offset)
+                if written <= 0 { break }
+                offset += written
+            }
         }
     }
 
@@ -133,6 +187,16 @@ final class NotificationSocketServer: @unchecked Sendable {
             }
             logger.info("Received open-project request via socket")
             openProjectHandler?(path)
+            return
+        }
+
+        if message == "split-right" || message.hasPrefix("split-right|") {
+            logger.info("Received legacy split-right request via socket")
+            return
+        }
+
+        if message == "split-down" || message.hasPrefix("split-down|") {
+            logger.info("Received legacy split-down request via socket")
             return
         }
 

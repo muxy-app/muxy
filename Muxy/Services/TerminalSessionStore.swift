@@ -9,6 +9,7 @@ protocol TerminalSessionStoring: AnyObject {
     func save(workspaceRoots: [WorktreeKey: SplitNode])
     func recordClosedTerminalTab(_ snapshot: ClosedTerminalTabSnapshot, workspaceRoots: [WorktreeKey: SplitNode])
     func popLastClosedTerminalTab(projectID: UUID, worktreeID: UUID) -> ClosedTerminalTabSnapshot?
+    func popClosedTerminalTab(id: UUID, projectID: UUID, worktreeID: UUID) -> ClosedTerminalTabSnapshot?
     func nextClosedSequence() -> Int64
 }
 
@@ -22,7 +23,7 @@ final class TerminalSessionStore {
 
     private static let maxClosedTerminalTabs = 50
 
-    private init(fileURL: URL = MuxyFileStorage.fileURL(filename: "terminal-sessions.json")) {
+    init(fileURL: URL = MuxyFileStorage.fileURL(filename: "terminal-sessions.json")) {
         store = CodableFileStore(fileURL: fileURL, options: .pretty)
         load()
     }
@@ -106,6 +107,16 @@ final class TerminalSessionStore {
             .filter({ $0.element.projectID == projectID && $0.element.worktreeID == worktreeID })
             .max(by: { $0.element.closedSequence < $1.element.closedSequence })?
             .offset
+        else { return nil }
+        let snapshot = closedTerminalTabs.remove(at: index)
+        saveFile(sessions: Array(sessionsByPaneID.values))
+        return snapshot
+    }
+
+    func popClosedTerminalTab(id: UUID, projectID: UUID, worktreeID: UUID) -> ClosedTerminalTabSnapshot? {
+        guard let index = closedTerminalTabs.firstIndex(where: {
+            $0.id == id && $0.projectID == projectID && $0.worktreeID == worktreeID
+        })
         else { return nil }
         let snapshot = closedTerminalTabs.remove(at: index)
         saveFile(sessions: Array(sessionsByPaneID.values))

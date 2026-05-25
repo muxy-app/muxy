@@ -9,6 +9,7 @@ final class GhosttyTerminalNSView: NSView {
     private let workingDirectory: String
     private let command: String?
     private let commandInteractive: Bool
+    private let commandClosesOnExit: Bool
     var envVars: [(key: String, value: String)] = []
     var onTitleChange: ((String) -> Void)?
     var onWorkingDirectoryChange: ((String) -> Void)?
@@ -38,7 +39,7 @@ final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private var occlusionObserver: NSObjectProtocol?
 
     var closesOnCommandExit: Bool {
-        command != nil
+        command != nil && commandClosesOnExit
     }
 
     private var _markedText: String = ""
@@ -56,11 +57,13 @@ final class GhosttyTerminalNSView: NSView {
     init(
         workingDirectory: String,
         command: String? = nil,
-        commandInteractive: Bool = false
+        commandInteractive: Bool = false,
+        closesOnCommandExit: Bool = true
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.commandInteractive = commandInteractive
+        commandClosesOnExit = closesOnCommandExit
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -125,7 +128,10 @@ final class GhosttyTerminalNSView: NSView {
         config.working_directory = UnsafePointer(workingDirectoryPointer)
 
         if let command,
-           let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(interactive: commandInteractive)),
+           let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
+               interactive: commandInteractive,
+               keepsShellOpen: !commandClosesOnExit
+           )),
            let commandKey = strdup(TerminalLaunchCommand.environmentKey),
            let commandValue = strdup(command)
         {
@@ -1075,6 +1081,42 @@ final class GhosttyTerminalNSView: NSView {
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
             ghostty_surface_send_input_raw(surface, base, UInt(bytes.count))
         }
+    }
+
+    func readScreenText(lastLines: Int = 50) -> String {
+        guard let surface else { return "" }
+        var out = ghostty_cells_s()
+        guard ghostty_surface_read_cells(surface, &out) else { return "" }
+        defer { ghostty_surface_free_cells(surface, &out) }
+
+        let cols = Int(out.cols)
+        let rows = Int(out.rows)
+        guard cols > 0, rows > 0, let cells = out.cells else { return "" }
+
+        var lines: [String] = []
+        for row in 0 ..< rows {
+            var line = ""
+            for col in 0 ..< cols {
+                let cell = cells[row * cols + col]
+                let cp = cell.codepoint
+                if cp == 0 {
+                    line.append(" ")
+                } else if let scalar = Unicode.Scalar(cp) {
+                    line.append(Character(scalar))
+                } else {
+                    line.append(" ")
+                }
+            }
+            lines.append(line)
+        }
+
+        while lines.last?.allSatisfy({ $0 == " " }) == true {
+            lines.removeLast()
+        }
+
+        let trimmed = lines.map { $0.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
+        let result = trimmed.suffix(lastLines)
+        return result.joined(separator: "\n")
     }
 
     func submitRichInput(text: String) {

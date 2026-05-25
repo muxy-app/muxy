@@ -28,6 +28,7 @@ struct PaneTabStrip: View {
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
     let onCreateVCSTab: () -> Void
+    let onCreateDiffViewerTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onCloseOtherTabs: (UUID) -> Void
     let onCloseTabsToLeft: (UUID) -> Void
@@ -109,8 +110,12 @@ struct PaneTabStrip: View {
                         NotificationCenter.default.post(name: .quickOpen, object: nil)
                     }
                     .help(shortcutTooltip("Quick Open", for: .quickOpen))
-                    FileDiffIconButton(action: onCreateVCSTab)
-                        .help(shortcutTooltip("Source Control", for: .openVCSTab))
+                    FileDiffIconButton(action: onCreateDiffViewerTab)
+                        .help(shortcutTooltip("Diff Viewer", for: .openDiffViewerTab))
+                    IconButton(symbol: "arrow.triangle.branch", size: 12, accessibilityLabel: "Source Control") {
+                        onCreateVCSTab()
+                    }
+                    .help(shortcutTooltip("Source Control", for: .openVCSTab))
                     FileTreeIconButton {
                         NotificationCenter.default.post(name: .toggleFileTree, object: nil)
                     }
@@ -654,15 +659,15 @@ private struct TabCell: View {
                 Image(systemName: "terminal")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             case .vcs:
-                FileDiffIcon()
-                    .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
             case .editor:
                 Image(systemName: "pencil.line")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             case .diffViewer:
-                Image(systemName: "rectangle.split.2x1")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                FileDiffIcon()
+                    .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
             case .imageViewer:
                 Image(systemName: "photo")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))

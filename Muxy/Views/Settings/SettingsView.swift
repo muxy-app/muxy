@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -40,7 +41,7 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .focusProjectPickerDefaultLocation)) { _ in
             searchText = ""
-            selectedCategory = .general
+            selectedCategory = .projects
         }
         .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in
             themeRefreshID += 1
@@ -52,15 +53,17 @@ struct SettingsView: View {
         switch selectedCategory {
         case .general:
             GeneralSettingsView()
+        case .projects:
+            ProjectsSettingsView()
         case .appearance:
-            AppearanceSettingsView()
+            InterfaceSettingsView()
+        case .terminal:
+            TerminalSettingsView()
         case .editor:
             EditorSettingsView()
-        case .sessions:
-            SessionRestoreSettingsView()
         case .shortcuts:
             KeyboardShortcutsSettingsView()
-        case .recording:
+        case .voice:
             RecordingSettingsView()
         case .notifications:
             NotificationSettingsView()
@@ -68,8 +71,6 @@ struct SettingsView: View {
             MobileSettingsView()
         case .ai:
             AIAssistantSettingsView()
-        case .aiUsage:
-            AIUsageSettingsView()
         case .json:
             SettingsJSONEditorView()
         }
@@ -125,7 +126,20 @@ private struct SettingsHeader: View {
             )
             .frame(maxWidth: .infinity)
             .padding(.leading, 8)
-            .padding(.trailing, 16)
+            .padding(.trailing, 10)
+
+            Button {
+                NSApp.keyWindow?.close()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(SettingsStyle.mutedForeground)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Close Settings")
+            .padding(.trailing, 12)
         }
         .padding(.vertical, 12)
         .frame(height: 56)
