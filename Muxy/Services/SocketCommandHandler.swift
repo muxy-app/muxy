@@ -5,7 +5,12 @@ private let logger = Logger(subsystem: "app.muxy", category: "SocketCommandHandl
 
 @MainActor
 enum SocketCommandHandler {
-    static func handleRequest(_ message: String, appState: AppState) async -> String {
+    static func handleRequest(
+        _ message: String,
+        appState: AppState,
+        projectStore: ProjectStore? = nil,
+        worktreeStore: WorktreeStore? = nil
+    ) async -> String {
         let parts = message.components(separatedBy: "|")
         guard let cmd = parts.first else {
             return "error:empty command"
@@ -36,6 +41,58 @@ enum SocketCommandHandler {
             return handleRenamePane(paneIDStr: parts[1], title: parts.dropFirst(2).joined(separator: "|"), appState: appState)
         case "list-panes":
             return handleListPanes(appState: appState)
+        case "list-projects":
+            guard let projectStore else { return "error:project store unavailable" }
+            return handleListProjects(appState: appState, projectStore: projectStore)
+        case "switch-project":
+            guard parts.count >= 2 else { return "error:usage switch-project|name-or-id-or-path" }
+            guard let projectStore, let worktreeStore else { return "error:project store unavailable" }
+            return handleSwitchProject(
+                identifier: parts.dropFirst().joined(separator: "|"),
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
+        case "list-worktrees":
+            guard let projectStore, let worktreeStore else { return "error:worktree store unavailable" }
+            let identifier = parts.count >= 2 ? parts.dropFirst().joined(separator: "|") : nil
+            return handleListWorktrees(
+                projectIdentifier: identifier,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
+        case "switch-worktree":
+            guard parts.count >= 2 else { return "error:usage switch-worktree|name-or-id-or-path[|project]" }
+            guard let projectStore, let worktreeStore else { return "error:worktree store unavailable" }
+            let projectIdentifier = parts.count >= 3 ? parts.dropFirst(2).joined(separator: "|") : nil
+            return handleSwitchWorktree(
+                identifier: parts[1],
+                projectIdentifier: projectIdentifier,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
+        case "refresh-worktrees":
+            guard let projectStore, let worktreeStore else { return "error:worktree store unavailable" }
+            let identifier = parts.count >= 2 ? parts.dropFirst().joined(separator: "|") : nil
+            return await handleRefreshWorktrees(
+                projectIdentifier: identifier,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
+        case "list-tabs":
+            return handleListTabs(appState: appState)
+        case "switch-tab":
+            guard parts.count >= 2 else { return "error:usage switch-tab|index-or-id-or-title" }
+            return handleSwitchTab(identifier: parts.dropFirst().joined(separator: "|"), appState: appState)
+        case "new-tab":
+            return handleNewTab(appState: appState)
+        case "next-tab":
+            return handleTabStep(next: true, appState: appState)
+        case "previous-tab":
+            return handleTabStep(next: false, appState: appState)
         default:
             return "error:unknown command \(cmd)"
         }
@@ -206,6 +263,180 @@ enum SocketCommandHandler {
             }
         }
         return lines.joined(separator: "\n")
+    }
+
+    private static func handleListProjects(appState: AppState, projectStore: ProjectStore) -> String {
+        projectStore.projects.map { project in
+            let active = project.id == appState.activeProjectID
+            return "\(project.id.uuidString)\t\(project.name)\t\(project.path)\t\(active)"
+        }.joined(separator: "\n")
+    }
+
+    private static func handleSwitchProject(
+        identifier: String,
+        appState: AppState,
+        projectStore: ProjectStore,
+        worktreeStore: WorktreeStore
+    ) -> String {
+        guard let project = findProject(identifier, in: projectStore.projects) else {
+            return "error:project not found \(identifier)"
+        }
+        guard let worktree = worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id]) else {
+            return "error:no worktree for project \(project.name)"
+        }
+        appState.selectProject(project, worktree: worktree)
+        return "ok"
+    }
+
+    private static func handleListWorktrees(
+        projectIdentifier: String?,
+        appState: AppState,
+        projectStore: ProjectStore,
+        worktreeStore: WorktreeStore
+    ) -> String {
+        guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
+            return "error:project not found"
+        }
+        return worktreeStore.list(for: project.id).map { worktree in
+            let active = appState.activeProjectID == project.id && appState.activeWorktreeID[project.id] == worktree.id
+            return "\(worktree.id.uuidString)\t\(worktree.name)\t\(worktree.path)\t\(worktree.branch ?? "")\t\(active)"
+        }.joined(separator: "\n")
+    }
+
+    private static func handleSwitchWorktree(
+        identifier: String,
+        projectIdentifier: String?,
+        appState: AppState,
+        projectStore: ProjectStore,
+        worktreeStore: WorktreeStore
+    ) -> String {
+        guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
+            return "error:project not found"
+        }
+        guard let worktree = findWorktree(identifier, in: worktreeStore.list(for: project.id)) else {
+            return "error:worktree not found \(identifier)"
+        }
+        appState.selectWorktree(projectID: project.id, worktree: worktree)
+        return "ok"
+    }
+
+    private static func handleRefreshWorktrees(
+        projectIdentifier: String?,
+        appState: AppState,
+        projectStore: ProjectStore,
+        worktreeStore: WorktreeStore
+    ) async -> String {
+        guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
+            return "error:project not found"
+        }
+        do {
+            let worktrees = try await worktreeStore.refreshFromGit(project: project)
+            return "ok\t\(worktrees.count)"
+        } catch {
+            return "error:\(error.localizedDescription)"
+        }
+    }
+
+    private static func handleListTabs(appState: AppState) -> String {
+        guard let projectID = appState.activeProjectID,
+              let key = appState.activeWorktreeKey(for: projectID),
+              let root = appState.workspaceRoots[key]
+        else { return "error:no active project" }
+        let focusedAreaID = appState.focusedAreaID[key]
+        var index = 0
+        var lines: [String] = []
+        for area in root.allAreas() {
+            for tab in area.tabs {
+                let active = area.id == focusedAreaID && tab.id == area.activeTabID
+                lines.append("\(index)\t\(tab.id.uuidString)\t\(tab.kind.rawValue)\t\(tab.title)\t\(active)")
+                index += 1
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func handleSwitchTab(identifier: String, appState: AppState) -> String {
+        guard let projectID = appState.activeProjectID,
+              let key = appState.activeWorktreeKey(for: projectID),
+              let root = appState.workspaceRoots[key]
+        else { return "error:no active project" }
+        if let index = Int(identifier) {
+            appState.selectTabByIndex(index, projectID: projectID)
+            return "ok"
+        }
+        for area in root.allAreas() {
+            guard let tab = area.tabs.first(where: { tabMatches($0, identifier: identifier) }) else { continue }
+            appState.dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+            return "ok"
+        }
+        return "error:tab not found \(identifier)"
+    }
+
+    private static func handleNewTab(appState: AppState) -> String {
+        guard let projectID = appState.activeProjectID else { return "error:no active project" }
+        let before = collectTabs(appState: appState)
+        appState.dispatch(.createTab(projectID: projectID, areaID: nil))
+        let added = collectTabs(appState: appState).subtracting(before)
+        return added.first?.uuidString ?? "ok"
+    }
+
+    private static func handleTabStep(next: Bool, appState: AppState) -> String {
+        guard let projectID = appState.activeProjectID else { return "error:no active project" }
+        if next {
+            appState.selectNextTab(projectID: projectID)
+        } else {
+            appState.selectPreviousTab(projectID: projectID)
+        }
+        return "ok"
+    }
+
+    private static func findProject(_ identifier: String, in projects: [Project]) -> Project? {
+        let standardizedPath = URL(fileURLWithPath: identifier).standardizedFileURL.path
+        return projects.first { project in
+            project.id.uuidString == identifier
+                || project.name.localizedCaseInsensitiveCompare(identifier) == .orderedSame
+                || URL(fileURLWithPath: project.path).standardizedFileURL.path == standardizedPath
+        }
+    }
+
+    private static func resolveProject(
+        _ identifier: String?,
+        appState: AppState,
+        projectStore: ProjectStore
+    ) -> Project? {
+        if let identifier, !identifier.isEmpty {
+            return findProject(identifier, in: projectStore.projects)
+        }
+        guard let activeProjectID = appState.activeProjectID else { return nil }
+        return projectStore.projects.first { $0.id == activeProjectID }
+    }
+
+    private static func findWorktree(_ identifier: String, in worktrees: [Worktree]) -> Worktree? {
+        let standardizedPath = URL(fileURLWithPath: identifier).standardizedFileURL.path
+        return worktrees.first { worktree in
+            worktree.id.uuidString == identifier
+                || worktree.name.localizedCaseInsensitiveCompare(identifier) == .orderedSame
+                || worktree.branch?.localizedCaseInsensitiveCompare(identifier) == .orderedSame
+                || URL(fileURLWithPath: worktree.path).standardizedFileURL.path == standardizedPath
+        }
+    }
+
+    private static func tabMatches(_ tab: TerminalTab, identifier: String) -> Bool {
+        tab.id.uuidString == identifier
+            || tab.content.pane?.id.uuidString == identifier
+            || tab.title.localizedCaseInsensitiveCompare(identifier) == .orderedSame
+    }
+
+    private static func collectTabs(appState: AppState) -> Set<UUID> {
+        var ids = Set<UUID>()
+        for root in appState.workspaceRoots.values {
+            for area in root.allAreas() {
+                for tab in area.tabs {
+                    ids.insert(tab.id)
+                }
+            }
+        }
+        return ids
     }
 
     private static func waitForView(

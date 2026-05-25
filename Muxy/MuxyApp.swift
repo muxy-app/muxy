@@ -79,8 +79,13 @@ struct MuxyApp: App {
                         )
                     }
                     appDelegate.flushPendingOpens()
-                    NotificationSocketServer.shared.commandHandler = { [appState] message in
-                        await SocketCommandHandler.handleRequest(message, appState: appState)
+                    NotificationSocketServer.shared.commandHandler = { [appState, projectStore, worktreeStore] message in
+                        await SocketCommandHandler.handleRequest(
+                            message,
+                            appState: appState,
+                            projectStore: projectStore,
+                            worktreeStore: worktreeStore
+                        )
                     }
                     MobileServerService.shared.configure { server in
                         let delegate = RemoteServerDelegate(

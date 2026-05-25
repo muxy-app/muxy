@@ -100,6 +100,8 @@ final class NotificationSocketServer: @unchecked Sendable {
     private static let commandNames = [
         "split-right", "split-down", "send", "send-keys",
         "read-screen", "close-pane", "rename-pane", "list-panes",
+        "list-projects", "switch-project", "list-worktrees", "switch-worktree", "refresh-worktrees",
+        "list-tabs", "switch-tab", "new-tab", "next-tab", "previous-tab",
     ]
 
     private func handleClient(_ fd: Int32) {

@@ -43,10 +43,7 @@ enum CLIAccessor {
     }
 
     static func installCLI() {
-        guard let resourceURL = Bundle.appResources.url(
-            forResource: "muxy-cli",
-            withExtension: ""
-        )
+        guard let resourceURL = cliResourceURL()
         else {
             alert(title: "CLI Not Found", body: "The CLI script was not found in the app bundle.")
             return
@@ -79,6 +76,20 @@ enum CLIAccessor {
                 )
             }
         }
+    }
+
+    private static func cliResourceURL() -> URL? {
+        if let url = Bundle.appResources.resourceURL?
+            .appendingPathComponent("scripts/muxy-cli"),
+            FileManager.default.fileExists(atPath: url.path)
+        {
+            return url
+        }
+
+        return Bundle.appResources.url(
+            forResource: "muxy-cli",
+            withExtension: ""
+        )
     }
 
     private static func copyScript(from resourceURL: URL, to binPath: String, label: String) -> Bool {
