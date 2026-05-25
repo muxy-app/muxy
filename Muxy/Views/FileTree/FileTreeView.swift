@@ -575,6 +575,7 @@ private struct FileTreeContextMenuContents: View {
             Button("Copy Relative Path") { commands.copyRelativePath(path) }
         }
         Divider()
+        Button("Open with Default App") { commands.openWithDefaultApp(path) }
         Button("Reveal in Finder") { commands.revealInFinder(path) }
         Button("Open in Terminal") { commands.openInTerminal(path: path) }
     }
