@@ -6,13 +6,26 @@ private let logger = Logger(subsystem: "app.muxy", category: "NotificationSocket
 final class NotificationSocketServer: @unchecked Sendable {
     static let shared = NotificationSocketServer()
 
+    struct ExtensionSnapshotEntry: Equatable {
+        let allowedEvents: Set<String>
+        let commandEvents: Set<String>
+        let permissions: Set<ExtensionPermission>
+    }
+
+    struct ExtensionSnapshot: Equatable {
+        let entries: [String: ExtensionSnapshotEntry]
+    }
+
     final class ClientSession: @unchecked Sendable {
+        static let droppedNotificationDisconnectThreshold = 100
+
         let fd: Int32
         var extensionID: String?
         var subscriptions: Set<String> = []
         var writeBuffer = Data()
         var inputBuffer = Data()
         var writeSource: DispatchSourceWrite?
+        var droppedNotificationCount = 0
 
         init(fd: Int32) {
             self.fd = fd
@@ -24,6 +37,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.muxy.notificationSocket")
     private var subscribers: [ObjectIdentifier: ClientSession] = [:]
     private var readSources: [ObjectIdentifier: DispatchSourceRead] = [:]
+    private var extensionSnapshot = ExtensionSnapshot(entries: [:])
 
     var openProjectHandler: (@Sendable (String) -> Void)?
     var commandHandler: (@Sendable (String, ClientContext) async -> String)?
@@ -50,6 +64,32 @@ final class NotificationSocketServer: @unchecked Sendable {
         queue.async { [weak self] in
             self?.cleanup()
         }
+    }
+
+    func applyExtensionSnapshot(_ snapshot: ExtensionSnapshot) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.extensionSnapshot = snapshot
+            for session in self.subscribers.values {
+                guard let extensionID = session.extensionID else { continue }
+                guard let entry = snapshot.entries[extensionID] else {
+                    session.extensionID = nil
+                    session.subscriptions.removeAll()
+                    continue
+                }
+                session.subscriptions = session.subscriptions.filter { event in
+                    Self.canSubscribe(entry: entry, to: event)
+                }
+            }
+        }
+    }
+
+    private static func canSubscribe(entry: ExtensionSnapshotEntry, to event: String) -> Bool {
+        entry.allowedEvents.contains(event) || entry.commandEvents.contains(event)
+    }
+
+    static func canSubscribeForTesting(entry: ExtensionSnapshotEntry, to event: String) -> Bool {
+        canSubscribe(entry: entry, to: event)
     }
 
     func broadcast(event: ExtensionEvent) {
@@ -194,7 +234,8 @@ final class NotificationSocketServer: @unchecked Sendable {
         let head = trimmed.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
 
         if Self.stickyCommandNames.contains(head) {
-            processSticky(head: head, message: trimmed, session: session)
+            let response = evaluateSticky(head: head, message: trimmed, session: session)
+            enqueueWrite(session: session, text: response + "\n")
             return
         }
 
@@ -206,25 +247,13 @@ final class NotificationSocketServer: @unchecked Sendable {
         processNotificationMessage(data, session: session)
     }
 
-    private func processSticky(head: String, message: String, session: ClientSession) {
-        Task { @MainActor [weak self, weak session] in
-            guard let self, let session else { return }
-            let response = Self.evaluateSticky(head: head, message: message, session: session)
-            self.queue.async { [weak self, weak session] in
-                guard let self, let session else { return }
-                self.enqueueWrite(session: session, text: response + "\n")
-            }
-        }
-    }
-
-    @MainActor
-    private static func evaluateSticky(head: String, message: String, session: ClientSession) -> String {
+    private func evaluateSticky(head: String, message: String, session: ClientSession) -> String {
         switch head {
         case "identify":
             let parts = message.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             guard parts.count == 2, !parts[1].isEmpty else { return "error:usage identify|<extension-id>" }
             let claimedID = parts[1]
-            guard ExtensionStore.shared.isKnownExtension(id: claimedID) else {
+            guard extensionSnapshot.entries[claimedID] != nil else {
                 return "error:unknown extension \(claimedID)"
             }
             session.extensionID = claimedID
@@ -233,10 +262,13 @@ final class NotificationSocketServer: @unchecked Sendable {
             let parts = message.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             guard parts.count == 2, !parts[1].isEmpty else { return "error:usage subscribe|<event>" }
             let event = parts[1]
-            if let extensionID = session.extensionID,
-               !ExtensionStore.shared.canSubscribe(extensionID: extensionID, to: event)
-            {
-                return "error:event \(event) not declared in manifest"
+            if let extensionID = session.extensionID {
+                guard let entry = extensionSnapshot.entries[extensionID] else {
+                    return "error:extension \(extensionID) is no longer loaded"
+                }
+                guard Self.canSubscribe(entry: entry, to: event) else {
+                    return "error:event \(event) not declared in manifest"
+                }
             }
             session.subscriptions.insert(event)
             return "ok"
@@ -336,15 +368,21 @@ final class NotificationSocketServer: @unchecked Sendable {
         let rawTitle = parts[2]
         let title = rawTitle.isEmpty ? "Task completed!" : rawTitle
         let body = parts.count > 3 ? parts[3] : ""
-        let extensionID = session.extensionID
 
-        DispatchQueue.main.async { [weak self] in
-            if let extensionID,
-               !ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: .notificationsWrite)
-            {
+        if let extensionID = session.extensionID {
+            let entry = extensionSnapshot.entries[extensionID]
+            guard entry?.permissions.contains(.notificationsWrite) == true else {
                 logger.warning("Dropping notification from \(extensionID): missing notifications:write permission")
+                session.droppedNotificationCount += 1
+                if session.droppedNotificationCount >= ClientSession.droppedNotificationDisconnectThreshold {
+                    logger.warning("Disconnecting \(extensionID) after \(session.droppedNotificationCount) dropped notifications")
+                    disposeSession(session)
+                }
                 return
             }
+        }
+
+        DispatchQueue.main.async { [weak self] in
             self?.dispatchNotification(type: type, title: title, body: body, paneIDString: paneIDString)
         }
     }

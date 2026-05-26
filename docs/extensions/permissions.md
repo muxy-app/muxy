@@ -28,6 +28,10 @@ flowchart LR
 | `worktrees:write` | `create-worktree`, `switch-worktree`, `refresh-worktrees` |
 | `notifications:write` | Post notifications via `type\|paneID\|title\|body` |
 
+## Abuse handling
+
+An identified extension that posts notifications without `notifications:write` has each attempt dropped and logged. After 100 dropped attempts on the same connection, the session is disconnected. The extension can reconnect, but the counter resets only on a new socket connection.
+
 ## What permissions don't gate
 
 - **Subscribing to events** is gated separately by the manifest `events` array — see [Events](events.md). The connection's identity, not a `permissions` entry, decides what events it can subscribe to.

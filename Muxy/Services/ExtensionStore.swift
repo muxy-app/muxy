@@ -45,12 +45,14 @@ final class ExtensionStore {
         for index in statuses.indices where statuses[index].muxyExtension.manifest.enabled {
             startExtension(at: index)
         }
+        publishSnapshot()
     }
 
     func stopAll() {
         for status in statuses where status.isRunning {
             stopProcess(extensionID: status.id)
         }
+        publishSnapshot()
     }
 
     func reload() {
@@ -93,6 +95,7 @@ final class ExtensionStore {
         } else if !enabled, statuses[index].isRunning {
             stopProcess(extensionID: extensionID)
         }
+        publishSnapshot()
     }
 
     func extensionHasPermission(id: String, permission: ExtensionPermission) -> Bool {
@@ -100,15 +103,34 @@ final class ExtensionStore {
         return status.muxyExtension.manifest.permissions.contains(permission)
     }
 
-    func isKnownExtension(id: String) -> Bool {
-        statuses.contains { $0.id == id }
+    func snapshotForSocketServer() -> NotificationSocketServer.ExtensionSnapshot {
+        var entries: [String: NotificationSocketServer.ExtensionSnapshotEntry] = [:]
+        for status in statuses where status.muxyExtension.manifest.enabled {
+            let manifest = status.muxyExtension.manifest
+            entries[status.id] = NotificationSocketServer.ExtensionSnapshotEntry(
+                allowedEvents: Set(manifest.events),
+                commandEvents: Set(manifest.commands.map(\.eventName)),
+                permissions: Set(manifest.permissions)
+            )
+        }
+        return NotificationSocketServer.ExtensionSnapshot(entries: entries)
     }
 
-    func canSubscribe(extensionID: String, to event: String) -> Bool {
-        guard let status = statuses.first(where: { $0.id == extensionID }) else { return false }
-        let manifest = status.muxyExtension.manifest
-        if manifest.events.contains(event) { return true }
-        return manifest.commands.contains { $0.eventName == event }
+    private func publishSnapshot() {
+        NotificationSocketServer.shared.applyExtensionSnapshot(snapshotForSocketServer())
+    }
+
+    static func buildSnapshotForTesting(from extensions: [MuxyExtension]) -> NotificationSocketServer.ExtensionSnapshot {
+        var entries: [String: NotificationSocketServer.ExtensionSnapshotEntry] = [:]
+        for ext in extensions where ext.manifest.enabled {
+            let manifest = ext.manifest
+            entries[ext.id] = NotificationSocketServer.ExtensionSnapshotEntry(
+                allowedEvents: Set(manifest.events),
+                commandEvents: Set(manifest.commands.map(\.eventName)),
+                permissions: Set(manifest.permissions)
+            )
+        }
+        return NotificationSocketServer.ExtensionSnapshot(entries: entries)
     }
 
     struct PaletteCommandBinding: Equatable {

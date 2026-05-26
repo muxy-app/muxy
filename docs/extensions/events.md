@@ -34,23 +34,27 @@ The connection stays open for the lifetime of the extension subprocess. Muxy fan
 An identified extension can only subscribe to events that are either:
 
 1. listed in its manifest `events` array, or
-2. the event name of one of its own palette commands (`command.<id>`).
+2. the event name of one of its own palette commands (`command.<id>` — auto-allowed; no `events` entry needed).
 
 Anything else returns `error:event <name> not declared in manifest`.
 
+When an extension is **reloaded** or **disabled**, every active session's `extensionID` is cleared and its subscriptions are re-filtered against the new manifest. Any in-flight subscription to an event no longer declared is dropped silently.
+
 ## Available events
 
-| Event | Payload keys |
-| --- | --- |
-| `pane.created` | `paneID` |
-| `pane.closed` | `paneID` |
-| `pane.focused` | `projectID`, `worktreeID`, `areaID`, `tabID` |
-| `tab.created` | `tabID` |
-| `tab.focused` | `areaID`, `tabID` |
-| `project.switched` | `projectID` |
-| `worktree.switched` | `projectID`, `worktreeID` |
-| `notification.posted` | `paneID`, `projectID`, `tabID`, `title` |
-| `command.<id>` | `command`, `extension` (fired when the user picks the extension's palette command) |
+All workspace events require the extension to list them in `manifest.events` before they can be subscribed. The `command.<id>` family is the one exception: an extension's own command events are auto-allowed (declaring the command in `manifest.commands` is implicit consent to receive its trigger).
+
+| Event | Payload keys | Allowed by |
+| --- | --- | --- |
+| `pane.created` | `paneID` | `events: ["pane.created"]` |
+| `pane.closed` | `paneID` | `events: ["pane.closed"]` |
+| `pane.focused` | `projectID`, `worktreeID`, `areaID`, `tabID` | `events: ["pane.focused"]` |
+| `tab.created` | `tabID` | `events: ["tab.created"]` |
+| `tab.focused` | `areaID`, `tabID` | `events: ["tab.focused"]` |
+| `project.switched` | `projectID` | `events: ["project.switched"]` |
+| `worktree.switched` | `projectID`, `worktreeID` | `events: ["worktree.switched"]` |
+| `notification.posted` | `paneID`, `projectID`, `tabID`, `title` | `events: ["notification.posted"]` |
+| `command.<id>` | `command`, `extension` | Auto-allowed when `commands[].id == <id>` |
 
 ## Wire format
 
