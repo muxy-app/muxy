@@ -129,7 +129,7 @@ private final class ScriptBridge: @unchecked Sendable {
         let bridge = self
         let argsBox = AnyBox(args)
         do {
-            if let required = Self.verbPermissions[verb] {
+            if let required = MuxyAPI.Permissions.required(for: verb) {
                 let allowed: Bool = try syncAwait { @MainActor in
                     ExtensionStore.shared.extensionHasPermission(id: bridge.extensionID, permission: required)
                 }
@@ -152,28 +152,6 @@ private final class ScriptBridge: @unchecked Sendable {
     private static func errorObject(_ message: String) -> [String: Any] {
         ["ok": false, "error": message]
     }
-
-    private static let verbPermissions: [String: ExtensionPermission] = [
-        "tabs.list": .tabsRead,
-        "tabs.switch": .tabsWrite,
-        "tabs.new": .tabsWrite,
-        "tabs.next": .tabsWrite,
-        "tabs.previous": .tabsWrite,
-        "tabs.open": .tabsWrite,
-        "panes.list": .panesRead,
-        "panes.send": .panesWrite,
-        "panes.sendKeys": .panesWrite,
-        "panes.readScreen": .panesRead,
-        "panes.close": .panesWrite,
-        "panes.rename": .panesWrite,
-        "projects.list": .projectsRead,
-        "projects.switch": .projectsWrite,
-        "worktrees.list": .worktreesRead,
-        "worktrees.switch": .worktreesWrite,
-        "worktrees.refresh": .worktreesWrite,
-        "toast": .notificationsWrite,
-        "exec": .commandsExec,
-    ]
 
     @MainActor
     private func handle(verb: String, args: [String: Any]) async throws -> Any {

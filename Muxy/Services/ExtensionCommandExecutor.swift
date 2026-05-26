@@ -35,7 +35,19 @@ enum ExtensionCommandExecutor {
     static let defaultTimeoutMs = 30000
     static let maxOutputBytes = 10 * 1024 * 1024
 
+    @MainActor
     static func exec(
+        request: ExecRequest,
+        extensionID: String,
+        defaultCwd: String?
+    ) async throws -> ExecResult {
+        guard ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: .commandsExec) else {
+            throw ExecError.invalidArguments("permission denied (\(ExtensionPermission.commandsExec.rawValue))")
+        }
+        return try await runUnchecked(request: request, extensionID: extensionID, defaultCwd: defaultCwd)
+    }
+
+    static func runUnchecked(
         request: ExecRequest,
         extensionID: String,
         defaultCwd: String?
@@ -116,13 +128,23 @@ enum ExtensionCommandExecutor {
         }
 
         var environment = ProcessInfo.processInfo.environment
-        environment["MUXY_EXTENSION_ID"] = extensionID
         if let extra = request.env {
-            for (key, value) in extra {
+            for (key, value) in extra where isSafeEnvKey(key) {
                 environment[key] = value
             }
         }
+        environment["MUXY_EXTENSION_ID"] = extensionID
         process.environment = environment
+    }
+
+    private static func isSafeEnvKey(_ key: String) -> Bool {
+        guard !key.isEmpty,
+              !key.contains("="),
+              !key.contains("\0"),
+              !key.hasPrefix("DYLD_"),
+              key != "MUXY_EXTENSION_ID"
+        else { return false }
+        return true
     }
 
     private static func resolveExecutable(_ command: String) throws -> String {

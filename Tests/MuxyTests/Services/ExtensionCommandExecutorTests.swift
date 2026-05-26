@@ -15,7 +15,7 @@ struct ExtensionCommandExecutorTests {
             stdin: nil,
             timeoutMs: nil
         )
-        let result = try await ExtensionCommandExecutor.exec(
+        let result = try await ExtensionCommandExecutor.runUnchecked(
             request: request,
             extensionID: "test",
             defaultCwd: nil
@@ -35,7 +35,7 @@ struct ExtensionCommandExecutorTests {
             stdin: nil,
             timeoutMs: nil
         )
-        let result = try await ExtensionCommandExecutor.exec(
+        let result = try await ExtensionCommandExecutor.runUnchecked(
             request: request,
             extensionID: "test",
             defaultCwd: nil
@@ -54,7 +54,7 @@ struct ExtensionCommandExecutorTests {
             stdin: nil,
             timeoutMs: nil
         )
-        let result = try await ExtensionCommandExecutor.exec(
+        let result = try await ExtensionCommandExecutor.runUnchecked(
             request: request,
             extensionID: "test",
             defaultCwd: nil
@@ -73,7 +73,7 @@ struct ExtensionCommandExecutorTests {
             stdin: nil,
             timeoutMs: 200
         )
-        let result = try await ExtensionCommandExecutor.exec(
+        let result = try await ExtensionCommandExecutor.runUnchecked(
             request: request,
             extensionID: "test",
             defaultCwd: nil
@@ -93,7 +93,7 @@ struct ExtensionCommandExecutorTests {
             stdin: "hello from stdin",
             timeoutMs: nil
         )
-        let result = try await ExtensionCommandExecutor.exec(
+        let result = try await ExtensionCommandExecutor.runUnchecked(
             request: request,
             extensionID: "test",
             defaultCwd: nil
@@ -113,7 +113,7 @@ struct ExtensionCommandExecutorTests {
             stdin: nil,
             timeoutMs: nil
         )
-        let result = try await ExtensionCommandExecutor.exec(
+        let result = try await ExtensionCommandExecutor.runUnchecked(
             request: request,
             extensionID: "test",
             defaultCwd: tempDir
@@ -135,7 +135,7 @@ struct ExtensionCommandExecutorTests {
             timeoutMs: nil
         )
         do {
-            _ = try await ExtensionCommandExecutor.exec(
+            _ = try await ExtensionCommandExecutor.runUnchecked(
                 request: request,
                 extensionID: "test",
                 defaultCwd: nil

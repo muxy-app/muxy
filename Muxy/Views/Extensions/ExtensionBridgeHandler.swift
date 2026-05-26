@@ -11,8 +11,7 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
     private weak var projectStore: ProjectStore?
     private weak var worktreeStore: WorktreeStore?
     private weak var webView: WKWebView?
-    private var eventSubscriptions: [String: Set<UUID>] = [:]
-    private var observerTokens: Set<UUID> = []
+    private var eventObservers: [String: UUID] = [:]
 
     init(
         extensionID: String,
@@ -31,11 +30,10 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     func dropAllEventSubscriptions() {
-        for token in observerTokens {
+        for token in eventObservers.values {
             NotificationSocketServer.shared.removeInProcessObserver(token)
         }
-        observerTokens.removeAll()
-        eventSubscriptions.removeAll()
+        eventObservers.removeAll()
     }
 
     func userContentController(
@@ -59,7 +57,7 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
         }
         let args = (payload["args"] as? [String: Any]) ?? [:]
 
-        if let required = Self.verbPermissions[verb],
+        if let required = MuxyAPI.Permissions.required(for: verb),
            !ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: required)
         {
             return [
@@ -82,28 +80,6 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
             return ["requestID": requestID, "ok": false, "error": error.localizedDescription]
         }
     }
-
-    private static let verbPermissions: [String: ExtensionPermission] = [
-        "tabs.list": .tabsRead,
-        "tabs.switch": .tabsWrite,
-        "tabs.new": .tabsWrite,
-        "tabs.next": .tabsWrite,
-        "tabs.previous": .tabsWrite,
-        "tabs.open": .tabsWrite,
-        "panes.list": .panesRead,
-        "panes.send": .panesWrite,
-        "panes.sendKeys": .panesWrite,
-        "panes.readScreen": .panesRead,
-        "panes.close": .panesWrite,
-        "panes.rename": .panesWrite,
-        "projects.list": .projectsRead,
-        "projects.switch": .projectsWrite,
-        "worktrees.list": .worktreesRead,
-        "worktrees.switch": .worktreesWrite,
-        "worktrees.refresh": .worktreesWrite,
-        "toast": .notificationsWrite,
-        "exec": .commandsExec,
-    ]
 
     private func handle(verb: String, args: [String: Any], appState: AppState) async throws -> Any {
         switch verb {
@@ -256,28 +232,23 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
         guard allowedEvents.contains(event) || commandEvents.contains(event) else {
             throw APIError.invalidArguments("event \(event) not declared in manifest")
         }
-        if eventSubscriptions[event] == nil {
-            let token = NotificationSocketServer.shared.addInProcessObserver { [weak self] incoming in
-                guard incoming.name == event else { return }
-                Task { @MainActor [weak self] in
-                    self?.deliverEvent(incoming)
-                }
+        guard eventObservers[event] == nil else { return event }
+        let token = NotificationSocketServer.shared.addInProcessObserver { [weak self] incoming in
+            guard incoming.name == event else { return }
+            Task { @MainActor [weak self] in
+                self?.deliverEvent(incoming)
             }
-            observerTokens.insert(token)
-            eventSubscriptions[event] = [token]
         }
+        eventObservers[event] = token
         return event
     }
 
     private func handleUnsubscribe(args: [String: Any]) throws -> Any {
         let event = try stringArg(args, "event")
-        guard let tokens = eventSubscriptions.removeValue(forKey: event) else {
+        guard let token = eventObservers.removeValue(forKey: event) else {
             return NSNull()
         }
-        for token in tokens {
-            NotificationSocketServer.shared.removeInProcessObserver(token)
-            observerTokens.remove(token)
-        }
+        NotificationSocketServer.shared.removeInProcessObserver(token)
         return NSNull()
     }
 

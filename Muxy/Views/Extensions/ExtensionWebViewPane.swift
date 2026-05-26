@@ -189,7 +189,6 @@ private struct ExtensionWebViewRepresentable: NSViewRepresentable {
         }
 
         private func pushThemeUpdate() {
-            reinstallBridgeScript()
             guard let webView else { return }
             let theme = ExtensionThemeSnapshot.current()
             let script = ExtensionWebBridge.themeUpdateScript(theme: theme)

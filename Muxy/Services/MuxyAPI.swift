@@ -120,6 +120,54 @@ struct OpenTabRequest: Decodable {
 }
 
 enum MuxyAPI {
+    enum Permissions {
+        static func required(for verb: String) -> ExtensionPermission? {
+            verbPermissions[verb]
+        }
+
+        private static let verbPermissions: [String: ExtensionPermission] = [
+            "split-right": .panesWrite,
+            "split-down": .panesWrite,
+            "send": .panesWrite,
+            "send-keys": .panesWrite,
+            "read-screen": .panesRead,
+            "close-pane": .panesWrite,
+            "rename-pane": .panesWrite,
+            "list-panes": .panesRead,
+            "list-projects": .projectsRead,
+            "switch-project": .projectsWrite,
+            "list-worktrees": .worktreesRead,
+            "create-worktree": .worktreesWrite,
+            "switch-worktree": .worktreesWrite,
+            "refresh-worktrees": .worktreesWrite,
+            "list-tabs": .tabsRead,
+            "switch-tab": .tabsWrite,
+            "new-tab": .tabsWrite,
+            "next-tab": .tabsWrite,
+            "previous-tab": .tabsWrite,
+            "open-tab": .tabsWrite,
+            "tabs.list": .tabsRead,
+            "tabs.switch": .tabsWrite,
+            "tabs.new": .tabsWrite,
+            "tabs.next": .tabsWrite,
+            "tabs.previous": .tabsWrite,
+            "tabs.open": .tabsWrite,
+            "panes.list": .panesRead,
+            "panes.send": .panesWrite,
+            "panes.sendKeys": .panesWrite,
+            "panes.readScreen": .panesRead,
+            "panes.close": .panesWrite,
+            "panes.rename": .panesWrite,
+            "projects.list": .projectsRead,
+            "projects.switch": .projectsWrite,
+            "worktrees.list": .worktreesRead,
+            "worktrees.switch": .worktreesWrite,
+            "worktrees.refresh": .worktreesWrite,
+            "toast": .notificationsWrite,
+            "exec": .commandsExec,
+        ]
+    }
+
     @MainActor
     enum Panes {
         static func split(
