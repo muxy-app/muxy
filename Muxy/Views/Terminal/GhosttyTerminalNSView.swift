@@ -834,6 +834,7 @@ final class GhosttyTerminalNSView: NSView {
         menu.addItem(contextSplitMenuItem(title: "Split Down", direction: .vertical, position: .second))
         menu.addItem(contextSplitMenuItem(title: "Split Up", direction: .vertical, position: .first))
 
+        ContextMenuLifecycle().attach(to: menu)
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
