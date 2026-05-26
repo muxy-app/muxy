@@ -100,6 +100,17 @@ final class ExtensionStore {
         return status.muxyExtension.manifest.permissions.contains(permission)
     }
 
+    func isKnownExtension(id: String) -> Bool {
+        statuses.contains { $0.id == id }
+    }
+
+    func canSubscribe(extensionID: String, to event: String) -> Bool {
+        guard let status = statuses.first(where: { $0.id == extensionID }) else { return false }
+        let manifest = status.muxyExtension.manifest
+        if manifest.events.contains(event) { return true }
+        return manifest.commands.contains { $0.eventName == event }
+    }
+
     struct PaletteCommandBinding: Equatable {
         let muxyExtension: MuxyExtension
         let command: ExtensionPaletteCommand

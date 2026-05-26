@@ -194,8 +194,7 @@ final class NotificationSocketServer: @unchecked Sendable {
         let head = trimmed.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
 
         if Self.stickyCommandNames.contains(head) {
-            let response = handleSticky(head: head, message: trimmed, session: session)
-            enqueueWrite(session: session, text: response + "\n")
+            processSticky(head: head, message: trimmed, session: session)
             return
         }
 
@@ -204,20 +203,42 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
 
-        processNotificationMessage(data)
+        processNotificationMessage(data, session: session)
     }
 
-    private func handleSticky(head: String, message: String, session: ClientSession) -> String {
+    private func processSticky(head: String, message: String, session: ClientSession) {
+        Task { @MainActor [weak self, weak session] in
+            guard let self, let session else { return }
+            let response = Self.evaluateSticky(head: head, message: message, session: session)
+            self.queue.async { [weak self, weak session] in
+                guard let self, let session else { return }
+                self.enqueueWrite(session: session, text: response + "\n")
+            }
+        }
+    }
+
+    @MainActor
+    private static func evaluateSticky(head: String, message: String, session: ClientSession) -> String {
         switch head {
         case "identify":
             let parts = message.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             guard parts.count == 2, !parts[1].isEmpty else { return "error:usage identify|<extension-id>" }
-            session.extensionID = parts[1]
+            let claimedID = parts[1]
+            guard ExtensionStore.shared.isKnownExtension(id: claimedID) else {
+                return "error:unknown extension \(claimedID)"
+            }
+            session.extensionID = claimedID
             return "ok"
         case "subscribe":
             let parts = message.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             guard parts.count == 2, !parts[1].isEmpty else { return "error:usage subscribe|<event>" }
-            session.subscriptions.insert(parts[1])
+            let event = parts[1]
+            if let extensionID = session.extensionID,
+               !ExtensionStore.shared.canSubscribe(extensionID: extensionID, to: event)
+            {
+                return "error:event \(event) not declared in manifest"
+            }
+            session.subscriptions.insert(event)
             return "ok"
         default:
             return "error:unknown sticky command \(head)"
@@ -276,7 +297,7 @@ final class NotificationSocketServer: @unchecked Sendable {
         source.resume()
     }
 
-    private func processNotificationMessage(_ data: Data) {
+    private func processNotificationMessage(_ data: Data, session: ClientSession) {
         guard let message = String(data: data, encoding: .utf8) else { return }
         let prefix = "open-project|"
         if message.hasPrefix(prefix) {
@@ -315,8 +336,15 @@ final class NotificationSocketServer: @unchecked Sendable {
         let rawTitle = parts[2]
         let title = rawTitle.isEmpty ? "Task completed!" : rawTitle
         let body = parts.count > 3 ? parts[3] : ""
+        let extensionID = session.extensionID
 
         DispatchQueue.main.async { [weak self] in
+            if let extensionID,
+               !ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: .notificationsWrite)
+            {
+                logger.warning("Dropping notification from \(extensionID): missing notifications:write permission")
+                return
+            }
             self?.dispatchNotification(type: type, title: title, body: body, paneIDString: paneIDString)
         }
     }

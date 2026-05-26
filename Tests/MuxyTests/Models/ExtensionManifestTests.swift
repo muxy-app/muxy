@@ -143,6 +143,19 @@ struct ExtensionManifestTests {
         #expect(command.eventName == "command.do-thing")
     }
 
+    @Test("ExtensionPermission rawValues use namespace:verb form")
+    func permissionRawValues() {
+        #expect(ExtensionPermission.panesRead.rawValue == "panes:read")
+        #expect(ExtensionPermission.panesWrite.rawValue == "panes:write")
+        #expect(ExtensionPermission.tabsRead.rawValue == "tabs:read")
+        #expect(ExtensionPermission.tabsWrite.rawValue == "tabs:write")
+        #expect(ExtensionPermission.projectsRead.rawValue == "projects:read")
+        #expect(ExtensionPermission.projectsWrite.rawValue == "projects:write")
+        #expect(ExtensionPermission.worktreesRead.rawValue == "worktrees:read")
+        #expect(ExtensionPermission.worktreesWrite.rawValue == "worktrees:write")
+        #expect(ExtensionPermission.notificationsWrite.rawValue == "notifications:write")
+    }
+
     @Test("ExtensionLoadError surfaces localized messages")
     func loadErrorMessages() {
         let urlError = ExtensionLoadError.manifestMissing(URL(fileURLWithPath: "/tmp/a/manifest.json"))
