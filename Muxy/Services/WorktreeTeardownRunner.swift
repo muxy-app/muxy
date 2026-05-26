@@ -119,7 +119,7 @@ enum WorktreeTeardownProcess {
         let shell = environment["SHELL"].flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
             ?? "/bin/zsh"
         process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-lc", command]
+        process.arguments = ["-c", command]
         process.environment = environment
         process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
 

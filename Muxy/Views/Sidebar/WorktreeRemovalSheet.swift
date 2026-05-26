@@ -104,15 +104,11 @@ struct WorktreeRemovalSheet: View {
         }
     }
 
+    @ViewBuilder
     private var footer: some View {
-        HStack {
-            Spacer()
-            switch controller.phase {
-            case .running:
-                Button("Cancel", action: onDismiss)
-                    .keyboardShortcut(.cancelAction)
-                    .disabled(true)
-            case .failed:
+        if case .failed = controller.phase {
+            HStack {
+                Spacer()
                 Button("Close", action: onDismiss)
                     .keyboardShortcut(.defaultAction)
             }

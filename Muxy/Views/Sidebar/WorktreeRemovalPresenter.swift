@@ -5,7 +5,6 @@ struct WorktreeRemovalRequest: Identifiable {
     let worktree: Worktree
     let repoPath: String
     let onSuccess: @MainActor () -> Void
-    let onFailure: @MainActor () -> Void
 }
 
 private struct WorktreeRemovalPresenterModifier: ViewModifier {
@@ -16,12 +15,8 @@ private struct WorktreeRemovalPresenterModifier: ViewModifier {
         content
             .sheet(item: $request) { current in
                 let controller = controller(for: current)
-                WorktreeRemovalSheet(controller: controller) {
-                    request = nil
-                    self.controller = nil
-                    current.onFailure()
-                }
-                .task(id: current.id) { await run(current, controller: controller) }
+                WorktreeRemovalSheet(controller: controller, onDismiss: cleanup)
+                    .task(id: current.id) { await run(current, controller: controller) }
             }
     }
 
@@ -30,6 +25,11 @@ private struct WorktreeRemovalPresenterModifier: ViewModifier {
         let new = WorktreeRemovalController(worktree: current.worktree)
         controller = new
         return new
+    }
+
+    private func cleanup() {
+        request = nil
+        controller = nil
     }
 
     private func run(_ current: WorktreeRemovalRequest, controller: WorktreeRemovalController) async {
@@ -41,8 +41,7 @@ private struct WorktreeRemovalPresenterModifier: ViewModifier {
                     Task { @MainActor in controller.append(line) }
                 }
             )
-            request = nil
-            self.controller = nil
+            cleanup()
             current.onSuccess()
         } catch {
             controller.markFailed(error)

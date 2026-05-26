@@ -410,8 +410,7 @@ struct VCSTabView: View {
                         baseBranch: baseBranch
                     )
                 }
-            },
-            onFailure: {}
+            }
         )
     }
 

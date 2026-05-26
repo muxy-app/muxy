@@ -649,7 +649,13 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             throw RemoteVCSError.invalidInput("The primary worktree cannot be removed.")
         }
 
-        try await WorktreeStore.cleanupOnDisk(worktree: worktree, repoPath: project.path)
+        try await WorktreeStore.cleanupOnDisk(
+            worktree: worktree,
+            repoPath: project.path,
+            teardownEmit: { line in
+                logger.error("[teardown \(worktreeID)] \(line.text)")
+            }
+        )
         worktreeStore.remove(worktreeID: worktreeID, from: projectID)
     }
 

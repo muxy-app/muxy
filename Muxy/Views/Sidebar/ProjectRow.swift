@@ -335,8 +335,7 @@ struct ProjectRow: View {
                     replacement: replacement
                 )
                 worktreeStore.remove(worktreeID: worktree.id, from: project.id)
-            },
-            onFailure: {}
+            }
         )
     }
 }
