@@ -135,6 +135,19 @@ final class NotificationStore {
         trimIfNeeded()
         scheduleSave()
         deliverNotification(notification)
+        broadcastExtensionEvent(notification)
+    }
+
+    private func broadcastExtensionEvent(_ notification: MuxyNotification) {
+        NotificationSocketServer.shared.broadcast(event: ExtensionEvent(
+            name: ExtensionEventName.notificationPosted,
+            payload: [
+                "paneID": notification.paneID.uuidString,
+                "projectID": notification.projectID.uuidString,
+                "tabID": notification.tabID.uuidString,
+                "title": notification.title,
+            ]
+        ))
     }
 
     private func deliverNotification(_ notification: MuxyNotification) {

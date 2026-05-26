@@ -79,12 +79,13 @@ struct MuxyApp: App {
                         )
                     }
                     appDelegate.flushPendingOpens()
-                    NotificationSocketServer.shared.commandHandler = { [appState, projectStore, worktreeStore] message in
+                    NotificationSocketServer.shared.commandHandler = { [appState, projectStore, worktreeStore] message, context in
                         await SocketCommandHandler.handleRequest(
                             message,
                             appState: appState,
                             projectStore: projectStore,
-                            worktreeStore: worktreeStore
+                            worktreeStore: worktreeStore,
+                            clientContext: context
                         )
                     }
                     MobileServerService.shared.configure { server in
@@ -159,6 +160,7 @@ struct MuxyApp: App {
             try? await Task.sleep(for: .seconds(2))
             UpdateService.shared.start()
             AIProviderRegistry.shared.installAll()
+            ExtensionStore.shared.startAll()
         }
     }
 }
@@ -402,6 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         MainActor.assumeIsolated {
             MobileServerService.shared.stopForTermination()
             RichInputDraftStore.shared.flush()
+            ExtensionStore.shared.stopAll()
         }
     }
 

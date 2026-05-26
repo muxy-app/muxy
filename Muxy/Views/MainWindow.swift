@@ -620,6 +620,7 @@ struct MainWindow: View {
                 openTabs: terminalOmniboxOpenTabs,
                 closedTabs: terminalOmniboxClosedTabs,
                 commandShortcuts: CommandShortcutStore.shared.shortcuts,
+                extensionCommands: terminalOmniboxExtensionCommands,
                 activeProjectID: appState.activeProjectID,
                 activeWorktreeID: appState.activeProjectID.flatMap { appState.activeWorktreeID[$0] },
                 commandProjectIDs: terminalOmniboxCommandProjectIDs,
@@ -685,6 +686,21 @@ struct MainWindow: View {
             guard let projectID = scopedProjectID else { return }
             _ = selectOmniboxProject(projectID, worktreeID: scopedWorktreeID)
             appState.createCommandTab(projectID: projectID, shortcut: shortcut)
+        case let .extensionCommand(item):
+            ExtensionStore.shared.triggerCommand(
+                extensionID: item.extensionID,
+                commandID: item.command.id
+            )
+        }
+    }
+
+    private var terminalOmniboxExtensionCommands: [ExtensionPaletteItem] {
+        ExtensionStore.shared.paletteCommands().map { binding in
+            ExtensionPaletteItem(
+                extensionID: binding.muxyExtension.id,
+                extensionName: binding.muxyExtension.displayName,
+                command: binding.command
+            )
         }
     }
 

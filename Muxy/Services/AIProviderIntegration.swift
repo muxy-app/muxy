@@ -141,15 +141,28 @@ final class AIProviderRegistry {
         for provider in providers where provider.socketTypeKey == socketType {
             return .aiProvider(provider.id)
         }
+        if let declared = ExtensionStore.shared.declaredAIProvider(for: socketType) {
+            return .aiProvider(declared.extensionID)
+        }
         return .socket
     }
 
     func iconName(for source: MuxyNotification.Source) -> String {
         switch source {
-        case .osc: "terminal"
+        case .osc:
+            return "terminal"
         case let .aiProvider(id):
-            providers.first { $0.id == id }?.iconName ?? "sparkles"
-        case .socket: "network"
+            if let providerIcon = providers.first(where: { $0.id == id })?.iconName {
+                return providerIcon
+            }
+            if let extensionStatus = ExtensionStore.shared.statuses.first(where: { $0.id == id }),
+               let icon = extensionStatus.muxyExtension.manifest.aiProvider?.iconName
+            {
+                return icon
+            }
+            return "sparkles"
+        case .socket:
+            return "network"
         }
     }
 }

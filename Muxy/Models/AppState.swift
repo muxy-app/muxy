@@ -815,6 +815,12 @@ final class AppState {
     }
 
     func dispatch(_ action: Action) {
+        let extensionSnapshot = ExtensionEventEmitter.snapshot(from: self)
+        defer {
+            let after = ExtensionEventEmitter.snapshot(from: self)
+            ExtensionEventEmitter.emit(before: extensionSnapshot, after: after)
+        }
+
         switch action {
         case let .focusPaneLeft(projectID),
              let .focusPaneRight(projectID),

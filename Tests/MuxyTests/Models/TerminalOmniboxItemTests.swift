@@ -253,4 +253,69 @@ struct TerminalOmniboxItemResolverTests {
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .history).isEmpty)
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .commandShortcuts).isEmpty)
     }
+
+    @Test("commandShortcuts scope includes extension commands")
+    func commandShortcutsScopeIncludesExtensionCommands() {
+        let projectID = UUID()
+        let shortcut = CommandShortcut(name: "Server", command: "npm run dev")
+        let extensionItem = ExtensionPaletteItem(
+            extensionID: "demo",
+            extensionName: "Demo",
+            command: ExtensionPaletteCommand(id: "do", title: "Do thing", subtitle: nil)
+        )
+        let context = TerminalOmniboxItemContext(
+            projects: [],
+            worktrees: [],
+            openTabs: [],
+            closedTabs: [],
+            commandShortcuts: [shortcut],
+            extensionCommands: [extensionItem],
+            activeProjectID: projectID,
+            activeWorktreeID: nil,
+            commandProjectIDs: [projectID]
+        )
+
+        let items = TerminalOmniboxItemResolver.items(in: context, launchScope: .commandShortcuts)
+        #expect(items == [.commandShortcut(shortcut), .extensionCommand(extensionItem)])
+    }
+
+    @Test("commandShortcuts scope returns extension commands even when project has no shortcuts allowed")
+    func commandShortcutsScopeWithoutActiveProject() {
+        let extensionItem = ExtensionPaletteItem(
+            extensionID: "demo",
+            extensionName: "Demo",
+            command: ExtensionPaletteCommand(id: "do", title: "Do thing", subtitle: nil)
+        )
+        let context = TerminalOmniboxItemContext(
+            projects: [],
+            worktrees: [],
+            openTabs: [],
+            closedTabs: [],
+            commandShortcuts: [CommandShortcut(name: "Server", command: "npm run dev")],
+            extensionCommands: [extensionItem],
+            activeProjectID: nil,
+            activeWorktreeID: nil,
+            commandProjectIDs: []
+        )
+
+        let items = TerminalOmniboxItemResolver.items(in: context, launchScope: .commandShortcuts)
+        #expect(items == [.extensionCommand(extensionItem)])
+    }
+
+    @Test("extensionCommand exposes title, subtitle and section")
+    func extensionCommandItemAccessors() {
+        let item = ExtensionPaletteItem(
+            extensionID: "demo",
+            extensionName: "Demo",
+            command: ExtensionPaletteCommand(id: "run", title: "Run", subtitle: "subtitle")
+        )
+        let omniboxItem = TerminalOmniboxItem.extensionCommand(item)
+
+        #expect(omniboxItem.title == "Run")
+        #expect(omniboxItem.subtitle == "subtitle")
+        #expect(omniboxItem.sectionTitle == "Extension Commands")
+        #expect(omniboxItem.symbol == "puzzlepiece.extension")
+        #expect(omniboxItem.searchKey.contains("Demo"))
+        #expect(omniboxItem.id == "ext-demo-run")
+    }
 }

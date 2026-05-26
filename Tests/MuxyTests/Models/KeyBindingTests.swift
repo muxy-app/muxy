@@ -116,7 +116,7 @@ struct KeyBindingTests {
         #expect(combos[.terminalOmnibox] == KeyCombo(key: "o", command: true, option: true))
         #expect(combos[.terminalOmniboxProjects] == KeyCombo(key: "p", command: true, option: true))
         #expect(combos[.terminalOmniboxWorktrees] == KeyCombo(key: "w", command: true, option: true))
-        #expect(combos[.terminalOmniboxCommands] == KeyCombo(key: "c", command: true, option: true))
+        #expect(combos[.terminalOmniboxCommands] == KeyCombo(key: "p", command: true, shift: true))
         #expect(combos[.terminalOmniboxHistory] == KeyCombo(key: "h", command: true, option: true))
     }
 

@@ -5,15 +5,45 @@ private let logger = Logger(subsystem: "app.muxy", category: "SocketCommandHandl
 
 @MainActor
 enum SocketCommandHandler {
+    private static let verbPermissions: [String: ExtensionPermission] = [
+        "split-right": .panesWrite,
+        "split-down": .panesWrite,
+        "send": .panesWrite,
+        "send-keys": .panesWrite,
+        "read-screen": .panesRead,
+        "close-pane": .panesWrite,
+        "rename-pane": .panesWrite,
+        "list-panes": .panesRead,
+        "list-projects": .projectsRead,
+        "switch-project": .projectsWrite,
+        "list-worktrees": .worktreesRead,
+        "create-worktree": .worktreesWrite,
+        "switch-worktree": .worktreesWrite,
+        "refresh-worktrees": .worktreesWrite,
+        "list-tabs": .tabsRead,
+        "switch-tab": .tabsWrite,
+        "new-tab": .tabsWrite,
+        "next-tab": .tabsWrite,
+        "previous-tab": .tabsWrite,
+    ]
+
     static func handleRequest(
         _ message: String,
         appState: AppState,
         projectStore: ProjectStore? = nil,
-        worktreeStore: WorktreeStore? = nil
+        worktreeStore: WorktreeStore? = nil,
+        clientContext: NotificationSocketServer.ClientContext = .init(extensionID: nil)
     ) async -> String {
         let parts = message.components(separatedBy: "|")
         guard let cmd = parts.first else {
             return "error:empty command"
+        }
+
+        if let extensionID = clientContext.extensionID,
+           let required = verbPermissions[cmd],
+           !ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: required)
+        {
+            return "error:permission denied (\(required.rawValue))"
         }
 
         switch cmd {
