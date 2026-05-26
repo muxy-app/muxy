@@ -38,6 +38,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private var subscribers: [ObjectIdentifier: ClientSession] = [:]
     private var readSources: [ObjectIdentifier: DispatchSourceRead] = [:]
     private var extensionSnapshot = ExtensionSnapshot(entries: [:])
+    private var inProcessObservers: [UUID: @Sendable (ExtensionEvent) -> Void] = [:]
 
     var openProjectHandler: (@Sendable (String) -> Void)?
     var commandHandler: (@Sendable (String, ClientContext) async -> String)?
@@ -99,6 +100,24 @@ final class NotificationSocketServer: @unchecked Sendable {
             for session in self.subscribers.values where session.subscriptions.contains(event.name) {
                 self.enqueueWrite(session: session, text: line)
             }
+            for callback in self.inProcessObservers.values {
+                callback(event)
+            }
+        }
+    }
+
+    @discardableResult
+    func addInProcessObserver(_ callback: @escaping @Sendable (ExtensionEvent) -> Void) -> UUID {
+        let token = UUID()
+        queue.async { [weak self] in
+            self?.inProcessObservers[token] = callback
+        }
+        return token
+    }
+
+    func removeInProcessObserver(_ token: UUID) {
+        queue.async { [weak self] in
+            self?.inProcessObservers.removeValue(forKey: token)
         }
     }
 

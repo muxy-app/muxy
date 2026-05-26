@@ -27,9 +27,13 @@ final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
         }
 
         let relativePath = url.path.isEmpty ? "" : String(url.path.dropFirst())
-        let resolved = directory.appendingPathComponent(relativePath).standardizedFileURL
+        let resolved = directory
+            .appendingPathComponent(relativePath)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let base = directory.resolvingSymlinksInPath()
 
-        guard resolved.path == directory.path || resolved.path.hasPrefix(directory.path + "/") else {
+        guard resolved.path == base.path || resolved.path.hasPrefix(base.path + "/") else {
             urlSchemeTask.didFailWithError(URLError(.noPermissionsToReadFile))
             return
         }

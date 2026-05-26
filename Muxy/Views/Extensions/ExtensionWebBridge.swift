@@ -97,12 +97,48 @@ enum ExtensionWebBridge {
                     },
                     refresh(project) { return send('worktrees.refresh', { project: project == null ? null : String(project) }); },
                 },
+                events: {
+                    subscribe(name, callback) {
+                        if (typeof name !== 'string' || typeof callback !== 'function') {
+                            return () => {};
+                        }
+                        let set = eventListeners.get(name);
+                        if (!set) {
+                            set = new Set();
+                            eventListeners.set(name, set);
+                            send('events.subscribe', { event: name }).catch((err) => {
+                                eventListeners.delete(name);
+                                try { console.error('muxy.events.subscribe failed:', err.message || err); } catch (_) {}
+                            });
+                        }
+                        set.add(callback);
+                        return () => {
+                            const current = eventListeners.get(name);
+                            if (!current) return;
+                            current.delete(callback);
+                            if (current.size === 0) {
+                                eventListeners.delete(name);
+                                send('events.unsubscribe', { event: name }).catch(() => {});
+                            }
+                        };
+                    },
+                },
+            };
+
+            const eventListeners = new Map();
+            window.__muxyEventDispatch = (name, payload) => {
+                const listeners = eventListeners.get(name);
+                if (!listeners) return;
+                for (const callback of listeners) {
+                    try { callback(payload || {}); } catch (_) {}
+                }
             };
 
             Object.freeze(muxy.tabs);
             Object.freeze(muxy.panes);
             Object.freeze(muxy.projects);
             Object.freeze(muxy.worktrees);
+            Object.freeze(muxy.events);
             Object.freeze(muxy);
             window.muxy = muxy;
 

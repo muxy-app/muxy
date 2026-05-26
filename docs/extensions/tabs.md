@@ -74,6 +74,7 @@ window.muxy = {
   },
 
   projects: { list(), switchTo(identifier) },
+  events: { subscribe(name, callback): unsubscribe },
   worktrees: { list(project?), switchTo(identifier, project?), refresh(project?) },
 }
 ```
@@ -97,6 +98,21 @@ await muxy.tabs.open({
 ```
 
 `extensionWebView` requires the target extension to be loaded and the named tab type to exist.
+
+### Subscribing to workspace events
+
+```js
+const unsubscribe = muxy.events.subscribe('tab.focused', (payload) => {
+  console.log('tab focused:', payload.tabID);
+});
+
+// Later, when you don't need it anymore:
+unsubscribe();
+```
+
+The event must be declared in the extension's manifest `events: [...]` array (or be a `command.<id>` event of the same extension, which is auto-allowed). Unknown events reject the subscribe call with `Error("event <name> not declared in manifest")`.
+
+Subscriptions are dropped automatically when the page reloads, when the tab closes, and when the extension is disabled or reloaded.
 
 ## Calling from the extension subprocess
 

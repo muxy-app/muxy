@@ -284,8 +284,11 @@ struct MuxyExtension: Identifiable, Equatable {
     var displayName: String { manifest.name }
 
     func resolveResource(_ relativePath: String) -> URL? {
-        let url = directory.appendingPathComponent(relativePath).standardizedFileURL
-        let base = directory.standardizedFileURL
+        let url = directory
+            .appendingPathComponent(relativePath)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let base = directory.resolvingSymlinksInPath()
         guard url.path == base.path || url.path.hasPrefix(base.path + "/") else {
             return nil
         }

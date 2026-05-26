@@ -10,6 +10,9 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
     private weak var appState: AppState?
     private weak var projectStore: ProjectStore?
     private weak var worktreeStore: WorktreeStore?
+    private weak var webView: WKWebView?
+    private var eventSubscriptions: [String: Set<UUID>] = [:]
+    private var observerTokens: Set<UUID> = []
 
     init(
         extensionID: String,
@@ -21,6 +24,18 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
         self.appState = appState
         self.projectStore = projectStore
         self.worktreeStore = worktreeStore
+    }
+
+    func attach(to webView: WKWebView) {
+        self.webView = webView
+    }
+
+    func dropAllEventSubscriptions() {
+        for token in observerTokens {
+            NotificationSocketServer.shared.removeInProcessObserver(token)
+        }
+        observerTokens.removeAll()
+        eventSubscriptions.removeAll()
     }
 
     func userContentController(
@@ -91,6 +106,10 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
 
     private func handle(verb: String, args: [String: Any], appState: AppState) async throws -> Any {
         switch verb {
+        case "events.subscribe":
+            return try handleSubscribe(args: args)
+        case "events.unsubscribe":
+            return try handleUnsubscribe(args: args)
         case "toast":
             return try await handleToast(args: args, appState: appState)
         case "tabs.list":
@@ -222,6 +241,67 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
         default:
             throw APIError.invalidArguments("unknown verb \(verb)")
         }
+    }
+
+    private func handleSubscribe(args: [String: Any]) throws -> Any {
+        let event = try stringArg(args, "event")
+        guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID) else {
+            throw APIError.invalidArguments("extension \(extensionID) not loaded")
+        }
+        let allowedEvents = Set(muxyExtension.manifest.events)
+        let commandEvents = Set(muxyExtension.manifest.commands.map(\.eventName))
+        guard allowedEvents.contains(event) || commandEvents.contains(event) else {
+            throw APIError.invalidArguments("event \(event) not declared in manifest")
+        }
+        if eventSubscriptions[event] == nil {
+            let token = NotificationSocketServer.shared.addInProcessObserver { [weak self] incoming in
+                guard incoming.name == event else { return }
+                Task { @MainActor [weak self] in
+                    self?.deliverEvent(incoming)
+                }
+            }
+            observerTokens.insert(token)
+            eventSubscriptions[event] = [token]
+        }
+        return event
+    }
+
+    private func handleUnsubscribe(args: [String: Any]) throws -> Any {
+        let event = try stringArg(args, "event")
+        guard let tokens = eventSubscriptions.removeValue(forKey: event) else {
+            return NSNull()
+        }
+        for token in tokens {
+            NotificationSocketServer.shared.removeInProcessObserver(token)
+            observerTokens.remove(token)
+        }
+        return NSNull()
+    }
+
+    private func deliverEvent(_ event: ExtensionEvent) {
+        guard let webView else { return }
+        let nameLiteral = jsLiteral(event.name)
+        let payloadLiteral = jsLiteral(payloadJSON: event.payload)
+        let script = """
+        if (typeof window.__muxyEventDispatch === 'function') {
+            window.__muxyEventDispatch(\(nameLiteral), \(payloadLiteral));
+        }
+        """
+        webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
+    private func jsLiteral(_ value: String) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+              let literal = String(data: data, encoding: .utf8)
+        else { return "\"\"" }
+        return literal
+    }
+
+    private func jsLiteral(payloadJSON: [String: String]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: payloadJSON),
+              let literal = String(data: data, encoding: .utf8)
+        else { return "{}" }
+        return literal
     }
 
     private func handleToast(args: [String: Any], appState: AppState) async throws -> Any {

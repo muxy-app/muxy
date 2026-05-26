@@ -106,6 +106,7 @@ private struct ExtensionWebViewRepresentable: NSViewRepresentable {
         webView.uiDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
         webView.load(URLRequest(url: entryURL))
+        bridge.attach(to: webView)
         context.coordinator.observeThemeChanges(for: webView)
         return webView
     }
@@ -114,6 +115,7 @@ private struct ExtensionWebViewRepresentable: NSViewRepresentable {
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.stopObservingThemeChanges()
+        coordinator.bridge?.dropAllEventSubscriptions()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
@@ -212,6 +214,19 @@ private struct ExtensionWebViewRepresentable: NSViewRepresentable {
                 return
             }
             decisionHandler(.cancel)
+        }
+
+        func webView(
+            _: WKWebView,
+            createWebViewWith _: WKWebViewConfiguration,
+            for _: WKNavigationAction,
+            windowFeatures _: WKWindowFeatures
+        ) -> WKWebView? {
+            nil
+        }
+
+        func webView(_: WKWebView, didCommit _: WKNavigation!) {
+            bridge?.dropAllEventSubscriptions()
         }
     }
 }
