@@ -1,6 +1,6 @@
 # Notification Setup
 
-Muxy ships built-in integrations for **Claude Code**, **Codex**, **Cursor**, **Droid**, and **OpenCode** — toggle them under **Settings → Notifications**. This page is for everything else: sending notifications into Muxy from any other tool (a custom CLI, a build script, a different AI agent, …).
+Muxy ships built-in integrations for **Claude Code**, **Codex**, **Cursor**, **Droid**, **OpenCode**, and **Pi** — toggle them under **Settings → Notifications**. This page is for everything else: sending notifications into Muxy from any other tool (a custom CLI, a build script, a different AI agent, …).
 
 ```mermaid
 flowchart TB

@@ -162,11 +162,28 @@ final class AIProviderRegistry {
         }
     }
 
+    func provider(forSocketType socketType: String) -> AIProviderIntegration? {
+        providers.first { $0.socketTypeKey == socketType }
+    }
+
     func notificationSource(for socketType: String) -> MuxyNotification.Source {
-        for provider in providers where provider.socketTypeKey == socketType {
+        if let provider = provider(forSocketType: socketType) {
             return .aiProvider(provider.id)
         }
         return .socket
+    }
+
+    func displayName(forSocketType socketType: String) -> String? {
+        provider(forSocketType: socketType)?.displayName
+    }
+
+    func displayName(for source: MuxyNotification.Source) -> String? {
+        switch source {
+        case .osc,
+             .socket: nil
+        case let .aiProvider(id):
+            providers.first { $0.id == id }?.displayName
+        }
     }
 
     func iconName(for source: MuxyNotification.Source) -> String {

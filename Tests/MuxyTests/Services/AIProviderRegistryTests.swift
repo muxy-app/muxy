@@ -6,9 +6,11 @@ import Testing
 @Suite("AIProviderRegistry")
 @MainActor
 struct AIProviderRegistryTests {
+    private let registry = AIProviderRegistry.shared
+
     @Test("notificationSource resolves built-in socket type keys")
     func notificationSourceResolvesBuiltIn() {
-        let source = AIProviderRegistry.shared.notificationSource(for: "claude_hook")
+        let source = registry.notificationSource(for: "claude_hook")
         #expect(source == .aiProvider("claude"))
     }
 
@@ -23,30 +25,53 @@ struct AIProviderRegistryTests {
             "pi": "pi",
         ]
         for (socketType, providerID) in expected {
-            #expect(AIProviderRegistry.shared.notificationSource(for: socketType) == .aiProvider(providerID))
+            #expect(registry.notificationSource(for: socketType) == .aiProvider(providerID))
         }
     }
 
     @Test("notificationSource falls back to socket for unknown types")
     func notificationSourceFallsBackToSocket() {
-        let source = AIProviderRegistry.shared.notificationSource(for: "not-a-known-type")
+        let source = registry.notificationSource(for: "not-a-known-type")
         #expect(source == .socket)
+    }
+
+    @Test("displayName resolves known socket types")
+    func displayNameResolvesKnownSocketTypes() {
+        #expect(registry.displayName(forSocketType: "pi") == "Pi")
+        #expect(registry.displayName(forSocketType: "claude_hook") == "Claude Code")
+    }
+
+    @Test("displayName for unknown socket type returns nil")
+    func displayNameForUnknownSocketType() {
+        #expect(registry.displayName(forSocketType: "custom") == nil)
+    }
+
+    @Test("displayName for aiProvider source returns provider display name")
+    func displayNameForAIProviderSource() {
+        #expect(registry.displayName(for: .aiProvider("pi")) == "Pi")
+        #expect(registry.displayName(for: .aiProvider("claude")) == "Claude Code")
+    }
+
+    @Test("displayName for osc and socket sources returns nil")
+    func displayNameForNonAIProviderSources() {
+        #expect(registry.displayName(for: .osc) == nil)
+        #expect(registry.displayName(for: .socket) == nil)
     }
 
     @Test("iconName resolves a built-in provider icon")
     func iconNameResolvesBuiltIn() {
-        #expect(AIProviderRegistry.shared.iconName(for: .aiProvider("claude")) == "claude")
+        #expect(registry.iconName(for: .aiProvider("claude")) == "claude")
     }
 
     @Test("iconName falls back to sparkles for an extension source")
     func iconNameFallsBackForExtension() {
-        #expect(AIProviderRegistry.shared.iconName(for: .aiProvider("some-extension")) == "sparkles")
+        #expect(registry.iconName(for: .aiProvider("some-extension")) == "sparkles")
     }
 
     @Test("iconName resolves osc and socket sources")
     func iconNameResolvesStaticSources() {
-        #expect(AIProviderRegistry.shared.iconName(for: .osc) == "terminal")
-        #expect(AIProviderRegistry.shared.iconName(for: .socket) == "network")
+        #expect(registry.iconName(for: .osc) == "terminal")
+        #expect(registry.iconName(for: .socket) == "network")
     }
 
     @Test("installAll waits for login shell PATH hydration before checking providers")

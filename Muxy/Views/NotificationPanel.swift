@@ -31,7 +31,7 @@ struct NotificationPanel: View {
             NotificationPanelItem(
                 id: n.id,
                 sourceIcon: registry.iconName(for: n.source),
-                title: n.title,
+                title: registry.displayName(for: n.source) ?? n.title,
                 body: n.body,
                 timestamp: n.timestamp,
                 isRead: n.isRead

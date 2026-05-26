@@ -686,7 +686,7 @@ final class NotificationSocketServer: @unchecked Sendable {
         let type = parts[0]
         let paneIDString = parts[1]
         let rawTitle = parts[2]
-        let title = rawTitle.isEmpty ? "Task completed!" : rawTitle
+        let fallbackTitle = rawTitle.isEmpty ? "Task completed!" : rawTitle
         let body = parts.count > 3 ? parts[3] : ""
 
         if let extensionID = session.extensionID {
@@ -703,7 +703,12 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.dispatchNotification(type: type, title: title, body: body, paneIDString: paneIDString)
+            self?.dispatchNotification(
+                type: type,
+                fallbackTitle: fallbackTitle,
+                body: body,
+                paneIDString: paneIDString
+            )
         }
     }
 
@@ -722,10 +727,17 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func dispatchNotification(type: String, title: String, body: String, paneIDString: String?) {
+    private func dispatchNotification(
+        type: String,
+        fallbackTitle: String,
+        body: String,
+        paneIDString: String?
+    ) {
         guard let appState = NotificationStore.shared.appState else { return }
 
-        let source = AIProviderRegistry.shared.notificationSource(for: type)
+        let registry = AIProviderRegistry.shared
+        let source = registry.notificationSource(for: type)
+        let title = registry.displayName(forSocketType: type) ?? fallbackTitle
 
         if let paneIDString, let paneID = UUID(uuidString: paneIDString) {
             NotificationStore.shared.add(
