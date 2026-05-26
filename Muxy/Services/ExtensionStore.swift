@@ -13,7 +13,13 @@ final class ExtensionStore {
         let muxyExtension: MuxyExtension
         var isRunning: Bool
         var lastError: String?
-        var logs: [String]
+
+        var logFileURL: URL {
+            ExtensionLogStore.shared.logURL(
+                extensionID: id,
+                directory: muxyExtension.directory
+            )
+        }
     }
 
     struct LoadFailure: Identifiable, Equatable {
@@ -26,7 +32,6 @@ final class ExtensionStore {
     private(set) var loadFailures: [LoadFailure] = []
 
     private var processes: [String: Process] = [:]
-    private let maxLogLines = 200
     private let rootDirectoryURL: URL
 
     private init(rootDirectory: URL = ExtensionStore.defaultRootDirectory) {
@@ -86,8 +91,7 @@ final class ExtensionStore {
             id: updatedExtension.id,
             muxyExtension: updatedExtension,
             isRunning: statuses[index].isRunning,
-            lastError: statuses[index].lastError,
-            logs: statuses[index].logs
+            lastError: statuses[index].lastError
         )
 
         if enabled, !statuses[index].isRunning {
@@ -150,24 +154,87 @@ final class ExtensionStore {
             }
     }
 
-    func triggerCommand(extensionID: String, commandID: String, appState: AppState) {
-        guard let muxyExtension = statuses.first(where: { $0.id == extensionID })?.muxyExtension,
-              let command = muxyExtension.manifest.commands.first(where: { $0.id == commandID })
+    struct CommandInvocation {
+        let extensionID: String
+        let commandID: String
+        let appState: AppState
+        let projectStore: ProjectStore?
+        let worktreeStore: WorktreeStore?
+
+        init(
+            extensionID: String,
+            commandID: String,
+            appState: AppState,
+            projectStore: ProjectStore? = nil,
+            worktreeStore: WorktreeStore? = nil
+        ) {
+            self.extensionID = extensionID
+            self.commandID = commandID
+            self.appState = appState
+            self.projectStore = projectStore
+            self.worktreeStore = worktreeStore
+        }
+    }
+
+    func triggerCommand(_ invocation: CommandInvocation) {
+        guard let muxyExtension = statuses.first(where: { $0.id == invocation.extensionID })?.muxyExtension,
+              let command = muxyExtension.manifest.commands.first(where: { $0.id == invocation.commandID })
         else { return }
 
         switch command.action {
         case .event:
-            broadcastCommandEvent(extensionID: extensionID, commandID: commandID, name: command.eventName)
+            broadcastCommandEvent(
+                extensionID: invocation.extensionID,
+                commandID: invocation.commandID,
+                name: command.eventName
+            )
         case let .openTab(tabType, data):
             openExtensionTab(
-                extensionID: extensionID,
+                extensionID: invocation.extensionID,
                 tabType: tabType,
                 data: data,
                 in: muxyExtension,
-                appState: appState
+                appState: invocation.appState
             )
-        case .runScript:
-            break
+        case let .runScript(script):
+            runExtensionScript(script: script, in: muxyExtension, invocation: invocation)
+        }
+    }
+
+    private func runExtensionScript(
+        script: String,
+        in muxyExtension: MuxyExtension,
+        invocation: CommandInvocation
+    ) {
+        guard extensionHasPermission(id: invocation.extensionID, permission: .commandsRunScript) else {
+            ExtensionLogStore.shared.append(
+                extensionID: invocation.extensionID,
+                line: "[muxy] runScript blocked: missing commands:run-script permission"
+            )
+            return
+        }
+        guard let scriptURL = muxyExtension.resolveResource(script) else {
+            ExtensionLogStore.shared.append(
+                extensionID: invocation.extensionID,
+                line: "[muxy] runScript blocked: script path escapes extension directory"
+            )
+            return
+        }
+        Task { @MainActor in
+            do {
+                try await ExtensionScriptRunner.shared.runScript(
+                    extensionID: invocation.extensionID,
+                    scriptURL: scriptURL,
+                    appState: invocation.appState,
+                    projectStore: invocation.projectStore,
+                    worktreeStore: invocation.worktreeStore
+                )
+            } catch {
+                ExtensionLogStore.shared.append(
+                    extensionID: invocation.extensionID,
+                    line: "[muxy] runScript failed: \(error.localizedDescription)"
+                )
+            }
         }
     }
 
@@ -247,12 +314,12 @@ final class ExtensionStore {
                     continue
                 }
                 seenIDs.insert(ext.id)
+                ExtensionLogStore.shared.register(extensionID: ext.id, directory: ext.directory)
                 statuses.append(ExtensionStatus(
                     id: ext.id,
                     muxyExtension: ext,
                     isRunning: false,
-                    lastError: nil,
-                    logs: []
+                    lastError: nil
                 ))
             } catch {
                 loadFailures.append(LoadFailure(
@@ -275,15 +342,14 @@ final class ExtensionStore {
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_SOCKET_PATH"] = NotificationSocketServer.socketPath
         environment["MUXY_EXTENSION_ID"] = ext.id
+        let logURL = ExtensionLogStore.shared.logURL(extensionID: ext.id, directory: ext.directory)
+        environment["MUXY_EXTENSION_LOG"] = logURL.path
         process.environment = environment
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        attachLogReader(pipe: stdoutPipe, extensionID: ext.id, label: "out")
-        attachLogReader(pipe: stderrPipe, extensionID: ext.id, label: "err")
+        if let logHandle = openProcessLogHandle(at: logURL) {
+            process.standardOutput = logHandle
+            process.standardError = logHandle
+        }
 
         process.terminationHandler = { [weak self] terminatedProcess in
             Task { @MainActor [weak self] in
@@ -296,28 +362,35 @@ final class ExtensionStore {
             processes[ext.id] = process
             statuses[index].isRunning = true
             statuses[index].lastError = nil
-            appendLog(extensionID: ext.id, line: "[muxy] started \(ext.id) v\(ext.manifest.version)")
+            ExtensionLogStore.shared.append(
+                extensionID: ext.id,
+                line: "[muxy] started \(ext.id) v\(ext.manifest.version)"
+            )
         } catch {
             statuses[index].lastError = error.localizedDescription
-            appendLog(extensionID: ext.id, line: "[muxy] failed to start: \(error.localizedDescription)")
+            ExtensionLogStore.shared.append(
+                extensionID: ext.id,
+                line: "[muxy] failed to start: \(error.localizedDescription)"
+            )
             logger.error("Failed to start extension \(ext.id): \(error.localizedDescription)")
         }
     }
 
-    private func attachLogReader(pipe: Pipe, extensionID: String, label: String) {
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-            Task { @MainActor [weak self] in
-                for line in lines {
-                    self?.appendLog(extensionID: extensionID, line: "[\(label)] \(line)")
-                }
-            }
+    private func openProcessLogHandle(at url: URL) -> FileHandle? {
+        let directory = url.deletingLastPathComponent()
+        if !FileManager.default.fileExists(atPath: directory.path) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         }
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        guard let handle = try? FileHandle(forWritingTo: url) else { return nil }
+        try? handle.seekToEnd()
+        return handle
     }
 
     private func stopProcess(extensionID: String) {
+        ExtensionScriptRunner.shared.evict(extensionID: extensionID)
         guard let process = processes.removeValue(forKey: extensionID) else { return }
         if process.isRunning {
             process.terminate()
@@ -335,19 +408,9 @@ final class ExtensionStore {
         if status != 0 {
             let message = "Process exited with status \(status)"
             statuses[index].lastError = message
-            appendLog(extensionID: extensionID, line: "[muxy] \(message)")
+            ExtensionLogStore.shared.append(extensionID: extensionID, line: "[muxy] \(message)")
         } else {
-            appendLog(extensionID: extensionID, line: "[muxy] exited cleanly")
+            ExtensionLogStore.shared.append(extensionID: extensionID, line: "[muxy] exited cleanly")
         }
-    }
-
-    private func appendLog(extensionID: String, line: String) {
-        guard let index = statuses.firstIndex(where: { $0.id == extensionID }) else { return }
-        var logs = statuses[index].logs
-        logs.append(line)
-        if logs.count > maxLogLines {
-            logs.removeFirst(logs.count - maxLogLines)
-        }
-        statuses[index].logs = logs
     }
 }

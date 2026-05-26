@@ -30,7 +30,7 @@ Extensions can declare commands that appear in Muxy's command palette. Selecting
 | --- | --- | --- |
 | `event` | Broadcasts `command.<id>` over the socket. Default if `action` is omitted. | — |
 | `openTab` | Opens an extension webview tab of the named type. | `tabType` (required, must reference a declared [tab type](tabs.md)); `data` (optional JSON merged into `window.muxy.data`). |
-| `runScript` | Reserved for future inline-script support. The manifest validator accepts and verifies the script path, but the runtime does not execute it yet — selecting a `runScript` command is a no-op. | `script` (required, relative path within the extension directory). |
+| `runScript` | Runs the script in a JavaScriptCore context with the same `muxy.*` API as webview tabs (no DOM). Read the [Scripts](scripts.md) page. Requires `commands:run-script`. | `script` (required, relative path within the extension directory). |
 
 ## How it surfaces
 

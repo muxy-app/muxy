@@ -214,7 +214,7 @@ private struct ExtensionRow: View {
             let actionLabel = switch command.action {
             case .event: "event"
             case let .openTab(tabType, _): "opens \(tabType)"
-            case .runScript: "script (pending)"
+            case let .runScript(script): "runs \(script)"
             }
             return "\(command.id)(\(actionLabel))"
         }
@@ -222,24 +222,60 @@ private struct ExtensionRow: View {
     }
 
     private var logView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 1) {
-                if status.logs.isEmpty {
-                    Text("No log output.")
-                        .font(.system(size: SettingsMetrics.footnoteFontSize))
-                        .foregroundStyle(SettingsStyle.mutedForeground)
-                } else {
-                    ForEach(Array(status.logs.enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([status.logFileURL])
+                } label: {
+                    Text("Reveal Log File")
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: SettingsMetrics.footnoteFontSize))
+                .foregroundStyle(SettingsStyle.accent)
+                Text(status.logFileURL.path)
+                    .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
+                    .foregroundStyle(SettingsStyle.mutedForeground)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    let lines = tailLines
+                    if lines.isEmpty {
+                        Text("No log output.")
+                            .font(.system(size: SettingsMetrics.footnoteFontSize))
                             .foregroundStyle(SettingsStyle.mutedForeground)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
+                                .foregroundStyle(SettingsStyle.mutedForeground)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                 }
+                .padding(8)
             }
-            .padding(8)
+            .frame(maxHeight: 160)
+            .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 6))
         }
-        .frame(maxHeight: 160)
-        .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var tailLines: [String] {
+        ExtensionLogTail.read(url: status.logFileURL, maxLines: 200)
+    }
+}
+
+enum ExtensionLogTail {
+    static func read(url: URL, maxLines: Int) -> [String] {
+        guard let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .utf8)
+        else { return [] }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let filtered = (lines.last?.isEmpty == true) ? Array(lines.dropLast()) : lines
+        if filtered.count > maxLines {
+            return Array(filtered.suffix(maxLines))
+        }
+        return filtered
     }
 }

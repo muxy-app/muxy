@@ -63,6 +63,7 @@ enum ExtensionPermission: String, Codable, CaseIterable {
     case worktreesRead = "worktrees:read"
     case worktreesWrite = "worktrees:write"
     case notificationsWrite = "notifications:write"
+    case commandsRunScript = "commands:run-script"
 }
 
 struct ExtensionTabType: Codable, Equatable, Identifiable {

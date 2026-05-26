@@ -112,8 +112,12 @@ This requires `tabs:write` like any other tabs-mutating verb.
 
 Workspace restoration persists the tab's `extensionID`, `tabTypeID`, and `data`. On restart, the tab reopens with the same payload. If the extension is no longer loaded when restore runs, the tab renders a placeholder until the extension comes back.
 
+## Logging
+
+The injected `window.muxy` wraps `console.log`, `console.warn`, and `console.error` so they also write to the extension's [log file](logs.md), tagged `[log]`, `[warn]`, `[err]`. Uncaught errors and unhandled promise rejections are captured the same way.
+
 ## Limits and gotchas
 
 - One `WKWebView` per tab instance. Tabs do not share JavaScript context. To share state across tabs, route through the extension subprocess.
 - The page cannot navigate to external URLs (`http://`, `https://`, `file://`). Only `muxy-ext://` and `about:` are allowed. Open external links yourself with `muxy.tabs.open()` for an editor tab or a future link-handling API.
-- `runScript` command actions are accepted by the manifest validator but not yet executed — selecting one is a no-op until inline-script support lands in a follow-up.
+- For non-webview command logic (no DOM), use the [`runScript`](scripts.md) command action instead of opening a hidden tab.

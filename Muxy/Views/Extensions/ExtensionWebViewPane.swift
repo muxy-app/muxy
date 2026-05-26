@@ -90,6 +90,9 @@ private struct ExtensionWebViewRepresentable: NSViewRepresentable {
             contentWorld: .page,
             name: ExtensionWebBridge.messageHandlerName
         )
+        let console = ExtensionConsoleHandler(extensionID: `extension`.id)
+        userContent.add(console, name: ExtensionConsoleHandler.messageHandlerName)
+        context.coordinator.consoleHandler = console
 
         context.coordinator.configureScriptInjection(
             extensionID: `extension`.id,
@@ -120,6 +123,7 @@ private struct ExtensionWebViewRepresentable: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var bridge: ExtensionBridgeHandler?
+        var consoleHandler: ExtensionConsoleHandler?
         let onFocus: () -> Void
         private weak var webView: WKWebView?
         private weak var userContent: WKUserContentController?

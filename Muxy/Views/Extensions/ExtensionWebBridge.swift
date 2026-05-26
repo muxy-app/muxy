@@ -105,6 +105,41 @@ enum ExtensionWebBridge {
             Object.freeze(muxy.worktrees);
             Object.freeze(muxy);
             window.muxy = muxy;
+
+            const consoleHandler = window.webkit?.messageHandlers?.muxyConsole;
+            if (consoleHandler) {
+                const formatForConsole = (value) => {
+                    if (value === null) return 'null';
+                    if (value === undefined) return 'undefined';
+                    if (typeof value === 'string') return value;
+                    if (value instanceof Error) return value.stack || value.message;
+                    try { return JSON.stringify(value); } catch (_) { return String(value); }
+                };
+                const wrap = (originalFn, level) => function () {
+                    const message = Array.prototype.map.call(arguments, formatForConsole).join(' ');
+                    try { consoleHandler.postMessage({ level, message }); } catch (_) {}
+                    if (originalFn) {
+                        try { originalFn.apply(console, arguments); } catch (_) {}
+                    }
+                };
+                console.log = wrap(console.log, 'log');
+                console.warn = wrap(console.warn, 'warn');
+                console.error = wrap(console.error, 'err');
+
+                window.addEventListener('error', (event) => {
+                    try {
+                        const detail = event.error ? formatForConsole(event.error)
+                            : (event.message || 'unknown error');
+                        consoleHandler.postMessage({ level: 'err', message: detail });
+                    } catch (_) {}
+                });
+                window.addEventListener('unhandledrejection', (event) => {
+                    try {
+                        const reason = event.reason !== undefined ? formatForConsole(event.reason) : 'unhandledrejection';
+                        consoleHandler.postMessage({ level: 'err', message: reason });
+                    } catch (_) {}
+                });
+            }
         })();
         """
     }

@@ -14,6 +14,8 @@ User-installed subprocesses that Muxy launches and talks to over the existing no
 | [Events](events.md) | Identify/subscribe handshake, event list, wire format |
 | [Palette Commands](palette-commands.md) | Register commands and react to triggers |
 | [Tabs](tabs.md) | Register webview tab types and the injected `window.muxy` JS API |
+| [Scripts](scripts.md) | Run JS files as palette commands in a per-extension JSContext |
+| [Logs](logs.md) | Where logs live on disk, console.* bridge, size cap and trim policy |
 | [AI Provider Hooks](ai-provider.md) | Route third-party agent notifications to a custom source |
 
 ## Quick reference

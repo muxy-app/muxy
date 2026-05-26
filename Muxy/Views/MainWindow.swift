@@ -113,6 +113,9 @@ struct MainWindow: View {
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
+    @AppStorage("muxy.showExtensionOutput") private var showExtensionOutput = false
+    @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
+    @State private var extensionOutputSelected: String?
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
@@ -382,6 +385,20 @@ struct MainWindow: View {
 
             bottomDockedRichInputPanel
 
+            if showExtensionOutput {
+                ExtensionOutputPanel(
+                    isPresented: $showExtensionOutput,
+                    selectedExtensionID: Binding(
+                        get: { extensionOutputSelected ?? (extensionOutputSelectedStored.isEmpty ? nil : extensionOutputSelectedStored) },
+                        set: { newValue in
+                            extensionOutputSelected = newValue
+                            extensionOutputSelectedStored = newValue ?? ""
+                        }
+                    )
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             if showStatusBar {
                 ProjectStatusBar(
                     activePane: activeTerminalPane,
@@ -389,7 +406,8 @@ struct MainWindow: View {
                     fallbackProjectPath: activeProject.map { activeWorktreePath(for: $0) },
                     isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
                     richInputVisible: richInputPanelVisible,
-                    richInputFontSize: $richInputFontSize
+                    richInputFontSize: $richInputFontSize,
+                    extensionOutputVisible: $showExtensionOutput
                 )
             }
         }
@@ -687,11 +705,13 @@ struct MainWindow: View {
             _ = selectOmniboxProject(projectID, worktreeID: scopedWorktreeID)
             appState.createCommandTab(projectID: projectID, shortcut: shortcut)
         case let .extensionCommand(item):
-            ExtensionStore.shared.triggerCommand(
+            ExtensionStore.shared.triggerCommand(.init(
                 extensionID: item.extensionID,
                 commandID: item.command.id,
-                appState: appState
-            )
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            ))
         }
     }
 
