@@ -178,7 +178,7 @@ private final class CodeEditorScrollView: NSScrollView {
     }
 
     private func shouldForwardScrollWheel(_ event: NSEvent) -> Bool {
-        event.scrollingDeltaX == 0 && !event.modifierFlags.contains(.shift)
+        abs(event.scrollingDeltaY) >= abs(event.scrollingDeltaX) && !event.modifierFlags.contains(.shift)
     }
 }
 
