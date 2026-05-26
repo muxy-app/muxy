@@ -52,6 +52,16 @@ struct KeyComboTests {
         #expect(KeyCombo(key: "tab", shift: true, control: true).displayString == "⌃⇧⇥")
     }
 
+    @Test("displayString for return key")
+    func displayStringReturnKey() throws {
+        let keyCode = try #require(KeyCombo.keyCode(for: "return"))
+        let combo = KeyCombo(key: "return", modifiers: NSEvent.ModifierFlags.command.rawValue)
+
+        #expect(KeyCombo.normalized(key: "", keyCode: keyCode) == "return")
+        #expect(KeyCombo(key: "return", command: true).displayString == "⌘↩")
+        _ = combo.swiftUIKeyEquivalent
+    }
+
     @Test("displayString for letter key is uppercased")
     func displayStringLetter() {
         let combo = KeyCombo(key: "t", command: true)
@@ -87,6 +97,33 @@ struct KeyComboTests {
     func normalizedLetterKeyCodes() {
         #expect(KeyCombo.normalized(key: "\u{043C}", keyCode: 9) == "v")
         #expect(KeyCombo.normalized(key: "\u{0439}", keyCode: 12) == "q")
+    }
+
+    @Test("keyCode lookup scans supported keyboard mappings")
+    func keyCodeLookupScansSupportedMappings() throws {
+        for name in [
+            "a", "s", "d", "f", "h", "g", "z", "x", "c", "v", "b", "q", "w", "e", "r", "y", "t",
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "=", "-", "]", "o", "u", "[", "i",
+            "p", "l", "j", "'", "k", ";", "\\", ",", "/", "n", "m", ".", "`", "*", "+",
+            "leftarrow", "rightarrow", "downarrow", "uparrow", "tab", "return",
+        ] {
+            let code = try #require(KeyCombo.keyCode(for: name))
+            #expect(KeyCombo.normalized(key: "", keyCode: code) == name)
+        }
+
+        #expect(KeyCombo.keyCode(for: "missing") == nil)
+    }
+
+    @Test("SwiftUI modifiers mirror AppKit modifier flags")
+    func swiftUIModifiersMirrorAppKitFlags() {
+        let combo = KeyCombo(key: "p", command: true, shift: true, control: true, option: true)
+        let modifiers = combo.swiftUIModifiers
+
+        #expect(combo.nsModifierFlags.contains(.command))
+        #expect(modifiers.contains(.command))
+        #expect(modifiers.contains(.shift))
+        #expect(modifiers.contains(.control))
+        #expect(modifiers.contains(.option))
     }
 
     @Test("scalar uses ANSI keyCode mapping")

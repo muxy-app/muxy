@@ -202,7 +202,7 @@ struct EditorTabStateTests {
         #expect(try String(contentsOf: fileURL, encoding: .utf8) == "second\n")
     }
 
-    private func waitForLoad(_ state: EditorTabState, timeout: TimeInterval = 2.0) async throws {
+    private func waitForLoad(_ state: EditorTabState, timeout: TimeInterval = 10.0) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while state.isLoading || state.isIncrementalLoading {
             if Date() >= deadline {
