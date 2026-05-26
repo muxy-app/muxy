@@ -59,28 +59,25 @@ struct PiProviderTests {
         defaults.removeObject(forKey: key)
     }
 
-    @Test("install creates extension file and registers settings")
-    func installCreatesFileAndRegistersSettings() throws {
+    @Test("install creates wrapper and extension in Muxy bin without mutating Pi settings")
+    func installCreatesWrapperAndExtension() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
-        let provider = fixture.provider()
+        try fixture.provider().install(hookScriptPath: "")
 
-        try provider.install(hookScriptPath: "")
-
-        let destinationURL = fixture.homeURL
-            .appendingPathComponent(".pi/agent/extensions/muxy-notify.ts")
-        let installedData = try Data(contentsOf: destinationURL)
-        let sourceData = try Data(contentsOf: fixture.sourceURL)
-        #expect(installedData == sourceData)
+        let wrapperData = try Data(contentsOf: fixture.wrapperURL)
+        let extensionData = try Data(contentsOf: fixture.extensionURL)
+        #expect(wrapperData == fixture.wrapperSourceData)
+        #expect(extensionData == fixture.extensionSourceData)
+        #expect(FileManager.default.isExecutableFile(atPath: fixture.wrapperURL.path))
 
         let settings = try fixture.readSettings()
-        let extensions = try #require(settings["extensions"] as? [String])
-        #expect(extensions == [destinationURL.path])
-        #expect(FileManager.default.fileExists(atPath: fixture.settingsURL.path + ".muxy-backup"))
+        #expect(settings["extensions"] as? [String] == [])
+        #expect(!FileManager.default.fileExists(atPath: fixture.legacyExtensionURL.path))
     }
 
-    @Test("install is idempotent when extension is already current")
+    @Test("install is idempotent when wrapper and extension are already current")
     func installIsIdempotent() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
@@ -88,15 +85,15 @@ struct PiProviderTests {
         let provider = fixture.provider()
 
         try provider.install(hookScriptPath: "")
+        let firstWrapperMod = try fixture.wrapperURL.resourceValues(forKeys: [.contentModificationDateKey])
         try provider.install(hookScriptPath: "")
 
-        let settings = try fixture.readSettings()
-        let extensions = try #require(settings["extensions"] as? [String])
-        #expect(extensions.count == 1)
+        let secondWrapperMod = try fixture.wrapperURL.resourceValues(forKeys: [.contentModificationDateKey])
+        #expect(firstWrapperMod.contentModificationDate == secondWrapperMod.contentModificationDate)
     }
 
-    @Test("uninstall removes extension file and unregisters settings")
-    func uninstallRemovesFileAndUnregistersSettings() throws {
+    @Test("uninstall removes wrapper and extension from Muxy bin")
+    func uninstallRemovesWrapperAndExtension() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
@@ -105,21 +102,57 @@ struct PiProviderTests {
         try provider.install(hookScriptPath: "")
         try provider.uninstall()
 
-        let destinationPath = fixture.homeURL
-            .appendingPathComponent(".pi/agent/extensions/muxy-notify.ts")
-            .path
-        #expect(!FileManager.default.fileExists(atPath: destinationPath))
-
-        let settings = try fixture.readSettings()
-        #expect(settings["extensions"] == nil)
+        #expect(!FileManager.default.fileExists(atPath: fixture.wrapperURL.path))
+        #expect(!FileManager.default.fileExists(atPath: fixture.extensionURL.path))
     }
 
-    @Test("uninstall does nothing when file does not exist")
-    func uninstallNoFile() throws {
+    @Test("uninstall does nothing when wrapper does not exist")
+    func uninstallNoWrapper() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
         try fixture.provider().uninstall()
+    }
+
+    @Test("install removes legacy global extension and settings registration")
+    func installRemovesLegacyGlobalInstall() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        try FileManager.default.createDirectory(
+            at: fixture.legacyExtensionURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fixture.extensionSourceData.write(to: fixture.legacyExtensionURL)
+        var settings = try fixture.readSettings()
+        settings["extensions"] = [fixture.legacyExtensionURL.path]
+        try fixture.writeSettings(settings)
+
+        try fixture.provider().install(hookScriptPath: "")
+
+        #expect(!FileManager.default.fileExists(atPath: fixture.legacyExtensionURL.path))
+        let updatedSettings = try fixture.readSettings()
+        let extensions = updatedSettings["extensions"] as? [String] ?? []
+        #expect(!extensions.contains(fixture.legacyExtensionURL.path))
+    }
+
+    @Test("uninstall removes legacy global extension and settings registration")
+    func uninstallRemovesLegacyGlobalInstall() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        try FileManager.default.createDirectory(
+            at: fixture.legacyExtensionURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fixture.extensionSourceData.write(to: fixture.legacyExtensionURL)
+        try fixture.writeSettings(["extensions": [fixture.legacyExtensionURL.path]])
+
+        try fixture.provider().uninstall()
+
+        #expect(!FileManager.default.fileExists(atPath: fixture.legacyExtensionURL.path))
+        let settings = try fixture.readSettings()
+        #expect(settings["extensions"] == nil)
     }
 
     @Test("isToolInstalled checks common paths")
@@ -141,21 +174,23 @@ struct PiProviderTests {
         #expect(fixture.provider().isToolInstalled())
     }
 
-    @Test("isToolInstalled checks PATH entries")
-    func isToolInstalledFromPath() throws {
+    @Test("isToolInstalled checks PATH entries but ignores Muxy wrapper")
+    func isToolInstalledFromPathIgnoresMuxyWrapper() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
-        let binURL = fixture.rootURL.appendingPathComponent("npm/bin")
-        let executableURL = binURL.appendingPathComponent("pi")
-        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
-        try Data().write(to: executableURL)
+        try fixture.provider().install(hookScriptPath: "")
+
+        let realPiURL = fixture.rootURL.appendingPathComponent("npm/bin/pi")
+        try FileManager.default.createDirectory(at: realPiURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: realPiURL)
         try FileManager.default.setAttributes(
             [.posixPermissions: FilePermissions.executable],
-            ofItemAtPath: executableURL.path
+            ofItemAtPath: realPiURL.path
         )
 
-        #expect(fixture.provider(pathEnvironment: binURL.path).isToolInstalled())
+        let path = "\(fixture.binDirectory.path):\(realPiURL.deletingLastPathComponent().path)"
+        #expect(fixture.provider(pathEnvironment: path).isToolInstalled())
     }
 
     @Test("isToolInstalled evaluates PATH at call time")
@@ -164,11 +199,7 @@ struct PiProviderTests {
         defer { fixture.cleanUp() }
 
         let pathEnvironment = PathEnvironment()
-        let provider = PiProvider(
-            homeDirectory: fixture.homeURL.path,
-            pathEnvironment: { pathEnvironment.value },
-            resourceURL: { _, _ in fixture.sourceURL }
-        )
+        let provider = fixture.provider(pathEnvironment: { pathEnvironment.value })
 
         let binURL = fixture.rootURL.appendingPathComponent("late-bin")
         let executableURL = binURL.appendingPathComponent("pi")
@@ -183,60 +214,49 @@ struct PiProviderTests {
         #expect(provider.isToolInstalled())
     }
 
-    @Test("registerExtensionInSettings creates settings.json when it does not exist")
-    func registerCreatesSettingsWhenMissing() throws {
-        let fixture = try Fixture()
-        defer { fixture.cleanUp() }
-
-        try FileManager.default.removeItem(at: fixture.settingsURL)
-        #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path))
-
-        try fixture.provider().install(hookScriptPath: "")
-
-        #expect(FileManager.default.fileExists(atPath: fixture.settingsURL.path))
-        let settings = try fixture.readSettings()
-        let extensions = try #require(settings["extensions"] as? [String])
-        #expect(extensions.count == 1)
-    }
-
-    @Test("registerExtensionInSettings throws invalidSettingsFile when settings.json is not valid JSON")
-    func registerThrowsWhenSettingsInvalid() throws {
-        let fixture = try Fixture()
-        defer { fixture.cleanUp() }
-
-        try Data("not json".utf8).write(to: fixture.settingsURL)
-
-        #expect(throws: PiProviderError.invalidSettingsFile(fixture.settingsURL.path)) {
-            try fixture.provider().install(hookScriptPath: "")
-        }
-    }
-
-    @Test("unregisterExtensionFromSettings gracefully returns when settings.json is missing")
+    @Test("uninstall gracefully returns when legacy settings are missing")
     func unregisterGracefullyWhenSettingsMissing() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
-        let provider = fixture.provider()
-        try provider.install(hookScriptPath: "")
-
         try FileManager.default.removeItem(at: fixture.settingsURL)
         #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path))
 
-        try provider.uninstall()
+        try fixture.provider().uninstall()
     }
 
-    @Test("install throws when resource is missing")
-    func installThrowsWhenResourceMissing() throws {
+    @Test("install throws when extension resource is missing")
+    func installThrowsWhenExtensionResourceMissing() throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
 
         let provider = PiProvider(
             homeDirectory: fixture.homeURL.path,
-            pathEnvironment: "",
-            resourceURL: { _, _ in nil }
+            appSupportDirectory: fixture.appSupportURL,
+            resourceURL: { _, ext in
+                ext == "sh" ? fixture.wrapperSourceURL : nil
+            }
         )
 
         #expect(throws: PiProviderError.bundleResourceNotFound) {
+            try provider.install(hookScriptPath: "")
+        }
+    }
+
+    @Test("install throws when wrapper resource is missing")
+    func installThrowsWhenWrapperResourceMissing() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        let provider = PiProvider(
+            homeDirectory: fixture.homeURL.path,
+            appSupportDirectory: fixture.appSupportURL,
+            resourceURL: { _, ext in
+                ext == "ts" ? fixture.extensionSourceURL : nil
+            }
+        )
+
+        #expect(throws: PiProviderError.bundleWrapperNotFound) {
             try provider.install(hookScriptPath: "")
         }
     }
@@ -254,39 +274,65 @@ struct PiProviderTests {
     private struct Fixture {
         let rootURL: URL
         let homeURL: URL
-        let sourceURL: URL
+        let appSupportURL: URL
+        let extensionSourceURL: URL
+        let wrapperSourceURL: URL
         let settingsURL: URL
+        let legacyExtensionURL: URL
+
+        var binDirectory: URL { MuxyAgentBin.directory(appSupportDirectory: appSupportURL) }
+        var wrapperURL: URL { MuxyAgentBin.wrapperURL(appSupportDirectory: appSupportURL) }
+        var extensionURL: URL { MuxyAgentBin.extensionURL(appSupportDirectory: appSupportURL) }
+        var extensionSourceData: Data { try! Data(contentsOf: extensionSourceURL) }
+        var wrapperSourceData: Data { try! Data(contentsOf: wrapperSourceURL) }
 
         init() throws {
             rootURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("PiProviderTests-\(UUID().uuidString)", isDirectory: true)
             homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
-            sourceURL = rootURL.appendingPathComponent("muxy-pi-extension.ts")
+            appSupportURL = rootURL.appendingPathComponent("Muxy", isDirectory: true)
+            extensionSourceURL = rootURL.appendingPathComponent("muxy-pi-extension.ts")
+            wrapperSourceURL = rootURL.appendingPathComponent("muxy-pi-wrapper.sh")
             settingsURL = homeURL.appendingPathComponent(".pi/agent/settings.json")
+            legacyExtensionURL = homeURL.appendingPathComponent(".pi/agent/extensions/muxy-notify.ts")
 
+            try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+            try Data("extension source".utf8).write(to: extensionSourceURL)
+            try Data("#!/usr/bin/env bash\nexec pi \"$@\"\n".utf8).write(to: wrapperSourceURL)
             try FileManager.default.createDirectory(
                 at: settingsURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try Data("extension source".utf8).write(to: sourceURL)
-            let settingsData = try JSONSerialization.data(
-                withJSONObject: ["extensions": []],
-                options: [.prettyPrinted, .sortedKeys]
-            )
-            try settingsData.write(to: settingsURL)
+            try writeSettings(["extensions": []])
         }
 
         func provider(pathEnvironment: String = "") -> PiProvider {
+            provider(pathEnvironment: { pathEnvironment })
+        }
+
+        func provider(pathEnvironment: @escaping @Sendable () -> String) -> PiProvider {
             PiProvider(
                 homeDirectory: homeURL.path,
                 pathEnvironment: pathEnvironment,
-                resourceURL: { _, _ in sourceURL }
+                appSupportDirectory: appSupportURL,
+                resourceURL: { name, ext in
+                    switch (name, ext) {
+                    case ("muxy-pi-extension", "ts"): extensionSourceURL
+                    case ("muxy-pi-wrapper", "sh"): wrapperSourceURL
+                    default: nil
+                    }
+                }
             )
         }
 
         func readSettings() throws -> [String: Any] {
             let data = try Data(contentsOf: settingsURL)
             return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+
+        func writeSettings(_ settings: [String: Any]) throws {
+            let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: settingsURL)
         }
 
         func cleanUp() {

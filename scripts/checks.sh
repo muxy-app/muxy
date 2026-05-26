@@ -145,11 +145,18 @@ if [ "$failed" -eq 0 ] && [ "$HAS_SWIFTLINT" -eq 1 ]; then
 fi
 
 if [ "$failed" -eq 0 ]; then
-  run_step "Build" swift build || failed=1
+  SWIFT_BUILD=(swift build)
+  SWIFT_TEST=(swift test)
+  if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+    export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+    SWIFT_BUILD=(xcrun swift build)
+    SWIFT_TEST=(xcrun swift test)
+  fi
+  run_step "Build" "${SWIFT_BUILD[@]}" || failed=1
 fi
 
 if [ "$failed" -eq 0 ]; then
-  run_step "Test" swift test || failed=1
+  run_step "Test" "${SWIFT_TEST[@]}" || failed=1
 fi
 
 if [ "$failed" -eq 0 ] && [ "$COVERAGE" -eq 1 ]; then

@@ -4,7 +4,7 @@ import SwiftUI
 extension EnvironmentValues {
     @Entry var settingsSearchQuery: String = ""
 
-    @Entry var settingsCategory: SettingsCategory? = nil
+    @Entry var settingsCategory: SettingsCategory?
 }
 
 enum SettingsMetrics {
