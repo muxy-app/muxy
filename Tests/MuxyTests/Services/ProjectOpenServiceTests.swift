@@ -26,6 +26,56 @@ struct ProjectOpenServiceTests {
         #expect(appState.activeProjectID == projectStore.projects.first?.id)
     }
 
+    @Test("new project is added to selected group")
+    func newProjectAddedToSelectedGroup() throws {
+        let (appState, projectStore, worktreeStore) = makeStores()
+        let group = ProjectGroup(name: "Work")
+        let groupPersistence = ProjectGroupPersistenceStub(initial: [group])
+        let projectGroupStore = ProjectGroupStore(persistence: groupPersistence)
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-project-picker-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        projectGroupStore.selectGroup(id: group.id)
+        let didConfirm = ProjectOpenService.confirmProjectPath(
+            dir.path,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+
+        #expect(didConfirm)
+        #expect(projectStore.projects.count == 1)
+        #expect(projectGroupStore.filteredProjects(from: projectStore.projects).first?.id == projectStore.projects.first?.id)
+        #expect(groupPersistence.savedGroups?.first?.projectIDs == [projectStore.projects.first?.id])
+    }
+
+    @Test("new project remains visible in All Projects without group assignment")
+    func newProjectPreservesAllProjectsBehavior() throws {
+        let (appState, projectStore, worktreeStore) = makeStores()
+        let group = ProjectGroup(name: "Work")
+        let groupPersistence = ProjectGroupPersistenceStub(initial: [group])
+        let projectGroupStore = ProjectGroupStore(persistence: groupPersistence)
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-project-picker-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let didConfirm = ProjectOpenService.confirmProjectPath(
+            dir.path,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+
+        #expect(didConfirm)
+        #expect(projectGroupStore.filteredProjects(from: projectStore.projects).count == 1)
+        #expect(groupPersistence.savedGroups == nil)
+    }
+
     @Test("already-added path is selected without creating a duplicate project")
     func existingProjectSelectedWithoutDuplicate() throws {
         let (appState, projectStore, worktreeStore) = makeStores()

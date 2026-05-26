@@ -7,7 +7,8 @@ enum CLIAccessor {
         _ path: String,
         appState: AppState,
         projectStore: ProjectStore,
-        worktreeStore: WorktreeStore
+        worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore? = nil
     ) {
         let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
         var isDirectory: ObjCBool = false
@@ -30,6 +31,7 @@ enum CLIAccessor {
             sortOrder: projectStore.projects.count
         )
         projectStore.add(project)
+        projectGroupStore?.addProjectToActiveGroup(projectID: project.id)
         worktreeStore.ensurePrimary(for: project)
         guard let primary = worktreeStore.primary(for: project.id) else { return }
         appState.selectProject(project, worktree: primary)

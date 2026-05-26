@@ -70,12 +70,13 @@ struct MuxyApp: App {
                     appDelegate.hasUnsavedEditorTabs = { [appState] in
                         appState.unsavedEditorTabs()
                     }
-                    appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore] path in
+                    appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore, projectGroupStore] path in
                         CLIAccessor.openProjectFromPath(
                             path,
                             appState: appState,
                             projectStore: projectStore,
-                            worktreeStore: worktreeStore
+                            worktreeStore: worktreeStore,
+                            projectGroupStore: projectGroupStore
                         )
                     }
                     appDelegate.flushPendingOpens()

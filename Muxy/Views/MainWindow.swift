@@ -649,6 +649,7 @@ struct MainWindow: View {
                         appState: appState,
                         projectStore: projectStore,
                         worktreeStore: worktreeStore,
+                        projectGroupStore: projectGroupStore,
                         createIfMissing: createIfMissing
                     )
                 },
@@ -656,7 +657,8 @@ struct MainWindow: View {
                     ProjectOpenService.openProject(
                         appState: appState,
                         projectStore: projectStore,
-                        worktreeStore: worktreeStore
+                        worktreeStore: worktreeStore,
+                        projectGroupStore: projectGroupStore
                     )
                 },
                 onDismiss: { showProjectPicker = false }
