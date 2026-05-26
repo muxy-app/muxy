@@ -7,10 +7,11 @@ Requires macOS 14+ and Swift 6.0+. No external dependency managers needed — ev
 Requires `swiftlint` and `swiftformat` (`brew install swiftlint swiftformat`).
 
 ```bash
-scripts/checks.sh        # Run all checks (formatting, linting, build)
-scripts/checks.sh --fix  # Auto-fix formatting and linting issues
-swiftformat --lint .      # Check formatting only
-swiftlint lint --strict   # Check linting only
+scripts/checks.sh             # Format, lint, build, test
+scripts/checks.sh --fix       # Auto-fix formatting and linting issues
+scripts/checks.sh --coverage  # Also run the coverage gate (slower; opt-in)
+swiftformat --lint .          # Check formatting only
+swiftlint lint --strict       # Check linting only
 ```
 
 Run `scripts/checks.sh --fix` after every task.

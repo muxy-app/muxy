@@ -88,6 +88,37 @@ struct CreateWorktreeRequest {
     let baseBranch: String
 }
 
+struct OpenTabRequest: Decodable {
+    let kind: TerminalTab.Kind
+    let filePath: String?
+    let extensionPayload: ExtensionPayload?
+
+    struct ExtensionPayload: Decodable {
+        let id: String
+        let tabType: String
+        let data: ExtensionJSON?
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case filePath
+        case `extension`
+    }
+
+    init(kind: TerminalTab.Kind, filePath: String? = nil, extensionPayload: ExtensionPayload? = nil) {
+        self.kind = kind
+        self.filePath = filePath
+        self.extensionPayload = extensionPayload
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decode(TerminalTab.Kind.self, forKey: .kind)
+        filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
+        extensionPayload = try container.decodeIfPresent(ExtensionPayload.self, forKey: .extension)
+    }
+}
+
 enum MuxyAPI {
     @MainActor
     enum Panes {
@@ -474,6 +505,66 @@ enum MuxyAPI {
             guard let projectID = appState.activeProjectID else { return .failure(.noActiveProject) }
             appState.selectPreviousTab(projectID: projectID)
             return .success(())
+        }
+
+        static func open(_ request: OpenTabRequest, appState: AppState) -> Result<Void, APIError> {
+            guard let projectID = appState.activeProjectID else {
+                return .failure(.noActiveProject)
+            }
+            switch request.kind {
+            case .terminal:
+                appState.dispatch(.createTab(projectID: projectID, areaID: nil))
+                return .success(())
+            case .vcs:
+                appState.dispatch(.createVCSTab(projectID: projectID, areaID: nil))
+                return .success(())
+            case .editor:
+                guard let filePath = request.filePath, !filePath.isEmpty else {
+                    return .failure(.invalidArguments("editor tabs require filePath"))
+                }
+                appState.dispatch(.createEditorTab(
+                    projectID: projectID,
+                    areaID: nil,
+                    filePath: filePath,
+                    suppressInitialFocus: false
+                ))
+                return .success(())
+            case .imageViewer:
+                guard let filePath = request.filePath, !filePath.isEmpty else {
+                    return .failure(.invalidArguments("imageViewer tabs require filePath"))
+                }
+                appState.dispatch(.createImageViewerTab(
+                    projectID: projectID,
+                    areaID: nil,
+                    filePath: filePath
+                ))
+                return .success(())
+            case .extensionWebView:
+                guard let payload = request.extensionPayload else {
+                    return .failure(.invalidArguments("extensionWebView tabs require extension payload"))
+                }
+                guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: payload.id) else {
+                    return .failure(.invalidArguments("extension '\(payload.id)' is not loaded"))
+                }
+                guard let tabType = muxyExtension.manifest.tabType(id: payload.tabType) else {
+                    return .failure(.invalidArguments(
+                        "extension '\(payload.id)' has no tab type '\(payload.tabType)'"
+                    ))
+                }
+                appState.dispatch(.createExtensionTab(
+                    projectID: projectID,
+                    areaID: nil,
+                    request: AppState.CreateExtensionTabRequest(
+                        extensionID: payload.id,
+                        tabTypeID: payload.tabType,
+                        title: tabType.title,
+                        data: payload.data ?? tabType.defaultData
+                    )
+                ))
+                return .success(())
+            case .diffViewer:
+                return .failure(.invalidArguments("diffViewer cannot be opened via open-tab yet"))
+            }
         }
     }
 }

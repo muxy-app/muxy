@@ -130,6 +130,16 @@ private struct ExtensionRow: View {
                             .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
                             .foregroundStyle(SettingsStyle.dimForeground)
                     }
+                    if !status.muxyExtension.manifest.tabTypes.isEmpty {
+                        Text(tabTypesText)
+                            .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
+                            .foregroundStyle(SettingsStyle.dimForeground)
+                    }
+                    if !status.muxyExtension.manifest.commands.isEmpty {
+                        Text(commandsText)
+                            .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
+                            .foregroundStyle(SettingsStyle.dimForeground)
+                    }
                     if let error = status.lastError {
                         Text(error)
                             .font(.system(size: SettingsMetrics.footnoteFontSize))
@@ -193,6 +203,22 @@ private struct ExtensionRow: View {
 
     private var permissionsText: String {
         "perms: " + status.muxyExtension.manifest.permissions.map(\.rawValue).joined(separator: " ")
+    }
+
+    private var tabTypesText: String {
+        "tabs: " + status.muxyExtension.manifest.tabTypes.map(\.id).joined(separator: " ")
+    }
+
+    private var commandsText: String {
+        let descriptions = status.muxyExtension.manifest.commands.map { command in
+            let actionLabel = switch command.action {
+            case .event: "event"
+            case let .openTab(tabType, _): "opens \(tabType)"
+            case .runScript: "script (pending)"
+            }
+            return "\(command.id)(\(actionLabel))"
+        }
+        return "commands: " + descriptions.joined(separator: " ")
     }
 
     private var logView: some View {

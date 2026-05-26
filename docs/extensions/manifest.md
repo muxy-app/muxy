@@ -29,6 +29,7 @@ Every extension declares itself in a `manifest.json` next to its entrypoint.
 | `permissions` | string[] | no | See [Permissions](permissions.md). Verbs not in the list are rejected. Defaults to empty. |
 | `events` | string[] | no | Events the extension is allowed to subscribe to. See [Events](events.md). Defaults to empty. |
 | `commands` | object[] | no | Palette commands to register. See [Palette Commands](palette-commands.md). |
+| `tabTypes` | object[] | no | Webview tab types the extension exposes. See [Tabs](tabs.md). |
 | `aiProvider` | object | no | Optional notification source mapping. See [AI Provider Hooks](ai-provider.md). |
 | `enabled` | bool | no | Defaults to `true`. Toggling in Settings persists across launches at runtime. |
 

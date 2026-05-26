@@ -103,6 +103,10 @@ final class ExtensionStore {
         return status.muxyExtension.manifest.permissions.contains(permission)
     }
 
+    func loadedExtension(id: String) -> MuxyExtension? {
+        statuses.first(where: { $0.id == id && $0.muxyExtension.manifest.enabled })?.muxyExtension
+    }
+
     func snapshotForSocketServer() -> NotificationSocketServer.ExtensionSnapshot {
         var entries: [String: NotificationSocketServer.ExtensionSnapshotEntry] = [:]
         for status in statuses where status.muxyExtension.manifest.enabled {
@@ -146,17 +150,56 @@ final class ExtensionStore {
             }
     }
 
-    func triggerCommand(extensionID: String, commandID: String) {
-        guard let command = statuses.first(where: { $0.id == extensionID })?
-            .muxyExtension.manifest.commands.first(where: { $0.id == commandID })
+    func triggerCommand(extensionID: String, commandID: String, appState: AppState) {
+        guard let muxyExtension = statuses.first(where: { $0.id == extensionID })?.muxyExtension,
+              let command = muxyExtension.manifest.commands.first(where: { $0.id == commandID })
         else { return }
 
+        switch command.action {
+        case .event:
+            broadcastCommandEvent(extensionID: extensionID, commandID: commandID, name: command.eventName)
+        case let .openTab(tabType, data):
+            openExtensionTab(
+                extensionID: extensionID,
+                tabType: tabType,
+                data: data,
+                in: muxyExtension,
+                appState: appState
+            )
+        case .runScript:
+            break
+        }
+    }
+
+    private func broadcastCommandEvent(extensionID: String, commandID: String, name: String) {
         NotificationSocketServer.shared.broadcast(
             event: ExtensionEvent(
-                name: command.eventName,
+                name: name,
                 payload: ["extension": extensionID, "command": commandID]
             )
         )
+    }
+
+    private func openExtensionTab(
+        extensionID: String,
+        tabType tabTypeID: String,
+        data: ExtensionJSON?,
+        in muxyExtension: MuxyExtension,
+        appState: AppState
+    ) {
+        guard let tabType = muxyExtension.manifest.tabType(id: tabTypeID),
+              let projectID = appState.activeProjectID
+        else { return }
+        appState.dispatch(.createExtensionTab(
+            projectID: projectID,
+            areaID: nil,
+            request: AppState.CreateExtensionTabRequest(
+                extensionID: extensionID,
+                tabTypeID: tabTypeID,
+                title: tabType.title,
+                data: data ?? tabType.defaultData
+            )
+        ))
     }
 
     func declaredAIProvider(for socketTypeKey: String) -> (extensionID: String, provider: ExtensionAIProvider)? {

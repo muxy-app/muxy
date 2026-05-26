@@ -21,7 +21,7 @@ flowchart LR
 | `panes:read` | `read-screen`, `list-panes` |
 | `panes:write` | `split-right`, `split-down`, `send`, `send-keys`, `close-pane`, `rename-pane` |
 | `tabs:read` | `list-tabs` |
-| `tabs:write` | `switch-tab`, `new-tab`, `next-tab`, `previous-tab` |
+| `tabs:write` | `switch-tab`, `new-tab`, `next-tab`, `previous-tab`, `open-tab` |
 | `projects:read` | `list-projects` |
 | `projects:write` | `switch-project` |
 | `worktrees:read` | `list-worktrees` |

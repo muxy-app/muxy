@@ -22,6 +22,7 @@ enum SocketCommandHandler {
         "new-tab": .tabsWrite,
         "next-tab": .tabsWrite,
         "previous-tab": .tabsWrite,
+        "open-tab": .tabsWrite,
     ]
 
     static func handleRequest(
@@ -189,6 +190,18 @@ enum SocketCommandHandler {
             return serialize(MuxyAPI.Tabs.next(appState: appState), ok: "ok")
         case "previous-tab":
             return serialize(MuxyAPI.Tabs.previous(appState: appState), ok: "ok")
+        case "open-tab":
+            guard parts.count >= 2 else { return "error:usage open-tab|<json>" }
+            let payload = parts.dropFirst().joined(separator: "|")
+            guard let data = payload.data(using: .utf8) else {
+                return "error:invalid open-tab payload"
+            }
+            do {
+                let request = try JSONDecoder().decode(OpenTabRequest.self, from: data)
+                return serialize(MuxyAPI.Tabs.open(request, appState: appState), ok: "ok")
+            } catch {
+                return "error:invalid open-tab payload: \(error.localizedDescription)"
+            }
         default:
             return "error:unknown command \(cmd)"
         }

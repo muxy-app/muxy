@@ -689,7 +689,8 @@ struct MainWindow: View {
         case let .extensionCommand(item):
             ExtensionStore.shared.triggerCommand(
                 extensionID: item.extensionID,
-                commandID: item.command.id
+                commandID: item.command.id,
+                appState: appState
             )
         }
     }

@@ -179,7 +179,7 @@ final class NotificationSocketServer: @unchecked Sendable {
         "split-right", "split-down", "send", "send-keys",
         "read-screen", "close-pane", "rename-pane", "list-panes",
         "list-projects", "switch-project", "list-worktrees", "create-worktree", "switch-worktree", "refresh-worktrees",
-        "list-tabs", "switch-tab", "new-tab", "next-tab", "previous-tab",
+        "list-tabs", "switch-tab", "new-tab", "next-tab", "previous-tab", "open-tab",
     ]
 
     private func openSession(_ session: ClientSession) {
