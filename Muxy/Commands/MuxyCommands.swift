@@ -113,6 +113,7 @@ struct MuxyCommands: Commands {
             .shortcut(for: .reloadConfig, store: keyBindings)
 
             Button {
+                guard isMainWindowFocused else { return }
                 performShortcutAction(.refreshWorktrees)
             } label: {
                 Label("Refresh Worktrees", systemImage: "arrow.triangle.2.circlepath")
