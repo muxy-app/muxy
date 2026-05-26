@@ -102,6 +102,7 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
         "worktrees.switch": .worktreesWrite,
         "worktrees.refresh": .worktreesWrite,
         "toast": .notificationsWrite,
+        "exec": .commandsExec,
     ]
 
     private func handle(verb: String, args: [String: Any], appState: AppState) async throws -> Any {
@@ -112,6 +113,8 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
             return try handleUnsubscribe(args: args)
         case "toast":
             return try await handleToast(args: args, appState: appState)
+        case "exec":
+            return try await handleExec(args: args, appState: appState)
         case "tabs.list":
             return try unwrap(MuxyAPI.Tabs.list(appState: appState)).map { tab in
                 [
@@ -302,6 +305,20 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
               let literal = String(data: data, encoding: .utf8)
         else { return "{}" }
         return literal
+    }
+
+    private func handleExec(args: [String: Any], appState: AppState) async throws -> Any {
+        let request = try ExtensionBridgeShared.decodeExecRequest(args)
+        let defaultCwd = ExtensionBridgeShared.activeWorktreePath(
+            appState: appState,
+            worktreeStore: worktreeStore
+        )
+        let result = try await ExtensionCommandExecutor.exec(
+            request: request,
+            extensionID: extensionID,
+            defaultCwd: defaultCwd
+        )
+        return ExtensionBridgeShared.encodeExecResult(result)
     }
 
     private func handleToast(args: [String: Any], appState: AppState) async throws -> Any {

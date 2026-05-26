@@ -87,6 +87,27 @@ enum ExtensionWebBridge {
                     list() { return send('projects.list', {}); },
                     switchTo(identifier) { return send('projects.switch', { identifier: String(identifier) }); },
                 },
+                exec(argvOrOptions, maybeOptions) {
+                    let payload;
+                    if (Array.isArray(argvOrOptions)) {
+                        const opts = maybeOptions || {};
+                        payload = { argv: argvOrOptions.map(String) };
+                        if (opts.cwd != null) payload.cwd = String(opts.cwd);
+                        if (opts.env) payload.env = opts.env;
+                        if (opts.stdin != null) payload.stdin = String(opts.stdin);
+                        if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
+                    } else {
+                        const opts = argvOrOptions || {};
+                        payload = {};
+                        if (opts.shell != null) payload.shell = String(opts.shell);
+                        if (opts.argv) payload.argv = opts.argv.map(String);
+                        if (opts.cwd != null) payload.cwd = String(opts.cwd);
+                        if (opts.env) payload.env = opts.env;
+                        if (opts.stdin != null) payload.stdin = String(opts.stdin);
+                        if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
+                    }
+                    return send('exec', payload);
+                },
                 worktrees: {
                     list(project) { return send('worktrees.list', { project: project == null ? null : String(project) }); },
                     switchTo(identifier, project) {

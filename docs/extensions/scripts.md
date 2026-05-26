@@ -42,10 +42,18 @@ muxy.projects.{list, switchTo}
 muxy.worktrees.{list, switchTo, refresh}
 ```
 
+Plus `muxy.exec(argv, options?)` / `muxy.exec({ shell, ... })` for running shell commands (requires `commands:exec`):
+
+```js
+const status = muxy.exec(['git', 'status', '--short']);
+console.log(status.stdout);
+```
+
 **Differences from the webview API:**
 
-- All calls are **synchronous** — `muxy.panes.list()` returns the array directly, not a Promise. Internally Muxy blocks the script's dispatch queue while the async work runs on the main actor; the main thread is not blocked.
+- All calls are **synchronous** — `muxy.panes.list()` and `muxy.exec(...)` return values directly, not Promises. Internally Muxy blocks the script's dispatch queue while the async work runs on the main actor; the main thread is not blocked, so the UI stays responsive.
 - No `muxy.theme`, `muxy.onThemeChange`, `muxy.data`, or `muxy.tabInstanceID` — scripts are not tied to a tab and have no rendering surface.
+- No `muxy.events.subscribe` — scripts are strictly one-shot.
 
 ## Permissions
 

@@ -76,6 +76,15 @@ window.muxy = {
   projects: { list(), switchTo(identifier) },
   events: { subscribe(name, callback): unsubscribe },
   worktrees: { list(project?), switchTo(identifier, project?), refresh(project?) },
+  exec(argv: string[], options?): Promise<ExecResult>,
+  exec(options: { shell: string, ... }): Promise<ExecResult>,
+}
+
+interface ExecResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  timedOut: boolean;
 }
 ```
 
@@ -98,6 +107,26 @@ await muxy.tabs.open({
 ```
 
 `extensionWebView` requires the target extension to be loaded and the named tab type to exist.
+
+### Running shell commands
+
+```js
+// argv form — no shell, no quoting concerns
+const { stdout, exitCode } = await muxy.exec(['git', 'diff', '--name-only']);
+if (exitCode === 0) {
+  for (const file of stdout.split('\n').filter(Boolean)) {
+    console.log('changed:', file);
+  }
+}
+
+// shell form — pipes, redirects, expansion
+const counted = await muxy.exec({ shell: 'git diff | wc -l' });
+
+// with options
+await muxy.exec(['ls'], { cwd: '~', timeoutMs: 5000 });
+```
+
+Requires `commands:exec`. The default working directory is the active worktree's path; override via `options.cwd` (`~` expands). Default timeout is 30 seconds; on timeout the child is `SIGTERM`'d, then `SIGKILL`'d 2 s later, and the Promise resolves with `timedOut: true`. Output is capped at 10 MB combined; oversized output rejects the Promise. The UI never blocks — child processes run on a background queue.
 
 ### Subscribing to workspace events
 

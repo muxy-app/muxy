@@ -172,6 +172,7 @@ private final class ScriptBridge: @unchecked Sendable {
         "worktrees.switch": .worktreesWrite,
         "worktrees.refresh": .worktreesWrite,
         "toast": .notificationsWrite,
+        "exec": .commandsExec,
     ]
 
     @MainActor
@@ -180,6 +181,8 @@ private final class ScriptBridge: @unchecked Sendable {
         switch verb {
         case "toast":
             return try await handleToast(args: args, appState: appState)
+        case "exec":
+            return try await handleExec(args: args, appState: appState)
         case "tabs.list":
             return try unwrap(MuxyAPI.Tabs.list(appState: appState)).map(tabDict)
         case "tabs.switch":
@@ -271,6 +274,21 @@ private final class ScriptBridge: @unchecked Sendable {
         default:
             throw APIError.invalidArguments("unknown verb \(verb)")
         }
+    }
+
+    @MainActor
+    private func handleExec(args: [String: Any], appState: AppState) async throws -> Any {
+        let request = try ExtensionBridgeShared.decodeExecRequest(args)
+        let defaultCwd = ExtensionBridgeShared.activeWorktreePath(
+            appState: appState,
+            worktreeStore: worktreeStore
+        )
+        let result = try await ExtensionCommandExecutor.exec(
+            request: request,
+            extensionID: extensionID,
+            defaultCwd: defaultCwd
+        )
+        return ExtensionBridgeShared.encodeExecResult(result)
     }
 
     @MainActor
@@ -415,6 +433,27 @@ private final class ScriptBridge: @unchecked Sendable {
                         project: project == null ? null : String(project),
                     }),
                     refresh:  (project)             => dispatch('worktrees.refresh', { project: project == null ? null : String(project) }),
+                },
+                exec(argvOrOptions, maybeOptions) {
+                    let payload;
+                    if (Array.isArray(argvOrOptions)) {
+                        const opts = maybeOptions || {};
+                        payload = { argv: argvOrOptions.map(String) };
+                        if (opts.cwd != null) payload.cwd = String(opts.cwd);
+                        if (opts.env) payload.env = opts.env;
+                        if (opts.stdin != null) payload.stdin = String(opts.stdin);
+                        if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
+                    } else {
+                        const opts = argvOrOptions || {};
+                        payload = {};
+                        if (opts.shell != null) payload.shell = String(opts.shell);
+                        if (opts.argv) payload.argv = opts.argv.map(String);
+                        if (opts.cwd != null) payload.cwd = String(opts.cwd);
+                        if (opts.env) payload.env = opts.env;
+                        if (opts.stdin != null) payload.stdin = String(opts.stdin);
+                        if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
+                    }
+                    return dispatch('exec', payload);
                 },
             };
             Object.freeze(muxy.tabs);

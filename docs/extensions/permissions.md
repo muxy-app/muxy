@@ -28,6 +28,7 @@ flowchart LR
 | `worktrees:write` | `create-worktree`, `switch-worktree`, `refresh-worktrees` |
 | `notifications:write` | Post notifications via `type\|paneID\|title\|body` |
 | `commands:run-script` | Execute `runScript` palette command actions in the per-extension JavaScriptCore context. |
+| `commands:exec` | Run shell commands via `muxy.exec` (subprocess execution with stdout/stderr capture). |
 
 ## Abuse handling
 
