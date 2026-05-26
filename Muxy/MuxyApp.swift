@@ -14,7 +14,7 @@ struct MuxyApp: App {
     @State private var didStartDeferredServices = false
 
     init() {
-        _ = LaunchArgumentGuard.terminateIfNeeded()
+        LaunchArgumentGuard.terminateIfNeeded()
         _ = MuxyApp.launchDate
         let environment = AppEnvironment.live
         let projectStore = ProjectStore(persistence: environment.projectPersistence)
