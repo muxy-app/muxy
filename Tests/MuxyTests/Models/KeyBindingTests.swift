@@ -120,6 +120,12 @@ struct KeyBindingTests {
         #expect(combos[.terminalOmniboxHistory] == KeyCombo(key: "h", command: true, option: true))
     }
 
+    @Test("Refresh Worktrees uses Cmd+Opt+R by default")
+    func refreshWorktreesUsesCommandOptionRByDefault() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.refreshWorktrees] == KeyCombo(key: "r", command: true, option: true))
+    }
+
     @Test("KeyBinding Codable round-trip")
     func codableRoundTrip() throws {
         let binding = KeyBinding(

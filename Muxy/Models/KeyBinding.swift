@@ -28,6 +28,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case newProject
     case openProject
     case reloadConfig
+    case refreshWorktrees
     case selectTab1
     case selectTab2
     case selectTab3
@@ -90,6 +91,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .toggleThemePicker,
         .openProject,
         .reloadConfig,
+        .refreshWorktrees,
         .selectTab1,
         .selectTab2,
         .selectTab3,
@@ -233,6 +235,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
         case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
+        case .refreshWorktrees: ShortcutMetadata(displayName: "Refresh Worktrees", category: "App", scope: .mainWindow)
         case .toggleMaximizePane: ShortcutMetadata(displayName: "Toggle Maximize Pane", category: "Panes", scope: .mainWindow)
         }
     }
@@ -320,6 +323,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .openDiffViewerTab, combo: KeyCombo(key: "y", command: true, shift: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),
+        Self(action: .refreshWorktrees, combo: KeyCombo(key: "r", command: true, option: true)),
         Self(action: .nextTab, combo: KeyCombo(key: "]", command: true)),
         Self(action: .previousTab, combo: KeyCombo(key: "[", command: true)),
         Self(action: .selectTab1, combo: KeyCombo(key: "1", command: true)),
