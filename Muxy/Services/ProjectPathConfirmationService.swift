@@ -47,14 +47,14 @@ struct ProjectPathConfirmationService {
     let appState: AppState
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
-    let projectGroupStore: ProjectGroupStore?
+    let projectGroupStore: ProjectGroupStore
     let fileSystem: any ProjectPathConfirmationFileSystem
 
     init(
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
-        projectGroupStore: ProjectGroupStore? = nil,
+        projectGroupStore: ProjectGroupStore,
         fileSystem: any ProjectPathConfirmationFileSystem = FileManagerProjectPathConfirmationFileSystem()
     ) {
         self.appState = appState
@@ -115,7 +115,7 @@ struct ProjectPathConfirmationService {
             sortOrder: projectStore.projects.count
         )
         projectStore.add(project)
-        projectGroupStore?.addProjectToActiveGroup(projectID: project.id)
+        projectGroupStore.addProjectToActiveGroup(projectID: project.id)
         return project
     }
 }

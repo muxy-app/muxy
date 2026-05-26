@@ -6,7 +6,7 @@ enum ProjectOpenService {
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
-        projectGroupStore: ProjectGroupStore? = nil
+        projectGroupStore: ProjectGroupStore
     ) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -20,7 +20,7 @@ enum ProjectOpenService {
             sortOrder: projectStore.projects.count
         )
         projectStore.add(project)
-        projectGroupStore?.addProjectToActiveGroup(projectID: project.id)
+        projectGroupStore.addProjectToActiveGroup(projectID: project.id)
         worktreeStore.ensurePrimary(for: project)
         guard let primary = worktreeStore.primary(for: project.id) else { return }
         appState.selectProject(project, worktree: primary)
@@ -30,7 +30,7 @@ enum ProjectOpenService {
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
-        projectGroupStore: ProjectGroupStore? = nil,
+        projectGroupStore: ProjectGroupStore,
         preferences: ProjectPickerPreferences = ProjectPickerPreferences(),
         notificationCenter: NotificationCenter = .default,
         openWithFinder: (() -> Void)? = nil
@@ -85,7 +85,7 @@ enum ProjectOpenService {
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
-        projectGroupStore: ProjectGroupStore? = nil,
+        projectGroupStore: ProjectGroupStore,
         createIfMissing: Bool = false
     ) -> Bool {
         confirmProjectPathResult(
@@ -104,7 +104,7 @@ enum ProjectOpenService {
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
-        projectGroupStore: ProjectGroupStore? = nil,
+        projectGroupStore: ProjectGroupStore,
         createIfMissing: Bool = false
     ) -> ProjectOpenConfirmationResult {
         ProjectPathConfirmationService(

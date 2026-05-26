@@ -73,7 +73,8 @@ struct Sidebar: View {
             ProjectOpenService.openProjectViaPicker(
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )
         }
         .help(shortcutTooltip("Add Project", for: .openProject))
