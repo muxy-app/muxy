@@ -22,7 +22,7 @@
 
 COMMAND="$1"
 SOCKET="${MUXY_SOCKET_PATH:-$HOME/Library/Application Support/Muxy/muxy.sock}"
-NC_TIMEOUT=2
+NC_TIMEOUT=6
 
 send_message() {
     local message="$1"
