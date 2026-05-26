@@ -48,7 +48,6 @@ enum GitProcessRunner {
         let executable: String
         let arguments: [String]
         let workingDirectory: String?
-        let environment: [String: String]?
         let lineLimit: Int?
         let signpostName: StaticString
     }
@@ -63,7 +62,6 @@ enum GitProcessRunner {
                 executable: "/usr/bin/env",
                 arguments: ["git"] + gitHubCredentialHelperArgs() + ["-C", repoPath] + arguments,
                 workingDirectory: nil,
-                environment: nil,
                 lineLimit: lineLimit,
                 signpostName: "git"
             )
@@ -81,15 +79,13 @@ enum GitProcessRunner {
     static func runCommand(
         executable: String,
         arguments: [String],
-        workingDirectory: String,
-        environment: [String: String]? = nil
+        workingDirectory: String
     ) async throws -> GitProcessResult {
         try await runProcess(
             ProcessSpec(
                 executable: executable,
                 arguments: arguments,
                 workingDirectory: workingDirectory,
-                environment: environment,
                 lineLimit: nil,
                 signpostName: "command"
             )
@@ -155,9 +151,6 @@ enum GitProcessRunner {
 
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_OPTIONAL_LOCKS"] = "0"
-        if let specEnvironment = spec.environment {
-            environment.merge(specEnvironment) { _, new in new }
-        }
         process.environment = environment
 
         if let workingDirectory = spec.workingDirectory {

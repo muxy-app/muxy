@@ -14,6 +14,7 @@ struct VCSTabView: View {
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
     @State private var pendingCheckoutPRInNewWorktree: GitRepositoryService.PRListItem?
+    @State private var removalRequest: WorktreeRemovalRequest?
     @AppStorage(GeneralSettingsKeys.defaultWorktreeParentPath)
     private var defaultWorktreeParentPath = ""
     private var commitEnabled: Bool {
@@ -160,6 +161,7 @@ struct VCSTabView: View {
                 onCancel: { showCreateBranchSheet = false }
             )
         }
+        .worktreeRemovalSheet($removalRequest)
     }
 
     private func requestOpenPR() {
@@ -387,40 +389,30 @@ struct VCSTabView: View {
         let repoPath = project.path
         let remaining = worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.isPrimary }) ?? remaining.first
-        Task {
-            do {
-                try await WorktreeStore.cleanupOnDisk(worktree: worktree, repoPath: repoPath)
+        removalRequest = WorktreeRemovalRequest(
+            worktree: worktree,
+            repoPath: repoPath,
+            onSuccess: {
                 appState.removeWorktree(
                     projectID: project.id,
                     worktree: worktree,
                     replacement: replacement
                 )
                 worktreeStore.remove(worktreeID: worktree.id, from: project.id)
-            } catch {
-                presentWorktreeCleanupFailure(worktree: worktree, error: error)
-                return
-            }
-            try? await GitRepositoryService().deleteRemoteBranch(
-                repoPath: repoPath,
-                branch: mergedBranch
-            )
-            await Self.fastForwardAfterMerge(
-                repoPath: repoPath,
-                defaultBranch: defaultBranch,
-                baseBranch: baseBranch
-            )
-        }
-    }
-
-    private func presentWorktreeCleanupFailure(worktree: Worktree, error: Error) {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              window.attachedSheet == nil
-        else { return }
-
-        let alert = NSAlert(error: error)
-        alert.messageText = "Could not clean up worktree \"\(worktree.name)\""
-        alert.icon = NSApp.applicationIconImage
-        alert.beginSheetModal(for: window)
+                Task {
+                    try? await GitRepositoryService().deleteRemoteBranch(
+                        repoPath: repoPath,
+                        branch: mergedBranch
+                    )
+                    await Self.fastForwardAfterMerge(
+                        repoPath: repoPath,
+                        defaultBranch: defaultBranch,
+                        baseBranch: baseBranch
+                    )
+                }
+            },
+            onFailure: {}
+        )
     }
 
     @discardableResult

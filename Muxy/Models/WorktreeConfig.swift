@@ -34,14 +34,23 @@ struct WorktreeConfig: Codable {
         from container: KeyedDecodingContainer<CodingKeys>,
         forKey key: CodingKeys
     ) -> [SetupCommand] {
-        if let objectEntries = try? container.decode([SetupCommand].self, forKey: key) {
-            return objectEntries
+        guard var array = try? container.nestedUnkeyedContainer(forKey: key) else { return [] }
+        var commands: [SetupCommand] = []
+        while !array.isAtEnd {
+            if let command = try? array.decode(SetupCommand.self) {
+                commands.append(command)
+                continue
+            }
+            if let string = try? array.decode(String.self) {
+                commands.append(SetupCommand(command: string))
+                continue
+            }
+            _ = try? array.decode(EmptyEntry.self)
         }
-        if let stringEntries = try? container.decode([String].self, forKey: key) {
-            return stringEntries.map { SetupCommand(command: $0) }
-        }
-        return []
+        return commands
     }
+
+    private struct EmptyEntry: Decodable {}
 
     static func load(fromProjectPath projectPath: String) -> WorktreeConfig? {
         let url = URL(fileURLWithPath: projectPath)

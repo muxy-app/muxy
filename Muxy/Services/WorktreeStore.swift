@@ -159,10 +159,15 @@ final class WorktreeStore {
 
     static func cleanupOnDisk(
         worktree: Worktree,
-        repoPath: String
+        repoPath: String,
+        teardownEmit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in }
     ) async throws {
         guard worktree.canBeRemoved else { return }
-        try await WorktreeTeardownRunner.run(sourceProjectPath: repoPath, worktree: worktree)
+        try await WorktreeTeardownRunner.run(
+            sourceProjectPath: repoPath,
+            worktree: worktree,
+            emit: teardownEmit
+        )
         try await GitWorktreeService.shared.removeWorktree(
             repoPath: repoPath,
             path: worktree.path,

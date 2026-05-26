@@ -34,17 +34,13 @@ struct WorktreeTeardownRunnerTests {
             source: .muxy,
             isPrimary: false
         )
-        final class Capture: @unchecked Sendable {
-            var commands: [String] = []
-            var environments: [[String: String]] = []
-        }
-        let capture = Capture()
+        let capture = ExecutionCapture()
 
-        try await WorktreeTeardownRunner.run(sourceProjectPath: projectPath, worktree: worktree) { command, _, environment in
-            capture.commands.append(command)
-            capture.environments.append(environment)
-            return GitProcessResult(status: 0, stdout: "", stdoutData: Data(), stderr: "", truncated: false)
-        }
+        try await WorktreeTeardownRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            executor: capture.executor(returning: 0)
+        )
 
         #expect(capture.commands == ["first", "second"])
         #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_PATH"] == "/tmp/feature" })
@@ -62,35 +58,52 @@ struct WorktreeTeardownRunnerTests {
             source: .external,
             isPrimary: false
         )
-        final class Capture: @unchecked Sendable {
-            var count = 0
-        }
-        let capture = Capture()
+        let capture = ExecutionCapture()
 
-        try await WorktreeTeardownRunner.run(sourceProjectPath: projectPath, worktree: worktree) { _, _, _ in
-            capture.count += 1
-            return GitProcessResult(status: 0, stdout: "", stdoutData: Data(), stderr: "", truncated: false)
-        }
+        try await WorktreeTeardownRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            executor: capture.executor(returning: 0)
+        )
 
-        #expect(capture.count == 0)
+        #expect(capture.commands.isEmpty)
     }
 
     @Test("run stops and throws on teardown failure")
     func runStopsOnFailure() async throws {
         let projectPath = try makeProjectConfig(teardown: ["fail", "after"])
         let worktree = Worktree(name: "Feature", path: "/tmp/feature", branch: nil, source: .muxy, isPrimary: false)
-        final class Capture: @unchecked Sendable {
-            var commands: [String] = []
-        }
-        let capture = Capture()
+        let capture = ExecutionCapture()
 
         await #expect(throws: WorktreeTeardownError.self) {
-            try await WorktreeTeardownRunner.run(sourceProjectPath: projectPath, worktree: worktree) { command, _, _ in
-                capture.commands.append(command)
-                return GitProcessResult(status: 1, stdout: "", stdoutData: Data(), stderr: "boom", truncated: false)
-            }
+            try await WorktreeTeardownRunner.run(
+                sourceProjectPath: projectPath,
+                worktree: worktree,
+                executor: capture.executor(returning: 1)
+            )
         }
         #expect(capture.commands == ["fail"])
+    }
+
+    @Test("run streams command and output lines to the emit closure")
+    func runStreamsOutputLines() async throws {
+        let projectPath = try makeProjectConfig(teardown: ["echo hello"])
+        let worktree = Worktree(name: "Feature", path: "/tmp/feature", branch: nil, source: .muxy, isPrimary: false)
+        let collected = LineCollector()
+
+        try await WorktreeTeardownRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            emit: { collected.append($0) },
+            executor: { _, _, _, emit in
+                emit(WorktreeTeardownOutputLine(channel: .stdout, text: "hello"))
+                return 0
+            }
+        )
+
+        let lines = collected.snapshot()
+        #expect(lines.contains(where: { $0.channel == .command && $0.text == "$ echo hello" }))
+        #expect(lines.contains(where: { $0.channel == .stdout && $0.text == "hello" }))
     }
 
     private func makeProjectConfig(teardown: [String]) throws -> String {
@@ -104,5 +117,37 @@ struct WorktreeTeardownRunnerTests {
         ))
         try data.write(to: configDirectory.appendingPathComponent("worktree.json"))
         return root.path
+    }
+}
+
+private final class ExecutionCapture: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "tests.execution-capture")
+    private var _commands: [String] = []
+    private var _environments: [[String: String]] = []
+
+    var commands: [String] { queue.sync { _commands } }
+    var environments: [[String: String]] { queue.sync { _environments } }
+
+    func executor(returning status: Int32) -> WorktreeTeardownRunner.Executor {
+        { command, _, environment, _ in
+            self.queue.sync {
+                self._commands.append(command)
+                self._environments.append(environment)
+            }
+            return status
+        }
+    }
+}
+
+private final class LineCollector: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "tests.line-collector")
+    private var lines: [WorktreeTeardownOutputLine] = []
+
+    func append(_ line: WorktreeTeardownOutputLine) {
+        queue.sync { lines.append(line) }
+    }
+
+    func snapshot() -> [WorktreeTeardownOutputLine] {
+        queue.sync { lines }
     }
 }
