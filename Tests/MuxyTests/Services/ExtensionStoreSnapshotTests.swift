@@ -38,7 +38,6 @@ struct ExtensionStoreSnapshotBuildingTests {
     @Test("snapshotForSocketServer includes enabled extensions only")
     func snapshotIncludesEnabledOnly() throws {
         let enabledDir = try makeTemporaryExtension(
-            name: "enabled-ext",
             manifest: """
             {
                 "name": "enabled-ext",
@@ -51,7 +50,6 @@ struct ExtensionStoreSnapshotBuildingTests {
             """
         )
         let disabledDir = try makeTemporaryExtension(
-            name: "disabled-ext",
             manifest: """
             {
                 "name": "disabled-ext",
@@ -67,13 +65,10 @@ struct ExtensionStoreSnapshotBuildingTests {
         }
 
         let enabled = try ExtensionManifestLoader.load(from: enabledDir)
-        let loadedDisabled = try ExtensionManifestLoader.load(from: disabledDir)
-        let disabled = MuxyExtension(
-            id: loadedDisabled.id,
-            directory: loadedDisabled.directory,
-            manifest: loadedDisabled.manifest.withEnabled(false)
+        let disabled = try ExtensionManifestLoader.load(from: disabledDir)
+        let snapshot = ExtensionStore.buildSnapshotForTesting(
+            from: [(enabled, isEnabled: true), (disabled, isEnabled: false)]
         )
-        let snapshot = ExtensionStore.buildSnapshotForTesting(from: [enabled, disabled])
 
         let entry = try #require(snapshot.entries["enabled-ext"])
         #expect(entry.allowedEvents == ["pane.created"])
@@ -82,7 +77,7 @@ struct ExtensionStoreSnapshotBuildingTests {
         #expect(snapshot.entries["disabled-ext"] == nil)
     }
 
-    private func makeTemporaryExtension(name: String, manifest: String) throws -> URL {
+    private func makeTemporaryExtension(manifest: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ext-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let manifestURL = directory.appendingPathComponent("manifest.json")
@@ -93,7 +88,27 @@ struct ExtensionStoreSnapshotBuildingTests {
             [.posixPermissions: FilePermissions.executable],
             ofItemAtPath: entrypoint.path
         )
-        _ = name
         return directory
+    }
+}
+
+@Suite("ExtensionStore termination classification")
+struct ExtensionStoreTerminationClassificationTests {
+    @Test("intentional stop is reported as stopped regardless of exit status")
+    func intentionalStopMapsToStopped() {
+        #expect(ExtensionStore.classifyTermination(wasIntentional: true, terminationStatus: 0) == .stopped)
+        #expect(ExtensionStore.classifyTermination(wasIntentional: true, terminationStatus: 15) == .stopped)
+        #expect(ExtensionStore.classifyTermination(wasIntentional: true, terminationStatus: 1) == .stopped)
+    }
+
+    @Test("unintended zero exit is reported as exitedCleanly")
+    func zeroExitMapsToCleanly() {
+        #expect(ExtensionStore.classifyTermination(wasIntentional: false, terminationStatus: 0) == .exitedCleanly)
+    }
+
+    @Test("unintended non-zero exit reports the underlying status")
+    func nonZeroExitMapsToStatus() {
+        #expect(ExtensionStore.classifyTermination(wasIntentional: false, terminationStatus: 15) == .exitedWithStatus(15))
+        #expect(ExtensionStore.classifyTermination(wasIntentional: false, terminationStatus: 1) == .exitedWithStatus(1))
     }
 }

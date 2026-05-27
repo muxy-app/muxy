@@ -13,7 +13,7 @@ struct SettingsView: View {
     private var visibleExtensionRoutes: [(extensionID: String, displayName: String)] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return extensionStore.statuses
-            .filter { $0.muxyExtension.manifest.enabled && !$0.muxyExtension.manifest.settings.isEmpty }
+            .filter { $0.isEnabled && !$0.muxyExtension.manifest.settings.isEmpty }
             .filter { status in
                 guard !query.isEmpty else { return true }
                 let displayName = status.muxyExtension.displayName.lowercased()

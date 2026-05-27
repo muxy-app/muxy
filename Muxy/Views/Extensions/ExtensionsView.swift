@@ -328,7 +328,7 @@ private struct ExtensionStatusBadge: View {
     @MainActor
     private var info: (String, Color) {
         if status.isRunning { return ("running", MuxyTheme.diffAddFg) }
-        if status.muxyExtension.manifest.enabled { return ("stopped", MuxyTheme.fgMuted) }
+        if status.isEnabled { return ("stopped", MuxyTheme.fgMuted) }
         return ("disabled", MuxyTheme.fgDim)
     }
 }
@@ -715,7 +715,7 @@ private struct ExtensionDetailPage: View {
 
     private var enabledBinding: Binding<Bool> {
         Binding(
-            get: { ext.manifest.enabled },
+            get: { status.isEnabled },
             set: { store.setEnabled($0, for: status.id) }
         )
     }

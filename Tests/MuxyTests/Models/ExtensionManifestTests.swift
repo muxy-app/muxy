@@ -23,7 +23,6 @@ struct ExtensionManifestTests {
         #expect(manifest.commands.isEmpty)
         #expect(manifest.permissions.isEmpty)
         #expect(manifest.aiProvider == nil)
-        #expect(manifest.enabled == true)
     }
 
     @Test("decodes full manifest with permissions, events, commands and aiProvider")
@@ -49,13 +48,11 @@ struct ExtensionManifestTests {
         #expect(manifest.commands == [ExtensionPaletteCommand(id: "greet", title: "Say hello", subtitle: "demo")])
         #expect(manifest.permissions == [.panesRead, .tabsWrite])
         #expect(manifest.aiProvider == ExtensionAIProvider(socketTypeKey: "demo", displayName: "Demo", iconName: "sparkles"))
-        #expect(manifest.enabled == true)
     }
 
     @Test("loads from directory and resolves entrypoint")
     func loadsFromDirectory() throws {
         let directory = try makeTemporaryExtension(
-            name: "tmp-ext",
             manifest: """
             {
                 "name": "tmp-ext",
@@ -89,7 +86,6 @@ struct ExtensionManifestTests {
     @Test("fails when entrypoint not executable")
     func failsWhenEntrypointNotExecutable() throws {
         let directory = try makeTemporaryExtension(
-            name: "no-exec",
             manifest: """
             {
                 "name": "no-exec",
@@ -219,7 +215,6 @@ struct ExtensionManifestTests {
     @Test("rejects topbar item referencing unknown command")
     func rejectsTopbarUnknownCommand() throws {
         let directory = try makeTemporaryExtension(
-            name: "topbar-bad",
             manifest: """
             {
                 "name": "topbar-bad",
@@ -242,7 +237,6 @@ struct ExtensionManifestTests {
     @Test("rejects topbar item with missing SVG")
     func rejectsTopbarMissingSVG() throws {
         let directory = try makeTemporaryExtension(
-            name: "topbar-svg",
             manifest: """
             {
                 "name": "topbar-svg",
@@ -266,7 +260,6 @@ struct ExtensionManifestTests {
     @Test("rejects duplicate setting keys")
     func rejectsDuplicateSettingKeys() throws {
         let directory = try makeTemporaryExtension(
-            name: "settings-dup",
             manifest: """
             {
                 "name": "settings-dup",
@@ -290,7 +283,6 @@ struct ExtensionManifestTests {
     @Test("rejects empty topbar item id")
     func rejectsEmptyTopbarID() throws {
         let directory = try makeTemporaryExtension(
-            name: "topbar-empty",
             manifest: """
             {
                 "name": "topbar-empty",
@@ -313,7 +305,6 @@ struct ExtensionManifestTests {
     @Test("rejects empty setting key")
     func rejectsEmptySettingKey() throws {
         let directory = try makeTemporaryExtension(
-            name: "settings-empty",
             manifest: """
             {
                 "name": "settings-empty",
@@ -335,7 +326,6 @@ struct ExtensionManifestTests {
     @Test("rejects non-svg icon path")
     func rejectsNonSVGIconPath() throws {
         let directory = try makeTemporaryExtension(
-            name: "bad-icon",
             manifest: """
             {
                 "name": "bad-icon",
@@ -358,30 +348,7 @@ struct ExtensionManifestTests {
         }
     }
 
-    @Test("withEnabled preserves tabTypes")
-    func withEnabledPreservesTabTypes() {
-        let tabType = ExtensionTabType(id: "details", title: "Details", entry: "ui/index.html", defaultData: nil)
-        let original = ExtensionManifest(
-            name: "demo",
-            version: "1.0.0",
-            entrypoint: "run.sh",
-            tabTypes: [tabType],
-            permissions: [.tabsRead],
-            enabled: true
-        )
-
-        let disabled = original.withEnabled(false)
-        #expect(disabled.enabled == false)
-        #expect(disabled.tabTypes == [tabType])
-        #expect(disabled.permissions == [.tabsRead])
-
-        let reEnabled = disabled.withEnabled(true)
-        #expect(reEnabled.enabled == true)
-        #expect(reEnabled.tabTypes == [tabType])
-    }
-
     private func makeTemporaryExtension(
-        name: String,
         manifest: String,
         files: [String: String],
         makeEntrypointExecutable: Bool = true
@@ -403,7 +370,6 @@ struct ExtensionManifestTests {
                 )
             }
         }
-        _ = name
         return directory
     }
 }

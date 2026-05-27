@@ -34,7 +34,7 @@ Every extension declares itself in a `manifest.json` next to its entrypoint.
 | `settings` | object[] | no | Typed settings shown in the Settings sidebar. See [Settings](settings.md). |
 | `aiProvider` | object | no | Optional notification source mapping. See [AI Provider Hooks](ai-provider.md). |
 
-Extensions are enabled by default after loading. Users toggle them in **Settings → Extensions**; that toggle is stored per-extension and persists across launches separately from the manifest.
+Extensions are enabled by default after loading. Users toggle them in **Settings → Extensions**; that toggle is persisted in `UserDefaults` under `muxy.ext.enabled.<extension-id>` and survives across launches.
 
 ## Icons
 
