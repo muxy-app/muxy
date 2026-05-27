@@ -4,9 +4,11 @@ import WebKit
 
 final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "muxy-ext"
+    static let maxAssetBytes: Int = 64 * 1024 * 1024
 
     private let extensionID: String
     private let directory: URL
+    private let ioQueue = DispatchQueue(label: "app.muxy.extension-assets", qos: .userInitiated)
 
     init(extensionID: String, directory: URL) {
         self.extensionID = extensionID
@@ -15,13 +17,9 @@ final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url,
-              url.scheme == Self.scheme
+              url.scheme == Self.scheme,
+              url.host == extensionID
         else {
-            urlSchemeTask.didFailWithError(URLError(.badURL))
-            return
-        }
-
-        guard url.host == extensionID else {
             urlSchemeTask.didFailWithError(URLError(.badURL))
             return
         }
@@ -38,27 +36,33 @@ final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
 
-        guard let data = try? Data(contentsOf: resolved) else {
-            urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
-            return
+        ioQueue.async {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: resolved.path)
+            let size = (attributes?[.size] as? Int) ?? 0
+            if size > Self.maxAssetBytes {
+                urlSchemeTask.didFailWithError(URLError(.dataLengthExceedsMaximum))
+                return
+            }
+            guard let data = try? Data(contentsOf: resolved) else {
+                urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
+                return
+            }
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: [
+                    "Content-Type": Self.mimeType(for: resolved),
+                    "Content-Length": String(data.count),
+                    "Cache-Control": "no-store",
+                ]
+            )
+            if let response {
+                urlSchemeTask.didReceive(response)
+            }
+            urlSchemeTask.didReceive(data)
+            urlSchemeTask.didFinish()
         }
-
-        let response = HTTPURLResponse(
-            url: url,
-            statusCode: 200,
-            httpVersion: "HTTP/1.1",
-            headerFields: [
-                "Content-Type": Self.mimeType(for: resolved),
-                "Content-Length": String(data.count),
-                "Cache-Control": "no-store",
-            ]
-        )
-
-        if let response {
-            urlSchemeTask.didReceive(response)
-        }
-        urlSchemeTask.didReceive(data)
-        urlSchemeTask.didFinish()
     }
 
     func webView(_: WKWebView, stop _: WKURLSchemeTask) {}

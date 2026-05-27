@@ -44,7 +44,8 @@ final class ExtensionScriptRunner {
             throw RunError.scriptUnreadable(scriptURL)
         }
 
-        let handle = contextHandle(for: extensionID)
+        let handle = try makeContextHandle(for: extensionID)
+        defer { contexts.removeValue(forKey: extensionID) }
         let bridge = ScriptBridge(
             extensionID: extensionID,
             appState: appState,
@@ -75,13 +76,10 @@ final class ExtensionScriptRunner {
         var message: String?
     }
 
-    private func contextHandle(for extensionID: String) -> ContextHandle {
-        if let existing = contexts[extensionID] {
-            return existing
-        }
+    private func makeContextHandle(for extensionID: String) throws -> ContextHandle {
         let queue = DispatchQueue(label: "app.muxy.extension.\(extensionID)")
         guard let context = JSContext() else {
-            fatalError("Failed to create JSContext for extension \(extensionID)")
+            throw RunError.evaluationFailed("Failed to create JSContext")
         }
         let handle = ContextHandle(context: context, queue: queue)
         contexts[extensionID] = handle

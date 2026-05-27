@@ -73,6 +73,7 @@ enum ExtensionCommandExecutor {
 
         let stdoutBox = OutputBox()
         let stderrBox = OutputBox()
+        let timeoutFlag = TimeoutFlag()
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             attachReader(pipe: stdoutPipe, box: stdoutBox)
@@ -94,19 +95,15 @@ enum ExtensionCommandExecutor {
 
             let timeoutMs = request.timeoutMs ?? defaultTimeoutMs
             if timeoutMs > 0 {
-                scheduleTimeout(process: process, after: timeoutMs)
+                scheduleTimeout(process: process, after: timeoutMs, flag: timeoutFlag)
             }
         } as Void
-
-        let timedOut = process.terminationReason != .exit
-            || process.terminationStatus == SIGTERM
-            || process.terminationStatus == SIGKILL
 
         return ExecResult(
             stdout: stdoutBox.string(),
             stderr: stderrBox.string(),
             exitCode: process.terminationStatus,
-            timedOut: timedOut && process.terminationStatus != 0,
+            timedOut: timeoutFlag.fired,
             truncated: stdoutBox.overflow || stderrBox.overflow
         )
     }
@@ -188,14 +185,31 @@ enum ExtensionCommandExecutor {
         try? pipe.fileHandleForWriting.write(contentsOf: Data(text.utf8))
     }
 
-    private static func scheduleTimeout(process: Process, after milliseconds: Int) {
+    private static func scheduleTimeout(process: Process, after milliseconds: Int, flag: TimeoutFlag) {
         DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .milliseconds(milliseconds)) {
             guard process.isRunning else { return }
+            flag.fired = true
             process.terminate()
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + .seconds(2)) {
                 guard process.isRunning else { return }
                 kill(process.processIdentifier, SIGKILL)
             }
+        }
+    }
+}
+
+private final class TimeoutFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didFire = false
+
+    var fired: Bool {
+        get { lock.lock()
+            defer { lock.unlock() }
+            return didFire
+        }
+        set { lock.lock()
+            defer { lock.unlock() }
+            didFire = newValue
         }
     }
 }
@@ -209,11 +223,15 @@ private final class OutputBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         if overflow { return }
-        if data.count + chunk.count > ExtensionCommandExecutor.maxOutputBytes {
-            overflow = true
+        let remaining = ExtensionCommandExecutor.maxOutputBytes - data.count
+        if chunk.count <= remaining {
+            data.append(chunk)
             return
         }
-        data.append(chunk)
+        if remaining > 0 {
+            data.append(chunk.prefix(remaining))
+        }
+        overflow = true
     }
 
     func string() -> String {

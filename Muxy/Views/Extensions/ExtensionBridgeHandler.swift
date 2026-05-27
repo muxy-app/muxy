@@ -57,16 +57,6 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
         }
         let args = (payload["args"] as? [String: Any]) ?? [:]
 
-        if let required = MuxyAPI.Permissions.required(for: verb),
-           !ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: required)
-        {
-            return [
-                "requestID": requestID,
-                "ok": false,
-                "error": "permission denied (\(required.rawValue))",
-            ]
-        }
-
         guard let appState else {
             return ["requestID": requestID, "ok": false, "error": "app state unavailable"]
         }

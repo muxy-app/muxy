@@ -10,6 +10,11 @@ enum MuxyAPIDispatcher {
     }
 
     static func dispatch(verb: String, args: [String: Any], context: Context) async throws -> Any {
+        if let required = MuxyAPI.Permissions.required(for: verb),
+           !ExtensionStore.shared.extensionHasPermission(id: context.extensionID, permission: required)
+        {
+            throw APIError.underlying("permission denied (\(required.rawValue))")
+        }
         switch verb {
         case "toast":
             return try await handleToast(args: args, context: context)

@@ -52,6 +52,15 @@ enum ExtensionWebBridge {
             if (document.documentElement) writeThemeToDocument(currentTheme);
             else document.addEventListener('DOMContentLoaded', () => writeThemeToDocument(currentTheme), { once: true });
 
+            const eventListeners = new Map();
+            window.__muxyEventDispatch = (name, payload) => {
+                const listeners = eventListeners.get(name);
+                if (!listeners) return;
+                for (const callback of listeners) {
+                    try { callback(payload || {}); } catch (_) {}
+                }
+            };
+
             const muxy = {
                 extensionID: \(extensionLiteral),
                 tabInstanceID: \(instanceLiteral),
@@ -144,15 +153,6 @@ enum ExtensionWebBridge {
                         };
                     },
                 },
-            };
-
-            const eventListeners = new Map();
-            window.__muxyEventDispatch = (name, payload) => {
-                const listeners = eventListeners.get(name);
-                if (!listeners) return;
-                for (const callback of listeners) {
-                    try { callback(payload || {}); } catch (_) {}
-                }
             };
 
             Object.freeze(muxy.tabs);
