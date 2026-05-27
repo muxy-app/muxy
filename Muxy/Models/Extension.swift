@@ -65,6 +65,31 @@ enum ExtensionPermission: String, Codable, CaseIterable {
     case notificationsWrite = "notifications:write"
     case commandsRunScript = "commands:run-script"
     case commandsExec = "commands:exec"
+
+    enum Kind {
+        case read
+        case write
+        case action
+    }
+
+    var kind: Kind {
+        switch self {
+        case .panesRead,
+             .tabsRead,
+             .projectsRead,
+             .worktreesRead:
+            .read
+        case .panesWrite,
+             .tabsWrite,
+             .projectsWrite,
+             .worktreesWrite,
+             .notificationsWrite:
+            .write
+        case .commandsRunScript,
+             .commandsExec:
+            .action
+        }
+    }
 }
 
 struct ExtensionTabType: Codable, Equatable, Identifiable {

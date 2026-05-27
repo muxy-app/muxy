@@ -397,6 +397,10 @@ struct SidebarFooter: View {
         .help("AI Usage (\(KeyBindingStore.shared.combo(for: .toggleAIUsage).displayString))")
     }
 
+    private func openExtensions() {
+        NotificationCenter.default.post(name: .openExtensionsModal, object: nil)
+    }
+
     private var collapsedFooter: some View {
         VStack(spacing: UIMetrics.spacing2) {
             if usageEnabled {
@@ -407,6 +411,8 @@ struct SidebarFooter: View {
                 .popover(isPresented: $showNotifications) {
                     NotificationPanel(onDismiss: { showNotifications = false })
                 }
+            IconButton(symbol: "puzzlepiece.extension", accessibilityLabel: "Extensions") { openExtensions() }
+                .help("Extensions")
             IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }
@@ -431,6 +437,8 @@ struct SidebarFooter: View {
                 .popover(isPresented: $showNotifications) {
                     NotificationPanel(onDismiss: { showNotifications = false })
                 }
+            IconButton(symbol: "puzzlepiece.extension", accessibilityLabel: "Extensions") { openExtensions() }
+                .help("Extensions")
             IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }

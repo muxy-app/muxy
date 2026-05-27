@@ -116,8 +116,6 @@ struct SettingsView: View {
             MobileSettingsView()
         case .ai:
             AIAssistantSettingsView()
-        case .extensions:
-            ExtensionsSettingsView()
         case .json:
             SettingsJSONEditorView()
         }
@@ -213,7 +211,6 @@ private struct SettingsSidebar: View {
                         route: .builtin(category),
                         symbol: category.symbolName,
                         title: category.title,
-                        badge: category.developmentBadge,
                         matchCountText: searchText.isEmpty ? nil : matchCountText(for: category)
                     )
                 }
@@ -222,7 +219,6 @@ private struct SettingsSidebar: View {
                         route: .ext(route.extensionID),
                         symbol: "puzzlepiece.extension",
                         title: route.displayName,
-                        badge: nil,
                         matchCountText: nil
                     )
                 }
@@ -239,7 +235,6 @@ private struct SettingsSidebar: View {
         route: SettingsRoute,
         symbol: String,
         title: String,
-        badge: String?,
         matchCountText: String?
     ) -> some View {
         let isSelected = selectedRoute == route
@@ -263,9 +258,6 @@ private struct SettingsSidebar: View {
                     }
                 }
                 Spacer(minLength: 0)
-                if let badge {
-                    SettingsDevelopmentBadge(text: badge)
-                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)

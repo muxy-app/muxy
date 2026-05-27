@@ -12,7 +12,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case notifications
     case mobile
     case ai
-    case extensions
     case json
 
     var id: String { rawValue }
@@ -29,7 +28,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .notifications: "Notifications"
         case .mobile: "Mobile"
         case .ai: "AI"
-        case .extensions: "Extensions"
         case .json: "JSON"
         }
     }
@@ -46,15 +44,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .notifications: "bell"
         case .mobile: "iphone"
         case .ai: "sparkles"
-        case .extensions: "puzzlepiece.extension"
         case .json: "curlybraces"
-        }
-    }
-
-    var developmentBadge: String? {
-        switch self {
-        case .extensions: "DEV"
-        default: nil
         }
     }
 }
