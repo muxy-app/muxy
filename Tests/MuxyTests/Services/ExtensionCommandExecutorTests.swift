@@ -142,7 +142,6 @@ struct ExtensionCommandExecutorTests {
             )
             Issue.record("expected throw")
         } catch is ExecError {
-            // expected
         } catch {
             Issue.record("expected ExecError, got \(error)")
         }

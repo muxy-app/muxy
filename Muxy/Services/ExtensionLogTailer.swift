@@ -6,7 +6,6 @@ final class ExtensionLogTailer {
     static let maxBufferedLines = 1000
 
     private let url: URL
-    private var fileDescriptor: Int32 = -1
     private var source: DispatchSourceFileSystemObject?
     private var readOffset: UInt64 = 0
     private var partial: String = ""
@@ -19,9 +18,6 @@ final class ExtensionLogTailer {
 
     deinit {
         source?.cancel()
-        if fileDescriptor >= 0 {
-            close(fileDescriptor)
-        }
     }
 
     func start() {
@@ -33,10 +29,6 @@ final class ExtensionLogTailer {
     func stop() {
         source?.cancel()
         source = nil
-        if fileDescriptor >= 0 {
-            close(fileDescriptor)
-            fileDescriptor = -1
-        }
     }
 
     func clear() {
@@ -69,7 +61,6 @@ final class ExtensionLogTailer {
     private func startWatching() {
         let fd = open(url.path, O_EVTONLY)
         guard fd >= 0 else { return }
-        fileDescriptor = fd
 
         let dispatchSource = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd,
@@ -79,12 +70,8 @@ final class ExtensionLogTailer {
         dispatchSource.setEventHandler { [weak self] in
             self?.handleFileEvent(dispatchSource.data)
         }
-        dispatchSource.setCancelHandler { [weak self] in
-            guard let self else { return }
-            if self.fileDescriptor >= 0 {
-                close(self.fileDescriptor)
-                self.fileDescriptor = -1
-            }
+        dispatchSource.setCancelHandler {
+            close(fd)
         }
         dispatchSource.resume()
         source = dispatchSource

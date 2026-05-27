@@ -89,8 +89,8 @@ final class ExtensionStore {
     }
 
     func extensionHasPermission(id: String, permission: ExtensionPermission) -> Bool {
-        guard let status = statuses.first(where: { $0.id == id }) else { return false }
-        return status.muxyExtension.manifest.permissions.contains(permission)
+        guard let muxyExtension = loadedExtension(id: id) else { return false }
+        return muxyExtension.manifest.permissions.contains(permission)
     }
 
     func loadedExtension(id: String) -> MuxyExtension? {

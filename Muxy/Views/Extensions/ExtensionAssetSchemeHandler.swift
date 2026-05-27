@@ -9,6 +9,8 @@ final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
     private let extensionID: String
     private let directory: URL
     private let ioQueue = DispatchQueue(label: "app.muxy.extension-assets", qos: .userInitiated)
+    private let activeTasksLock = NSLock()
+    private var activeTasks: Set<ObjectIdentifier> = []
 
     init(extensionID: String, directory: URL) {
         self.extensionID = extensionID
@@ -16,11 +18,14 @@ final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+        let taskID = ObjectIdentifier(urlSchemeTask)
+        registerActive(taskID)
+
         guard let url = urlSchemeTask.request.url,
               url.scheme == Self.scheme,
               url.host == extensionID
         else {
-            urlSchemeTask.didFailWithError(URLError(.badURL))
+            failIfActive(urlSchemeTask, taskID: taskID, error: URLError(.badURL))
             return
         }
 
@@ -32,19 +37,20 @@ final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
         let base = directory.resolvingSymlinksInPath()
 
         guard resolved.path == base.path || resolved.path.hasPrefix(base.path + "/") else {
-            urlSchemeTask.didFailWithError(URLError(.noPermissionsToReadFile))
+            failIfActive(urlSchemeTask, taskID: taskID, error: URLError(.noPermissionsToReadFile))
             return
         }
 
-        ioQueue.async {
+        ioQueue.async { [weak self] in
+            guard let self else { return }
             let attributes = try? FileManager.default.attributesOfItem(atPath: resolved.path)
             let size = (attributes?[.size] as? Int) ?? 0
             if size > Self.maxAssetBytes {
-                urlSchemeTask.didFailWithError(URLError(.dataLengthExceedsMaximum))
+                self.failIfActive(urlSchemeTask, taskID: taskID, error: URLError(.dataLengthExceedsMaximum))
                 return
             }
             guard let data = try? Data(contentsOf: resolved) else {
-                urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist))
+                self.failIfActive(urlSchemeTask, taskID: taskID, error: URLError(.fileDoesNotExist))
                 return
             }
             let response = HTTPURLResponse(
@@ -57,15 +63,46 @@ final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
                     "Cache-Control": "no-store",
                 ]
             )
-            if let response {
-                urlSchemeTask.didReceive(response)
-            }
-            urlSchemeTask.didReceive(data)
-            urlSchemeTask.didFinish()
+            guard let response else { return }
+            self.finishIfActive(urlSchemeTask, taskID: taskID, response: response, data: data)
         }
     }
 
-    func webView(_: WKWebView, stop _: WKURLSchemeTask) {}
+    func webView(_: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+        let taskID = ObjectIdentifier(urlSchemeTask)
+        activeTasksLock.lock()
+        activeTasks.remove(taskID)
+        activeTasksLock.unlock()
+    }
+
+    private func registerActive(_ taskID: ObjectIdentifier) {
+        activeTasksLock.lock()
+        activeTasks.insert(taskID)
+        activeTasksLock.unlock()
+    }
+
+    private func consumeActive(_ taskID: ObjectIdentifier) -> Bool {
+        activeTasksLock.lock()
+        defer { activeTasksLock.unlock() }
+        return activeTasks.remove(taskID) != nil
+    }
+
+    private func failIfActive(_ task: WKURLSchemeTask, taskID: ObjectIdentifier, error: Error) {
+        guard consumeActive(taskID) else { return }
+        task.didFailWithError(error)
+    }
+
+    private func finishIfActive(
+        _ task: WKURLSchemeTask,
+        taskID: ObjectIdentifier,
+        response: URLResponse,
+        data: Data
+    ) {
+        guard consumeActive(taskID) else { return }
+        task.didReceive(response)
+        task.didReceive(data)
+        task.didFinish()
+    }
 
     private static func mimeType(for url: URL) -> String {
         let ext = url.pathExtension.lowercased()

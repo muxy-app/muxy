@@ -23,6 +23,7 @@ final class ExtensionScriptRunner {
     private struct ContextHandle {
         let context: JSContext
         let queue: DispatchQueue
+        let cancelFlag: ScriptCancelFlag
     }
 
     private var contexts: [String: ContextHandle] = [:]
@@ -30,7 +31,9 @@ final class ExtensionScriptRunner {
     private init() {}
 
     func evict(extensionID: String) {
-        contexts.removeValue(forKey: extensionID)
+        if let handle = contexts.removeValue(forKey: extensionID) {
+            handle.cancelFlag.cancel()
+        }
     }
 
     func runScript(
@@ -45,12 +48,17 @@ final class ExtensionScriptRunner {
         }
 
         let handle = try makeContextHandle(for: extensionID)
-        defer { contexts.removeValue(forKey: extensionID) }
+        defer {
+            if contexts[extensionID]?.cancelFlag === handle.cancelFlag {
+                contexts.removeValue(forKey: extensionID)
+            }
+        }
         let bridge = ScriptBridge(
             extensionID: extensionID,
             appState: appState,
             projectStore: projectStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            cancelFlag: handle.cancelFlag
         )
         bridge.install(into: handle.context)
 
@@ -81,9 +89,26 @@ final class ExtensionScriptRunner {
         guard let context = JSContext() else {
             throw RunError.evaluationFailed("Failed to create JSContext")
         }
-        let handle = ContextHandle(context: context, queue: queue)
+        let handle = ContextHandle(context: context, queue: queue, cancelFlag: ScriptCancelFlag())
         contexts[extensionID] = handle
         return handle
+    }
+}
+
+final class ScriptCancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
     }
 }
 
@@ -92,18 +117,21 @@ private final class ScriptBridge: @unchecked Sendable {
     private weak var appState: AppState?
     private weak var projectStore: ProjectStore?
     private weak var worktreeStore: WorktreeStore?
+    private let cancelFlag: ScriptCancelFlag
 
     @MainActor
     init(
         extensionID: String,
         appState: AppState,
         projectStore: ProjectStore?,
-        worktreeStore: WorktreeStore?
+        worktreeStore: WorktreeStore?,
+        cancelFlag: ScriptCancelFlag
     ) {
         self.extensionID = extensionID
         self.appState = appState
         self.projectStore = projectStore
         self.worktreeStore = worktreeStore
+        self.cancelFlag = cancelFlag
     }
 
     @MainActor
@@ -124,17 +152,12 @@ private final class ScriptBridge: @unchecked Sendable {
     }
 
     private func dispatch(verb: String, args: [String: Any]) -> Any {
+        if cancelFlag.isCancelled {
+            return Self.errorObject("extension stopped")
+        }
         let bridge = self
         let argsBox = AnyBox(args)
         do {
-            if let required = MuxyAPI.Permissions.required(for: verb) {
-                let allowed: Bool = try syncAwait { @MainActor in
-                    ExtensionStore.shared.extensionHasPermission(id: bridge.extensionID, permission: required)
-                }
-                if !allowed {
-                    return Self.errorObject("permission denied (\(required.rawValue))")
-                }
-            }
             let encoded = try syncAwait { @MainActor in
                 let raw = try await bridge.handle(verb: verb, args: argsBox.value)
                 return try BridgeValue(from: raw)
