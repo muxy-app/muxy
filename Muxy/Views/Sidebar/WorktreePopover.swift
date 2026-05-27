@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct WorktreePopover: View {
@@ -72,30 +71,10 @@ struct WorktreePopover: View {
 
     private func requestRemove(worktree: Worktree) async {
         let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(worktreePath: worktree.path)
-        if !hasChanges {
-            performRemove(worktree: worktree)
-            return
-        }
-        presentRemoveConfirmation(worktree: worktree)
-    }
-
-    private func presentRemoveConfirmation(worktree: Worktree) {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              window.attachedSheet == nil
-        else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Remove worktree \"\(worktree.name)\"?"
-        alert.informativeText = "This worktree has uncommitted changes. Removing it will permanently discard them."
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Remove")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.buttons[1].keyEquivalent = "\u{1b}"
-
-        alert.beginSheetModal(for: window) { response in
-            guard response == .alertFirstButtonReturn else { return }
+        WorktreeRemovalConfirmationPresenter.present(
+            worktree: worktree,
+            hasUncommittedChanges: hasChanges
+        ) {
             performRemove(worktree: worktree)
         }
     }
