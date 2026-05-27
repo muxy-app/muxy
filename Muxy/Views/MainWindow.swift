@@ -408,7 +408,18 @@ struct MainWindow: View {
                     isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
                     richInputVisible: richInputPanelVisible,
                     richInputFontSize: $richInputFontSize,
-                    extensionOutputVisible: $showExtensionOutput
+                    extensionOutputVisible: $showExtensionOutput,
+                    onTriggerExtensionCommand: { binding in
+                        ExtensionStore.shared.triggerCommand(
+                            ExtensionStore.CommandInvocation(
+                                extensionID: binding.muxyExtension.id,
+                                commandID: binding.item.command,
+                                appState: appState,
+                                projectStore: projectStore,
+                                worktreeStore: worktreeStore
+                            )
+                        )
+                    }
                 )
             }
         }

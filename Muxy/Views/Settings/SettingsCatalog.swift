@@ -59,6 +59,18 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     }
 }
 
+enum SettingsRoute: Hashable, Identifiable {
+    case builtin(SettingsCategory)
+    case ext(String)
+
+    var id: String {
+        switch self {
+        case let .builtin(category): "builtin.\(category.rawValue)"
+        case let .ext(extensionID): "ext.\(extensionID)"
+        }
+    }
+}
+
 struct SettingsCatalogItem: Identifiable, Equatable {
     let key: String
     let title: String

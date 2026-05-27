@@ -177,6 +177,117 @@ struct ExtensionManifestTests {
         #expect(invalidName.errorDescription?.contains("bad name") == true)
     }
 
+    @Test("decodes topbar items, statusbar items, and settings")
+    func decodesNewSurfaces() throws {
+        let json = #"""
+        {
+            "name": "demo",
+            "version": "1.0.0",
+            "entrypoint": "run.sh",
+            "commands": [
+                { "id": "open-pr", "title": "Open PR" }
+            ],
+            "topbarItems": [
+                { "id": "pr", "icon": { "symbol": "arrow.triangle.pull" }, "command": "open-pr" }
+            ],
+            "statusBarItems": [
+                { "id": "build", "icon": "hammer", "side": "right", "command": "open-pr" }
+            ],
+            "settings": [
+                { "key": "endpoint", "title": "Endpoint", "type": "string", "defaultValue": "https://x" }
+            ]
+        }
+        """#
+        let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+
+        #expect(manifest.topbarItems.count == 1)
+        #expect(manifest.topbarItems[0].command == "open-pr")
+        if case let .symbol(name) = manifest.topbarItems[0].icon {
+            #expect(name == "arrow.triangle.pull")
+        } else {
+            Issue.record("expected symbol icon")
+        }
+        #expect(manifest.statusBarItems[0].side == .right)
+        if case let .symbol(name) = manifest.statusBarItems[0].icon {
+            #expect(name == "hammer")
+        } else {
+            Issue.record("expected bare string to decode as symbol icon")
+        }
+        #expect(manifest.settings[0].key == "endpoint")
+        #expect(manifest.settings[0].type == .string)
+    }
+
+    @Test("rejects topbar item referencing unknown command")
+    func rejectsTopbarUnknownCommand() throws {
+        let directory = try makeTemporaryExtension(
+            name: "topbar-bad",
+            manifest: """
+            {
+                "name": "topbar-bad",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "topbarItems": [
+                    { "id": "x", "icon": "puzzlepiece.extension", "command": "missing" }
+                ]
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects topbar item with missing SVG")
+    func rejectsTopbarMissingSVG() throws {
+        let directory = try makeTemporaryExtension(
+            name: "topbar-svg",
+            manifest: """
+            {
+                "name": "topbar-svg",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "commands": [ { "id": "noop", "title": "noop" } ],
+                "topbarItems": [
+                    { "id": "x", "icon": { "svg": "assets/missing.svg" }, "command": "noop" }
+                ]
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects duplicate setting keys")
+    func rejectsDuplicateSettingKeys() throws {
+        let directory = try makeTemporaryExtension(
+            name: "settings-dup",
+            manifest: """
+            {
+                "name": "settings-dup",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "settings": [
+                    { "key": "x", "title": "X", "type": "bool" },
+                    { "key": "x", "title": "X again", "type": "bool" }
+                ]
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
     @Test("withEnabled preserves tabTypes")
     func withEnabledPreservesTabTypes() {
         let tabType = ExtensionTabType(id: "details", title: "Details", entry: "ui/index.html", defaultData: nil)

@@ -57,6 +57,7 @@ final class ExtensionStore {
         for status in statuses where status.isRunning {
             stopProcess(extensionID: status.id)
         }
+        statusBarTextOverrides.removeAll()
         publishSnapshot()
     }
 
@@ -84,6 +85,9 @@ final class ExtensionStore {
             startExtension(at: index)
         } else if !enabled, statuses[index].isRunning {
             stopProcess(extensionID: extensionID)
+        }
+        if !enabled {
+            statusBarTextOverrides.removeValue(forKey: extensionID)
         }
         publishSnapshot()
     }
@@ -132,12 +136,71 @@ final class ExtensionStore {
         let command: ExtensionPaletteCommand
     }
 
+    struct TopbarItemBinding: Equatable, Identifiable {
+        let muxyExtension: MuxyExtension
+        let item: ExtensionTopbarItem
+
+        var id: String { "\(muxyExtension.id):\(item.id)" }
+    }
+
+    struct StatusBarItemBinding: Equatable, Identifiable {
+        let muxyExtension: MuxyExtension
+        let item: ExtensionStatusBarItem
+        let liveText: String?
+
+        var id: String { "\(muxyExtension.id):\(item.id)" }
+        var displayText: String? { liveText ?? item.text }
+    }
+
+    private var statusBarTextOverrides: [String: [String: String]] = [:]
+
     func paletteCommands() -> [PaletteCommandBinding] {
         statuses
             .filter(\.muxyExtension.manifest.enabled)
             .flatMap { status in
                 status.muxyExtension.manifest.commands.map { PaletteCommandBinding(muxyExtension: status.muxyExtension, command: $0) }
             }
+    }
+
+    func topbarItems() -> [TopbarItemBinding] {
+        statuses
+            .filter(\.muxyExtension.manifest.enabled)
+            .flatMap { status in
+                status.muxyExtension.manifest.topbarItems.map { item in
+                    TopbarItemBinding(muxyExtension: status.muxyExtension, item: item)
+                }
+            }
+    }
+
+    func statusBarItems(side: ExtensionStatusBarItem.Side) -> [StatusBarItemBinding] {
+        statuses
+            .filter(\.muxyExtension.manifest.enabled)
+            .flatMap { status in
+                status.muxyExtension.manifest.statusBarItems
+                    .filter { $0.side == side }
+                    .map { item in
+                        StatusBarItemBinding(
+                            muxyExtension: status.muxyExtension,
+                            item: item,
+                            liveText: statusBarTextOverrides[status.id]?[item.id]
+                        )
+                    }
+            }
+    }
+
+    func setStatusBarText(extensionID: String, itemID: String, text: String?) -> Bool {
+        guard let muxyExtension = loadedExtension(id: extensionID),
+              muxyExtension.manifest.statusBarItem(id: itemID) != nil
+        else { return false }
+
+        var overrides = statusBarTextOverrides[extensionID] ?? [:]
+        if let text {
+            overrides[itemID] = text
+        } else {
+            overrides.removeValue(forKey: itemID)
+        }
+        statusBarTextOverrides[extensionID] = overrides.isEmpty ? nil : overrides
+        return true
     }
 
     struct CommandInvocation {

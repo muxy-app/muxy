@@ -44,7 +44,11 @@ struct PaneTabStrip: View {
     let onSetColorID: (UUID, String?) -> Void
     let onReorderTab: (IndexSet, Int) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
+    @Environment(AppState.self) private var appState
+    @Environment(ProjectStore.self) private var projectStore
+    @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = TabDragState()
+    @State private var extensionStore = ExtensionStore.shared
 
     static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
         tabs.map { tab in
@@ -98,6 +102,15 @@ struct PaneTabStrip: View {
                     let label = isMaximized ? "Restore Pane" : "Maximize Pane"
                     IconButton(symbol: symbol, accessibilityLabel: label, action: onToggleMaximize)
                         .help(shortcutTooltip("Toggle Maximize Pane", for: .toggleMaximizePane))
+                }
+                ForEach(extensionStore.topbarItems()) { binding in
+                    ExtensionIconButton(
+                        icon: binding.item.icon,
+                        muxyExtension: binding.muxyExtension,
+                        accessibilityLabel: binding.item.tooltip ?? binding.item.id,
+                        action: { triggerExtensionCommand(binding: binding) }
+                    )
+                    .help(binding.item.tooltip ?? binding.item.id)
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))
@@ -211,6 +224,18 @@ struct PaneTabStrip: View {
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
         "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
+    }
+
+    private func triggerExtensionCommand(binding: ExtensionStore.TopbarItemBinding) {
+        extensionStore.triggerCommand(
+            ExtensionStore.CommandInvocation(
+                extensionID: binding.muxyExtension.id,
+                commandID: binding.item.command,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
+        )
     }
 
     private var developmentBadge: some View {

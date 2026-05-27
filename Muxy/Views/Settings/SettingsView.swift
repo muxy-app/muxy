@@ -2,12 +2,30 @@ import AppKit
 import SwiftUI
 
 struct SettingsView: View {
-    @State private var selectedCategory: SettingsCategory = .general
+    @State private var selectedRoute: SettingsRoute = .builtin(.general)
     @State private var searchText = ""
     @State private var themeRefreshID = 0
+    @State private var extensionStore = ExtensionStore.shared
 
     private var visibleCategories: [SettingsCategory] {
         SettingsCatalog.categories.filter { SettingsCatalog.categoryMatches($0, query: searchText) }
+    }
+
+    private var visibleExtensionRoutes: [(extensionID: String, displayName: String)] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return extensionStore.statuses
+            .filter { $0.muxyExtension.manifest.enabled && !$0.muxyExtension.manifest.settings.isEmpty }
+            .filter { status in
+                guard !query.isEmpty else { return true }
+                let displayName = status.muxyExtension.displayName.lowercased()
+                if displayName.contains(query) { return true }
+                return status.muxyExtension.manifest.settings.contains { entry in
+                    entry.key.lowercased().contains(query)
+                        || entry.title.lowercased().contains(query)
+                        || (entry.description?.lowercased().contains(query) ?? false)
+                }
+            }
+            .map { ($0.id, $0.muxyExtension.displayName) }
     }
 
     var body: some View {
@@ -17,7 +35,8 @@ struct SettingsView: View {
             HStack(spacing: 0) {
                 SettingsSidebar(
                     categories: visibleCategories,
-                    selectedCategory: $selectedCategory,
+                    extensionRoutes: visibleExtensionRoutes,
+                    selectedRoute: $selectedRoute,
                     searchText: searchText
                 )
                 Rectangle()
@@ -26,7 +45,7 @@ struct SettingsView: View {
                 settingsContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .environment(\.settingsSearchQuery, searchText)
-                    .environment(\.settingsCategory, selectedCategory)
+                    .environment(\.settingsCategory, selectedBuiltinCategory ?? .general)
             }
         }
         .frame(minWidth: 860, minHeight: 620)
@@ -36,21 +55,47 @@ struct SettingsView: View {
         .preferredColorScheme(MuxyTheme.colorScheme)
         .resetsSettingsFocusOnOutsideClick()
         .onChange(of: searchText) { _, _ in
-            guard !visibleCategories.contains(selectedCategory), let first = visibleCategories.first else { return }
-            selectedCategory = first
+            guard !isRouteVisible(selectedRoute) else { return }
+            if let first = visibleCategories.first {
+                selectedRoute = .builtin(first)
+            } else if let ext = visibleExtensionRoutes.first {
+                selectedRoute = .ext(ext.extensionID)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .focusProjectPickerDefaultLocation)) { _ in
             searchText = ""
-            selectedCategory = .projects
+            selectedRoute = .builtin(.projects)
         }
         .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in
             themeRefreshID += 1
         }
     }
 
+    private var selectedBuiltinCategory: SettingsCategory? {
+        if case let .builtin(category) = selectedRoute { return category }
+        return nil
+    }
+
+    private func isRouteVisible(_ route: SettingsRoute) -> Bool {
+        switch route {
+        case let .builtin(category): visibleCategories.contains(category)
+        case let .ext(extensionID): visibleExtensionRoutes.contains { $0.extensionID == extensionID }
+        }
+    }
+
     @ViewBuilder
     private var settingsContent: some View {
-        switch selectedCategory {
+        switch selectedRoute {
+        case let .builtin(category):
+            builtinContent(for: category)
+        case let .ext(extensionID):
+            ExtensionCustomSettingsView(extensionID: extensionID)
+        }
+    }
+
+    @ViewBuilder
+    private func builtinContent(for category: SettingsCategory) -> some View {
+        switch category {
         case .general:
             GeneralSettingsView()
         case .projects:
@@ -151,51 +196,35 @@ private struct SettingsHeader: View {
 
 private struct SettingsSidebar: View {
     let categories: [SettingsCategory]
-    @Binding var selectedCategory: SettingsCategory
+    let extensionRoutes: [(extensionID: String, displayName: String)]
+    @Binding var selectedRoute: SettingsRoute
     let searchText: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if categories.isEmpty {
+            if categories.isEmpty, extensionRoutes.isEmpty {
                 Text("No settings found")
                     .font(.system(size: SettingsMetrics.labelFontSize))
                     .foregroundStyle(SettingsStyle.mutedForeground)
                     .padding(SettingsMetrics.horizontalPadding)
             } else {
                 ForEach(categories) { category in
-                    Button {
-                        selectedCategory = category
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: category.symbolName)
-                                .font(.system(size: 12, weight: .medium))
-                                .frame(width: 16)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(category.title)
-                                    .font(.system(size: 12, weight: selectedCategory == category ? .semibold : .regular))
-                                    .foregroundStyle(SettingsStyle.foreground)
-                                if !searchText.isEmpty {
-                                    Text(matchCountText(for: category))
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(SettingsStyle.mutedForeground)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                            if let badge = category.developmentBadge {
-                                SettingsDevelopmentBadge(text: badge)
-                            }
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .background(
-                            selectedCategory == category ? SettingsStyle.accentSoft : .clear,
-                            in: RoundedRectangle(cornerRadius: 8)
-                        )
-                        .foregroundStyle(selectedCategory == category ? SettingsStyle.accent : SettingsStyle.mutedForeground)
-                    }
-                    .buttonStyle(.plain)
+                    sidebarRow(
+                        route: .builtin(category),
+                        symbol: category.symbolName,
+                        title: category.title,
+                        badge: category.developmentBadge,
+                        matchCountText: searchText.isEmpty ? nil : matchCountText(for: category)
+                    )
+                }
+                ForEach(extensionRoutes, id: \.extensionID) { route in
+                    sidebarRow(
+                        route: .ext(route.extensionID),
+                        symbol: "puzzlepiece.extension",
+                        title: route.displayName,
+                        badge: nil,
+                        matchCountText: nil
+                    )
                 }
             }
             Spacer()
@@ -203,6 +232,52 @@ private struct SettingsSidebar: View {
         .padding(10)
         .frame(width: 210)
         .background(SettingsStyle.sidebarBackground)
+    }
+
+    @ViewBuilder
+    private func sidebarRow(
+        route: SettingsRoute,
+        symbol: String,
+        title: String,
+        badge: String?,
+        matchCountText: String?
+    ) -> some View {
+        let isSelected = selectedRoute == route
+        Button {
+            selectedRoute = route
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 16)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                        .foregroundStyle(SettingsStyle.foreground)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let matchCountText {
+                        Text(matchCountText)
+                            .font(.system(size: 10))
+                            .foregroundStyle(SettingsStyle.mutedForeground)
+                    }
+                }
+                Spacer(minLength: 0)
+                if let badge {
+                    SettingsDevelopmentBadge(text: badge)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(
+                isSelected ? SettingsStyle.accentSoft : .clear,
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .foregroundStyle(isSelected ? SettingsStyle.accent : SettingsStyle.mutedForeground)
+        }
+        .buttonStyle(.plain)
     }
 
     private func matchCountText(for category: SettingsCategory) -> String {

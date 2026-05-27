@@ -30,8 +30,25 @@ Every extension declares itself in a `manifest.json` next to its entrypoint.
 | `events` | string[] | no | Events the extension is allowed to subscribe to. See [Events](events.md). Defaults to empty. |
 | `commands` | object[] | no | Palette commands to register. See [Palette Commands](palette-commands.md). |
 | `tabTypes` | object[] | no | Webview tab types the extension exposes. See [Tabs](tabs.md). |
+| `topbarItems` | object[] | no | Icons to attach to the tab strip. See [Topbar](topbar.md). |
+| `statusBarItems` | object[] | no | Icons to attach to the footer status bar. See [Status Bar](statusbar.md). |
+| `settings` | object[] | no | Typed settings shown in the Settings sidebar. See [Settings](settings.md). |
 | `aiProvider` | object | no | Optional notification source mapping. See [AI Provider Hooks](ai-provider.md). |
 | `enabled` | bool | no | Defaults to `true`. Toggling in Settings persists across launches at runtime. |
+
+## Icons
+
+Topbar and status bar items accept an `icon` field in one of two forms:
+
+```json
+{ "icon": { "symbol": "puzzlepiece.extension" } }
+{ "icon": { "svg": "assets/badge.svg" } }
+```
+
+A bare string (`"icon": "puzzlepiece.extension"`) is accepted as shorthand for `{ "symbol": ... }`.
+
+- **`symbol`** — any SF Symbol name. Tinted with the chrome's muted/hover colors automatically.
+- **`svg`** — a path **relative to the extension directory** to an `.svg` file. The file must exist at load time and must not escape the extension directory. Rendered as a *template* image, so SVG fills/strokes that use `currentColor` (or a single solid color) pick up the chrome tint.
 
 ## Loader behaviour
 

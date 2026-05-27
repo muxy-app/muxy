@@ -15,6 +15,8 @@ struct ProjectStatusBar: View {
     let richInputVisible: Bool
     @Binding var richInputFontSize: Double
     @Binding var extensionOutputVisible: Bool
+    var onTriggerExtensionCommand: ((ExtensionStore.StatusBarItemBinding) -> Void)?
+    @State private var extensionStore = ExtensionStore.shared
 
     private var richInputShortcutLabel: String {
         KeyBindingStore.shared.combo(for: .toggleRichInput).displayString
@@ -26,31 +28,9 @@ struct ProjectStatusBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if let statusContext {
-                pathButton(statusContext.path)
-                if let worktreeName = statusContext.worktreeName {
-                    separator
-                    worktreeLabel(worktreeName)
-                }
-                if let branch = statusContext.branch {
-                    separator
-                    branchLabel(branch)
-                }
-            }
+            leftSide
             Spacer(minLength: 8)
-            extensionOutputChip
-            separator
-            if richInputVisible {
-                zoomControls
-                separator
-                shortcutHints
-                separator
-            }
-            if activePane != nil {
-                richInputToggleButton
-                separator
-                voiceRecordingButton
-            }
+            rightSide
         }
         .padding(.horizontal, 10)
         .frame(height: 28)
@@ -61,6 +41,69 @@ struct ProjectStatusBar: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Status bar")
+    }
+
+    private var leftItems: [AnyView] {
+        var items: [AnyView] = []
+        if let statusContext {
+            items.append(AnyView(pathButton(statusContext.path)))
+            if let worktreeName = statusContext.worktreeName {
+                items.append(AnyView(worktreeLabel(worktreeName)))
+            }
+            if let branch = statusContext.branch {
+                items.append(AnyView(branchLabel(branch)))
+            }
+        }
+        for binding in extensionStore.statusBarItems(side: .left) {
+            items.append(AnyView(extensionItem(binding: binding)))
+        }
+        return items
+    }
+
+    private var rightItems: [AnyView] {
+        var items: [AnyView] = [AnyView(extensionOutputChip)]
+        for binding in extensionStore.statusBarItems(side: .right) {
+            items.append(AnyView(extensionItem(binding: binding)))
+        }
+        if richInputVisible {
+            items.append(AnyView(zoomControls))
+            items.append(AnyView(shortcutHints))
+        }
+        if activePane != nil {
+            items.append(AnyView(richInputToggleButton))
+            items.append(AnyView(voiceRecordingButton))
+        }
+        return items
+    }
+
+    @ViewBuilder
+    private var leftSide: some View {
+        let items = leftItems
+        if items.isEmpty {
+            EmptyView()
+        } else {
+            HStack(spacing: 8) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    item
+                    separator
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rightSide: some View {
+        let items = rightItems
+        if items.isEmpty {
+            EmptyView()
+        } else {
+            HStack(spacing: 8) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    separator
+                    item
+                }
+            }
+        }
     }
 
     private var statusContext: StatusContext? {
@@ -151,6 +194,29 @@ struct ProjectStatusBar: View {
             .frame(width: 1)
             .frame(maxHeight: .infinity)
             .accessibilityHidden(true)
+    }
+
+    private func extensionItem(binding: ExtensionStore.StatusBarItemBinding) -> some View {
+        Button {
+            onTriggerExtensionCommand?(binding)
+        } label: {
+            HStack(spacing: 4) {
+                ExtensionIconView(
+                    icon: binding.item.icon,
+                    muxyExtension: binding.muxyExtension,
+                    size: 10
+                )
+                if let text = binding.displayText, !text.isEmpty {
+                    Text(text)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(MuxyTheme.fgMuted)
+        }
+        .buttonStyle(.plain)
+        .help(binding.item.tooltip ?? binding.item.id)
+        .accessibilityLabel(binding.item.tooltip ?? binding.item.id)
     }
 
     private var extensionOutputChip: some View {

@@ -74,6 +74,84 @@ struct ExtensionTabType: Codable, Equatable, Identifiable {
     let defaultData: ExtensionJSON?
 }
 
+enum ExtensionIcon: Codable, Equatable {
+    case symbol(String)
+    case svg(String)
+
+    private enum CodingKeys: String, CodingKey {
+        case symbol
+        case svg
+    }
+
+    init(from decoder: Decoder) throws {
+        if let container = try? decoder.singleValueContainer(),
+           let raw = try? container.decode(String.self)
+        {
+            self = .symbol(raw)
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let symbol = try container.decodeIfPresent(String.self, forKey: .symbol) {
+            self = .symbol(symbol)
+            return
+        }
+        if let svg = try container.decodeIfPresent(String.self, forKey: .svg) {
+            self = .svg(svg)
+            return
+        }
+        throw DecodingError.dataCorruptedError(
+            forKey: CodingKeys.symbol,
+            in: container,
+            debugDescription: "Icon requires either a 'symbol' or 'svg' field"
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case let .symbol(value): try container.encode(value, forKey: .symbol)
+        case let .svg(value): try container.encode(value, forKey: .svg)
+        }
+    }
+}
+
+struct ExtensionTopbarItem: Codable, Equatable, Identifiable {
+    let id: String
+    let icon: ExtensionIcon
+    let tooltip: String?
+    let command: String
+}
+
+struct ExtensionStatusBarItem: Codable, Equatable, Identifiable {
+    enum Side: String, Codable {
+        case left
+        case right
+    }
+
+    let id: String
+    let icon: ExtensionIcon
+    let text: String?
+    let tooltip: String?
+    let side: Side
+    let command: String
+}
+
+enum ExtensionSettingType: String, Codable {
+    case string
+    case bool
+    case number
+}
+
+struct ExtensionSettingEntry: Codable, Equatable, Identifiable {
+    let key: String
+    let title: String
+    let description: String?
+    let type: ExtensionSettingType
+    let defaultValue: ExtensionJSON?
+
+    var id: String { key }
+}
+
 enum ExtensionCommandAction: Codable, Equatable {
     case event
     case openTab(tabType: String, data: ExtensionJSON?)
@@ -171,6 +249,9 @@ struct ExtensionManifest: Codable, Equatable {
     let tabTypes: [ExtensionTabType]
     let permissions: [ExtensionPermission]
     let aiProvider: ExtensionAIProvider?
+    let topbarItems: [ExtensionTopbarItem]
+    let statusBarItems: [ExtensionStatusBarItem]
+    let settings: [ExtensionSettingEntry]
     let enabled: Bool
 
     private enum CodingKeys: String, CodingKey {
@@ -183,6 +264,9 @@ struct ExtensionManifest: Codable, Equatable {
         case tabTypes
         case permissions
         case aiProvider
+        case topbarItems
+        case statusBarItems
+        case settings
         case enabled
     }
 
@@ -196,6 +280,9 @@ struct ExtensionManifest: Codable, Equatable {
         tabTypes: [ExtensionTabType] = [],
         permissions: [ExtensionPermission] = [],
         aiProvider: ExtensionAIProvider? = nil,
+        topbarItems: [ExtensionTopbarItem] = [],
+        statusBarItems: [ExtensionStatusBarItem] = [],
+        settings: [ExtensionSettingEntry] = [],
         enabled: Bool = true
     ) {
         self.name = name
@@ -207,6 +294,9 @@ struct ExtensionManifest: Codable, Equatable {
         self.tabTypes = tabTypes
         self.permissions = permissions
         self.aiProvider = aiProvider
+        self.topbarItems = topbarItems
+        self.statusBarItems = statusBarItems
+        self.settings = settings
         self.enabled = enabled
     }
 
@@ -221,11 +311,22 @@ struct ExtensionManifest: Codable, Equatable {
         tabTypes = try container.decodeIfPresent([ExtensionTabType].self, forKey: .tabTypes) ?? []
         permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
         aiProvider = try container.decodeIfPresent(ExtensionAIProvider.self, forKey: .aiProvider)
+        topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
+        statusBarItems = try container.decodeIfPresent([ExtensionStatusBarItem].self, forKey: .statusBarItems) ?? []
+        settings = try container.decodeIfPresent([ExtensionSettingEntry].self, forKey: .settings) ?? []
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
 
     func tabType(id: String) -> ExtensionTabType? {
         tabTypes.first { $0.id == id }
+    }
+
+    func setting(key: String) -> ExtensionSettingEntry? {
+        settings.first { $0.key == key }
+    }
+
+    func statusBarItem(id: String) -> ExtensionStatusBarItem? {
+        statusBarItems.first { $0.id == id }
     }
 
     func withEnabled(_ enabled: Bool) -> ExtensionManifest {
@@ -239,6 +340,9 @@ struct ExtensionManifest: Codable, Equatable {
             tabTypes: tabTypes,
             permissions: permissions,
             aiProvider: aiProvider,
+            topbarItems: topbarItems,
+            statusBarItems: statusBarItems,
+            settings: settings,
             enabled: enabled
         )
     }
@@ -257,6 +361,18 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case commandReferencesUnknownTabType(commandID: String, tabType: String)
     case scriptMissing(commandID: String, url: URL)
     case scriptOutsideDirectory(commandID: String, url: URL)
+    case topbarItemEmptyID
+    case duplicateTopbarItem(String)
+    case topbarItemReferencesUnknownCommand(itemID: String, command: String)
+    case topbarItemSVGMissing(itemID: String, url: URL)
+    case topbarItemSVGOutsideDirectory(itemID: String, url: URL)
+    case statusBarItemEmptyID
+    case duplicateStatusBarItem(String)
+    case statusBarItemReferencesUnknownCommand(itemID: String, command: String)
+    case statusBarItemSVGMissing(itemID: String, url: URL)
+    case statusBarItemSVGOutsideDirectory(itemID: String, url: URL)
+    case settingEmptyKey
+    case duplicateSettingKey(String)
 
     var errorDescription: String? {
         switch self {
@@ -284,6 +400,30 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Command '\(commandID)' script not found at \(url.path)"
         case let .scriptOutsideDirectory(commandID, url):
             "Command '\(commandID)' script at \(url.path) escapes the extension directory"
+        case .topbarItemEmptyID:
+            "Topbar item id must not be empty"
+        case let .duplicateTopbarItem(id):
+            "Duplicate topbar item '\(id)'"
+        case let .topbarItemReferencesUnknownCommand(itemID, command):
+            "Topbar item '\(itemID)' references unknown command '\(command)'"
+        case let .topbarItemSVGMissing(itemID, url):
+            "Topbar item '\(itemID)' icon SVG not found at \(url.path)"
+        case let .topbarItemSVGOutsideDirectory(itemID, url):
+            "Topbar item '\(itemID)' icon SVG at \(url.path) escapes the extension directory"
+        case .statusBarItemEmptyID:
+            "Status bar item id must not be empty"
+        case let .duplicateStatusBarItem(id):
+            "Duplicate status bar item '\(id)'"
+        case let .statusBarItemReferencesUnknownCommand(itemID, command):
+            "Status bar item '\(itemID)' references unknown command '\(command)'"
+        case let .statusBarItemSVGMissing(itemID, url):
+            "Status bar item '\(itemID)' icon SVG not found at \(url.path)"
+        case let .statusBarItemSVGOutsideDirectory(itemID, url):
+            "Status bar item '\(itemID)' icon SVG at \(url.path) escapes the extension directory"
+        case .settingEmptyKey:
+            "Setting key must not be empty"
+        case let .duplicateSettingKey(key):
+            "Duplicate setting key '\(key)'"
         }
     }
 }
@@ -352,6 +492,9 @@ enum ExtensionManifestLoader {
         let muxyExtension = MuxyExtension(id: manifest.name, directory: directory, manifest: manifest)
         try validateTabTypes(manifest: manifest, in: muxyExtension)
         try validateCommands(manifest: manifest, in: muxyExtension)
+        try validateTopbarItems(manifest: manifest, in: muxyExtension)
+        try validateStatusBarItems(manifest: manifest, in: muxyExtension)
+        try validateSettings(manifest: manifest)
 
         return muxyExtension
     }
@@ -404,6 +547,72 @@ enum ExtensionManifestLoader {
                 guard FileManager.default.fileExists(atPath: url.path) else {
                     throw ExtensionLoadError.scriptMissing(commandID: command.id, url: url)
                 }
+            }
+        }
+    }
+
+    private static func validateTopbarItems(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
+        let commandIDs = Set(manifest.commands.map(\.id))
+        var seen = Set<String>()
+        for item in manifest.topbarItems {
+            guard !item.id.isEmpty else { throw ExtensionLoadError.topbarItemEmptyID }
+            guard seen.insert(item.id).inserted else {
+                throw ExtensionLoadError.duplicateTopbarItem(item.id)
+            }
+            guard commandIDs.contains(item.command) else {
+                throw ExtensionLoadError.topbarItemReferencesUnknownCommand(
+                    itemID: item.id,
+                    command: item.command
+                )
+            }
+            if case let .svg(path) = item.icon {
+                guard let url = muxyExtension.resolveResource(path) else {
+                    throw ExtensionLoadError.topbarItemSVGOutsideDirectory(
+                        itemID: item.id,
+                        url: muxyExtension.directory.appendingPathComponent(path)
+                    )
+                }
+                guard FileManager.default.fileExists(atPath: url.path) else {
+                    throw ExtensionLoadError.topbarItemSVGMissing(itemID: item.id, url: url)
+                }
+            }
+        }
+    }
+
+    private static func validateStatusBarItems(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
+        let commandIDs = Set(manifest.commands.map(\.id))
+        var seen = Set<String>()
+        for item in manifest.statusBarItems {
+            guard !item.id.isEmpty else { throw ExtensionLoadError.statusBarItemEmptyID }
+            guard seen.insert(item.id).inserted else {
+                throw ExtensionLoadError.duplicateStatusBarItem(item.id)
+            }
+            guard commandIDs.contains(item.command) else {
+                throw ExtensionLoadError.statusBarItemReferencesUnknownCommand(
+                    itemID: item.id,
+                    command: item.command
+                )
+            }
+            if case let .svg(path) = item.icon {
+                guard let url = muxyExtension.resolveResource(path) else {
+                    throw ExtensionLoadError.statusBarItemSVGOutsideDirectory(
+                        itemID: item.id,
+                        url: muxyExtension.directory.appendingPathComponent(path)
+                    )
+                }
+                guard FileManager.default.fileExists(atPath: url.path) else {
+                    throw ExtensionLoadError.statusBarItemSVGMissing(itemID: item.id, url: url)
+                }
+            }
+        }
+    }
+
+    private static func validateSettings(manifest: ExtensionManifest) throws {
+        var seen = Set<String>()
+        for entry in manifest.settings {
+            guard !entry.key.isEmpty else { throw ExtensionLoadError.settingEmptyKey }
+            guard seen.insert(entry.key).inserted else {
+                throw ExtensionLoadError.duplicateSettingKey(entry.key)
             }
         }
     }

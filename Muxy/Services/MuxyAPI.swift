@@ -152,6 +152,9 @@ enum MuxyAPI {
             "next-tab": "tabs.next",
             "previous-tab": "tabs.previous",
             "open-tab": "tabs.open",
+            "extension.settings.get": "extension.settings.get",
+            "extension.settings.set": "extension.settings.set",
+            "extension.statusbar.set": "extension.statusbar.set",
         ]
 
         private static let verbPermissions: [String: ExtensionPermission] = [

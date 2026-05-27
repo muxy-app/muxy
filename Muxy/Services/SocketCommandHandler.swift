@@ -190,9 +190,74 @@ enum SocketCommandHandler {
             } catch {
                 return "error:invalid open-tab payload: \(error.localizedDescription)"
             }
+        case "extension.settings.get":
+            guard parts.count >= 2 else { return "error:usage extension.settings.get|key" }
+            return handleSettingsGet(key: parts[1], extensionID: clientContext.extensionID)
+        case "extension.settings.set":
+            guard parts.count >= 3 else { return "error:usage extension.settings.set|key|<json-value>" }
+            let value = parts.dropFirst(2).joined(separator: "|")
+            return handleSettingsSet(key: parts[1], rawValue: value, extensionID: clientContext.extensionID)
+        case "extension.statusbar.set":
+            guard parts.count >= 2 else { return "error:usage extension.statusbar.set|itemID[|text]" }
+            let text = parts.count >= 3 ? parts.dropFirst(2).joined(separator: "|") : nil
+            return handleStatusBarSet(itemID: parts[1], text: text, extensionID: clientContext.extensionID)
         default:
             return "error:unknown command \(cmd)"
         }
+    }
+
+    private static func handleSettingsGet(key: String, extensionID: String?) -> String {
+        guard let extensionID else { return "error:identify required" }
+        guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID) else {
+            return "error:unknown extension"
+        }
+        guard muxyExtension.manifest.setting(key: key) != nil else {
+            return "error:setting '\(key)' not declared in manifest"
+        }
+        let store = ExtensionSettingsStore.shared
+        let entry = muxyExtension.manifest.setting(key: key)
+        guard let entry,
+              let value = store.effectiveValue(extensionID: extensionID, entry: entry)
+        else { return "ok\tnull" }
+
+        do {
+            let data = try JSONEncoder().encode(value)
+            let json = String(data: data, encoding: .utf8) ?? "null"
+            return "ok\t\(json)"
+        } catch {
+            return "error:encode failed"
+        }
+    }
+
+    private static func handleSettingsSet(key: String, rawValue: String, extensionID: String?) -> String {
+        guard let extensionID else { return "error:identify required" }
+        guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID) else {
+            return "error:unknown extension"
+        }
+        guard muxyExtension.manifest.setting(key: key) != nil else {
+            return "error:setting '\(key)' not declared in manifest"
+        }
+        guard let data = rawValue.data(using: .utf8) else {
+            return "error:invalid value encoding"
+        }
+        do {
+            let value = try JSONDecoder().decode(ExtensionJSON.self, from: data)
+            ExtensionSettingsStore.shared.setValue(value, extensionID: extensionID, key: key)
+            return "ok"
+        } catch {
+            return "error:invalid json value: \(error.localizedDescription)"
+        }
+    }
+
+    private static func handleStatusBarSet(itemID: String, text: String?, extensionID: String?) -> String {
+        guard let extensionID else { return "error:identify required" }
+        let updated = ExtensionStore.shared.setStatusBarText(
+            extensionID: extensionID,
+            itemID: itemID,
+            text: text
+        )
+        guard updated else { return "error:unknown status bar item '\(itemID)'" }
+        return "ok"
     }
 
     private static func handleCreateWorktree(
