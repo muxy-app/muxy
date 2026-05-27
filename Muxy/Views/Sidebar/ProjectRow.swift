@@ -259,6 +259,7 @@ struct ProjectRow: View {
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
+        panel.directoryURL = URL(fileURLWithPath: project.path)
 
         guard panel.runModal() == .OK,
               let url = panel.url,
