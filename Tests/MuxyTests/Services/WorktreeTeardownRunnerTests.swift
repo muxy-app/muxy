@@ -106,6 +106,26 @@ struct WorktreeTeardownRunnerTests {
         #expect(lines.contains(where: { $0.channel == .stdout && $0.text == "hello" }))
     }
 
+    @Test("process captures final stdout and stderr without trailing newlines")
+    func processCapturesFinalOutputWithoutTrailingNewlines() async throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("muxy-teardown-process-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let collected = LineCollector()
+
+        let status = try await WorktreeTeardownProcess.run(
+            command: "printf out; printf err >&2",
+            workingDirectory: directory.path,
+            environment: ProcessInfo.processInfo.environment,
+            emit: { collected.append($0) }
+        )
+
+        let lines = collected.snapshot()
+        #expect(status == 0)
+        #expect(lines.contains(where: { $0.channel == .stdout && $0.text == "out" }))
+        #expect(lines.contains(where: { $0.channel == .stderr && $0.text == "err" }))
+    }
+
     private func makeProjectConfig(teardown: [String]) throws -> String {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("muxy-teardown-tests-\(UUID().uuidString)", isDirectory: true)

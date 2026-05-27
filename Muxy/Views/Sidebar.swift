@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @MainActor
@@ -176,12 +177,26 @@ struct Sidebar: View {
     private func remove(_ project: Project) {
         let capturedProject = project
         let knownWorktrees = worktreeStore.list(for: project.id)
-        Task.detached {
-            await WorktreeStore.cleanupOnDisk(for: capturedProject, knownWorktrees: knownWorktrees)
+        Task {
+            do {
+                try await WorktreeStore.cleanupOnDisk(for: capturedProject, knownWorktrees: knownWorktrees)
+                appState.removeProject(project.id)
+                projectStore.remove(id: project.id)
+                worktreeStore.removeProject(project.id)
+            } catch {
+                presentProjectRemovalFailure(project: capturedProject, error: error)
+            }
         }
-        appState.removeProject(project.id)
-        projectStore.remove(id: project.id)
-        worktreeStore.removeProject(project.id)
+    }
+
+    private func presentProjectRemovalFailure(project: Project, error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Could not remove project \"\(project.name)\""
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func reorderIfNeeded(at location: CGPoint) {

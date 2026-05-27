@@ -190,14 +190,10 @@ final class WorktreeStore {
         removeParentDirectoryIfEmpty(for: worktree.path)
     }
 
-    static func cleanupOnDisk(for project: Project, knownWorktrees: [Worktree]) async {
+    static func cleanupOnDisk(for project: Project, knownWorktrees: [Worktree]) async throws {
         let secondaryWorktrees = knownWorktrees.filter { $0.canBeRemoved && !$0.isExternallyManaged }
         for worktree in secondaryWorktrees {
-            do {
-                try await cleanupOnDisk(worktree: worktree, repoPath: project.path)
-            } catch {
-                logger.error("Failed to clean up worktree at \(worktree.path): \(error)")
-            }
+            try await cleanupOnDisk(worktree: worktree, repoPath: project.path)
         }
 
         let root = MuxyFileStorage.worktreeRoot(forProjectID: project.id)

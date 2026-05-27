@@ -98,17 +98,23 @@ struct MuxyApp: App {
                     }
                     appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
                         for id in projectIDs {
-                            if let project = projectStore.projects.first(where: { $0.id == id }) {
-                                let knownWorktrees = worktreeStore.list(for: id)
-                                Task.detached {
-                                    await WorktreeStore.cleanupOnDisk(
+                            guard let project = projectStore.projects.first(where: { $0.id == id }) else {
+                                worktreeStore.removeProject(id)
+                                continue
+                            }
+                            let knownWorktrees = worktreeStore.list(for: id)
+                            Task {
+                                do {
+                                    try await WorktreeStore.cleanupOnDisk(
                                         for: project,
                                         knownWorktrees: knownWorktrees
                                     )
+                                    projectStore.remove(id: id)
+                                    worktreeStore.removeProject(id)
+                                } catch {
+                                    ToastState.shared.show("Could not remove \(project.name): \(error.localizedDescription)")
                                 }
                             }
-                            projectStore.remove(id: id)
-                            worktreeStore.removeProject(id)
                         }
                     }
                     projectStore.onProjectRemoved = { [projectGroupStore] projectID in

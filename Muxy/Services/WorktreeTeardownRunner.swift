@@ -159,6 +159,8 @@ enum WorktreeTeardownProcess {
 
         stdout.fileHandleForReading.readabilityHandler = nil
         stderr.fileHandleForReading.readabilityHandler = nil
+        stdoutBuffer.append(stdout.fileHandleForReading.readDataToEndOfFile())
+        stderrBuffer.append(stderr.fileHandleForReading.readDataToEndOfFile())
         stdoutBuffer.flush()
         stderrBuffer.flush()
 
