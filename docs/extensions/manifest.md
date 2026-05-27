@@ -13,8 +13,7 @@ Every extension declares itself in a `manifest.json` next to its entrypoint.
   "commands": [
     { "id": "ping", "title": "Hello: Ping", "subtitle": "Demo command" }
   ],
-  "aiProvider": null,
-  "enabled": true
+  "aiProvider": null
 }
 ```
 
@@ -34,7 +33,8 @@ Every extension declares itself in a `manifest.json` next to its entrypoint.
 | `statusBarItems` | object[] | no | Icons to attach to the footer status bar. See [Status Bar](statusbar.md). |
 | `settings` | object[] | no | Typed settings shown in the Settings sidebar. See [Settings](settings.md). |
 | `aiProvider` | object | no | Optional notification source mapping. See [AI Provider Hooks](ai-provider.md). |
-| `enabled` | bool | no | Defaults to `true`. Toggling in Settings persists across launches at runtime. |
+
+Extensions are enabled by default after loading. Users toggle them in **Settings → Extensions**; that toggle is stored per-extension and persists across launches separately from the manifest.
 
 ## Icons
 

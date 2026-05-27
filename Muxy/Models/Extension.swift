@@ -292,7 +292,6 @@ struct ExtensionManifest: Codable, Equatable {
         case topbarItems
         case statusBarItems
         case settings
-        case enabled
     }
 
     init(
@@ -339,7 +338,7 @@ struct ExtensionManifest: Codable, Equatable {
         topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
         statusBarItems = try container.decodeIfPresent([ExtensionStatusBarItem].self, forKey: .statusBarItems) ?? []
         settings = try container.decodeIfPresent([ExtensionSettingEntry].self, forKey: .settings) ?? []
-        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        enabled = true
     }
 
     func tabType(id: String) -> ExtensionTabType? {

@@ -57,7 +57,6 @@ struct ExtensionStoreSnapshotBuildingTests {
                 "name": "disabled-ext",
                 "version": "1.0.0",
                 "entrypoint": "run.sh",
-                "enabled": false,
                 "events": ["pane.closed"]
             }
             """
@@ -68,7 +67,12 @@ struct ExtensionStoreSnapshotBuildingTests {
         }
 
         let enabled = try ExtensionManifestLoader.load(from: enabledDir)
-        let disabled = try ExtensionManifestLoader.load(from: disabledDir)
+        let loadedDisabled = try ExtensionManifestLoader.load(from: disabledDir)
+        let disabled = MuxyExtension(
+            id: loadedDisabled.id,
+            directory: loadedDisabled.directory,
+            manifest: loadedDisabled.manifest.withEnabled(false)
+        )
         let snapshot = ExtensionStore.buildSnapshotForTesting(from: [enabled, disabled])
 
         let entry = try #require(snapshot.entries["enabled-ext"])

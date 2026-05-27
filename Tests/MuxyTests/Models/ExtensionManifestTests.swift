@@ -39,8 +39,7 @@ struct ExtensionManifestTests {
                 { "id": "greet", "title": "Say hello", "subtitle": "demo" }
             ],
             "permissions": ["panes:read", "tabs:write"],
-            "aiProvider": { "socketTypeKey": "demo", "displayName": "Demo", "iconName": "sparkles" },
-            "enabled": false
+            "aiProvider": { "socketTypeKey": "demo", "displayName": "Demo", "iconName": "sparkles" }
         }
         """#
         let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
@@ -50,7 +49,7 @@ struct ExtensionManifestTests {
         #expect(manifest.commands == [ExtensionPaletteCommand(id: "greet", title: "Say hello", subtitle: "demo")])
         #expect(manifest.permissions == [.panesRead, .tabsWrite])
         #expect(manifest.aiProvider == ExtensionAIProvider(socketTypeKey: "demo", displayName: "Demo", iconName: "sparkles"))
-        #expect(manifest.enabled == false)
+        #expect(manifest.enabled == true)
     }
 
     @Test("loads from directory and resolves entrypoint")

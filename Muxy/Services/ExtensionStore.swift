@@ -34,6 +34,7 @@ final class ExtensionStore {
 
     private var processes: [String: Process] = [:]
     private var tokens: [String: String] = [:]
+    private var intentionalStops: Set<String> = []
     private let rootDirectoryURL: URL
 
     private init(rootDirectory: URL = ExtensionStore.defaultRootDirectory) {
@@ -73,6 +74,7 @@ final class ExtensionStore {
 
     func setEnabled(_ enabled: Bool, for extensionID: String) {
         guard let index = statuses.firstIndex(where: { $0.id == extensionID }) else { return }
+        ExtensionEnabledStore.shared.setOverride(enabled, extensionID: extensionID)
         let updatedExtension = MuxyExtension(
             id: statuses[index].muxyExtension.id,
             directory: statuses[index].muxyExtension.directory,
@@ -375,15 +377,16 @@ final class ExtensionStore {
             else { continue }
 
             do {
-                let ext = try ExtensionManifestLoader.load(from: url)
-                guard !seenIDs.contains(ext.id) else {
+                let loaded = try ExtensionManifestLoader.load(from: url)
+                guard !seenIDs.contains(loaded.id) else {
                     loadFailures.append(LoadFailure(
                         directory: url,
-                        message: ExtensionLoadError.duplicateName(ext.id).localizedDescription
+                        message: ExtensionLoadError.duplicateName(loaded.id).localizedDescription
                     ))
                     continue
                 }
-                seenIDs.insert(ext.id)
+                seenIDs.insert(loaded.id)
+                let ext = applyEnabledOverride(to: loaded)
                 ExtensionLogStore.shared.register(extensionID: ext.id, directory: ext.directory)
                 statuses.append(ExtensionStatus(
                     id: ext.id,
@@ -399,6 +402,18 @@ final class ExtensionStore {
                 logger.error("Failed to load extension at \(url.path): \(error.localizedDescription)")
             }
         }
+    }
+
+    private func applyEnabledOverride(to ext: MuxyExtension) -> MuxyExtension {
+        guard let override = ExtensionEnabledStore.shared.override(extensionID: ext.id) else {
+            return ext
+        }
+        if override == ext.manifest.enabled { return ext }
+        return MuxyExtension(
+            id: ext.id,
+            directory: ext.directory,
+            manifest: ext.manifest.withEnabled(override)
+        )
     }
 
     private func startExtension(at index: Int) {
@@ -468,6 +483,7 @@ final class ExtensionStore {
         tokens.removeValue(forKey: extensionID)
         guard let process = processes.removeValue(forKey: extensionID) else { return }
         if process.isRunning {
+            intentionalStops.insert(extensionID)
             process.terminate()
         }
         if let index = statuses.firstIndex(where: { $0.id == extensionID }) {
@@ -486,8 +502,13 @@ final class ExtensionStore {
 
     private func handleTermination(extensionID: String, process: Process) {
         processes.removeValue(forKey: extensionID)
+        let wasIntentional = intentionalStops.remove(extensionID) != nil
         guard let index = statuses.firstIndex(where: { $0.id == extensionID }) else { return }
         statuses[index].isRunning = false
+        if wasIntentional {
+            ExtensionLogStore.shared.append(extensionID: extensionID, line: "[muxy] stopped")
+            return
+        }
         let status = process.terminationStatus
         if status != 0 {
             let message = "Process exited with status \(status)"
