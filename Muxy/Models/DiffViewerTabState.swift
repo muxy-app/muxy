@@ -483,49 +483,36 @@ final class DiffViewerTabState: Identifiable {
         source: Source,
         lineLimit: Int?
     ) async throws -> GitRepositoryService.PatchAndCompareResult {
-        try await DiffLoadGate.shared.enter()
-        do {
-            try Task.checkCancellation()
-            switch source {
-            case .workingTree:
-                let result = try await git.patchAndCompare(repoPath: projectPath, filePath: filePath, lineLimit: lineLimit)
-                await DiffLoadGate.shared.leave()
-                return result
-            case let .commit(commit):
-                let result = try await git.patchAndCompare(
-                    repoPath: projectPath,
-                    filePath: filePath,
-                    commit: commit.hash,
-                    lineLimit: lineLimit
-                )
-                await DiffLoadGate.shared.leave()
-                return result
-            case let .range(baseRef, headRef, _):
-                let result = try await git.patchAndCompare(
-                    repoPath: projectPath,
-                    filePath: filePath,
-                    range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef),
-                    lineLimit: lineLimit
-                )
-                await DiffLoadGate.shared.leave()
-                return result
-            case let .pullRequest(pullRequest):
-                guard let baseRef = pullRequest.baseRef, let headRef = pullRequest.headRef else {
-                    await DiffLoadGate.shared.leave()
-                    return GitRepositoryService.PatchAndCompareResult(rows: [], truncated: false, additions: 0, deletions: 0)
-                }
-                let result = try await git.patchAndCompare(
-                    repoPath: projectPath,
-                    filePath: filePath,
-                    range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef),
-                    lineLimit: lineLimit
-                )
-                await DiffLoadGate.shared.leave()
-                return result
+        try await DiffLoadGate.shared.acquire()
+        defer { Task { await DiffLoadGate.shared.release() } }
+        try Task.checkCancellation()
+        switch source {
+        case .workingTree:
+            return try await git.patchAndCompare(repoPath: projectPath, filePath: filePath, lineLimit: lineLimit)
+        case let .commit(commit):
+            return try await git.patchAndCompare(
+                repoPath: projectPath,
+                filePath: filePath,
+                commit: commit.hash,
+                lineLimit: lineLimit
+            )
+        case let .range(baseRef, headRef, _):
+            return try await git.patchAndCompare(
+                repoPath: projectPath,
+                filePath: filePath,
+                range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef),
+                lineLimit: lineLimit
+            )
+        case let .pullRequest(pullRequest):
+            guard let baseRef = pullRequest.baseRef, let headRef = pullRequest.headRef else {
+                return GitRepositoryService.PatchAndCompareResult(rows: [], truncated: false, additions: 0, deletions: 0)
             }
-        } catch {
-            await DiffLoadGate.shared.leave()
-            throw error
+            return try await git.patchAndCompare(
+                repoPath: projectPath,
+                filePath: filePath,
+                range: GitRepositoryService.DiffRange(baseRef: baseRef, headRef: headRef),
+                lineLimit: lineLimit
+            )
         }
     }
 
@@ -541,9 +528,14 @@ private struct WeakDiffViewerTabState {
 actor DiffLoadGate {
     static let shared = DiffLoadGate(limit: 4)
 
-    private struct Waiter {
+    private final class Waiter {
         let id: UUID
-        let continuation: CheckedContinuation<Void, Never>
+        var continuation: CheckedContinuation<Bool, Never>?
+
+        init(id: UUID, continuation: CheckedContinuation<Bool, Never>) {
+            self.id = id
+            self.continuation = continuation
+        }
     }
 
     private let limit: Int
@@ -554,35 +546,41 @@ actor DiffLoadGate {
         self.limit = limit
     }
 
-    func enter() async throws {
+    func acquire() async throws {
         try Task.checkCancellation()
         if active < limit {
             active += 1
             return
         }
         let id = UUID()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+        let granted = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 waiters.append(Waiter(id: id, continuation: continuation))
             }
         } onCancel: {
             Task { await self.cancelWaiter(id: id) }
         }
-        try Task.checkCancellation()
+        if !granted {
+            throw CancellationError()
+        }
     }
 
-    func cancelWaiter(id: UUID) {
-        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
-        let waiter = waiters.remove(at: index)
-        waiter.continuation.resume()
-    }
-
-    func leave() {
-        guard !waiters.isEmpty else {
-            active -= 1
+    func release() {
+        if let next = waiters.first, let continuation = next.continuation {
+            waiters.removeFirst()
+            next.continuation = nil
+            continuation.resume(returning: true)
             return
         }
-        let waiter = waiters.removeFirst()
-        waiter.continuation.resume()
+        active -= 1
+    }
+
+    private func cancelWaiter(id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = waiters[index]
+        guard let continuation = waiter.continuation else { return }
+        waiter.continuation = nil
+        waiters.remove(at: index)
+        continuation.resume(returning: false)
     }
 }

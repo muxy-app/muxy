@@ -128,6 +128,14 @@ enum WorkspaceReducer {
                 state: &state
             )
 
+        case let .createExtensionTab(projectID, areaID, request):
+            TabReducer.createExtensionTab(
+                projectID: projectID,
+                areaID: areaID,
+                request: request,
+                state: &state
+            )
+
         case let .restoreClosedTerminalTab(projectID, areaID, snapshot):
             TabReducer.restoreClosedTerminalTab(
                 projectID: projectID,

@@ -28,6 +28,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case newProject
     case openProject
     case reloadConfig
+    case refreshWorktrees
     case selectTab1
     case selectTab2
     case selectTab3
@@ -90,6 +91,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .toggleThemePicker,
         .openProject,
         .reloadConfig,
+        .refreshWorktrees,
         .selectTab1,
         .selectTab2,
         .selectTab3,
@@ -233,6 +235,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
         case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
+        case .refreshWorktrees: ShortcutMetadata(displayName: "Refresh Worktrees", category: "App", scope: .mainWindow)
         case .toggleMaximizePane: ShortcutMetadata(displayName: "Toggle Maximize Pane", category: "Panes", scope: .mainWindow)
         }
     }
@@ -305,7 +308,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .reopenClosedTerminalTab, combo: KeyCombo(key: "t", command: true, shift: true)),
         Self(action: .closeTab, combo: KeyCombo(key: "w", command: true)),
         Self(action: .renameTab, combo: KeyCombo(key: "t", shift: true, option: true)),
-        Self(action: .pinUnpinTab, combo: KeyCombo(key: "p", command: true, shift: true)),
+        Self(action: .pinUnpinTab, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .splitRight, combo: KeyCombo(key: "d", command: true)),
         Self(action: .splitDown, combo: KeyCombo(key: "d", command: true, shift: true)),
         Self(action: .closePane, combo: KeyCombo(key: "w", command: true, shift: true)),
@@ -320,6 +323,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .openDiffViewerTab, combo: KeyCombo(key: "y", command: true, shift: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),
+        Self(action: .refreshWorktrees, combo: KeyCombo(key: "r", command: true, option: true)),
         Self(action: .nextTab, combo: KeyCombo(key: "]", command: true)),
         Self(action: .previousTab, combo: KeyCombo(key: "[", command: true)),
         Self(action: .selectTab1, combo: KeyCombo(key: "1", command: true)),
@@ -351,7 +355,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .terminalOmnibox, combo: KeyCombo(key: "o", command: true, option: true)),
         Self(action: .terminalOmniboxProjects, combo: KeyCombo(key: "p", command: true, option: true)),
         Self(action: .terminalOmniboxWorktrees, combo: KeyCombo(key: "w", command: true, option: true)),
-        Self(action: .terminalOmniboxCommands, combo: KeyCombo(key: "c", command: true, option: true)),
+        Self(action: .terminalOmniboxCommands, combo: KeyCombo(key: "p", command: true, shift: true)),
         Self(action: .terminalOmniboxHistory, combo: KeyCombo(key: "h", command: true, option: true)),
         Self(action: .saveFile, combo: KeyCombo(key: "s", command: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),

@@ -25,4 +25,23 @@ struct GitProcessRunnerCredentialHelperTests {
         let args = GitProcessRunner.gitHubCredentialHelperArgs { _ in "/usr/local/bin/gh" }
         #expect(args.contains("credential.https://github.com.helper=!/usr/local/bin/gh auth git-credential"))
     }
+
+    @Test("process environment includes Homebrew paths")
+    func processEnvironmentIncludesHomebrewPaths() {
+        let environment = GitProcessRunner.processEnvironment(["PATH": "/usr/bin:/bin"])
+
+        #expect(environment["GIT_OPTIONAL_LOCKS"] == "0")
+        #expect(
+            environment["PATH"] == "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/sbin"
+        )
+    }
+
+    @Test("process environment preserves custom paths")
+    func processEnvironmentPreservesCustomPaths() {
+        let environment = GitProcessRunner.processEnvironment(["PATH": "/custom/bin:/usr/bin"])
+
+        #expect(
+            environment["PATH"] == "/custom/bin:/usr/bin:/opt/homebrew/bin:/usr/local/bin:/bin:/usr/sbin:/sbin"
+        )
+    }
 }

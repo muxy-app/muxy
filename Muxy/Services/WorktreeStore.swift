@@ -3,6 +3,14 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "WorktreeStore")
 
+struct WorktreeCreationRequest {
+    let name: String
+    let path: String
+    let branch: String
+    let createBranch: Bool
+    let baseBranch: String?
+}
+
 @MainActor
 @Observable
 final class WorktreeStore {
@@ -10,16 +18,27 @@ final class WorktreeStore {
     private var projectIDByPath: [String: UUID] = [:]
     private let persistence: any WorktreePersisting
     private let listGitWorktrees: @Sendable (String) async throws -> [GitWorktreeRecord]
+    private let addGitWorktree: @Sendable (String, String, String, Bool, String?) async throws -> Void
 
     init(
         persistence: any WorktreePersisting,
         listGitWorktrees: @escaping @Sendable (String) async throws -> [GitWorktreeRecord] = {
             try await GitWorktreeService.shared.listWorktrees(repoPath: $0)
         },
+        addGitWorktree: @escaping @Sendable (String, String, String, Bool, String?) async throws -> Void = {
+            try await GitWorktreeService.shared.addWorktree(
+                repoPath: $0,
+                path: $1,
+                branch: $2,
+                createBranch: $3,
+                baseBranch: $4
+            )
+        },
         projects: [Project] = []
     ) {
         self.persistence = persistence
         self.listGitWorktrees = listGitWorktrees
+        self.addGitWorktree = addGitWorktree
         guard !projects.isEmpty else { return }
         loadAll(projects: projects)
     }
@@ -77,6 +96,30 @@ final class WorktreeStore {
         list.append(worktree)
         setWorktrees(sortPrimaryFirst(list), for: projectID)
         save(projectID: projectID)
+    }
+
+    func createWorktree(
+        project: Project,
+        request: WorktreeCreationRequest
+    ) async throws -> Worktree {
+        try await GitProcessRunner.offMainThrowing {
+            try FileManager.default.createDirectory(
+                atPath: URL(fileURLWithPath: request.path).deletingLastPathComponent().path,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+        }
+
+        try await addGitWorktree(project.path, request.path, request.branch, request.createBranch, request.baseBranch)
+        let worktree = Worktree(
+            name: request.name,
+            path: request.path,
+            branch: request.branch,
+            ownsBranch: request.createBranch,
+            isPrimary: false
+        )
+        add(worktree, to: project.id)
+        return worktree
     }
 
     func remove(worktreeID: UUID, from projectID: UUID) {

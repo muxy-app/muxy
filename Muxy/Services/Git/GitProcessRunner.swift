@@ -76,6 +76,24 @@ enum GitProcessRunner {
         ]
     }
 
+    static func processEnvironment(_ base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
+        var environment = base
+        environment["GIT_OPTIONAL_LOCKS"] = "0"
+        environment["PATH"] = pathValue(base["PATH"])
+        return environment
+    }
+
+    private static func pathValue(_ currentPath: String?) -> String {
+        let currentPaths = (currentPath ?? "")
+            .split(separator: ":")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        let paths = (currentPaths + searchPaths).reduce(into: [String]()) { result, path in
+            if !result.contains(path) { result.append(path) }
+        }
+        return paths.joined(separator: ":")
+    }
+
     static func runCommand(
         executable: String,
         arguments: [String],
@@ -149,9 +167,7 @@ enum GitProcessRunner {
         process.executableURL = URL(fileURLWithPath: spec.executable)
         process.arguments = spec.arguments
 
-        var environment = ProcessInfo.processInfo.environment
-        environment["GIT_OPTIONAL_LOCKS"] = "0"
-        process.environment = environment
+        process.environment = processEnvironment()
 
         if let workingDirectory = spec.workingDirectory {
             process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)

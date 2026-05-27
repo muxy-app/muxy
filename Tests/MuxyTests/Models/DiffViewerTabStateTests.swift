@@ -227,6 +227,79 @@ struct DiffViewerTabStateTests {
         state.diffCache.cancelAll()
     }
 
+    @Test("commit source loads changed files and source diff")
+    func commitSourceLoadsChangedFilesAndSourceDiff() async throws {
+        let repo = try DiffViewerGitFixture()
+        defer { repo.cleanup() }
+
+        try repo.write("App.swift", contents: "let value = 1\n")
+        _ = try repo.commit(file: "App.swift", message: "base")
+        try repo.write("App.swift", contents: "let value = 2\n")
+        let commit = try repo.commit(file: "App.swift", message: "change")
+
+        let vcs = VCSTabState(projectPath: repo.path)
+        let state = DiffViewerTabState(
+            vcs: vcs,
+            source: .commit(.init(hash: commit, subject: "change", webURL: nil))
+        )
+
+        state.refresh(forceFull: false)
+        try await waitForSourceFiles(state)
+
+        #expect(state.files.map(\.path) == ["App.swift"])
+        #expect(state.stagedFiles.isEmpty)
+        #expect(state.unstagedFiles.map(\.path) == ["App.swift"])
+        #expect(state.selectedFilePath == "App.swift")
+        #expect(state.selectedDisplayTitle == "App.swift")
+
+        try await waitForDiff(state)
+
+        #expect(state.diff()?.additions == 1)
+        #expect(state.diff()?.deletions == 1)
+        #expect(!state.isLoading())
+        #expect(state.error() == nil)
+        state.prepareForClose()
+    }
+
+    @Test("range and pull request source paths handle file loading variants")
+    func rangeAndPullRequestSourcesHandleFileLoadingVariants() async throws {
+        let repo = try DiffViewerGitFixture()
+        defer { repo.cleanup() }
+
+        try repo.write("App.swift", contents: "let value = 1\n")
+        let base = try repo.commit(file: "App.swift", message: "base")
+        try repo.write("App.swift", contents: "let value = 2\n")
+        let head = try repo.commit(file: "App.swift", message: "head")
+
+        let vcs = VCSTabState(projectPath: repo.path)
+        let state = DiffViewerTabState(
+            vcs: vcs,
+            source: .range(baseRef: base, headRef: head, title: "Feature Diff")
+        )
+
+        #expect(state.displayTitle == "Feature Diff")
+        #expect(state.source.link == nil)
+        #expect(state.selectedDisplayTitle == "No file selected")
+
+        state.refresh(forceFull: true)
+        try await waitForSourceFiles(state)
+        try await waitForDiff(state)
+        #expect(state.diff()?.truncated == false)
+
+        state.setSource(.pullRequest(.init(
+            number: 1,
+            title: "PR",
+            baseRef: nil,
+            headRef: nil,
+            baseBranch: "main",
+            webURL: nil
+        )))
+        try await waitForSourceLoadFinished(state)
+        #expect(state.sourceFiles.isEmpty)
+        #expect(state.filesError != nil || state.selectedFilePath == nil)
+        state.prepareForClose()
+    }
+
     @Test("prepareForClose clears source and working tree diff loads")
     func prepareForCloseClearsSourceAndWorkingTreeDiffLoads() {
         let vcs = VCSTabState(projectPath: NSTemporaryDirectory())
@@ -342,5 +415,89 @@ struct DiffViewerTabStateTests {
         #expect(diffTabs.first?.selectedFilePath == "b.swift")
         #expect(diffTabs.first?.selectedIsStaged == false)
         vcs.diffCache.cancelAll()
+    }
+
+    private func waitForSourceFiles(_ state: DiffViewerTabState) async throws {
+        for _ in 0 ..< 400 {
+            if !state.sourceFiles.isEmpty { return }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        throw DiffViewerTabStateTestError.timeout("source files never loaded")
+    }
+
+    private func waitForSourceLoadFinished(_ state: DiffViewerTabState) async throws {
+        for _ in 0 ..< 400 {
+            if !state.isLoadingFiles { return }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        throw DiffViewerTabStateTestError.timeout("source files load never finished")
+    }
+
+    private func waitForDiff(_ state: DiffViewerTabState) async throws {
+        for _ in 0 ..< 400 {
+            if state.diff() != nil { return }
+            if state.error() != nil { return }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        throw DiffViewerTabStateTestError.timeout("diff never loaded")
+    }
+}
+
+private enum DiffViewerTabStateTestError: Error {
+    case timeout(String)
+}
+
+private final class DiffViewerGitFixture {
+    let url: URL
+    var path: String { url.path }
+
+    init() throws {
+        url = FileManager.default.temporaryDirectory.appendingPathComponent("muxy-diff-viewer-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try runGit(args: ["init", "-q", "-b", "main"])
+        try runGit(args: ["config", "user.email", "test@example.com"])
+        try runGit(args: ["config", "user.name", "Test"])
+        try runGit(args: ["config", "commit.gpgsign", "false"])
+    }
+
+    func write(_ relativePath: String, contents: String) throws {
+        let fileURL = url.appendingPathComponent(relativePath)
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+    }
+
+    func commit(file: String, message: String) throws -> String {
+        try runGit(args: ["add", file])
+        try runGit(args: ["commit", "-q", "-m", message])
+        return try runGit(args: ["rev-parse", "HEAD"])
+    }
+
+    func cleanup() {
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    @discardableResult
+    private func runGit(args: [String]) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", path] + args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        if process.terminationStatus != 0 {
+            throw NSError(
+                domain: "DiffViewerGitFixture",
+                code: Int(process.terminationStatus),
+                userInfo: [NSLocalizedDescriptionKey: output]
+            )
+        }
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

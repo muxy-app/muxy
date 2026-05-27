@@ -19,7 +19,7 @@ struct WindowConfiguratorTests {
     func rejectsUntitledWindowRequests() {
         let delegate = AppDelegate()
 
-        #expect(!delegate.applicationShouldOpenUntitledFile(NSApp))
+        #expect(!delegate.applicationShouldOpenUntitledFile(NSApplication.shared))
     }
 
     @Test("allows auxiliary windows to close")

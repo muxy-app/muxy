@@ -81,6 +81,28 @@ struct TextSearchServiceTests {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let coordinator = SearchCoordinator()
+        let firstTask = Task {
+            await TextSearchService.search(
+                query: "foo123bar", in: directory.path, coordinator: coordinator
+            )
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let secondResults = await TextSearchService.search(
+            query: "안녕", in: directory.path, coordinator: coordinator
+        )
+        let firstResults = await firstTask.value
+
+        #expect(secondResults.contains { $0.lineText == "안녕하세요" })
+        #expect(firstResults.isEmpty || firstResults.contains { $0.lineText == "foo123bar" })
+    }
+
+    @Test("overlapping searches return whichever search remains active")
+    func overlappingSearchesReturnActiveSearchResults() async throws {
+        guard TextSearchService.ripgrepExecutableURL() != nil else { return }
+        let directory = try makeSearchFixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let coordinator = SearchCoordinator()
         async let first = TextSearchService.search(
             query: "foo123bar", in: directory.path, coordinator: coordinator
         )
@@ -89,8 +111,12 @@ struct TextSearchServiceTests {
         )
         let (firstResults, secondResults) = await (first, second)
 
-        #expect(secondResults.contains { $0.lineText == "안녕하세요" })
+        #expect(
+            firstResults.contains { $0.lineText == "foo123bar" } ||
+                secondResults.contains { $0.lineText == "안녕하세요" }
+        )
         #expect(firstResults.isEmpty || firstResults.contains { $0.lineText == "foo123bar" })
+        #expect(secondResults.isEmpty || secondResults.contains { $0.lineText == "안녕하세요" })
     }
 
     private func makeSearchFixture() throws -> URL {

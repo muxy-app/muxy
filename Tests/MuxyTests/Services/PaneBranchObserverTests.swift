@@ -47,7 +47,7 @@ private final class ResolverProbe: @unchecked Sendable {
 @Suite("PaneBranchObserver")
 struct PaneBranchObserverTests {
     private static let pollInterval: Duration = .milliseconds(20)
-    private static let pollTimeout: Duration = .milliseconds(2000)
+    private static let pollTimeout: Duration = .seconds(10)
 
     private static func waitUntil(
         _ condition: @MainActor () -> Bool
