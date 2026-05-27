@@ -19,6 +19,7 @@ enum CLIAccessor {
         if let existing = projectStore.projects.first(where: { $0.path == standardizedPath }),
            let primary = worktreeStore.primary(for: existing.id)
         {
+            projectGroupStore.addProjectToActiveGroup(projectID: existing.id)
             appState.selectProject(existing, worktree: primary)
             activateApp()
             return

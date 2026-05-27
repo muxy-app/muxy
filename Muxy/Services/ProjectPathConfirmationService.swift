@@ -75,6 +75,7 @@ struct ProjectPathConfirmationService {
         }
 
         let project = project(at: standardizedPath)
+        projectGroupStore.addProjectToActiveGroup(projectID: project.id)
         worktreeStore.ensurePrimary(for: project)
         guard let primary = worktreeStore.primary(for: project.id) else { return .failed }
         appState.selectProject(project, worktree: primary)
@@ -115,7 +116,6 @@ struct ProjectPathConfirmationService {
             sortOrder: projectStore.projects.count
         )
         projectStore.add(project)
-        projectGroupStore.addProjectToActiveGroup(projectID: project.id)
         return project
     }
 }

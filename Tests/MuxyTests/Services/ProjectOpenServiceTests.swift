@@ -106,6 +106,33 @@ struct ProjectOpenServiceTests {
         #expect(appState.activeProjectID == projectStore.projects.first?.id)
     }
 
+    @Test("already-added path is added to selected group")
+    func existingProjectAddedToSelectedGroup() throws {
+        let (appState, projectStore, worktreeStore, _) = makeStores()
+        let group = ProjectGroup(name: "Work")
+        let groupPersistence = ProjectGroupPersistenceStub(initial: [group])
+        let projectGroupStore = ProjectGroupStore(persistence: groupPersistence)
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-project-picker-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let project = Project(name: dir.lastPathComponent, path: dir.standardizedFileURL.path)
+        projectStore.add(project)
+
+        projectGroupStore.selectGroup(id: group.id)
+        let didConfirm = ProjectOpenService.confirmProjectPath(
+            dir.path,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+
+        #expect(didConfirm)
+        #expect(projectStore.projects.count == 1)
+        #expect(groupPersistence.savedGroups?.first?.projectIDs == [project.id])
+    }
+
     @Test("already-added path recovers a missing primary worktree without creating a duplicate project")
     func existingProjectWithMissingPrimaryRecoversWithoutDuplicate() throws {
         let (appState, projectStore, worktreeStore, projectGroupStore) = makeStores()
