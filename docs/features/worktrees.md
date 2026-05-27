@@ -34,7 +34,7 @@ Muxy runs `git worktree add` and registers the new worktree with the project.
 
 ## Setup & teardown commands
 
-Drop a `.muxy/worktree.json` at the project root to script the lifecycle of ephemeral worktrees:
+Drop a `.muxy/worktree.json` at the **source project root** (the primary worktree) to script the lifecycle of ephemeral worktrees. The file is only read from the project root — copies inside individual worktrees are ignored. One config governs every worktree spawned from that project.
 
 ```json
 {
