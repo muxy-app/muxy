@@ -22,11 +22,16 @@ final class ExtensionAuditLog: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.muxy.extension-audit", qos: .utility)
     private let fileURL: URL
     private let encoder: JSONEncoder
+    private var handle: FileHandle?
 
     init(fileURL: URL = ExtensionAuditLog.defaultFileURL) {
         self.fileURL = fileURL
         encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
+    }
+
+    deinit {
+        try? handle?.close()
     }
 
     static var defaultFileURL: URL {
@@ -46,21 +51,32 @@ final class ExtensionAuditLog: @unchecked Sendable {
             let data = try encoder.encode(entry)
             var line = data
             line.append(0x0A)
-            if !FileManager.default.fileExists(atPath: fileURL.path) {
-                FileManager.default.createFile(atPath: fileURL.path, contents: nil)
-                try? FileManager.default.setAttributes(
-                    [.posixPermissions: FilePermissions.privateFile],
-                    ofItemAtPath: fileURL.path
-                )
-            }
-            let handle = try FileHandle(forWritingTo: fileURL)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
+            let handle = try resolveHandle()
             try handle.write(contentsOf: line)
             trimIfNeeded()
         } catch {
             logger.error("Failed to write audit log: \(error.localizedDescription)")
         }
+    }
+
+    private func resolveHandle() throws -> FileHandle {
+        if let handle { return handle }
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            FileManager.default.createFile(atPath: fileURL.path, contents: nil)
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: FilePermissions.privateFile],
+                ofItemAtPath: fileURL.path
+            )
+        }
+        let newHandle = try FileHandle(forWritingTo: fileURL)
+        try newHandle.seekToEnd()
+        handle = newHandle
+        return newHandle
+    }
+
+    private func closeHandle() {
+        try? handle?.close()
+        handle = nil
     }
 
     private func trimIfNeeded() {
@@ -75,6 +91,7 @@ final class ExtensionAuditLog: @unchecked Sendable {
         let tempURL = fileURL.deletingLastPathComponent()
             .appendingPathComponent("extension-audit.log.tmp-\(UUID().uuidString)")
         do {
+            closeHandle()
             let readHandle = try FileHandle(forReadingFrom: fileURL)
             defer { try? readHandle.close() }
             try readHandle.seek(toOffset: UInt64(dropBytes))

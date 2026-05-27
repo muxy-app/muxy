@@ -177,6 +177,28 @@ struct ExtensionManifestTests {
         #expect(invalidName.errorDescription?.contains("bad name") == true)
     }
 
+    @Test("withEnabled preserves tabTypes")
+    func withEnabledPreservesTabTypes() {
+        let tabType = ExtensionTabType(id: "details", title: "Details", entry: "ui/index.html", defaultData: nil)
+        let original = ExtensionManifest(
+            name: "demo",
+            version: "1.0.0",
+            entrypoint: "run.sh",
+            tabTypes: [tabType],
+            permissions: [.tabsRead],
+            enabled: true
+        )
+
+        let disabled = original.withEnabled(false)
+        #expect(disabled.enabled == false)
+        #expect(disabled.tabTypes == [tabType])
+        #expect(disabled.permissions == [.tabsRead])
+
+        let reEnabled = disabled.withEnabled(true)
+        #expect(reEnabled.enabled == true)
+        #expect(reEnabled.tabTypes == [tabType])
+    }
+
     private func makeTemporaryExtension(
         name: String,
         manifest: String,

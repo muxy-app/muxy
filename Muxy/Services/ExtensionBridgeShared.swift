@@ -54,6 +54,7 @@ enum ExtensionBridgeShared {
             "stderr": result.stderr,
             "exitCode": Int(result.exitCode),
             "timedOut": result.timedOut,
+            "truncated": result.truncated,
         ]
     }
 

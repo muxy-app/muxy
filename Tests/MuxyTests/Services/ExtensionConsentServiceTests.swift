@@ -89,6 +89,43 @@ struct ExtensionConsentServiceTests {
         #expect(grantStore.rules.isEmpty)
     }
 
+    @Test("queue flood for one extension auto-denies excess")
+    func queueFloodAutoDenies() async {
+        let grantStore = makeGrantStore()
+        let service = ExtensionConsentService(grantStore: grantStore, auditLog: makeAuditLog())
+        let cap = ExtensionConsentService.maxQueuedPromptsPerExtension
+        var pending: [Task<ExtensionGrantDecision, Never>] = []
+        for index in 0..<cap {
+            let request = ExtensionConsentRequestBuilder.make(
+                extensionID: "noisy",
+                verb: .exec,
+                payload: .exec(argv: ["cmd-\(index)"], shell: nil),
+                source: "test"
+            )
+            pending.append(Task { await service.gate(request) })
+        }
+        try? await Task.sleep(for: .milliseconds(50))
+
+        let overflow = ExtensionConsentRequestBuilder.make(
+            extensionID: "noisy",
+            verb: .exec,
+            payload: .exec(argv: ["overflow"], shell: nil),
+            source: "test"
+        )
+        let overflowDecision = await service.gate(overflow)
+        #expect(overflowDecision == .deny)
+
+        if let first = service.pendingPrompt {
+            service.respond(requestID: first.id, choice: .denyOnce)
+        }
+        for task in pending {
+            _ = await task.value
+            if let next = service.pendingPrompt {
+                service.respond(requestID: next.id, choice: .denyOnce)
+            }
+        }
+    }
+
     @Test("second prompt queues behind the first")
     func queuesSecondPrompt() async {
         let grantStore = makeGrantStore()

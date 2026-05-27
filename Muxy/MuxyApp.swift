@@ -160,6 +160,7 @@ struct MuxyApp: App {
             try? await Task.sleep(for: .seconds(2))
             UpdateService.shared.start()
             AIProviderRegistry.shared.installAll()
+            LoginShellPath.hydrateInBackground()
             ExtensionStore.shared.startAll()
         }
     }

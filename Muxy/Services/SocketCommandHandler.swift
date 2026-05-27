@@ -182,7 +182,11 @@ enum SocketCommandHandler {
             }
             do {
                 let request = try JSONDecoder().decode(OpenTabRequest.self, from: data)
-                return serialize(MuxyAPI.Tabs.open(request, appState: appState), ok: "ok")
+                return await serialize(MuxyAPI.Tabs.open(
+                    request,
+                    appState: appState,
+                    callingExtensionID: clientContext.extensionID
+                ), ok: "ok")
             } catch {
                 return "error:invalid open-tab payload: \(error.localizedDescription)"
             }

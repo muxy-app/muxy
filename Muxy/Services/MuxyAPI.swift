@@ -124,45 +124,54 @@ struct OpenTabRequest: Decodable {
 enum MuxyAPI {
     enum Permissions {
         static func required(for verb: String) -> ExtensionPermission? {
-            verbPermissions[verb]
+            verbPermissions[canonical(verb)]
         }
 
+        static func canonical(_ verb: String) -> String {
+            cliAliases[verb] ?? verb
+        }
+
+        private static let cliAliases: [String: String] = [
+            "split-right": "panes.split",
+            "split-down": "panes.split",
+            "send": "panes.send",
+            "send-keys": "panes.sendKeys",
+            "read-screen": "panes.readScreen",
+            "close-pane": "panes.close",
+            "rename-pane": "panes.rename",
+            "list-panes": "panes.list",
+            "list-projects": "projects.list",
+            "switch-project": "projects.switch",
+            "list-worktrees": "worktrees.list",
+            "create-worktree": "worktrees.create",
+            "switch-worktree": "worktrees.switch",
+            "refresh-worktrees": "worktrees.refresh",
+            "list-tabs": "tabs.list",
+            "switch-tab": "tabs.switch",
+            "new-tab": "tabs.new",
+            "next-tab": "tabs.next",
+            "previous-tab": "tabs.previous",
+            "open-tab": "tabs.open",
+        ]
+
         private static let verbPermissions: [String: ExtensionPermission] = [
-            "split-right": .panesWrite,
-            "split-down": .panesWrite,
-            "send": .panesWrite,
-            "send-keys": .panesWrite,
-            "read-screen": .panesRead,
-            "close-pane": .panesWrite,
-            "rename-pane": .panesWrite,
-            "list-panes": .panesRead,
-            "list-projects": .projectsRead,
-            "switch-project": .projectsWrite,
-            "list-worktrees": .worktreesRead,
-            "create-worktree": .worktreesWrite,
-            "switch-worktree": .worktreesWrite,
-            "refresh-worktrees": .worktreesWrite,
-            "list-tabs": .tabsRead,
-            "switch-tab": .tabsWrite,
-            "new-tab": .tabsWrite,
-            "next-tab": .tabsWrite,
-            "previous-tab": .tabsWrite,
-            "open-tab": .tabsWrite,
-            "tabs.list": .tabsRead,
-            "tabs.switch": .tabsWrite,
-            "tabs.new": .tabsWrite,
-            "tabs.next": .tabsWrite,
-            "tabs.previous": .tabsWrite,
-            "tabs.open": .tabsWrite,
+            "panes.split": .panesWrite,
             "panes.list": .panesRead,
             "panes.send": .panesWrite,
             "panes.sendKeys": .panesWrite,
             "panes.readScreen": .panesRead,
             "panes.close": .panesWrite,
             "panes.rename": .panesWrite,
+            "tabs.list": .tabsRead,
+            "tabs.switch": .tabsWrite,
+            "tabs.new": .tabsWrite,
+            "tabs.next": .tabsWrite,
+            "tabs.previous": .tabsWrite,
+            "tabs.open": .tabsWrite,
             "projects.list": .projectsRead,
             "projects.switch": .projectsWrite,
             "worktrees.list": .worktreesRead,
+            "worktrees.create": .worktreesWrite,
             "worktrees.switch": .worktreesWrite,
             "worktrees.refresh": .worktreesWrite,
             "toast": .notificationsWrite,
@@ -405,7 +414,7 @@ enum MuxyAPI {
             worktreeStore: WorktreeStore
         ) -> Result<[WorktreeInfo], APIError> {
             guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
-                return .failure(.projectNotFound(""))
+                return .failure(.projectNotFound(projectIdentifier ?? ""))
             }
             let infos = worktreeStore.list(for: project.id).map { worktree in
                 let isActive = appState.activeProjectID == project.id
@@ -429,7 +438,7 @@ enum MuxyAPI {
             worktreeStore: WorktreeStore
         ) -> Result<Void, APIError> {
             guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
-                return .failure(.projectNotFound(""))
+                return .failure(.projectNotFound(projectIdentifier ?? ""))
             }
             guard let worktree = findWorktree(identifier, in: worktreeStore.list(for: project.id)) else {
                 return .failure(.worktreeNotFound(identifier))
@@ -458,7 +467,7 @@ enum MuxyAPI {
                 projectStore: projectStore
             )
             else {
-                return .failure(.projectNotFound(""))
+                return .failure(.projectNotFound(request.projectIdentifier ?? ""))
             }
 
             let path = trimmedPath.isEmpty
@@ -498,7 +507,7 @@ enum MuxyAPI {
             worktreeStore: WorktreeStore
         ) async -> Result<RefreshWorktreesResult, APIError> {
             guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
-                return .failure(.projectNotFound(""))
+                return .failure(.projectNotFound(projectIdentifier ?? ""))
             }
             do {
                 let worktrees = try await worktreeStore.refreshFromGit(project: project)
@@ -575,7 +584,11 @@ enum MuxyAPI {
             return .success(())
         }
 
-        static func open(_ request: OpenTabRequest, appState: AppState) -> Result<Void, APIError> {
+        static func open(
+            _ request: OpenTabRequest,
+            appState: AppState,
+            callingExtensionID: String? = nil
+        ) async -> Result<Void, APIError> {
             guard let projectID = appState.activeProjectID else {
                 return .failure(.noActiveProject)
             }
@@ -619,6 +632,16 @@ enum MuxyAPI {
                         "extension '\(payload.id)' has no tab type '\(payload.tabType)'"
                     ))
                 }
+                if let callingExtensionID, callingExtensionID != payload.id {
+                    let allowed = await foreignTabConsentGranted(
+                        callingExtensionID: callingExtensionID,
+                        targetExtensionID: payload.id,
+                        tabTypeID: payload.tabType
+                    )
+                    if !allowed {
+                        return .failure(.consentDenied(verb: ExtensionGatedVerb.tabsOpenForeign.rawValue))
+                    }
+                }
                 appState.dispatch(.createExtensionTab(
                     projectID: projectID,
                     areaID: nil,
@@ -653,6 +676,22 @@ private func consentGranted(
         extensionID: extensionID,
         verb: verb,
         payload: .pane(id: paneIDString),
+        source: "muxy-api"
+    )
+    let decision = await ExtensionConsentService.shared.gate(request)
+    return decision == .allow
+}
+
+@MainActor
+private func foreignTabConsentGranted(
+    callingExtensionID: String,
+    targetExtensionID: String,
+    tabTypeID: String
+) async -> Bool {
+    let request = ExtensionConsentRequestBuilder.make(
+        extensionID: callingExtensionID,
+        verb: .tabsOpenForeign,
+        payload: .foreignTab(targetExtensionID: targetExtensionID, tabTypeID: tabTypeID),
         source: "muxy-api"
     )
     let decision = await ExtensionConsentService.shared.gate(request)

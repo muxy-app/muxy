@@ -126,7 +126,7 @@ const counted = await muxy.exec({ shell: 'git diff | wc -l' });
 await muxy.exec(['ls'], { cwd: '~', timeoutMs: 5000 });
 ```
 
-Requires `commands:exec`. The default working directory is the active worktree's path; override via `options.cwd` (`~` expands). Default timeout is 30 seconds; on timeout the child is `SIGTERM`'d, then `SIGKILL`'d 2 s later, and the Promise resolves with `timedOut: true`. Output is capped at 10 MB combined; oversized output rejects the Promise. The UI never blocks — child processes run on a background queue.
+Requires `commands:exec`. The default working directory is the active worktree's path; override via `options.cwd` (`~` expands). Default timeout is 30 seconds; on timeout the child is `SIGTERM`'d, then `SIGKILL`'d 2 s later, and the Promise resolves with `timedOut: true`. Output is capped at 10 MB combined; when exceeded the Promise still resolves with `truncated: true` and the captured prefix. PATH is hydrated from the user's login shell at app startup, so common commands (`git`, `npm`, …) resolve without absolute paths. The UI never blocks — child processes run on a background queue.
 
 ### Subscribing to workspace events
 

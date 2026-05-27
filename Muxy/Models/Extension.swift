@@ -227,6 +227,21 @@ struct ExtensionManifest: Codable, Equatable {
     func tabType(id: String) -> ExtensionTabType? {
         tabTypes.first { $0.id == id }
     }
+
+    func withEnabled(_ enabled: Bool) -> ExtensionManifest {
+        ExtensionManifest(
+            name: name,
+            version: version,
+            description: description,
+            entrypoint: entrypoint,
+            events: events,
+            commands: commands,
+            tabTypes: tabTypes,
+            permissions: permissions,
+            aiProvider: aiProvider,
+            enabled: enabled
+        )
+    }
 }
 
 enum ExtensionLoadError: LocalizedError, Equatable {

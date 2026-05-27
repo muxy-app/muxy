@@ -67,24 +67,10 @@ final class ExtensionStore {
 
     func setEnabled(_ enabled: Bool, for extensionID: String) {
         guard let index = statuses.firstIndex(where: { $0.id == extensionID }) else { return }
-        let original = statuses[index].muxyExtension.manifest
-
-        let updatedManifest = ExtensionManifest(
-            name: original.name,
-            version: original.version,
-            description: original.description,
-            entrypoint: original.entrypoint,
-            events: original.events,
-            commands: original.commands,
-            permissions: original.permissions,
-            aiProvider: original.aiProvider,
-            enabled: enabled
-        )
-
         let updatedExtension = MuxyExtension(
             id: statuses[index].muxyExtension.id,
             directory: statuses[index].muxyExtension.directory,
-            manifest: updatedManifest
+            manifest: statuses[index].muxyExtension.manifest.withEnabled(enabled)
         )
 
         statuses[index] = ExtensionStatus(

@@ -13,19 +13,7 @@ enum ExtensionGatedVerb: String, Codable, CaseIterable {
     case panesSend = "panes.send"
     case panesSendKeys = "panes.sendKeys"
     case panesReadScreen = "panes.readScreen"
-
-    static func from(verbName: String) -> ExtensionGatedVerb? {
-        switch verbName {
-        case "exec": .exec
-        case "panes.send",
-             "send": .panesSend
-        case "panes.sendKeys",
-             "send-keys": .panesSendKeys
-        case "panes.readScreen",
-             "read-screen": .panesReadScreen
-        default: nil
-        }
-    }
+    case tabsOpenForeign = "tabs.openForeign"
 }
 
 enum ExtensionGrantMatch: Codable, Equatable {
@@ -34,11 +22,13 @@ enum ExtensionGrantMatch: Codable, Equatable {
     case argvPrefix([String])
     case shellExact(String)
     case paneEquals(String)
+    case foreignTabEquals(targetExtensionID: String, tabTypeID: String)
 
     private enum CodingKeys: String, CodingKey {
         case kind
         case value
         case string
+        case target
     }
 
     private enum Kind: String, Codable {
@@ -47,6 +37,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case argvPrefix
         case shellExact
         case paneEquals
+        case foreignTabEquals
     }
 
     init(from decoder: Decoder) throws {
@@ -63,6 +54,11 @@ enum ExtensionGrantMatch: Codable, Equatable {
             self = try .shellExact(container.decode(String.self, forKey: .string))
         case .paneEquals:
             self = try .paneEquals(container.decode(String.self, forKey: .string))
+        case .foreignTabEquals:
+            self = try .foreignTabEquals(
+                targetExtensionID: container.decode(String.self, forKey: .target),
+                tabTypeID: container.decode(String.self, forKey: .string)
+            )
         }
     }
 
@@ -83,6 +79,10 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .paneEquals(value):
             try container.encode(Kind.paneEquals, forKey: .kind)
             try container.encode(value, forKey: .string)
+        case let .foreignTabEquals(target, tab):
+            try container.encode(Kind.foreignTabEquals, forKey: .kind)
+            try container.encode(target, forKey: .target)
+            try container.encode(tab, forKey: .string)
         }
     }
 
@@ -91,6 +91,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case .any: 0
         case .paneEquals,
              .shellExact: 100
+        case .foreignTabEquals: 150
         case let .argvPrefix(tokens): 50 + tokens.count
         case let .argvExact(tokens): 200 + tokens.count
         }
@@ -103,6 +104,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .argvPrefix(tokens): tokens.joined(separator: " ") + " *"
         case let .shellExact(value): "sh: \(value)"
         case let .paneEquals(value): "pane: \(value)"
+        case let .foreignTabEquals(target, tab): "tab: \(target)/\(tab)"
         }
     }
 }
@@ -110,6 +112,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
 enum ExtensionGatedPayload {
     case exec(argv: [String]?, shell: String?)
     case pane(id: String)
+    case foreignTab(targetExtensionID: String, tabTypeID: String)
 
     func matches(_ match: ExtensionGrantMatch) -> Bool {
         switch (self, match) {
@@ -125,6 +128,8 @@ enum ExtensionGatedPayload {
             return shell == expected
         case let (.pane(id), .paneEquals(expected)):
             return id == expected
+        case let (.foreignTab(target, tab), .foreignTabEquals(expectedTarget, expectedTab)):
+            return target == expectedTarget && tab == expectedTab
         default:
             return false
         }
@@ -275,6 +280,8 @@ enum ExtensionGrantSuggestion {
              let (.panesSendKeys, .pane(id)),
              let (.panesReadScreen, .pane(id)):
             return .paneEquals(id)
+        case let (.tabsOpenForeign, .foreignTab(target, tab)):
+            return .foreignTabEquals(targetExtensionID: target, tabTypeID: tab)
         default:
             return .any
         }

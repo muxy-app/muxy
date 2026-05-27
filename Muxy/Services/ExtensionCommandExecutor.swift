@@ -15,18 +15,17 @@ struct ExecResult {
     let stderr: String
     let exitCode: Int32
     let timedOut: Bool
+    let truncated: Bool
 }
 
 enum ExecError: Error, LocalizedError {
     case invalidArguments(String)
     case launchFailed(String)
-    case outputTooLarge
 
     var errorDescription: String? {
         switch self {
         case let .invalidArguments(detail): "exec: \(detail)"
         case let .launchFailed(detail): "exec failed to launch: \(detail)"
-        case .outputTooLarge: "exec: output exceeded 10 MB"
         }
     }
 }
@@ -103,15 +102,12 @@ enum ExtensionCommandExecutor {
             || process.terminationStatus == SIGTERM
             || process.terminationStatus == SIGKILL
 
-        if stdoutBox.overflow || stderrBox.overflow {
-            throw ExecError.outputTooLarge
-        }
-
         return ExecResult(
             stdout: stdoutBox.string(),
             stderr: stderrBox.string(),
             exitCode: process.terminationStatus,
-            timedOut: timedOut && process.terminationStatus != 0
+            timedOut: timedOut && process.terminationStatus != 0,
+            truncated: stdoutBox.overflow || stderrBox.overflow
         )
     }
 
@@ -138,6 +134,7 @@ enum ExtensionCommandExecutor {
         }
 
         var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = LoginShellPath.current
         if let extra = request.env {
             for (key, value) in extra where isSafeEnvKey(key) {
                 environment[key] = value
@@ -161,8 +158,7 @@ enum ExtensionCommandExecutor {
         if command.contains("/") {
             return command
         }
-        let pathEnv = ProcessInfo.processInfo.environment["PATH"]
-            ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        let pathEnv = LoginShellPath.current
         for directory in pathEnv.split(separator: ":") {
             let candidate = URL(fileURLWithPath: String(directory))
                 .appendingPathComponent(command)

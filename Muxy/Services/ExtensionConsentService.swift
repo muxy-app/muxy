@@ -28,6 +28,7 @@ final class ExtensionConsentService {
     static let shared = ExtensionConsentService()
 
     static let promptTimeout: TimeInterval = 60
+    static let maxQueuedPromptsPerExtension = 5
 
     private(set) var pendingPrompt: ExtensionConsentRequest?
     private(set) var queuedPrompts: [ExtensionConsentRequest] = []
@@ -78,6 +79,11 @@ final class ExtensionConsentService {
     }
 
     private func prompt(request: ExtensionConsentRequest) async -> ExtensionGrantDecision {
+        if queuedPromptCount(for: request.extensionID) >= Self.maxQueuedPromptsPerExtension {
+            recordAudit(request: request, decision: .deny, ruleID: nil, reason: "queue-flood")
+            logger.warning("Auto-denying consent for \(request.extensionID): queue depth exceeded")
+            return .deny
+        }
         let choice = await withCheckedContinuation { (continuation: CheckedContinuation<ExtensionConsentChoice, Never>) in
             continuations[request.id] = continuation
             if pendingPrompt == nil {
@@ -93,6 +99,11 @@ final class ExtensionConsentService {
         case .denyOnce,
              .denyAndRemember: return .deny
         }
+    }
+
+    private func queuedPromptCount(for extensionID: String) -> Int {
+        let pendingCount = pendingPrompt?.extensionID == extensionID ? 1 : 0
+        return pendingCount + queuedPrompts.lazy.count(where: { $0.extensionID == extensionID })
     }
 
     private func applyChoice(request: ExtensionConsentRequest, choice: ExtensionConsentChoice) {
@@ -210,6 +221,8 @@ enum ExtensionConsentRequestBuilder {
             return ("send-keys to pane \(id)", ["pane: \(id)"])
         case let (.panesReadScreen, .pane(id)):
             return ("read screen of pane \(id)", ["pane: \(id)"])
+        case let (.tabsOpenForeign, .foreignTab(target, tab)):
+            return ("open \(target) tab \(tab)", ["extension: \(target)", "tab type: \(tab)"])
         default:
             return ("(unknown)", [])
         }
