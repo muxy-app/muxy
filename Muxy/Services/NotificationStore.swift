@@ -126,7 +126,10 @@ final class NotificationStore {
     }
 
     private func insertIfNotFocused(_ notification: MuxyNotification, appState: AppState) {
-        if NSApp.isActive, NotificationNavigator.isActiveTab(notification.tabID, appState: appState) {
+        if notification.source == .osc,
+           NSApp.isActive,
+           NotificationNavigator.isActiveTab(notification.tabID, appState: appState)
+        {
             playSound()
             return
         }
