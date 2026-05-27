@@ -5,7 +5,6 @@ struct ExtensionsView: View {
     @State private var store = ExtensionStore.shared
     @State private var grantStore = ExtensionGrantStore.shared
     @State private var selectedExtensionID: String?
-    @State private var themeRefreshID = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,9 +17,6 @@ struct ExtensionsView: View {
         .foregroundStyle(MuxyTheme.fg)
         .tint(MuxyTheme.accent)
         .preferredColorScheme(MuxyTheme.colorScheme)
-        .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in
-            themeRefreshID += 1
-        }
     }
 
     @ViewBuilder
@@ -262,7 +258,7 @@ private struct ExtensionRow: View {
     }
 }
 
-struct ExtensionPermissionCounts {
+private struct ExtensionPermissionCounts {
     var read: Int = 0
     var write: Int = 0
     var action: Int = 0
@@ -278,7 +274,7 @@ struct ExtensionPermissionCounts {
     }
 }
 
-struct ExtensionPermissionSummary: View {
+private struct ExtensionPermissionSummary: View {
     let permissions: [ExtensionPermission]
 
     var body: some View {
@@ -316,7 +312,7 @@ struct ExtensionPermissionSummary: View {
     }
 }
 
-struct ExtensionStatusBadge: View {
+private struct ExtensionStatusBadge: View {
     let status: ExtensionStore.ExtensionStatus
 
     var body: some View {
@@ -337,7 +333,7 @@ struct ExtensionStatusBadge: View {
     }
 }
 
-struct ExtensionPermissionTagsRow: View {
+private struct ExtensionPermissionTagsRow: View {
     let permissions: [ExtensionPermission]
 
     var body: some View {
@@ -355,7 +351,7 @@ struct ExtensionPermissionTagsRow: View {
     }
 }
 
-struct ExtensionPermissionTag: View {
+private struct ExtensionPermissionTag: View {
     let permission: ExtensionPermission
 
     var body: some View {

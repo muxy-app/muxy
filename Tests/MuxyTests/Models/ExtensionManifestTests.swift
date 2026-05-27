@@ -408,3 +408,41 @@ struct ExtensionManifestTests {
         return directory
     }
 }
+
+@Suite("ExtensionPermission.kind")
+struct ExtensionPermissionKindTests {
+    @Test("maps read permissions")
+    func mapsReadPermissions() {
+        let readPermissions: [ExtensionPermission] = [.panesRead, .tabsRead, .projectsRead, .worktreesRead]
+        for permission in readPermissions {
+            #expect(permission.kind == .read)
+        }
+    }
+
+    @Test("maps write permissions")
+    func mapsWritePermissions() {
+        let writePermissions: [ExtensionPermission] = [
+            .panesWrite,
+            .tabsWrite,
+            .projectsWrite,
+            .worktreesWrite,
+            .notificationsWrite,
+        ]
+        for permission in writePermissions {
+            #expect(permission.kind == .write)
+        }
+    }
+
+    @Test("maps action permissions")
+    func mapsActionPermissions() {
+        #expect(ExtensionPermission.commandsRunScript.kind == .action)
+        #expect(ExtensionPermission.commandsExec.kind == .action)
+    }
+
+    @Test("covers every permission case")
+    func coversEveryCase() {
+        for permission in ExtensionPermission.allCases {
+            _ = permission.kind
+        }
+    }
+}

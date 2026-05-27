@@ -4,7 +4,6 @@ import SwiftUI
 struct SettingsView: View {
     @State private var selectedRoute: SettingsRoute = .builtin(.general)
     @State private var searchText = ""
-    @State private var themeRefreshID = 0
     @Environment(ExtensionStore.self) private var extensionStore
 
     private var visibleCategories: [SettingsCategory] {
@@ -65,9 +64,6 @@ struct SettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .focusProjectPickerDefaultLocation)) { _ in
             searchText = ""
             selectedRoute = .builtin(.projects)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in
-            themeRefreshID += 1
         }
     }
 
