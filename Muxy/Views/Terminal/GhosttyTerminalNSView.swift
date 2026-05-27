@@ -822,8 +822,9 @@ final class GhosttyTerminalNSView: NSView {
     private func presentContextMenu(with event: NSEvent) {
         let menu = NSMenu(title: "Terminal")
 
-        let paste = NSMenuItem(title: "Paste", action: #selector(handleContextPaste(_:)), keyEquivalent: "")
-        paste.target = self
+        let paste = ClosureMenuItem(title: "Paste") { [weak self] in
+            self?.performContextPaste()
+        }
         paste.isEnabled = NSPasteboard.general.string(forType: .string).map { !$0.isEmpty } ?? false
         menu.addItem(paste)
 
@@ -838,14 +839,12 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func contextSplitMenuItem(title: String, direction: SplitDirection, position: SplitPosition) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: #selector(handleContextSplit(_:)), keyEquivalent: "")
-        item.target = self
-        item.representedObject = ContextSplit(direction: direction, position: position)
-        return item
+        ClosureMenuItem(title: title) { [weak self] in
+            self?.onSplitRequest?(direction, position)
+        }
     }
 
-    @objc
-    private func handleContextPaste(_: Any?) {
+    private func performContextPaste() {
         window?.makeFirstResponder(self)
         if pasteboardHasImage() {
             sendRemoteBytes(Data([0x16]))
@@ -867,24 +866,8 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     @objc
-    func paste(_ sender: Any?) {
-        handleContextPaste(sender)
-    }
-
-    @objc
-    private func handleContextSplit(_ sender: NSMenuItem) {
-        guard let split = sender.representedObject as? ContextSplit else { return }
-        onSplitRequest?(split.direction, split.position)
-    }
-
-    private final class ContextSplit: NSObject {
-        let direction: SplitDirection
-        let position: SplitPosition
-
-        init(direction: SplitDirection, position: SplitPosition) {
-            self.direction = direction
-            self.position = position
-        }
+    func paste(_: Any?) {
+        performContextPaste()
     }
 
     override func scrollWheel(with event: NSEvent) {

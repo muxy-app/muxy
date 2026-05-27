@@ -74,6 +74,16 @@ struct KeyBindingStoreTests {
         #expect(store.action(for: event, scopes: [.mainWindow]) == nil)
     }
 
+    @Test("saved custom bindings gain new default actions")
+    func savedCustomBindingsGainNewDefaultActions() {
+        let customOpenProject = KeyBinding(action: .openProject, combo: KeyCombo(key: "j", command: true, option: true))
+        let persistence = StubKeyBindingPersistence(bindings: [customOpenProject])
+        let store = KeyBindingStore(persistence: persistence)
+
+        #expect(store.combo(for: .openProject) == customOpenProject.combo)
+        #expect(store.combo(for: .refreshWorktrees) == KeyCombo(key: "r", command: true, option: true))
+    }
+
     private func keyEvent(
         characters: String,
         charactersIgnoringModifiers: String,

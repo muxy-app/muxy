@@ -14,6 +14,7 @@ struct ProjectStatusBar: View {
     let isInteractive: Bool
     let richInputVisible: Bool
     @Binding var richInputFontSize: Double
+    @Binding var extensionOutputVisible: Bool
 
     private var richInputShortcutLabel: String {
         KeyBindingStore.shared.combo(for: .toggleRichInput).displayString
@@ -37,6 +38,8 @@ struct ProjectStatusBar: View {
                 }
             }
             Spacer(minLength: 8)
+            extensionOutputChip
+            separator
             if richInputVisible {
                 zoomControls
                 separator
@@ -148,6 +151,19 @@ struct ProjectStatusBar: View {
             .frame(width: 1)
             .frame(maxHeight: .infinity)
             .accessibilityHidden(true)
+    }
+
+    private var extensionOutputChip: some View {
+        Button {
+            extensionOutputVisible.toggle()
+        } label: {
+            Image(systemName: "ladybug")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(extensionOutputVisible ? MuxyTheme.accent : MuxyTheme.fgMuted)
+        }
+        .buttonStyle(.plain)
+        .help("Toggle Extension Output panel")
+        .accessibilityLabel("Toggle Extension Output")
     }
 
     private var richInputToggleButton: some View {

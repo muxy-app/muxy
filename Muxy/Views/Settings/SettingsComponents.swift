@@ -51,6 +51,24 @@ struct SettingsDivider: View {
     }
 }
 
+struct SettingsDevelopmentBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .tracking(0.6)
+            .foregroundStyle(SettingsStyle.warning)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(SettingsStyle.warning.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+            .overlay(
+                RoundedRectangle(cornerRadius: 3)
+                    .stroke(SettingsStyle.warning.opacity(0.4), lineWidth: 1)
+            )
+    }
+}
+
 struct SettingsContainer<Content: View>: View {
     @ViewBuilder var content: Content
 

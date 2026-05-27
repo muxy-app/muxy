@@ -50,6 +50,19 @@ flowchart TB
 | [Schema](layouts/schema.md) | Fields, single panes, split trees, JSON form |
 | [Examples](layouts/examples.md) | Ready-to-adapt layout recipes |
 
+## Extensions
+
+> **DEV — under active development.** APIs and manifest format may change.
+
+| Page | What's in it |
+| --- | --- |
+| [Overview](extensions/overview.md) | Architecture, lifecycle, security model |
+| [Manifest](extensions/manifest.md) | `manifest.json` fields, subprocess environment |
+| [Permissions](extensions/permissions.md) | What each permission grants |
+| [Events](extensions/events.md) | Identify/subscribe handshake, event list |
+| [Palette Commands](extensions/palette-commands.md) | Register palette commands, react to triggers |
+| [AI Provider Hooks](extensions/ai-provider.md) | Route third-party agent notifications |
+
 ## Remote Server
 
 | Page | What's in it |

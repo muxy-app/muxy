@@ -222,6 +222,8 @@ private struct TabContentView: View {
             DiffViewerPane(state: diffState, focused: focused, onFocus: onFocus)
         case let .imageViewer(imageState):
             ImageViewerPane(state: imageState, focused: focused, onFocus: onFocus)
+        case let .extensionWebView(extensionState):
+            ExtensionWebViewPane(state: extensionState, focused: focused, onFocus: onFocus)
         }
     }
 }

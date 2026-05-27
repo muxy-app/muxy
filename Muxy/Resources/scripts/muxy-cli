@@ -13,6 +13,7 @@
 #   muxy list-projects                       List projects
 #   muxy switch-project <name|id|path>        Switch active project
 #   muxy list-worktrees [project]             List worktrees
+#   muxy create-worktree <name> [options]     Create and switch to a worktree
 #   muxy switch-worktree <name|id|path>       Switch active worktree
 #   muxy refresh-worktrees [project]          Refresh worktrees from Git
 #   muxy list-tabs                            List tabs
@@ -206,6 +207,72 @@ case "$COMMAND" in
             send_command "list-worktrees"
         fi
         ;;
+    create-worktree)
+        shift
+        NAME=""
+        BRANCH=""
+        PROJECT=""
+        PATH_ARG=""
+        CREATE_BRANCH="true"
+        BASE_BRANCH=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --branch)
+                    if [ $# -lt 2 ]; then
+                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+                        exit 1
+                    fi
+                    BRANCH="$2"
+                    shift 2
+                    ;;
+                --base)
+                    if [ $# -lt 2 ]; then
+                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+                        exit 1
+                    fi
+                    BASE_BRANCH="$2"
+                    shift 2
+                    ;;
+                --project)
+                    if [ $# -lt 2 ]; then
+                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+                        exit 1
+                    fi
+                    PROJECT="$2"
+                    shift 2
+                    ;;
+                --path)
+                    if [ $# -lt 2 ]; then
+                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+                        exit 1
+                    fi
+                    PATH_ARG="$2"
+                    shift 2
+                    ;;
+                --existing)
+                    CREATE_BRANCH="false"
+                    shift
+                    ;;
+                *)
+                    if [ -z "$NAME" ]; then
+                        NAME="$1"
+                    else
+                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+                        exit 1
+                    fi
+                    shift
+                    ;;
+            esac
+        done
+        if [ -z "$NAME" ]; then
+            echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+            exit 1
+        fi
+        if [ -z "$BRANCH" ]; then
+            BRANCH="$NAME"
+        fi
+        send_command "create-worktree|$NAME|$BRANCH|$PROJECT|$PATH_ARG|$CREATE_BRANCH|$BASE_BRANCH"
+        ;;
     switch-worktree)
         shift
         PROJECT=""
@@ -277,6 +344,7 @@ case "$COMMAND" in
         echo "  muxy list-projects                       List projects"
         echo "  muxy switch-project <name|id|path>        Switch active project"
         echo "  muxy list-worktrees [project]             List worktrees"
+        echo "  muxy create-worktree <name> [options]     Create and switch to a worktree"
         echo "  muxy switch-worktree <name|id|path>       Switch active worktree"
         echo "  muxy refresh-worktrees [project]          Refresh worktrees from Git"
         echo "  muxy list-tabs                            List tabs"
@@ -293,7 +361,8 @@ if [ -n "$COMMAND" ] && [ "$COMMAND" != "split-right" ] && [ "$COMMAND" != "spli
    [ "$COMMAND" != "send" ] && [ "$COMMAND" != "send-keys" ] && [ "$COMMAND" != "read-screen" ] && \
    [ "$COMMAND" != "close-pane" ] && [ "$COMMAND" != "rename-pane" ] && [ "$COMMAND" != "list-panes" ] && \
    [ "$COMMAND" != "list-projects" ] && [ "$COMMAND" != "switch-project" ] && \
-   [ "$COMMAND" != "list-worktrees" ] && [ "$COMMAND" != "switch-worktree" ] && \
+    [ "$COMMAND" != "list-worktrees" ] && [ "$COMMAND" != "create-worktree" ] && \
+    [ "$COMMAND" != "switch-worktree" ] && \
    [ "$COMMAND" != "refresh-worktrees" ] && [ "$COMMAND" != "list-tabs" ] && \
    [ "$COMMAND" != "switch-tab" ] && [ "$COMMAND" != "new-tab" ] && \
    [ "$COMMAND" != "next-tab" ] && [ "$COMMAND" != "previous-tab" ]; then
