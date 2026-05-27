@@ -10,6 +10,7 @@ final class NotificationSocketServer: @unchecked Sendable {
         let allowedEvents: Set<String>
         let commandEvents: Set<String>
         let permissions: Set<ExtensionPermission>
+        let token: String
     }
 
     struct ExtensionSnapshot: Equatable {
@@ -194,12 +195,7 @@ final class NotificationSocketServer: @unchecked Sendable {
         "subscribe", "identify",
     ]
 
-    private static let commandNames: Set<String> = [
-        "split-right", "split-down", "send", "send-keys",
-        "read-screen", "close-pane", "rename-pane", "list-panes",
-        "list-projects", "switch-project", "list-worktrees", "create-worktree", "switch-worktree", "refresh-worktrees",
-        "list-tabs", "switch-tab", "new-tab", "next-tab", "previous-tab", "open-tab",
-    ]
+    private static let commandNames: Set<String> = MuxyAPI.Permissions.verbNames
 
     private func openSession(_ session: ClientSession) {
         let readSource = DispatchSource.makeReadSource(fileDescriptor: session.fd, queue: queue)
@@ -269,11 +265,15 @@ final class NotificationSocketServer: @unchecked Sendable {
     private func evaluateSticky(head: String, message: String, session: ClientSession) -> String {
         switch head {
         case "identify":
-            let parts = message.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-            guard parts.count == 2, !parts[1].isEmpty else { return "error:usage identify|<extension-id>" }
+            let parts = message.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 2, !parts[1].isEmpty else { return "error:usage identify|<extension-id>|<token>" }
             let claimedID = parts[1]
-            guard extensionSnapshot.entries[claimedID] != nil else {
+            guard let entry = extensionSnapshot.entries[claimedID] else {
                 return "error:unknown extension \(claimedID)"
+            }
+            let providedToken = parts.count >= 3 ? parts[2] : ""
+            guard !entry.token.isEmpty, providedToken == entry.token else {
+                return "error:invalid extension token"
             }
             session.extensionID = claimedID
             return "ok"

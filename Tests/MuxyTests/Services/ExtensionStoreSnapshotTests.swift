@@ -10,7 +10,8 @@ struct ExtensionSnapshotTests {
         let entry = NotificationSocketServer.ExtensionSnapshotEntry(
             allowedEvents: ["pane.created", "tab.focused"],
             commandEvents: [],
-            permissions: []
+            permissions: [],
+            token: "test-token"
         )
         #expect(NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "pane.created"))
         #expect(NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "tab.focused"))
@@ -22,7 +23,8 @@ struct ExtensionSnapshotTests {
         let entry = NotificationSocketServer.ExtensionSnapshotEntry(
             allowedEvents: [],
             commandEvents: ["command.ping", "command.run"],
-            permissions: []
+            permissions: [],
+            token: "test-token"
         )
         #expect(NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "command.ping"))
         #expect(NotificationSocketServer.canSubscribeForTesting(entry: entry, to: "command.run"))

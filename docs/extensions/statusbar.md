@@ -34,13 +34,15 @@ Extensions can place items in either side of the footer status bar — the row t
 ## Updating text at runtime
 
 ```
-identify|<extension-id>
+identify|<extension-id>|<token>
 extension.statusbar.set|<itemID>|<text>
 ```
 
+`<token>` comes from the `MUXY_EXTENSION_TOKEN` environment variable Muxy injects when it spawns the extension. The connecting process must echo it back; identify is rejected otherwise.
+
 | Response | Meaning |
 | --- | --- |
-| `ok` | Text updated. Pass an empty body to clear back to the manifest value. |
+| `ok` | Text updated. To clear back to the manifest value, send `extension.statusbar.set\|<itemID>` (no third argument) or pass an empty text \(`extension.statusbar.set\|<itemID>\|`\). |
 | `error:identify required` | Connection has not called `identify` yet. |
 | `error:unknown status bar item '<id>'` | The id is not declared in the extension's `statusBarItems`. |
 

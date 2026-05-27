@@ -5,8 +5,8 @@ import Foundation
 final class ExtensionSettingsStore {
     static let shared = ExtensionSettingsStore()
 
-    private let defaults: UserDefaults
-    private var changeTick: Int = 0
+    @ObservationIgnored private let defaults: UserDefaults
+    private var cache: [String: ExtensionJSON] = [:]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -19,19 +19,25 @@ final class ExtensionSettingsStore {
     }
 
     func value(extensionID: String, key: String) -> ExtensionJSON? {
-        _ = changeTick
-        return readValue(extensionID: extensionID, key: key)
+        let storageKey = Self.storageKey(extensionID: extensionID, key: key)
+        if let cached = cache[storageKey] {
+            return cached
+        }
+        guard let raw = defaults.object(forKey: storageKey) else { return nil }
+        let decoded = decodeFromStorage(raw)
+        cache[storageKey] = decoded
+        return decoded
     }
 
     func setValue(_ value: ExtensionJSON?, extensionID: String, key: String) {
         let storageKey = Self.storageKey(extensionID: extensionID, key: key)
         guard let value else {
+            cache.removeValue(forKey: storageKey)
             defaults.removeObject(forKey: storageKey)
-            changeTick &+= 1
             return
         }
+        cache[storageKey] = value
         defaults.set(encodeForStorage(value), forKey: storageKey)
-        changeTick &+= 1
     }
 
     func effectiveValue(extensionID: String, entry: ExtensionSettingEntry) -> ExtensionJSON? {
@@ -43,16 +49,12 @@ final class ExtensionSettingsStore {
 
     func clearAll(extensionID: String) {
         let prefix = "\(Self.keyPrefix)\(extensionID)."
+        for key in cache.keys where key.hasPrefix(prefix) {
+            cache.removeValue(forKey: key)
+        }
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
             defaults.removeObject(forKey: key)
         }
-        changeTick &+= 1
-    }
-
-    private func readValue(extensionID: String, key: String) -> ExtensionJSON? {
-        let storageKey = Self.storageKey(extensionID: extensionID, key: key)
-        guard let raw = defaults.object(forKey: storageKey) else { return nil }
-        return decodeFromStorage(raw)
     }
 
     private func encodeForStorage(_ value: ExtensionJSON) -> Any {

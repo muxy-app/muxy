@@ -2,8 +2,8 @@ import SwiftUI
 
 struct ExtensionCustomSettingsView: View {
     let extensionID: String
-    @State private var store = ExtensionStore.shared
-    @State private var settingsStore = ExtensionSettingsStore.shared
+    @Environment(ExtensionStore.self) private var store
+    @Environment(ExtensionSettingsStore.self) private var settingsStore
 
     private var muxyExtension: MuxyExtension? {
         store.statuses.first(where: { $0.id == extensionID })?.muxyExtension

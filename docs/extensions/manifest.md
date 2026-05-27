@@ -47,8 +47,8 @@ Topbar and status bar items accept an `icon` field in one of two forms:
 
 A bare string (`"icon": "puzzlepiece.extension"`) is accepted as shorthand for `{ "symbol": ... }`.
 
-- **`symbol`** — any SF Symbol name. Tinted with the chrome's muted/hover colors automatically.
-- **`svg`** — a path **relative to the extension directory** to an `.svg` file. The file must exist at load time and must not escape the extension directory. Rendered as a *template* image, so SVG fills/strokes that use `currentColor` (or a single solid color) pick up the chrome tint.
+- **`symbol`** — any SF Symbol name. Tinted with the chrome's foreground color (topbar items also pick up a hover color).
+- **`svg`** — a path **relative to the extension directory** to a file with a `.svg` extension. The file must exist at load time, must not escape the extension directory, and must be at most 256 KiB. Rendered as a *template* image, so SVG fills/strokes that use `currentColor` (or a single solid color) pick up the chrome tint.
 
 ## Loader behaviour
 
@@ -69,5 +69,6 @@ Each enabled extension is spawned with these environment variables:
 | --- | --- |
 | `MUXY_SOCKET_PATH` | Absolute path to `muxy.sock` |
 | `MUXY_EXTENSION_ID` | The extension's `name` from the manifest |
+| `MUXY_EXTENSION_TOKEN` | Random per-launch token. Required as the third argument of `identify`. |
 
-Both must be passed back when the extension connects — see [Events](events.md) for the handshake.
+All three must be passed back when the extension connects — see [Events](events.md) for the handshake.

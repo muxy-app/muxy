@@ -33,8 +33,11 @@ Clicking a topbar icon dispatches the referenced command through the same path a
 
 Disabled extensions contribute no topbar items. Items disappear immediately when the extension is toggled off.
 
+## Placement and order
+
+Icons appear in the right-hand cluster of the tab strip, inserted just before the built-in **Split Right / Split Down / New Tab** group. Among themselves they're ordered first by extension directory name, then by the order they appear in the extension's `topbarItems` array.
+
 ## Limits
 
-- Topbar icons render in the order extensions are loaded.
 - An item whose `command` references an unknown id fails the manifest load — fix the reference before reloading.
-- SVG icons must live inside the extension directory and exist at load time.
+- SVG icons must live inside the extension directory, have a `.svg` extension, and be at most 256 KiB.

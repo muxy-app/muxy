@@ -9,7 +9,7 @@ sequenceDiagram
   participant E as Extension
   participant M as Muxy
 
-  E->>M: identify|hello
+  E->>M: identify|hello|<token>
   M-->>E: ok
   E->>M: subscribe|pane.created
   M-->>E: ok
@@ -25,9 +25,10 @@ The connection stays open for the lifetime of the extension subprocess. Muxy fan
 
 ## Identify rules
 
-- `identify|<id>` is checked against the set of extensions currently loaded by `ExtensionStore`. Unknown IDs are rejected with `error:unknown extension <id>`.
-- An extension may identify only once per connection. Subsequent `identify` lines overwrite the session's claimed ID.
-- Sessions that never call `identify` (e.g. the `muxy` CLI) are treated as unidentified. They can still call verbs, but cannot subscribe to or be limited by manifest declarations.
+- `identify|<id>|<token>` is checked against the set of extensions currently loaded by `ExtensionStore`. Unknown IDs are rejected with `error:unknown extension <id>`.
+- `<token>` must match the value Muxy passed to the subprocess as `MUXY_EXTENSION_TOKEN`. Mismatches return `error:invalid extension token`. The token is regenerated on every extension start.
+- An extension may identify only once per connection. Subsequent `identify` lines overwrite the session's claimed ID — but must still present the correct token.
+- Sessions that never call `identify` (e.g. the `muxy` CLI) are treated as unidentified. They can still call verbs that don't require an extension identity.
 
 ## Subscribe rules
 

@@ -551,6 +551,8 @@ enum ExtensionManifestLoader {
         }
     }
 
+    static let maxIconSVGBytes = 256 * 1024
+
     private static func validateTopbarItems(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
         let commandIDs = Set(manifest.commands.map(\.id))
         var seen = Set<String>()
@@ -565,17 +567,12 @@ enum ExtensionManifestLoader {
                     command: item.command
                 )
             }
-            if case let .svg(path) = item.icon {
-                guard let url = muxyExtension.resolveResource(path) else {
-                    throw ExtensionLoadError.topbarItemSVGOutsideDirectory(
-                        itemID: item.id,
-                        url: muxyExtension.directory.appendingPathComponent(path)
-                    )
-                }
-                guard FileManager.default.fileExists(atPath: url.path) else {
-                    throw ExtensionLoadError.topbarItemSVGMissing(itemID: item.id, url: url)
-                }
-            }
+            try validateIcon(
+                item.icon,
+                in: muxyExtension,
+                missing: { ExtensionLoadError.topbarItemSVGMissing(itemID: item.id, url: $0) },
+                outside: { ExtensionLoadError.topbarItemSVGOutsideDirectory(itemID: item.id, url: $0) }
+            )
         }
     }
 
@@ -593,17 +590,34 @@ enum ExtensionManifestLoader {
                     command: item.command
                 )
             }
-            if case let .svg(path) = item.icon {
-                guard let url = muxyExtension.resolveResource(path) else {
-                    throw ExtensionLoadError.statusBarItemSVGOutsideDirectory(
-                        itemID: item.id,
-                        url: muxyExtension.directory.appendingPathComponent(path)
-                    )
-                }
-                guard FileManager.default.fileExists(atPath: url.path) else {
-                    throw ExtensionLoadError.statusBarItemSVGMissing(itemID: item.id, url: url)
-                }
-            }
+            try validateIcon(
+                item.icon,
+                in: muxyExtension,
+                missing: { ExtensionLoadError.statusBarItemSVGMissing(itemID: item.id, url: $0) },
+                outside: { ExtensionLoadError.statusBarItemSVGOutsideDirectory(itemID: item.id, url: $0) }
+            )
+        }
+    }
+
+    private static func validateIcon(
+        _ icon: ExtensionIcon,
+        in muxyExtension: MuxyExtension,
+        missing: (URL) -> ExtensionLoadError,
+        outside: (URL) -> ExtensionLoadError
+    ) throws {
+        guard case let .svg(path) = icon else { return }
+        guard path.lowercased().hasSuffix(".svg") else {
+            throw outside(muxyExtension.directory.appendingPathComponent(path))
+        }
+        guard let url = muxyExtension.resolveResource(path) else {
+            throw outside(muxyExtension.directory.appendingPathComponent(path))
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw missing(url)
+        }
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        if let size = attributes[.size] as? Int, size > maxIconSVGBytes {
+            throw missing(url)
         }
     }
 

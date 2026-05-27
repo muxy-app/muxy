@@ -20,7 +20,7 @@ struct ExtensionIconView: View {
     @ViewBuilder
     private func svgImage(path: String) -> some View {
         if let url = muxyExtension.resolveResource(path),
-           let nsImage = NSImage(contentsOf: url)
+           let nsImage = ExtensionIconAssetCache.shared.image(extensionID: muxyExtension.id, url: url)
         {
             Image(nsImage: nsImage)
                 .resizable()

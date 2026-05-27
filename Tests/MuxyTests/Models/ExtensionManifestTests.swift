@@ -288,6 +288,77 @@ struct ExtensionManifestTests {
         }
     }
 
+    @Test("rejects empty topbar item id")
+    func rejectsEmptyTopbarID() throws {
+        let directory = try makeTemporaryExtension(
+            name: "topbar-empty",
+            manifest: """
+            {
+                "name": "topbar-empty",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "commands": [ { "id": "noop", "title": "noop" } ],
+                "topbarItems": [
+                    { "id": "", "icon": "x.circle", "command": "noop" }
+                ]
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects empty setting key")
+    func rejectsEmptySettingKey() throws {
+        let directory = try makeTemporaryExtension(
+            name: "settings-empty",
+            manifest: """
+            {
+                "name": "settings-empty",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "settings": [
+                    { "key": "", "title": "X", "type": "bool" }
+                ]
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects non-svg icon path")
+    func rejectsNonSVGIconPath() throws {
+        let directory = try makeTemporaryExtension(
+            name: "bad-icon",
+            manifest: """
+            {
+                "name": "bad-icon",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "commands": [ { "id": "noop", "title": "noop" } ],
+                "topbarItems": [
+                    { "id": "x", "icon": { "svg": "assets/foo.png" }, "command": "noop" }
+                ]
+            }
+            """,
+            files: [
+                "run.sh": "#!/bin/sh\n",
+                "assets/foo.png": "PNG-not-SVG",
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
     @Test("withEnabled preserves tabTypes")
     func withEnabledPreservesTabTypes() {
         let tabType = ExtensionTabType(id: "details", title: "Details", entry: "ui/index.html", defaultData: nil)

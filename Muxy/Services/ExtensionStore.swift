@@ -1,5 +1,6 @@
 import Foundation
 import os
+import Security
 
 private let logger = Logger(subsystem: "app.muxy", category: "ExtensionStore")
 
@@ -32,6 +33,7 @@ final class ExtensionStore {
     private(set) var loadFailures: [LoadFailure] = []
 
     private var processes: [String: Process] = [:]
+    private var tokens: [String: String] = [:]
     private let rootDirectoryURL: URL
 
     private init(rootDirectory: URL = ExtensionStore.defaultRootDirectory) {
@@ -50,6 +52,7 @@ final class ExtensionStore {
         for index in statuses.indices where statuses[index].muxyExtension.manifest.enabled {
             startExtension(at: index)
         }
+        rebuildExtensionUICache()
         publishSnapshot()
     }
 
@@ -58,6 +61,8 @@ final class ExtensionStore {
             stopProcess(extensionID: status.id)
         }
         statusBarTextOverrides.removeAll()
+        ExtensionIconAssetCache.shared.invalidateAll()
+        rebuildExtensionUICache()
         publishSnapshot()
     }
 
@@ -88,7 +93,9 @@ final class ExtensionStore {
         }
         if !enabled {
             statusBarTextOverrides.removeValue(forKey: extensionID)
+            ExtensionIconAssetCache.shared.invalidate(extensionID: extensionID)
         }
+        rebuildExtensionUICache()
         publishSnapshot()
     }
 
@@ -105,10 +112,12 @@ final class ExtensionStore {
         var entries: [String: NotificationSocketServer.ExtensionSnapshotEntry] = [:]
         for status in statuses where status.muxyExtension.manifest.enabled {
             let manifest = status.muxyExtension.manifest
+            guard let token = tokens[status.id] else { continue }
             entries[status.id] = NotificationSocketServer.ExtensionSnapshotEntry(
                 allowedEvents: Set(manifest.events),
                 commandEvents: Set(manifest.commands.map(\.eventName)),
-                permissions: Set(manifest.permissions)
+                permissions: Set(manifest.permissions),
+                token: token
             )
         }
         return NotificationSocketServer.ExtensionSnapshot(entries: entries)
@@ -118,14 +127,17 @@ final class ExtensionStore {
         NotificationSocketServer.shared.applyExtensionSnapshot(snapshotForSocketServer())
     }
 
-    static func buildSnapshotForTesting(from extensions: [MuxyExtension]) -> NotificationSocketServer.ExtensionSnapshot {
+    static func buildSnapshotForTesting(from extensions: [MuxyExtension], token: String = "test-token") -> NotificationSocketServer
+        .ExtensionSnapshot
+    {
         var entries: [String: NotificationSocketServer.ExtensionSnapshotEntry] = [:]
         for ext in extensions where ext.manifest.enabled {
             let manifest = ext.manifest
             entries[ext.id] = NotificationSocketServer.ExtensionSnapshotEntry(
                 allowedEvents: Set(manifest.events),
                 commandEvents: Set(manifest.commands.map(\.eventName)),
-                permissions: Set(manifest.permissions)
+                permissions: Set(manifest.permissions),
+                token: token
             )
         }
         return NotificationSocketServer.ExtensionSnapshot(entries: entries)
@@ -153,6 +165,9 @@ final class ExtensionStore {
     }
 
     private var statusBarTextOverrides: [String: [String: String]] = [:]
+    private(set) var topbarItems: [TopbarItemBinding] = []
+    private(set) var leftStatusBarItems: [StatusBarItemBinding] = []
+    private(set) var rightStatusBarItems: [StatusBarItemBinding] = []
 
     func paletteCommands() -> [PaletteCommandBinding] {
         statuses
@@ -162,30 +177,35 @@ final class ExtensionStore {
             }
     }
 
-    func topbarItems() -> [TopbarItemBinding] {
-        statuses
-            .filter(\.muxyExtension.manifest.enabled)
-            .flatMap { status in
-                status.muxyExtension.manifest.topbarItems.map { item in
-                    TopbarItemBinding(muxyExtension: status.muxyExtension, item: item)
-                }
-            }
+    func statusBarItems(side: ExtensionStatusBarItem.Side) -> [StatusBarItemBinding] {
+        side == .left ? leftStatusBarItems : rightStatusBarItems
     }
 
-    func statusBarItems(side: ExtensionStatusBarItem.Side) -> [StatusBarItemBinding] {
-        statuses
-            .filter(\.muxyExtension.manifest.enabled)
-            .flatMap { status in
-                status.muxyExtension.manifest.statusBarItems
-                    .filter { $0.side == side }
-                    .map { item in
-                        StatusBarItemBinding(
-                            muxyExtension: status.muxyExtension,
-                            item: item,
-                            liveText: statusBarTextOverrides[status.id]?[item.id]
-                        )
-                    }
+    private func rebuildExtensionUICache() {
+        var topbar: [TopbarItemBinding] = []
+        var left: [StatusBarItemBinding] = []
+        var right: [StatusBarItemBinding] = []
+        for status in statuses where status.muxyExtension.manifest.enabled {
+            let ext = status.muxyExtension
+            let overrides = statusBarTextOverrides[status.id]
+            for item in ext.manifest.topbarItems {
+                topbar.append(TopbarItemBinding(muxyExtension: ext, item: item))
             }
+            for item in ext.manifest.statusBarItems {
+                let binding = StatusBarItemBinding(
+                    muxyExtension: ext,
+                    item: item,
+                    liveText: overrides?[item.id]
+                )
+                switch item.side {
+                case .left: left.append(binding)
+                case .right: right.append(binding)
+                }
+            }
+        }
+        topbarItems = topbar
+        leftStatusBarItems = left
+        rightStatusBarItems = right
     }
 
     func setStatusBarText(extensionID: String, itemID: String, text: String?) -> Bool {
@@ -200,6 +220,7 @@ final class ExtensionStore {
             overrides.removeValue(forKey: itemID)
         }
         statusBarTextOverrides[extensionID] = overrides.isEmpty ? nil : overrides
+        rebuildExtensionUICache()
         return true
     }
 
@@ -388,9 +409,13 @@ final class ExtensionStore {
         process.executableURL = ext.entrypointURL
         process.currentDirectoryURL = ext.directory
 
+        let token = Self.generateToken()
+        tokens[ext.id] = token
+
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_SOCKET_PATH"] = NotificationSocketServer.socketPath
         environment["MUXY_EXTENSION_ID"] = ext.id
+        environment["MUXY_EXTENSION_TOKEN"] = token
         let logURL = ExtensionLogStore.shared.logURL(extensionID: ext.id, directory: ext.directory)
         environment["MUXY_EXTENSION_LOG"] = logURL.path
         process.environment = environment
@@ -440,6 +465,7 @@ final class ExtensionStore {
 
     private func stopProcess(extensionID: String) {
         ExtensionScriptRunner.shared.evict(extensionID: extensionID)
+        tokens.removeValue(forKey: extensionID)
         guard let process = processes.removeValue(forKey: extensionID) else { return }
         if process.isRunning {
             process.terminate()
@@ -447,6 +473,15 @@ final class ExtensionStore {
         if let index = statuses.firstIndex(where: { $0.id == extensionID }) {
             statuses[index].isRunning = false
         }
+    }
+
+    private static func generateToken() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let result = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        guard result == errSecSuccess else {
+            return UUID().uuidString + UUID().uuidString
+        }
+        return Data(bytes).base64EncodedString()
     }
 
     private func handleTermination(extensionID: String, process: Process) {

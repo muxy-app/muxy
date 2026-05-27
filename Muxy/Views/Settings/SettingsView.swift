@@ -5,7 +5,7 @@ struct SettingsView: View {
     @State private var selectedRoute: SettingsRoute = .builtin(.general)
     @State private var searchText = ""
     @State private var themeRefreshID = 0
-    @State private var extensionStore = ExtensionStore.shared
+    @Environment(ExtensionStore.self) private var extensionStore
 
     private var visibleCategories: [SettingsCategory] {
         SettingsCatalog.categories.filter { SettingsCatalog.categoryMatches($0, query: searchText) }
@@ -45,7 +45,7 @@ struct SettingsView: View {
                 settingsContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .environment(\.settingsSearchQuery, searchText)
-                    .environment(\.settingsCategory, selectedBuiltinCategory ?? .general)
+                    .environment(\.settingsCategory, selectedBuiltinCategory)
             }
         }
         .frame(minWidth: 860, minHeight: 620)

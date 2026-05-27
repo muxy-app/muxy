@@ -45,7 +45,7 @@ flowchart TB
 Extensions use the same Unix socket as the `muxy` CLI, with a small protocol on top: two sticky commands (`identify`, `subscribe`) followed by any of the existing verbs.
 
 ```
-identify|<extension-id>          # claim identity (must match manifest name)
+identify|<extension-id>|<token>  # claim identity; token comes from MUXY_EXTENSION_TOKEN env
 subscribe|<event-name>           # receive `event|<name>|key=value...` lines
 <verb>|<args>                    # any CLI verb (permission-gated)
 ```

@@ -25,8 +25,8 @@ User-installed subprocesses that Muxy launches and talks to over the existing no
 
 - Install path: `~/.config/muxy/extensions/<name>/`
 - Transport: `~/Library/Application Support/Muxy/muxy.sock` (same socket as `muxy` CLI)
-- Subprocess environment: `MUXY_SOCKET_PATH`, `MUXY_EXTENSION_ID`
-- Sticky verbs: `identify|<id>`, `subscribe|<event>`
+- Subprocess environment: `MUXY_SOCKET_PATH`, `MUXY_EXTENSION_ID`, `MUXY_EXTENSION_TOKEN`
+- Sticky verbs: `identify|<id>|<token>`, `subscribe|<event>`
 - See [the muxy CLI feature page](../features/muxy-cli.md) for the verb vocabulary
 
 ## Minimal example
@@ -53,7 +53,7 @@ User-installed subprocesses that Muxy launches and talks to over the existing no
 ```bash
 #!/bin/bash
 {
-  printf 'identify|%s\n' "$MUXY_EXTENSION_ID"
+  printf 'identify|%s|%s\n' "$MUXY_EXTENSION_ID" "$MUXY_EXTENSION_TOKEN"
   printf 'subscribe|pane.created\n'
   printf 'subscribe|command.ping\n'
   while sleep 60; do :; done

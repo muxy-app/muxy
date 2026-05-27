@@ -47,8 +47,8 @@ struct PaneTabStrip: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ExtensionStore.self) private var extensionStore
     @State private var dragState = TabDragState()
-    @State private var extensionStore = ExtensionStore.shared
 
     static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
         tabs.map { tab in
@@ -103,7 +103,7 @@ struct PaneTabStrip: View {
                     IconButton(symbol: symbol, accessibilityLabel: label, action: onToggleMaximize)
                         .help(shortcutTooltip("Toggle Maximize Pane", for: .toggleMaximizePane))
                 }
-                ForEach(extensionStore.topbarItems()) { binding in
+                ForEach(extensionStore.topbarItems) { binding in
                     ExtensionIconButton(
                         icon: binding.item.icon,
                         muxyExtension: binding.muxyExtension,

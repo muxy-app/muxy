@@ -199,7 +199,8 @@ enum SocketCommandHandler {
             return handleSettingsSet(key: parts[1], rawValue: value, extensionID: clientContext.extensionID)
         case "extension.statusbar.set":
             guard parts.count >= 2 else { return "error:usage extension.statusbar.set|itemID[|text]" }
-            let text = parts.count >= 3 ? parts.dropFirst(2).joined(separator: "|") : nil
+            let rawText = parts.count >= 3 ? parts.dropFirst(2).joined(separator: "|") : nil
+            let text = (rawText?.isEmpty == true) ? nil : rawText
             return handleStatusBarSet(itemID: parts[1], text: text, extensionID: clientContext.extensionID)
         default:
             return "error:unknown command \(cmd)"
@@ -211,15 +212,12 @@ enum SocketCommandHandler {
         guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID) else {
             return "error:unknown extension"
         }
-        guard muxyExtension.manifest.setting(key: key) != nil else {
+        guard let entry = muxyExtension.manifest.setting(key: key) else {
             return "error:setting '\(key)' not declared in manifest"
         }
-        let store = ExtensionSettingsStore.shared
-        let entry = muxyExtension.manifest.setting(key: key)
-        guard let entry,
-              let value = store.effectiveValue(extensionID: extensionID, entry: entry)
-        else { return "ok\tnull" }
-
+        guard let value = ExtensionSettingsStore.shared.effectiveValue(extensionID: extensionID, entry: entry) else {
+            return "ok"
+        }
         do {
             let data = try JSONEncoder().encode(value)
             let json = String(data: data, encoding: .utf8) ?? "null"
@@ -229,16 +227,21 @@ enum SocketCommandHandler {
         }
     }
 
+    private static let maxSettingValueBytes = 64 * 1024
+
     private static func handleSettingsSet(key: String, rawValue: String, extensionID: String?) -> String {
         guard let extensionID else { return "error:identify required" }
+        guard let data = rawValue.data(using: .utf8) else {
+            return "error:invalid value encoding"
+        }
+        guard data.count <= maxSettingValueBytes else {
+            return "error:value exceeds \(maxSettingValueBytes)-byte limit"
+        }
         guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID) else {
             return "error:unknown extension"
         }
         guard muxyExtension.manifest.setting(key: key) != nil else {
             return "error:setting '\(key)' not declared in manifest"
-        }
-        guard let data = rawValue.data(using: .utf8) else {
-            return "error:invalid value encoding"
         }
         do {
             let value = try JSONDecoder().decode(ExtensionJSON.self, from: data)

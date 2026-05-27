@@ -56,7 +56,7 @@ sequenceDiagram
 The extension must subscribe to its own command event. The command id auto-allowlists the corresponding `command.<id>` event — you do **not** need to add it to the manifest `events` array.
 
 ```bash
-identify|hello
+identify|hello|"$MUXY_EXTENSION_TOKEN"
 subscribe|command.ping
 ```
 

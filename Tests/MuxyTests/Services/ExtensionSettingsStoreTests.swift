@@ -71,6 +71,28 @@ struct ExtensionSettingsStoreTests {
         #expect(ExtensionSettingsStore.storageKey(extensionID: "ext", key: "k") == "muxy.ext.ext.k")
     }
 
+    @Test("round-trips arrays and objects")
+    func roundTripsArraysAndObjects() {
+        let defaults = makeIsolatedDefaults()
+        let store = ExtensionSettingsStore(defaults: defaults)
+
+        store.setValue(.array([.bool(true), .string("x"), .number(1)]), extensionID: "ext", key: "list")
+        store.setValue(.object(["enabled": .bool(true), "name": .string("demo")]), extensionID: "ext", key: "obj")
+
+        #expect(store.value(extensionID: "ext", key: "list") == .array([.bool(true), .string("x"), .number(1)]))
+        #expect(store.value(extensionID: "ext", key: "obj") == .object(["enabled": .bool(true), "name": .string("demo")]))
+    }
+
+    @Test("survives a second store instance pointing at the same defaults")
+    func survivesAcrossInstances() {
+        let defaults = makeIsolatedDefaults()
+        let writer = ExtensionSettingsStore(defaults: defaults)
+        writer.setValue(.string("v"), extensionID: "ext", key: "k")
+
+        let reader = ExtensionSettingsStore(defaults: defaults)
+        #expect(reader.value(extensionID: "ext", key: "k") == .string("v"))
+    }
+
     private func makeIsolatedDefaults() -> UserDefaults {
         let suiteName = "ExtensionSettingsStoreTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
