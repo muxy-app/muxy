@@ -71,6 +71,8 @@ struct SettingsView: View {
             MobileSettingsView()
         case .ai:
             AIAssistantSettingsView()
+        case .extensions:
+            ExtensionsSettingsView()
         case .json:
             SettingsJSONEditorView()
         }
@@ -179,6 +181,9 @@ private struct SettingsSidebar: View {
                                 }
                             }
                             Spacer(minLength: 0)
+                            if let badge = category.developmentBadge {
+                                SettingsDevelopmentBadge(text: badge)
+                            }
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)

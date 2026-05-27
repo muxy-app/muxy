@@ -116,8 +116,14 @@ struct KeyBindingTests {
         #expect(combos[.terminalOmnibox] == KeyCombo(key: "o", command: true, option: true))
         #expect(combos[.terminalOmniboxProjects] == KeyCombo(key: "p", command: true, option: true))
         #expect(combos[.terminalOmniboxWorktrees] == KeyCombo(key: "w", command: true, option: true))
-        #expect(combos[.terminalOmniboxCommands] == KeyCombo(key: "c", command: true, option: true))
+        #expect(combos[.terminalOmniboxCommands] == KeyCombo(key: "p", command: true, shift: true))
         #expect(combos[.terminalOmniboxHistory] == KeyCombo(key: "h", command: true, option: true))
+    }
+
+    @Test("Refresh Worktrees uses Cmd+Opt+R by default")
+    func refreshWorktreesUsesCommandOptionRByDefault() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.refreshWorktrees] == KeyCombo(key: "r", command: true, option: true))
     }
 
     @Test("KeyBinding Codable round-trip")

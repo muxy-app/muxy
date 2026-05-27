@@ -129,6 +129,16 @@ struct ShortcutActionDispatcher {
         case .reloadConfig:
             ghostty.reloadConfig()
             return true
+        case .refreshWorktrees:
+            guard let activeProject else { return false }
+            Task { @MainActor in
+                await WorktreeRefreshHelper.refresh(
+                    project: activeProject,
+                    appState: appState,
+                    worktreeStore: worktreeStore
+                )
+            }
+            return true
         case .nextProject:
             appState.selectNextProject(projects: navigableProjects, worktrees: worktreeStore.worktrees)
             return true

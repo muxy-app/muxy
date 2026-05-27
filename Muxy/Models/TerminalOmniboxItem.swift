@@ -51,12 +51,25 @@ struct TerminalOmniboxWorktreeItem: Identifiable, Equatable {
     }
 }
 
+struct ExtensionPaletteItem: Identifiable, Equatable {
+    let extensionID: String
+    let extensionName: String
+    let command: ExtensionPaletteCommand
+
+    var id: String { "ext-\(extensionID)-\(command.id)" }
+
+    var searchKey: String {
+        [extensionName, command.title, command.subtitle ?? ""].joined(separator: " ")
+    }
+}
+
 enum TerminalOmniboxItem: Identifiable, Equatable {
     case project(TerminalOmniboxProjectItem)
     case worktree(TerminalOmniboxWorktreeItem)
     case openTab(OpenTerminalTabItem)
     case closedTab(ClosedTerminalTabSnapshot)
     case commandShortcut(CommandShortcut)
+    case extensionCommand(ExtensionPaletteItem)
 
     var id: String {
         switch self {
@@ -70,6 +83,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             "closed-\(snapshot.id.uuidString)"
         case let .commandShortcut(shortcut):
             "shortcut-\(shortcut.id.uuidString)"
+        case let .extensionCommand(item):
+            item.id
         }
     }
 
@@ -85,6 +100,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             snapshot.title
         case let .commandShortcut(shortcut):
             shortcut.displayName
+        case let .extensionCommand(item):
+            item.command.title
         }
     }
 
@@ -100,6 +117,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             snapshot.commandToRestore ?? snapshot.workingDirectory
         case let .commandShortcut(shortcut):
             shortcut.trimmedCommand
+        case let .extensionCommand(item):
+            item.command.subtitle ?? item.extensionName
         }
     }
 
@@ -115,6 +134,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             "History"
         case .commandShortcut:
             "Custom Commands"
+        case .extensionCommand:
+            "Extension Commands"
         }
     }
 
@@ -130,6 +151,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             "clock.arrow.circlepath"
         case .commandShortcut:
             "command"
+        case .extensionCommand:
+            "puzzlepiece.extension"
         }
     }
 
@@ -149,6 +172,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             ].compactMap(\.self).joined(separator: " ")
         case let .commandShortcut(shortcut):
             [shortcut.displayName, shortcut.trimmedCommand].joined(separator: " ")
+        case let .extensionCommand(item):
+            item.searchKey
         }
     }
 }
@@ -159,9 +184,32 @@ struct TerminalOmniboxItemContext {
     let openTabs: [OpenTerminalTabItem]
     let closedTabs: [ClosedTerminalTabSnapshot]
     let commandShortcuts: [CommandShortcut]
+    let extensionCommands: [ExtensionPaletteItem]
     let activeProjectID: UUID?
     let activeWorktreeID: UUID?
     let commandProjectIDs: Set<UUID>
+
+    init(
+        projects: [TerminalOmniboxProjectItem],
+        worktrees: [TerminalOmniboxWorktreeItem],
+        openTabs: [OpenTerminalTabItem],
+        closedTabs: [ClosedTerminalTabSnapshot],
+        commandShortcuts: [CommandShortcut],
+        extensionCommands: [ExtensionPaletteItem] = [],
+        activeProjectID: UUID?,
+        activeWorktreeID: UUID?,
+        commandProjectIDs: Set<UUID>
+    ) {
+        self.projects = projects
+        self.worktrees = worktrees
+        self.openTabs = openTabs
+        self.closedTabs = closedTabs
+        self.commandShortcuts = commandShortcuts
+        self.extensionCommands = extensionCommands
+        self.activeProjectID = activeProjectID
+        self.activeWorktreeID = activeWorktreeID
+        self.commandProjectIDs = commandProjectIDs
+    }
 }
 
 enum TerminalOmniboxItemResolver {
@@ -185,10 +233,14 @@ enum TerminalOmniboxItemResolver {
                 .filter { $0.projectID == activeProjectID && $0.worktreeID == activeWorktreeID }
                 .map(TerminalOmniboxItem.openTab)
         case .commandShortcuts:
-            guard context.activeProjectID.map(context.commandProjectIDs.contains) == true else { return [] }
-            return context.commandShortcuts
+            let extensionItems = context.extensionCommands.map(TerminalOmniboxItem.extensionCommand)
+            guard context.activeProjectID.map(context.commandProjectIDs.contains) == true else {
+                return extensionItems
+            }
+            let shortcuts = context.commandShortcuts
                 .filter { !$0.trimmedCommand.isEmpty }
                 .map(TerminalOmniboxItem.commandShortcut)
+            return shortcuts + extensionItems
         case .history:
             guard let activeProjectID = context.activeProjectID,
                   let activeWorktreeID = context.activeWorktreeID

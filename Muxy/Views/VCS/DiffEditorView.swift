@@ -19,6 +19,8 @@ struct SingleDiffEditorView: View {
     @State private var unifiedState: EditorTabState
     @State private var leftState: EditorTabState
     @State private var rightState: EditorTabState
+    @State private var syncTask: Task<Void, Never>?
+    @State private var appliedSignature: DiffEditorSignature?
 
     init(
         rows: [DiffDisplayRow],
@@ -81,17 +83,45 @@ struct SingleDiffEditorView: View {
     }
 
     private func syncDocument() {
-        switch mode {
-        case .unified:
-            apply(DiffEditorDocument.unified(rows: rows, options: renderOptions), to: unifiedState)
-        case .split:
-            apply(DiffEditorDocument.splitLeft(rows: rows, options: renderOptions), to: leftState)
-            apply(DiffEditorDocument.splitRight(rows: rows, options: renderOptions), to: rightState)
+        let targetSignature = signature
+        guard appliedSignature != targetSignature else { return }
+        syncTask?.cancel()
+        if rows.count <= Self.synchronousRowThreshold {
+            applyAll(DiffDocumentBuilder.build(rows: rows, mode: mode, options: renderOptions))
+            appliedSignature = targetSignature
+            syncTask = nil
+            return
+        }
+        let rows = rows
+        let mode = mode
+        let options = renderOptions
+        syncTask = Task {
+            let documents = await GitProcessRunner.offMain {
+                DiffDocumentBuilder.build(rows: rows, mode: mode, options: options)
+            }
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard signature == targetSignature else { return }
+                applyAll(documents)
+                appliedSignature = targetSignature
+            }
         }
     }
 
     private var renderOptions: DiffEditorDocument.RenderOptions {
         DiffEditorDocument.RenderOptions(maxLineCharacters: maxLineCharacters)
+    }
+
+    private func applyAll(_ documents: DocumentSet) {
+        if let unified = documents.unified {
+            apply(unified, to: unifiedState)
+        }
+        if let left = documents.left {
+            apply(left, to: leftState)
+        }
+        if let right = documents.right {
+            apply(right, to: rightState)
+        }
     }
 
     private func apply(_ document: DiffEditorDocument, to state: EditorTabState) {
@@ -103,6 +133,8 @@ struct SingleDiffEditorView: View {
         )
         documentRevision &+= 1
     }
+
+    private static let synchronousRowThreshold = 500
 
     private func editor(state: EditorTabState, scrollY: Binding<CGFloat>?) -> some View {
         CodeEditorView(
@@ -139,4 +171,29 @@ private struct DiffEditorSignature: Equatable {
     let cacheKey: String
     let mode: VCSTabState.ViewMode
     let rows: String
+}
+
+private struct DocumentSet {
+    let unified: DiffEditorDocument?
+    let left: DiffEditorDocument?
+    let right: DiffEditorDocument?
+}
+
+private enum DiffDocumentBuilder {
+    static func build(
+        rows: [DiffDisplayRow],
+        mode: VCSTabState.ViewMode,
+        options: DiffEditorDocument.RenderOptions
+    ) -> DocumentSet {
+        switch mode {
+        case .unified:
+            DocumentSet(unified: DiffEditorDocument.unified(rows: rows, options: options), left: nil, right: nil)
+        case .split:
+            DocumentSet(
+                unified: nil,
+                left: DiffEditorDocument.splitLeft(rows: rows, options: options),
+                right: DiffEditorDocument.splitRight(rows: rows, options: options)
+            )
+        }
+    }
 }

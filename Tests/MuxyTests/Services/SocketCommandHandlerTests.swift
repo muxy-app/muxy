@@ -197,6 +197,38 @@ struct SocketCommandHandlerTests {
         #expect(appState.activeWorktreeID[project.id] == feature.id)
     }
 
+    @Test("create-worktree creates and selects worktree")
+    func createWorktree() async throws {
+        let project = Project(name: "Test Project", path: testPath)
+        let primary = Worktree(name: project.name, path: project.path, isPrimary: true)
+        let appState = makeAppState(projectID: project.id, worktreeID: primary.id)
+        let createdPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muxy-test-worktree-")
+            .appendingPathComponent(UUID().uuidString)
+            .path
+        let stores = makeStores(
+            projects: [project],
+            worktrees: [project.id: [primary]],
+            addGitWorktree: { _, _, _, _, _ in }
+        )
+
+        let result = await SocketCommandHandler.handleRequest(
+            "create-worktree|Feature|feature|\(project.name)|\(createdPath)|true|main",
+            appState: appState,
+            projectStore: stores.projectStore,
+            worktreeStore: stores.worktreeStore
+        )
+
+        let fields = result.components(separatedBy: "\t")
+        #expect(fields.first == "ok")
+        #expect(fields.count == 5)
+        let worktree = try #require(stores.worktreeStore.list(for: project.id).first { $0.name == "Feature" })
+        #expect(worktree.branch == "feature")
+        #expect(worktree.path == createdPath)
+        #expect(worktree.ownsBranch)
+        #expect(appState.activeWorktreeID[project.id] == worktree.id)
+    }
+
     @Test("list-tabs includes active tab")
     func listTabs() async {
         let appState = makeAppState()
@@ -281,11 +313,13 @@ struct SocketCommandHandlerTests {
 
     private func makeStores(
         projects: [Project],
-        worktrees: [UUID: [Worktree]]
+        worktrees: [UUID: [Worktree]],
+        addGitWorktree: @escaping @Sendable (String, String, String, Bool, String?) async throws -> Void = { _, _, _, _, _ in }
     ) -> (projectStore: ProjectStore, worktreeStore: WorktreeStore) {
         let projectStore = ProjectStore(persistence: ProjectPersistenceSocketStub(projects: projects))
         let worktreeStore = WorktreeStore(
             persistence: WorktreePersistenceSocketStub(worktrees: worktrees),
+            addGitWorktree: addGitWorktree,
             projects: projects
         )
         return (projectStore, worktreeStore)
