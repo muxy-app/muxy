@@ -183,14 +183,16 @@ private final class ScriptBridge: @unchecked Sendable {
             try await unwrap(MuxyAPI.Panes.send(
                 paneIDString: stringArg(args, "paneID"),
                 text: stringArg(args, "text"),
-                appState: appState
+                appState: appState,
+                extensionID: extensionID
             ))
             return NSNull()
         case "panes.sendKeys":
             try await unwrap(MuxyAPI.Panes.sendKeys(
                 paneIDString: stringArg(args, "paneID"),
                 key: stringArg(args, "key"),
-                appState: appState
+                appState: appState,
+                extensionID: extensionID
             ))
             return NSNull()
         case "panes.readScreen":
@@ -198,7 +200,8 @@ private final class ScriptBridge: @unchecked Sendable {
             return try await unwrap(MuxyAPI.Panes.readScreen(
                 paneIDString: stringArg(args, "paneID"),
                 lines: lines,
-                appState: appState
+                appState: appState,
+                extensionID: extensionID
             ))
         case "panes.close":
             try unwrap(MuxyAPI.Panes.close(paneIDString: stringArg(args, "paneID"), appState: appState))

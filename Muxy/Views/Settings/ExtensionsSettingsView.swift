@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ExtensionsSettingsView: View {
     @State private var store = ExtensionStore.shared
+    @State private var grantStore = ExtensionGrantStore.shared
 
     var body: some View {
         SettingsContainer {
@@ -46,7 +47,7 @@ struct ExtensionsSettingsView: View {
                 }
             }
 
-            SettingsSection("Installed", showsDivider: false) {
+            SettingsSection("Installed") {
                 if store.statuses.isEmpty {
                     Text("No extensions installed.")
                         .font(.system(size: SettingsMetrics.footnoteFontSize))
@@ -58,6 +59,10 @@ struct ExtensionsSettingsView: View {
                         ExtensionRow(status: status, store: store)
                     }
                 }
+            }
+
+            SettingsSection("Permissions", showsDivider: false) {
+                ExtensionPermissionsSection(grantStore: grantStore, statuses: store.statuses)
             }
         }
     }
@@ -263,6 +268,150 @@ private struct ExtensionRow: View {
 
     private var tailLines: [String] {
         ExtensionLogTail.read(url: status.logFileURL, maxLines: 200)
+    }
+}
+
+private struct ExtensionPermissionsSection: View {
+    let grantStore: ExtensionGrantStore
+    let statuses: [ExtensionStore.ExtensionStatus]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            auditRow
+            if grantStore.rules.isEmpty {
+                Text("No saved permission rules. Extensions will prompt the first time they call exec, send-keys, or read-screen.")
+                    .font(.system(size: SettingsMetrics.footnoteFontSize))
+                    .foregroundStyle(SettingsStyle.mutedForeground)
+                    .padding(.horizontal, SettingsMetrics.horizontalPadding)
+                    .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+            } else {
+                ForEach(groupedRules, id: \.extensionID) { group in
+                    ExtensionGrantGroup(
+                        extensionID: group.extensionID,
+                        displayName: displayName(for: group.extensionID),
+                        rules: group.rules,
+                        grantStore: grantStore
+                    )
+                }
+            }
+        }
+    }
+
+    private var auditRow: some View {
+        HStack(spacing: 8) {
+            Text("Activity")
+                .font(.system(size: SettingsMetrics.labelFontSize, weight: .semibold))
+                .foregroundStyle(SettingsStyle.foreground)
+            Spacer()
+            Button {
+                let url = ExtensionAuditLog.shared.auditFileURL
+                if FileManager.default.fileExists(atPath: url.path) {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                } else {
+                    NSWorkspace.shared.activateFileViewerSelecting([url.deletingLastPathComponent()])
+                }
+            } label: {
+                Text("Reveal Audit Log")
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: SettingsMetrics.footnoteFontSize))
+            .foregroundStyle(SettingsStyle.accent)
+        }
+        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+    }
+
+    private struct Group {
+        let extensionID: String
+        let rules: [ExtensionGrantRule]
+    }
+
+    private var groupedRules: [Group] {
+        let grouped = Dictionary(grouping: grantStore.rules, by: \.extensionID)
+        return grouped
+            .map { Group(extensionID: $0.key, rules: $0.value.sorted { $0.createdAt < $1.createdAt }) }
+            .sorted { $0.extensionID < $1.extensionID }
+    }
+
+    private func displayName(for extensionID: String) -> String {
+        statuses.first { $0.id == extensionID }?.muxyExtension.displayName ?? extensionID
+    }
+}
+
+private struct ExtensionGrantGroup: View {
+    let extensionID: String
+    let displayName: String
+    let rules: [ExtensionGrantRule]
+    let grantStore: ExtensionGrantStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(displayName)
+                    .font(.system(size: SettingsMetrics.labelFontSize, weight: .semibold))
+                    .foregroundStyle(SettingsStyle.foreground)
+                Text("(\(extensionID))")
+                    .font(.system(size: SettingsMetrics.footnoteFontSize))
+                    .foregroundStyle(SettingsStyle.mutedForeground)
+                Spacer()
+                Button("Clear All") {
+                    grantStore.removeAll(for: extensionID)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: SettingsMetrics.footnoteFontSize))
+                .foregroundStyle(SettingsStyle.destructive)
+            }
+            VStack(spacing: 4) {
+                ForEach(rules) { rule in
+                    ExtensionGrantRuleRow(rule: rule, grantStore: grantStore)
+                }
+            }
+        }
+        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+    }
+}
+
+private struct ExtensionGrantRuleRow: View {
+    let rule: ExtensionGrantRule
+    let grantStore: ExtensionGrantStore
+
+    var body: some View {
+        HStack(spacing: 8) {
+            decisionBadge
+            Text(rule.verb.rawValue)
+                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+                .foregroundStyle(SettingsStyle.foreground)
+                .frame(width: 130, alignment: .leading)
+            Text(rule.match.displayString)
+                .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
+                .foregroundStyle(SettingsStyle.mutedForeground)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Button {
+                grantStore.remove(ruleID: rule.id)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(SettingsStyle.mutedForeground)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 4))
+    }
+
+    private var decisionBadge: some View {
+        let isAllow = rule.decision == .allow
+        let label = isAllow ? "allow" : "deny"
+        let color = isAllow ? MuxyTheme.diffAddFg : SettingsStyle.destructive
+        return Text(label)
+            .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
     }
 }
 

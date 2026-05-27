@@ -44,6 +44,16 @@ enum ExtensionCommandExecutor {
         guard ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: .commandsExec) else {
             throw ExecError.invalidArguments("permission denied (\(ExtensionPermission.commandsExec.rawValue))")
         }
+        let consentRequest = ExtensionConsentRequestBuilder.make(
+            extensionID: extensionID,
+            verb: .exec,
+            payload: .exec(argv: request.argv, shell: request.shell),
+            source: "exec"
+        )
+        let decision = await ExtensionConsentService.shared.gate(consentRequest)
+        guard decision == .allow else {
+            throw ExecError.invalidArguments("user denied consent for exec")
+        }
         return try await runUnchecked(request: request, extensionID: extensionID, defaultCwd: defaultCwd)
     }
 

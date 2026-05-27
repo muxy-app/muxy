@@ -163,6 +163,7 @@ struct MainWindow: View {
             }
         }
         .overlay { modalOverlayLayer }
+        .overlay { ExtensionConsentOverlay() }
         .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
         .animation(.easeInOut(duration: 0.15), value: showFindInFiles)
         .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)

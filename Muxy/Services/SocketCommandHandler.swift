@@ -44,14 +44,20 @@ enum SocketCommandHandler {
                 MuxyAPI.Panes.send(
                     paneIDString: parts[1],
                     text: parts.dropFirst(2).joined(separator: "|"),
-                    appState: appState
+                    appState: appState,
+                    extensionID: clientContext.extensionID
                 ),
                 ok: "ok"
             )
         case "send-keys":
             guard parts.count >= 3 else { return "error:usage send-keys|paneID|key" }
             return await serialize(
-                MuxyAPI.Panes.sendKeys(paneIDString: parts[1], key: parts[2], appState: appState),
+                MuxyAPI.Panes.sendKeys(
+                    paneIDString: parts[1],
+                    key: parts[2],
+                    appState: appState,
+                    extensionID: clientContext.extensionID
+                ),
                 ok: "ok"
             )
         case "read-screen":
@@ -60,7 +66,8 @@ enum SocketCommandHandler {
             return await serialize(MuxyAPI.Panes.readScreen(
                 paneIDString: parts[1],
                 lines: lines,
-                appState: appState
+                appState: appState,
+                extensionID: clientContext.extensionID
             )) { $0 }
         case "close-pane":
             guard parts.count >= 2 else { return "error:usage close-pane|paneID" }

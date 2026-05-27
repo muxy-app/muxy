@@ -15,6 +15,7 @@ enum APIError: Error, Equatable {
     case worktreePathExists
     case splitFailed
     case renameFailed
+    case consentDenied(verb: String)
     case underlying(String)
 
     var message: String {
@@ -33,6 +34,7 @@ enum APIError: Error, Equatable {
         case .worktreePathExists: "worktree path already exists"
         case .splitFailed: "split succeeded but could not determine new pane ID"
         case .renameFailed: "could not rename pane"
+        case let .consentDenied(verb): "user denied consent for \(verb)"
         case let .underlying(message): message
         }
     }
@@ -218,10 +220,16 @@ enum MuxyAPI {
         static func send(
             paneIDString: String,
             text: String,
-            appState: AppState
+            appState: AppState,
+            extensionID: String? = nil
         ) async -> Result<Void, APIError> {
             guard let paneID = UUID(uuidString: paneIDString) else {
                 return .failure(.invalidPaneID)
+            }
+            if let extensionID,
+               await !consentGranted(extensionID: extensionID, verb: .panesSend, paneIDString: paneIDString)
+            {
+                return .failure(.consentDenied(verb: ExtensionGatedVerb.panesSend.rawValue))
             }
             guard let view = await waitForView(paneID: paneID, appState: appState) else {
                 return .failure(.paneNotFound(paneIDString))
@@ -233,10 +241,16 @@ enum MuxyAPI {
         static func sendKeys(
             paneIDString: String,
             key: String,
-            appState: AppState
+            appState: AppState,
+            extensionID: String? = nil
         ) async -> Result<Void, APIError> {
             guard let paneID = UUID(uuidString: paneIDString) else {
                 return .failure(.invalidPaneID)
+            }
+            if let extensionID,
+               await !consentGranted(extensionID: extensionID, verb: .panesSendKeys, paneIDString: paneIDString)
+            {
+                return .failure(.consentDenied(verb: ExtensionGatedVerb.panesSendKeys.rawValue))
             }
             guard let view = await waitForView(paneID: paneID, appState: appState) else {
                 return .failure(.paneNotFound(paneIDString))
@@ -274,10 +288,16 @@ enum MuxyAPI {
         static func readScreen(
             paneIDString: String,
             lines: Int,
-            appState: AppState
+            appState: AppState,
+            extensionID: String? = nil
         ) async -> Result<String, APIError> {
             guard let paneID = UUID(uuidString: paneIDString) else {
                 return .failure(.invalidPaneID)
+            }
+            if let extensionID,
+               await !consentGranted(extensionID: extensionID, verb: .panesReadScreen, paneIDString: paneIDString)
+            {
+                return .failure(.consentDenied(verb: ExtensionGatedVerb.panesReadScreen.rawValue))
             }
             let clamped = min(max(lines, 1), 500)
             guard let view = await waitForView(paneID: paneID, appState: appState) else {
@@ -621,6 +641,22 @@ private struct PaneLocation {
     let key: WorktreeKey
     let areaID: UUID
     let tabID: UUID
+}
+
+@MainActor
+private func consentGranted(
+    extensionID: String,
+    verb: ExtensionGatedVerb,
+    paneIDString: String
+) async -> Bool {
+    let request = ExtensionConsentRequestBuilder.make(
+        extensionID: extensionID,
+        verb: verb,
+        payload: .pane(id: paneIDString),
+        source: "muxy-api"
+    )
+    let decision = await ExtensionConsentService.shared.gate(request)
+    return decision == .allow
 }
 
 @MainActor
