@@ -594,7 +594,7 @@ final class GhosttyTerminalNSView: NSView {
         guard hasActionModifier else { return false }
 
         if isPasteShortcut(event, flags: flags), pasteboardHasImage() {
-            sendRemoteBytes(Data([0x16]))
+            sendRemoteBytes(TerminalControlBytes.pasteShortcut)
             return true
         }
 
@@ -825,7 +825,8 @@ final class GhosttyTerminalNSView: NSView {
         let paste = ClosureMenuItem(title: "Paste") { [weak self] in
             self?.performContextPaste()
         }
-        paste.isEnabled = NSPasteboard.general.string(forType: .string).map { !$0.isEmpty } ?? false
+        let hasPasteboardText = NSPasteboard.general.string(forType: .string).map { !$0.isEmpty } ?? false
+        paste.isEnabled = hasPasteboardText || pasteboardHasImage()
         menu.addItem(paste)
 
         menu.addItem(.separator())
@@ -847,7 +848,7 @@ final class GhosttyTerminalNSView: NSView {
     private func performContextPaste() {
         window?.makeFirstResponder(self)
         if pasteboardHasImage() {
-            sendRemoteBytes(Data([0x16]))
+            sendRemoteBytes(TerminalControlBytes.pasteShortcut)
             return
         }
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
@@ -861,8 +862,14 @@ final class GhosttyTerminalNSView: NSView {
 
     private func pasteboardHasImage() -> Bool {
         let pb = NSPasteboard.general
-        if pb.string(forType: .string) != nil { return false }
-        return pb.canReadObject(forClasses: [NSImage.self], options: nil)
+        return Self.shouldPasteImage(
+            canReadImage: pb.canReadObject(forClasses: [NSImage.self], options: nil),
+            hasString: pb.string(forType: .string) != nil
+        )
+    }
+
+    static func shouldPasteImage(canReadImage: Bool, hasString _: Bool) -> Bool {
+        canReadImage
     }
 
     @objc

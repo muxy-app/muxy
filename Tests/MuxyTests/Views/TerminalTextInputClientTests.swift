@@ -20,6 +20,14 @@ struct TerminalTextInputClientTests {
         #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: false, next: false) == false)
     }
 
+    @Test func imagePasteTakesPriorityOverFallbackString() {
+        #expect(GhosttyTerminalNSView.shouldPasteImage(canReadImage: true, hasString: true))
+    }
+
+    @Test func stringOnlyPasteDoesNotUseImageShortcut() {
+        #expect(GhosttyTerminalNSView.shouldPasteImage(canReadImage: false, hasString: true) == false)
+    }
+
     @Test func selectedRangeDefaultsToValidInsertionPoint() {
         let view = GhosttyTerminalNSView(workingDirectory: "/tmp")
 
