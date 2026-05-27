@@ -3,16 +3,16 @@ import UniformTypeIdentifiers
 import WebKit
 
 final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
-    static let scheme = "muxy-ext"
-    static let maxAssetBytes: Int = 64 * 1024 * 1024
+    nonisolated static let scheme = "muxy-ext"
+    nonisolated static let maxAssetBytes: Int = 64 * 1024 * 1024
 
-    private let extensionID: String
-    private let directory: URL
-    private let ioQueue = DispatchQueue(label: "app.muxy.extension-assets", qos: .userInitiated)
-    private let activeTasksLock = NSLock()
-    private var activeTasks: Set<ObjectIdentifier> = []
+    nonisolated private let extensionID: String
+    nonisolated private let directory: URL
+    nonisolated private let ioQueue = DispatchQueue(label: "app.muxy.extension-assets", qos: .userInitiated)
+    nonisolated private let activeTasksLock = NSLock()
+    nonisolated(unsafe) private var activeTasks: Set<ObjectIdentifier> = []
 
-    init(extensionID: String, directory: URL) {
+    nonisolated init(extensionID: String, directory: URL) {
         self.extensionID = extensionID
         self.directory = directory.standardizedFileURL
     }
@@ -75,24 +75,24 @@ final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
         activeTasksLock.unlock()
     }
 
-    private func registerActive(_ taskID: ObjectIdentifier) {
+    nonisolated private func registerActive(_ taskID: ObjectIdentifier) {
         activeTasksLock.lock()
         activeTasks.insert(taskID)
         activeTasksLock.unlock()
     }
 
-    private func consumeActive(_ taskID: ObjectIdentifier) -> Bool {
+    nonisolated private func consumeActive(_ taskID: ObjectIdentifier) -> Bool {
         activeTasksLock.lock()
         defer { activeTasksLock.unlock() }
         return activeTasks.remove(taskID) != nil
     }
 
-    private func failIfActive(_ task: WKURLSchemeTask, taskID: ObjectIdentifier, error: Error) {
+    nonisolated private func failIfActive(_ task: WKURLSchemeTask, taskID: ObjectIdentifier, error: Error) {
         guard consumeActive(taskID) else { return }
         task.didFailWithError(error)
     }
 
-    private func finishIfActive(
+    nonisolated private func finishIfActive(
         _ task: WKURLSchemeTask,
         taskID: ObjectIdentifier,
         response: URLResponse,
@@ -104,7 +104,7 @@ final class ExtensionAssetSchemeHandler: NSObject, WKURLSchemeHandler {
         task.didFinish()
     }
 
-    private static func mimeType(for url: URL) -> String {
+    nonisolated private static func mimeType(for url: URL) -> String {
         let ext = url.pathExtension.lowercased()
         switch ext {
         case "html",
