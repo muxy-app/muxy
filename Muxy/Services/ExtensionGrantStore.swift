@@ -270,18 +270,11 @@ enum ExtensionGrantSuggestion {
     ) -> ExtensionGrantMatch {
         switch (verb, payload) {
         case let (.exec, .exec(argv, shell)):
-            if let argv, !argv.isEmpty {
-                let prefix = Array(argv.prefix(2))
-                return prefix.count >= argv.count ? .argvExact(argv) : .argvPrefix(prefix)
+            if let base = argv?.first {
+                return .argvPrefix([base])
             }
             if let shell { return .shellExact(shell) }
             return .any
-        case let (.panesSend, .pane(id)),
-             let (.panesSendKeys, .pane(id)),
-             let (.panesReadScreen, .pane(id)):
-            return .paneEquals(id)
-        case let (.tabsOpenForeign, .foreignTab(target, tab)):
-            return .foreignTabEquals(targetExtensionID: target, tabTypeID: tab)
         default:
             return .any
         }

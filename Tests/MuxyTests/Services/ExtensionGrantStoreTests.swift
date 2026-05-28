@@ -170,39 +170,93 @@ struct ExtensionGrantStoreTests {
         #expect(result == .ask)
     }
 
-    @Test("default remember match for exec uses two-token prefix")
-    func defaultRememberPrefix() {
+    @Test("default remember match for exec uses base command only")
+    func defaultRememberBaseCommand() {
         let match = ExtensionGrantSuggestion.defaultRememberMatch(
             verb: .exec,
             payload: .exec(argv: ["git", "status", "--short"], shell: nil)
         )
-        if case let .argvPrefix(tokens) = match {
-            #expect(tokens == ["git", "status"])
-        } else {
-            Issue.record("expected argvPrefix, got \(match)")
-        }
+        #expect(match == .argvPrefix(["git"]))
     }
 
-    @Test("default remember match for two-token argv uses argvExact")
-    func defaultRememberExactForShortArgv() {
-        let match = ExtensionGrantSuggestion.defaultRememberMatch(
+    @Test("remembered exec allows other subcommands of the same base")
+    func rememberedExecAllowsOtherSubcommands() {
+        let store = makeStore()
+        let rule = ExtensionGrantRule(
+            extensionID: "ext",
             verb: .exec,
-            payload: .exec(argv: ["npm", "test"], shell: nil)
+            match: ExtensionGrantSuggestion.defaultRememberMatch(
+                verb: .exec,
+                payload: .exec(argv: ["git", "status"], shell: nil)
+            ),
+            decision: .allow
         )
-        if case let .argvExact(tokens) = match {
-            #expect(tokens == ["npm", "test"])
-        } else {
-            Issue.record("expected argvExact, got \(match)")
-        }
+        store.add(rule)
+        let result = store.evaluate(
+            extensionID: "ext",
+            verb: .exec,
+            payload: .exec(argv: ["git", "push"], shell: nil)
+        )
+        #expect(result == .allow(ruleID: rule.id))
     }
 
-    @Test("default remember for panes uses paneEquals")
+    @Test("remembered exec does not allow a different base command")
+    func rememberedExecRejectsDifferentBase() {
+        let store = makeStore()
+        store.add(ExtensionGrantRule(
+            extensionID: "ext",
+            verb: .exec,
+            match: ExtensionGrantSuggestion.defaultRememberMatch(
+                verb: .exec,
+                payload: .exec(argv: ["git", "status"], shell: nil)
+            ),
+            decision: .allow
+        ))
+        let result = store.evaluate(
+            extensionID: "ext",
+            verb: .exec,
+            payload: .exec(argv: ["rm", "-rf", "/"], shell: nil)
+        )
+        #expect(result == .ask)
+    }
+
+    @Test("default remember for panes allows the verb for any pane")
     func defaultRememberPane() {
         let match = ExtensionGrantSuggestion.defaultRememberMatch(
             verb: .panesReadScreen,
             payload: .pane(id: "pane-uuid")
         )
-        #expect(match == .paneEquals("pane-uuid"))
+        #expect(match == .any)
+    }
+
+    @Test("remembered pane verb allows a different pane in a later session")
+    func rememberedPaneAllowsDifferentPane() {
+        let store = makeStore()
+        let rule = ExtensionGrantRule(
+            extensionID: "ext",
+            verb: .panesSendKeys,
+            match: ExtensionGrantSuggestion.defaultRememberMatch(
+                verb: .panesSendKeys,
+                payload: .pane(id: "pane-a")
+            ),
+            decision: .allow
+        )
+        store.add(rule)
+        let result = store.evaluate(
+            extensionID: "ext",
+            verb: .panesSendKeys,
+            payload: .pane(id: "pane-b")
+        )
+        #expect(result == .allow(ruleID: rule.id))
+    }
+
+    @Test("default remember for foreign tabs allows the verb for any tab")
+    func defaultRememberForeignTab() {
+        let match = ExtensionGrantSuggestion.defaultRememberMatch(
+            verb: .tabsOpenForeign,
+            payload: .foreignTab(targetExtensionID: "target", tabTypeID: "tab")
+        )
+        #expect(match == .any)
     }
 
     private func makeStore() -> ExtensionGrantStore {

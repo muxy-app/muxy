@@ -59,10 +59,9 @@ Rules live in `~/Library/Application Support/Muxy/extension-grants.json` (Muxy-o
 
 | Verb | Pattern saved |
 | --- | --- |
-| `exec` (argv with 3+ tokens) | `argvPrefix` of the first 2 tokens. `git status --short` → "git status *". |
-| `exec` (argv with 1–2 tokens) | `argvExact` of the full argv. |
+| `exec` (argv) | `argvPrefix` of the base command only. Allowing `git status` also allows other `git` subcommands. |
 | `exec` (shell form) | `shellExact` of the full shell string. |
-| `panes.*` | `paneEquals` of the specific pane uuid. |
+| `panes.*` / `tabs.openForeign` | `any` for that verb. Pane and tab targets are per-session, so the grant covers any future target. |
 
 Rules can be reviewed, refined, or removed in `Settings → Extensions → Permissions`. Deny rules win over allow rules; more specific patterns win over less specific ones.
 
