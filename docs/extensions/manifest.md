@@ -36,6 +36,8 @@ Every extension declares itself in a `manifest.json` next to its entrypoint.
 
 Extensions are enabled by default after loading. Users toggle them in **Settings → Extensions**; that toggle is persisted in `UserDefaults` under `muxy.ext.enabled.<extension-id>` and survives across launches.
 
+A legacy `enabled` field on the manifest is no longer part of the schema. If present and no user override exists yet, it is migrated into the UserDefaults entry above on first load and otherwise ignored.
+
 ## Icons
 
 Topbar and status bar items accept an `icon` field in one of two forms:

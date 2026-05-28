@@ -72,6 +72,56 @@ struct ExtensionManifestTests {
         #expect(FileManager.default.isExecutableFile(atPath: ext.entrypointURL.path))
     }
 
+    @Test("migrates legacy manifest enabled=false into ExtensionEnabledStore")
+    func migratesLegacyEnabledFalse() throws {
+        let extensionID = "legacy-disabled-\(UUID().uuidString)"
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "\(extensionID)",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "enabled": false
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            ExtensionEnabledStore.clear(extensionID: extensionID)
+        }
+
+        _ = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(ExtensionEnabledStore.hasOverride(extensionID: extensionID))
+        #expect(!ExtensionEnabledStore.isEnabled(extensionID: extensionID))
+    }
+
+    @Test("legacy migration does not overwrite an existing user override")
+    func legacyMigrationRespectsExistingOverride() throws {
+        let extensionID = "legacy-respect-\(UUID().uuidString)"
+        ExtensionEnabledStore.setEnabled(true, extensionID: extensionID)
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "\(extensionID)",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "enabled": false
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            ExtensionEnabledStore.clear(extensionID: extensionID)
+        }
+
+        _ = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(ExtensionEnabledStore.isEnabled(extensionID: extensionID))
+    }
+
     @Test("fails when manifest missing")
     func failsWhenManifestMissing() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ext-\(UUID().uuidString)")

@@ -498,7 +498,17 @@ enum ExtensionManifestLoader {
         try validateStatusBarItems(manifest: manifest, in: muxyExtension)
         try validateSettings(manifest: manifest)
 
+        migrateLegacyEnabledFlag(rawManifest: data, extensionID: manifest.name)
+
         return muxyExtension
+    }
+
+    private static func migrateLegacyEnabledFlag(rawManifest: Data, extensionID: String) {
+        guard !ExtensionEnabledStore.hasOverride(extensionID: extensionID) else { return }
+        guard let object = try? JSONSerialization.jsonObject(with: rawManifest) as? [String: Any],
+              let legacyValue = object["enabled"] as? Bool
+        else { return }
+        ExtensionEnabledStore.setEnabled(legacyValue, extensionID: extensionID)
     }
 
     static func validate(name: String) throws {

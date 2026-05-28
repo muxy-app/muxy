@@ -42,6 +42,16 @@ struct ExtensionEnabledStoreTests {
         #expect(ExtensionEnabledStore.isEnabled(extensionID: "ext-b", defaults: defaults))
     }
 
+    @Test("hasOverride reflects whether a value has been stored")
+    func hasOverrideReflectsStorage() {
+        let defaults = makeIsolatedDefaults()
+        #expect(!ExtensionEnabledStore.hasOverride(extensionID: "ext-a", defaults: defaults))
+        ExtensionEnabledStore.setEnabled(false, extensionID: "ext-a", defaults: defaults)
+        #expect(ExtensionEnabledStore.hasOverride(extensionID: "ext-a", defaults: defaults))
+        ExtensionEnabledStore.clear(extensionID: "ext-a", defaults: defaults)
+        #expect(!ExtensionEnabledStore.hasOverride(extensionID: "ext-a", defaults: defaults))
+    }
+
     private func makeIsolatedDefaults() -> UserDefaults {
         let suiteName = "ExtensionEnabledStoreTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

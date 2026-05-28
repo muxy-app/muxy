@@ -346,7 +346,6 @@ final class ExtensionStore {
     private func loadFromDisk() {
         statuses = []
         loadFailures = []
-        intentionalStops.removeAll()
 
         try? FileManager.default.createDirectory(
             at: rootDirectoryURL,
