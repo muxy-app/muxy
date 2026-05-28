@@ -9,7 +9,6 @@ struct SingleDiffEditorView: View {
     let wordWrap: Bool
     let fontSize: CGFloat
     let maxLineCharacters: Int?
-    let externalScrollY: CGFloat?
     let passesScrollWheelToParent: Bool
 
     @State private var editorSettings = EditorSettings.shared
@@ -31,7 +30,6 @@ struct SingleDiffEditorView: View {
         wordWrap: Bool,
         fontSize: CGFloat,
         maxLineCharacters: Int? = nil,
-        externalScrollY: CGFloat? = nil,
         passesScrollWheelToParent: Bool = false
     ) {
         self.rows = rows
@@ -42,7 +40,6 @@ struct SingleDiffEditorView: View {
         self.wordWrap = wordWrap
         self.fontSize = fontSize
         self.maxLineCharacters = maxLineCharacters
-        self.externalScrollY = externalScrollY
         self.passesScrollWheelToParent = passesScrollWheelToParent
         _unifiedState = State(initialValue: Self.makeState(projectPath: projectPath, filePath: filePath))
         _leftState = State(initialValue: Self.makeState(projectPath: projectPath, filePath: filePath))
@@ -53,12 +50,12 @@ struct SingleDiffEditorView: View {
         Group {
             switch mode {
             case .unified:
-                editor(state: unifiedState, scrollY: externalScrollBinding)
+                editor(state: unifiedState, scrollY: nil)
             case .split:
                 HStack(spacing: 0) {
-                    editor(state: leftState, scrollY: externalScrollBinding ?? $splitScrollY)
+                    editor(state: leftState, scrollY: $splitScrollY)
                     Rectangle().fill(MuxyTheme.border).frame(width: 1)
-                    editor(state: rightState, scrollY: externalScrollBinding ?? $splitScrollY)
+                    editor(state: rightState, scrollY: $splitScrollY)
                 }
             }
         }
@@ -160,10 +157,6 @@ struct SingleDiffEditorView: View {
             passesScrollWheelToParent: passesScrollWheelToParent,
             onFocus: {}
         )
-    }
-
-    private var externalScrollBinding: Binding<CGFloat>? {
-        externalScrollY.map { Binding.constant($0) }
     }
 }
 
