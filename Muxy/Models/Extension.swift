@@ -513,6 +513,7 @@ enum ExtensionManifestLoader {
 
     static func validate(name: String) throws {
         guard !name.isEmpty else { throw ExtensionLoadError.invalidName(name) }
+        guard !name.hasPrefix(".") else { throw ExtensionLoadError.invalidName(name) }
         for scalar in name.unicodeScalars where !allowedNameCharacters.contains(scalar) {
             throw ExtensionLoadError.invalidName(name)
         }

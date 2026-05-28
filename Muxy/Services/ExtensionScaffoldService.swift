@@ -11,7 +11,6 @@ struct ExtensionScaffoldRequest: Equatable {
 }
 
 enum ExtensionScaffoldError: LocalizedError, Equatable {
-    case invalidName(String)
     case invalidVersion(String)
     case directoryAlreadyExists(URL)
     case skillResourceMissing
@@ -19,8 +18,6 @@ enum ExtensionScaffoldError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case let .invalidName(name):
-            "Extension name '\(name)' is invalid (use letters, digits, dash, underscore, dot)"
         case let .invalidVersion(version):
             "Extension version '\(version)' is empty"
         case let .directoryAlreadyExists(url):

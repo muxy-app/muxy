@@ -461,12 +461,10 @@ final class ExtensionStore {
         ExtensionScriptRunner.shared.evict(extensionID: extensionID)
         tokens.removeValue(forKey: extensionID)
         guard let process = processes.removeValue(forKey: extensionID) else { return }
-        process.terminationHandler = nil
         if process.isRunning {
             intentionalStops.insert(extensionID)
             process.terminate()
         }
-        intentionalStops.remove(extensionID)
         if let index = statuses.firstIndex(where: { $0.id == extensionID }) {
             statuses[index].isRunning = false
         }

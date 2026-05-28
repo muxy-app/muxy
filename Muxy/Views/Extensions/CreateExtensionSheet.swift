@@ -9,13 +9,12 @@ struct CreateExtensionSheet: View {
     @State private var version = "0.1.0"
     @State private var description = ""
     @State private var errorMessage: String?
-    @State private var inProgress = false
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var trimmedVersion: String { version.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var canCreate: Bool {
-        !trimmedName.isEmpty && !trimmedVersion.isEmpty && !inProgress
+        !trimmedName.isEmpty && !trimmedVersion.isEmpty
     }
 
     var body: some View {
@@ -23,6 +22,8 @@ struct CreateExtensionSheet: View {
             Text("New Extension")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
+
+            guideBlock
 
             field(
                 label: "Name",
@@ -70,6 +71,47 @@ struct CreateExtensionSheet: View {
         .background(MuxyTheme.bg)
     }
 
+    private var guideBlock: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            guideRow(
+                symbol: "folder",
+                text: "Creates the extension in \(store.rootDirectory.path)/<name>"
+            )
+            guideRow(
+                symbol: "doc.text",
+                text: "Adds CLAUDE.md and AGENTS.md and bundles the muxy-extension skill"
+            )
+            guideRow(
+                symbol: "sidebar.left",
+                text: "Adds the directory to the Muxy sidebar as a project"
+            )
+            guideRow(
+                symbol: "wand.and.stars",
+                text: "Open your agentic coding tool there and ask it to write the extension"
+            )
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(MuxyTheme.border, lineWidth: 1)
+        )
+    }
+
+    private func guideRow(symbol: String, text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 11))
+                .foregroundStyle(MuxyTheme.accent)
+                .frame(width: 14, alignment: .center)
+            Text(text)
+                .font(.system(size: 11))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private func field(
         label: String,
         hint: String?,
@@ -97,20 +139,18 @@ struct CreateExtensionSheet: View {
 
     private func create() {
         errorMessage = nil
-        inProgress = true
         let request = ExtensionScaffoldRequest(name: name, version: version, description: description)
         do {
             let directory = try ExtensionScaffoldService.create(request, in: store.rootDirectory)
             store.reload()
+            onFinish()
+            NSApp.keyWindow?.close()
             NotificationCenter.default.post(
                 name: .openExtensionDirectoryAsProject,
                 object: nil,
                 userInfo: [OpenExtensionDirectoryUserInfoKey.path: directory.path]
             )
-            onFinish()
-            NSApp.keyWindow?.close()
         } catch {
-            inProgress = false
             errorMessage = error.localizedDescription
         }
     }

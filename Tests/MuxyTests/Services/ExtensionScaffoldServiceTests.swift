@@ -54,6 +54,22 @@ struct ExtensionScaffoldServiceTests {
         }
     }
 
+    @Test("rejects names that escape the extensions directory")
+    func rejectsPathTraversalNames() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+
+        for name in ["..", ".", ".hidden"] {
+            #expect(throws: ExtensionLoadError.self) {
+                try ExtensionScaffoldService.create(
+                    ExtensionScaffoldRequest(name: name, version: "0.1.0", description: ""),
+                    in: fixture.rootURL,
+                    skillSourceURL: fixture.skillSourceURL
+                )
+            }
+        }
+    }
+
     @Test("rejects empty version")
     func rejectsEmptyVersion() throws {
         let fixture = try Fixture()
