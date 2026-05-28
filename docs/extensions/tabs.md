@@ -8,7 +8,6 @@ Extensions can register custom tab types that render HTML/CSS/JS inside Muxy. Ea
 {
   "name": "pr-tools",
   "version": "0.1.0",
-  "entrypoint": "run.sh",
   "permissions": ["tabs:write", "notifications:write"],
   "tabTypes": [
     {

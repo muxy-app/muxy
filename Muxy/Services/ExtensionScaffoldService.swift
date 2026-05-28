@@ -62,7 +62,6 @@ enum ExtensionScaffoldService {
         do {
             try FileManager.default.createDirectory(at: extensionDirectory, withIntermediateDirectories: false)
             try writeManifest(name: name, version: version, description: description, in: extensionDirectory)
-            try writeEntrypoint(in: extensionDirectory)
             try writeClaudeMarkdown(name: name, description: description, in: extensionDirectory)
             try writeAgentsSymlink(in: extensionDirectory)
             try writeGitignore(in: extensionDirectory)
@@ -95,7 +94,6 @@ enum ExtensionScaffoldService {
         var manifest: [String: Any] = [
             "name": name,
             "version": version,
-            "entrypoint": "run.sh",
             "events": [],
             "commands": [],
             "permissions": [],
@@ -108,23 +106,6 @@ enum ExtensionScaffoldService {
             options: [.prettyPrinted, .sortedKeys]
         )
         try data.write(to: directory.appendingPathComponent("manifest.json"))
-    }
-
-    private static func writeEntrypoint(in directory: URL) throws {
-        let entrypointURL = directory.appendingPathComponent("run.sh")
-        let script = """
-        #!/bin/sh
-        # Muxy keeps this process running for the lifetime of the extension.
-        # Replace this stub with logic that connects to "$MUXY_SOCKET_PATH" and
-        # authenticates with "$MUXY_EXTENSION_TOKEN" before subscribing to events.
-        echo "[muxy] $MUXY_EXTENSION_ID started"
-        while true; do sleep 3600; done
-        """
-        try Data(script.utf8).write(to: entrypointURL)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.executable],
-            ofItemAtPath: entrypointURL.path
-        )
     }
 
     private static func writeClaudeMarkdown(
@@ -141,12 +122,17 @@ enum ExtensionScaffoldService {
         ## Layout
 
         - `manifest.json` — declares the extension to Muxy.
-        - `run.sh` — the long-running entrypoint Muxy launches on startup.
+
+        Add an `"entrypoint"` to the manifest only if the extension needs to
+        receive pushed workspace events. Muxy launches that executable as a
+        long-running process that connects to "$MUXY_SOCKET_PATH" and
+        authenticates with "$MUXY_EXTENSION_TOKEN" before subscribing. Command,
+        topbar, status bar, tab, and runScript extensions need no entrypoint.
 
         ## Editing
 
-        After changing `manifest.json` or `run.sh`, click "Reload" in the
-        Muxy Extensions modal to pick up the changes.
+        After changing `manifest.json`, click "Reload" in the Muxy Extensions
+        modal to pick up the changes.
 
         ## Skill
 

@@ -5,7 +5,7 @@ description: Use when authoring or modifying a Muxy extension. Covers manifest f
 
 # Muxy Extension Author Guide
 
-Muxy extensions live in `~/.config/muxy/extensions/<name>/` and load when Muxy starts. Each extension is a directory containing a `manifest.json` and a single executable entrypoint. Optional resources (HTML tabs, scripts, icons, assets) live alongside.
+Muxy extensions live in `~/.config/muxy/extensions/<name>/` and load when Muxy starts. Each extension is a directory containing a `manifest.json`. An executable entrypoint is optional — declare one only when the extension needs to receive pushed events. Optional resources (HTML tabs, scripts, icons, assets) live alongside.
 
 ## When to use this skill
 
@@ -24,7 +24,7 @@ A typical extension looks like this:
 ```
 my-extension/
 ├── manifest.json           # required
-├── run.sh                  # required (executable entrypoint)
+├── run.sh                  # optional executable entrypoint (only for pushed events)
 ├── CLAUDE.md               # author guide for this extension
 ├── AGENTS.md → CLAUDE.md   # symlink for non-Claude agents
 ├── .gitignore
@@ -117,7 +117,7 @@ Field-by-field:
 - `name` — required. Alphanumerics, dash, underscore, dot only. Must match the directory name.
 - `version` — required semver string.
 - `description` — optional one-line summary shown in the Extensions modal.
-- `entrypoint` — required relative path. Must exist and be executable.
+- `entrypoint` — optional relative path. When present, must exist and be executable; Muxy launches it as a long-lived subprocess. Provide it only to receive pushed events — command, topbar, status bar, tab, and `runScript` extensions need none.
 - `permissions` — array of permission strings. Declare only what the entrypoint or tabs actually use.
 - `events` — array of event names this extension subscribes to (for example `pane.created`, `tab.focused`, `pane.closed`). Command events (`command.<id>`) are auto-allowed.
 - `tabTypes` — declares HTML pages renderable as tabs.
@@ -125,7 +125,7 @@ Field-by-field:
 - `topbarItems` / `statusBarItems` — UI hooks bound to a command. `icon` is either `{ "symbol": "<sf-symbol>" }` or `{ "svg": "<relative/path.svg>" }`.
 - `settings` — user-visible settings (`string` | `bool` | `number`) reachable from `extension.settings.get` over the socket and editable in the Extensions modal.
 
-Common load failures: missing entrypoint, entrypoint not executable, tab entry escapes the extension directory, a command references an unknown `tabType`, a topbar or status-bar item references an unknown command. Failures appear in the Extensions modal under "Load Errors".
+Common load failures: a declared entrypoint that is missing or not executable, tab entry escapes the extension directory, a command references an unknown `tabType`, a topbar or status-bar item references an unknown command. Failures appear in the Extensions modal under "Load Errors".
 
 ## Permissions reference
 
@@ -149,7 +149,9 @@ Principle: least privilege. Add a permission only when adding the call that requ
 
 ## Entrypoint
 
-The entrypoint runs for the lifetime of the extension. Muxy launches it with these environment variables:
+The entrypoint is optional. Manifest UI (palette commands, topbar items, status-bar items, tab types) and `runScript` commands all work without one. Add an entrypoint only when the extension must **receive pushed events** — Muxy launches it as a long-lived subprocess that holds the socket connection open to get `event|...` lines. Without an entrypoint there is no resident process and no idle socket session.
+
+When present, the entrypoint runs for the lifetime of the extension. Muxy launches it with these environment variables:
 
 - `MUXY_SOCKET_PATH` — Unix-domain socket path for IPC.
 - `MUXY_EXTENSION_ID` — the extension's `name`.
@@ -164,7 +166,7 @@ echo "[muxy] $MUXY_EXTENSION_ID started"
 while true; do sleep 3600; done
 ```
 
-This is enough to make the extension's manifest UI (palette commands, topbar items, tab types) usable. Most extensions need more — the socket protocol below.
+A bare sleep loop holds a process and socket session open but does nothing — drop the entrypoint entirely rather than ship this. Add an entrypoint only when it subscribes to events and reacts, as in the socket protocol below.
 
 ### Full entrypoint (reads a setting, pushes status-bar text)
 
@@ -450,11 +452,12 @@ A complete "hello-world" extension that adds a palette command, a tab, and a the
 ```
 hello-world/
 ├── manifest.json
-├── run.sh
 └── tabs/
     ├── index.html
     └── styles.css
 ```
+
+This extension only opens a tab from a palette command, so it declares no entrypoint and runs no subprocess.
 
 ```json
 // manifest.json
@@ -462,7 +465,6 @@ hello-world/
   "name": "hello-world",
   "version": "0.1.0",
   "description": "Minimal Muxy extension",
-  "entrypoint": "run.sh",
   "permissions": ["tabs:write"],
   "tabTypes": [
     { "id": "main", "title": "Hello", "entry": "tabs/index.html" }
@@ -475,12 +477,6 @@ hello-world/
     }
   ]
 }
-```
-
-```sh
-# run.sh — keeps the extension alive so its UI stays registered
-#!/bin/sh
-while true; do sleep 3600; done
 ```
 
 ```html
@@ -531,10 +527,10 @@ After editing `manifest.json`, scripts, tab HTML/CSS/JS, or the entrypoint, clic
 
 ## Quick checklist before shipping
 
-- [ ] `manifest.json` parses; `entrypoint` exists and is executable.
+- [ ] `manifest.json` parses; any declared `entrypoint` exists and is executable.
 - [ ] `permissions` declares only what is actually used.
 - [ ] Every CSS rule for UI chrome uses `var(--muxy-…)`.
 - [ ] `muxy.onThemeChange` is wired for any canvas/SVG/JS-rendered color.
 - [ ] Hover and active states are visible in both light and dark themes.
 - [ ] No hardcoded paths to `~/.config/muxy` from inside the extension — use `muxy.exec({ cwd: … })` or rely on the working directory Muxy sets.
-- [ ] Long-running work happens in `run.sh`, not in tab JS, so closing a tab does not lose state.
+- [ ] Event-driven work happens in the entrypoint, not in tab JS, so closing a tab does not lose state. No entrypoint unless events are needed.

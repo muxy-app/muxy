@@ -268,7 +268,7 @@ struct ExtensionManifest: Codable, Equatable {
     let name: String
     let version: String
     let description: String?
-    let entrypoint: String
+    let entrypoint: String?
     let events: [String]
     let commands: [ExtensionPaletteCommand]
     let tabTypes: [ExtensionTabType]
@@ -297,7 +297,7 @@ struct ExtensionManifest: Codable, Equatable {
         name: String,
         version: String,
         description: String? = nil,
-        entrypoint: String,
+        entrypoint: String? = nil,
         events: [String] = [],
         commands: [ExtensionPaletteCommand] = [],
         tabTypes: [ExtensionTabType] = [],
@@ -326,7 +326,7 @@ struct ExtensionManifest: Codable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         version = try container.decode(String.self, forKey: .version)
         description = try container.decodeIfPresent(String.self, forKey: .description)
-        entrypoint = try container.decode(String.self, forKey: .entrypoint)
+        entrypoint = try container.decodeIfPresent(String.self, forKey: .entrypoint)
         events = try container.decodeIfPresent([String].self, forKey: .events) ?? []
         commands = try container.decodeIfPresent([ExtensionPaletteCommand].self, forKey: .commands) ?? []
         tabTypes = try container.decodeIfPresent([ExtensionTabType].self, forKey: .tabTypes) ?? []
@@ -435,8 +435,9 @@ struct MuxyExtension: Identifiable, Equatable {
     let directory: URL
     let manifest: ExtensionManifest
 
-    var entrypointURL: URL {
-        directory.appendingPathComponent(manifest.entrypoint)
+    var entrypointURL: URL? {
+        guard let entrypoint = manifest.entrypoint else { return nil }
+        return directory.appendingPathComponent(entrypoint)
     }
 
     var displayName: String { manifest.name }
@@ -483,12 +484,13 @@ enum ExtensionManifestLoader {
 
         try validate(name: manifest.name)
 
-        let entrypoint = directory.appendingPathComponent(manifest.entrypoint)
-        guard FileManager.default.fileExists(atPath: entrypoint.path) else {
-            throw ExtensionLoadError.entrypointMissing(entrypoint)
-        }
-        guard FileManager.default.isExecutableFile(atPath: entrypoint.path) else {
-            throw ExtensionLoadError.entrypointNotExecutable(entrypoint)
+        if let entrypoint = manifest.entrypoint.map(directory.appendingPathComponent) {
+            guard FileManager.default.fileExists(atPath: entrypoint.path) else {
+                throw ExtensionLoadError.entrypointMissing(entrypoint)
+            }
+            guard FileManager.default.isExecutableFile(atPath: entrypoint.path) else {
+                throw ExtensionLoadError.entrypointNotExecutable(entrypoint)
+            }
         }
 
         let muxyExtension = MuxyExtension(id: manifest.name, directory: directory, manifest: manifest)

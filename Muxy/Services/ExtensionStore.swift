@@ -399,8 +399,10 @@ final class ExtensionStore {
         let status = statuses[index]
         let ext = status.muxyExtension
 
+        guard let entrypointURL = ext.entrypointURL else { return }
+
         let process = Process()
-        process.executableURL = ext.entrypointURL
+        process.executableURL = entrypointURL
         process.currentDirectoryURL = ext.directory
 
         let token = Self.generateToken()

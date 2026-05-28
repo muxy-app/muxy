@@ -35,10 +35,10 @@ flowchart TB
 ~/.config/muxy/extensions/
   <name>/
     manifest.json
-    <entrypoint>      # any executable
+    <entrypoint>      # optional executable; only for pushed events
 ```
 
-`ExtensionStore` scans the directory on app start, validates each manifest, and spawns one subprocess per enabled extension. Settings → Extensions lists every loaded extension with toggle, permissions, and recent stdout/stderr.
+`ExtensionStore` scans the directory on app start, validates each manifest, and spawns one subprocess per enabled extension **that declares an entrypoint**. Extensions without one register their UI (commands, topbar, status bar, tabs) and run `runScript` commands with no resident process. Settings → Extensions lists every loaded extension with toggle, permissions, and recent stdout/stderr.
 
 ## How extensions talk to Muxy
 
@@ -54,7 +54,7 @@ See [Events](events.md) for the handshake walkthrough and the line format.
 
 ## Process & failure model
 
-- One long-lived subprocess per extension. Crashes are surfaced in Settings → Extensions; the extension is marked `stopped` until toggled or the app restarts.
+- One long-lived subprocess per extension that declares an entrypoint. Crashes are surfaced in Settings → Extensions; the extension is marked `stopped` until toggled or the app restarts.
 - Stdout and stderr are captured to an in-app rolling log (last 200 lines per extension).
 - Stopping Muxy terminates all extension subprocesses.
 

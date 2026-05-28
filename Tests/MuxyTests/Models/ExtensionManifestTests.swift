@@ -69,7 +69,26 @@ struct ExtensionManifestTests {
 
         #expect(ext.id == "tmp-ext")
         #expect(ext.manifest.permissions == [.panesRead])
-        #expect(FileManager.default.isExecutableFile(atPath: ext.entrypointURL.path))
+        #expect(ext.entrypointURL.map { FileManager.default.isExecutableFile(atPath: $0.path) } == true)
+    }
+
+    @Test("loads without an entrypoint")
+    func loadsWithoutEntrypoint() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "no-entry",
+                "version": "1.0.0",
+                "commands": [{ "id": "ping", "title": "Ping" }]
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let ext = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(ext.manifest.entrypoint == nil)
+        #expect(ext.entrypointURL == nil)
     }
 
     @Test("migrates legacy manifest enabled=false into ExtensionEnabledStore")
@@ -178,7 +197,7 @@ struct ExtensionManifestTests {
         let manifest = ExtensionManifest(name: "demo", version: "0.1.0", entrypoint: "bin/run")
         let ext = MuxyExtension(id: "demo", directory: directory, manifest: manifest)
 
-        #expect(ext.entrypointURL.path == "/tmp/example/bin/run")
+        #expect(ext.entrypointURL?.path == "/tmp/example/bin/run")
         #expect(ext.displayName == "demo")
     }
 
@@ -400,7 +419,7 @@ struct ExtensionManifestTests {
 
     private func makeTemporaryExtension(
         manifest: String,
-        files: [String: String],
+        files: [String: String] = [:],
         makeEntrypointExecutable: Bool = true
     ) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ext-\(UUID().uuidString)")
