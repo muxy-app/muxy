@@ -179,6 +179,24 @@ struct ExtensionGrantStoreTests {
         #expect(match == .argvPrefix(["git"]))
     }
 
+    @Test("default remember match for shell-form exec uses shellExact")
+    func defaultRememberShellForm() {
+        let match = ExtensionGrantSuggestion.defaultRememberMatch(
+            verb: .exec,
+            payload: .exec(argv: nil, shell: "echo hi | grep h")
+        )
+        #expect(match == .shellExact("echo hi | grep h"))
+    }
+
+    @Test("default remember match for empty argv falls back to any")
+    func defaultRememberEmptyArgv() {
+        let match = ExtensionGrantSuggestion.defaultRememberMatch(
+            verb: .exec,
+            payload: .exec(argv: [], shell: nil)
+        )
+        #expect(match == .any)
+    }
+
     @Test("remembered exec allows other subcommands of the same base")
     func rememberedExecAllowsOtherSubcommands() {
         let store = makeStore()

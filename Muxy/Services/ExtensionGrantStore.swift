@@ -275,6 +275,11 @@ enum ExtensionGrantSuggestion {
             }
             if let shell { return .shellExact(shell) }
             return .any
+        case (.panesSend, _),
+             (.panesSendKeys, _),
+             (.panesReadScreen, _),
+             (.tabsOpenForeign, _):
+            return .any
         default:
             return .any
         }
