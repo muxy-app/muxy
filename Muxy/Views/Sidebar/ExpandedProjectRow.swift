@@ -31,6 +31,7 @@ struct ExpandedProjectRow: View {
     @State private var isRefreshingWorktrees = false
     @State private var showColorPicker = false
     @State private var showSymbolPicker = false
+    @State private var pendingWorktreeRemoval: WorktreeRemovalConfirmation?
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -148,6 +149,23 @@ struct ExpandedProjectRow: View {
                 onSetIcon(name)
                 showSymbolPicker = false
             }
+        }
+        .alert(
+            pendingWorktreeRemoval?.title ?? "",
+            isPresented: worktreeRemovalAlertBinding,
+            presenting: pendingWorktreeRemoval
+        ) { confirmation in
+            Button("Remove", role: .destructive) {
+                performRemove(worktree: confirmation.worktree)
+                pendingWorktreeRemoval = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) {
+                pendingWorktreeRemoval = nil
+            }
+            .keyboardShortcut(.cancelAction)
+        } message: { confirmation in
+            Text(confirmation.message)
         }
     }
 
@@ -389,14 +407,24 @@ struct ExpandedProjectRow: View {
         }
     }
 
+    @MainActor
     private func requestRemove(worktree: Worktree) async {
         let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(worktreePath: worktree.path)
-        WorktreeRemovalConfirmationPresenter.present(
+        pendingWorktreeRemoval = WorktreeRemovalConfirmation(
             worktree: worktree,
             hasUncommittedChanges: hasChanges
-        ) {
-            performRemove(worktree: worktree)
-        }
+        )
+    }
+
+    private var worktreeRemovalAlertBinding: Binding<Bool> {
+        Binding(
+            get: { pendingWorktreeRemoval != nil },
+            set: { newValue in
+                if !newValue {
+                    pendingWorktreeRemoval = nil
+                }
+            }
+        )
     }
 
     private func performRemove(worktree: Worktree) {

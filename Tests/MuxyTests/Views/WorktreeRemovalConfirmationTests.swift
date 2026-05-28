@@ -1,4 +1,3 @@
-import AppKit
 import Testing
 @testable import Muxy
 
@@ -15,7 +14,6 @@ struct WorktreeRemovalConfirmationTests {
 
         #expect(confirmation.title == "Remove worktree \"feature\"?")
         #expect(confirmation.message == "This will remove the worktree from Muxy and delete its files on disk.")
-        #expect(confirmation.style == NSAlert.Style.warning)
     }
 
     @Test
@@ -29,6 +27,5 @@ struct WorktreeRemovalConfirmationTests {
 
         #expect(confirmation.title == "Remove worktree \"feature\"?")
         #expect(confirmation.message == "This worktree has uncommitted changes. Removing it will permanently discard them.")
-        #expect(confirmation.style == NSAlert.Style.critical)
     }
 }

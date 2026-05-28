@@ -76,9 +76,11 @@ struct Sidebar: View {
                 performRemove(project)
                 projectPendingRemoval = nil
             }
+            .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) {
                 projectPendingRemoval = nil
             }
+            .keyboardShortcut(.cancelAction)
         } message: { _ in
             Text("This will remove the project from Muxy. Project files on disk will not be deleted.")
         }

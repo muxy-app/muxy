@@ -9,6 +9,7 @@ struct WorktreePopover: View {
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
+    @State private var pendingRemoval: WorktreeRemovalConfirmation?
 
     private var worktrees: [Worktree] {
         worktreeStore.list(for: project.id)
@@ -56,6 +57,23 @@ struct WorktreePopover: View {
                 .padding(.vertical, UIMetrics.spacing1)
             }
         )
+        .alert(
+            pendingRemoval?.title ?? "",
+            isPresented: removalAlertBinding,
+            presenting: pendingRemoval
+        ) { confirmation in
+            Button("Remove", role: .destructive) {
+                performRemove(worktree: confirmation.worktree)
+                pendingRemoval = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) {
+                pendingRemoval = nil
+            }
+            .keyboardShortcut(.cancelAction)
+        } message: { confirmation in
+            Text(confirmation.message)
+        }
     }
 
     private var footerActions: [PopoverFooterAction] {
@@ -69,14 +87,24 @@ struct WorktreePopover: View {
         ]
     }
 
+    @MainActor
     private func requestRemove(worktree: Worktree) async {
         let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(worktreePath: worktree.path)
-        WorktreeRemovalConfirmationPresenter.present(
+        pendingRemoval = WorktreeRemovalConfirmation(
             worktree: worktree,
             hasUncommittedChanges: hasChanges
-        ) {
-            performRemove(worktree: worktree)
-        }
+        )
+    }
+
+    private var removalAlertBinding: Binding<Bool> {
+        Binding(
+            get: { pendingRemoval != nil },
+            set: { newValue in
+                if !newValue {
+                    pendingRemoval = nil
+                }
+            }
+        )
     }
 
     private func performRemove(worktree: Worktree) {
