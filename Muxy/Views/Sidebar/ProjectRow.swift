@@ -28,6 +28,7 @@ struct ProjectRow: View {
     @State private var isRefreshingWorktrees = false
     @State private var showColorPicker = false
     @State private var showSymbolPicker = false
+    @State private var removalRequest: WorktreeRemovalRequest?
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -119,11 +120,16 @@ struct ProjectRow: View {
                     onRequestCreate: {
                         showWorktreePopover = false
                         showCreateWorktreeSheet = true
+                    },
+                    onRequestRemove: { worktree in
+                        showWorktreePopover = false
+                        beginRemove(worktree: worktree)
                     }
                 )
                 .environment(appState)
                 .environment(worktreeStore)
             }
+            .worktreeRemovalSheet($removalRequest)
             .sheet(isPresented: $showCreateWorktreeSheet) {
                 CreateWorktreeSheet(project: project) { result in
                     showCreateWorktreeSheet = false
@@ -310,6 +316,26 @@ struct ProjectRow: View {
             appState: appState,
             worktreeStore: worktreeStore,
             isRefreshing: $isRefreshingWorktrees
+        )
+    }
+
+    private func beginRemove(worktree: Worktree) {
+        let activeWorktreeID = appState.activeWorktreeID[project.id]
+        let remaining = worktrees.filter { $0.id != worktree.id }
+        let replacement = remaining.first(where: { $0.id == activeWorktreeID })
+            ?? remaining.first(where: { $0.isPrimary })
+            ?? remaining.first
+        removalRequest = WorktreeRemovalRequest(
+            worktree: worktree,
+            repoPath: project.path,
+            onSuccess: {
+                appState.removeWorktree(
+                    projectID: project.id,
+                    worktree: worktree,
+                    replacement: replacement
+                )
+                worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            }
         )
     }
 }

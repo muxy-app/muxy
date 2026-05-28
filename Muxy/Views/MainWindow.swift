@@ -113,6 +113,9 @@ struct MainWindow: View {
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
+    @AppStorage("muxy.showExtensionOutput") private var showExtensionOutput = false
+    @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
+    @State private var extensionOutputSelected: String?
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
@@ -160,6 +163,7 @@ struct MainWindow: View {
             }
         }
         .overlay { modalOverlayLayer }
+        .overlay { ExtensionConsentOverlay() }
         .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
         .animation(.easeInOut(duration: 0.15), value: showFindInFiles)
         .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)
@@ -191,6 +195,16 @@ struct MainWindow: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openProjectPicker)) { _ in
             showProjectPicker = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openExtensionDirectoryAsProject)) { notification in
+            guard let path = notification.userInfo?[OpenExtensionDirectoryUserInfoKey.path] as? String else { return }
+            CLIAccessor.openProjectFromPath(
+                path,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .terminalOmnibox)) { notification in
             let launchScope = terminalOmniboxScope(from: notification)
@@ -382,6 +396,20 @@ struct MainWindow: View {
 
             bottomDockedRichInputPanel
 
+            if showExtensionOutput {
+                ExtensionOutputPanel(
+                    isPresented: $showExtensionOutput,
+                    selectedExtensionID: Binding(
+                        get: { extensionOutputSelected ?? (extensionOutputSelectedStored.isEmpty ? nil : extensionOutputSelectedStored) },
+                        set: { newValue in
+                            extensionOutputSelected = newValue
+                            extensionOutputSelectedStored = newValue ?? ""
+                        }
+                    )
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             if showStatusBar {
                 ProjectStatusBar(
                     activePane: activeTerminalPane,
@@ -389,7 +417,19 @@ struct MainWindow: View {
                     fallbackProjectPath: activeProject.map { activeWorktreePath(for: $0) },
                     isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
                     richInputVisible: richInputPanelVisible,
-                    richInputFontSize: $richInputFontSize
+                    richInputFontSize: $richInputFontSize,
+                    extensionOutputVisible: $showExtensionOutput,
+                    onTriggerExtensionCommand: { binding in
+                        ExtensionStore.shared.triggerCommand(
+                            ExtensionStore.CommandInvocation(
+                                extensionID: binding.muxyExtension.id,
+                                commandID: binding.item.command,
+                                appState: appState,
+                                projectStore: projectStore,
+                                worktreeStore: worktreeStore
+                            )
+                        )
+                    }
                 )
             }
         }
@@ -650,6 +690,7 @@ struct MainWindow: View {
                         appState: appState,
                         projectStore: projectStore,
                         worktreeStore: worktreeStore,
+                        projectGroupStore: projectGroupStore,
                         createIfMissing: createIfMissing
                     )
                 },
@@ -657,7 +698,8 @@ struct MainWindow: View {
                     ProjectOpenService.openProject(
                         appState: appState,
                         projectStore: projectStore,
-                        worktreeStore: worktreeStore
+                        worktreeStore: worktreeStore,
+                        projectGroupStore: projectGroupStore
                     )
                 },
                 onDismiss: { showProjectPicker = false }
@@ -687,10 +729,13 @@ struct MainWindow: View {
             _ = selectOmniboxProject(projectID, worktreeID: scopedWorktreeID)
             appState.createCommandTab(projectID: projectID, shortcut: shortcut)
         case let .extensionCommand(item):
-            ExtensionStore.shared.triggerCommand(
+            ExtensionStore.shared.triggerCommand(.init(
                 extensionID: item.extensionID,
-                commandID: item.command.id
-            )
+                commandID: item.command.id,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            ))
         }
     }
 

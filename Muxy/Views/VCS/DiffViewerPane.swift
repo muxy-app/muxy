@@ -312,7 +312,7 @@ private struct DiffCardList: View {
     @State private var offsets: [String: CGFloat] = [:]
 
     private var cardMetrics: DiffCardMetrics {
-        DiffCardMetrics(fontSize: state.fontSize)
+        DiffCardMetrics(fontSize: state.fontSize, lineHeightMultiplier: EditorSettings.shared.lineHeightMultiplier)
     }
 
     private var cardSpacing: CGFloat {
@@ -331,12 +331,11 @@ private struct DiffCardList: View {
         GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: cardSpacing) {
+                    VStack(spacing: cardSpacing) {
                         ForEach(sections, id: \.cacheKey) { section in
                             DiffFileCard(
                                 state: state,
                                 section: section,
-                                cardOffsetY: offsets[section.cacheKey] ?? 0,
                                 viewportHeight: geometry.size.height,
                                 metrics: cardMetrics
                             )
@@ -383,7 +382,6 @@ private struct DiffCardList: View {
 private struct DiffFileCard: View {
     @Bindable var state: DiffViewerTabState
     let section: DiffEditorFileSection
-    let cardOffsetY: CGFloat
     let viewportHeight: CGFloat
     let metrics: DiffCardMetrics
 
@@ -397,34 +395,6 @@ private struct DiffFileCard: View {
 
     private var cardHeight: CGFloat {
         metrics.cardHeight(for: section)
-    }
-
-    private var usesVirtualBody: Bool {
-        editorHeight > max(viewportHeight * 1.5, UIMetrics.scaled(900))
-    }
-
-    private var editorViewportHeight: CGFloat {
-        DiffVirtualRenderWindow(
-            editorHeight: editorHeight,
-            viewportHeight: viewportHeight,
-            visibleBodyY: visibleBodyY,
-            minimumHeight: UIMetrics.scaled(160)
-        ).height
-    }
-
-    private var visibleBodyY: CGFloat {
-        guard usesVirtualBody else { return 0 }
-        let headerHeight = UIMetrics.scaled(37)
-        return max(0, -cardOffsetY - headerHeight)
-    }
-
-    private var bodyScrollY: CGFloat {
-        DiffVirtualRenderWindow(
-            editorHeight: editorHeight,
-            viewportHeight: viewportHeight,
-            visibleBodyY: visibleBodyY,
-            minimumHeight: UIMetrics.scaled(160)
-        ).offsetY
     }
 
     var body: some View {
@@ -461,17 +431,8 @@ private struct DiffFileCard: View {
             messageBody(errorMessage)
         } else if section.rows.isEmpty {
             emptyBody
-        } else if usesVirtualBody {
-            ZStack(alignment: .top) {
-                Color.clear.frame(height: editorHeight)
-                editor(externalScrollY: bodyScrollY)
-                    .frame(height: editorViewportHeight)
-                    .offset(y: bodyScrollY)
-            }
-            .frame(height: editorHeight)
-            .clipped()
         } else {
-            editor(externalScrollY: nil)
+            editor
                 .frame(height: editorHeight)
                 .clipped()
         }
@@ -523,7 +484,7 @@ private struct DiffFileCard: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func editor(externalScrollY: CGFloat?) -> some View {
+    private var editor: some View {
         SingleDiffEditorView(
             rows: section.rows,
             projectPath: state.projectPath,
@@ -533,7 +494,6 @@ private struct DiffFileCard: View {
             wordWrap: state.wordWrap,
             fontSize: state.fontSize,
             maxLineCharacters: maxRenderedCharacters,
-            externalScrollY: externalScrollY,
             passesScrollWheelToParent: true
         )
         .id(editorIdentity)
@@ -546,7 +506,6 @@ private struct DiffFileCard: View {
             state.mode.rawValue,
             String(state.wordWrap),
             String(describing: state.fontSize),
-            String(usesVirtualBody),
             String(maxRenderedCharacters),
             String(section.rows.count),
             section.rows.first?.id.uuidString ?? "empty",
@@ -632,24 +591,35 @@ private struct DiffFileCard: View {
     }
 }
 
-struct DiffVirtualRenderWindow {
-    let editorHeight: CGFloat
-    let viewportHeight: CGFloat
-    let visibleBodyY: CGFloat
-    let minimumHeight: CGFloat
+enum DiffCardLineCount {
+    static func value(for section: DiffEditorFileSection) -> Int {
+        guard section.rows.isEmpty else { return section.rows.count }
+        return max(1, section.additions + section.deletions)
+    }
+}
 
-    var height: CGFloat {
-        min(editorHeight, max(minimumHeight, viewportHeight * 3))
+enum DiffEditorLineMetrics {
+    static let textContainerInset: CGFloat = 4
+    static let fontFamily = "SF Mono"
+
+    static func lineHeight(fontSize: CGFloat, lineHeightMultiplier: CGFloat) -> CGFloat {
+        let font = NSFont(name: fontFamily, size: fontSize)
+            ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        let typographicHeight = font.ascender - font.descender
+        let scaled = ceil(typographicHeight * lineHeightMultiplier)
+        return scaled > 0 ? scaled : 16
     }
 
-    var offsetY: CGFloat {
-        min(max(0, editorHeight - height), max(0, visibleBodyY - viewportHeight))
+    static func editorHeight(lineCount: Int, fontSize: CGFloat, lineHeightMultiplier: CGFloat) -> CGFloat {
+        let height = CGFloat(lineCount) * lineHeight(fontSize: fontSize, lineHeightMultiplier: lineHeightMultiplier)
+        return height + textContainerInset * 2
     }
 }
 
 @MainActor
 private struct DiffCardMetrics {
     let fontSize: CGFloat
+    let lineHeightMultiplier: CGFloat
 
     var headerHeight: CGFloat {
         UIMetrics.scaled(36)
@@ -660,9 +630,13 @@ private struct DiffCardMetrics {
     }
 
     func editorHeight(for section: DiffEditorFileSection) -> CGFloat {
-        let lineHeight = max(18, fontSize * 1.45)
-        let rowCount = max(1, section.rows.count)
-        return max(UIMetrics.scaled(80), CGFloat(rowCount) * lineHeight + UIMetrics.scaled(18))
+        let lineCount = DiffCardLineCount.value(for: section)
+        let height = DiffEditorLineMetrics.editorHeight(
+            lineCount: lineCount,
+            fontSize: fontSize,
+            lineHeightMultiplier: lineHeightMultiplier
+        )
+        return max(UIMetrics.scaled(80), height)
     }
 
     func cardHeight(for section: DiffEditorFileSection) -> CGFloat {

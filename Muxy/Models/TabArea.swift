@@ -165,6 +165,17 @@ final class TabArea: Identifiable {
         )))
     }
 
+    func createExtensionTab(extensionID: String, tabTypeID: String, title: String, data: ExtensionJSON?) {
+        let state = ExtensionTabState(
+            extensionID: extensionID,
+            tabTypeID: tabTypeID,
+            projectPath: projectPath,
+            defaultTitle: title,
+            initialData: data
+        )
+        insertTab(TerminalTab(extensionState: state))
+    }
+
     func createExternalEditorTab(filePath: String, command: String) {
         if let existing = tabs.first(where: { $0.content.pane?.externalEditorFilePath == filePath }) {
             selectTab(existing.id)

@@ -91,6 +91,32 @@ struct ProjectGroupStoreTests {
         #expect(store.groups.first?.projectIDs.count == 1)
     }
 
+    @Test("addProjectToActiveGroup adds project to selected group and persists")
+    func addProjectToActiveGroup() {
+        let group = ProjectGroup(name: "Work")
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = ProjectGroupStore(persistence: persistence)
+        let projectID = UUID()
+
+        store.selectGroup(id: group.id)
+        store.addProjectToActiveGroup(projectID: projectID)
+
+        #expect(store.groups.first?.projectIDs == [projectID])
+        #expect(persistence.savedGroups?.first?.projectIDs == [projectID])
+    }
+
+    @Test("addProjectToActiveGroup preserves All Projects behavior")
+    func addProjectToActiveGroupNoSelection() {
+        let group = ProjectGroup(name: "Work")
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = ProjectGroupStore(persistence: persistence)
+
+        store.addProjectToActiveGroup(projectID: UUID())
+
+        #expect(store.groups.first?.projectIDs.isEmpty == true)
+        #expect(persistence.savedGroups == nil)
+    }
+
     @Test("removeProject removes projectID from the group and persists")
     func removeProject() {
         let projectID = UUID()

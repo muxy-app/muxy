@@ -5,6 +5,7 @@ struct WorktreePopover: View {
     let isGitRepo: Bool
     let onDismiss: () -> Void
     let onRequestCreate: () -> Void
+    let onRequestRemove: (Worktree) -> Void
     var fixedSize: Bool = true
 
     @Environment(AppState.self) private var appState
@@ -63,7 +64,7 @@ struct WorktreePopover: View {
             presenting: pendingRemoval
         ) { confirmation in
             Button("Remove", role: .destructive) {
-                performRemove(worktree: confirmation.worktree)
+                onRequestRemove(confirmation.worktree)
                 pendingRemoval = nil
             }
             .keyboardShortcut(.defaultAction)
@@ -105,26 +106,6 @@ struct WorktreePopover: View {
                 }
             }
         )
-    }
-
-    private func performRemove(worktree: Worktree) {
-        let repoPath = project.path
-        let remaining = worktrees.filter { $0.id != worktree.id }
-        let replacement = remaining.first(where: { $0.id == activeWorktreeID })
-            ?? remaining.first(where: { $0.isPrimary })
-            ?? remaining.first
-        appState.removeWorktree(
-            projectID: project.id,
-            worktree: worktree,
-            replacement: replacement
-        )
-        worktreeStore.remove(worktreeID: worktree.id, from: project.id)
-        Task.detached {
-            await WorktreeStore.cleanupOnDisk(
-                worktree: worktree,
-                repoPath: repoPath
-            )
-        }
     }
 }
 

@@ -14,6 +14,7 @@ struct MuxyApp: App {
     @State private var didStartDeferredServices = false
 
     init() {
+        LaunchArgumentGuard.terminateIfNeeded()
         _ = MuxyApp.launchDate
         let environment = AppEnvironment.live
         let projectStore = ProjectStore(persistence: environment.projectPersistence)
@@ -55,6 +56,8 @@ struct MuxyApp: App {
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
                 .environment(ThemeService.shared)
+                .environment(ExtensionStore.shared)
+                .environment(ExtensionSettingsStore.shared)
                 .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
                     startDeferredServicesIfNeeded()
@@ -70,12 +73,13 @@ struct MuxyApp: App {
                     appDelegate.hasUnsavedEditorTabs = { [appState] in
                         appState.unsavedEditorTabs()
                     }
-                    appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore] path in
+                    appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore, projectGroupStore] path in
                         CLIAccessor.openProjectFromPath(
                             path,
                             appState: appState,
                             projectStore: projectStore,
-                            worktreeStore: worktreeStore
+                            worktreeStore: worktreeStore,
+                            projectGroupStore: projectGroupStore
                         )
                     }
                     appDelegate.flushPendingOpens()
@@ -99,17 +103,23 @@ struct MuxyApp: App {
                     }
                     appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
                         for id in projectIDs {
-                            if let project = projectStore.projects.first(where: { $0.id == id }) {
-                                let knownWorktrees = worktreeStore.list(for: id)
-                                Task.detached {
-                                    await WorktreeStore.cleanupOnDisk(
+                            guard let project = projectStore.projects.first(where: { $0.id == id }) else {
+                                worktreeStore.removeProject(id)
+                                continue
+                            }
+                            let knownWorktrees = worktreeStore.list(for: id)
+                            Task {
+                                do {
+                                    try await WorktreeStore.cleanupOnDisk(
                                         for: project,
                                         knownWorktrees: knownWorktrees
                                     )
+                                    projectStore.remove(id: id)
+                                    worktreeStore.removeProject(id)
+                                } catch {
+                                    ToastState.shared.show("Could not remove \(project.name): \(error.localizedDescription)")
                                 }
                             }
-                            projectStore.remove(id: id)
-                            worktreeStore.removeProject(id)
                         }
                     }
                     projectStore.onProjectRemoved = { [projectGroupStore] projectID in
@@ -160,6 +170,7 @@ struct MuxyApp: App {
             try? await Task.sleep(for: .seconds(2))
             UpdateService.shared.start()
             AIProviderRegistry.shared.installAll()
+            LoginShellPath.hydrateInBackground()
             ExtensionStore.shared.startAll()
         }
     }
@@ -174,8 +185,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var pendingOpenPaths: [String] = []
     private var systemAppearanceObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
-    private var settingsThemeObserver: NSObjectProtocol?
+    private var extensionsObserver: NSObjectProtocol?
+    private var modalThemeObserver: NSObjectProtocol?
     private weak var settingsWindow: NSWindow?
+    private weak var extensionsWindow: NSWindow?
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -261,6 +274,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UserDefaults.standard.register(defaults: ["ApplePressAndHoldEnabled": false])
         SentryService.shared.start()
         NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.setActivationPolicy(.regular)
@@ -394,9 +408,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NotificationCenter.default.removeObserver(settingsObserver)
             self.settingsObserver = nil
         }
-        if let settingsThemeObserver {
-            NotificationCenter.default.removeObserver(settingsThemeObserver)
-            self.settingsThemeObserver = nil
+        if let extensionsObserver {
+            NotificationCenter.default.removeObserver(extensionsObserver)
+            self.extensionsObserver = nil
+        }
+        if let modalThemeObserver {
+            NotificationCenter.default.removeObserver(modalThemeObserver)
+            self.modalThemeObserver = nil
         }
         onTerminate?()
         NotificationStore.shared.saveToDisk()
@@ -419,46 +437,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.presentSettingsModal()
             }
         }
-        settingsThemeObserver = NotificationCenter.default.addObserver(
+        extensionsObserver = NotificationCenter.default.addObserver(
+            forName: .openExtensionsModal,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.presentExtensionsModal()
+            }
+        }
+        modalThemeObserver = NotificationCenter.default.addObserver(
             forName: .themeDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.settingsWindow?.backgroundColor = MuxyTheme.nsBg
+                self?.extensionsWindow?.backgroundColor = MuxyTheme.nsBg
             }
         }
     }
 
     @MainActor
     private func presentSettingsModal() {
-        if let settingsWindow {
-            settingsWindow.makeKeyAndOrderFront(nil)
-            return
-        }
-        guard let parent = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        let host = NSHostingController(
-            rootView: SettingsView()
-                .frame(width: 980, height: 680)
-                .preferredColorScheme(MuxyTheme.colorScheme)
+        let config = AppModalConfig(
+            title: "Settings",
+            size: CGSize(width: 980, height: 680),
+            existing: settingsWindow,
+            delegate: self,
+            onClosed: { [weak self] in self?.settingsWindow = nil }
         )
-        let window = SettingsModalWindow(contentViewController: host)
-        window.title = "Settings"
-        window.styleMask = [.titled, .closable]
-        window.isOpaque = true
-        window.backgroundColor = MuxyTheme.nsBg
-        window.delegate = self
-        settingsWindow = window
-        parent.beginSheet(window) { [weak self, weak window] _ in
-            guard self?.settingsWindow === window else { return }
-            self?.settingsWindow = nil
+        settingsWindow = AppModalPresenter.present(config) {
+            SettingsView()
         }
-        window.startOutsideClickMonitor()
+    }
+
+    @MainActor
+    private func presentExtensionsModal() {
+        let config = AppModalConfig(
+            title: "Extensions",
+            size: CGSize(width: 880, height: 620),
+            existing: extensionsWindow,
+            delegate: self,
+            onClosed: { [weak self] in self?.extensionsWindow = nil }
+        )
+        extensionsWindow = AppModalPresenter.present(config) {
+            ExtensionsView()
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard notification.object as? NSWindow === settingsWindow else { return }
-        settingsWindow = nil
+        let closed = notification.object as? NSWindow
+        if closed === settingsWindow { settingsWindow = nil }
+        if closed === extensionsWindow { extensionsWindow = nil }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -496,48 +527,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
-    }
-}
-
-private final class SettingsModalWindow: NSWindow {
-    private var outsideClickMonitor: Any?
-
-    func startOutsideClickMonitor() {
-        stopOutsideClickMonitor()
-        outsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self, let sheetParent, event.window === sheetParent else { return event }
-            close()
-            return nil
-        }
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           event.charactersIgnoringModifiers?.lowercased() == "w"
-        {
-            close()
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-
-    override func cancelOperation(_ sender: Any?) {
-        close()
-    }
-
-    override func close() {
-        stopOutsideClickMonitor()
-        guard let sheetParent else {
-            super.close()
-            return
-        }
-        sheetParent.endSheet(self)
-    }
-
-    private func stopOutsideClickMonitor() {
-        guard let outsideClickMonitor else { return }
-        NSEvent.removeMonitor(outsideClickMonitor)
-        self.outsideClickMonitor = nil
     }
 }
 

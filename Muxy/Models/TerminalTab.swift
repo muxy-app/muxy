@@ -9,6 +9,7 @@ final class TerminalTab: Identifiable {
         case editor
         case diffViewer
         case imageViewer
+        case extensionWebView
     }
 
     enum Content {
@@ -17,6 +18,7 @@ final class TerminalTab: Identifiable {
         case editor(EditorTabState)
         case diffViewer(DiffViewerTabState)
         case imageViewer(ImageViewerTabState)
+        case extensionWebView(ExtensionTabState)
 
         var kind: Kind {
             switch self {
@@ -25,6 +27,7 @@ final class TerminalTab: Identifiable {
             case .editor: .editor
             case .diffViewer: .diffViewer
             case .imageViewer: .imageViewer
+            case .extensionWebView: .extensionWebView
             }
         }
 
@@ -53,6 +56,11 @@ final class TerminalTab: Identifiable {
             return state
         }
 
+        var extensionState: ExtensionTabState? {
+            guard case let .extensionWebView(state) = self else { return nil }
+            return state
+        }
+
         var projectPath: String {
             switch self {
             case let .terminal(pane): pane.projectPath
@@ -60,6 +68,7 @@ final class TerminalTab: Identifiable {
             case let .editor(state): state.projectPath
             case let .diffViewer(state): state.projectPath
             case let .imageViewer(state): state.projectPath
+            case let .extensionWebView(state): state.projectPath
             }
         }
     }
@@ -87,6 +96,8 @@ final class TerminalTab: Identifiable {
             return state.displayTitle
         case let .imageViewer(state):
             return state.displayTitle
+        case let .extensionWebView(state):
+            return state.displayTitle
         }
     }
 
@@ -113,6 +124,11 @@ final class TerminalTab: Identifiable {
     init(imageViewerState: ImageViewerTabState) {
         id = UUID()
         content = .imageViewer(imageViewerState)
+    }
+
+    init(extensionState: ExtensionTabState) {
+        id = UUID()
+        content = .extensionWebView(extensionState)
     }
 
     init(restoring snapshot: TerminalTabSnapshot, restoredSession: TerminalSessionSnapshot? = nil) {
@@ -157,6 +173,20 @@ final class TerminalTab: Identifiable {
             } else {
                 content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
             }
+        case .extensionWebView:
+            if let extensionID = snapshot.extensionID,
+               let tabTypeID = snapshot.extensionTabTypeID
+            {
+                content = .extensionWebView(ExtensionTabState(
+                    extensionID: extensionID,
+                    tabTypeID: tabTypeID,
+                    projectPath: snapshot.projectPath,
+                    defaultTitle: snapshot.paneTitle,
+                    initialData: snapshot.extensionTabData
+                ))
+            } else {
+                content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
+            }
         }
     }
 
@@ -168,11 +198,18 @@ final class TerminalTab: Identifiable {
             colorID: colorID,
             isPinned: isPinned,
             projectPath: content.projectPath,
-            paneTitle: content.pane?.title,
+            paneTitle: extensionTabDefaultTitle ?? content.pane?.title,
             paneID: content.pane?.id,
             filePath: content.editorState?.filePath ?? content.imageViewerState?.filePath,
-            currentWorkingDirectory: content.pane?.currentWorkingDirectory
+            currentWorkingDirectory: content.pane?.currentWorkingDirectory,
+            extensionID: content.extensionState?.extensionID,
+            extensionTabTypeID: content.extensionState?.tabTypeID,
+            extensionTabData: content.extensionState?.initialData
         )
+    }
+
+    private var extensionTabDefaultTitle: String? {
+        content.extensionState?.defaultTitle
     }
 
     private static func restoredWorkingDirectory(_ path: String?, projectPath: String) -> String? {

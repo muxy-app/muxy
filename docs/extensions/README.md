@@ -13,14 +13,20 @@ User-installed subprocesses that Muxy launches and talks to over the existing no
 | [Permissions](permissions.md) | What each permission grants, what isn't gated |
 | [Events](events.md) | Identify/subscribe handshake, event list, wire format |
 | [Palette Commands](palette-commands.md) | Register commands and react to triggers |
+| [Tabs](tabs.md) | Register webview tab types and the injected `window.muxy` JS API |
+| [Topbar](topbar.md) | Attach icons to the tab strip that trigger a command |
+| [Status Bar](statusbar.md) | Attach icons to the footer status bar; update text live |
+| [Settings](settings.md) | Declare typed settings and read/write them at runtime |
+| [Scripts](scripts.md) | Run JS files as palette commands in a per-extension JSContext |
+| [Logs](logs.md) | Where logs live on disk, console.* bridge, size cap and trim policy |
 | [AI Provider Hooks](ai-provider.md) | Route third-party agent notifications to a custom source |
 
 ## Quick reference
 
 - Install path: `~/.config/muxy/extensions/<name>/`
 - Transport: `~/Library/Application Support/Muxy/muxy.sock` (same socket as `muxy` CLI)
-- Subprocess environment: `MUXY_SOCKET_PATH`, `MUXY_EXTENSION_ID`
-- Sticky verbs: `identify|<id>`, `subscribe|<event>`
+- Subprocess environment: `MUXY_SOCKET_PATH`, `MUXY_EXTENSION_ID`, `MUXY_EXTENSION_TOKEN`
+- Sticky verbs: `identify|<id>|<token>`, `subscribe|<event>`
 - See [the muxy CLI feature page](../features/muxy-cli.md) for the verb vocabulary
 
 ## Minimal example
@@ -47,7 +53,7 @@ User-installed subprocesses that Muxy launches and talks to over the existing no
 ```bash
 #!/bin/bash
 {
-  printf 'identify|%s\n' "$MUXY_EXTENSION_ID"
+  printf 'identify|%s|%s\n' "$MUXY_EXTENSION_ID" "$MUXY_EXTENSION_TOKEN"
   printf 'subscribe|pane.created\n'
   printf 'subscribe|command.ping\n'
   while sleep 60; do :; done

@@ -217,11 +217,7 @@ struct PullRequestRow: View {
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture(perform: onCheckout)
-        .contextMenu {
-            Button("View Diff", action: onOpenDiff)
-            Button("Checkout", action: onCheckout)
-            Button("Checkout in New Worktree", action: onCheckoutInNewWorktree)
-        }
+        .contextMenu { menuItems }
         .help("Checkout PR #\(pr.number)")
     }
 
@@ -263,35 +259,39 @@ struct PullRequestRow: View {
         }
     }
 
+    @ViewBuilder
+    private var menuItems: some View {
+        Button {
+            onOpenDiff()
+        } label: {
+            Label("View Diff", systemImage: "rectangle.split.2x1")
+        }
+        Button {
+            onCheckout()
+        } label: {
+            Label("Checkout here", systemImage: "arrow.down.to.line")
+        }
+        Button {
+            onCheckoutInNewWorktree()
+        } label: {
+            Label("Checkout in new worktree", systemImage: "square.stack.3d.up")
+        }
+    }
+
     private var checkoutButton: some View {
         Menu {
-            Button("View Diff", action: onOpenDiff)
-            Button {
-                onCheckout()
-            } label: {
-                Label("Checkout here", systemImage: "arrow.down.to.line")
-            }
-            Button {
-                onCheckoutInNewWorktree()
-            } label: {
-                Label("Checkout in new worktree", systemImage: "square.stack.3d.up")
-            }
+            menuItems
         } label: {
-            HStack(spacing: UIMetrics.scaled(3)) {
+            Group {
                 if isCheckingOut {
                     ProgressView().controlSize(.mini)
                 } else {
-                    Image(systemName: "arrow.down.to.line")
-                        .font(.system(size: UIMetrics.fontXS, weight: .bold))
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: UIMetrics.fontCaption, weight: .bold))
                 }
-                Text("Checkout")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .medium))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: UIMetrics.fontMicro, weight: .bold))
             }
             .foregroundStyle(MuxyTheme.fg)
-            .padding(.horizontal, UIMetrics.spacing4)
-            .frame(height: UIMetrics.scaled(22))
+            .frame(width: UIMetrics.scaled(22), height: UIMetrics.scaled(22))
             .background(MuxyTheme.bg, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
             .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
         }
@@ -299,6 +299,7 @@ struct PullRequestRow: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .disabled(isCheckingOut)
+        .help("More actions")
     }
 }
 

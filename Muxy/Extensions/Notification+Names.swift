@@ -15,6 +15,8 @@ extension Notification.Name {
     static let terminalOmnibox = Notification.Name("MuxyTerminalOmnibox")
     static let openProjectPicker = Notification.Name("MuxyOpenProjectPicker")
     static let openSettingsModal = Notification.Name("MuxyOpenSettingsModal")
+    static let openExtensionsModal = Notification.Name("MuxyOpenExtensionsModal")
+    static let openExtensionDirectoryAsProject = Notification.Name("MuxyOpenExtensionDirectoryAsProject")
     static let focusProjectPickerDefaultLocation = Notification.Name("MuxyFocusProjectPickerDefaultLocation")
     static let saveActiveEditor = Notification.Name("MuxySaveActiveEditor")
     static let windowFullScreenDidChange = Notification.Name("MuxyWindowFullScreenDidChange")
@@ -31,4 +33,8 @@ extension Notification.Name {
 enum ExternalDragHoverUserInfoKey {
     static let isHovering = "isHovering"
     static let areaID = "areaID"
+}
+
+enum OpenExtensionDirectoryUserInfoKey {
+    static let path = "path"
 }

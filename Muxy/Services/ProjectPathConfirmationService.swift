@@ -47,17 +47,20 @@ struct ProjectPathConfirmationService {
     let appState: AppState
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
+    let projectGroupStore: ProjectGroupStore
     let fileSystem: any ProjectPathConfirmationFileSystem
 
     init(
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore,
         fileSystem: any ProjectPathConfirmationFileSystem = FileManagerProjectPathConfirmationFileSystem()
     ) {
         self.appState = appState
         self.projectStore = projectStore
         self.worktreeStore = worktreeStore
+        self.projectGroupStore = projectGroupStore
         self.fileSystem = fileSystem
     }
 
@@ -72,6 +75,7 @@ struct ProjectPathConfirmationService {
         }
 
         let project = project(at: standardizedPath)
+        projectGroupStore.addProjectToActiveGroup(projectID: project.id)
         worktreeStore.ensurePrimary(for: project)
         guard let primary = worktreeStore.primary(for: project.id) else { return .failed }
         appState.selectProject(project, worktree: primary)

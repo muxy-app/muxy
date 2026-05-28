@@ -23,7 +23,6 @@ struct ExtensionManifestTests {
         #expect(manifest.commands.isEmpty)
         #expect(manifest.permissions.isEmpty)
         #expect(manifest.aiProvider == nil)
-        #expect(manifest.enabled == true)
     }
 
     @Test("decodes full manifest with permissions, events, commands and aiProvider")
@@ -39,8 +38,7 @@ struct ExtensionManifestTests {
                 { "id": "greet", "title": "Say hello", "subtitle": "demo" }
             ],
             "permissions": ["panes:read", "tabs:write"],
-            "aiProvider": { "socketTypeKey": "demo", "displayName": "Demo", "iconName": "sparkles" },
-            "enabled": false
+            "aiProvider": { "socketTypeKey": "demo", "displayName": "Demo", "iconName": "sparkles" }
         }
         """#
         let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
@@ -50,13 +48,11 @@ struct ExtensionManifestTests {
         #expect(manifest.commands == [ExtensionPaletteCommand(id: "greet", title: "Say hello", subtitle: "demo")])
         #expect(manifest.permissions == [.panesRead, .tabsWrite])
         #expect(manifest.aiProvider == ExtensionAIProvider(socketTypeKey: "demo", displayName: "Demo", iconName: "sparkles"))
-        #expect(manifest.enabled == false)
     }
 
     @Test("loads from directory and resolves entrypoint")
     func loadsFromDirectory() throws {
         let directory = try makeTemporaryExtension(
-            name: "tmp-ext",
             manifest: """
             {
                 "name": "tmp-ext",
@@ -73,7 +69,76 @@ struct ExtensionManifestTests {
 
         #expect(ext.id == "tmp-ext")
         #expect(ext.manifest.permissions == [.panesRead])
-        #expect(FileManager.default.isExecutableFile(atPath: ext.entrypointURL.path))
+        #expect(ext.entrypointURL.map { FileManager.default.isExecutableFile(atPath: $0.path) } == true)
+    }
+
+    @Test("loads without an entrypoint")
+    func loadsWithoutEntrypoint() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "no-entry",
+                "version": "1.0.0",
+                "commands": [{ "id": "ping", "title": "Ping" }]
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let ext = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(ext.manifest.entrypoint == nil)
+        #expect(ext.entrypointURL == nil)
+    }
+
+    @Test("migrates legacy manifest enabled=false into ExtensionEnabledStore")
+    func migratesLegacyEnabledFalse() throws {
+        let extensionID = "legacy-disabled-\(UUID().uuidString)"
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "\(extensionID)",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "enabled": false
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            ExtensionEnabledStore.clear(extensionID: extensionID)
+        }
+
+        _ = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(ExtensionEnabledStore.hasOverride(extensionID: extensionID))
+        #expect(!ExtensionEnabledStore.isEnabled(extensionID: extensionID))
+    }
+
+    @Test("legacy migration does not overwrite an existing user override")
+    func legacyMigrationRespectsExistingOverride() throws {
+        let extensionID = "legacy-respect-\(UUID().uuidString)"
+        ExtensionEnabledStore.setEnabled(true, extensionID: extensionID)
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "\(extensionID)",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "enabled": false
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            ExtensionEnabledStore.clear(extensionID: extensionID)
+        }
+
+        _ = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(ExtensionEnabledStore.isEnabled(extensionID: extensionID))
     }
 
     @Test("fails when manifest missing")
@@ -90,7 +155,6 @@ struct ExtensionManifestTests {
     @Test("fails when entrypoint not executable")
     func failsWhenEntrypointNotExecutable() throws {
         let directory = try makeTemporaryExtension(
-            name: "no-exec",
             manifest: """
             {
                 "name": "no-exec",
@@ -133,7 +197,7 @@ struct ExtensionManifestTests {
         let manifest = ExtensionManifest(name: "demo", version: "0.1.0", entrypoint: "bin/run")
         let ext = MuxyExtension(id: "demo", directory: directory, manifest: manifest)
 
-        #expect(ext.entrypointURL.path == "/tmp/example/bin/run")
+        #expect(ext.entrypointURL?.path == "/tmp/example/bin/run")
         #expect(ext.displayName == "demo")
     }
 
@@ -177,10 +241,185 @@ struct ExtensionManifestTests {
         #expect(invalidName.errorDescription?.contains("bad name") == true)
     }
 
+    @Test("decodes topbar items, statusbar items, and settings")
+    func decodesNewSurfaces() throws {
+        let json = #"""
+        {
+            "name": "demo",
+            "version": "1.0.0",
+            "entrypoint": "run.sh",
+            "commands": [
+                { "id": "open-pr", "title": "Open PR" }
+            ],
+            "topbarItems": [
+                { "id": "pr", "icon": { "symbol": "arrow.triangle.pull" }, "command": "open-pr" }
+            ],
+            "statusBarItems": [
+                { "id": "build", "icon": "hammer", "side": "right", "command": "open-pr" }
+            ],
+            "settings": [
+                { "key": "endpoint", "title": "Endpoint", "type": "string", "defaultValue": "https://x" }
+            ]
+        }
+        """#
+        let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+
+        #expect(manifest.topbarItems.count == 1)
+        #expect(manifest.topbarItems[0].command == "open-pr")
+        if case let .symbol(name) = manifest.topbarItems[0].icon {
+            #expect(name == "arrow.triangle.pull")
+        } else {
+            Issue.record("expected symbol icon")
+        }
+        #expect(manifest.statusBarItems[0].side == .right)
+        if case let .symbol(name) = manifest.statusBarItems[0].icon {
+            #expect(name == "hammer")
+        } else {
+            Issue.record("expected bare string to decode as symbol icon")
+        }
+        #expect(manifest.settings[0].key == "endpoint")
+        #expect(manifest.settings[0].type == .string)
+    }
+
+    @Test("rejects topbar item referencing unknown command")
+    func rejectsTopbarUnknownCommand() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "topbar-bad",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "topbarItems": [
+                    { "id": "x", "icon": "puzzlepiece.extension", "command": "missing" }
+                ]
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects topbar item with missing SVG")
+    func rejectsTopbarMissingSVG() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "topbar-svg",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "commands": [ { "id": "noop", "title": "noop" } ],
+                "topbarItems": [
+                    { "id": "x", "icon": { "svg": "assets/missing.svg" }, "command": "noop" }
+                ]
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects duplicate setting keys")
+    func rejectsDuplicateSettingKeys() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "settings-dup",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "settings": [
+                    { "key": "x", "title": "X", "type": "bool" },
+                    { "key": "x", "title": "X again", "type": "bool" }
+                ]
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects empty topbar item id")
+    func rejectsEmptyTopbarID() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "topbar-empty",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "commands": [ { "id": "noop", "title": "noop" } ],
+                "topbarItems": [
+                    { "id": "", "icon": "x.circle", "command": "noop" }
+                ]
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects empty setting key")
+    func rejectsEmptySettingKey() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "settings-empty",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "settings": [
+                    { "key": "", "title": "X", "type": "bool" }
+                ]
+            }
+            """,
+            files: ["run.sh": "#!/bin/sh\n"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects non-svg icon path")
+    func rejectsNonSVGIconPath() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "bad-icon",
+                "version": "1.0.0",
+                "entrypoint": "run.sh",
+                "commands": [ { "id": "noop", "title": "noop" } ],
+                "topbarItems": [
+                    { "id": "x", "icon": { "svg": "assets/foo.png" }, "command": "noop" }
+                ]
+            }
+            """,
+            files: [
+                "run.sh": "#!/bin/sh\n",
+                "assets/foo.png": "PNG-not-SVG",
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
     private func makeTemporaryExtension(
-        name: String,
         manifest: String,
-        files: [String: String],
+        files: [String: String] = [:],
         makeEntrypointExecutable: Bool = true
     ) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ext-\(UUID().uuidString)")
@@ -200,7 +439,44 @@ struct ExtensionManifestTests {
                 )
             }
         }
-        _ = name
         return directory
+    }
+}
+
+@Suite("ExtensionPermission.kind")
+struct ExtensionPermissionKindTests {
+    @Test("maps read permissions")
+    func mapsReadPermissions() {
+        let readPermissions: [ExtensionPermission] = [.panesRead, .tabsRead, .projectsRead, .worktreesRead]
+        for permission in readPermissions {
+            #expect(permission.kind == .read)
+        }
+    }
+
+    @Test("maps write permissions")
+    func mapsWritePermissions() {
+        let writePermissions: [ExtensionPermission] = [
+            .panesWrite,
+            .tabsWrite,
+            .projectsWrite,
+            .worktreesWrite,
+            .notificationsWrite,
+        ]
+        for permission in writePermissions {
+            #expect(permission.kind == .write)
+        }
+    }
+
+    @Test("maps action permissions")
+    func mapsActionPermissions() {
+        #expect(ExtensionPermission.commandsRunScript.kind == .action)
+        #expect(ExtensionPermission.commandsExec.kind == .action)
+    }
+
+    @Test("covers every permission case")
+    func coversEveryCase() {
+        for permission in ExtensionPermission.allCases {
+            _ = permission.kind
+        }
     }
 }

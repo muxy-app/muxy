@@ -22,6 +22,13 @@ final class AppState {
         var source: DiffViewerTabState.Source = .workingTree
     }
 
+    struct CreateExtensionTabRequest {
+        let extensionID: String
+        let tabTypeID: String
+        let title: String
+        let data: ExtensionJSON?
+    }
+
     enum Action {
         case selectProject(projectID: UUID, worktreeID: UUID, worktreePath: String)
         case selectWorktree(projectID: UUID, worktreeID: UUID, worktreePath: String)
@@ -40,6 +47,7 @@ final class AppState {
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
         case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
         case createImageViewerTab(projectID: UUID, areaID: UUID?, filePath: String)
+        case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
         case restoreClosedTerminalTab(projectID: UUID, areaID: UUID?, snapshot: ClosedTerminalTabSnapshot)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)

@@ -92,6 +92,13 @@ struct MuxyCommands: Commands {
                 Label("Settings...", systemImage: "gearshape")
             }
             .keyboardShortcut(",", modifiers: .command)
+
+            Button {
+                NotificationCenter.default.post(name: .openExtensionsModal, object: nil)
+            } label: {
+                Label("Extensions...", systemImage: "puzzlepiece.extension")
+            }
+            .keyboardShortcut(",", modifiers: [.command, .shift])
         }
 
         CommandGroup(after: .appSettings) {

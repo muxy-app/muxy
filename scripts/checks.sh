@@ -9,9 +9,11 @@ YELLOW="\033[33m"
 RESET="\033[0m"
 
 FIX=0
+COVERAGE=0
 for arg in "$@"; do
   case "$arg" in
     --fix) FIX=1 ;;
+    --coverage) COVERAGE=1 ;;
   esac
 done
 
@@ -150,7 +152,7 @@ if [ "$failed" -eq 0 ]; then
   run_step "Test" swift test || failed=1
 fi
 
-if [ "$failed" -eq 0 ]; then
+if [ "$failed" -eq 0 ] && [ "$COVERAGE" -eq 1 ]; then
   run_step "Coverage" "$SCRIPT_DIR/coverage.sh" || failed=1
 fi
 
