@@ -461,10 +461,12 @@ final class ExtensionStore {
         ExtensionScriptRunner.shared.evict(extensionID: extensionID)
         tokens.removeValue(forKey: extensionID)
         guard let process = processes.removeValue(forKey: extensionID) else { return }
+        process.terminationHandler = nil
         if process.isRunning {
             intentionalStops.insert(extensionID)
             process.terminate()
         }
+        intentionalStops.remove(extensionID)
         if let index = statuses.firstIndex(where: { $0.id == extensionID }) {
             statuses[index].isRunning = false
         }
@@ -480,6 +482,7 @@ final class ExtensionStore {
     }
 
     private func handleTermination(extensionID: String, process: Process) {
+        guard processes[extensionID] === process else { return }
         processes.removeValue(forKey: extensionID)
         let wasIntentional = intentionalStops.remove(extensionID) != nil
         guard let index = statuses.firstIndex(where: { $0.id == extensionID }) else { return }

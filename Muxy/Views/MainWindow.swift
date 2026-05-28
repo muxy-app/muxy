@@ -196,6 +196,16 @@ struct MainWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .openProjectPicker)) { _ in
             showProjectPicker = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openExtensionDirectoryAsProject)) { notification in
+            guard let path = notification.userInfo?[OpenExtensionDirectoryUserInfoKey.path] as? String else { return }
+            CLIAccessor.openProjectFromPath(
+                path,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
+            )
+        }
         .onReceive(NotificationCenter.default.publisher(for: .terminalOmnibox)) { notification in
             let launchScope = terminalOmniboxScope(from: notification)
             if showTerminalOmnibox, launchScope != terminalOmniboxLaunchScope {

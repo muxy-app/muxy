@@ -5,6 +5,7 @@ struct ExtensionsView: View {
     @State private var store = ExtensionStore.shared
     @State private var grantStore = ExtensionGrantStore.shared
     @State private var selectedExtensionID: String?
+    @State private var showCreateSheet = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +18,12 @@ struct ExtensionsView: View {
         .foregroundStyle(MuxyTheme.fg)
         .tint(MuxyTheme.accent)
         .preferredColorScheme(MuxyTheme.colorScheme)
+        .sheet(isPresented: $showCreateSheet) {
+            CreateExtensionSheet(
+                store: store,
+                onFinish: { showCreateSheet = false }
+            )
+        }
     }
 
     @ViewBuilder
@@ -67,6 +74,15 @@ struct ExtensionsView: View {
             }
             Spacer()
             if selectedExtensionID == nil {
+                Button {
+                    showCreateSheet = true
+                } label: {
+                    Text("Create")
+                        .font(.system(size: 12))
+                        .foregroundStyle(MuxyTheme.accent)
+                }
+                .buttonStyle(.plain)
+                .help("Create a new extension")
                 Button {
                     store.reload()
                 } label: {
