@@ -1,6 +1,6 @@
 # Projects
 
-A project is a directory plus a bit of metadata (name, icon, color, last‑used IDE). Projects group your tabs, splits, and worktrees.
+A project is a directory plus a bit of metadata: name, logo, icon color, last-used IDE, tabs, splits, and worktrees.
 
 ## Adding a project
 
@@ -31,9 +31,9 @@ All entry points dedupe — opening the same path twice activates the existing p
 
 Right‑click a project in the sidebar:
 
-- **Rename** — display name only; doesn't move the folder.
-- **Change icon** — emoji logo or letter badge.
-- **Change color** — preset palette.
+- **Set Logo...** — use a cropped image as the project icon.
+- **Set Icon Color...** — choose the fallback letter badge color.
+- **Rename Project** — display name only; doesn't move the folder.
 - **Remove** — removes from Muxy; folder on disk is left alone.
 
 ## Switching projects
@@ -46,13 +46,17 @@ Right‑click a project in the sidebar:
 
 Each project keeps its own tabs, splits, and active tab in memory while the app is running.
 
+## Project workspaces
+
+Use the workspace menu at the top of the sidebar to filter projects into named groups. See [Project Workspaces](project-workspaces.md).
+
 ## Open in IDE
 
 Muxy auto‑discovers IDE‑like apps installed on your Mac (VS Code, Zed, Sublime, JetBrains IDEs, Cursor, …). The **Open in IDE** topbar button and **File → Open in IDE** menu show what was found and remember your last choice. If an editor tab is active, the IDE is launched at that file's line and column when supported.
 
 ## Persistence
 
-Projects live at `~/Library/Application Support/Muxy/projects.json`. Tabs and splits are in‑memory only and lost on app close — use [Layouts](layouts/README.md) for a reproducible workspace.
+Projects live at `~/Library/Application Support/Muxy/projects.json`. Workspace snapshots and terminal sessions are saved separately so Muxy can restore the last shape of a project.
 
 ## Settings
 

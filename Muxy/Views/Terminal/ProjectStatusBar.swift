@@ -2,11 +2,28 @@ import AppKit
 import SwiftUI
 
 struct ProjectStatusBar: View {
+    struct StatusContext: Equatable {
+        let path: String
+        let worktreeName: String?
+        let branch: String?
+    }
+
     let activePane: TerminalPaneState?
     let activeWorktree: Worktree?
+    let fallbackProjectPath: String?
     let isInteractive: Bool
     let richInputVisible: Bool
     @Binding var richInputFontSize: Double
+    @Binding var extensionOutputVisible: Bool
+    var onTriggerExtensionCommand: ((ExtensionStore.StatusBarItemBinding) -> Void)?
+    @Environment(ExtensionStore.self) private var extensionStore
+    @AppStorage(AIUsageSettingsStore.usageEnabledKey) private var usageEnabled = false
+    @AppStorage(AIUsageSettingsStore.usageDisplayModeKey) private var usageDisplayModeRaw = AIUsageSettingsStore
+        .defaultUsageDisplayMode.rawValue
+    @AppStorage(AIUsageSettingsStore.sidebarPreviewProviderIDKey) private var pinnedPreviewProviderID: String = ""
+    @State private var showAIUsagePopover = false
+    private let usageService = AIUsageService.shared
+    private let usageRefreshTimer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     private var richInputShortcutLabel: String {
         KeyBindingStore.shared.combo(for: .toggleRichInput).displayString
@@ -16,31 +33,15 @@ struct ProjectStatusBar: View {
         KeyBindingStore.shared.combo(for: .toggleVoiceRecording).displayString
     }
 
+    private var usageDisplayMode: AIUsageDisplayMode {
+        AIUsageDisplayMode(rawValue: usageDisplayModeRaw) ?? AIUsageSettingsStore.defaultUsageDisplayMode
+    }
+
     var body: some View {
         HStack(spacing: 8) {
-            if let pane = activePane {
-                pathButton(pane)
-                if let worktree = activeWorktree {
-                    separator
-                    worktreeLabel(worktree)
-                }
-                if let branch = pane.branchObserver.branch {
-                    separator
-                    branchLabel(branch)
-                }
-            }
+            leftSide
             Spacer(minLength: 8)
-            if richInputVisible {
-                zoomControls
-                separator
-                shortcutHints
-                separator
-            }
-            if activePane != nil {
-                richInputToggleButton
-                separator
-                voiceRecordingButton
-            }
+            rightSide
         }
         .padding(.horizontal, 10)
         .frame(height: 28)
@@ -51,10 +52,102 @@ struct ProjectStatusBar: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Status bar")
+        .task {
+            await usageService.refreshIfNeeded()
+        }
+        .onReceive(usageRefreshTimer) { _ in
+            Task { await usageService.refreshIfNeeded() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleAIUsage)) { _ in
+            guard usageEnabled else { return }
+            showAIUsagePopover.toggle()
+        }
+        .onChange(of: usageEnabled) { _, enabled in
+            if !enabled { showAIUsagePopover = false }
+        }
     }
 
-    private func pathButton(_ pane: TerminalPaneState) -> some View {
-        let fullPath = pane.currentWorkingDirectory ?? pane.projectPath
+    private var leftSide: some View {
+        HStack(spacing: 8) {
+            if let statusContext {
+                pathButton(statusContext.path)
+                separator
+                if let worktreeName = statusContext.worktreeName {
+                    worktreeLabel(worktreeName)
+                    separator
+                }
+                if let branch = statusContext.branch {
+                    branchLabel(branch)
+                    separator
+                }
+            }
+            ForEach(extensionStore.statusBarItems(side: .left)) { binding in
+                extensionItem(binding: binding)
+                separator
+            }
+        }
+    }
+
+    private var rightSide: some View {
+        HStack(spacing: 8) {
+            separator
+            extensionOutputChip
+            ForEach(extensionStore.statusBarItems(side: .right)) { binding in
+                separator
+                extensionItem(binding: binding)
+            }
+            if richInputVisible {
+                separator
+                zoomControls
+                separator
+                shortcutHints
+            }
+            if activePane != nil {
+                separator
+                richInputToggleButton
+                separator
+                voiceRecordingButton
+            }
+            if usageEnabled {
+                separator
+                aiUsageItem
+            }
+        }
+    }
+
+    private var statusContext: StatusContext? {
+        Self.statusContext(
+            activePane: activePane,
+            activeWorktree: activeWorktree,
+            fallbackProjectPath: fallbackProjectPath
+        )
+    }
+
+    static func statusContext(
+        activePane: TerminalPaneState?,
+        activeWorktree: Worktree?,
+        fallbackProjectPath: String?
+    ) -> StatusContext? {
+        guard let path = activePane?.currentWorkingDirectory
+            ?? activePane?.projectPath
+            ?? activeWorktree?.path
+            ?? fallbackProjectPath
+        else { return nil }
+        return StatusContext(
+            path: path,
+            worktreeName: activeWorktree?.name,
+            branch: nonEmpty(activePane?.branchObserver.branch) ?? nonEmpty(activeWorktree?.branch)
+        )
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty
+        else { return nil }
+        return trimmed
+    }
+
+    private func pathButton(_ fullPath: String) -> some View {
         let displayPath = abbreviatePath(fullPath)
         let truncated = ProjectStatusBar.truncatePath(displayPath, maxCharacters: ProjectStatusBar.pathMaxCharacters)
         return Button {
@@ -78,17 +171,17 @@ struct ProjectStatusBar: View {
         }
     }
 
-    private func worktreeLabel(_ worktree: Worktree) -> some View {
+    private func worktreeLabel(_ worktreeName: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: "square.stack.3d.up")
                 .font(.system(size: 10, weight: .semibold))
-            Text(worktree.name)
+            Text(worktreeName)
                 .font(.system(size: 11, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
         .foregroundStyle(MuxyTheme.fgMuted)
-        .help("Worktree: \(worktree.name)")
+        .help("Worktree: \(worktreeName)")
     }
 
     private func branchLabel(_ branch: String) -> some View {
@@ -110,6 +203,101 @@ struct ProjectStatusBar: View {
             .frame(width: 1)
             .frame(maxHeight: .infinity)
             .accessibilityHidden(true)
+    }
+
+    private func extensionItem(binding: ExtensionStore.StatusBarItemBinding) -> some View {
+        Button {
+            onTriggerExtensionCommand?(binding)
+        } label: {
+            HStack(spacing: 4) {
+                ExtensionIconView(
+                    icon: binding.item.icon,
+                    muxyExtension: binding.muxyExtension,
+                    size: 10
+                )
+                if let text = binding.displayText, !text.isEmpty {
+                    Text(text)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(MuxyTheme.fgMuted)
+        }
+        .buttonStyle(.plain)
+        .help(binding.item.tooltip ?? binding.item.id)
+        .accessibilityLabel(binding.item.tooltip ?? binding.item.id)
+    }
+
+    private var previewProviderDisplay: (percent: Int, iconName: String)? {
+        guard let selection = usageService.previewSelection(pinnedRawValue: pinnedPreviewProviderID),
+              case .available = selection.snapshot.state
+        else { return nil }
+
+        let snapshot = selection.snapshot
+        let rowPercent = selection.row?.percent
+        let usedPercent = max(0, min(100, rowPercent ?? snapshot.rows.compactMap(\.percent).max() ?? 0))
+        let displayPercent: Double = switch usageDisplayMode {
+        case .used:
+            usedPercent
+        case .remaining:
+            max(0, min(100, 100 - usedPercent))
+        }
+
+        return (Int(displayPercent.rounded()), snapshot.providerIconName)
+    }
+
+    private var previewProviderPercentLabel: String? {
+        guard let display = previewProviderDisplay else { return nil }
+        return "\(max(0, min(100, display.percent)))%"
+    }
+
+    private var aiUsageItem: some View {
+        Button {
+            showAIUsagePopover.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                if let display = previewProviderDisplay {
+                    ProviderIconView(iconName: display.iconName, size: 11, style: .monochrome(MuxyTheme.fgMuted))
+                } else {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                if let percentLabel = previewProviderPercentLabel {
+                    Text(percentLabel)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(MuxyTheme.fgMuted)
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showAIUsagePopover) {
+            AIUsagePanel(
+                snapshots: usageService.snapshots,
+                isRefreshing: usageService.isRefreshing,
+                lastRefreshDate: usageService.lastRefreshDate,
+                onRefresh: refreshUsage
+            )
+        }
+        .help("AI Usage (\(KeyBindingStore.shared.combo(for: .toggleAIUsage).displayString))")
+        .accessibilityLabel("AI Usage")
+    }
+
+    private func refreshUsage() {
+        Task { await usageService.refresh(force: true) }
+    }
+
+    private var extensionOutputChip: some View {
+        Button {
+            extensionOutputVisible.toggle()
+        } label: {
+            Image(systemName: "ladybug")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(extensionOutputVisible ? MuxyTheme.accent : MuxyTheme.fgMuted)
+        }
+        .buttonStyle(.plain)
+        .help("Toggle Extension Output panel")
+        .accessibilityLabel("Toggle Extension Output")
     }
 
     private var richInputToggleButton: some View {

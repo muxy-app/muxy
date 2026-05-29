@@ -7,7 +7,8 @@ enum CLIAccessor {
         _ path: String,
         appState: AppState,
         projectStore: ProjectStore,
-        worktreeStore: WorktreeStore
+        worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore
     ) {
         let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
         var isDirectory: ObjCBool = false
@@ -18,6 +19,7 @@ enum CLIAccessor {
         if let existing = projectStore.projects.first(where: { $0.path == standardizedPath }),
            let primary = worktreeStore.primary(for: existing.id)
         {
+            projectGroupStore.addProjectToActiveGroup(projectID: existing.id)
             appState.selectProject(existing, worktree: primary)
             activateApp()
             return
@@ -30,6 +32,7 @@ enum CLIAccessor {
             sortOrder: projectStore.projects.count
         )
         projectStore.add(project)
+        projectGroupStore.addProjectToActiveGroup(projectID: project.id)
         worktreeStore.ensurePrimary(for: project)
         guard let primary = worktreeStore.primary(for: project.id) else { return }
         appState.selectProject(project, worktree: primary)
@@ -43,10 +46,7 @@ enum CLIAccessor {
     }
 
     static func installCLI() {
-        guard let resourceURL = Bundle.appResources.url(
-            forResource: "muxy-cli",
-            withExtension: ""
-        )
+        guard let resourceURL = cliResourceURL()
         else {
             alert(title: "CLI Not Found", body: "The CLI script was not found in the app bundle.")
             return
@@ -79,6 +79,20 @@ enum CLIAccessor {
                 )
             }
         }
+    }
+
+    private static func cliResourceURL() -> URL? {
+        if let url = Bundle.appResources.resourceURL?
+            .appendingPathComponent("scripts/muxy-cli"),
+            FileManager.default.fileExists(atPath: url.path)
+        {
+            return url
+        }
+
+        return Bundle.appResources.url(
+            forResource: "muxy-cli",
+            withExtension: ""
+        )
     }
 
     private static func copyScript(from resourceURL: URL, to binPath: String, label: String) -> Bool {

@@ -63,6 +63,7 @@ struct MainWindow: View {
         case lastTab
         case unsavedEditor
         case runningProcess
+        case diffComments
 
         var title: String {
             switch self {
@@ -72,6 +73,8 @@ struct MainWindow: View {
                 "Save Changes Before Closing?"
             case .runningProcess:
                 "Close Tab?"
+            case .diffComments:
+                "Discard Comments?"
             }
         }
 
@@ -83,6 +86,8 @@ struct MainWindow: View {
                 "This file has unsaved changes. If you don't save, your changes will be lost."
             case .runningProcess:
                 "A process is still running in this tab. Are you sure you want to close it?"
+            case .diffComments:
+                "This diff has comments that haven't been sent to an agent. Closing will discard them."
             }
         }
     }
@@ -106,14 +111,19 @@ struct MainWindow: View {
     @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
     @State private var showQuickOpen = false
     @State private var showFindInFiles = false
-    @State private var showWorktreeSwitcher = false
+    @State private var showTerminalOmnibox = false
+    @State private var terminalOmniboxLaunchScope = TerminalOmniboxLaunchScope.openTabs
     @State private var showProjectPicker = false
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
+    @AppStorage("muxy.showExtensionOutput") private var showExtensionOutput = false
+    @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
+    @State private var extensionOutputSelected: String?
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
+    @AppStorage("muxy.sidebarExpandedCustomWidth") private var sidebarExpandedCustomWidth: Double = .init(SidebarLayout.expandedWidth)
     @AppStorage(NotificationSettings.Key.toastPosition)
     private var toastPositionRaw = NotificationSettings.Default.toastPosition.rawValue
     @AppStorage(RecordingPreferences.autoSendKey) private var recordingAutoSend = RecordingPreferences.defaultAutoSend
@@ -124,13 +134,16 @@ struct MainWindow: View {
     var body: some View {
         HStack(spacing: 0) {
             leftNavigationColumn
+            if sidebarIsResizable {
+                sidebarResizeHandle
+            }
             mainWorkspaceColumn
         }
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
         .overlay(alignment: .topLeading) {
             titleBarNavigationOverlay
         }
-        .environment(\.overlayActive, showQuickOpen || showFindInFiles || showWorktreeSwitcher || showProjectPicker || overlayAnimatingOut)
+        .environment(\.overlayActive, overlayActive)
         .overlay(alignment: .bottom) {
             if voiceRecording.isPanelVisible {
                 VoiceRecordingPanel(state: voiceRecording, autoSend: recordingAutoSend)
@@ -173,85 +186,16 @@ struct MainWindow: View {
                 .accessibilityAddTraits(toast.isActionable ? .isButton : .isStaticText)
             }
         }
-        .overlay {
-            if showQuickOpen, let project = activeProject {
-                QuickOpenOverlay(
-                    projectPath: activeWorktreePath(for: project),
-                    onSelect: { filePath in
-                        showQuickOpen = false
-                        appState.openFile(filePath, projectID: project.id)
-                    },
-                    onDismiss: { showQuickOpen = false }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            }
-        }
-        .overlay {
-            if showFindInFiles, let project = activeProject {
-                FindInFilesOverlay(
-                    projectPath: activeWorktreePath(for: project),
-                    onSelect: { match in
-                        showFindInFiles = false
-                        appState.openFile(
-                            match.absolutePath,
-                            projectID: project.id,
-                            line: match.lineNumber,
-                            column: match.column
-                        )
-                    },
-                    onDismiss: { showFindInFiles = false }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            }
-        }
-        .overlay {
-            if showWorktreeSwitcher {
-                OpenerOverlay(
-                    items: openerItems,
-                    recents: openerRecentItems,
-                    activeWorktreeKey: activeWorktreeKey,
-                    onSelect: { item in
-                        showWorktreeSwitcher = false
-                        handleOpenerSelection(item)
-                    },
-                    onDismiss: { showWorktreeSwitcher = false }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            }
-        }
-        .overlay {
-            if showProjectPicker {
-                ProjectPickerOverlay(
-                    projectPaths: projectStore.projects.map(\.path),
-                    onConfirm: { path, createIfMissing in
-                        ProjectOpenService.confirmProjectPathResult(
-                            path,
-                            appState: appState,
-                            projectStore: projectStore,
-                            worktreeStore: worktreeStore,
-                            createIfMissing: createIfMissing
-                        )
-                    },
-                    onChooseFinder: {
-                        ProjectOpenService.openProject(
-                            appState: appState,
-                            projectStore: projectStore,
-                            worktreeStore: worktreeStore
-                        )
-                    },
-                    onDismiss: { showProjectPicker = false }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            }
-        }
+        .overlay { modalOverlayLayer }
+        .overlay { ExtensionConsentOverlay() }
         .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
         .animation(.easeInOut(duration: 0.15), value: showFindInFiles)
-        .animation(.easeInOut(duration: 0.15), value: showWorktreeSwitcher)
+        .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)
         .animation(.easeInOut(duration: 0.15), value: showProjectPicker)
         .modifier(OverlayExitTracker(
             showQuickOpen: showQuickOpen,
             showFindInFiles: showFindInFiles,
-            showWorktreeSwitcher: showWorktreeSwitcher,
+            showTerminalOmnibox: showTerminalOmnibox,
             showProjectPicker: showProjectPicker,
             onAnimatingOut: { overlayAnimatingOut = $0 }
         ))
@@ -276,8 +220,24 @@ struct MainWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .openProjectPicker)) { _ in
             showProjectPicker = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .switchWorktree)) { _ in
-            showWorktreeSwitcher.toggle()
+        .onReceive(NotificationCenter.default.publisher(for: .openExtensionDirectoryAsProject)) { notification in
+            guard let path = notification.userInfo?[OpenExtensionDirectoryUserInfoKey.path] as? String else { return }
+            CLIAccessor.openProjectFromPath(
+                path,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .terminalOmnibox)) { notification in
+            let launchScope = terminalOmniboxScope(from: notification)
+            if showTerminalOmnibox, launchScope != terminalOmniboxLaunchScope {
+                terminalOmniboxLaunchScope = launchScope
+                return
+            }
+            terminalOmniboxLaunchScope = launchScope
+            showTerminalOmnibox.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
             withAnimation(.easeInOut(duration: 0.2)) {
@@ -318,18 +278,16 @@ struct MainWindow: View {
             panelVisible: fileTreePanelVisible,
             sync: syncFileTreeSelection
         ))
-        .onChange(of: appState.pendingLastTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.lastTab)
-        }
-        .onChange(of: appState.pendingUnsavedEditorTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.unsavedEditor)
-        }
-        .onChange(of: appState.pendingProcessTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.runningProcess)
-        }
+        .modifier(TabCloseConfirmationObserver(
+            lastTab: appState.pendingLastTabClose != nil,
+            unsavedEditor: appState.pendingUnsavedEditorTabClose != nil,
+            runningProcess: appState.pendingProcessTabClose != nil,
+            diffComments: appState.pendingDiffCommentsTabClose != nil,
+            onLastTab: { presentCloseConfirmation(.lastTab) },
+            onUnsavedEditor: { presentCloseConfirmation(.unsavedEditor) },
+            onRunningProcess: { presentCloseConfirmation(.runningProcess) },
+            onDiffComments: { presentCloseConfirmation(.diffComments) }
+        ))
         .onChange(of: appState.pendingSaveErrorMessage != nil) { _, isPresented in
             guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
             presentSaveErrorAlert(message: message)
@@ -352,13 +310,16 @@ struct MainWindow: View {
                     .accessibilityHidden(true)
             }
 
-            Sidebar(expanded: sidebarExpanded)
+            Sidebar(
+                expanded: sidebarExpanded,
+                expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
+            )
         }
         .frame(width: leftNavigationWidth, alignment: .leading)
         .clipped()
         .background(MuxyTheme.bg)
         .overlay(alignment: .trailing) {
-            if leftNavigationWidth > 0 {
+            if leftNavigationWidth > 0, !sidebarIsResizable {
                 Rectangle().fill(MuxyTheme.border)
                     .frame(width: 1)
                     .padding(.top, leftNavigationBorderTopPadding)
@@ -366,7 +327,7 @@ struct MainWindow: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .animation(.easeInOut(duration: 0.2), value: leftNavigationWidth)
+        .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
 
     private var mainWorkspaceColumn: some View {
@@ -394,7 +355,7 @@ struct MainWindow: View {
 
             topBarContent
         }
-        .animation(.easeInOut(duration: 0.2), value: mainTitleBarLeadingInset)
+        .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
 
     @ViewBuilder
@@ -414,7 +375,7 @@ struct MainWindow: View {
                         }
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: titleBarNavigationOverlayWidth)
+                .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
         }
     }
 
@@ -460,13 +421,40 @@ struct MainWindow: View {
 
             bottomDockedRichInputPanel
 
+            if showExtensionOutput {
+                ExtensionOutputPanel(
+                    isPresented: $showExtensionOutput,
+                    selectedExtensionID: Binding(
+                        get: { extensionOutputSelected ?? (extensionOutputSelectedStored.isEmpty ? nil : extensionOutputSelectedStored) },
+                        set: { newValue in
+                            extensionOutputSelected = newValue
+                            extensionOutputSelectedStored = newValue ?? ""
+                        }
+                    )
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             if showStatusBar {
                 ProjectStatusBar(
                     activePane: activeTerminalPane,
                     activeWorktree: activeProject.flatMap { resolvedActiveWorktree(for: $0) },
+                    fallbackProjectPath: activeProject.map { activeWorktreePath(for: $0) },
                     isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
                     richInputVisible: richInputPanelVisible,
-                    richInputFontSize: $richInputFontSize
+                    richInputFontSize: $richInputFontSize,
+                    extensionOutputVisible: $showExtensionOutput,
+                    onTriggerExtensionCommand: { binding in
+                        ExtensionStore.shared.triggerCommand(
+                            ExtensionStore.CommandInvocation(
+                                extensionID: binding.muxyExtension.id,
+                                commandID: binding.item.command,
+                                appState: appState,
+                                projectStore: projectStore,
+                                worktreeStore: worktreeStore
+                            )
+                        )
+                    }
                 )
             }
         }
@@ -523,6 +511,17 @@ struct MainWindow: View {
                 },
                 onCreateVCSTab: {
                     openVCS(for: project, preferredAreaID: area.id)
+                },
+                onCreateDiffViewerTab: {
+                    appState.dispatch(.createDiffViewerTab(
+                        projectID: project.id,
+                        areaID: area.id,
+                        request: AppState.DiffViewerRequest(
+                            vcs: VCSStateStore.shared.state(for: area.projectPath),
+                            filePath: nil,
+                            isStaged: false
+                        )
+                    ))
                 },
                 onCloseTab: { tabID in
                     appState.closeTab(tabID, areaID: area.id, projectID: project.id)
@@ -626,107 +625,213 @@ struct MainWindow: View {
         }
     }
 
-    private var openerItems: [OpenerItem] {
-        var items: [OpenerItem] = []
-
-        for project in projectStore.projects {
-            items.append(.project(.init(
-                projectID: project.id,
-                projectName: project.name
-            )))
-        }
-
-        for project in projectStore.projects {
-            for worktree in worktreeStore.list(for: project.id) {
-                items.append(.worktree(.init(
-                    projectID: project.id,
-                    projectName: project.name,
-                    worktreeID: worktree.id,
-                    worktreeName: worktree.isPrimary && worktree.name.isEmpty ? "main" : worktree.name,
-                    branch: worktree.branch,
-                    isPrimary: worktree.isPrimary
-                )))
-            }
-        }
-
-        if let active = activeProject {
-            for descriptor in appState.availableLayouts(for: active.id) {
-                items.append(.layout(.init(
-                    projectID: active.id,
-                    projectName: active.name,
-                    layoutName: descriptor.name
-                )))
-            }
-
-            let worktrees = worktreeStore.list(for: active.id)
-            for branch in BranchCache.shared.branches(for: active.path) {
-                let matching = worktrees.first { $0.branch == branch }
-                items.append(.branch(.init(
-                    projectID: active.id,
-                    projectName: active.name,
-                    branch: branch,
-                    matchingWorktreeID: matching?.id
-                )))
-            }
-
-            for area in appState.allAreas(for: active.id) {
-                for tab in area.tabs {
-                    items.append(.openTab(.init(
-                        projectID: active.id,
-                        projectName: active.name,
-                        areaID: area.id,
-                        tabID: tab.id,
-                        title: tab.title,
-                        kind: tab.kind.rawValue
-                    )))
-                }
-            }
-        }
-
-        return items
+    private var overlayActive: Bool {
+        showQuickOpen
+            || showFindInFiles
+            || showTerminalOmnibox
+            || showProjectPicker
+            || overlayAnimatingOut
     }
 
-    private var openerRecentItems: [OpenerItem] {
-        let allByID = Dictionary(uniqueKeysWithValues: openerItems.map { ($0.id, $0) })
-        return OpenerPreferences.recents.compactMap { allByID[$0.key] }
+    @ViewBuilder
+    private var modalOverlayLayer: some View {
+        quickOpenOverlay
+        findInFilesOverlay
+        terminalOmniboxOverlay
+        projectPickerOverlay
     }
 
-    private func handleOpenerSelection(_ item: OpenerItem) {
-        OpenerPreferences.remember(.init(key: item.id, category: item.category))
+    @ViewBuilder
+    private var quickOpenOverlay: some View {
+        if showQuickOpen, let project = activeProject {
+            QuickOpenOverlay(
+                projectPath: activeWorktreePath(for: project),
+                onSelect: { filePath in
+                    showQuickOpen = false
+                    appState.openFile(filePath, projectID: project.id)
+                },
+                onDismiss: { showQuickOpen = false }
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        }
+    }
+
+    @ViewBuilder
+    private var findInFilesOverlay: some View {
+        if showFindInFiles, let project = activeProject {
+            FindInFilesOverlay(
+                projectPath: activeWorktreePath(for: project),
+                onSelect: { match in
+                    showFindInFiles = false
+                    appState.openFile(
+                        match.absolutePath,
+                        projectID: project.id,
+                        line: match.lineNumber,
+                        column: match.column
+                    )
+                },
+                onDismiss: { showFindInFiles = false }
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        }
+    }
+
+    @ViewBuilder
+    private var terminalOmniboxOverlay: some View {
+        if showTerminalOmnibox {
+            TerminalOmniboxOverlay(
+                projects: terminalOmniboxProjects,
+                worktrees: terminalOmniboxWorktrees,
+                openTabs: terminalOmniboxOpenTabs,
+                closedTabs: terminalOmniboxClosedTabs,
+                commandShortcuts: CommandShortcutStore.shared.shortcuts,
+                extensionCommands: terminalOmniboxExtensionCommands,
+                activeProjectID: appState.activeProjectID,
+                activeWorktreeID: appState.activeProjectID.flatMap { appState.activeWorktreeID[$0] },
+                commandProjectIDs: terminalOmniboxCommandProjectIDs,
+                launchScope: terminalOmniboxLaunchScope,
+                onSelect: { item, scopedProjectID, scopedWorktreeID in
+                    showTerminalOmnibox = false
+                    handleTerminalOmniboxSelection(
+                        item,
+                        scopedProjectID: scopedProjectID,
+                        scopedWorktreeID: scopedWorktreeID
+                    )
+                },
+                onDismiss: { showTerminalOmnibox = false }
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        }
+    }
+
+    @ViewBuilder
+    private var projectPickerOverlay: some View {
+        if showProjectPicker {
+            ProjectPickerOverlay(
+                projectPaths: projectStore.projects.map(\.path),
+                onConfirm: { path, createIfMissing in
+                    ProjectOpenService.confirmProjectPathResult(
+                        path,
+                        appState: appState,
+                        projectStore: projectStore,
+                        worktreeStore: worktreeStore,
+                        projectGroupStore: projectGroupStore,
+                        createIfMissing: createIfMissing
+                    )
+                },
+                onChooseFinder: {
+                    ProjectOpenService.openProject(
+                        appState: appState,
+                        projectStore: projectStore,
+                        worktreeStore: worktreeStore,
+                        projectGroupStore: projectGroupStore
+                    )
+                },
+                onDismiss: { showProjectPicker = false }
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        }
+    }
+
+    private func handleTerminalOmniboxSelection(
+        _ item: TerminalOmniboxItem,
+        scopedProjectID: UUID?,
+        scopedWorktreeID: UUID?
+    ) {
         switch item {
         case let .project(project):
-            guard let target = projectStore.projects.first(where: { $0.id == project.projectID }) else { return }
-            let worktree = worktreeStore.preferred(for: target.id, matching: appState.activeWorktreeID[target.id])
-            if let worktree {
-                appState.selectProject(target, worktree: worktree)
-            }
-        case let .worktree(wt):
-            guard let target = projectStore.projects.first(where: { $0.id == wt.projectID }),
-                  let worktree = worktreeStore.list(for: wt.projectID).first(where: { $0.id == wt.worktreeID })
-            else { return }
-            if appState.activeProjectID == wt.projectID {
-                appState.selectWorktree(projectID: wt.projectID, worktree: worktree)
-            } else {
-                appState.selectProject(target, worktree: worktree)
-            }
-        case let .layout(layout):
-            appState.requestApplyLayout(projectID: layout.projectID, layoutName: layout.layoutName)
-        case let .branch(br):
-            if let worktreeID = br.matchingWorktreeID,
-               let worktree = worktreeStore.list(for: br.projectID).first(where: { $0.id == worktreeID }),
-               let project = projectStore.projects.first(where: { $0.id == br.projectID })
-            {
-                if appState.activeProjectID == br.projectID {
-                    appState.selectWorktree(projectID: br.projectID, worktree: worktree)
-                } else {
-                    appState.selectProject(project, worktree: worktree)
-                }
-            } else {
-                ToastState.shared.show("No worktree for '\(br.branch)'")
-            }
+            _ = selectOmniboxProject(project.projectID)
+        case let .worktree(worktree):
+            _ = selectOmniboxProject(worktree.projectID, worktreeID: worktree.worktreeID)
         case let .openTab(tab):
+            _ = selectOmniboxProject(tab.projectID, worktreeID: tab.worktreeID)
             appState.dispatch(.selectTab(projectID: tab.projectID, areaID: tab.areaID, tabID: tab.tabID))
+        case let .closedTab(snapshot):
+            _ = selectOmniboxProject(snapshot.projectID, worktreeID: snapshot.worktreeID)
+            _ = appState.reopenClosedTerminalTab(id: snapshot.id, projectID: snapshot.projectID)
+        case let .commandShortcut(shortcut):
+            guard let projectID = scopedProjectID else { return }
+            _ = selectOmniboxProject(projectID, worktreeID: scopedWorktreeID)
+            appState.createCommandTab(projectID: projectID, shortcut: shortcut)
+        case let .extensionCommand(item):
+            ExtensionStore.shared.triggerCommand(.init(
+                extensionID: item.extensionID,
+                commandID: item.command.id,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            ))
         }
+    }
+
+    private var terminalOmniboxExtensionCommands: [ExtensionPaletteItem] {
+        ExtensionStore.shared.paletteCommands().map { binding in
+            ExtensionPaletteItem(
+                extensionID: binding.muxyExtension.id,
+                extensionName: binding.muxyExtension.displayName,
+                command: binding.command
+            )
+        }
+    }
+
+    private func terminalOmniboxScope(from notification: Notification) -> TerminalOmniboxLaunchScope {
+        guard let rawValue = notification.userInfo?["launchScope"] as? String,
+              let scope = TerminalOmniboxLaunchScope(rawValue: rawValue)
+        else { return .openTabs }
+        return scope
+    }
+
+    private var terminalOmniboxProjects: [TerminalOmniboxProjectItem] {
+        projectStore.projects.map {
+            TerminalOmniboxProjectItem(projectID: $0.id, name: $0.name, path: $0.path)
+        }
+    }
+
+    private var terminalOmniboxWorktrees: [TerminalOmniboxWorktreeItem] {
+        projectStore.projects.flatMap { project in
+            worktreeStore.list(for: project.id).map { worktree in
+                TerminalOmniboxWorktreeItem(
+                    projectID: project.id,
+                    worktreeID: worktree.id,
+                    name: worktree.name,
+                    path: worktree.path,
+                    branch: worktree.branch,
+                    isPrimary: worktree.isPrimary
+                )
+            }
+        }
+    }
+
+    private var terminalOmniboxOpenTabs: [OpenTerminalTabItem] {
+        projectStore.projects.flatMap { appState.allOpenTerminalTabItems(for: $0.id) }
+    }
+
+    private var terminalOmniboxClosedTabs: [ClosedTerminalTabSnapshot] {
+        let projectIDs = Set(projectStore.projects.map(\.id))
+        return TerminalSessionStore.shared.closedTerminalTabs.filter {
+            projectIDs.contains($0.projectID)
+        }
+    }
+
+    private var terminalOmniboxCommandProjectIDs: Set<UUID> {
+        Set(projectStore.projects.compactMap { project in
+            worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id]) == nil
+                ? nil
+                : project.id
+        })
+    }
+
+    private func selectOmniboxProject(_ projectID: UUID, worktreeID: UUID? = nil) -> Bool {
+        guard let project = projectStore.projects.first(where: { $0.id == projectID })
+        else { return false }
+        let worktree = if let worktreeID {
+            worktreeStore.list(for: project.id).first { $0.id == worktreeID }
+        } else {
+            worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id])
+        }
+        guard let worktree else { return false }
+        appState.selectProject(project, worktree: worktree)
+        return true
     }
 
     private var toastPosition: ToastPosition {
@@ -774,8 +879,13 @@ struct MainWindow: View {
         SidebarLayout.resolvedWidth(
             expanded: sidebarExpanded,
             collapsedStyle: sidebarCollapsedStyle,
-            expandedStyle: sidebarExpandedStyle
+            expandedStyle: sidebarExpandedStyle,
+            expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
         )
+    }
+
+    private var sidebarIsResizable: Bool {
+        SidebarLayout.isWide(expanded: sidebarExpanded, expandedStyle: sidebarExpandedStyle)
     }
 
     private var leftNavigationWidth: CGFloat {
@@ -858,9 +968,10 @@ struct MainWindow: View {
     }
 
     private func mountedWorktreeKeys(for project: Project) -> [WorktreeKey] {
-        appState.workspaceRoots.keys
-            .filter { $0.projectID == project.id }
-            .sorted { $0.worktreeID.uuidString < $1.worktreeID.uuidString }
+        guard let activeKey = appState.activeWorktreeKey(for: project.id),
+              appState.workspaceRoots[activeKey] != nil
+        else { return [] }
+        return [activeKey]
     }
 
     private func handleShortcutAction(_ action: ShortcutAction) -> Bool {
@@ -942,29 +1053,29 @@ struct MainWindow: View {
                 state: richInputState,
                 worktreeKey: worktreeKey,
                 onDismiss: { closeRichInputPanel() },
-                onSubmit: { appendReturn in submitRichInput(richInputState, appendReturn: appendReturn) }
+                onSubmit: { appendReturn, selectedText in
+                    submitRichInput(richInputState, appendReturn: appendReturn, selectedText: selectedText)
+                }
             )
             switch position {
             case .right:
                 HStack(spacing: 0) {
-                    sidePanelResizeHandle { delta in
-                        let next = richInputPanelWidth - Double(delta)
-                        richInputPanelWidth = max(
-                            Double(RichInputPanelLayout.minWidth),
-                            min(Double(RichInputPanelLayout.maxWidth), next)
-                        )
-                    }
+                    panelResize(
+                        axis: .horizontal,
+                        edge: .leading,
+                        value: $richInputPanelWidth,
+                        range: RichInputPanelLayout.minWidth ... RichInputPanelLayout.maxWidth
+                    )
                     panel.frame(width: CGFloat(richInputPanelWidth))
                 }
             case .bottom:
                 VStack(spacing: 0) {
-                    bottomPanelResizeHandle { delta in
-                        let next = richInputPanelHeight - Double(delta)
-                        richInputPanelHeight = max(
-                            Double(RichInputPanelLayout.minHeight),
-                            min(Double(RichInputPanelLayout.maxHeight), next)
-                        )
-                    }
+                    panelResize(
+                        axis: .vertical,
+                        edge: .top,
+                        value: $richInputPanelHeight,
+                        range: RichInputPanelLayout.minHeight ... RichInputPanelLayout.maxHeight
+                    )
                     panel.frame(height: CGFloat(richInputPanelHeight))
                 }
             }
@@ -977,24 +1088,23 @@ struct MainWindow: View {
             richInputPanelContent(at: .right)
         } else if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
             HStack(spacing: 0) {
-                sidePanelResizeHandle { delta in
-                    vcsPanelWidth = max(
-                        AttachedVCSLayout.minWidth,
-                        min(AttachedVCSLayout.maxWidth, vcsPanelWidth - delta)
-                    )
-                }
+                panelResize(
+                    axis: .horizontal,
+                    edge: .leading,
+                    value: $vcsPanelWidth,
+                    range: AttachedVCSLayout.minWidth ... AttachedVCSLayout.maxWidth
+                )
                 VCSTabView(state: state, focused: false, onFocus: {})
                     .frame(width: vcsPanelWidth)
             }
         } else if fileTreePanelVisible, let treeState = activeFileTreeState {
             HStack(spacing: 0) {
-                sidePanelResizeHandle { delta in
-                    let next = fileTreePanelWidth - Double(delta)
-                    fileTreePanelWidth = max(
-                        Double(FileTreeLayout.minWidth),
-                        min(Double(FileTreeLayout.maxWidth), next)
-                    )
-                }
+                panelResize(
+                    axis: .horizontal,
+                    edge: .leading,
+                    value: $fileTreePanelWidth,
+                    range: FileTreeLayout.minWidth ... FileTreeLayout.maxWidth
+                )
                 FileTreeView(
                     state: treeState,
                     onOpenFile: { filePath in
@@ -1019,18 +1129,30 @@ struct MainWindow: View {
         }
     }
 
-    private func sidePanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        ResizeHandle(axis: .horizontal) { v in
-            onDrag(v.translation.width)
-        }
-        .accessibilityHidden(true)
+    private var sidebarResizeHandle: some View {
+        panelResize(
+            axis: .horizontal,
+            edge: .trailing,
+            value: $sidebarExpandedCustomWidth,
+            range: SidebarLayout.minExpandedWidth ... SidebarLayout.maxExpandedWidth
+        )
+        .padding(.top, leftNavigationBorderTopPadding)
     }
 
-    private func bottomPanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        ResizeHandle(axis: .vertical) { v in
-            onDrag(v.translation.height)
-        }
-        .accessibilityHidden(true)
+    private func panelResize<V: BinaryFloatingPoint>(
+        axis: ResizeHandle.Axis,
+        edge: PanelResizeHandle.Edge,
+        value: Binding<V>,
+        range: ClosedRange<CGFloat>
+    ) -> some View {
+        PanelResizeHandle(
+            axis: axis,
+            edge: edge,
+            current: { CGFloat(value.wrappedValue) },
+            apply: { next in
+                value.wrappedValue = V(min(range.upperBound, max(range.lowerBound, next)))
+            }
+        )
     }
 
     private var activeFileTreeState: FileTreeState? {
@@ -1229,10 +1351,15 @@ struct MainWindow: View {
         }
     }
 
-    private func submitRichInput(_ richInput: RichInputState, appendReturn: Bool) {
+    private func submitRichInput(_ richInput: RichInputState, appendReturn: Bool, selectedText: String?) {
         let paneIDs = richInputBroadcast ? visibleTerminalPaneIDs() : [activeRichInputPaneID].compactMap(\.self)
         guard !paneIDs.isEmpty else { return }
-        RichInputSubmitter.submit(richInput: richInput, paneIDs: paneIDs, appendReturn: appendReturn)
+        RichInputSubmitter.submit(
+            richInput: richInput,
+            paneIDs: paneIDs,
+            appendReturn: appendReturn,
+            selectedText: selectedText
+        )
     }
 
     private func visibleTerminalPaneIDs() -> [UUID] {
@@ -1320,7 +1447,8 @@ struct MainWindow: View {
             alert.buttons[2].keyEquivalent = "d"
             alert.buttons[2].keyEquivalentModifierMask = [.command]
         case .lastTab,
-             .runningProcess:
+             .runningProcess,
+             .diffComments:
             alert.addButton(withTitle: "Close")
             alert.addButton(withTitle: "Cancel")
             alert.buttons[0].keyEquivalent = "\r"
@@ -1357,6 +1485,12 @@ struct MainWindow: View {
                     appState.confirmCloseRunningTab()
                 } else {
                     appState.cancelCloseRunningTab()
+                }
+            case .diffComments:
+                if response == .alertFirstButtonReturn {
+                    appState.confirmCloseDiffCommentsTab()
+                } else {
+                    appState.cancelCloseDiffCommentsTab()
                 }
             }
         }
@@ -1441,6 +1575,37 @@ private struct FileTreeSelectionSync: ViewModifier {
             .onChange(of: panelVisible) { _, visible in
                 guard visible else { return }
                 sync(filePath)
+            }
+    }
+}
+
+private struct TabCloseConfirmationObserver: ViewModifier {
+    let lastTab: Bool
+    let unsavedEditor: Bool
+    let runningProcess: Bool
+    let diffComments: Bool
+    let onLastTab: () -> Void
+    let onUnsavedEditor: () -> Void
+    let onRunningProcess: () -> Void
+    let onDiffComments: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: lastTab) { _, isPresented in
+                guard isPresented else { return }
+                onLastTab()
+            }
+            .onChange(of: unsavedEditor) { _, isPresented in
+                guard isPresented else { return }
+                onUnsavedEditor()
+            }
+            .onChange(of: runningProcess) { _, isPresented in
+                guard isPresented else { return }
+                onRunningProcess()
+            }
+            .onChange(of: diffComments) { _, isPresented in
+                guard isPresented else { return }
+                onDiffComments()
             }
     }
 }
@@ -1728,7 +1893,7 @@ private final class ObserverHolder {
 private struct OverlayExitTracker: ViewModifier {
     let showQuickOpen: Bool
     let showFindInFiles: Bool
-    let showWorktreeSwitcher: Bool
+    let showTerminalOmnibox: Bool
     let showProjectPicker: Bool
     let onAnimatingOut: (Bool) -> Void
 
@@ -1736,7 +1901,7 @@ private struct OverlayExitTracker: ViewModifier {
         content
             .onChange(of: showQuickOpen) { _, visible in trackExit(visible) }
             .onChange(of: showFindInFiles) { _, visible in trackExit(visible) }
-            .onChange(of: showWorktreeSwitcher) { _, visible in trackExit(visible) }
+            .onChange(of: showTerminalOmnibox) { _, visible in trackExit(visible) }
             .onChange(of: showProjectPicker) { _, visible in trackExit(visible) }
     }
 

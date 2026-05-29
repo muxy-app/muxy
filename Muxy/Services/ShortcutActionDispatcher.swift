@@ -5,7 +5,7 @@ struct ShortcutActionDispatcher {
     let appState: AppState
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
-    let projectGroupStore: ProjectGroupStore?
+    let projectGroupStore: ProjectGroupStore
     let ghostty: GhosttyService
     let notificationCenter: NotificationCenter
 
@@ -13,7 +13,7 @@ struct ShortcutActionDispatcher {
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
-        projectGroupStore: ProjectGroupStore? = nil,
+        projectGroupStore: ProjectGroupStore,
         ghostty: GhosttyService,
         notificationCenter: NotificationCenter = .default
     ) {
@@ -26,8 +26,7 @@ struct ShortcutActionDispatcher {
     }
 
     private var navigableProjects: [Project] {
-        guard let projectGroupStore else { return projectStore.projects }
-        return projectGroupStore.filteredProjects(from: projectStore.projects)
+        projectGroupStore.filteredProjects(from: projectStore.projects)
     }
 
     func perform(_ action: ShortcutAction, activeProject: Project?, openVCS: (Project) -> Void) -> Bool {
@@ -123,11 +122,22 @@ struct ShortcutActionDispatcher {
             ProjectOpenService.openProjectViaPicker(
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )
             return true
         case .reloadConfig:
             ghostty.reloadConfig()
+            return true
+        case .refreshWorktrees:
+            guard let activeProject else { return false }
+            Task { @MainActor in
+                await WorktreeRefreshHelper.refresh(
+                    project: activeProject,
+                    appState: appState,
+                    worktreeStore: worktreeStore
+                )
+            }
             return true
         case .nextProject:
             appState.selectNextProject(projects: navigableProjects, worktrees: worktreeStore.worktrees)
@@ -148,14 +158,30 @@ struct ShortcutActionDispatcher {
             guard let activeProject else { return false }
             openVCS(activeProject)
             return true
+        case .openDiffViewerTab:
+            guard let activeProject else { return false }
+            appState.openDiffViewer(projectID: activeProject.id)
+            return true
         case .quickOpen:
             notificationCenter.post(name: .quickOpen, object: nil)
             return true
         case .findInFiles:
             notificationCenter.post(name: .findInFiles, object: nil)
             return true
-        case .switchWorktree:
-            notificationCenter.post(name: .switchWorktree, object: nil)
+        case .terminalOmnibox:
+            postTerminalOmnibox(scope: .openTabs)
+            return true
+        case .terminalOmniboxProjects:
+            postTerminalOmnibox(scope: .projects)
+            return true
+        case .terminalOmniboxWorktrees:
+            postTerminalOmnibox(scope: .worktrees)
+            return true
+        case .terminalOmniboxCommands:
+            postTerminalOmnibox(scope: .commandShortcuts)
+            return true
+        case .terminalOmniboxHistory:
+            postTerminalOmnibox(scope: .history)
             return true
         case .saveFile:
             notificationCenter.post(name: .saveActiveEditor, object: nil)
@@ -209,5 +235,13 @@ struct ShortcutActionDispatcher {
 
     private func resolveActiveWorktree(for projectID: UUID) -> Worktree? {
         worktreeStore.preferred(for: projectID, matching: appState.activeWorktreeID[projectID])
+    }
+
+    private func postTerminalOmnibox(scope: TerminalOmniboxLaunchScope) {
+        notificationCenter.post(
+            name: .terminalOmnibox,
+            object: nil,
+            userInfo: ["launchScope": scope.rawValue]
+        )
     }
 }

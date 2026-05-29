@@ -56,17 +56,6 @@ struct MuxyCommands: Commands {
         )
     }
 
-    private func refreshActiveProjectWorktrees() {
-        guard let project = activeProject else { return }
-        Task { @MainActor in
-            await WorktreeRefreshHelper.refresh(
-                project: project,
-                appState: appState,
-                worktreeStore: worktreeStore
-            )
-        }
-    }
-
     private func performShortcutAction(_ action: ShortcutAction) {
         _ = shortcutDispatcher.perform(action, activeProject: activeProject) { project in
             VCSDisplayMode.current.route(
@@ -96,6 +85,22 @@ struct MuxyCommands: Commands {
     }
 
     var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            Button {
+                NotificationCenter.default.post(name: .openSettingsModal, object: nil)
+            } label: {
+                Label("Settings...", systemImage: "gearshape")
+            }
+            .keyboardShortcut(",", modifiers: .command)
+
+            Button {
+                NotificationCenter.default.post(name: .openExtensionsModal, object: nil)
+            } label: {
+                Label("Extensions...", systemImage: "puzzlepiece.extension")
+            }
+            .keyboardShortcut(",", modifiers: [.command, .shift])
+        }
+
         CommandGroup(after: .appSettings) {
             Button {
                 NSWorkspace.shared.open(
@@ -115,10 +120,12 @@ struct MuxyCommands: Commands {
             .shortcut(for: .reloadConfig, store: keyBindings)
 
             Button {
-                refreshActiveProjectWorktrees()
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.refreshWorktrees)
             } label: {
                 Label("Refresh Worktrees", systemImage: "arrow.triangle.2.circlepath")
             }
+            .shortcut(for: .refreshWorktrees, store: keyBindings)
             .disabled(activeProject == nil)
 
             Divider()
@@ -225,6 +232,12 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.openVCSTab)
             }
             .shortcut(for: .openVCSTab, store: keyBindings)
+
+            Button("Diff Viewer") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.openDiffViewerTab)
+            }
+            .shortcut(for: .openDiffViewerTab, store: keyBindings)
 
             Button("Quick Open") {
                 guard isMainWindowFocused else { return }
@@ -387,14 +400,6 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.toggleRichInput)
             }
             .shortcut(for: .toggleRichInput, store: keyBindings)
-
-            Divider()
-
-            Button("Open Switcher...") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.switchWorktree)
-            }
-            .shortcut(for: .switchWorktree, store: keyBindings)
 
             Divider()
 

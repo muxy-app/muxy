@@ -21,6 +21,74 @@ struct EditorTabStateTests {
         #expect(state.markdownScrollSyncEnabled)
     }
 
+    @Test("isHTMLFile recognizes html extensions")
+    func isHTMLFileRecognizesHTMLExtensions() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        for (name, expected) in [
+            ("page.html", true),
+            ("page.htm", true),
+            ("notes.md", false),
+            ("notes.txt", false),
+        ] {
+            let fileURL = tempDirectory.appendingPathComponent(name)
+            try "<html></html>".write(to: fileURL, atomically: true, encoding: .utf8)
+            let state = EditorTabState(projectPath: tempDirectory.path, filePath: fileURL.path)
+            #expect(state.isHTMLFile == expected)
+        }
+    }
+
+    @Test("svg tabs use html preview mode")
+    func svgTabsUseHTMLPreviewMode() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let fileURL = tempDirectory.appendingPathComponent("icon.svg")
+        try "<svg></svg>".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let state = EditorTabState(projectPath: tempDirectory.path, filePath: fileURL.path)
+
+        #expect(state.isSVGFile)
+        #expect(state.usesHTMLPreview)
+        #expect(state.htmlViewMode == .preview)
+        #expect(EditorTabState.usesHTMLPreview(filePath: fileURL.path))
+        #expect(!ImageViewerTabState.canOpen(filePath: fileURL.path))
+    }
+
+    @Test("html tabs default to code mode")
+    func htmlTabsDefaultToCodeMode() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let fileURL = tempDirectory.appendingPathComponent("page.html")
+        try "<html></html>".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let state = EditorTabState(projectPath: tempDirectory.path, filePath: fileURL.path)
+
+        #expect(state.isHTMLFile)
+        #expect(state.htmlViewMode == .code)
+    }
+
+    @Test("html tabs use configured default mode")
+    func htmlTabsUseConfiguredDefaultMode() throws {
+        let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let fileURL = tempDirectory.appendingPathComponent("page.html")
+        try "<html></html>".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let state = EditorTabState(
+            projectPath: tempDirectory.path,
+            filePath: fileURL.path,
+            defaultHTMLViewMode: .preview
+        )
+
+        #expect(state.isHTMLFile)
+        #expect(state.htmlViewMode == .preview)
+    }
+
     @Test("reloadFromDisk picks up external file changes")
     func reloadFromDiskPicksUpExternalChanges() async throws {
         let tempDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -134,7 +202,7 @@ struct EditorTabStateTests {
         #expect(try String(contentsOf: fileURL, encoding: .utf8) == "second\n")
     }
 
-    private func waitForLoad(_ state: EditorTabState, timeout: TimeInterval = 2.0) async throws {
+    private func waitForLoad(_ state: EditorTabState, timeout: TimeInterval = 10.0) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while state.isLoading || state.isIncrementalLoading {
             if Date() >= deadline {

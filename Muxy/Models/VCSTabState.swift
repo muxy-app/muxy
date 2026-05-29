@@ -308,7 +308,6 @@ final class VCSTabState {
         }
         isRefreshing = true
         pendingRefresh = false
-        errorMessage = nil
 
         let refreshSignpost = GitSignpost.begin("performRefresh", incremental ? "incremental" : "full")
 
@@ -394,7 +393,7 @@ final class VCSTabState {
                         validPaths.contains(where: { $0.hasPrefix(folderPath + "/") })
                     }
                     for path in removedPaths {
-                        diffCache.evict(path)
+                        evictDiffs(for: path)
                     }
                 }
 
@@ -406,13 +405,16 @@ final class VCSTabState {
                     }
                     if Self.fileChanged(old: old, new: file) {
                         changedPaths.insert(file.path)
-                        diffCache.evict(file.path)
+                        evictDiffs(for: file.path)
                     }
                 }
 
                 let listChanged = files.map(\.path) != newFiles.map(\.path) || !changedPaths.isEmpty
                 if listChanged {
                     files = newFiles
+                }
+                if errorMessage != nil {
+                    errorMessage = nil
                 }
                 isLoadingFiles = false
                 hasCompletedInitialLoad = true
@@ -448,6 +450,12 @@ final class VCSTabState {
             || old.oldPath != new.oldPath
             || old.additions != new.additions
             || old.deletions != new.deletions
+    }
+
+    private func evictDiffs(for path: String) {
+        diffCache.evict(path)
+        diffCache.evict(DiffViewerTabState.cacheKey(filePath: path, isStaged: true))
+        diffCache.evict(DiffViewerTabState.cacheKey(filePath: path, isStaged: false))
     }
 
     func toggleExpanded(filePath: String) {
@@ -1244,6 +1252,7 @@ final class VCSTabState {
             DiffLoader.Request(
                 repoPath: projectPath,
                 filePath: filePath,
+                cacheKey: filePath,
                 hints: diffHints(for: filePath),
                 forceFull: forceFull,
                 pinnedPaths: expandedFilePaths
@@ -1340,7 +1349,7 @@ final class VCSTabState {
         checkingOutPRNumber = item.number
         defer { checkingOutPRNumber = nil }
 
-        let localBranch = item.headBranch.isEmpty ? "pr-\(item.number)" : item.headBranch
+        let localBranch = item.headBranch.isEmpty ? "pr-\(item.number)" : "pr/\(item.number)/\(item.headBranch)"
         let slug = Self.directorySlug(from: localBranch)
         let worktreeDirectory = WorktreeLocationResolver.worktreeDirectory(
             for: project,
@@ -1362,29 +1371,24 @@ final class VCSTabState {
             )
         }
 
-        let worktree = Worktree(
+        var worktree = Worktree(
             name: localBranch,
             path: worktreeDirectory,
             branch: localBranch,
             ownsBranch: true,
             isPrimary: false
         )
-        worktreeStore.add(worktree, to: project.id)
 
         do {
-            try await git.fetchPullRequestRef(
-                repoPath: project.path,
-                number: item.number,
-                localBranch: localBranch
-            )
-            try await GitWorktreeService.shared.addWorktree(
+            let branch = try await git.createPullRequestWorktree(
                 repoPath: project.path,
                 path: worktreeDirectory,
-                branch: localBranch,
-                createBranch: false
+                number: item.number
             )
+            worktree.name = branch
+            worktree.branch = branch
+            worktreeStore.add(worktree, to: project.id)
         } catch {
-            worktreeStore.remove(worktreeID: worktree.id, from: project.id)
             throw error
         }
 
@@ -1476,15 +1480,29 @@ final class VCSTabState {
     func loadDiffWithHints(
         filePath: String,
         hints: GitRepositoryService.DiffHints,
+        cacheKey: String? = nil,
+        pinnedPaths: Set<String> = [],
         forceFull: Bool = false
     ) {
+        let resolvedCacheKey = cacheKey ?? filePath
+        if !forceFull, diffCache.hasDiff(for: resolvedCacheKey) {
+            diffCache.touch(resolvedCacheKey)
+            return
+        }
+        if !forceFull, diffCache.isLoading(resolvedCacheKey) {
+            return
+        }
+        if forceFull {
+            diffCache.cancelLoad(for: resolvedCacheKey)
+        }
         DiffLoader.load(
             DiffLoader.Request(
                 repoPath: projectPath,
                 filePath: filePath,
+                cacheKey: resolvedCacheKey,
                 hints: hints,
                 forceFull: forceFull,
-                pinnedPaths: expandedFilePaths.union([filePath])
+                pinnedPaths: expandedFilePaths.union(pinnedPaths).union([resolvedCacheKey])
             ),
             cache: diffCache,
             git: git

@@ -44,6 +44,12 @@ final class ProjectStore {
         save()
     }
 
+    func setIcon(id: UUID, to icon: String?) {
+        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[index].icon = icon
+        save()
+    }
+
     func setIconColor(id: UUID, to color: String?) {
         guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
         projects[index].iconColor = color

@@ -27,7 +27,11 @@ final class KeyBindingStore {
     }
 
     func updateBinding(action: ShortcutAction, combo: KeyCombo) {
-        guard let index = bindings.firstIndex(where: { $0.action == action }) else { return }
+        guard let index = bindings.firstIndex(where: { $0.action == action }) else {
+            bindings.append(KeyBinding(action: action, combo: combo))
+            save()
+            return
+        }
         bindings[index].combo = combo
         save()
     }
@@ -37,8 +41,17 @@ final class KeyBindingStore {
         save()
     }
 
+    func replaceBindings(_ newBindings: [KeyBinding]) {
+        bindings = newBindings
+        save()
+    }
+
     func resetBinding(action: ShortcutAction) {
-        guard let defaultBinding = KeyBinding.defaults.first(where: { $0.action == action }) else { return }
+        guard let defaultBinding = KeyBinding.defaults.first(where: { $0.action == action }) else {
+            bindings.removeAll { $0.action == action }
+            save()
+            return
+        }
         updateBinding(action: defaultBinding.action, combo: defaultBinding.combo)
     }
 
@@ -55,6 +68,7 @@ final class KeyBindingStore {
         return ShortcutAction.allCases.first { action in
             guard scopes.contains(action.scope) else { return false }
             let combo = combo(for: action)
+            guard combo.isAssigned else { return false }
             return combo.key == normalizedKey && combo.modifiers == flags
         }
     }
@@ -65,6 +79,7 @@ final class KeyBindingStore {
 
     func conflictingAction(for combo: KeyCombo, excluding: ShortcutAction?) -> ShortcutAction? {
         bindings.first { binding in
+            guard binding.combo.isAssigned else { return false }
             if let excluding {
                 return binding.combo == combo && binding.action != excluding
             }
@@ -84,6 +99,7 @@ final class KeyBindingStore {
     private func save() {
         do {
             try persistence.saveBindings(bindings)
+            SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
         } catch {
             logger.error("Failed to save key bindings: \(error.localizedDescription)")
         }

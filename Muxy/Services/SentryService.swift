@@ -133,21 +133,22 @@ final class SentryService {
             return false
         }
         let frames = exceptions.flatMap { $0.stacktrace?.frames ?? [] }
-        if frames.contains(where: { isModalAlertFrame($0) }) {
+        if frames.contains(where: { isAppKitModalFrame($0) }) {
             return true
         }
         return !frames.contains(where: { $0.inApp?.boolValue == true })
     }
 
-    nonisolated private static func isModalAlertFrame(_ frame: Frame) -> Bool {
+    nonisolated private static func isAppKitModalFrame(_ frame: Frame) -> Bool {
         guard let function = frame.function else { return false }
-        return modalAlertFrameSignatures.contains { function.contains($0) }
+        return appKitModalFrameSignatures.contains { function.contains($0) }
     }
 
-    nonisolated private static let modalAlertFrameSignatures: [String] = [
+    nonisolated private static let appKitModalFrameSignatures: [String] = [
         "runModal",
         "_NSTryRunModal",
         "_doModalLoop",
+        "NSAlert",
         "NSOpenPanel",
         "NSSavePanel",
     ]

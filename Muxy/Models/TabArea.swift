@@ -17,6 +17,20 @@ final class TabArea: Identifiable {
         activeTabID = tab.id
     }
 
+    init(projectPath: String, command: String?) {
+        id = UUID()
+        self.projectPath = projectPath
+        let wrappedCommand = command.map { "(\($0)); exec \"$0\" -l" }
+        let pane = TerminalPaneState(
+            projectPath: projectPath,
+            startupCommand: wrappedCommand,
+            startupCommandInteractive: wrappedCommand != nil
+        )
+        let tab = TerminalTab(pane: pane)
+        tabs.append(tab)
+        activeTabID = tab.id
+    }
+
     init(projectPath: String, existingTab tab: TerminalTab) {
         id = UUID()
         self.projectPath = projectPath
@@ -68,7 +82,7 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(pane: TerminalPaneState(projectPath: directory)))
     }
 
-    func createCommandTab(name: String, command: String) {
+    func createCommandTab(name: String, command: String, closesOnCommandExit: Bool = true) {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return }
         let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -76,7 +90,8 @@ final class TabArea: Identifiable {
             projectPath: projectPath,
             title: title.isEmpty ? Self.commandTitle(trimmedCommand) : title,
             startupCommand: trimmedCommand,
-            startupCommandInteractive: true
+            startupCommandInteractive: true,
+            closesOnStartupCommandExit: closesOnCommandExit
         )
         insertTab(TerminalTab(pane: pane))
     }
@@ -106,23 +121,36 @@ final class TabArea: Identifiable {
             selectTab(existing.id)
             return
         }
-        let editorState = EditorTabState(projectPath: projectPath, filePath: filePath)
+        let editorState = EditorTabState(
+            projectPath: projectPath,
+            filePath: filePath,
+            defaultHTMLViewMode: EditorSettings.shared.htmlDefaultViewMode
+        )
         editorState.suppressInitialFocus = suppressInitialFocus
         insertTab(TerminalTab(editorState: editorState))
     }
 
-    func createDiffViewerTab(vcs: VCSTabState, filePath: String, isStaged: Bool) {
+    func createDiffViewerTab(
+        vcs: VCSTabState,
+        filePath: String?,
+        isStaged: Bool,
+        source: DiffViewerTabState.Source = .workingTree
+    ) {
         if let existing = tabs.first(where: { tab in
-            guard let diff = tab.content.diffViewerState else { return false }
-            return diff.filePath == filePath && diff.isStaged == isStaged
+            tab.content.diffViewerState != nil
         }) {
+            existing.content.diffViewerState?.setSource(source, filePath: filePath, isStaged: isStaged)
+            if let filePath {
+                existing.content.diffViewerState?.select(filePath: filePath, isStaged: isStaged)
+            }
             selectTab(existing.id)
             return
         }
         insertTab(TerminalTab(diffViewerState: DiffViewerTabState(
             vcs: vcs,
             filePath: filePath,
-            isStaged: isStaged
+            isStaged: isStaged,
+            source: source
         )))
     }
 
@@ -135,6 +163,17 @@ final class TabArea: Identifiable {
             projectPath: projectPath,
             filePath: filePath
         )))
+    }
+
+    func createExtensionTab(extensionID: String, tabTypeID: String, title: String, data: ExtensionJSON?) {
+        let state = ExtensionTabState(
+            extensionID: extensionID,
+            tabTypeID: tabTypeID,
+            projectPath: projectPath,
+            defaultTitle: title,
+            initialData: data
+        )
+        insertTab(TerminalTab(extensionState: state))
     }
 
     func createExternalEditorTab(filePath: String, command: String) {

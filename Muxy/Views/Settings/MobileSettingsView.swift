@@ -39,9 +39,8 @@ struct MobileSettingsView: View {
 
                 SettingsRow("Port") {
                     TextField("\(MobileServerService.defaultPort)", text: $portText)
-                        .textFieldStyle(.roundedBorder)
                         .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
-                        .frame(width: SettingsMetrics.controlWidth)
+                        .settingsTextInput(width: SettingsMetrics.controlWidth)
                         .onChange(of: portText) { _, _ in
                             guard portText != String(service.port) else { return }
                             portValidationError = nil
@@ -56,7 +55,7 @@ struct MobileSettingsView: View {
                     HStack(spacing: 6) {
                         Text(error)
                             .font(.system(size: SettingsMetrics.footnoteFontSize))
-                            .foregroundStyle(.red)
+                            .foregroundStyle(SettingsStyle.destructive)
                             .fixedSize(horizontal: false, vertical: true)
                         if service.isPortInUse {
                             Button("Free Port") {
@@ -89,7 +88,7 @@ struct MobileSettingsView: View {
                 if devices.devices.isEmpty {
                     Text("No devices approved yet.")
                         .font(.system(size: SettingsMetrics.labelFontSize))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(SettingsStyle.mutedForeground)
                         .padding(.horizontal, SettingsMetrics.horizontalPadding)
                         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
                 } else {
@@ -205,13 +204,13 @@ struct MobileSettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Text(host.host)
                         .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(SettingsStyle.foreground)
                         .textSelection(.enabled)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Text("Port \(String(service.port))")
                         .font(.system(size: SettingsMetrics.footnoteFontSize))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(SettingsStyle.mutedForeground)
                 }
                 Spacer(minLength: 0)
             }
@@ -226,7 +225,7 @@ struct MobileSettingsView: View {
         HStack(spacing: 8) {
             Text(uri)
                 .font(.system(size: SettingsMetrics.footnoteFontSize, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SettingsStyle.mutedForeground)
                 .textSelection(.enabled)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -246,7 +245,7 @@ struct MobileSettingsView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 6))
     }
 
     private func copyPairingLink(_ uri: String) {
@@ -267,7 +266,7 @@ struct MobileSettingsView: View {
                     .font(.system(size: SettingsMetrics.labelFontSize))
                 Text(lastSeenText(device))
                     .font(.system(size: SettingsMetrics.footnoteFontSize))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SettingsStyle.mutedForeground)
             }
             Spacer()
             Button("Revoke", role: .destructive) {
@@ -275,7 +274,7 @@ struct MobileSettingsView: View {
             }
             .buttonStyle(.borderless)
             .font(.system(size: SettingsMetrics.footnoteFontSize))
-            .foregroundStyle(.red)
+            .foregroundStyle(SettingsStyle.destructive)
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)

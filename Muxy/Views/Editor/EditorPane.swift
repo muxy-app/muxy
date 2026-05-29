@@ -9,6 +9,7 @@ struct EditorPane: View {
     @Environment(GhosttyService.self) private var ghostty
     @State private var editorSettings = EditorSettings.shared
     @FocusState private var markdownPreviewFocused: Bool
+    @FocusState private var htmlPreviewFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,6 +36,9 @@ struct EditorPane: View {
             guard focused else { return }
             if state.isMarkdownFile, state.markdownViewMode == .preview {
                 state.markdownViewMode = .code
+            }
+            if state.usesHTMLPreview, state.htmlViewMode == .preview {
+                state.htmlViewMode = .code
             }
             if !state.currentSelection.isEmpty {
                 state.searchNeedle = state.currentSelection
@@ -105,9 +109,39 @@ struct EditorPane: View {
                     markdownPreviewContainer
                 }
             }
+        } else if state.usesHTMLPreview {
+            switch state.htmlViewMode {
+            case .code:
+                codeEditorContainer
+            case .preview:
+                htmlPreviewContainer
+            case .split:
+                HSplitView {
+                    codeEditorContainer
+                    htmlPreviewContainer
+                }
+            }
         } else {
             codeEditorContainer
         }
+    }
+
+    private var htmlPreviewContainer: some View {
+        HTMLPreviewWebView(filePath: state.filePath, backgroundColor: EditorThemePalette.active.background)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .focusable(focused)
+            .focusEffectDisabled()
+            .focused($htmlPreviewFocused)
+            .onKeyPress(keys: ["e", "E"]) { press in
+                guard state.usesHTMLPreview, state.htmlViewMode == .preview else { return .ignored }
+                let disallowed: EventModifiers = [.command, .control, .option]
+                guard press.modifiers.isDisjoint(with: disallowed) else { return .ignored }
+                state.htmlViewMode = press.modifiers.contains(.shift) ? .split : .code
+                return .handled
+            }
+            .onAppear { acquireHTMLPreviewFocusIfNeeded() }
+            .onChange(of: focused) { _, _ in acquireHTMLPreviewFocusIfNeeded() }
+            .onChange(of: state.htmlViewMode) { _, _ in acquireHTMLPreviewFocusIfNeeded() }
     }
 
     private var codeEditorContainer: some View {
@@ -177,7 +211,7 @@ struct EditorPane: View {
         .focusable(focused)
         .focusEffectDisabled()
         .focused($markdownPreviewFocused)
-        .onKeyPress(keys: ["e"]) { press in
+        .onKeyPress(keys: ["e", "E"]) { press in
             guard state.markdownViewMode == .preview else { return .ignored }
             let disallowed: EventModifiers = [.command, .control, .option]
             guard press.modifiers.isDisjoint(with: disallowed) else { return .ignored }
@@ -222,6 +256,15 @@ struct EditorPane: View {
         markdownPreviewFocused = true
     }
 
+    private func acquireHTMLPreviewFocusIfNeeded() {
+        guard focused, state.usesHTMLPreview, state.htmlViewMode == .preview else { return }
+        if state.suppressInitialFocus {
+            state.suppressInitialFocus = false
+            return
+        }
+        htmlPreviewFocused = true
+    }
+
     private var renderedMarkdownContent: String {
         _ = state.previewRefreshVersion
         return state.backingStore?.fullText() ?? ""
@@ -263,7 +306,9 @@ struct EditorPane: View {
     }
 
     private var showsCodeEditor: Bool {
-        !state.isMarkdownFile || state.markdownViewMode != .preview
+        if state.isMarkdownFile { return state.markdownViewMode != .preview }
+        if state.usesHTMLPreview { return state.htmlViewMode != .preview }
+        return true
     }
 
     private var externalChangeBanner: some View {
@@ -346,27 +391,31 @@ struct EditorPane: View {
 
 private struct EditorMarkdownModePicker: View {
     @Binding var mode: EditorMarkdownViewMode
-    @Binding var scrollSyncEnabled: Bool
+    var scrollSyncEnabled: Binding<Bool>?
+    let fileTypeLabel: String
+    var supportsKeyboardShortcut = true
 
     var body: some View {
         HStack(spacing: UIMetrics.spacing1) {
-            if mode == .split {
+            if mode == .split, let scrollSyncEnabled {
                 Button {
-                    scrollSyncEnabled.toggle()
+                    scrollSyncEnabled.wrappedValue.toggle()
                 } label: {
                     Image(systemName: "arrow.up.and.down")
                         .font(.system(size: UIMetrics.fontCaption, weight: .medium))
-                        .foregroundStyle(scrollSyncEnabled ? MuxyTheme.accent : MuxyTheme.fg)
+                        .foregroundStyle(scrollSyncEnabled.wrappedValue ? MuxyTheme.accent : MuxyTheme.fg)
                         .frame(width: UIMetrics.scaled(22), height: UIMetrics.controlSmall)
                         .background(
                             RoundedRectangle(cornerRadius: UIMetrics.radiusSM)
-                                .fill(scrollSyncEnabled ? MuxyTheme.surface : Color.clear)
+                                .fill(scrollSyncEnabled.wrappedValue ? MuxyTheme.surface : Color.clear)
                         )
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(scrollSyncEnabled ? "Disable Scroll Sync" : "Enable Scroll Sync")
-                .accessibilityLabel(scrollSyncEnabled ? "Disable Markdown Scroll Sync" : "Enable Markdown Scroll Sync")
+                .help(scrollSyncEnabled.wrappedValue ? "Disable Scroll Sync" : "Enable Scroll Sync")
+                .accessibilityLabel(
+                    scrollSyncEnabled.wrappedValue ? "Disable Markdown Scroll Sync" : "Enable Markdown Scroll Sync"
+                )
 
                 Rectangle()
                     .fill(MuxyTheme.border)
@@ -388,7 +437,7 @@ private struct EditorMarkdownModePicker: View {
                 }
                 .buttonStyle(.plain)
                 .help(helpText(for: candidate, currentMode: mode))
-                .accessibilityLabel("Markdown \(candidate.title) View")
+                .accessibilityLabel("\(fileTypeLabel) \(candidate.title) View")
             }
         }
         .padding(UIMetrics.spacing1)
@@ -401,7 +450,7 @@ private struct EditorMarkdownModePicker: View {
     }
 
     private func helpText(for candidate: EditorMarkdownViewMode, currentMode: EditorMarkdownViewMode) -> String {
-        guard currentMode == .preview else { return candidate.title }
+        guard supportsKeyboardShortcut, currentMode == .preview else { return candidate.title }
         switch candidate {
         case .code: return "\(candidate.title) (E)"
         case .split: return "\(candidate.title) (⇧E)"
@@ -447,7 +496,16 @@ private struct EditorBreadcrumb: View {
             if state.isMarkdownFile {
                 EditorMarkdownModePicker(
                     mode: $state.markdownViewMode,
-                    scrollSyncEnabled: $state.markdownScrollSyncEnabled
+                    scrollSyncEnabled: $state.markdownScrollSyncEnabled,
+                    fileTypeLabel: "Markdown"
+                )
+                .padding(.trailing, UIMetrics.spacing3)
+            } else if state.usesHTMLPreview {
+                EditorMarkdownModePicker(
+                    mode: $state.htmlViewMode,
+                    scrollSyncEnabled: nil,
+                    fileTypeLabel: state.isSVGFile ? "SVG" : "HTML",
+                    supportsKeyboardShortcut: true
                 )
                 .padding(.trailing, UIMetrics.spacing3)
             }

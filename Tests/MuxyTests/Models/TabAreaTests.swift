@@ -46,6 +46,18 @@ struct TabAreaTests {
         #expect(area.activeTab?.kind == .terminal)
         #expect(pane?.title == "Server")
         #expect(pane?.startupCommand == "npm run dev")
+        #expect(pane?.closesOnStartupCommandExit == true)
+    }
+
+    @Test("createCommandTab can keep shell open after command")
+    func createCommandTabKeepsShellOpen() {
+        let area = TabArea(projectPath: testPath)
+        area.createCommandTab(name: "Status", command: "git status", closesOnCommandExit: false)
+
+        let pane = area.activeTab?.content.pane
+        #expect(area.tabs.count == 2)
+        #expect(pane?.startupCommand == "git status")
+        #expect(pane?.closesOnStartupCommandExit == false)
     }
 
     @Test("createCommandTab ignores empty command")
@@ -114,6 +126,126 @@ struct TabAreaTests {
         let pane = area.activeTab?.content.pane
         #expect(pane?.startupCommand == "codex")
         #expect(pane?.startupCommandInteractive == true)
+    }
+
+    @Test("restoring terminal tab ignores stale working directory outside project")
+    func restoringTerminalTabIgnoresOutsideWorkingDirectory() {
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: "~",
+            currentWorkingDirectory: "/tmp"
+        )
+
+        let tab = TerminalTab(restoring: snapshot)
+
+        #expect(tab.content.pane?.projectPath == testPath)
+        #expect(tab.content.pane?.currentWorkingDirectory == nil)
+    }
+
+    @Test("restoring terminal tab keeps working directory inside project")
+    func restoringTerminalTabKeepsInsideWorkingDirectory() {
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: "Sources",
+            currentWorkingDirectory: "/tmp/test/Sources"
+        )
+
+        let tab = TerminalTab(restoring: snapshot)
+
+        #expect(tab.content.pane?.currentWorkingDirectory == "/tmp/test/Sources")
+    }
+
+    @Test("TerminalTab restore preserves metadata and restored session directory")
+    func terminalTabRestorePreservesMetadataAndSessionDirectory() {
+        let paneID = UUID()
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            id: UUID(),
+            customTitle: "Shell",
+            colorID: "green",
+            isPinned: true,
+            projectPath: testPath,
+            paneTitle: "Stored",
+            paneID: paneID,
+            currentWorkingDirectory: "/outside"
+        )
+        let restoredSession = TerminalSessionSnapshot(
+            id: UUID(),
+            projectID: UUID(),
+            worktreeID: UUID(),
+            paneID: paneID,
+            tabID: snapshot.id,
+            areaID: UUID(),
+            projectPath: testPath,
+            title: "Session",
+            workingDirectory: "/tmp/test/Session",
+            startupCommand: nil,
+            lastSubmittedCommand: "swift test",
+            activity: .running,
+            capturedAt: Date()
+        )
+
+        let tab = TerminalTab(restoring: snapshot, restoredSession: restoredSession)
+        let roundTrip = tab.snapshot()
+
+        #expect(tab.id == snapshot.id)
+        #expect(tab.customTitle == "Shell")
+        #expect(tab.colorID == "green")
+        #expect(tab.isPinned)
+        #expect(tab.title == "Shell")
+        #expect(tab.content.projectPath == testPath)
+        #expect(tab.content.pane?.currentWorkingDirectory == "/tmp/test/Session")
+        #expect(roundTrip.id == snapshot.id)
+        #expect(roundTrip.customTitle == "Shell")
+        #expect(roundTrip.colorID == "green")
+        #expect(roundTrip.isPinned)
+    }
+
+    @Test("TerminalTab restore falls back for unsupported persisted tab kinds")
+    func terminalTabRestoreFallsBackForUnsupportedKinds() {
+        for kind in [TerminalTab.Kind.diffViewer, .editor, .imageViewer] {
+            let snapshot = TerminalTabSnapshot(
+                kind: kind,
+                customTitle: nil,
+                colorID: nil,
+                isPinned: false,
+                projectPath: testPath,
+                paneTitle: "Fallback"
+            )
+
+            let tab = TerminalTab(restoring: snapshot)
+
+            #expect(tab.kind == .terminal)
+            #expect(tab.content.pane?.title == "Fallback")
+        }
+    }
+
+    @Test("TerminalTab content accessors return only matching state")
+    func terminalTabContentAccessorsReturnOnlyMatchingState() {
+        let terminal = TerminalTab(pane: TerminalPaneState(projectPath: testPath))
+        let vcs = TerminalTab(vcsState: VCSTabState(projectPath: testPath))
+        let editor = TerminalTab(editorState: EditorTabState(projectPath: testPath, filePath: "/tmp/test/file.md"))
+        let diffViewer = TerminalTab(diffViewerState: DiffViewerTabState(vcs: VCSTabState(projectPath: testPath)))
+        let imageViewer = TerminalTab(imageViewerState: ImageViewerTabState(projectPath: testPath, filePath: "/tmp/test/icon.png"))
+
+        #expect(terminal.content.pane != nil)
+        #expect(terminal.content.vcsState == nil)
+        #expect(vcs.content.vcsState != nil)
+        #expect(vcs.title == "Git Diff")
+        #expect(editor.content.editorState != nil)
+        #expect(editor.content.projectPath == testPath)
+        #expect(diffViewer.content.diffViewerState != nil)
+        #expect(diffViewer.kind == .diffViewer)
+        #expect(imageViewer.content.imageViewerState != nil)
+        #expect(imageViewer.kind == .imageViewer)
     }
 
     @Test("createVCSTab adds tab with VCS content")

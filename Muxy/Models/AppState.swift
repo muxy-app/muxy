@@ -12,12 +12,21 @@ final class AppState {
         let areaID: UUID
         let direction: SplitDirection
         let position: SplitPosition
+        var command: String?
     }
 
     struct DiffViewerRequest {
         let vcs: VCSTabState
-        let filePath: String
+        let filePath: String?
         let isStaged: Bool
+        var source: DiffViewerTabState.Source = .workingTree
+    }
+
+    struct CreateExtensionTabRequest {
+        let extensionID: String
+        let tabTypeID: String
+        let title: String
+        let data: ExtensionJSON?
     }
 
     enum Action {
@@ -32,12 +41,13 @@ final class AppState {
         )
         case createTab(projectID: UUID, areaID: UUID?)
         case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
-        case createCommandTab(projectID: UUID, areaID: UUID?, name: String, command: String)
+        case createCommandTab(CommandTabRequest)
         case createVCSTab(projectID: UUID, areaID: UUID?)
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String, suppressInitialFocus: Bool)
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
         case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
         case createImageViewerTab(projectID: UUID, areaID: UUID?, filePath: String)
+        case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
         case restoreClosedTerminalTab(projectID: UUID, areaID: UUID?, snapshot: ClosedTerminalTabSnapshot)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
@@ -89,6 +99,7 @@ final class AppState {
     var pendingLastTabClose: PendingTabClose?
     var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
+    var pendingDiffCommentsTabClose: PendingTabClose?
     var pendingSaveErrorMessage: String?
     let navigation = NavigationHistory()
     private var focusHistory: [WorktreeKey: [UUID]] = [:]
@@ -273,10 +284,25 @@ final class AppState {
 
     func createCommandTab(projectID: UUID, shortcut: CommandShortcut) {
         dispatch(.createCommandTab(
-            projectID: projectID,
-            areaID: nil,
-            name: shortcut.displayName,
-            command: shortcut.trimmedCommand
+            CommandTabRequest(
+                projectID: projectID,
+                areaID: nil,
+                name: shortcut.displayName,
+                command: shortcut.trimmedCommand,
+                closesOnCommandExit: false
+            )
+        ))
+    }
+
+    func createCommandTab(projectID: UUID, command: String) {
+        dispatch(.createCommandTab(
+            CommandTabRequest(
+                projectID: projectID,
+                areaID: nil,
+                name: command,
+                command: command,
+                closesOnCommandExit: false
+            )
         ))
     }
 
@@ -291,6 +317,10 @@ final class AppState {
         line: Int? = nil,
         column: Int = 1
     ) {
+        if EditorTabState.usesHTMLPreview(filePath: filePath) {
+            openBuiltInEditorFile(filePath, projectID: projectID, preserveFocus: preserveFocus, line: line, column: column)
+            return
+        }
         if ImageViewerTabState.canOpen(filePath: filePath) {
             openImageFile(filePath, projectID: projectID)
             return
@@ -303,6 +333,16 @@ final class AppState {
                 return
             }
         }
+        openBuiltInEditorFile(filePath, projectID: projectID, preserveFocus: preserveFocus, line: line, column: column)
+    }
+
+    private func openBuiltInEditorFile(
+        _ filePath: String,
+        projectID: UUID,
+        preserveFocus: Bool,
+        line: Int?,
+        column: Int
+    ) {
         for area in allAreas(for: projectID) {
             if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
                 dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
@@ -405,9 +445,9 @@ final class AppState {
     func openDiffViewer(vcs: VCSTabState, filePath: String, isStaged: Bool, projectID: UUID) {
         for area in allAreas(for: projectID) {
             if let tab = area.tabs.first(where: { tab in
-                guard let diff = tab.content.diffViewerState else { return false }
-                return diff.filePath == filePath && diff.isStaged == isStaged
+                tab.content.diffViewerState != nil
             }) {
+                tab.content.diffViewerState?.select(filePath: filePath, isStaged: isStaged)
                 dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
                 return
             }
@@ -416,6 +456,32 @@ final class AppState {
             projectID: projectID,
             areaID: nil,
             request: DiffViewerRequest(vcs: vcs, filePath: filePath, isStaged: isStaged)
+        ))
+    }
+
+    func openDiffViewer(vcs: VCSTabState, source: DiffViewerTabState.Source, projectID: UUID) {
+        dispatch(.createDiffViewerTab(
+            projectID: projectID,
+            areaID: nil,
+            request: DiffViewerRequest(vcs: vcs, filePath: nil, isStaged: false, source: source)
+        ))
+    }
+
+    func openDiffViewer(projectID: UUID) {
+        guard let worktreePath = activeWorktreePath(for: projectID) else { return }
+        let vcs = VCSStateStore.shared.state(for: worktreePath)
+        for area in allAreas(for: projectID) {
+            if let tab = area.tabs.first(where: { tab in
+                tab.content.diffViewerState != nil
+            }) {
+                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
+                return
+            }
+        }
+        dispatch(.createDiffViewerTab(
+            projectID: projectID,
+            areaID: nil,
+            request: DiffViewerRequest(vcs: vcs, filePath: nil, isStaged: false)
         ))
     }
 
@@ -441,6 +507,10 @@ final class AppState {
         }
         if needsProcessConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
             pendingProcessTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
+            return
+        }
+        if needsDiffCommentsConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
+            pendingDiffCommentsTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
         }
         closeTabWithLastCheck(tabID, areaID: areaID, projectID: projectID)
@@ -495,6 +565,16 @@ final class AppState {
         pendingUnsavedEditorTabClose = nil
     }
 
+    func confirmCloseDiffCommentsTab() {
+        guard let pending = pendingDiffCommentsTabClose else { return }
+        pendingDiffCommentsTabClose = nil
+        closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
+    }
+
+    func cancelCloseDiffCommentsTab() {
+        pendingDiffCommentsTabClose = nil
+    }
+
     private func closeTabWithLastCheck(_ tabID: UUID, areaID: UUID, projectID: UUID) {
         if !ProjectLifecyclePreferences.keepOpenWhenNoTabs,
            isLastTabInProject(tabID, areaID: areaID, projectID: projectID)
@@ -531,6 +611,68 @@ final class AppState {
             snapshot: snapshot
         ))
         return true
+    }
+
+    func reopenClosedTerminalTab(id: UUID, projectID: UUID) -> Bool {
+        guard let key = activeWorktreeKey(for: projectID),
+              workspaceRoots[key] != nil,
+              let snapshot = terminalSessions.popClosedTerminalTab(
+                  id: id,
+                  projectID: projectID,
+                  worktreeID: key.worktreeID
+              )
+        else { return false }
+        dispatch(.restoreClosedTerminalTab(
+            projectID: projectID,
+            areaID: focusedAreaID[key],
+            snapshot: snapshot
+        ))
+        return true
+    }
+
+    func openTerminalTabItems(for projectID: UUID) -> [OpenTerminalTabItem] {
+        guard let key = activeWorktreeKey(for: projectID) else { return [] }
+        return allAreas(for: projectID).flatMap { area in
+            area.tabs.compactMap { tab in
+                guard let pane = tab.content.pane else { return nil }
+                let command = TerminalCommandTracker.shared.lastSubmittedCommand(for: pane.id)
+                    ?? pane.startupCommand
+                    ?? pane.activeRestoredCommand
+                return OpenTerminalTabItem(
+                    projectID: projectID,
+                    worktreeID: key.worktreeID,
+                    areaID: area.id,
+                    tabID: tab.id,
+                    title: tab.title,
+                    workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
+                    command: command
+                )
+            }
+        }
+    }
+
+    func allOpenTerminalTabItems(for projectID: UUID) -> [OpenTerminalTabItem] {
+        workspaceRoots
+            .filter { $0.key.projectID == projectID }
+            .flatMap { key, root in
+                root.allAreas().flatMap { area in
+                    area.tabs.compactMap { tab -> OpenTerminalTabItem? in
+                        guard let pane = tab.content.pane else { return nil }
+                        let command = TerminalCommandTracker.shared.lastSubmittedCommand(for: pane.id)
+                            ?? pane.startupCommand
+                            ?? pane.activeRestoredCommand
+                        return OpenTerminalTabItem(
+                            projectID: projectID,
+                            worktreeID: key.worktreeID,
+                            areaID: area.id,
+                            tabID: tab.id,
+                            title: tab.title,
+                            workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
+                            command: command
+                        )
+                    }
+                }
+            }
     }
 
     private func closedTerminalTabSnapshot(tabID: UUID, areaID: UUID, projectID: UUID) -> ClosedTerminalTabSnapshot? {
@@ -662,6 +804,16 @@ final class AppState {
         return terminalViews.needsConfirmQuit(for: paneID)
     }
 
+    private func needsDiffCommentsConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID }),
+              let diffState = tab.content.diffViewerState
+        else { return false }
+        return diffState.hasUnsentSessionComments
+    }
+
     func selectTabByIndex(_ index: Int, projectID: UUID) {
         if let key = activeWorktreeKey(for: projectID),
            let areaID = maximizedAreaID[key],
@@ -696,6 +848,12 @@ final class AppState {
     }
 
     func dispatch(_ action: Action) {
+        let extensionSnapshot = ExtensionEventEmitter.snapshot(from: self)
+        defer {
+            let after = ExtensionEventEmitter.snapshot(from: self)
+            ExtensionEventEmitter.emit(before: extensionSnapshot, after: after)
+        }
+
         switch action {
         case let .focusPaneLeft(projectID),
              let .focusPaneRight(projectID),

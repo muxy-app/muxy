@@ -17,7 +17,8 @@ final class TerminalViewRegistry {
         for paneID: UUID,
         workingDirectory: String,
         command: String? = nil,
-        commandInteractive: Bool = false
+        commandInteractive: Bool = false,
+        closesOnCommandExit: Bool = true
     ) -> GhosttyTerminalNSView {
         if let existing = views[paneID] {
             return existing
@@ -25,7 +26,8 @@ final class TerminalViewRegistry {
         let view = GhosttyTerminalNSView(
             workingDirectory: workingDirectory,
             command: command,
-            commandInteractive: commandInteractive
+            commandInteractive: commandInteractive,
+            closesOnCommandExit: closesOnCommandExit
         )
         views[paneID] = view
         paneIDs[ObjectIdentifier(view)] = paneID

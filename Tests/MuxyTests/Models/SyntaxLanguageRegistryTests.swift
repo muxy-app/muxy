@@ -69,6 +69,15 @@ struct SyntaxLanguageRegistryTests {
         #expect(SyntaxLanguageRegistry.grammar(forFile: "data.tsv")?.name == "CSV")
     }
 
+    @Test("recognizes Gherkin")
+    func gherkin() {
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "login.feature")?.name == "Gherkin")
+        #expect(SyntaxLanguageRegistry.grammar(forFile: "/specs/checkout.feature")?.name == "Gherkin")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "gherkin")?.name == "Gherkin")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "feature")?.name == "Gherkin")
+        #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "Gherkin")?.name == "Gherkin")
+    }
+
     @Test("language hint resolves common fence labels")
     func hintCommonFences() {
         #expect(SyntaxLanguageRegistry.grammar(forLanguageHint: "swift")?.name == "Swift")

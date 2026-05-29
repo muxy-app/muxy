@@ -137,6 +137,20 @@ jobs:
             --sparkle-public-key "${{ steps.sparkle.outputs.public_key }}" \
             --sparkle-feed-url "https://github.com/muxy-app/muxy/releases/download/beta-channel/appcast-beta-${{ matrix.arch }}.xml"
 
+      - name: Upload dSYM to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          if [[ -z "${SENTRY_AUTH_TOKEN:-}" ]]; then
+            echo "SENTRY_AUTH_TOKEN is not set; skipping Sentry dSYM upload"
+            exit 0
+          fi
+          npm install --global @sentry/cli
+          sentry-cli debug-files upload \
+            --org muxy-4d \
+            --project muxy-desktop \
+            "build/Muxy-${{ needs.validate.outputs.version }}-${{ matrix.arch }}.app.dSYM"
+
       - name: Notarize DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -166,7 +180,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dmg-${{ matrix.arch }}
-          path: build/Muxy-${{ needs.validate.outputs.version }}-${{ matrix.arch }}.dmg
+          path: |
+            build/Muxy-${{ needs.validate.outputs.version }}-${{ matrix.arch }}.dmg
+            build/Muxy-${{ needs.validate.outputs.version }}-${{ matrix.arch }}.app.dSYM
 
   release:
     needs: [validate, build]

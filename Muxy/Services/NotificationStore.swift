@@ -127,7 +127,10 @@ final class NotificationStore {
     }
 
     private func insertIfNotFocused(_ notification: MuxyNotification, appState: AppState) {
-        if NSApp.isActive, NotificationNavigator.isActiveTab(notification.tabID, appState: appState) {
+        if notification.source == .osc,
+           NSApp.isActive,
+           NotificationNavigator.isActiveTab(notification.tabID, appState: appState)
+        {
             playSound()
             return
         }
@@ -136,6 +139,19 @@ final class NotificationStore {
         trimIfNeeded()
         scheduleSave()
         deliverNotification(notification)
+        broadcastExtensionEvent(notification)
+    }
+
+    private func broadcastExtensionEvent(_ notification: MuxyNotification) {
+        NotificationSocketServer.shared.broadcast(event: ExtensionEvent(
+            name: ExtensionEventName.notificationPosted,
+            payload: [
+                "paneID": notification.paneID.uuidString,
+                "projectID": notification.projectID.uuidString,
+                "tabID": notification.tabID.uuidString,
+                "title": notification.title,
+            ]
+        ))
     }
 
     private func deliverNotification(_ notification: MuxyNotification) {
@@ -167,7 +183,8 @@ final class NotificationStore {
 
     private func playSound() {
         guard let soundName = NotificationSettings.deliveryPlan(defaults: Self.defaults).soundName else { return }
-        NSSound(named: .init(soundName))?.play()
+        guard let sound = NotificationSound.playableSound(for: soundName) else { return }
+        NotificationSoundPlayer.shared.play(sound)
     }
 
     func markAsRead(_ id: UUID) {

@@ -83,6 +83,14 @@ struct TerminalSessionRestorePolicyTests {
         #expect(snapshot.commandToRestore == nil)
     }
 
+    @Test("session restore is disabled by default")
+    func sessionRestoreIsDisabledByDefault() {
+        UserDefaults.standard.removeObject(forKey: SessionRestorePreferences.enabledKey)
+        let snapshot = makeSnapshot(startupCommand: nil, lastSubmittedCommand: "nvim main.swift", activity: .running)
+        #expect(SessionRestorePreferences.isEnabled == false)
+        #expect(TerminalSessionRestorePolicy.decision(for: snapshot) == .none)
+    }
+
     @Test("decision returns command when safe and enabled")
     func decisionReturnsCommandWhenSafe() {
         SessionRestorePreferences.isEnabled = true

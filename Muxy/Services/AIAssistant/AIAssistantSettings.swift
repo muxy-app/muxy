@@ -5,6 +5,7 @@ struct AIAssistantSettingsSnapshot {
     let claudeModel: String?
     let codexModel: String?
     let opencodeModel: String?
+    let piModel: String?
     let customCommand: String
     let commitPrompt: String?
     let prPrompt: String?
@@ -14,6 +15,7 @@ struct AIAssistantSettingsSnapshot {
         case .claude: claudeModel
         case .codex: codexModel
         case .opencode: opencodeModel
+        case .pi: piModel
         case .custom: nil
         }
     }
@@ -33,6 +35,7 @@ enum AIAssistantSettings {
     static let claudeModelKey = "muxy.ai.assistant.model.claude"
     static let codexModelKey = "muxy.ai.assistant.model.codex"
     static let opencodeModelKey = "muxy.ai.assistant.model.opencode"
+    static let piModelKey = "muxy.ai.assistant.model.pi"
     static let customCommandKey = "muxy.ai.assistant.customCommand"
     static let commitPromptKey = "muxy.ai.assistant.prompt.commit"
     static let prPromptKey = "muxy.ai.assistant.prompt.pr"
@@ -46,6 +49,7 @@ enum AIAssistantSettings {
             claudeModel: trimmed(defaults.string(forKey: claudeModelKey)),
             codexModel: trimmed(defaults.string(forKey: codexModelKey)),
             opencodeModel: trimmed(defaults.string(forKey: opencodeModelKey)),
+            piModel: trimmed(defaults.string(forKey: piModelKey)),
             customCommand: defaults.string(forKey: customCommandKey) ?? "",
             commitPrompt: trimmed(defaults.string(forKey: commitPromptKey)),
             prPrompt: trimmed(defaults.string(forKey: prPromptKey))

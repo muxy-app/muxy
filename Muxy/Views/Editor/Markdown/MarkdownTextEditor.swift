@@ -13,8 +13,8 @@ struct MarkdownTextEditor: NSViewRepresentable {
     }
 
     struct Callbacks {
-        var onSubmit: (() -> Void)?
-        var onSubmitWithoutReturn: (() -> Void)?
+        var onSubmit: ((String?) -> Void)?
+        var onSubmitWithoutReturn: ((String?) -> Void)?
         var onIncreaseFontSize: (() -> Void)?
         var onDecreaseFontSize: (() -> Void)?
         var onPasteImageData: ((Data) -> Void)?
@@ -88,10 +88,12 @@ struct MarkdownTextEditor: NSViewRepresentable {
         textView.insertionPointColor = MarkdownTextEditor.defaultForeground()
         textView.delegate = context.coordinator
         textView.onSubmit = { [weak coordinator = context.coordinator] in
-            coordinator?.parent.callbacks.onSubmit?()
+            guard let coordinator else { return }
+            coordinator.parent.callbacks.onSubmit?(coordinator.selectedText)
         }
         textView.onSubmitWithoutReturn = { [weak coordinator = context.coordinator] in
-            coordinator?.parent.callbacks.onSubmitWithoutReturn?()
+            guard let coordinator else { return }
+            coordinator.parent.callbacks.onSubmitWithoutReturn?(coordinator.selectedText)
         }
         textView.onIncreaseFontSize = { [weak coordinator = context.coordinator] in
             coordinator?.parent.callbacks.onIncreaseFontSize?()
@@ -187,6 +189,15 @@ struct MarkdownTextEditor: NSViewRepresentable {
             guard abs(height - lastReportedHeight) > 0.5 else { return }
             lastReportedHeight = height
             parent.callbacks.onContentHeightChange?(height)
+        }
+
+        var selectedText: String? {
+            guard let textView else { return nil }
+            let range = textView.selectedRange()
+            guard range.length > 0 else { return nil }
+            let text = textView.string as NSString
+            guard NSMaxRange(range) <= text.length else { return nil }
+            return text.substring(with: range)
         }
 
         func applyHighlighting() {

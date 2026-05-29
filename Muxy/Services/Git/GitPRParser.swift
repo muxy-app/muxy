@@ -41,6 +41,23 @@ enum GitPRParser {
         )
     }
 
+    static func parsePRCheckoutInfo(_ json: String) -> GitRepositoryService.PRCheckoutInfo? {
+        guard let data = json.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let number = object["number"] as? Int,
+              let headBranch = object["headRefName"] as? String,
+              let headRepository = object["headRepository"] as? [String: Any]
+        else { return nil }
+
+        let nameWithOwner = headRepository["nameWithOwner"] as? String ?? ""
+        guard !headBranch.isEmpty, !nameWithOwner.isEmpty else { return nil }
+        return GitRepositoryService.PRCheckoutInfo(
+            number: number,
+            headBranch: headBranch,
+            headRepositoryNameWithOwner: nameWithOwner
+        )
+    }
+
     static func parseStatusChecks(_ rollup: [[String: Any]]) -> GitRepositoryService.PRChecks {
         if rollup.isEmpty {
             return GitRepositoryService.PRChecks(status: .none, passing: 0, failing: 0, pending: 0, total: 0)

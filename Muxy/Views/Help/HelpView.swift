@@ -97,7 +97,7 @@ private struct HelpQuickStart: View {
         Step(title: "Add a project", detail: "Click + in the sidebar, or use File → Open Project…", shortcut: "⌘O"),
         Step(title: "Open a new tab", detail: "Each tab is a terminal by default.", shortcut: "⌘T"),
         Step(title: "Split a pane", detail: "Split right or down to multiplex within one tab.", shortcut: "⌘D"),
-        Step(title: "Open Source Control", detail: "Stage, commit, push, and review diffs.", shortcut: "⌘K"),
+        Step(title: "Open Source Control", detail: "Stage, commit, push, and review diffs.", shortcut: "⌘Y"),
         Step(title: "Quick‑open a file", detail: "Fuzzy‑search files in the active worktree.", shortcut: "⌘P"),
     ]
 
@@ -233,7 +233,7 @@ private struct HelpFeaturesView: View {
         Feature(
             title: "Layouts",
             summary: "Declarative .muxy/layouts/*.yaml workspaces and one‑time .muxy/startup.yaml.",
-            docPath: "docs/features/layouts.md"
+            docPath: "docs/layouts/overview.md"
         ),
         Feature(
             title: "Notifications",
@@ -253,7 +253,7 @@ private struct HelpFeaturesView: View {
         Feature(
             title: "Remote Server",
             summary: "WebSocket API for mobile companion clients with trust‑on‑first‑use pairing.",
-            docPath: "docs/features/remote-server.md"
+            docPath: "docs/remote-server/overview.md"
         ),
     ]
 

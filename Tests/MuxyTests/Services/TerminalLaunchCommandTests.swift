@@ -21,6 +21,18 @@ struct TerminalLaunchCommandTests {
         #expect(command.hasSuffix("' /bin/zsh"))
     }
 
+    @Test("Launch wrapper can keep shell open after successful command")
+    func launchWrapperKeepsShellOpen() {
+        let command = TerminalLaunchCommand.shellCommand(
+            interactive: true,
+            keepsShellOpen: true,
+            shell: "/bin/zsh"
+        )
+
+        #expect(command.contains("else exec \"$0\" -l"))
+        #expect(!command.contains("else exit $muxy_status"))
+    }
+
     @Test("Launch wrapper does not embed user command")
     func launchWrapperDoesNotEmbedUserCommand() {
         let command = TerminalLaunchCommand.shellCommand(interactive: true, shell: "/bin/zsh")

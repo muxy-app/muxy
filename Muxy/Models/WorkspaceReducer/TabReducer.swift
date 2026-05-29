@@ -23,18 +23,16 @@ enum TabReducer {
         area.createTab(inDirectory: directory)
     }
 
-    static func createCommandTab(
-        projectID: UUID,
-        areaID: UUID?,
-        name: String,
-        command: String,
-        state: inout WorkspaceState
-    ) {
-        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
-              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
+    static func createCommandTab(_ request: CommandTabRequest, state: inout WorkspaceState) {
+        guard let key = WorkspaceReducerShared.activeKey(projectID: request.projectID, state: state),
+              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: request.areaID, state: state)
         else { return }
         FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.createCommandTab(name: name, command: command)
+        area.createCommandTab(
+            name: request.name,
+            command: request.command,
+            closesOnCommandExit: request.closesOnCommandExit
+        )
     }
 
     static func createVCSTab(projectID: UUID, areaID: UUID?, state: inout WorkspaceState) {
@@ -88,13 +86,26 @@ enum TabReducer {
         state: inout WorkspaceState
     ) {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
+              let root = state.workspaceRoots[key],
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
         else { return }
+        for existingArea in root.allAreas() {
+            if let existing = existingArea.tabs.first(where: { $0.content.diffViewerState != nil }) {
+                existing.content.diffViewerState?.setSource(request.source, filePath: request.filePath, isStaged: request.isStaged)
+                if let filePath = request.filePath {
+                    existing.content.diffViewerState?.select(filePath: filePath, isStaged: request.isStaged)
+                }
+                FocusReducer.focusArea(existingArea.id, key: key, state: &state)
+                existingArea.selectTab(existing.id)
+                return
+            }
+        }
         FocusReducer.focusArea(area.id, key: key, state: &state)
         area.createDiffViewerTab(
             vcs: request.vcs,
             filePath: request.filePath,
-            isStaged: request.isStaged
+            isStaged: request.isStaged,
+            source: request.source
         )
     }
 
@@ -109,6 +120,24 @@ enum TabReducer {
         else { return }
         FocusReducer.focusArea(area.id, key: key, state: &state)
         area.createImageViewerTab(filePath: filePath)
+    }
+
+    static func createExtensionTab(
+        projectID: UUID,
+        areaID: UUID?,
+        request: AppState.CreateExtensionTabRequest,
+        state: inout WorkspaceState
+    ) {
+        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
+              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
+        else { return }
+        FocusReducer.focusArea(area.id, key: key, state: &state)
+        area.createExtensionTab(
+            extensionID: request.extensionID,
+            tabTypeID: request.tabTypeID,
+            title: request.title,
+            data: request.data
+        )
     }
 
     static func restoreClosedTerminalTab(
@@ -177,13 +206,16 @@ enum TabReducer {
 
         let areaCount = root.allAreas().count
         if area.tabs.count <= 1, areaCount > 1 {
+            clearDiffViewerCaches(in: area)
             SplitReducer.closeArea(areaID, key: key, state: &state, effects: &effects)
             return
         }
 
+        let tab = area.tabs.first { $0.id == tabID }
         if let paneID = area.closeTab(tabID) {
             effects.paneIDsToRemove.append(paneID)
         }
+        clearDiffViewerCache(for: tab)
 
         guard area.tabs.isEmpty else { return }
         WorkspaceReducerShared.clearWorkspace(key: key, state: &state)
@@ -192,5 +224,13 @@ enum TabReducer {
             state: &state,
             effects: &effects
         )
+    }
+
+    private static func clearDiffViewerCaches(in area: TabArea) {
+        area.tabs.forEach(clearDiffViewerCache(for:))
+    }
+
+    private static func clearDiffViewerCache(for tab: TerminalTab?) {
+        tab?.content.diffViewerState?.prepareForClose()
     }
 }

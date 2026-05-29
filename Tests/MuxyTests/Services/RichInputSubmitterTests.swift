@@ -67,4 +67,16 @@ struct RichInputSubmitterTests {
         let segments = RichInputSubmitter.tokenize(text: "[Image 1]", images: [url])
         #expect(segments == [.image(url)])
     }
+
+    @Test("selected non-empty text is used as submission text")
+    func selectedTextOverridesFullText() {
+        let selected = RichInputSubmitter.selectedSubmissionText("selected part")
+        #expect(selected == "selected part")
+    }
+
+    @Test("empty selected text falls back to full text")
+    func emptySelectedTextFallsBack() {
+        let selected = RichInputSubmitter.selectedSubmissionText(" \n\t ")
+        #expect(selected == nil)
+    }
 }

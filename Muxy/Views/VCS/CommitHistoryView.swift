@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CommitHistoryView: View {
     @Bindable var state: VCSTabState
+    let onOpenDiff: (GitCommit) -> Void
     @State private var branchNameInput = ""
     @State private var tagNameInput = ""
     @State private var pendingBranchHash: String?
@@ -37,12 +38,14 @@ struct CommitHistoryView: View {
                 CommitRow(
                     commit: commit,
                     currentBranch: state.branchName,
+                    remoteWebURL: state.remoteWebURL,
                     onCheckout: { state.switchBranch($0) },
                     onCheckoutDetached: { state.checkoutDetached($0) },
                     onCherryPick: { state.cherryPick($0) },
                     onRevert: { state.revert($0, subject: $1) },
                     onCreateBranch: { pendingBranchHash = $0 },
-                    onCreateTag: { pendingTagHash = $0 }
+                    onCreateTag: { pendingTagHash = $0 },
+                    onOpenDiff: { onOpenDiff(commit) }
                 )
             }
 
@@ -119,12 +122,14 @@ private struct NamePrompt: Identifiable {
 private struct CommitRow: View {
     let commit: GitCommit
     let currentBranch: String?
+    let remoteWebURL: URL?
     let onCheckout: (String) -> Void
     let onCheckoutDetached: (String) -> Void
     let onCherryPick: (String) -> Void
     let onRevert: (String, String) -> Void
     let onCreateBranch: (String) -> Void
     let onCreateTag: (String) -> Void
+    let onOpenDiff: () -> Void
     @State private var hovered = false
 
     private var dotColor: Color {
@@ -181,6 +186,7 @@ private struct CommitRow: View {
         .background(hovered ? MuxyTheme.hover : .clear)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
+        .onTapGesture(count: 2, perform: onOpenDiff)
         .contextMenu { contextMenuItems }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(commitAccessibilityLabel)
@@ -255,6 +261,15 @@ private struct CommitRow: View {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(commit.subject, forType: .string)
         }
+
+        if let remoteWebURL {
+            Button("Open on GitHub") {
+                let url = remoteWebURL.appendingPathComponent("commit/\(commit.hash)")
+                NSWorkspace.shared.open(url)
+            }
+        }
+
+        Button("View Diff", action: onOpenDiff)
 
         Divider()
 

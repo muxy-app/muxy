@@ -28,6 +28,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case newProject
     case openProject
     case reloadConfig
+    case refreshWorktrees
     case selectTab1
     case selectTab2
     case selectTab3
@@ -53,9 +54,14 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case submitRichInput
     case submitRichInputWithoutReturn
     case openVCSTab
+    case openDiffViewerTab
     case quickOpen
     case findInFiles
-    case switchWorktree
+    case terminalOmnibox
+    case terminalOmniboxProjects
+    case terminalOmniboxWorktrees
+    case terminalOmniboxCommands
+    case terminalOmniboxHistory
     case saveFile
     case toggleSidebar
     case toggleFileTree
@@ -85,6 +91,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .toggleThemePicker,
         .openProject,
         .reloadConfig,
+        .refreshWorktrees,
         .selectTab1,
         .selectTab2,
         .selectTab3,
@@ -110,9 +117,14 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .submitRichInput,
         .submitRichInputWithoutReturn,
         .openVCSTab,
+        .openDiffViewerTab,
         .quickOpen,
         .findInFiles,
-        .switchWorktree,
+        .terminalOmnibox,
+        .terminalOmniboxProjects,
+        .terminalOmniboxWorktrees,
+        .terminalOmniboxCommands,
+        .terminalOmniboxHistory,
         .saveFile,
         .toggleSidebar,
         .toggleFileTree,
@@ -184,9 +196,30 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
                 scope: .richInput
             )
         case .openVCSTab: ShortcutMetadata(displayName: "Source Control", category: "App", scope: .mainWindow)
+        case .openDiffViewerTab: ShortcutMetadata(displayName: "Diff Viewer", category: "App", scope: .mainWindow)
         case .quickOpen: ShortcutMetadata(displayName: "Quick Open", category: "App", scope: .mainWindow)
         case .findInFiles: ShortcutMetadata(displayName: "Find in Files", category: "App", scope: .mainWindow)
-        case .switchWorktree: ShortcutMetadata(displayName: "Open Switcher", category: "Project Navigation", scope: .mainWindow)
+        case .terminalOmnibox: ShortcutMetadata(displayName: "Terminal Omnibox Open Tabs", category: "Terminal", scope: .mainWindow)
+        case .terminalOmniboxProjects: ShortcutMetadata(
+                displayName: "Terminal Omnibox Projects",
+                category: "Terminal",
+                scope: .mainWindow
+            )
+        case .terminalOmniboxWorktrees: ShortcutMetadata(
+                displayName: "Terminal Omnibox Worktrees",
+                category: "Terminal",
+                scope: .mainWindow
+            )
+        case .terminalOmniboxCommands: ShortcutMetadata(
+                displayName: "Terminal Omnibox Custom Commands",
+                category: "Terminal",
+                scope: .mainWindow
+            )
+        case .terminalOmniboxHistory: ShortcutMetadata(
+                displayName: "Terminal Omnibox History",
+                category: "Terminal",
+                scope: .mainWindow
+            )
         case .saveFile: ShortcutMetadata(displayName: "Save File", category: "Editor", scope: .mainWindow)
         case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
         case .toggleFileTree: ShortcutMetadata(displayName: "Toggle File Tree", category: "App", scope: .mainWindow)
@@ -202,6 +235,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .newProject: ShortcutMetadata(displayName: "New Project", category: "App", scope: .mainWindow)
         case .openProject: ShortcutMetadata(displayName: "Open Project", category: "App", scope: .mainWindow)
         case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
+        case .refreshWorktrees: ShortcutMetadata(displayName: "Refresh Worktrees", category: "App", scope: .mainWindow)
         case .toggleMaximizePane: ShortcutMetadata(displayName: "Toggle Maximize Pane", category: "Panes", scope: .mainWindow)
         }
     }
@@ -274,7 +308,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .reopenClosedTerminalTab, combo: KeyCombo(key: "t", command: true, shift: true)),
         Self(action: .closeTab, combo: KeyCombo(key: "w", command: true)),
         Self(action: .renameTab, combo: KeyCombo(key: "t", shift: true, option: true)),
-        Self(action: .pinUnpinTab, combo: KeyCombo(key: "p", command: true, shift: true)),
+        Self(action: .pinUnpinTab, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .splitRight, combo: KeyCombo(key: "d", command: true)),
         Self(action: .splitDown, combo: KeyCombo(key: "d", command: true, shift: true)),
         Self(action: .closePane, combo: KeyCombo(key: "w", command: true, shift: true)),
@@ -285,9 +319,11 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .cycleNextTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, control: true)),
         Self(action: .cyclePreviousTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
-        Self(action: .openVCSTab, combo: KeyCombo(key: "k", command: true)),
+        Self(action: .openVCSTab, combo: KeyCombo(key: "y", command: true)),
+        Self(action: .openDiffViewerTab, combo: KeyCombo(key: "y", command: true, shift: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),
+        Self(action: .refreshWorktrees, combo: KeyCombo(key: "r", command: true, option: true)),
         Self(action: .nextTab, combo: KeyCombo(key: "]", command: true)),
         Self(action: .previousTab, combo: KeyCombo(key: "[", command: true)),
         Self(action: .selectTab1, combo: KeyCombo(key: "1", command: true)),
@@ -316,7 +352,11 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .submitRichInputWithoutReturn, combo: KeyCombo(key: KeyCombo.returnKey, command: true, shift: true)),
         Self(action: .quickOpen, combo: KeyCombo(key: "p", command: true)),
         Self(action: .findInFiles, combo: KeyCombo(key: "f", command: true, shift: true)),
-        Self(action: .switchWorktree, combo: KeyCombo(key: "o", command: true, shift: true)),
+        Self(action: .terminalOmnibox, combo: KeyCombo(key: "o", command: true, option: true)),
+        Self(action: .terminalOmniboxProjects, combo: KeyCombo(key: "p", command: true, option: true)),
+        Self(action: .terminalOmniboxWorktrees, combo: KeyCombo(key: "w", command: true, option: true)),
+        Self(action: .terminalOmniboxCommands, combo: KeyCombo(key: "p", command: true, shift: true)),
+        Self(action: .terminalOmniboxHistory, combo: KeyCombo(key: "h", command: true, option: true)),
         Self(action: .saveFile, combo: KeyCombo(key: "s", command: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .toggleFileTree, combo: KeyCombo(key: "e", command: true)),

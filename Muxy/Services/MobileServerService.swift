@@ -16,13 +16,13 @@ final class MobileServerService {
     static let minPort: UInt16 = 1024
     static let maxPort: UInt16 = 65535
 
-    private static var enabledKey: String {
+    static var enabledKey: String {
         AppEnvironment.isDevelopment
             ? "app.muxy.mobile.serverEnabled.dev"
             : "app.muxy.mobile.serverEnabled"
     }
 
-    private static var portKey: String {
+    static var portKey: String {
         AppEnvironment.isDevelopment
             ? "app.muxy.mobile.serverPort.dev"
             : "app.muxy.mobile.serverPort"
