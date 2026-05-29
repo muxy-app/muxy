@@ -25,10 +25,10 @@ final class GitWorktreesWatcher: @unchecked Sendable {
                 else { return }
                 let flags = Array(UnsafeBufferPointer(start: eventFlags, count: numEvents))
 
-                let isStructural = zip(paths, flags).contains { path, flag in
-                    GitWorktreesWatcher.isWorktreeStructuralChange(path: path, flag: flag)
+                let isRelevant = zip(paths, flags).contains { path, flag in
+                    GitWorktreesWatcher.isRelevantChange(path: path, flag: flag)
                 }
-                guard isStructural else { return }
+                guard isRelevant else { return }
 
                 watcher.scheduleRefresh()
             },
@@ -52,6 +52,15 @@ final class GitWorktreesWatcher: @unchecked Sendable {
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
+    }
+
+    static func isRelevantChange(path: String, flag: FSEventStreamEventFlags) -> Bool {
+        isWorktreeStructuralChange(path: path, flag: flag) || isHeadReferenceChange(path: path)
+    }
+
+    static func isHeadReferenceChange(path: String) -> Bool {
+        guard path.hasSuffix("/HEAD") else { return false }
+        return !path.contains("/logs/")
     }
 
     static func isWorktreeStructuralChange(path: String, flag: FSEventStreamEventFlags) -> Bool {

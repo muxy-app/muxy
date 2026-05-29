@@ -59,6 +59,19 @@ struct GitWorktreesWatcherTests {
         ))
     }
 
+    @Test("treats HEAD changes as relevant for primary and linked worktrees")
+    func detectsHeadReferenceChanges() {
+        #expect(GitWorktreesWatcher.isHeadReferenceChange(path: "/repo/.git/HEAD"))
+        #expect(GitWorktreesWatcher.isHeadReferenceChange(path: "/repo/.git/worktrees/feature/HEAD"))
+    }
+
+    @Test("ignores reflog and lock writes so commits do not trigger refreshes")
+    func ignoresReflogAndLockWrites() {
+        #expect(!GitWorktreesWatcher.isHeadReferenceChange(path: "/repo/.git/logs/HEAD"))
+        #expect(!GitWorktreesWatcher.isHeadReferenceChange(path: "/repo/.git/worktrees/feature/logs/HEAD"))
+        #expect(!GitWorktreesWatcher.isHeadReferenceChange(path: "/repo/.git/HEAD.lock"))
+    }
+
     @Test("resolves the .git directory for a primary repo")
     func resolvesPrimaryGitDirectory() {
         let repo = makeTempRepo()
@@ -104,6 +117,26 @@ struct GitWorktreesWatcherTests {
         try await Task.sleep(nanoseconds: 400_000_000)
         let worktreeDir = repo.appendingPathComponent(".git/worktrees/feature", isDirectory: true)
         try FileManager.default.createDirectory(at: worktreeDir, withIntermediateDirectories: true)
+
+        let fired = await waitFor(timeout: 5.0) { counter.value > 0 }
+        #expect(fired)
+        _ = watcher
+    }
+
+    @Test("fires when HEAD changes (branch switch or rename)")
+    func firesOnHeadChange() async throws {
+        let repo = makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+
+        let head = repo.appendingPathComponent(".git/HEAD")
+        try "ref: refs/heads/old\n".data(using: .utf8)!.write(to: head)
+
+        let counter = FireCounter()
+        let watcher = GitWorktreesWatcher(repoPath: repo.path) { counter.increment() }
+        #expect(watcher != nil)
+
+        try await Task.sleep(nanoseconds: 400_000_000)
+        try "ref: refs/heads/new\n".data(using: .utf8)!.write(to: head)
 
         let fired = await waitFor(timeout: 5.0) { counter.value > 0 }
         #expect(fired)
