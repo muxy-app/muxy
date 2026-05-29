@@ -6,6 +6,7 @@ final class TerminalViewRegistry {
 
     private var views: [UUID: GhosttyTerminalNSView] = [:]
     private var paneIDs: [ObjectIdentifier: UUID] = [:]
+    private var evictionWorkItems: [UUID: DispatchWorkItem] = [:]
 
     private init() {}
 
@@ -39,10 +40,30 @@ final class TerminalViewRegistry {
     }
 
     func removeView(for paneID: UUID) {
+        evictionWorkItems[paneID]?.cancel()
+        evictionWorkItems.removeValue(forKey: paneID)
         guard let view = views.removeValue(forKey: paneID) else { return }
         paneIDs.removeValue(forKey: ObjectIdentifier(view))
         TerminalCommandTracker.shared.removePane(paneID)
         view.tearDown()
+    }
+
+    func evictAllExceptWorkspace(_ activeKey: WorktreeKey) {
+        guard GhosttyTerminalNSView.surfaceEvictionEnabled() else { return }
+        for (paneID, view) in views {
+            if view.worktreeKey == activeKey {
+                evictionWorkItems[paneID]?.cancel()
+                evictionWorkItems.removeValue(forKey: paneID)
+            } else if view.surface != nil {
+                evictionWorkItems[paneID]?.cancel()
+                let workItem = DispatchWorkItem { [weak view] in
+                    guard let view, view.surface != nil else { return }
+                    view.destroySurface()
+                }
+                evictionWorkItems[paneID] = workItem
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: workItem)
+            }
+        }
     }
 
     func needsConfirmQuit(for paneID: UUID) -> Bool {

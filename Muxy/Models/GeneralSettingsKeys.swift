@@ -3,4 +3,5 @@ enum GeneralSettingsKeys {
     static let defaultWorktreeParentPath = "muxy.general.defaultWorktreeParentPath"
     static let fileTreeSource = "muxy.general.fileTreeSource"
     static let autoCopyTerminalSelection = "muxy.general.autoCopyTerminalSelection"
+    static let lowMemoryMode = "muxy.general.lowMemoryMode"
 }

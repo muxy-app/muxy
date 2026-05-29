@@ -12,7 +12,18 @@ struct TerminalSettingsView: View {
     private var confirmRunningProcess = true
     @AppStorage(SessionRestorePreferences.enabledKey)
     private var restoreSessionsEnabled = SessionRestorePreferences.defaultIsEnabled
+    @AppStorage(GeneralSettingsKeys.lowMemoryMode)
+    private var lowMemoryMode = false
     @State private var excludedCommands = SessionRestorePreferences.excludedCommandsText
+    private var tmuxInstalled: Bool = {
+        let candidates = [
+            "/opt/homebrew/bin/tmux",
+            "/usr/local/bin/tmux",
+            "/opt/local/bin/tmux",
+            "/usr/bin/tmux",
+        ]
+        return candidates.contains { FileManager.default.isExecutableFile(atPath: $0) }
+    }()
 
     var body: some View {
         SettingsContainer {
@@ -48,6 +59,34 @@ struct TerminalSettingsView: View {
                     label: "Confirm before closing a tab with a running process",
                     isOn: $confirmRunningProcess
                 )
+            }
+
+            let footer = """
+            Reduces RAM by evicting hidden terminal surfaces. \
+            Requires tmux (brew install tmux).
+
+            • Shell state persists across workspace switches
+            • Smooth scrolling replaced with tmux-style scroll
+            • Text selection handled by tmux instead of native Ghostty
+            • Existing terminals require reopening to apply
+            """
+            SettingsSection("Performance", footer: footer) {
+                SettingsToggleRow(
+                    label: "Low Memory Mode",
+                    isOn: $lowMemoryMode
+                )
+                .disabled(!tmuxInstalled)
+                if !tmuxInstalled {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.yellow)
+                        Text("tmux not found — install with `brew install tmux`")
+                            .font(.system(size: SettingsMetrics.labelFontSize))
+                            .foregroundStyle(MuxyTheme.fgMuted)
+                    }
+                    .padding(.horizontal, SettingsMetrics.horizontalPadding)
+                    .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+                }
             }
 
             SettingsSection(

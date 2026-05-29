@@ -383,6 +383,11 @@ struct MainWindow: View {
                         }
                     }
                 }
+                .onChange(of: activeWorktreeKey) {
+                    if let key = activeWorktreeKey {
+                        TerminalViewRegistry.shared.evictAllExceptWorkspace(key)
+                    }
+                }
 
                 rightSidePanel
             }

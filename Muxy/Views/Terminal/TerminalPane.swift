@@ -149,6 +149,7 @@ struct TerminalBridge: NSViewRepresentable {
         if view.envVars.isEmpty, let key = worktreeKey {
             view.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
         }
+        view.worktreeKey = worktreeKey
         view.isFocused = focused
         view.overlayActive = overlayActive
         view.setVisible(visible)
