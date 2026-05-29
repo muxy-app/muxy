@@ -437,28 +437,36 @@ enum SettingsCatalog {
             defaultValue: RecordingPreferences.defaultLanguage
         ),
         SettingsCatalogItem(
-            key: "muxy.notifications.toastEnabled",
+            key: NotificationSettings.Key.toastEnabled,
             title: "Toast Notifications",
             description: "Shows toast notifications.",
             category: .notifications,
             section: "Delivery",
-            defaultValue: true
+            defaultValue: NotificationSettings.Default.toastEnabled
         ),
         SettingsCatalogItem(
-            key: "muxy.notifications.sound",
+            key: NotificationSettings.Key.desktopEnabled,
+            title: "Desktop Notifications",
+            description: "Shows a macOS notification when Muxy is not frontmost.",
+            category: .notifications,
+            section: "Delivery",
+            defaultValue: NotificationSettings.Default.desktopEnabled
+        ),
+        SettingsCatalogItem(
+            key: NotificationSettings.Key.sound,
             title: "Notification Sound",
             description: "Chooses the notification sound.",
             category: .notifications,
             section: "Sound",
-            defaultValue: NotificationSound.funk.rawValue
+            defaultValue: NotificationSettings.Default.sound.rawValue
         ),
         SettingsCatalogItem(
-            key: "muxy.notifications.toastPosition",
+            key: NotificationSettings.Key.toastPosition,
             title: "Toast Position",
             description: "Controls where toast notifications appear.",
             category: .notifications,
             section: "Toast",
-            defaultValue: ToastPosition.topCenter.rawValue
+            defaultValue: NotificationSettings.Default.toastPosition.rawValue
         ),
         SettingsCatalogItem(
             key: "ai.providers",

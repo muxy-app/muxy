@@ -205,8 +205,8 @@ enum SettingsJSONStore {
             "editor.defaultEditor": Set(EditorSettings.DefaultEditor.allCases.map(\.rawValue)),
             "editor.htmlDefaultViewMode": Set(EditorMarkdownViewMode.allCases.map(\.rawValue)),
             "editor.richInputImageStrategy": Set(RichInputImageStrategy.allCases.map(\.rawValue)),
-            "muxy.notifications.sound": Set(NotificationSound.allCases.map(\.rawValue)),
-            "muxy.notifications.toastPosition": Set(ToastPosition.allCases.map(\.rawValue)),
+            NotificationSettings.Key.sound: Set(NotificationSound.allCases.map(\.rawValue)),
+            NotificationSettings.Key.toastPosition: Set(ToastPosition.allCases.map(\.rawValue)),
             AIAssistantSettings.providerKey: Set(AIAssistantProvider.allCases.map(\.rawValue)),
             AIUsageSettingsStore.usageDisplayModeKey: Set(AIUsageDisplayMode.allCases.map(\.rawValue)),
         ]

@@ -25,6 +25,16 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func desktopNotificationsAreRegisteredAndSearchable() {
+        #expect(SettingsCatalog.items.contains {
+            $0.key == NotificationSettings.Key.desktopEnabled && $0.category == .notifications
+        })
+        #expect(SettingsCatalog.matchingItems(query: "desktop").contains {
+            $0.key == NotificationSettings.Key.desktopEnabled
+        })
+    }
+
+    @Test
     func jsonEditableItemsHaveDefaults() {
         #expect(!SettingsCatalog.jsonEditableItems.isEmpty)
         #expect(SettingsCatalog.jsonEditableItems.allSatisfy { $0.defaultValue != nil })
