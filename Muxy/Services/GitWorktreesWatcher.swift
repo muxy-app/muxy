@@ -1,0 +1,95 @@
+import CoreServices
+import Foundation
+
+final class GitWorktreesWatcher: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "app.muxy.worktrees-watcher", qos: .utility)
+    private var stream: FSEventStreamRef?
+    private var debounceWork: DispatchWorkItem?
+    private var handler: (@Sendable () -> Void)?
+
+    init?(repoPath: String, handler: @escaping @Sendable () -> Void) {
+        guard let gitDirectory = Self.resolveGitDirectory(forRepoPath: repoPath) else { return nil }
+
+        self.handler = handler
+
+        var context = FSEventStreamContext()
+        context.info = Unmanaged.passUnretained(self).toOpaque()
+
+        let paths = [gitDirectory] as CFArray
+        guard let stream = FSEventStreamCreate(
+            nil,
+            { _, clientInfo, numEvents, eventPaths, eventFlags, _ in
+                guard let clientInfo, numEvents > 0 else { return }
+                let watcher = Unmanaged<GitWorktreesWatcher>.fromOpaque(clientInfo).takeUnretainedValue()
+                guard let paths = Unmanaged<CFArray>.fromOpaque(eventPaths).takeUnretainedValue() as? [String]
+                else { return }
+                let flags = Array(UnsafeBufferPointer(start: eventFlags, count: numEvents))
+
+                let isStructural = zip(paths, flags).contains { path, flag in
+                    GitWorktreesWatcher.isWorktreeStructuralChange(path: path, flag: flag)
+                }
+                guard isStructural else { return }
+
+                watcher.scheduleRefresh()
+            },
+            &context,
+            paths,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.3,
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
+        )
+        else { return nil }
+
+        self.stream = stream
+        FSEventStreamSetDispatchQueue(stream, queue)
+        FSEventStreamStart(stream)
+    }
+
+    deinit {
+        handler = nil
+        debounceWork?.cancel()
+        guard let stream else { return }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
+    }
+
+    static func isWorktreeStructuralChange(path: String, flag: FSEventStreamEventFlags) -> Bool {
+        guard path.contains("/worktrees/") else { return false }
+        guard flag & FSEventStreamEventFlags(kFSEventStreamEventFlagItemIsDir) != 0 else { return false }
+        let structuralMask = FSEventStreamEventFlags(
+            kFSEventStreamEventFlagItemCreated
+                | kFSEventStreamEventFlagItemRemoved
+                | kFSEventStreamEventFlagItemRenamed
+        )
+        return flag & structuralMask != 0
+    }
+
+    static func resolveGitDirectory(forRepoPath repoPath: String) -> String? {
+        let manager = FileManager.default
+        let dotGit = (repoPath as NSString).appendingPathComponent(".git")
+        var isDirectory: ObjCBool = false
+        guard manager.fileExists(atPath: dotGit, isDirectory: &isDirectory) else { return nil }
+        if isDirectory.boolValue { return dotGit }
+
+        guard let contents = try? String(contentsOfFile: dotGit, encoding: .utf8) else { return nil }
+        guard let line = contents
+            .split(whereSeparator: \.isNewline)
+            .map({ $0.trimmingCharacters(in: .whitespaces) })
+            .first(where: { $0.hasPrefix("gitdir:") })
+        else { return nil }
+
+        let target = line.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespaces)
+        guard let range = target.range(of: "/worktrees/") else { return nil }
+        return String(target[..<range.lowerBound])
+    }
+
+    private func scheduleRefresh() {
+        debounceWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.handler?()
+        }
+        debounceWork = work
+        queue.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+}
