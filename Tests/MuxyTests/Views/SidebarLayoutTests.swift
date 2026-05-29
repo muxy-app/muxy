@@ -49,6 +49,39 @@ struct SidebarLayoutTests {
         #expect(!SidebarLayout.isHidden(expanded: true, collapsedStyle: .hidden))
         #expect(SidebarLayout.isWide(expanded: true, expandedStyle: .wide))
     }
+
+    @Test("expanded wide sidebar uses the persisted custom width")
+    func expandedWideSidebarUsesPersistedWidth() {
+        #expect(SidebarLayout.resolvedWidth(
+            expanded: true,
+            collapsedStyle: .hidden,
+            expandedStyle: .wide,
+            wideWidth: 312
+        ) == 312)
+    }
+
+    @Test("wide sidebar width is clamped to the supported range")
+    func wideSidebarWidthIsClamped() {
+        #expect(SidebarLayout.clampedWideWidth(120) == SidebarLayout.minWideWidth)
+        #expect(SidebarLayout.clampedWideWidth(312) == 312)
+        #expect(SidebarLayout.clampedWideWidth(720) == SidebarLayout.maxWideWidth)
+    }
+
+    @Test("non-wide sidebar modes ignore the persisted wide width")
+    func nonWideSidebarModesIgnorePersistedWidth() {
+        #expect(SidebarLayout.resolvedWidth(
+            expanded: true,
+            collapsedStyle: .hidden,
+            expandedStyle: .icons,
+            wideWidth: 312
+        ) == SidebarLayout.collapsedWidth)
+        #expect(SidebarLayout.resolvedWidth(
+            expanded: false,
+            collapsedStyle: .hidden,
+            expandedStyle: .wide,
+            wideWidth: 312
+        ) == 0)
+    }
 }
 
 @Suite("MainWindowLayout")

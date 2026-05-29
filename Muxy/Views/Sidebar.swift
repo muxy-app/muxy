@@ -5,17 +5,24 @@ import SwiftUI
 enum SidebarLayout {
     static var collapsedWidth: CGFloat { UIMetrics.sidebarCollapsedWidth }
     static var expandedWidth: CGFloat { UIMetrics.sidebarExpandedWidth }
-    static var width: CGFloat { UIMetrics.sidebarCollapsedWidth }
+    static var defaultWideWidth: CGFloat { expandedWidth }
+    static var minWideWidth: CGFloat { UIMetrics.scaled(180) }
+    static var maxWideWidth: CGFloat { UIMetrics.scaled(600) }
 
     static func resolvedWidth(
         expanded: Bool,
         collapsedStyle: SidebarCollapsedStyle,
-        expandedStyle: SidebarExpandedStyle
+        expandedStyle: SidebarExpandedStyle,
+        wideWidth: CGFloat? = nil
     ) -> CGFloat {
         if expanded {
-            return expandedStyle == .wide ? expandedWidth : collapsedWidth
+            return expandedStyle == .wide ? clampedWideWidth(wideWidth ?? defaultWideWidth) : collapsedWidth
         }
         return collapsedStyle == .hidden ? 0 : collapsedWidth
+    }
+
+    static func clampedWideWidth(_ width: CGFloat) -> CGFloat {
+        max(minWideWidth, min(maxWideWidth, width))
     }
 
     static func isWide(expanded: Bool, expandedStyle: SidebarExpandedStyle) -> Bool {
@@ -35,6 +42,7 @@ struct Sidebar: View {
     @State private var dragState = ProjectDragState()
     @State private var projectPendingRemoval: Project?
     let expanded: Bool
+    let width: CGFloat
     @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
 
@@ -64,7 +72,7 @@ struct Sidebar: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxHeight: .infinity, alignment: .bottom)
-        .frame(width: isHidden ? 0 : (isWide ? SidebarLayout.expandedWidth : SidebarLayout.collapsedWidth))
+        .frame(width: width)
         .opacity(isHidden ? 0 : 1)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Sidebar")

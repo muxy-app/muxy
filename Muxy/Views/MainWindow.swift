@@ -112,6 +112,7 @@ struct MainWindow: View {
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
+    @AppStorage("muxy.sidebarWideWidth") private var sidebarWideWidth = 220.0
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage("muxy.showExtensionOutput") private var showExtensionOutput = false
     @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
@@ -278,31 +279,43 @@ struct MainWindow: View {
     }
 
     private var leftNavigationColumn: some View {
-        VStack(spacing: 0) {
-            if !isFullScreen {
-                Color.clear
-                    .frame(height: UIMetrics.titleBarHeight)
-                    .background(WindowDragRepresentable())
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                if !isFullScreen {
+                    Color.clear
+                        .frame(height: UIMetrics.titleBarHeight)
+                        .background(WindowDragRepresentable())
 
-                Rectangle().fill(MuxyTheme.border).frame(height: 1)
-                    .accessibilityHidden(true)
+                    Rectangle().fill(MuxyTheme.border).frame(height: 1)
+                        .accessibilityHidden(true)
+                }
+
+                Sidebar(
+                    expanded: sidebarExpanded,
+                    width: leftNavigationWidth
+                )
+            }
+            .frame(width: leftNavigationWidth, alignment: .leading)
+            .clipped()
+            .background(MuxyTheme.bg)
+            .overlay(alignment: .trailing) {
+                if leftNavigationShowsBorder {
+                    Rectangle().fill(MuxyTheme.border)
+                        .frame(width: 1)
+                        .padding(.top, leftNavigationBorderTopPadding)
+                        .accessibilityHidden(true)
+                }
             }
 
-            Sidebar(expanded: sidebarExpanded)
-        }
-        .frame(width: leftNavigationWidth, alignment: .leading)
-        .clipped()
-        .background(MuxyTheme.bg)
-        .overlay(alignment: .trailing) {
-            if leftNavigationWidth > 0 {
-                Rectangle().fill(MuxyTheme.border)
-                    .frame(width: 1)
-                    .padding(.top, leftNavigationBorderTopPadding)
-                    .accessibilityHidden(true)
+            if leftNavigationShowsResizeHandle {
+                sidePanelResizeHandle { delta in
+                    let next = CGFloat(sidebarWideWidth) + delta
+                    sidebarWideWidth = Double(SidebarLayout.clampedWideWidth(next))
+                }
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .animation(.easeInOut(duration: 0.2), value: leftNavigationWidth)
+        .animation(.easeInOut(duration: 0.2), value: sidebarLayoutAnimationToken)
     }
 
     private var mainWorkspaceColumn: some View {
@@ -330,7 +343,7 @@ struct MainWindow: View {
 
             topBarContent
         }
-        .animation(.easeInOut(duration: 0.2), value: mainTitleBarLeadingInset)
+        .animation(.easeInOut(duration: 0.2), value: sidebarLayoutAnimationToken)
     }
 
     @ViewBuilder
@@ -350,7 +363,7 @@ struct MainWindow: View {
                         }
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: titleBarNavigationOverlayWidth)
+                .animation(.easeInOut(duration: 0.2), value: sidebarLayoutAnimationToken)
         }
     }
 
@@ -854,8 +867,21 @@ struct MainWindow: View {
         SidebarLayout.resolvedWidth(
             expanded: sidebarExpanded,
             collapsedStyle: sidebarCollapsedStyle,
-            expandedStyle: sidebarExpandedStyle
+            expandedStyle: sidebarExpandedStyle,
+            wideWidth: CGFloat(sidebarWideWidth)
         )
+    }
+
+    private var leftNavigationShowsResizeHandle: Bool {
+        SidebarLayout.isWide(expanded: sidebarExpanded, expandedStyle: sidebarExpandedStyle)
+    }
+
+    private var leftNavigationShowsBorder: Bool {
+        leftNavigationWidth > 0 && !leftNavigationShowsResizeHandle
+    }
+
+    private var sidebarLayoutAnimationToken: String {
+        "\(sidebarExpanded)-\(sidebarCollapsedStyle.rawValue)-\(sidebarExpandedStyle.rawValue)"
     }
 
     private var leftNavigationWidth: CGFloat {
