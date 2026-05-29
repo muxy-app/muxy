@@ -47,8 +47,8 @@ struct DiffCacheTests {
         #expect(cache.error(for: "a.swift") == "oops")
     }
 
-    @Test("registerTask keeps existing load alive")
-    func registerTaskKeepsExistingLoadAlive() {
+    @Test("registerTask cancels existing load for path")
+    func registerTaskCancelsExistingLoadForPath() {
         let cache = DiffCache()
         let first = Task<Void, Never> {}
         let second = Task<Void, Never> {}
@@ -56,8 +56,7 @@ struct DiffCacheTests {
         cache.registerTask(first, for: "a.swift")
         cache.registerTask(second, for: "a.swift")
 
-        #expect(!first.isCancelled)
-        first.cancel()
+        #expect(first.isCancelled)
         second.cancel()
     }
 
@@ -136,6 +135,19 @@ struct DiffCacheTests {
         let cache = DiffCache()
         cache.markLoading("a.swift")
         cache.cancelLoad(for: "a.swift")
+        #expect(!cache.isLoading("a.swift"))
+    }
+
+    @Test("cancelAndClearLoading cancels registered tasks")
+    func cancelAndClearLoadingCancelsRegisteredTasks() {
+        let cache = DiffCache()
+        let task = Task<Void, Never> {}
+
+        cache.markLoading("a.swift")
+        cache.registerTask(task, for: "a.swift")
+        cache.cancelAndClearLoading()
+
+        #expect(task.isCancelled)
         #expect(!cache.isLoading("a.swift"))
     }
 }

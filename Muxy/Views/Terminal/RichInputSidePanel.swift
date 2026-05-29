@@ -6,7 +6,7 @@ struct RichInputSidePanel: View {
     @Bindable var state: RichInputState
     let worktreeKey: WorktreeKey
     let onDismiss: () -> Void
-    let onSubmit: (_ appendReturn: Bool) -> Void
+    let onSubmit: (_ appendReturn: Bool, _ selectedText: String?) -> Void
 
     @State private var editorSettings = EditorSettings.shared
     @AppStorage(RichInputPreferences.fontSizeKey) private var fontSize: Double = RichInputPreferences.defaultFontSize
@@ -75,8 +75,8 @@ struct RichInputSidePanel: View {
 
     private var editorCallbacks: MarkdownTextEditor.Callbacks {
         MarkdownTextEditor.Callbacks(
-            onSubmit: { onSubmit(true) },
-            onSubmitWithoutReturn: { onSubmit(false) },
+            onSubmit: { selectedText in onSubmit(true, selectedText) },
+            onSubmitWithoutReturn: { selectedText in onSubmit(false, selectedText) },
             onIncreaseFontSize: increaseFontSize,
             onDecreaseFontSize: decreaseFontSize,
             onPasteImageData: { data in

@@ -234,7 +234,8 @@ final class DiffGutterView: LineNumberGutterView {
             EditorThemePalette.active.foreground.withAlphaComponent(0.75)
         case .collapsed:
             EditorThemePalette.active.foreground.withAlphaComponent(0.55)
-        case .context:
+        case .context,
+             .commentSpacer:
             EditorThemePalette.active.foreground.withAlphaComponent(0.45)
         }
     }
@@ -249,7 +250,8 @@ final class DiffGutterView: LineNumberGutterView {
             MuxyTheme.nsBg.blended(withFraction: 0.08, of: MuxyTheme.nsFg) ?? MuxyTheme.nsBg
         case .collapsed:
             EditorThemePalette.active.foreground.withAlphaComponent(0.08)
-        case .context:
+        case .context,
+             .commentSpacer:
             EditorThemePalette.active.background
         }
     }
@@ -262,7 +264,8 @@ final class DiffGutterView: LineNumberGutterView {
             MuxyTheme.nsDiffRemove
         case .context,
              .hunk,
-             .collapsed:
+             .collapsed,
+             .commentSpacer:
             nil
         }
     }
@@ -363,11 +366,6 @@ final class DiffLineStyleExtension: EditorExtension {
     ) {
         switch kind {
         case .addition:
-            layoutManager.addTemporaryAttribute(
-                .backgroundColor,
-                value: MuxyTheme.nsDiffAdd.withAlphaComponent(0.14),
-                forCharacterRange: range
-            )
             applyFallbackForeground(
                 MuxyTheme.nsDiffAdd,
                 range: range,
@@ -375,11 +373,6 @@ final class DiffLineStyleExtension: EditorExtension {
                 layoutManager: layoutManager
             )
         case .deletion:
-            layoutManager.addTemporaryAttribute(
-                .backgroundColor,
-                value: MuxyTheme.nsDiffRemove.withAlphaComponent(0.14),
-                forCharacterRange: range
-            )
             applyFallbackForeground(
                 MuxyTheme.nsDiffRemove,
                 range: range,
@@ -388,23 +381,14 @@ final class DiffLineStyleExtension: EditorExtension {
             )
         case .hunk:
             layoutManager.addTemporaryAttribute(.foregroundColor, value: MuxyTheme.nsDiffHunk, forCharacterRange: range)
-            layoutManager.addTemporaryAttribute(
-                .backgroundColor,
-                value: MuxyTheme.nsDiffHunk.withAlphaComponent(0.12),
-                forCharacterRange: range
-            )
         case .collapsed:
             layoutManager.addTemporaryAttribute(
                 .foregroundColor,
                 value: EditorThemePalette.active.foreground.withAlphaComponent(0.55),
                 forCharacterRange: range
             )
-            layoutManager.addTemporaryAttribute(
-                .backgroundColor,
-                value: EditorThemePalette.active.foreground.withAlphaComponent(0.08),
-                forCharacterRange: range
-            )
-        case .context:
+        case .context,
+             .commentSpacer:
             break
         }
     }

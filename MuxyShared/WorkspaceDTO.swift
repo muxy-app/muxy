@@ -132,4 +132,5 @@ public enum TabKindDTO: String, Codable, Sendable {
     case editor
     case diffViewer
     case imageViewer
+    case extensionWebView
 }

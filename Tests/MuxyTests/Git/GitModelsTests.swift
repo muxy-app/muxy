@@ -75,6 +75,12 @@ struct GitModelsTests {
         #expect(makeStatusFile(xStatus: "?", yStatus: "?").unstagedStatusText == "U")
     }
 
+    @Test("displayStatusText falls back to name status code")
+    func displayStatusTextFallsBackToNameStatusCode() {
+        #expect(makeStatusFile(xStatus: "M", yStatus: " ").displayStatusText(isStaged: false) == "M")
+        #expect(makeStatusFile(xStatus: "D", yStatus: " ").displayStatusText(isStaged: false) == "D")
+    }
+
     @Test("GitCommit.isMerge with single parent is false")
     func commitNotMerge() {
         let commit = GitCommit(

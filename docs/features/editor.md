@@ -20,7 +20,7 @@ Muxy includes a lightweight built-in code editor that opens files as tabs. Desig
 
 ## Syntax highlighting
 
-The editor highlights 30+ languages including Swift, C / C++ / Objective-C, JavaScript / TypeScript, Python, Ruby, Go, Rust, HTML / CSS, JSON / YAML / TOML, Markdown, and shell scripts. The active syntax theme follows the app theme — change it in **Settings → Appearance**.
+The editor highlights 40+ languages including Swift, C / C++ / Objective-C, JavaScript / TypeScript, Python, Ruby, Go, Rust, HTML / CSS, JSON / YAML / TOML, Markdown, shell scripts, and Gherkin. The active syntax theme follows the app theme — change it in **Settings → Appearance**.
 
 ## Find / Replace
 

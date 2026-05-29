@@ -361,6 +361,127 @@ struct FileTreeStateTests {
         #expect(!visibleNames.contains("node_modules"))
     }
 
+    @Test("setRootPath resets loaded state and reloads new root")
+    func setRootPathResetsLoadedState() async throws {
+        let first = try TreeFixture()
+        let second = try TreeFixture()
+        defer {
+            first.cleanup()
+            second.cleanup()
+        }
+
+        let state = FileTreeState(rootPath: first.rootPath)
+        state.loadRootIfNeeded()
+        try await waitForRootLoaded(state)
+        state.selectOnly(first.path("file-1.txt"))
+
+        state.setRootPath(second.rootPath)
+        try await waitForRootLoaded(state)
+
+        #expect(state.rootPath == second.rootPath)
+        #expect(state.selectedFilePath == nil)
+        #expect(state.selectedPaths.isEmpty)
+        #expect(state.selectionAnchorPath == nil)
+        #expect(state.visibleRootEntries().map(\.absolutePath).contains(second.path("file-1.txt")))
+    }
+
+    @Test("toggle selection, range extension, and clearing update selection state")
+    func selectionHelpersUpdateSelectionState() async throws {
+        let fixture = try TreeFixture()
+        defer { fixture.cleanup() }
+
+        let state = FileTreeState(rootPath: fixture.rootPath)
+        state.loadRootIfNeeded()
+        try await waitForRootLoaded(state)
+
+        let first = fixture.path("dir-a")
+        let second = fixture.path("dir-b")
+        let missing = fixture.path("missing.txt")
+
+        state.toggleSelection(first)
+        #expect(state.selectedFilePath == first)
+        #expect(state.isPathSelected(first))
+        #expect(state.selectionAnchorPath == first)
+
+        state.toggleSelection(first)
+        #expect(!state.isPathSelected(first))
+        #expect(state.selectedFilePath == nil)
+
+        state.extendSelection(to: missing)
+        #expect(state.selectedFilePath == missing)
+        #expect(state.isPathSelected(missing))
+
+        state.selectionAnchorPath = first
+        state.extendSelection(to: second)
+        #expect(state.selectedFilePath == second)
+        #expect(state.selectedPaths == [first, second])
+
+        state.clearSelection()
+        #expect(state.selectedFilePath == nil)
+        #expect(state.selectedPaths.isEmpty)
+        #expect(state.selectionAnchorPath == nil)
+    }
+
+    @Test("flat rows include pending root and child entries with stable ids")
+    func flatRowsIncludePendingEntries() async throws {
+        let fixture = try TreeFixture()
+        defer { fixture.cleanup() }
+
+        let state = FileTreeState(rootPath: fixture.rootPath)
+        state.loadRootIfNeeded()
+        try await waitForRootLoaded(state)
+
+        let rootToken = UUID()
+        state.pendingNewEntry = FileTreeState.PendingNewEntry(
+            parentPath: fixture.rootPath,
+            kind: .file,
+            token: rootToken
+        )
+        let rootRows = state.flatVisibleRows()
+        #expect(rootRows.contains { $0.id == "p:\(rootToken.uuidString)" })
+
+        let dirAPath = fixture.path("dir-a")
+        state.expand(path: dirAPath)
+        try await waitForChildrenLoaded(state, of: dirAPath)
+        let childToken = UUID()
+        state.pendingNewEntry = FileTreeState.PendingNewEntry(
+            parentPath: dirAPath,
+            kind: .folder,
+            token: childToken
+        )
+
+        let rows = state.flatVisibleRows()
+        #expect(rows.contains { $0.id == "e:\(dirAPath)" })
+        #expect(rows.contains { $0.id == "p:\(childToken.uuidString)" })
+    }
+
+    @Test("scroll target, status accessors, parent paths, and directory refreshes are stable")
+    func accessorsAndRefreshesAreStable() async throws {
+        let fixture = try TreeFixture()
+        defer { fixture.cleanup() }
+
+        let state = FileTreeState(rootPath: fixture.rootPath)
+        state.loadRootIfNeeded()
+        try await waitForRootLoaded(state)
+
+        let dirAPath = fixture.path("dir-a")
+        let childPath = fixture.path("dir-a/inner.txt")
+        #expect(state.parentDirectory(of: childPath + "/") == dirAPath)
+        #expect(state.status(for: childPath) == nil)
+        #expect(!state.directoryHasChanges(dirAPath))
+
+        state.moveSelection(by: 1)
+        #expect(state.pendingScrollTarget == dirAPath)
+        state.consumeScrollTarget()
+        #expect(state.pendingScrollTarget == nil)
+
+        state.refreshDirectory(path: fixture.rootPath + "/")
+        try await waitForRootLoaded(state)
+        state.refreshDirectory(path: dirAPath + "/")
+        try await waitForChildrenLoaded(state, of: dirAPath)
+        state.refresh()
+    }
+
     private func makeIsolatedDefaults() throws -> (defaults: UserDefaults, suiteName: String) {
         let suiteName = "FileTreeStateTests-\(UUID().uuidString)"
         return (try #require(UserDefaults(suiteName: suiteName)), suiteName)

@@ -91,6 +91,7 @@ final class DiffCache {
     }
 
     func registerTask(_ task: Task<Void, Never>, for filePath: String) {
+        tasks[filePath]?.cancel()
         tasks[filePath] = task
     }
 
@@ -115,12 +116,28 @@ final class DiffCache {
         tasks.values.forEach { $0.cancel() }
     }
 
+    func cancelAndClearLoading() {
+        tasks.values.forEach { $0.cancel() }
+        tasks.removeAll()
+        loadingPaths.removeAll()
+    }
+
     private func enforceCap(pinnedPaths: Set<String>) {
-        while accessOrder.count > cap {
-            let oldest = accessOrder.removeFirst()
-            if pinnedPaths.contains(oldest) { continue }
-            diffsByPath.removeValue(forKey: oldest)
-            errorsByPath.removeValue(forKey: oldest)
+        var unpinnedCount = accessOrder.reduce(into: 0) { count, key in
+            if !pinnedPaths.contains(key) { count += 1 }
+        }
+        guard unpinnedCount > cap else { return }
+        var index = 0
+        while unpinnedCount > cap, index < accessOrder.count {
+            let candidate = accessOrder[index]
+            if pinnedPaths.contains(candidate) {
+                index += 1
+                continue
+            }
+            accessOrder.remove(at: index)
+            diffsByPath.removeValue(forKey: candidate)
+            errorsByPath.removeValue(forKey: candidate)
+            unpinnedCount -= 1
         }
     }
 }

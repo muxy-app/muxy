@@ -10,9 +10,20 @@
 #   muxy close-pane --pane <id>              Close a pane
 #   muxy rename-pane --pane <id> <title>     Rename a pane tab
 #   muxy list-panes                          List all panes (tab-separated)
+#   muxy list-projects                       List projects
+#   muxy switch-project <name|id|path>        Switch active project
+#   muxy list-worktrees [project]             List worktrees
+#   muxy create-worktree <name> [options]     Create and switch to a worktree
+#   muxy switch-worktree <name|id|path>       Switch active worktree
+#   muxy refresh-worktrees [project]          Refresh worktrees from Git
+#   muxy list-tabs                            List tabs
+#   muxy switch-tab <index|id|title>          Switch active tab
+#   muxy new-tab                              Create a terminal tab
+#   muxy next-tab|previous-tab                Switch tabs
 
 COMMAND="$1"
-SOCKET="$HOME/Library/Application Support/Muxy/muxy.sock"
+SOCKET="${MUXY_SOCKET_PATH:-$HOME/Library/Application Support/Muxy/muxy.sock}"
+NC_TIMEOUT=6
 
 send_message() {
     local message="$1"
@@ -20,7 +31,10 @@ send_message() {
         echo "Error: Muxy is not running" >&2
         exit 1
     fi
-    printf '%s' "$message" | nc -U "$SOCKET"
+    if ! printf '%s\n' "$message" | nc -w "$NC_TIMEOUT" -U "$SOCKET"; then
+        echo "Error: no response from Muxy" >&2
+        exit 1
+    fi
 }
 
 send_command() {
@@ -30,7 +44,7 @@ send_command() {
         exit 1
     fi
     local response
-    response=$(printf '%s' "$message" | nc -U "$SOCKET" 2>/dev/null)
+    response=$(printf '%s\n' "$message" | nc -w "$NC_TIMEOUT" -U "$SOCKET" 2>/dev/null)
     if [ -z "$response" ]; then
         echo "Error: no response from Muxy" >&2
         exit 1
@@ -178,6 +192,148 @@ case "$COMMAND" in
     list-panes)
         send_command "list-panes"
         ;;
+    list-projects)
+        send_command "list-projects"
+        ;;
+    switch-project)
+        shift
+        if [ $# -lt 1 ]; then
+            echo "Usage: muxy switch-project <name|id|path>" >&2
+            exit 1
+        fi
+        send_command "switch-project|$*"
+        ;;
+    list-worktrees)
+        shift
+        if [ $# -gt 0 ]; then
+            send_command "list-worktrees|$*"
+        else
+            send_command "list-worktrees"
+        fi
+        ;;
+    create-worktree)
+        shift
+        NAME=""
+        BRANCH=""
+        PROJECT=""
+        PATH_ARG=""
+        CREATE_BRANCH="true"
+        BASE_BRANCH=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --branch)
+                    if [ $# -lt 2 ]; then
+                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+                        exit 1
+                    fi
+                    BRANCH="$2"
+                    shift 2
+                    ;;
+                --base)
+                    if [ $# -lt 2 ]; then
+                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+                        exit 1
+                    fi
+                    BASE_BRANCH="$2"
+                    shift 2
+                    ;;
+                --project)
+                    if [ $# -lt 2 ]; then
+                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+                        exit 1
+                    fi
+                    PROJECT="$2"
+                    shift 2
+                    ;;
+                --path)
+                    if [ $# -lt 2 ]; then
+                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+                        exit 1
+                    fi
+                    PATH_ARG="$2"
+                    shift 2
+                    ;;
+                --existing)
+                    CREATE_BRANCH="false"
+                    shift
+                    ;;
+                *)
+                    if [ -z "$NAME" ]; then
+                        NAME="$1"
+                    else
+                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+                        exit 1
+                    fi
+                    shift
+                    ;;
+            esac
+        done
+        if [ -z "$NAME" ]; then
+            echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
+            exit 1
+        fi
+        if [ -z "$BRANCH" ]; then
+            BRANCH="$NAME"
+        fi
+        send_command "create-worktree|$NAME|$BRANCH|$PROJECT|$PATH_ARG|$CREATE_BRANCH|$BASE_BRANCH"
+        ;;
+    switch-worktree)
+        shift
+        PROJECT=""
+        TARGET_ARGS=()
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --project)
+                    if [ $# -lt 2 ]; then
+                        echo "Usage: muxy switch-worktree <name|id|path> [--project <name|id|path>]" >&2
+                        exit 1
+                    fi
+                    shift
+                    PROJECT="$*"
+                    break
+                    ;;
+                *) TARGET_ARGS+=("$1"); shift ;;
+            esac
+        done
+        TARGET="${TARGET_ARGS[*]}"
+        if [ -z "$TARGET" ]; then
+            echo "Usage: muxy switch-worktree <name|id|path> [--project <name|id|path>]" >&2
+            exit 1
+        fi
+        if [ -n "$PROJECT" ]; then
+            send_command "switch-worktree|$TARGET|$PROJECT"
+        else
+            send_command "switch-worktree|$TARGET"
+        fi
+        ;;
+    refresh-worktrees)
+        shift
+        if [ $# -gt 0 ]; then
+            send_command "refresh-worktrees|$*"
+        else
+            send_command "refresh-worktrees"
+        fi
+        ;;
+    list-tabs)
+        send_command "list-tabs"
+        ;;
+    switch-tab)
+        shift
+        if [ $# -lt 1 ]; then
+            echo "Usage: muxy switch-tab <index|id|title>" >&2
+            exit 1
+        fi
+        send_command "switch-tab|$*"
+        ;;
+    new-tab)
+        send_command "new-tab"
+        ;;
+    next-tab)
+        send_command "next-tab"
+        ;;
+    previous-tab)
+        send_command "previous-tab"
+        ;;
     ""|--help|-h)
         echo "Usage:"
         echo "  muxy <path>                              Open a folder in Muxy"
@@ -189,6 +345,17 @@ case "$COMMAND" in
         echo "  muxy close-pane --pane <id>              Close a pane"
         echo "  muxy rename-pane --pane <id> <title>     Rename a pane tab"
         echo "  muxy list-panes                          List all panes"
+        echo "  muxy list-projects                       List projects"
+        echo "  muxy switch-project <name|id|path>        Switch active project"
+        echo "  muxy list-worktrees [project]             List worktrees"
+        echo "  muxy create-worktree <name> [options]     Create and switch to a worktree"
+        echo "  muxy switch-worktree <name|id|path>       Switch active worktree"
+        echo "  muxy refresh-worktrees [project]          Refresh worktrees from Git"
+        echo "  muxy list-tabs                            List tabs"
+        echo "  muxy switch-tab <index|id|title>          Switch active tab"
+        echo "  muxy new-tab                              Create a terminal tab"
+        echo "  muxy next-tab                             Switch to next tab"
+        echo "  muxy previous-tab                         Switch to previous tab"
         exit 1
         ;;
 esac
@@ -196,7 +363,13 @@ esac
 # If we reach here, it's a path to open
 if [ -n "$COMMAND" ] && [ "$COMMAND" != "split-right" ] && [ "$COMMAND" != "split-down" ] && \
    [ "$COMMAND" != "send" ] && [ "$COMMAND" != "send-keys" ] && [ "$COMMAND" != "read-screen" ] && \
-   [ "$COMMAND" != "close-pane" ] && [ "$COMMAND" != "rename-pane" ] && [ "$COMMAND" != "list-panes" ]; then
+   [ "$COMMAND" != "close-pane" ] && [ "$COMMAND" != "rename-pane" ] && [ "$COMMAND" != "list-panes" ] && \
+   [ "$COMMAND" != "list-projects" ] && [ "$COMMAND" != "switch-project" ] && \
+    [ "$COMMAND" != "list-worktrees" ] && [ "$COMMAND" != "create-worktree" ] && \
+    [ "$COMMAND" != "switch-worktree" ] && \
+   [ "$COMMAND" != "refresh-worktrees" ] && [ "$COMMAND" != "list-tabs" ] && \
+   [ "$COMMAND" != "switch-tab" ] && [ "$COMMAND" != "new-tab" ] && \
+   [ "$COMMAND" != "next-tab" ] && [ "$COMMAND" != "previous-tab" ]; then
     TARGET_DIR="$COMMAND"
 
     case "$TARGET_DIR" in
@@ -224,7 +397,7 @@ if [ -n "$COMMAND" ] && [ "$COMMAND" != "split-right" ] && [ "$COMMAND" != "spli
 
     ENCODED_PATH="$(percent_encode "$TARGET_DIR")"
 
-    if [ -e "$SOCKET" ] && printf '%s' "open-project|$TARGET_DIR" | nc -U "$SOCKET" 2>/dev/null; then
+    if [ -e "$SOCKET" ] && printf '%s\n' "open-project|$TARGET_DIR" | nc -w "$NC_TIMEOUT" -U "$SOCKET" 2>/dev/null; then
         exit 0
     fi
 

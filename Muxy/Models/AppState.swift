@@ -22,6 +22,13 @@ final class AppState {
         var source: DiffViewerTabState.Source = .workingTree
     }
 
+    struct CreateExtensionTabRequest {
+        let extensionID: String
+        let tabTypeID: String
+        let title: String
+        let data: ExtensionJSON?
+    }
+
     enum Action {
         case selectProject(projectID: UUID, worktreeID: UUID, worktreePath: String)
         case selectWorktree(projectID: UUID, worktreeID: UUID, worktreePath: String)
@@ -40,6 +47,7 @@ final class AppState {
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
         case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
         case createImageViewerTab(projectID: UUID, areaID: UUID?, filePath: String)
+        case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
         case restoreClosedTerminalTab(projectID: UUID, areaID: UUID?, snapshot: ClosedTerminalTabSnapshot)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
@@ -91,6 +99,7 @@ final class AppState {
     var pendingLastTabClose: PendingTabClose?
     var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
+    var pendingDiffCommentsTabClose: PendingTabClose?
     var pendingSaveErrorMessage: String?
     let navigation = NavigationHistory()
     private var focusHistory: [WorktreeKey: [UUID]] = [:]
@@ -500,6 +509,10 @@ final class AppState {
             pendingProcessTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
         }
+        if needsDiffCommentsConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
+            pendingDiffCommentsTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
+            return
+        }
         closeTabWithLastCheck(tabID, areaID: areaID, projectID: projectID)
     }
 
@@ -550,6 +563,16 @@ final class AppState {
 
     func cancelCloseUnsavedEditorTab() {
         pendingUnsavedEditorTabClose = nil
+    }
+
+    func confirmCloseDiffCommentsTab() {
+        guard let pending = pendingDiffCommentsTabClose else { return }
+        pendingDiffCommentsTabClose = nil
+        closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
+    }
+
+    func cancelCloseDiffCommentsTab() {
+        pendingDiffCommentsTabClose = nil
     }
 
     private func closeTabWithLastCheck(_ tabID: UUID, areaID: UUID, projectID: UUID) {
@@ -781,6 +804,16 @@ final class AppState {
         return terminalViews.needsConfirmQuit(for: paneID)
     }
 
+    private func needsDiffCommentsConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID }),
+              let diffState = tab.content.diffViewerState
+        else { return false }
+        return diffState.hasUnsentSessionComments
+    }
+
     func selectTabByIndex(_ index: Int, projectID: UUID) {
         if let key = activeWorktreeKey(for: projectID),
            let areaID = maximizedAreaID[key],
@@ -815,6 +848,12 @@ final class AppState {
     }
 
     func dispatch(_ action: Action) {
+        let extensionSnapshot = ExtensionEventEmitter.snapshot(from: self)
+        defer {
+            let after = ExtensionEventEmitter.snapshot(from: self)
+            ExtensionEventEmitter.emit(before: extensionSnapshot, after: after)
+        }
+
         switch action {
         case let .focusPaneLeft(projectID),
              let .focusPaneRight(projectID),

@@ -10,11 +10,14 @@ struct UIScaleTests {
     func presetMultipliersAreOrdered() {
         let presets = UIScale.Preset.allCases
         #expect(presets == [.regular, .large, .extraLarge])
+        #expect(presets.map(\.id) == ["regular", "large", "extraLarge"])
+        #expect(presets.map(\.title) == ["Default", "Large", "Extra Large"])
 
         let multipliers = presets.map(\.multiplier)
         #expect(multipliers == multipliers.sorted())
         #expect(Set(multipliers).count == multipliers.count)
         #expect(UIScale.Preset.regular.multiplier == 1.0)
+        #expect(UIScale.defaultPreset == .regular)
     }
 
     @Test("UIMetrics.scaled multiplies by the active preset multiplier")

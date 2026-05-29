@@ -56,6 +56,34 @@ struct KeyBindingStoreTests {
         #expect(store.combo(for: .openVCSTab) == KeyCombo(key: "y", command: true))
     }
 
+    @Test("action can be unassigned")
+    func actionCanBeUnassigned() throws {
+        let persistence = StubKeyBindingPersistence(bindings: KeyBinding.defaults)
+        let store = KeyBindingStore(persistence: persistence)
+        let combo = KeyCombo(key: "", modifiers: 0)
+        let event = try keyEvent(
+            characters: "y",
+            charactersIgnoringModifiers: "y",
+            keyCode: 16,
+            modifiers: [.command]
+        )
+
+        store.updateBinding(action: .openVCSTab, combo: combo)
+
+        #expect(store.combo(for: .openVCSTab) == combo)
+        #expect(store.action(for: event, scopes: [.mainWindow]) == nil)
+    }
+
+    @Test("saved custom bindings gain new default actions")
+    func savedCustomBindingsGainNewDefaultActions() {
+        let customOpenProject = KeyBinding(action: .openProject, combo: KeyCombo(key: "j", command: true, option: true))
+        let persistence = StubKeyBindingPersistence(bindings: [customOpenProject])
+        let store = KeyBindingStore(persistence: persistence)
+
+        #expect(store.combo(for: .openProject) == customOpenProject.combo)
+        #expect(store.combo(for: .refreshWorktrees) == KeyCombo(key: "r", command: true, option: true))
+    }
+
     private func keyEvent(
         characters: String,
         charactersIgnoringModifiers: String,

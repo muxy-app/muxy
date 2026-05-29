@@ -342,6 +342,84 @@ struct GitRepositoryService {
         return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
+    enum PRCommentSide: String {
+        case left = "LEFT"
+        case right = "RIGHT"
+    }
+
+    enum PostCommentResult {
+        case success
+        case failure(String)
+    }
+
+    struct GitHubUser: Equatable {
+        let login: String
+        let avatarURL: URL?
+    }
+
+    func currentGitHubUser(repoPath: String) async -> GitHubUser? {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
+        let result = try? await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: ["api", "user", "--jq", "{login: .login, avatar_url: .avatar_url}"],
+            workingDirectory: repoPath
+        )
+        guard let result, result.status == 0,
+              let data = result.stdout.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let login = object["login"] as? String
+        else { return nil }
+        let avatarURL = (object["avatar_url"] as? String).flatMap(URL.init(string:))
+        return GitHubUser(login: login, avatarURL: avatarURL)
+    }
+
+    struct PRCommentRequest {
+        let repoPath: String
+        let number: Int
+        let commit: String
+        let path: String
+        let line: Int
+        let side: PRCommentSide
+        let body: String
+    }
+
+    func postPullRequestReviewComment(_ request: PRCommentRequest) async -> PostCommentResult {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+            return .failure("GitHub CLI (gh) is not installed.")
+        }
+        guard let commitSha = await resolveCommitSha(repoPath: request.repoPath, ref: request.commit) else {
+            return .failure("Could not resolve the pull request head commit.")
+        }
+        let arguments = [
+            "api",
+            "--method", "POST",
+            "repos/{owner}/{repo}/pulls/\(request.number)/comments",
+            "-f", "body=\(request.body)",
+            "-f", "commit_id=\(commitSha)",
+            "-f", "path=\(request.path)",
+            "-F", "line=\(request.line)",
+            "-f", "side=\(request.side.rawValue)",
+        ]
+        let result = try? await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: arguments,
+            workingDirectory: request.repoPath
+        )
+        guard let result else { return .failure("Failed to run gh.") }
+        guard result.status == 0 else {
+            let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failure(message.isEmpty ? "Failed to post comment." : message)
+        }
+        return .success
+    }
+
+    private func resolveCommitSha(repoPath: String, ref: String) async -> String? {
+        let result = try? await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["rev-parse", ref])
+        guard let result, result.status == 0 else { return nil }
+        let sha = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sha.isEmpty ? nil : sha
+    }
+
     private func ghErrorIndicatesNoPR(stderr: String) -> Bool {
         let lowered = stderr.lowercased()
         return lowered.contains("no pull requests found")
@@ -839,17 +917,46 @@ struct GitRepositoryService {
             repoPath: repoPath,
             arguments: ["-c", "core.quotepath=false", "diff", "HEAD", "--numstat", "--no-color", "--no-ext-diff"]
         )
+        async let stagedNumstatTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--cached", "--numstat", "--no-color", "--no-ext-diff"]
+        )
+        async let unstagedNumstatTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--numstat", "--no-color", "--no-ext-diff"]
+        )
 
         let statusResult = try await statusTask
         guard statusResult.status == 0 else {
             _ = try? await numstatTask
+            _ = try? await stagedNumstatTask
+            _ = try? await unstagedNumstatTask
             throw GitError.commandFailed(statusResult.stderr.isEmpty ? "Failed to load Git status." : statusResult.stderr)
         }
 
         let numstatResult = try await numstatTask
+        let stagedNumstatResult = try await stagedNumstatTask
+        let unstagedNumstatResult = try await unstagedNumstatTask
         let stats = numstatResult.status == 0 ? GitStatusParser.parseNumstat(numstatResult.stdout) : [:]
+        let stagedStats = stagedNumstatResult.status == 0 ? GitStatusParser.parseNumstat(stagedNumstatResult.stdout) : [:]
+        let unstagedStats = unstagedNumstatResult.status == 0 ? GitStatusParser.parseNumstat(unstagedNumstatResult.stdout) : [:]
 
         return GitStatusParser.parseStatusPorcelain(statusResult.stdoutData, stats: stats).map { file in
+            let staged = stagedStats[file.path]
+            let unstaged = unstagedStats[file.path]
+            let file = GitStatusFile(
+                path: file.path,
+                oldPath: file.oldPath,
+                xStatus: file.xStatus,
+                yStatus: file.yStatus,
+                additions: file.additions,
+                deletions: file.deletions,
+                stagedAdditions: staged?.additions,
+                stagedDeletions: staged?.deletions,
+                unstagedAdditions: unstaged?.additions,
+                unstagedDeletions: unstaged?.deletions,
+                isBinary: file.isBinary || staged?.isBinary == true || unstaged?.isBinary == true
+            )
             guard file.additions == nil, file.xStatus == "?" || file.xStatus == "A" else { return file }
             let lineCount = Self.countLines(repoPath: repoPath, relativePath: file.path)
             return GitStatusFile(
@@ -859,6 +966,10 @@ struct GitRepositoryService {
                 yStatus: file.yStatus,
                 additions: lineCount,
                 deletions: 0,
+                stagedAdditions: file.stagedAdditions,
+                stagedDeletions: file.stagedDeletions,
+                unstagedAdditions: file.unstagedAdditions,
+                unstagedDeletions: file.unstagedDeletions,
                 isBinary: file.isBinary
             )
         }

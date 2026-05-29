@@ -22,11 +22,13 @@ struct ProjectRow: View {
     @State private var renameText = ""
     @State private var showWorktreePopover = false
     @State private var isGitRepo = false
+    @State private var isCheckingGitRepo = true
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableImage?
     @State private var isRefreshingWorktrees = false
     @State private var showColorPicker = false
     @State private var showSymbolPicker = false
+    @State private var removalRequest: WorktreeRemovalRequest?
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -34,6 +36,10 @@ struct ProjectRow: View {
 
     private var worktrees: [Worktree] {
         worktreeStore.list(for: project.id)
+    }
+
+    private var hasWorktreeUI: Bool {
+        isGitRepo || worktrees.count > 1
     }
 
     private var displayLetter: String {
@@ -61,7 +67,11 @@ struct ProjectRow: View {
                 onSelect()
             }
             .task(id: project.path) {
+                isCheckingGitRepo = true
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
                 isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
+                isCheckingGitRepo = false
             }
             .contextMenu {
                 Button("Set Logo...") { pickLogoImage() }
@@ -85,6 +95,15 @@ struct ProjectRow: View {
                     if worktrees.count > 1 {
                         Button("Switch Worktree…") { showWorktreePopover = true }
                     }
+                } else if isCheckingGitRepo {
+                    Divider()
+                    Button("Loading Worktrees…") {}
+                        .disabled(true)
+                } else if hasWorktreeUI {
+                    Divider()
+                    if worktrees.count > 1 {
+                        Button("Switch Worktree…") { showWorktreePopover = true }
+                    }
                 }
                 if !projectGroupStore.groups.isEmpty {
                     Divider()
@@ -101,11 +120,16 @@ struct ProjectRow: View {
                     onRequestCreate: {
                         showWorktreePopover = false
                         showCreateWorktreeSheet = true
+                    },
+                    onRequestRemove: { worktree in
+                        showWorktreePopover = false
+                        beginRemove(worktree: worktree)
                     }
                 )
                 .environment(appState)
                 .environment(worktreeStore)
             }
+            .worktreeRemovalSheet($removalRequest)
             .sheet(isPresented: $showCreateWorktreeSheet) {
                 CreateWorktreeSheet(project: project) { result in
                     showCreateWorktreeSheet = false
@@ -292,6 +316,26 @@ struct ProjectRow: View {
             appState: appState,
             worktreeStore: worktreeStore,
             isRefreshing: $isRefreshingWorktrees
+        )
+    }
+
+    private func beginRemove(worktree: Worktree) {
+        let activeWorktreeID = appState.activeWorktreeID[project.id]
+        let remaining = worktrees.filter { $0.id != worktree.id }
+        let replacement = remaining.first(where: { $0.id == activeWorktreeID })
+            ?? remaining.first(where: { $0.isPrimary })
+            ?? remaining.first
+        removalRequest = WorktreeRemovalRequest(
+            worktree: worktree,
+            repoPath: project.path,
+            onSuccess: {
+                appState.removeWorktree(
+                    projectID: project.id,
+                    worktree: worktree,
+                    replacement: replacement
+                )
+                worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            }
         )
     }
 }

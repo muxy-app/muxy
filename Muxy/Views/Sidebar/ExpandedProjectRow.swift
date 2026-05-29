@@ -24,12 +24,15 @@ struct ExpandedProjectRow: View {
     @State private var isRenaming = false
     @State private var renameText = ""
     @State private var isGitRepo = false
+    @State private var isCheckingGitRepo = true
     @State private var showCreateWorktreeSheet = false
     @State private var logoCropImage: IdentifiableExpandedImage?
     @State private var worktreesExpanded = false
     @State private var isRefreshingWorktrees = false
     @State private var showColorPicker = false
     @State private var showSymbolPicker = false
+    @State private var pendingWorktreeRemoval: WorktreeRemovalConfirmation?
+    @State private var removalRequest: WorktreeRemovalRequest?
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -47,6 +50,10 @@ struct ExpandedProjectRow: View {
         worktrees.first { $0.id == activeWorktreeID }
     }
 
+    private var hasWorktreeUI: Bool {
+        isGitRepo || worktrees.count > 1
+    }
+
     private var displayLetter: String {
         String(project.name.prefix(1)).uppercased()
     }
@@ -54,18 +61,22 @@ struct ExpandedProjectRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             projectHeader
-            if worktreesExpanded, isGitRepo {
+            if worktreesExpanded, hasWorktreeUI {
                 worktreeList
             }
         }
         .task(id: project.path) {
+            isCheckingGitRepo = true
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
             isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
-            if autoExpandWorktrees, isActive, isGitRepo {
+            isCheckingGitRepo = false
+            if autoExpandWorktrees, isActive, hasWorktreeUI {
                 worktreesExpanded = true
             }
         }
         .onChange(of: isActive) { _, active in
-            guard autoExpandWorktrees, active, isGitRepo else { return }
+            guard autoExpandWorktrees, active, hasWorktreeUI else { return }
             withAnimation(.easeInOut(duration: 0.15)) {
                 worktreesExpanded = true
             }
@@ -89,6 +100,10 @@ struct ExpandedProjectRow: View {
                 Divider()
                 Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
                 Button("New Worktree…") { showCreateWorktreeSheet = true }
+            } else if isCheckingGitRepo {
+                Divider()
+                Button("Loading Worktrees…") {}
+                    .disabled(true)
             }
             if !projectGroupStore.groups.isEmpty {
                 Divider()
@@ -124,6 +139,7 @@ struct ExpandedProjectRow: View {
                 onCancel: { cancelRename() }
             )
         }
+        .worktreeRemovalSheet($removalRequest)
         .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
             ProjectIconColorPicker(selectedID: project.iconColor) { id in
                 onSetIconColor(id)
@@ -135,6 +151,23 @@ struct ExpandedProjectRow: View {
                 onSetIcon(name)
                 showSymbolPicker = false
             }
+        }
+        .alert(
+            pendingWorktreeRemoval?.title ?? "",
+            isPresented: worktreeRemovalAlertBinding,
+            presenting: pendingWorktreeRemoval
+        ) { confirmation in
+            Button("Remove", role: .destructive) {
+                performRemove(worktree: confirmation.worktree)
+                pendingWorktreeRemoval = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) {
+                pendingWorktreeRemoval = nil
+            }
+            .keyboardShortcut(.cancelAction)
+        } message: { confirmation in
+            Text(confirmation.message)
         }
     }
 
@@ -149,7 +182,7 @@ struct ExpandedProjectRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                if isGitRepo, let worktree = activeWorktree {
+                if hasWorktreeUI, let worktree = activeWorktree {
                     Text(worktree.isPrimary ? "primary" : worktree.name)
                         .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
                         .foregroundStyle(MuxyTheme.fg)
@@ -160,9 +193,7 @@ struct ExpandedProjectRow: View {
 
             Spacer(minLength: UIMetrics.spacing2)
 
-            if isGitRepo {
-                worktreeChevron
-            }
+            worktreeAccessory
         }
         .padding(UIMetrics.spacing2)
         .background(headerBackground, in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
@@ -180,7 +211,7 @@ struct ExpandedProjectRow: View {
         }
         .onTapGesture {
             guard !isAnyDragging else { return }
-            if isActive, isGitRepo {
+            if isActive, hasWorktreeUI {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     worktreesExpanded.toggle()
                 }
@@ -213,6 +244,20 @@ struct ExpandedProjectRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(worktreesExpanded ? "Collapse Worktrees" : "Expand Worktrees")
+    }
+
+    @ViewBuilder
+    private var worktreeAccessory: some View {
+        if hasWorktreeUI {
+            worktreeChevron
+        } else if isCheckingGitRepo {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
+        } else {
+            Color.clear
+                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
+        }
     }
 
     private var projectIcon: some View {
@@ -287,7 +332,7 @@ struct ExpandedProjectRow: View {
 
     private var projectHeaderAccessibilityLabel: String {
         var label = project.name
-        if isGitRepo, let worktree = activeWorktree {
+        if hasWorktreeUI, let worktree = activeWorktree {
             label += ", worktree: \(worktree.isPrimary ? "primary" : worktree.name)"
         }
         return label
@@ -364,54 +409,43 @@ struct ExpandedProjectRow: View {
         }
     }
 
+    @MainActor
     private func requestRemove(worktree: Worktree) async {
         let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(worktreePath: worktree.path)
-        if !hasChanges {
-            performRemove(worktree: worktree)
-            return
-        }
-        presentRemoveConfirmation(worktree: worktree)
+        pendingWorktreeRemoval = WorktreeRemovalConfirmation(
+            worktree: worktree,
+            hasUncommittedChanges: hasChanges
+        )
     }
 
-    private func presentRemoveConfirmation(worktree: Worktree) {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              window.attachedSheet == nil
-        else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Remove worktree \"\(worktree.name)\"?"
-        alert.informativeText = "This worktree has uncommitted changes. Removing it will permanently discard them."
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Remove")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.buttons[1].keyEquivalent = "\u{1b}"
-
-        alert.beginSheetModal(for: window) { response in
-            guard response == .alertFirstButtonReturn else { return }
-            performRemove(worktree: worktree)
-        }
+    private var worktreeRemovalAlertBinding: Binding<Bool> {
+        Binding(
+            get: { pendingWorktreeRemoval != nil },
+            set: { newValue in
+                if !newValue {
+                    pendingWorktreeRemoval = nil
+                }
+            }
+        )
     }
 
     private func performRemove(worktree: Worktree) {
-        let repoPath = project.path
         let remaining = worktrees.filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.id == activeWorktreeID })
             ?? remaining.first(where: { $0.isPrimary })
             ?? remaining.first
-        appState.removeWorktree(
-            projectID: project.id,
+        removalRequest = WorktreeRemovalRequest(
             worktree: worktree,
-            replacement: replacement
+            repoPath: project.path,
+            onSuccess: {
+                appState.removeWorktree(
+                    projectID: project.id,
+                    worktree: worktree,
+                    replacement: replacement
+                )
+                worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            }
         )
-        worktreeStore.remove(worktreeID: worktree.id, from: project.id)
-        Task.detached {
-            await WorktreeStore.cleanupOnDisk(
-                worktree: worktree,
-                repoPath: repoPath
-            )
-        }
     }
 
     private func startRename() {

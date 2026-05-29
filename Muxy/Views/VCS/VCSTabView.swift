@@ -14,6 +14,7 @@ struct VCSTabView: View {
     @State private var pendingClosePR: GitRepositoryService.PRInfo?
     @State private var pendingCheckoutPR: GitRepositoryService.PRListItem?
     @State private var pendingCheckoutPRInNewWorktree: GitRepositoryService.PRListItem?
+    @State private var removalRequest: WorktreeRemovalRequest?
     @AppStorage(GeneralSettingsKeys.defaultWorktreeParentPath)
     private var defaultWorktreeParentPath = ""
     private var commitEnabled: Bool {
@@ -160,6 +161,7 @@ struct VCSTabView: View {
                 onCancel: { showCreateBranchSheet = false }
             )
         }
+        .worktreeRemovalSheet($removalRequest)
     }
 
     private func requestOpenPR() {
@@ -387,27 +389,29 @@ struct VCSTabView: View {
         let repoPath = project.path
         let remaining = worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.isPrimary }) ?? remaining.first
-        appState.removeWorktree(
-            projectID: project.id,
+        removalRequest = WorktreeRemovalRequest(
             worktree: worktree,
-            replacement: replacement
+            repoPath: repoPath,
+            onSuccess: {
+                appState.removeWorktree(
+                    projectID: project.id,
+                    worktree: worktree,
+                    replacement: replacement
+                )
+                worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+                Task {
+                    try? await GitRepositoryService().deleteRemoteBranch(
+                        repoPath: repoPath,
+                        branch: mergedBranch
+                    )
+                    await Self.fastForwardAfterMerge(
+                        repoPath: repoPath,
+                        defaultBranch: defaultBranch,
+                        baseBranch: baseBranch
+                    )
+                }
+            }
         )
-        worktreeStore.remove(worktreeID: worktree.id, from: project.id)
-        Task.detached {
-            await WorktreeStore.cleanupOnDisk(
-                worktree: worktree,
-                repoPath: repoPath
-            )
-            try? await GitRepositoryService().deleteRemoteBranch(
-                repoPath: repoPath,
-                branch: mergedBranch
-            )
-            await Self.fastForwardAfterMerge(
-                repoPath: repoPath,
-                defaultBranch: defaultBranch,
-                baseBranch: baseBranch
-            )
-        }
     }
 
     @discardableResult
@@ -862,33 +866,18 @@ struct VCSTabView: View {
 
     private func openPullRequestDiffInTab(_ pr: GitRepositoryService.PRListItem) {
         guard let projectID = appState.activeProjectID else { return }
-        Task { @MainActor in
-            let git = GitRepositoryService()
-            let remote = await git.githubRemoteName(repoPath: state.projectPath) ?? "origin"
-            let baseRef = "refs/remotes/\(remote)/\(pr.baseBranch)"
-            let headRef: String
-            do {
-                headRef = try await git.fetchPullRequestDiffHead(
-                    repoPath: state.projectPath,
-                    number: pr.number,
-                    remote: remote
-                )
-            } catch {
-                state.showStatus(error.localizedDescription, isError: true)
-                return
-            }
-            appState.openDiffViewer(
-                vcs: state,
-                source: .pullRequest(DiffViewerTabState.PullRequestSource(
-                    number: pr.number,
-                    title: pr.title,
-                    baseRef: baseRef,
-                    headRef: headRef,
-                    webURL: URL(string: pr.url)
-                )),
-                projectID: projectID
-            )
-        }
+        appState.openDiffViewer(
+            vcs: state,
+            source: .pullRequest(DiffViewerTabState.PullRequestSource(
+                number: pr.number,
+                title: pr.title,
+                baseRef: nil,
+                headRef: nil,
+                baseBranch: pr.baseBranch,
+                webURL: URL(string: pr.url)
+            )),
+            projectID: projectID
+        )
     }
 }
 

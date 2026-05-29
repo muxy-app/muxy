@@ -63,6 +63,7 @@ struct MainWindow: View {
         case lastTab
         case unsavedEditor
         case runningProcess
+        case diffComments
 
         var title: String {
             switch self {
@@ -72,6 +73,8 @@ struct MainWindow: View {
                 "Save Changes Before Closing?"
             case .runningProcess:
                 "Close Tab?"
+            case .diffComments:
+                "Discard Comments?"
             }
         }
 
@@ -83,6 +86,8 @@ struct MainWindow: View {
                 "This file has unsaved changes. If you don't save, your changes will be lost."
             case .runningProcess:
                 "A process is still running in this tab. Are you sure you want to close it?"
+            case .diffComments:
+                "This diff has comments that haven't been sent to an agent. Closing will discard them."
             }
         }
     }
@@ -113,6 +118,9 @@ struct MainWindow: View {
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
+    @AppStorage("muxy.showExtensionOutput") private var showExtensionOutput = false
+    @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
+    @State private var extensionOutputSelected: String?
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.sidebarExpandedCustomWidth") private var sidebarExpandedCustomWidth: Double = .init(SidebarLayout.expandedWidth)
@@ -164,6 +172,7 @@ struct MainWindow: View {
             }
         }
         .overlay { modalOverlayLayer }
+        .overlay { ExtensionConsentOverlay() }
         .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
         .animation(.easeInOut(duration: 0.15), value: showFindInFiles)
         .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)
@@ -195,6 +204,16 @@ struct MainWindow: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openProjectPicker)) { _ in
             showProjectPicker = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openExtensionDirectoryAsProject)) { notification in
+            guard let path = notification.userInfo?[OpenExtensionDirectoryUserInfoKey.path] as? String else { return }
+            CLIAccessor.openProjectFromPath(
+                path,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .terminalOmnibox)) { notification in
             let launchScope = terminalOmniboxScope(from: notification)
@@ -244,18 +263,16 @@ struct MainWindow: View {
             panelVisible: fileTreePanelVisible,
             sync: syncFileTreeSelection
         ))
-        .onChange(of: appState.pendingLastTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.lastTab)
-        }
-        .onChange(of: appState.pendingUnsavedEditorTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.unsavedEditor)
-        }
-        .onChange(of: appState.pendingProcessTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.runningProcess)
-        }
+        .modifier(TabCloseConfirmationObserver(
+            lastTab: appState.pendingLastTabClose != nil,
+            unsavedEditor: appState.pendingUnsavedEditorTabClose != nil,
+            runningProcess: appState.pendingProcessTabClose != nil,
+            diffComments: appState.pendingDiffCommentsTabClose != nil,
+            onLastTab: { presentCloseConfirmation(.lastTab) },
+            onUnsavedEditor: { presentCloseConfirmation(.unsavedEditor) },
+            onRunningProcess: { presentCloseConfirmation(.runningProcess) },
+            onDiffComments: { presentCloseConfirmation(.diffComments) }
+        ))
         .onChange(of: appState.pendingSaveErrorMessage != nil) { _, isPresented in
             guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
             presentSaveErrorAlert(message: message)
@@ -389,6 +406,20 @@ struct MainWindow: View {
 
             bottomDockedRichInputPanel
 
+            if showExtensionOutput {
+                ExtensionOutputPanel(
+                    isPresented: $showExtensionOutput,
+                    selectedExtensionID: Binding(
+                        get: { extensionOutputSelected ?? (extensionOutputSelectedStored.isEmpty ? nil : extensionOutputSelectedStored) },
+                        set: { newValue in
+                            extensionOutputSelected = newValue
+                            extensionOutputSelectedStored = newValue ?? ""
+                        }
+                    )
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             if showStatusBar {
                 ProjectStatusBar(
                     activePane: activeTerminalPane,
@@ -396,7 +427,19 @@ struct MainWindow: View {
                     fallbackProjectPath: activeProject.map { activeWorktreePath(for: $0) },
                     isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
                     richInputVisible: richInputPanelVisible,
-                    richInputFontSize: $richInputFontSize
+                    richInputFontSize: $richInputFontSize,
+                    extensionOutputVisible: $showExtensionOutput,
+                    onTriggerExtensionCommand: { binding in
+                        ExtensionStore.shared.triggerCommand(
+                            ExtensionStore.CommandInvocation(
+                                extensionID: binding.muxyExtension.id,
+                                commandID: binding.item.command,
+                                appState: appState,
+                                projectStore: projectStore,
+                                worktreeStore: worktreeStore
+                            )
+                        )
+                    }
                 )
             }
         }
@@ -627,6 +670,7 @@ struct MainWindow: View {
                 openTabs: terminalOmniboxOpenTabs,
                 closedTabs: terminalOmniboxClosedTabs,
                 commandShortcuts: CommandShortcutStore.shared.shortcuts,
+                extensionCommands: terminalOmniboxExtensionCommands,
                 activeProjectID: appState.activeProjectID,
                 activeWorktreeID: appState.activeProjectID.flatMap { appState.activeWorktreeID[$0] },
                 commandProjectIDs: terminalOmniboxCommandProjectIDs,
@@ -656,6 +700,7 @@ struct MainWindow: View {
                         appState: appState,
                         projectStore: projectStore,
                         worktreeStore: worktreeStore,
+                        projectGroupStore: projectGroupStore,
                         createIfMissing: createIfMissing
                     )
                 },
@@ -663,7 +708,8 @@ struct MainWindow: View {
                     ProjectOpenService.openProject(
                         appState: appState,
                         projectStore: projectStore,
-                        worktreeStore: worktreeStore
+                        worktreeStore: worktreeStore,
+                        projectGroupStore: projectGroupStore
                     )
                 },
                 onDismiss: { showProjectPicker = false }
@@ -692,6 +738,24 @@ struct MainWindow: View {
             guard let projectID = scopedProjectID else { return }
             _ = selectOmniboxProject(projectID, worktreeID: scopedWorktreeID)
             appState.createCommandTab(projectID: projectID, shortcut: shortcut)
+        case let .extensionCommand(item):
+            ExtensionStore.shared.triggerCommand(.init(
+                extensionID: item.extensionID,
+                commandID: item.command.id,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            ))
+        }
+    }
+
+    private var terminalOmniboxExtensionCommands: [ExtensionPaletteItem] {
+        ExtensionStore.shared.paletteCommands().map { binding in
+            ExtensionPaletteItem(
+                extensionID: binding.muxyExtension.id,
+                extensionName: binding.muxyExtension.displayName,
+                command: binding.command
+            )
         }
     }
 
@@ -889,9 +953,10 @@ struct MainWindow: View {
     }
 
     private func mountedWorktreeKeys(for project: Project) -> [WorktreeKey] {
-        appState.workspaceRoots.keys
-            .filter { $0.projectID == project.id }
-            .sorted { $0.worktreeID.uuidString < $1.worktreeID.uuidString }
+        guard let activeKey = appState.activeWorktreeKey(for: project.id),
+              appState.workspaceRoots[activeKey] != nil
+        else { return [] }
+        return [activeKey]
     }
 
     private func handleShortcutAction(_ action: ShortcutAction) -> Bool {
@@ -973,7 +1038,9 @@ struct MainWindow: View {
                 state: richInputState,
                 worktreeKey: worktreeKey,
                 onDismiss: { closeRichInputPanel() },
-                onSubmit: { appendReturn in submitRichInput(richInputState, appendReturn: appendReturn) }
+                onSubmit: { appendReturn, selectedText in
+                    submitRichInput(richInputState, appendReturn: appendReturn, selectedText: selectedText)
+                }
             )
             switch position {
             case .right:
@@ -1269,10 +1336,15 @@ struct MainWindow: View {
         }
     }
 
-    private func submitRichInput(_ richInput: RichInputState, appendReturn: Bool) {
+    private func submitRichInput(_ richInput: RichInputState, appendReturn: Bool, selectedText: String?) {
         let paneIDs = richInputBroadcast ? visibleTerminalPaneIDs() : [activeRichInputPaneID].compactMap(\.self)
         guard !paneIDs.isEmpty else { return }
-        RichInputSubmitter.submit(richInput: richInput, paneIDs: paneIDs, appendReturn: appendReturn)
+        RichInputSubmitter.submit(
+            richInput: richInput,
+            paneIDs: paneIDs,
+            appendReturn: appendReturn,
+            selectedText: selectedText
+        )
     }
 
     private func visibleTerminalPaneIDs() -> [UUID] {
@@ -1360,7 +1432,8 @@ struct MainWindow: View {
             alert.buttons[2].keyEquivalent = "d"
             alert.buttons[2].keyEquivalentModifierMask = [.command]
         case .lastTab,
-             .runningProcess:
+             .runningProcess,
+             .diffComments:
             alert.addButton(withTitle: "Close")
             alert.addButton(withTitle: "Cancel")
             alert.buttons[0].keyEquivalent = "\r"
@@ -1397,6 +1470,12 @@ struct MainWindow: View {
                     appState.confirmCloseRunningTab()
                 } else {
                     appState.cancelCloseRunningTab()
+                }
+            case .diffComments:
+                if response == .alertFirstButtonReturn {
+                    appState.confirmCloseDiffCommentsTab()
+                } else {
+                    appState.cancelCloseDiffCommentsTab()
                 }
             }
         }
@@ -1481,6 +1560,37 @@ private struct FileTreeSelectionSync: ViewModifier {
             .onChange(of: panelVisible) { _, visible in
                 guard visible else { return }
                 sync(filePath)
+            }
+    }
+}
+
+private struct TabCloseConfirmationObserver: ViewModifier {
+    let lastTab: Bool
+    let unsavedEditor: Bool
+    let runningProcess: Bool
+    let diffComments: Bool
+    let onLastTab: () -> Void
+    let onUnsavedEditor: () -> Void
+    let onRunningProcess: () -> Void
+    let onDiffComments: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: lastTab) { _, isPresented in
+                guard isPresented else { return }
+                onLastTab()
+            }
+            .onChange(of: unsavedEditor) { _, isPresented in
+                guard isPresented else { return }
+                onUnsavedEditor()
+            }
+            .onChange(of: runningProcess) { _, isPresented in
+                guard isPresented else { return }
+                onRunningProcess()
+            }
+            .onChange(of: diffComments) { _, isPresented in
+                guard isPresented else { return }
+                onDiffComments()
             }
     }
 }

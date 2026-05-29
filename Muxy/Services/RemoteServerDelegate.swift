@@ -155,6 +155,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
         case .imageViewer:
             return nil
+        case .extensionWebView:
+            return nil
         }
 
         guard let area = appState.focusedArea(for: projectID),
@@ -487,6 +489,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         case .addition: .addition
         case .deletion: .deletion
         case .collapsed: .collapsed
+        case .commentSpacer: .context
         }
         return VCSDiffRowDTO(
             kind: kind,
@@ -649,7 +652,13 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             throw RemoteVCSError.invalidInput("The primary worktree cannot be removed.")
         }
 
-        await WorktreeStore.cleanupOnDisk(worktree: worktree, repoPath: project.path)
+        try await WorktreeStore.cleanupOnDisk(
+            worktree: worktree,
+            repoPath: project.path,
+            teardownEmit: { line in
+                logger.error("[teardown \(worktreeID)] \(line.text)")
+            }
+        )
         worktreeStore.remove(worktreeID: worktreeID, from: projectID)
     }
 

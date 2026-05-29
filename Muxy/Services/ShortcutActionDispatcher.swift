@@ -5,7 +5,7 @@ struct ShortcutActionDispatcher {
     let appState: AppState
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
-    let projectGroupStore: ProjectGroupStore?
+    let projectGroupStore: ProjectGroupStore
     let ghostty: GhosttyService
     let notificationCenter: NotificationCenter
 
@@ -13,7 +13,7 @@ struct ShortcutActionDispatcher {
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
-        projectGroupStore: ProjectGroupStore? = nil,
+        projectGroupStore: ProjectGroupStore,
         ghostty: GhosttyService,
         notificationCenter: NotificationCenter = .default
     ) {
@@ -26,8 +26,7 @@ struct ShortcutActionDispatcher {
     }
 
     private var navigableProjects: [Project] {
-        guard let projectGroupStore else { return projectStore.projects }
-        return projectGroupStore.filteredProjects(from: projectStore.projects)
+        projectGroupStore.filteredProjects(from: projectStore.projects)
     }
 
     func perform(_ action: ShortcutAction, activeProject: Project?, openVCS: (Project) -> Void) -> Bool {
@@ -123,11 +122,22 @@ struct ShortcutActionDispatcher {
             ProjectOpenService.openProjectViaPicker(
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )
             return true
         case .reloadConfig:
             ghostty.reloadConfig()
+            return true
+        case .refreshWorktrees:
+            guard let activeProject else { return false }
+            Task { @MainActor in
+                await WorktreeRefreshHelper.refresh(
+                    project: activeProject,
+                    appState: appState,
+                    worktreeStore: worktreeStore
+                )
+            }
             return true
         case .nextProject:
             appState.selectNextProject(projects: navigableProjects, worktrees: worktreeStore.worktrees)

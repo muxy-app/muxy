@@ -46,6 +46,7 @@ enum SyntaxLanguageRegistry {
         .sql,
         .dockerfile,
         .makefile,
+        .gherkin,
     ]
 
     private static let extensionMap: [String: SyntaxGrammar] = {
@@ -153,6 +154,7 @@ enum SyntaxLanguageRegistry {
         "php": "php",
         "xml": "xml",
         "css": "css",
+        "gherkin": "feature",
     ]
 
     static func grammar(forLanguageHint hint: String) -> SyntaxGrammar? {

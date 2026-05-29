@@ -6,6 +6,7 @@ struct TerminalOmniboxOverlay: View {
     let openTabs: [OpenTerminalTabItem]
     let closedTabs: [ClosedTerminalTabSnapshot]
     let commandShortcuts: [CommandShortcut]
+    let extensionCommands: [ExtensionPaletteItem]
     let activeProjectID: UUID?
     let activeWorktreeID: UUID?
     let commandProjectIDs: Set<UUID>
@@ -34,6 +35,7 @@ struct TerminalOmniboxOverlay: View {
                 openTabs: openTabs,
                 closedTabs: closedTabs,
                 commandShortcuts: commandShortcuts,
+                extensionCommands: extensionCommands,
                 activeProjectID: activeProjectID,
                 activeWorktreeID: activeWorktreeID,
                 commandProjectIDs: commandProjectIDs
@@ -225,26 +227,23 @@ struct TerminalOmniboxOverlay: View {
 
     private func confirmSelection() {
         guard let index = highlightedIndex, index < displayList.count else { return }
-        let item = displayList[index]
-        switch item {
-        case .project,
-             .worktree:
-            onSelect(item, nil, nil)
-        case .commandShortcut:
-            onSelect(item, activeProjectID, activeWorktreeID)
-        default:
-            onSelect(item, nil, nil)
-        }
+        dispatchSelection(displayList[index])
     }
 
     private func handleTap(_ item: TerminalOmniboxItem) {
+        dispatchSelection(item)
+    }
+
+    private func dispatchSelection(_ item: TerminalOmniboxItem) {
         switch item {
         case .project,
              .worktree:
             onSelect(item, nil, nil)
         case .commandShortcut:
             onSelect(item, activeProjectID, activeWorktreeID)
-        default:
+        case .openTab,
+             .closedTab,
+             .extensionCommand:
             onSelect(item, nil, nil)
         }
     }
