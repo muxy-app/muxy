@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 import os
-import UserNotifications
+@preconcurrency import UserNotifications
 
 private let desktopNotificationLogger = Logger(subsystem: "app.muxy", category: "DesktopNotificationService")
 
