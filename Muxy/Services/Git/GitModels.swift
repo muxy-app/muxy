@@ -148,6 +148,7 @@ struct DiffDisplayRow: Identifiable {
         case addition
         case deletion
         case collapsed
+        case commentSpacer
     }
 
     let id = UUID()

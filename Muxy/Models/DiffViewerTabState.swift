@@ -71,8 +71,15 @@ final class DiffViewerTabState: Identifiable {
     var sourceFiles: [GitStatusFile] = []
     var isLoadingFiles = false
     var filesError: String?
+    var sessionComments: [DiffInlineComment] = []
+    var activeComposer: DiffCommentComposerTarget?
+    var composerLineCount = 1
+    var commentAuthor = "You"
+    var commentAuthorAvatarURL: URL?
+    weak var tabArea: TabArea?
     let diffCache = DiffCache()
     private let git = GitRepositoryService()
+    private var commentAuthorTask: Task<Void, Never>?
     private var sourceFilesTask: Task<Void, Never>?
     private var pendingScrollCacheKey: String?
     static let fontSizeDefaultsKey = "muxy.diffViewer.fontSize"
@@ -144,9 +151,165 @@ final class DiffViewerTabState: Identifiable {
 
     func prepareForClose() {
         cancelSourceLoads()
+        commentAuthorTask?.cancel()
         diffCache.clearAll()
         vcs.diffCache.evict { key in
             key.hasPrefix("staged:") || key.hasPrefix("unstaged:")
+        }
+    }
+
+    var isPR: Bool {
+        if case .pullRequest = source { return true }
+        return false
+    }
+
+    var hasUnsentSessionComments: Bool {
+        sessionComments.contains { $0.submissionState == .draft }
+    }
+
+    func comments(forCacheKey cacheKey: String) -> [DiffInlineComment] {
+        sessionComments.filter { $0.cacheKey == cacheKey }
+    }
+
+    func loadCommentAuthor() {
+        guard commentAuthorTask == nil else { return }
+        let projectPath = projectPath
+        commentAuthorTask = Task { [weak self] in
+            guard let user = await GitRepositoryService().currentGitHubUser(repoPath: projectPath) else { return }
+            guard !Task.isCancelled else { return }
+            self?.commentAuthor = user.login
+            self?.commentAuthorAvatarURL = user.avatarURL
+        }
+    }
+
+    func beginComposer(cacheKey: String, filePath: String, side: DiffCommentSide, startLine: Int, endLine: Int) {
+        composerLineCount = 1
+        activeComposer = DiffCommentComposerTarget(
+            cacheKey: cacheKey,
+            filePath: filePath,
+            side: side,
+            startLine: min(startLine, endLine),
+            endLine: max(startLine, endLine)
+        )
+    }
+
+    func cancelComposer() {
+        activeComposer = nil
+        composerLineCount = 1
+    }
+
+    func submitComment(body: String) {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let target = activeComposer else { return }
+        let comment = DiffInlineComment(
+            cacheKey: target.cacheKey,
+            filePath: target.filePath,
+            side: target.side,
+            startLine: target.startLine,
+            endLine: target.endLine,
+            body: trimmed,
+            author: commentAuthor,
+            createdAt: Date(),
+            submissionState: isPR ? .posting : .draft
+        )
+        activeComposer = nil
+        if isPR {
+            postToPullRequest(comment)
+        } else {
+            sessionComments.append(comment)
+        }
+    }
+
+    func removeComment(id: UUID) {
+        sessionComments.removeAll { $0.id == id }
+    }
+
+    private func postToPullRequest(_ comment: DiffInlineComment) {
+        guard case let .pullRequest(pullRequest) = source,
+              let headRef = pullRequest.headRef
+        else { return }
+        sessionComments.append(comment)
+        let projectPath = projectPath
+        Task { [weak self] in
+            let result = await GitRepositoryService().postPullRequestReviewComment(
+                GitRepositoryService.PRCommentRequest(
+                    repoPath: projectPath,
+                    number: pullRequest.number,
+                    commit: headRef,
+                    path: comment.filePath,
+                    line: comment.endLine,
+                    side: comment.side == .old ? .left : .right,
+                    body: comment.body
+                )
+            )
+            guard let self else { return }
+            switch result {
+            case .success:
+                sessionComments.removeAll { $0.id == comment.id }
+            case let .failure(message):
+                updateSubmissionState(id: comment.id, state: .failed(message))
+            }
+        }
+    }
+
+    private func updateSubmissionState(id: UUID, state: DiffCommentSubmissionState) {
+        guard let index = sessionComments.firstIndex(where: { $0.id == id }) else { return }
+        sessionComments[index].submissionState = state
+    }
+
+    func runByAgent(commentID: UUID, provider: AIAssistantProvider) {
+        guard let comment = sessionComments.first(where: { $0.id == commentID }) else { return }
+        launchAgent(with: [comment], provider: provider, title: "\(provider.displayName): \(comment.filePath)")
+    }
+
+    func runByAgent(target: DiffCommentComposerTarget, body: String, provider: AIAssistantProvider) {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let comment = DiffInlineComment(
+            cacheKey: target.cacheKey,
+            filePath: target.filePath,
+            side: target.side,
+            startLine: target.startLine,
+            endLine: target.endLine,
+            body: trimmed,
+            author: commentAuthor,
+            createdAt: Date()
+        )
+        activeComposer = nil
+        sessionComments.append(comment)
+        launchAgent(with: [comment], provider: provider, title: "\(provider.displayName): \(comment.filePath)")
+    }
+
+    func runAllByAgent(provider: AIAssistantProvider) {
+        let comments = sessionComments.filter { $0.submissionState == .draft }
+        guard !comments.isEmpty else { return }
+        launchAgent(with: comments, provider: provider, title: "\(provider.displayName): \(comments.count) comments")
+    }
+
+    private func launchAgent(with comments: [DiffInlineComment], provider: AIAssistantProvider, title: String) {
+        guard let tabArea else { return }
+        let prompt = DiffAgentPrompt.build(comments: comments, rowsProvider: rowsForComment)
+        let command = DiffAgentLauncher.command(for: provider, settings: AIAssistantSettings.snapshot(), prompt: prompt)
+        guard let command else { return }
+        tabArea.createCommandTab(name: title, command: command, closesOnCommandExit: false)
+    }
+
+    private func rowsForComment(_ comment: DiffInlineComment) -> [DiffDisplayRow] {
+        activeDiffCache.diff(for: comment.cacheKey)?.rows ?? []
+    }
+
+    func reconcileCommentAnchors() {
+        for index in sessionComments.indices {
+            let comment = sessionComments[index]
+            guard comment.submissionState == .draft || comment.submissionState == .outdated else { continue }
+            let rows = activeDiffCache.diff(for: comment.cacheKey)?.rows ?? []
+            guard !rows.isEmpty else { continue }
+            let resolved = DiffCommentAnchor.resolveDisplayRowIndex(
+                side: comment.side,
+                line: comment.startLine,
+                in: rows
+            )
+            sessionComments[index].submissionState = resolved == nil ? .outdated : .draft
         }
     }
 

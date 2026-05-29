@@ -489,6 +489,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         case .addition: .addition
         case .deletion: .deletion
         case .collapsed: .collapsed
+        case .commentSpacer: .context
         }
         return VCSDiffRowDTO(
             kind: kind,

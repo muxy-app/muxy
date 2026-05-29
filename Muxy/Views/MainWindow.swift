@@ -63,6 +63,7 @@ struct MainWindow: View {
         case lastTab
         case unsavedEditor
         case runningProcess
+        case diffComments
 
         var title: String {
             switch self {
@@ -72,6 +73,8 @@ struct MainWindow: View {
                 "Save Changes Before Closing?"
             case .runningProcess:
                 "Close Tab?"
+            case .diffComments:
+                "Discard Comments?"
             }
         }
 
@@ -83,6 +86,8 @@ struct MainWindow: View {
                 "This file has unsaved changes. If you don't save, your changes will be lost."
             case .runningProcess:
                 "A process is still running in this tab. Are you sure you want to close it?"
+            case .diffComments:
+                "This diff has comments that haven't been sent to an agent. Closing will discard them."
             }
         }
     }
@@ -254,18 +259,16 @@ struct MainWindow: View {
             panelVisible: fileTreePanelVisible,
             sync: syncFileTreeSelection
         ))
-        .onChange(of: appState.pendingLastTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.lastTab)
-        }
-        .onChange(of: appState.pendingUnsavedEditorTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.unsavedEditor)
-        }
-        .onChange(of: appState.pendingProcessTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.runningProcess)
-        }
+        .modifier(TabCloseConfirmationObserver(
+            lastTab: appState.pendingLastTabClose != nil,
+            unsavedEditor: appState.pendingUnsavedEditorTabClose != nil,
+            runningProcess: appState.pendingProcessTabClose != nil,
+            diffComments: appState.pendingDiffCommentsTabClose != nil,
+            onLastTab: { presentCloseConfirmation(.lastTab) },
+            onUnsavedEditor: { presentCloseConfirmation(.unsavedEditor) },
+            onRunningProcess: { presentCloseConfirmation(.runningProcess) },
+            onDiffComments: { presentCloseConfirmation(.diffComments) }
+        ))
         .onChange(of: appState.pendingSaveErrorMessage != nil) { _, isPresented in
             guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
             presentSaveErrorAlert(message: message)
@@ -1408,7 +1411,8 @@ struct MainWindow: View {
             alert.buttons[2].keyEquivalent = "d"
             alert.buttons[2].keyEquivalentModifierMask = [.command]
         case .lastTab,
-             .runningProcess:
+             .runningProcess,
+             .diffComments:
             alert.addButton(withTitle: "Close")
             alert.addButton(withTitle: "Cancel")
             alert.buttons[0].keyEquivalent = "\r"
@@ -1445,6 +1449,12 @@ struct MainWindow: View {
                     appState.confirmCloseRunningTab()
                 } else {
                     appState.cancelCloseRunningTab()
+                }
+            case .diffComments:
+                if response == .alertFirstButtonReturn {
+                    appState.confirmCloseDiffCommentsTab()
+                } else {
+                    appState.cancelCloseDiffCommentsTab()
                 }
             }
         }
@@ -1529,6 +1539,37 @@ private struct FileTreeSelectionSync: ViewModifier {
             .onChange(of: panelVisible) { _, visible in
                 guard visible else { return }
                 sync(filePath)
+            }
+    }
+}
+
+private struct TabCloseConfirmationObserver: ViewModifier {
+    let lastTab: Bool
+    let unsavedEditor: Bool
+    let runningProcess: Bool
+    let diffComments: Bool
+    let onLastTab: () -> Void
+    let onUnsavedEditor: () -> Void
+    let onRunningProcess: () -> Void
+    let onDiffComments: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: lastTab) { _, isPresented in
+                guard isPresented else { return }
+                onLastTab()
+            }
+            .onChange(of: unsavedEditor) { _, isPresented in
+                guard isPresented else { return }
+                onUnsavedEditor()
+            }
+            .onChange(of: runningProcess) { _, isPresented in
+                guard isPresented else { return }
+                onRunningProcess()
+            }
+            .onChange(of: diffComments) { _, isPresented in
+                guard isPresented else { return }
+                onDiffComments()
             }
     }
 }

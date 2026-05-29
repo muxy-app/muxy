@@ -103,7 +103,8 @@ private final class CodeEditorTextView: NSTextView {
             MuxyTheme.nsDiffHunk.withAlphaComponent(0.12)
         case .collapsed:
             EditorThemePalette.active.foreground.withAlphaComponent(0.08)
-        case .context:
+        case .context,
+             .commentSpacer:
             .clear
         }
     }

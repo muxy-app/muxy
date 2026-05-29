@@ -90,6 +90,7 @@ struct TabAreaView: View {
                     let isActive = tab.id == area.activeTabID
                     TabContentView(
                         tab: tab,
+                        area: area,
                         focused: isActive && isFocused && isActiveProject,
                         visible: isActive && isActiveProject,
                         areaID: area.id,
@@ -195,6 +196,7 @@ private struct ExternalDragHoverHighlight: View {
 
 private struct TabContentView: View {
     let tab: TerminalTab
+    let area: TabArea
     let focused: Bool
     let visible: Bool
     let areaID: UUID
@@ -219,7 +221,7 @@ private struct TabContentView: View {
         case let .editor(editorState):
             EditorPane(state: editorState, focused: focused, onFocus: onFocus)
         case let .diffViewer(diffState):
-            DiffViewerPane(state: diffState, focused: focused, onFocus: onFocus)
+            DiffViewerPane(state: diffState, tabArea: area, focused: focused, onFocus: onFocus)
         case let .imageViewer(imageState):
             ImageViewerPane(state: imageState, focused: focused, onFocus: onFocus)
         case let .extensionWebView(extensionState):

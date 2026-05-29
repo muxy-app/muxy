@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DiffViewerPane: View {
     @Bindable var state: DiffViewerTabState
+    let tabArea: TabArea
     let focused: Bool
     let onFocus: () -> Void
 
@@ -23,6 +24,8 @@ struct DiffViewerPane: View {
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded { onFocus() })
         .onAppear {
+            state.tabArea = tabArea
+            state.loadCommentAuthor()
             if state.source == .workingTree, !state.vcs.hasCompletedInitialLoad, !state.vcs.isLoadingFiles {
                 state.vcs.refresh()
             }
@@ -39,10 +42,12 @@ struct DiffViewerPane: View {
         .onChange(of: state.vcs.diffCache.revision) { _, _ in
             guard state.source == .workingTree else { return }
             state.reconcileLargeDiffCollapse()
+            state.reconcileCommentAnchors()
         }
         .onChange(of: state.diffCache.revision) { _, _ in
             guard state.source != .workingTree else { return }
             state.reconcileLargeDiffCollapse()
+            state.reconcileCommentAnchors()
         }
     }
 
@@ -218,6 +223,30 @@ private struct DiffViewerBreadcrumb: View {
 
             Spacer()
 
+            if !state.isPR, state.hasUnsentSessionComments {
+                Menu {
+                    ForEach(AIAssistantProvider.allCases) { provider in
+                        Button(provider.displayName) { state.runAllByAgent(provider: provider) }
+                    }
+                } label: {
+                    HStack(spacing: UIMetrics.scaled(4)) {
+                        Image(systemName: "terminal")
+                            .font(.system(size: UIMetrics.fontXS, weight: .semibold))
+                        Text("Run all by agent")
+                            .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                    }
+                    .foregroundStyle(MuxyTheme.accent)
+                    .padding(.horizontal, UIMetrics.scaled(6))
+                    .frame(height: UIMetrics.controlSmall)
+                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                    .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Run all comments by AI agent in a new tab")
+            }
+
             collapseToggle
 
             wrapToggle
@@ -365,7 +394,8 @@ private struct DiffCardList: View {
         let probeY = activeProbeY
         return sections.first { section in
             guard let offset = offsets[section.cacheKey] else { return false }
-            return offset <= probeY && offset + cardMetrics.cardHeight(for: section) >= probeY
+            let extra = DiffCommentLayoutCache.layout(for: section, state: state).totalExtraHeight
+            return offset <= probeY && offset + cardMetrics.cardHeight(for: section, extraCommentHeight: extra) >= probeY
         }?.cacheKey
     }
 
@@ -389,30 +419,23 @@ private struct DiffFileCard: View {
         state.activeCacheKey == section.cacheKey
     }
 
-    private var editorHeight: CGFloat {
-        metrics.editorHeight(for: section)
+    private var layout: DiffCommentLayout {
+        DiffCommentLayoutCache.layout(for: section, state: state)
     }
 
     private var cardHeight: CGFloat {
-        metrics.cardHeight(for: section)
+        metrics.cardHeight(for: section, extraCommentHeight: layout.totalExtraHeight)
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            VStack(spacing: 0) {
-                header
-                if !section.isCollapsed {
-                    Rectangle().fill(MuxyTheme.border).frame(height: metrics.borderHeight)
-                    GeometryReader { proxy in
-                        let frame = proxy.frame(in: .named("diff-card-scroll"))
-                        editorBody(shouldRender: shouldRenderBody(frame: frame))
-                    }
-                    .frame(height: editorHeight)
-                }
+        VStack(spacing: 0) {
+            header
+            if !section.isCollapsed {
+                Rectangle().fill(MuxyTheme.border).frame(height: metrics.borderHeight)
+                content
             }
-            Color.clear.frame(height: cardHeight)
         }
-        .frame(height: cardHeight)
+        .frame(height: cardHeight, alignment: .top)
         .background(MuxyTheme.bg, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
         .overlay(
             RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
@@ -422,25 +445,30 @@ private struct DiffFileCard: View {
     }
 
     @ViewBuilder
-    private func editorBody(shouldRender: Bool) -> some View {
-        if !shouldRender {
-            Color.clear
-        } else if section.isLoading, section.rows.isEmpty {
+    private var content: some View {
+        if section.isLoading, section.rows.isEmpty {
             loadingBody
         } else if let errorMessage = section.errorMessage, section.rows.isEmpty {
             messageBody(errorMessage)
         } else if section.rows.isEmpty {
             emptyBody
         } else {
-            editor
-                .frame(height: editorHeight)
-                .clipped()
+            columns
         }
     }
 
-    private func shouldRenderBody(frame: CGRect) -> Bool {
-        let overscan = viewportHeight
-        return frame.maxY >= -overscan && frame.minY <= viewportHeight + overscan
+    @ViewBuilder
+    private var columns: some View {
+        switch state.mode {
+        case .unified:
+            DiffColumn(state: state, section: section, metrics: metrics, kind: .unified, layout: layout)
+        case .split:
+            HStack(spacing: 0) {
+                DiffColumn(state: state, section: section, metrics: metrics, kind: .splitOld, layout: layout)
+                Rectangle().fill(MuxyTheme.border).frame(width: 1)
+                DiffColumn(state: state, section: section, metrics: metrics, kind: .splitNew, layout: layout)
+            }
+        }
     }
 
     private var loadingBody: some View {
@@ -482,39 +510,6 @@ private struct DiffFileCard: View {
             .multilineTextAlignment(.center)
             .padding(UIMetrics.spacing5)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var editor: some View {
-        SingleDiffEditorView(
-            rows: section.rows,
-            projectPath: state.projectPath,
-            filePath: section.filePath,
-            cacheKey: section.cacheKey,
-            mode: state.mode,
-            wordWrap: state.wordWrap,
-            fontSize: state.fontSize,
-            maxLineCharacters: maxRenderedCharacters,
-            passesScrollWheelToParent: true
-        )
-        .id(editorIdentity)
-        .frame(maxWidth: .infinity)
-    }
-
-    private var editorIdentity: String {
-        [
-            section.cacheKey,
-            state.mode.rawValue,
-            String(state.wordWrap),
-            String(describing: state.fontSize),
-            String(maxRenderedCharacters),
-            String(section.rows.count),
-            section.rows.first?.id.uuidString ?? "empty",
-            section.rows.last?.id.uuidString ?? "empty",
-        ].joined(separator: ":")
-    }
-
-    private var maxRenderedCharacters: Int {
-        state.wordWrap ? 1024 : 2048
     }
 
     private var header: some View {
@@ -591,6 +586,399 @@ private struct DiffFileCard: View {
     }
 }
 
+private struct DiffCardSegmentRange: Equatable {
+    let start: Int
+    let end: Int
+}
+
+private enum DiffColumnKind {
+    case unified
+    case splitOld
+    case splitNew
+
+    var side: DiffCommentSide {
+        self == .splitOld ? .old : .new
+    }
+
+    var rendersBothSides: Bool { self == .unified }
+}
+
+private struct DiffColumn: View {
+    @Bindable var state: DiffViewerTabState
+    let section: DiffEditorFileSection
+    let metrics: DiffCardMetrics
+    let kind: DiffColumnKind
+    let layout: DiffCommentLayout
+
+    @State private var hoveredRow: Int?
+    @State private var dragSelection: ClosedRange<Int>?
+
+    private var lineHeight: CGFloat {
+        metrics.lineHeight()
+    }
+
+    private var topInset: CGFloat {
+        DiffEditorLineMetrics.textContainerInset
+    }
+
+    private var renderedRows: [DiffRenderedRow] {
+        DiffRenderedRowMapper.renderedRows(for: section.rows, mode: state.mode)
+    }
+
+    private var pairedRows: [SplitDiffPairedRow] {
+        SplitDiffPairedRow.pair(section.rows)
+    }
+
+    private var gutterWidth: CGFloat {
+        switch kind {
+        case .unified:
+            DiffGutterMetrics.width(rows: section.rows, fontSize: state.fontSize)
+        case .splitOld:
+            DiffGutterMetrics.width(pairedRows: pairedRows, side: .old, fontSize: state.fontSize)
+        case .splitNew:
+            DiffGutterMetrics.width(pairedRows: pairedRows, side: .new, fontSize: state.fontSize)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(segments, id: \.start) { segment in
+                segmentEditor(range: segment.start ..< segment.end)
+                if let gapHeight = layout.gaps[segment.end - 1] {
+                    gapRegion(row: segment.end - 1, height: gapHeight)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var segments: [DiffCardSegmentRange] {
+        let rowCount = renderedRows.count
+        guard rowCount > 0 else { return [] }
+        let boundaries = layout.gaps.keys.sorted()
+        var result: [DiffCardSegmentRange] = []
+        var start = 0
+        for boundary in boundaries {
+            let end = min(rowCount, boundary + 1)
+            guard end > start else { continue }
+            result.append(DiffCardSegmentRange(start: start, end: end))
+            start = end
+        }
+        if start < rowCount {
+            result.append(DiffCardSegmentRange(start: start, end: rowCount))
+        }
+        return result
+    }
+
+    private func segmentEditor(range: Range<Int>) -> some View {
+        let height = CGFloat(range.count) * lineHeight + topInset * 2
+        return ZStack(alignment: .topLeading) {
+            DiffColumnEditor(
+                state: state,
+                section: section,
+                kind: kind,
+                pairedRows: Array(pairedRows[safe: range]),
+                rows: Array(section.rows[safe: rawRange(for: range)])
+            )
+            .frame(height: height)
+            .clipped()
+
+            overlay(range: range)
+        }
+        .frame(height: height)
+    }
+
+    private func rawRange(for renderedRange: Range<Int>) -> Range<Int> {
+        guard kind.rendersBothSides else { return renderedRange }
+        return renderedRange
+    }
+
+    private func overlay(range: Range<Int>) -> some View {
+        ZStack(alignment: .topLeading) {
+            if let selection = highlightRange, selection.overlaps(range) {
+                let visibleLower = max(selection.lowerBound, range.lowerBound)
+                let visibleUpper = min(selection.upperBound, range.upperBound - 1)
+                Rectangle()
+                    .fill(MuxyTheme.accent.opacity(0.14))
+                    .frame(height: CGFloat(visibleUpper - visibleLower + 1) * lineHeight)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .offset(y: topInset + CGFloat(visibleLower - range.lowerBound) * lineHeight)
+                    .allowsHitTesting(false)
+            }
+            if dragSelection == nil, activeComposerRange == nil, let row = hoveredRow, range.contains(row) {
+                addButton(row: row - range.lowerBound)
+            }
+            hoverStrip(range: range)
+        }
+        .clipped()
+    }
+
+    private var activeComposerRange: ClosedRange<Int>? {
+        guard let composer = state.activeComposer,
+              composer.cacheKey == section.cacheKey,
+              composer.side == kind.side || kind.rendersBothSides
+        else { return nil }
+        let lower = renderedRowIndex(side: composer.side, line: composer.startLine)
+        let upper = renderedRowIndex(side: composer.side, line: composer.endLine)
+        guard let lower, let upper else { return nil }
+        return min(lower, upper) ... max(lower, upper)
+    }
+
+    private var highlightRange: ClosedRange<Int>? {
+        dragSelection ?? activeComposerRange
+    }
+
+    private func renderedRowIndex(side: DiffCommentSide, line: Int) -> Int? {
+        renderedRows.firstIndex { row in
+            switch side {
+            case .old: row.oldLineNumber == line
+            case .new: row.newLineNumber == line
+            }
+        }
+    }
+
+    private func hoverStrip(range: Range<Int>) -> some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.001))
+            .frame(width: gutterWidth)
+            .frame(maxHeight: .infinity, alignment: .topLeading)
+            .onHover { inside in
+                if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+            .onContinuousHover { phase in
+                switch phase {
+                case let .active(point):
+                    if let row = commentableRow(localY: point.y, range: range) {
+                        hoveredRow = row
+                    }
+                case .ended:
+                    hoveredRow = nil
+                }
+            }
+            .gesture(dragGesture(range: range))
+    }
+
+    private func addButton(row localRow: Int) -> some View {
+        Image(systemName: "plus")
+            .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+            .foregroundStyle(Color.white)
+            .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
+            .background(MuxyTheme.accent, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+            .offset(x: UIMetrics.scaled(4), y: topInset + CGFloat(localRow) * lineHeight + (lineHeight - UIMetrics.scaled(18)) / 2)
+            .allowsHitTesting(false)
+    }
+
+    private func dragGesture(range: Range<Int>) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard let start = nearestCommentableRow(localY: value.startLocation.y, range: range),
+                      let current = nearestCommentableRow(localY: value.location.y, range: range)
+                else { return }
+                dragSelection = min(start, current) ... max(start, current)
+            }
+            .onEnded { value in
+                defer { dragSelection = nil }
+                guard let start = nearestCommentableRow(localY: value.startLocation.y, range: range),
+                      let current = nearestCommentableRow(localY: value.location.y, range: range)
+                else { return }
+                openComposer(range: min(start, current) ... max(start, current))
+            }
+    }
+
+    private func commentableRow(localY: CGFloat, range: Range<Int>) -> Int? {
+        guard lineHeight > 0 else { return nil }
+        let row = range.lowerBound + Int((localY - topInset) / lineHeight)
+        guard range.contains(row), lineNumber(at: row) != nil else { return nil }
+        return row
+    }
+
+    private func nearestCommentableRow(localY: CGFloat, range: Range<Int>) -> Int? {
+        guard lineHeight > 0, !range.isEmpty else { return nil }
+        let raw = min(range.upperBound - 1, max(range.lowerBound, range.lowerBound + Int((localY - topInset) / lineHeight)))
+        if lineNumber(at: raw) != nil { return raw }
+        for delta in 1 ..< max(2, range.count) {
+            if raw - delta >= range.lowerBound, lineNumber(at: raw - delta) != nil { return raw - delta }
+            if raw + delta < range.upperBound, lineNumber(at: raw + delta) != nil { return raw + delta }
+        }
+        return nil
+    }
+
+    private func lineNumber(at renderedRow: Int) -> Int? {
+        guard renderedRow >= 0, renderedRow < renderedRows.count else { return nil }
+        let row = renderedRows[renderedRow]
+        if kind.rendersBothSides {
+            return row.newLineNumber ?? row.oldLineNumber
+        }
+        return kind.side == .new ? row.newLineNumber : row.oldLineNumber
+    }
+
+    private func sideForComposer(at renderedRow: Int) -> DiffCommentSide {
+        guard kind.rendersBothSides else { return kind.side }
+        guard renderedRow >= 0, renderedRow < renderedRows.count else { return .new }
+        return renderedRows[renderedRow].newLineNumber != nil ? .new : .old
+    }
+
+    private func openComposer(range: ClosedRange<Int>) {
+        let side = sideForComposer(at: range.lowerBound)
+        let lines = range.compactMap { renderedRow -> Int? in
+            guard renderedRow >= 0, renderedRow < renderedRows.count else { return nil }
+            let row = renderedRows[renderedRow]
+            return side == .new ? row.newLineNumber : row.oldLineNumber
+        }
+        guard let startLine = lines.first, let endLine = lines.last else { return }
+        state.beginComposer(
+            cacheKey: section.cacheKey,
+            filePath: section.filePath,
+            side: side,
+            startLine: startLine,
+            endLine: endLine
+        )
+    }
+
+    @ViewBuilder
+    private func gapRegion(row: Int, height: CGFloat) -> some View {
+        let blocks = layout.blocks(side: kind.side, atRow: row)
+            + (kind.rendersBothSides ? layout.blocks(side: .old, atRow: row) : [])
+        VStack(spacing: 0) {
+            ForEach(blocks) { block in
+                commentBox(block)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(height: height, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(gutterContinuation)
+    }
+
+    private var gutterContinuation: some View {
+        Color(EditorThemePalette.active.background)
+            .frame(width: gutterWidth)
+            .overlay(alignment: .trailing) {
+                Color(EditorThemePalette.active.foreground.withAlphaComponent(0.08))
+                    .frame(width: 1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func commentBox(_ block: DiffCommentBlock) -> some View {
+        Group {
+            switch block.content {
+            case let .composer(target):
+                DiffCommentComposer(state: state, target: target)
+            case let .comment(comment):
+                DiffCommentThread(state: state, comment: comment)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(height: block.height, alignment: .top)
+        .padding(.leading, gutterWidth + DiffCommentMetrics.blockHorizontalInset)
+        .padding(.trailing, DiffCommentMetrics.blockHorizontalInset)
+        .padding(.vertical, DiffCommentLayout.verticalInset)
+    }
+}
+
+private struct DiffColumnEditor: View {
+    @Bindable var state: DiffViewerTabState
+    let section: DiffEditorFileSection
+    let kind: DiffColumnKind
+    let pairedRows: [SplitDiffPairedRow]
+    let rows: [DiffDisplayRow]
+
+    @State private var editorSettings = EditorSettings.shared
+    @State private var themeRevision = 0
+    @State private var documentRevision = 0
+    @State private var editorState: EditorTabState
+    @State private var appliedSignature = ""
+
+    init(
+        state: DiffViewerTabState,
+        section: DiffEditorFileSection,
+        kind: DiffColumnKind,
+        pairedRows: [SplitDiffPairedRow],
+        rows: [DiffDisplayRow]
+    ) {
+        self.state = state
+        self.section = section
+        self.kind = kind
+        self.pairedRows = pairedRows
+        self.rows = rows
+        _editorState = State(initialValue: EditorTabState(
+            projectPath: state.projectPath,
+            filePath: section.filePath,
+            readOnlyText: "",
+            diffLineKinds: []
+        ))
+    }
+
+    var body: some View {
+        CodeEditorView(
+            state: editorState,
+            editorSettings: editorSettings,
+            fontFamilyOverride: "SF Mono",
+            fontSizeOverride: state.fontSize,
+            showLineNumbers: false,
+            lineWrapping: state.wordWrap,
+            themeVersion: GhosttyService.shared.configVersion + themeRevision + documentRevision,
+            showsVerticalScroller: false,
+            focused: false,
+            searchNeedle: "",
+            searchNavigationVersion: 0,
+            searchNavigationDirection: .next,
+            searchCaseSensitive: false,
+            searchUseRegex: false,
+            replaceText: "",
+            replaceVersion: 0,
+            replaceAllVersion: 0,
+            editorFocusVersion: 0,
+            synchronizedScrollY: nil,
+            passesScrollWheelToParent: true,
+            onFocus: {}
+        )
+        .background(MuxyTheme.bg)
+        .onAppear(perform: sync)
+        .onChange(of: signature) { _, _ in sync() }
+        .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in themeRevision &+= 1 }
+    }
+
+    private var maxLineCharacters: Int {
+        state.wordWrap ? 1024 : 2048
+    }
+
+    private var signature: String {
+        let count = kind.rendersBothSides ? rows.count : pairedRows.count
+        let firstID = kind.rendersBothSides ? rows.first?.id.uuidString : pairedRows.first?.id.uuidString
+        let lastID = kind.rendersBothSides ? rows.last?.id.uuidString : pairedRows.last?.id.uuidString
+        return "\(kind):\(count):\(firstID ?? ""):\(lastID ?? ""):\(maxLineCharacters)"
+    }
+
+    private func sync() {
+        guard appliedSignature != signature else { return }
+        let options = DiffEditorDocument.RenderOptions(maxLineCharacters: maxLineCharacters)
+        let document: DiffEditorDocument = switch kind {
+        case .unified: .unified(rows: rows, options: options)
+        case .splitOld: .splitLeft(paired: pairedRows, options: options)
+        case .splitNew: .splitRight(paired: pairedRows, options: options)
+        }
+        editorState.replaceReadOnlyText(
+            document.text,
+            filePath: section.filePath,
+            diffLineKinds: document.lineKinds,
+            diffGutterLines: document.gutterLines
+        )
+        documentRevision &+= 1
+        appliedSignature = signature
+    }
+}
+
+private extension Array {
+    subscript(safe range: Range<Int>) -> ArraySlice<Element> {
+        let lower = Swift.max(0, range.lowerBound)
+        let upper = Swift.min(count, range.upperBound)
+        guard lower < upper else { return self[0 ..< 0] }
+        return self[lower ..< upper]
+    }
+}
+
 enum DiffCardLineCount {
     static func value(for section: DiffEditorFileSection) -> Int {
         guard section.rows.isEmpty else { return section.rows.count }
@@ -629,18 +1017,41 @@ private struct DiffCardMetrics {
         UIMetrics.scaled(1)
     }
 
-    func editorHeight(for section: DiffEditorFileSection) -> CGFloat {
+    func lineHeight() -> CGFloat {
+        DiffEditorLineMetrics.lineHeight(fontSize: fontSize, lineHeightMultiplier: lineHeightMultiplier)
+    }
+
+    func editorHeight(for section: DiffEditorFileSection, extraCommentHeight: CGFloat = 0) -> CGFloat {
         let lineCount = DiffCardLineCount.value(for: section)
         let height = DiffEditorLineMetrics.editorHeight(
             lineCount: lineCount,
             fontSize: fontSize,
             lineHeightMultiplier: lineHeightMultiplier
         )
-        return max(UIMetrics.scaled(80), height)
+        return max(UIMetrics.scaled(80), height) + extraCommentHeight
     }
 
-    func cardHeight(for section: DiffEditorFileSection) -> CGFloat {
-        headerHeight + (section.isCollapsed ? 0 : editorHeight(for: section) + borderHeight)
+    func cardHeight(for section: DiffEditorFileSection, extraCommentHeight: CGFloat = 0) -> CGFloat {
+        headerHeight + (section.isCollapsed ? 0 : editorHeight(for: section, extraCommentHeight: extraCommentHeight) + borderHeight)
+    }
+}
+
+@MainActor
+private enum DiffCommentLayoutCache {
+    static func layout(
+        for section: DiffEditorFileSection,
+        state: DiffViewerTabState
+    ) -> DiffCommentLayout {
+        let comments = state.comments(forCacheKey: section.cacheKey)
+        let composer = state.activeComposer?.cacheKey == section.cacheKey ? state.activeComposer : nil
+        guard !comments.isEmpty || composer != nil else { return .empty }
+        let renderedRows = DiffRenderedRowMapper.renderedRows(for: section.rows, mode: state.mode)
+        return DiffCommentLayout.make(
+            renderedRows: renderedRows,
+            comments: comments,
+            composer: composer,
+            composerLineCount: state.composerLineCount
+        )
     }
 }
 

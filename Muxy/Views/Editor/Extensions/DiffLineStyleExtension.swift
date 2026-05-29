@@ -234,7 +234,8 @@ final class DiffGutterView: LineNumberGutterView {
             EditorThemePalette.active.foreground.withAlphaComponent(0.75)
         case .collapsed:
             EditorThemePalette.active.foreground.withAlphaComponent(0.55)
-        case .context:
+        case .context,
+             .commentSpacer:
             EditorThemePalette.active.foreground.withAlphaComponent(0.45)
         }
     }
@@ -249,7 +250,8 @@ final class DiffGutterView: LineNumberGutterView {
             MuxyTheme.nsBg.blended(withFraction: 0.08, of: MuxyTheme.nsFg) ?? MuxyTheme.nsBg
         case .collapsed:
             EditorThemePalette.active.foreground.withAlphaComponent(0.08)
-        case .context:
+        case .context,
+             .commentSpacer:
             EditorThemePalette.active.background
         }
     }
@@ -262,7 +264,8 @@ final class DiffGutterView: LineNumberGutterView {
             MuxyTheme.nsDiffRemove
         case .context,
              .hunk,
-             .collapsed:
+             .collapsed,
+             .commentSpacer:
             nil
         }
     }
@@ -384,7 +387,8 @@ final class DiffLineStyleExtension: EditorExtension {
                 value: EditorThemePalette.active.foreground.withAlphaComponent(0.55),
                 forCharacterRange: range
             )
-        case .context:
+        case .context,
+             .commentSpacer:
             break
         }
     }

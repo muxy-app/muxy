@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 struct DiffEditorDocument {
     struct RenderOptions: Equatable {
@@ -26,6 +26,8 @@ struct DiffEditorDocument {
                 lines.append(hunkLabel(row.text))
             case .collapsed:
                 lines.append(row.text)
+            case .commentSpacer:
+                lines.append("")
             case .context:
                 lines.append(contentText(for: row, options: options))
             case .addition:
@@ -57,15 +59,23 @@ struct DiffEditorDocument {
     }
 
     static func splitLeft(rows: [DiffDisplayRow], options: RenderOptions = .full) -> DiffEditorDocument {
-        split(rows: rows, options: options).left
+        split(paired: SplitDiffPairedRow.pair(rows), options: options).left
     }
 
     static func splitRight(rows: [DiffDisplayRow], options: RenderOptions = .full) -> DiffEditorDocument {
-        split(rows: rows, options: options).right
+        split(paired: SplitDiffPairedRow.pair(rows), options: options).right
+    }
+
+    static func splitLeft(paired: [SplitDiffPairedRow], options: RenderOptions = .full) -> DiffEditorDocument {
+        split(paired: paired, options: options).left
+    }
+
+    static func splitRight(paired: [SplitDiffPairedRow], options: RenderOptions = .full) -> DiffEditorDocument {
+        split(paired: paired, options: options).right
     }
 
     private static func split(
-        rows: [DiffDisplayRow],
+        paired pairedRows: [SplitDiffPairedRow],
         options: RenderOptions = .full
     ) -> (left: DiffEditorDocument, right: DiffEditorDocument) {
         var leftLines: [String] = []
@@ -74,7 +84,6 @@ struct DiffEditorDocument {
         var rightKinds: [DiffDisplayRow.Kind] = []
         var leftGutterLines: [DiffEditorGutterLine] = []
         var rightGutterLines: [DiffEditorGutterLine] = []
-        let pairedRows = SplitDiffPairedRow.pair(rows)
         leftLines.reserveCapacity(pairedRows.count)
         rightLines.reserveCapacity(pairedRows.count)
         leftKinds.reserveCapacity(pairedRows.count)
@@ -255,7 +264,8 @@ struct SplitDiffPairedRow: Identifiable {
             case .hunk:
                 result.append(SplitDiffPairedRow(kind: .hunk, left: row, right: nil))
                 index += 1
-            case .collapsed:
+            case .collapsed,
+                 .commentSpacer:
                 result.append(SplitDiffPairedRow(kind: .collapsed, left: row, right: nil))
                 index += 1
             case .context:
@@ -301,6 +311,86 @@ struct DiffEditorFileSection {
     let additions: Int
     let deletions: Int
     let isStaged: Bool
+}
+
+struct DiffRenderedRow {
+    let oldLineNumber: Int?
+    let newLineNumber: Int?
+}
+
+@MainActor
+enum DiffGutterMetrics {
+    private static let columnGap: CGFloat = 8
+    private static let horizontalPadding: CGFloat = 8
+    private static let changeStripeWidth: CGFloat = 3
+
+    static func width(rows: [DiffDisplayRow], fontSize: CGFloat) -> CGFloat {
+        var maxNumber = 0
+        var hasOld = false
+        var hasNew = false
+        for row in rows {
+            if let old = row.oldLineNumber {
+                maxNumber = max(maxNumber, old)
+                hasOld = true
+            }
+            if let new = row.newLineNumber {
+                maxNumber = max(maxNumber, new)
+                hasNew = true
+            }
+        }
+        return width(maxNumber: maxNumber, hasOld: hasOld, hasNew: hasNew, fontSize: fontSize)
+    }
+
+    static func width(pairedRows: [SplitDiffPairedRow], side: DiffCommentSide, fontSize: CGFloat) -> CGFloat {
+        var maxNumber = 0
+        var hasOld = false
+        var hasNew = false
+        for row in pairedRows {
+            switch side {
+            case .old:
+                if let old = row.left?.oldLineNumber {
+                    maxNumber = max(maxNumber, old)
+                    hasOld = true
+                }
+            case .new:
+                if let new = row.right?.newLineNumber {
+                    maxNumber = max(maxNumber, new)
+                    hasNew = true
+                }
+            }
+        }
+        return width(maxNumber: maxNumber, hasOld: hasOld, hasNew: hasNew, fontSize: fontSize)
+    }
+
+    private static func width(maxNumber: Int, hasOld: Bool, hasNew: Bool, fontSize: CGFloat) -> CGFloat {
+        let digits = max(2, String(max(1, maxNumber)).count)
+        let font = labelFont(fontSize: fontSize)
+        let numberWidth = (String(repeating: "0", count: digits) as NSString).size(withAttributes: [.font: font]).width
+        let numberColumns = hasOld && hasNew ? numberWidth * 2 + columnGap : numberWidth
+        return ceil(changeStripeWidth + horizontalPadding + numberColumns + horizontalPadding)
+    }
+
+    private static func labelFont(fontSize: CGFloat) -> NSFont {
+        let size = max(9, fontSize - 1)
+        return NSFont(name: DiffEditorLineMetrics.fontFamily, size: size)
+            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+}
+
+enum DiffRenderedRowMapper {
+    static func renderedRows(for rows: [DiffDisplayRow], mode: VCSTabState.ViewMode) -> [DiffRenderedRow] {
+        switch mode {
+        case .unified:
+            rows.map { DiffRenderedRow(oldLineNumber: $0.oldLineNumber, newLineNumber: $0.newLineNumber) }
+        case .split:
+            SplitDiffPairedRow.pair(rows).map { paired in
+                DiffRenderedRow(
+                    oldLineNumber: paired.left?.oldLineNumber,
+                    newLineNumber: paired.right?.newLineNumber
+                )
+            }
+        }
+    }
 }
 
 func hunkLabel(_ raw: String) -> String {
