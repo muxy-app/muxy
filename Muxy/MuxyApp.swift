@@ -14,6 +14,7 @@ struct MuxyApp: App {
     @State private var didStartDeferredServices = false
 
     init() {
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 500])
         LaunchArgumentGuard.terminateIfNeeded()
         _ = MuxyApp.launchDate
         let environment = AppEnvironment.live
