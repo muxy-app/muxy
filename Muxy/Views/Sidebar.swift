@@ -1,18 +1,30 @@
+import AppKit
 import SwiftUI
 
 @MainActor
 enum SidebarLayout {
     static var collapsedWidth: CGFloat { UIMetrics.sidebarCollapsedWidth }
     static var expandedWidth: CGFloat { UIMetrics.sidebarExpandedWidth }
+    static var minExpandedWidth: CGFloat { UIMetrics.sidebarExpandedMinWidth }
+    static var maxExpandedWidth: CGFloat { UIMetrics.sidebarExpandedMaxWidth }
     static var width: CGFloat { UIMetrics.sidebarCollapsedWidth }
+
+    static func clampExpandedWidth(_ value: CGFloat) -> CGFloat {
+        min(max(value, minExpandedWidth), maxExpandedWidth)
+    }
 
     static func resolvedWidth(
         expanded: Bool,
         collapsedStyle: SidebarCollapsedStyle,
-        expandedStyle: SidebarExpandedStyle
+        expandedStyle: SidebarExpandedStyle,
+        expandedCustomWidth: CGFloat? = nil
     ) -> CGFloat {
         if expanded {
-            return expandedStyle == .wide ? expandedWidth : collapsedWidth
+            guard expandedStyle == .wide else { return collapsedWidth }
+            if let expandedCustomWidth {
+                return clampExpandedWidth(expandedCustomWidth)
+            }
+            return expandedWidth
         }
         return collapsedStyle == .hidden ? 0 : collapsedWidth
     }
@@ -32,7 +44,9 @@ struct Sidebar: View {
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
+    @State private var projectPendingRemoval: Project?
     let expanded: Bool
+    let expandedCustomWidth: CGFloat
     @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
 
@@ -62,10 +76,32 @@ struct Sidebar: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxHeight: .infinity, alignment: .bottom)
-        .frame(width: isHidden ? 0 : (isWide ? SidebarLayout.expandedWidth : SidebarLayout.collapsedWidth))
+        .frame(width: SidebarLayout.resolvedWidth(
+            expanded: expanded,
+            collapsedStyle: collapsedStyle,
+            expandedStyle: expandedStyle,
+            expandedCustomWidth: expandedCustomWidth
+        ))
         .opacity(isHidden ? 0 : 1)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Sidebar")
+        .alert(
+            "Remove \"\(projectPendingRemoval?.name ?? "")\"?",
+            isPresented: removalAlertBinding,
+            presenting: projectPendingRemoval
+        ) { project in
+            Button("Remove", role: .destructive) {
+                performRemove(project)
+                projectPendingRemoval = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) {
+                projectPendingRemoval = nil
+            }
+            .keyboardShortcut(.cancelAction)
+        } message: { _ in
+            Text("This will remove the project from Muxy. Project files on disk will not be deleted.")
+        }
     }
 
     private var addButton: some View {
@@ -73,7 +109,8 @@ struct Sidebar: View {
             ProjectOpenService.openProjectViaPicker(
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )
         }
         .help(shortcutTooltip("Add Project", for: .openProject))
@@ -99,6 +136,7 @@ struct Sidebar: View {
                                 onRemove: { remove(project) },
                                 onRename: { projectStore.rename(id: project.id, to: $0) },
                                 onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
+                                onSetIcon: { projectStore.setIcon(id: project.id, to: $0) },
                                 onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) }
                             )
                         } else {
@@ -110,6 +148,7 @@ struct Sidebar: View {
                                 onRemove: { remove(project) },
                                 onRename: { projectStore.rename(id: project.id, to: $0) },
                                 onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
+                                onSetIcon: { projectStore.setIcon(id: project.id, to: $0) },
                                 onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) }
                             )
                         }
@@ -172,14 +211,43 @@ struct Sidebar: View {
     }
 
     private func remove(_ project: Project) {
+        projectPendingRemoval = project
+    }
+
+    private var removalAlertBinding: Binding<Bool> {
+        Binding(
+            get: { projectPendingRemoval != nil },
+            set: { newValue in
+                if !newValue {
+                    projectPendingRemoval = nil
+                }
+            }
+        )
+    }
+
+    private func performRemove(_ project: Project) {
         let capturedProject = project
         let knownWorktrees = worktreeStore.list(for: project.id)
-        Task.detached {
-            await WorktreeStore.cleanupOnDisk(for: capturedProject, knownWorktrees: knownWorktrees)
+        Task {
+            do {
+                try await WorktreeStore.cleanupOnDisk(for: capturedProject, knownWorktrees: knownWorktrees)
+                appState.removeProject(project.id)
+                projectStore.remove(id: project.id)
+                worktreeStore.removeProject(project.id)
+            } catch {
+                presentProjectRemovalFailure(project: capturedProject, error: error)
+            }
         }
-        appState.removeProject(project.id)
-        projectStore.remove(id: project.id)
-        worktreeStore.removeProject(project.id)
+    }
+
+    private func presentProjectRemovalFailure(project: Project, error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Could not remove project \"\(project.name)\""
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.icon = NSApp.applicationIconImage
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func reorderIfNeeded(at location: CGPoint) {
@@ -272,20 +340,8 @@ private struct AddProjectButton: View {
 struct SidebarFooter: View {
     var isWide = false
     var sidebarExpanded = false
-    @AppStorage(AIUsageSettingsStore.usageEnabledKey) private var usageEnabled = false
-    @AppStorage(AIUsageSettingsStore.usageDisplayModeKey) private var usageDisplayModeRaw = AIUsageSettingsStore.defaultUsageDisplayMode
-        .rawValue
-    @AppStorage(AIUsageSettingsStore.sidebarPreviewProviderIDKey) private var pinnedPreviewProviderID: String = ""
     @State private var showThemePicker = false
     @State private var showNotifications = false
-    @State private var showAIUsagePopover = false
-    private let usageService = AIUsageService.shared
-
-    private var usageDisplayMode: AIUsageDisplayMode {
-        AIUsageDisplayMode(rawValue: usageDisplayModeRaw) ?? AIUsageSettingsStore.defaultUsageDisplayMode
-    }
-
-    private let usageRefreshTimer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     private var notificationStore: NotificationStore { NotificationStore.shared }
 
@@ -297,28 +353,11 @@ struct SidebarFooter: View {
                 collapsedFooter
             }
         }
-        .task {
-            await usageService.refreshIfNeeded()
-        }
-        .onReceive(usageRefreshTimer) { _ in
-            Task {
-                await usageService.refreshIfNeeded()
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .toggleThemePicker)) { _ in
             showThemePicker.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleNotificationPanel)) { _ in
             showNotifications.toggle()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleAIUsage)) { _ in
-            guard usageEnabled else { return }
-            showAIUsagePopover.toggle()
-        }
-        .onChange(of: usageEnabled) { _, enabled in
-            if !enabled {
-                showAIUsagePopover = false
-            }
         }
     }
 
@@ -338,57 +377,19 @@ struct SidebarFooter: View {
         notificationStore.unreadCount > 0 ? "bell.badge" : "bell"
     }
 
-    private var previewProviderDisplay: (percent: Int, iconName: String)? {
-        guard let selection = usageService.previewSelection(pinnedRawValue: pinnedPreviewProviderID),
-              case .available = selection.snapshot.state
-        else { return nil }
-
-        let snapshot = selection.snapshot
-        let rowPercent = selection.row?.percent
-        let usedPercent = max(0, min(100, rowPercent ?? snapshot.rows.compactMap(\.percent).max() ?? 0))
-        let displayPercent: Double = switch usageDisplayMode {
-        case .used:
-            usedPercent
-        case .remaining:
-            max(0, min(100, 100 - usedPercent))
-        }
-
-        return (Int(displayPercent.rounded()), snapshot.providerIconName)
-    }
-
-    private var previewProviderPercentLabel: String? {
-        guard let display = previewProviderDisplay else { return nil }
-        return "\(max(0, min(100, display.percent)))%"
-    }
-
-    private var aiUsageButton: some View {
-        AIUsagePreviewButton(
-            display: previewProviderDisplay,
-            percentLabel: previewProviderPercentLabel,
-            expanded: isWide,
-            onTap: { showAIUsagePopover.toggle() }
-        )
-        .popover(isPresented: $showAIUsagePopover) {
-            AIUsagePanel(
-                snapshots: usageService.snapshots,
-                isRefreshing: usageService.isRefreshing,
-                lastRefreshDate: usageService.lastRefreshDate,
-                onRefresh: refreshUsage
-            )
-        }
-        .help("AI Usage (\(KeyBindingStore.shared.combo(for: .toggleAIUsage).displayString))")
+    private func openExtensions() {
+        NotificationCenter.default.post(name: .openExtensionsModal, object: nil)
     }
 
     private var collapsedFooter: some View {
         VStack(spacing: UIMetrics.spacing2) {
-            if usageEnabled {
-                aiUsageButton
-            }
             IconButton(symbol: notificationBellIcon, accessibilityLabel: "Notifications") { showNotifications.toggle() }
                 .help("Notifications")
                 .popover(isPresented: $showNotifications) {
                     NotificationPanel(onDismiss: { showNotifications = false })
                 }
+            IconButton(symbol: "puzzlepiece.extension", accessibilityLabel: "Extensions") { openExtensions() }
+                .help("Extensions")
             IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }
@@ -405,25 +406,18 @@ struct SidebarFooter: View {
 
             Spacer()
 
-            if usageEnabled {
-                aiUsageButton
-            }
             IconButton(symbol: notificationBellIcon, accessibilityLabel: "Notifications") { showNotifications.toggle() }
                 .help("Notifications")
                 .popover(isPresented: $showNotifications) {
                     NotificationPanel(onDismiss: { showNotifications = false })
                 }
+            IconButton(symbol: "puzzlepiece.extension", accessibilityLabel: "Extensions") { openExtensions() }
+                .help("Extensions")
             IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }
         }
         .padding(.horizontal, UIMetrics.spacing5)
         .padding(.bottom, UIMetrics.spacing4)
-    }
-
-    private func refreshUsage() {
-        Task {
-            await usageService.refresh(force: true)
-        }
     }
 }

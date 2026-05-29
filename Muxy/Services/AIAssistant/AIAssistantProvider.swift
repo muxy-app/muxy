@@ -4,6 +4,7 @@ enum AIAssistantProvider: String, CaseIterable, Identifiable, Codable {
     case claude
     case codex
     case opencode
+    case pi
     case custom
 
     var id: String { rawValue }
@@ -13,6 +14,7 @@ enum AIAssistantProvider: String, CaseIterable, Identifiable, Codable {
         case .claude: "Claude Code"
         case .codex: "Codex"
         case .opencode: "OpenCode"
+        case .pi: "Pi"
         case .custom: "Custom Command"
         }
     }
@@ -22,6 +24,7 @@ enum AIAssistantProvider: String, CaseIterable, Identifiable, Codable {
         case .claude: "claude"
         case .codex: "codex"
         case .opencode: "opencode"
+        case .pi: "pi"
         case .custom: ""
         }
     }
@@ -48,6 +51,12 @@ enum AIAssistantProvider: String, CaseIterable, Identifiable, Codable {
             return args
         case .opencode:
             var args = ["run", "--pure"]
+            if let model, !model.isEmpty {
+                args.append(contentsOf: ["--model", model])
+            }
+            return args
+        case .pi:
+            var args = ["-p"]
             if let model, !model.isEmpty {
                 args.append(contentsOf: ["--model", model])
             }

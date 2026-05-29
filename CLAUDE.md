@@ -7,10 +7,11 @@ Requires macOS 14+ and Swift 6.0+. No external dependency managers needed — ev
 Requires `swiftlint` and `swiftformat` (`brew install swiftlint swiftformat`).
 
 ```bash
-scripts/checks.sh        # Run all checks (formatting, linting, build)
-scripts/checks.sh --fix  # Auto-fix formatting and linting issues
-swiftformat --lint .      # Check formatting only
-swiftlint lint --strict   # Check linting only
+scripts/checks.sh             # Format, lint, build, test
+scripts/checks.sh --fix       # Auto-fix formatting and linting issues
+scripts/checks.sh --coverage  # Also run the coverage gate (slower; opt-in)
+swiftformat --lint .          # Check formatting only
+swiftlint lint --strict       # Check linting only
 ```
 
 Run `scripts/checks.sh --fix` after every task.
@@ -18,7 +19,6 @@ Run `scripts/checks.sh --fix` after every task.
 ## Top Level Rules
 
 - Security first
-- Native Only
 - Maintainability
 - Scalability
 - Clean Code
@@ -41,6 +41,8 @@ Run `scripts/checks.sh --fix` after every task.
 - Never answer any question without a proper investigation and exploring the codebase.
 - Prioritize problem comprehension over premature implementation. Validate the approach before execution to avoid rework
 - Plan properly before executing to not double work
+- Low memory and CPU usage is one of the key factors
+- Simpler, flexible and scalable approaches are key factors
 
 ## Code Review
 

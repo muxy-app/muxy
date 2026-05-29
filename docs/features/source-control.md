@@ -4,9 +4,9 @@ A full git UI for the active worktree. Open with `⌘K`, or **File → Source Co
 
 ```mermaid
 flowchart TB
-  Header[Header: worktree | branch | PR pill | refresh]
-  Commit[Commit area: message | Commit ⌘↵ | Pull ↓N | Push ↑N]
-  Sections[Sections: Staged | Changes | History | Pull Requests]
+  Header[Header: worktree, branch, PR pill, refresh]
+  Commit[Commit area: message, Commit, Pull, Push]
+  Sections[Sections: Staged, Changes, History, Pull Requests]
   Header --> Commit --> Sections
 ```
 
@@ -38,6 +38,7 @@ For deeper inspection, **Open in Diff Viewer** opens the file as a standalone di
 ## Commit, push, pull
 
 - Type a message in the commit box; **Commit** with `⌘↵`. Auto-stage toggle picks up unstaged changes when enabled.
+- Use the sparkle button to generate a commit message with the configured AI assistant.
 - **Push** uploads to the upstream branch; shows ↑N when ahead. Pushing a branch with no upstream prompts to set one.
 - **Pull** fetches and merges; shows ↓N when behind.
 
@@ -52,6 +53,7 @@ If `origin` is on GitHub and `gh` is authenticated, Muxy shows:
 - **PR pill** in the header (state, base, mergeability).
 - **Pull Requests** section with search, state filter (Open/Closed/Merged/All), and manual or interval-based auto-sync (Off / 5m / 15m / 30m / 1h).
 - **Create PR…** sheet with branch strategy, draft toggle, and "Open in browser after creation".
+- **Generate with AI** drafts the PR title and body from the branch diff.
 - Per-PR actions: open on GitHub, merge, close, refresh.
 
 ## History

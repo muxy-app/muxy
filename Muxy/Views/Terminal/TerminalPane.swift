@@ -143,7 +143,8 @@ struct TerminalBridge: NSViewRepresentable {
             for: state.id,
             workingDirectory: state.currentWorkingDirectory ?? state.projectPath,
             command: launch.command,
-            commandInteractive: launch.interactive
+            commandInteractive: launch.interactive,
+            closesOnCommandExit: launch.closesOnCommandExit
         )
         if view.envVars.isEmpty, let key = worktreeKey {
             view.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)

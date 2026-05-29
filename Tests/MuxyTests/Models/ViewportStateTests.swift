@@ -35,6 +35,15 @@ struct ViewportStateTests {
         #expect(range == 0 ..< 10)
     }
 
+    @Test("visibleLineRange handles initial backing store")
+    func visibleLineRangeInitialBackingStore() {
+        let store = TextBackingStore()
+        let vp = ViewportState(backingStore: store)
+
+        #expect(vp.visibleLineRange(scrollY: 0, visibleHeight: 160) == 0 ..< 1)
+        #expect(vp.computeViewport(scrollY: 0, visibleHeight: 160) == 0 ..< 1)
+    }
+
     @Test("visibleLineRange mid-scroll")
     func visibleLineRangeMid() {
         let vp = makeViewport(lineCount: 100)
@@ -150,6 +159,7 @@ struct ViewportStateTests {
         let vp = makeViewport(lineCount: 100)
         #expect(vp.scrollY(forLine: 10) == 160)
         #expect(vp.scrollY(forLine: 0) == 0)
+        #expect(vp.scrollY(forLine: -10) == 0)
     }
 
     @Test("updateEstimatedLineHeight scales by multiplier")
@@ -177,5 +187,57 @@ struct ViewportStateTests {
         let taller = vp.totalDocumentHeight
 
         #expect(taller > baseHeight)
+    }
+
+    @Test("container width and line wrapping rebuild height estimates")
+    func containerWidthAndLineWrappingRebuildEstimates() {
+        let store = TextBackingStore()
+        store.loadFromText("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz")
+        let vp = ViewportState(backingStore: store)
+        let initialHeight = vp.totalDocumentHeight
+
+        vp.lineWrappingEnabled = true
+        vp.updateContainerWidth(20)
+        let wrappedHeight = vp.totalDocumentHeight
+        vp.updateContainerWidth(20)
+
+        #expect(wrappedHeight > initialHeight)
+        #expect(vp.totalDocumentHeight == wrappedHeight)
+
+        vp.lineWrappingEnabled = false
+        let unwrappedHeight = vp.totalDocumentHeight
+        vp.lineWrappingEnabled = false
+
+        #expect(!vp.lineWrappingEnabled)
+        #expect(unwrappedHeight < wrappedHeight)
+        #expect(vp.totalDocumentHeight == unwrappedHeight)
+    }
+
+    @Test("document padding changes total document height")
+    func documentPaddingChangesTotalHeight() {
+        let vp = makeViewport(lineCount: 5)
+
+        vp.updateDocumentPadding(topInset: 10, bottomInset: 20, safetyPadding: 30)
+
+        #expect(vp.totalDocumentHeight == 140)
+    }
+
+    @Test("measured line heights and line replacement update scroll positions")
+    func measuredLineHeightsAndLineReplacementUpdateScrollPositions() {
+        let vp = makeViewport(lineCount: 5)
+
+        vp.recordMeasuredLineHeights(startLine: 1, lineHeights: [20, 30, 40])
+
+        #expect(vp.scrollY(forLine: 1) == 16)
+        #expect(vp.scrollY(forLine: 2) == 36)
+        #expect(vp.scrollY(forLine: 4) == 106)
+
+        vp.recordMeasuredLineHeights(startLine: 20, lineHeights: [100])
+        #expect(vp.scrollY(forLine: 4) == 106)
+
+        vp.notifyLinesReplaced(start: 1, removingCount: 2, insertingLineCharCounts: [3, 3, 3])
+
+        #expect(vp.backingStoreLine(forViewportLine: 2) == vp.viewportStartLine + 2)
+        #expect(vp.totalDocumentHeight > 0)
     }
 }

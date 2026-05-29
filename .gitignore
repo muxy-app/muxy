@@ -10,6 +10,7 @@ DerivedData/
 .env
 GhosttyKit.xcframework
 GhosttyKit/ghostty.h
+GhosttyKit/GhosttyKit
 Muxy/Resources/ghostty
 !Muxy/Resources/ghostty/themes
 !Muxy/Resources/ghostty/themes/**
@@ -27,3 +28,4 @@ appcast*.xml
 .opencode/
 .pi/
 .zurp-last-code-review-run.json
+.context/

@@ -5,7 +5,8 @@ enum ProjectOpenService {
     static func openProject(
         appState: AppState,
         projectStore: ProjectStore,
-        worktreeStore: WorktreeStore
+        worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore
     ) {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -19,6 +20,7 @@ enum ProjectOpenService {
             sortOrder: projectStore.projects.count
         )
         projectStore.add(project)
+        projectGroupStore.addProjectToActiveGroup(projectID: project.id)
         worktreeStore.ensurePrimary(for: project)
         guard let primary = worktreeStore.primary(for: project.id) else { return }
         appState.selectProject(project, worktree: primary)
@@ -28,6 +30,7 @@ enum ProjectOpenService {
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore,
         preferences: ProjectPickerPreferences = ProjectPickerPreferences(),
         notificationCenter: NotificationCenter = .default,
         openWithFinder: (() -> Void)? = nil
@@ -36,7 +39,12 @@ enum ProjectOpenService {
             if let openWithFinder {
                 openWithFinder()
             } else {
-                openProject(appState: appState, projectStore: projectStore, worktreeStore: worktreeStore)
+                openProject(
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
+                )
             }
         }
         presentOpenProject(
@@ -77,6 +85,7 @@ enum ProjectOpenService {
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore,
         createIfMissing: Bool = false
     ) -> Bool {
         confirmProjectPathResult(
@@ -84,6 +93,7 @@ enum ProjectOpenService {
             appState: appState,
             projectStore: projectStore,
             worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore,
             createIfMissing: createIfMissing
         ).didConfirm
     }
@@ -94,12 +104,14 @@ enum ProjectOpenService {
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore,
         createIfMissing: Bool = false
     ) -> ProjectOpenConfirmationResult {
         ProjectPathConfirmationService(
             appState: appState,
             projectStore: projectStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
         )
         .confirm(path: path, createIfMissing: createIfMissing)
     }

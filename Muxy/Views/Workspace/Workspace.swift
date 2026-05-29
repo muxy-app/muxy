@@ -62,6 +62,17 @@ struct TerminalArea: View {
                         attached: { NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil) }
                     )
                 },
+                onCreateDiffViewerTab: {
+                    appState.dispatch(.createDiffViewerTab(
+                        projectID: project.id,
+                        areaID: area.id,
+                        request: AppState.DiffViewerRequest(
+                            vcs: VCSStateStore.shared.state(for: area.projectPath),
+                            filePath: nil,
+                            isStaged: false
+                        )
+                    ))
+                },
                 onCloseTab: { tabID in
                     appState.closeTab(tabID, areaID: area.id, projectID: project.id)
                 },
@@ -106,6 +117,18 @@ struct TerminalArea: View {
                         attached: { NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil) }
                     )
                 },
+                onCreateDiffViewerTab: { areaID in
+                    let projectPath = root.findArea(id: areaID)?.projectPath ?? project.path
+                    appState.dispatch(.createDiffViewerTab(
+                        projectID: project.id,
+                        areaID: areaID,
+                        request: AppState.DiffViewerRequest(
+                            vcs: VCSStateStore.shared.state(for: projectPath),
+                            filePath: nil,
+                            isStaged: false
+                        )
+                    ))
+                },
                 onCloseTab: { areaID, tabID in
                     appState.closeTab(tabID, areaID: areaID, projectID: project.id)
                 },
@@ -143,6 +166,7 @@ private struct MaximizedAreaView: View {
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
     let onCreateVCSTab: () -> Void
+    let onCreateDiffViewerTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onForceCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
@@ -161,6 +185,7 @@ private struct MaximizedAreaView: View {
             onSelectTab: onSelectTab,
             onCreateTab: onCreateTab,
             onCreateVCSTab: onCreateVCSTab,
+            onCreateDiffViewerTab: onCreateDiffViewerTab,
             onCloseTab: onCloseTab,
             onForceCloseTab: onForceCloseTab,
             onSplit: onSplit,

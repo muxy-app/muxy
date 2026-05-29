@@ -155,6 +155,7 @@ final class ThemeService {
         config.updateConfigValue("theme", value: "\"\(sanitized)\"")
         cachedColors = nil
         ghostty.reloadConfig()
+        SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
         NotificationCenter.default.post(name: .themeDidChange, object: nil)
     }
 
@@ -164,6 +165,7 @@ final class ThemeService {
         config.updateConfigValue("theme", value: "dark:\"\(dark)\",light:\"\(light)\"")
         cachedColors = nil
         ghostty.reloadConfig()
+        SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
         NotificationCenter.default.post(name: .themeDidChange, object: nil)
     }
 

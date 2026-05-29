@@ -56,10 +56,6 @@ private struct ProviderToggleRow: View {
 
     var body: some View {
         HStack {
-            Image(systemName: provider.iconName)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
             Text(provider.displayName)
                 .font(.system(size: SettingsMetrics.labelFontSize))
             Spacer()
@@ -80,7 +76,7 @@ private struct ProviderToggleRow: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
-                .foregroundStyle(refreshed ? .green : Color.accentColor)
+                .foregroundStyle(refreshed ? MuxyTheme.diffAddFg : SettingsStyle.accent)
                 .disabled(refreshed)
             }
             Toggle("", isOn: $enabled)

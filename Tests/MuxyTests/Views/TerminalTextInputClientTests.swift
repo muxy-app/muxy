@@ -5,6 +5,21 @@ import Testing
 @Suite("GhosttyTerminalNSView NSTextInputClient")
 @MainActor
 struct TerminalTextInputClientTests {
+    @Test func initialUnfocusedSurfaceDoesNotNeedNativeFocusUpdate() {
+        #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: nil, next: false) == false)
+    }
+
+    @Test func focusTransitionsNeedNativeFocusUpdates() {
+        #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: nil, next: true))
+        #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: true, next: false))
+        #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: false, next: true))
+    }
+
+    @Test func duplicateFocusStateDoesNotNeedNativeFocusUpdate() {
+        #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: true, next: true) == false)
+        #expect(GhosttyTerminalNSView.shouldApplySurfaceFocusChange(previous: false, next: false) == false)
+    }
+
     @Test func selectedRangeDefaultsToValidInsertionPoint() {
         let view = GhosttyTerminalNSView(workingDirectory: "/tmp")
 

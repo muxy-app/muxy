@@ -28,6 +28,7 @@ struct PaneTabStrip: View {
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
     let onCreateVCSTab: () -> Void
+    let onCreateDiffViewerTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onCloseOtherTabs: (UUID) -> Void
     let onCloseTabsToLeft: (UUID) -> Void
@@ -43,6 +44,10 @@ struct PaneTabStrip: View {
     let onSetColorID: (UUID, String?) -> Void
     let onReorderTab: (IndexSet, Int) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
+    @Environment(AppState.self) private var appState
+    @Environment(ProjectStore.self) private var projectStore
+    @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ExtensionStore.self) private var extensionStore
     @State private var dragState = TabDragState()
 
     static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
@@ -98,6 +103,15 @@ struct PaneTabStrip: View {
                     IconButton(symbol: symbol, accessibilityLabel: label, action: onToggleMaximize)
                         .help(shortcutTooltip("Toggle Maximize Pane", for: .toggleMaximizePane))
                 }
+                ForEach(extensionStore.topbarItems) { binding in
+                    ExtensionIconButton(
+                        icon: binding.item.icon,
+                        muxyExtension: binding.muxyExtension,
+                        accessibilityLabel: binding.item.tooltip ?? binding.item.id,
+                        action: { triggerExtensionCommand(binding: binding) }
+                    )
+                    .help(binding.item.tooltip ?? binding.item.id)
+                }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))
                 IconButton(symbol: "square.split.1x2", accessibilityLabel: "Split Down") { onSplit(.vertical) }
@@ -109,8 +123,12 @@ struct PaneTabStrip: View {
                         NotificationCenter.default.post(name: .quickOpen, object: nil)
                     }
                     .help(shortcutTooltip("Quick Open", for: .quickOpen))
-                    FileDiffIconButton(action: onCreateVCSTab)
-                        .help(shortcutTooltip("Source Control", for: .openVCSTab))
+                    FileDiffIconButton(action: onCreateDiffViewerTab)
+                        .help(shortcutTooltip("Diff Viewer", for: .openDiffViewerTab))
+                    IconButton(symbol: "arrow.triangle.branch", size: 12, accessibilityLabel: "Source Control") {
+                        onCreateVCSTab()
+                    }
+                    .help(shortcutTooltip("Source Control", for: .openVCSTab))
                     FileTreeIconButton {
                         NotificationCenter.default.post(name: .toggleFileTree, object: nil)
                     }
@@ -206,6 +224,18 @@ struct PaneTabStrip: View {
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
         "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
+    }
+
+    private func triggerExtensionCommand(binding: ExtensionStore.TopbarItemBinding) {
+        extensionStore.triggerCommand(
+            ExtensionStore.CommandInvocation(
+                extensionID: binding.muxyExtension.id,
+                commandID: binding.item.command,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
+        )
     }
 
     private var developmentBadge: some View {
@@ -633,6 +663,7 @@ private struct TabCell: View {
         case .editor: label += ", Editor"
         case .diffViewer: label += ", Diff Viewer"
         case .imageViewer: label += ", Image Viewer"
+        case .extensionWebView: label += ", Extension"
         }
         if tab.isPinned { label += ", Pinned" }
         if hasUnread { label += ", Unread" }
@@ -654,17 +685,20 @@ private struct TabCell: View {
                 Image(systemName: "terminal")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             case .vcs:
-                FileDiffIcon()
-                    .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
             case .editor:
                 Image(systemName: "pencil.line")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             case .diffViewer:
-                Image(systemName: "rectangle.split.2x1")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
+                FileDiffIcon()
+                    .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
             case .imageViewer:
                 Image(systemName: "photo")
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            case .extensionWebView:
+                Image(systemName: "puzzlepiece.extension")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             }
         }

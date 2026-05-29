@@ -8,6 +8,13 @@ struct GitRepositoryService {
         let deletions: Int
     }
 
+    struct DiffRange: Equatable {
+        let baseRef: String
+        let headRef: String
+
+        var spec: String { "\(baseRef)...\(headRef)" }
+    }
+
     enum GitError: LocalizedError {
         case notGitRepository
         case noUpstreamBranch
@@ -335,6 +342,84 @@ struct GitRepositoryService {
         return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
+    enum PRCommentSide: String {
+        case left = "LEFT"
+        case right = "RIGHT"
+    }
+
+    enum PostCommentResult {
+        case success
+        case failure(String)
+    }
+
+    struct GitHubUser: Equatable {
+        let login: String
+        let avatarURL: URL?
+    }
+
+    func currentGitHubUser(repoPath: String) async -> GitHubUser? {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
+        let result = try? await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: ["api", "user", "--jq", "{login: .login, avatar_url: .avatar_url}"],
+            workingDirectory: repoPath
+        )
+        guard let result, result.status == 0,
+              let data = result.stdout.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let login = object["login"] as? String
+        else { return nil }
+        let avatarURL = (object["avatar_url"] as? String).flatMap(URL.init(string:))
+        return GitHubUser(login: login, avatarURL: avatarURL)
+    }
+
+    struct PRCommentRequest {
+        let repoPath: String
+        let number: Int
+        let commit: String
+        let path: String
+        let line: Int
+        let side: PRCommentSide
+        let body: String
+    }
+
+    func postPullRequestReviewComment(_ request: PRCommentRequest) async -> PostCommentResult {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else {
+            return .failure("GitHub CLI (gh) is not installed.")
+        }
+        guard let commitSha = await resolveCommitSha(repoPath: request.repoPath, ref: request.commit) else {
+            return .failure("Could not resolve the pull request head commit.")
+        }
+        let arguments = [
+            "api",
+            "--method", "POST",
+            "repos/{owner}/{repo}/pulls/\(request.number)/comments",
+            "-f", "body=\(request.body)",
+            "-f", "commit_id=\(commitSha)",
+            "-f", "path=\(request.path)",
+            "-F", "line=\(request.line)",
+            "-f", "side=\(request.side.rawValue)",
+        ]
+        let result = try? await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: arguments,
+            workingDirectory: request.repoPath
+        )
+        guard let result else { return .failure("Failed to run gh.") }
+        guard result.status == 0 else {
+            let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failure(message.isEmpty ? "Failed to post comment." : message)
+        }
+        return .success
+    }
+
+    private func resolveCommitSha(repoPath: String, ref: String) async -> String? {
+        let result = try? await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["rev-parse", ref])
+        guard let result, result.status == 0 else { return nil }
+        let sha = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return sha.isEmpty ? nil : sha
+    }
+
     private func ghErrorIndicatesNoPR(stderr: String) -> Bool {
         let lowered = stderr.lowercased()
         return lowered.contains("no pull requests found")
@@ -594,6 +679,36 @@ struct GitRepositoryService {
         return url
     }
 
+    func githubRemoteName(repoPath: String) async -> String? {
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
+        let repoResult = try? await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+            workingDirectory: repoPath
+        )
+        guard let repoResult, repoResult.status == 0 else { return nil }
+        let nameWithOwner = repoResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !nameWithOwner.isEmpty else { return nil }
+
+        let remoteResult = try? await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["remote", "-v"])
+        guard let remoteResult, remoteResult.status == 0 else { return nil }
+        return Self.githubRemoteName(fromRemoteList: remoteResult.stdout, nameWithOwner: nameWithOwner)
+    }
+
+    static func githubRemoteName(fromRemoteList remoteList: String, nameWithOwner: String) -> String? {
+        let normalizedTarget = nameWithOwner.lowercased()
+        for line in remoteList.split(separator: "\n") {
+            let parts = line.split(whereSeparator: \.isWhitespace)
+            guard parts.count >= 2 else { continue }
+            let remote = String(parts[0])
+            guard let path = webURL(fromRemoteURL: String(parts[1]))?.path.dropFirst().lowercased() else { continue }
+            if path == normalizedTarget {
+                return remote
+            }
+        }
+        return nil
+    }
+
     static func webURL(fromRemoteURL raw: String) -> URL? {
         guard !raw.isEmpty else { return nil }
         var value = raw
@@ -802,17 +917,46 @@ struct GitRepositoryService {
             repoPath: repoPath,
             arguments: ["-c", "core.quotepath=false", "diff", "HEAD", "--numstat", "--no-color", "--no-ext-diff"]
         )
+        async let stagedNumstatTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--cached", "--numstat", "--no-color", "--no-ext-diff"]
+        )
+        async let unstagedNumstatTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--numstat", "--no-color", "--no-ext-diff"]
+        )
 
         let statusResult = try await statusTask
         guard statusResult.status == 0 else {
             _ = try? await numstatTask
+            _ = try? await stagedNumstatTask
+            _ = try? await unstagedNumstatTask
             throw GitError.commandFailed(statusResult.stderr.isEmpty ? "Failed to load Git status." : statusResult.stderr)
         }
 
         let numstatResult = try await numstatTask
+        let stagedNumstatResult = try await stagedNumstatTask
+        let unstagedNumstatResult = try await unstagedNumstatTask
         let stats = numstatResult.status == 0 ? GitStatusParser.parseNumstat(numstatResult.stdout) : [:]
+        let stagedStats = stagedNumstatResult.status == 0 ? GitStatusParser.parseNumstat(stagedNumstatResult.stdout) : [:]
+        let unstagedStats = unstagedNumstatResult.status == 0 ? GitStatusParser.parseNumstat(unstagedNumstatResult.stdout) : [:]
 
         return GitStatusParser.parseStatusPorcelain(statusResult.stdoutData, stats: stats).map { file in
+            let staged = stagedStats[file.path]
+            let unstaged = unstagedStats[file.path]
+            let file = GitStatusFile(
+                path: file.path,
+                oldPath: file.oldPath,
+                xStatus: file.xStatus,
+                yStatus: file.yStatus,
+                additions: file.additions,
+                deletions: file.deletions,
+                stagedAdditions: staged?.additions,
+                stagedDeletions: staged?.deletions,
+                unstagedAdditions: unstaged?.additions,
+                unstagedDeletions: unstaged?.deletions,
+                isBinary: file.isBinary || staged?.isBinary == true || unstaged?.isBinary == true
+            )
             guard file.additions == nil, file.xStatus == "?" || file.xStatus == "A" else { return file }
             let lineCount = Self.countLines(repoPath: repoPath, relativePath: file.path)
             return GitStatusFile(
@@ -822,9 +966,42 @@ struct GitRepositoryService {
                 yStatus: file.yStatus,
                 additions: lineCount,
                 deletions: 0,
+                stagedAdditions: file.stagedAdditions,
+                stagedDeletions: file.stagedDeletions,
+                unstagedAdditions: file.unstagedAdditions,
+                unstagedDeletions: file.unstagedDeletions,
                 isBinary: file.isBinary
             )
         }
+    }
+
+    func changedFiles(repoPath: String, range: DiffRange) async throws -> [GitStatusFile] {
+        try validateRef(range.baseRef)
+        try validateRef(range.headRef)
+
+        async let nameStatusTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--name-status", "-z", range.spec]
+        )
+        async let numstatTask = GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--numstat", "--no-color", "--no-ext-diff", range.spec]
+        )
+
+        let nameStatusResult = try await nameStatusTask
+        guard nameStatusResult.status == 0 else {
+            _ = try? await numstatTask
+            throw GitError.commandFailed(nameStatusResult.stderr.isEmpty ? "Failed to load changed files." : nameStatusResult.stderr)
+        }
+
+        let statsResult = try await numstatTask
+        let stats = statsResult.status == 0 ? GitStatusParser.parseNumstat(statsResult.stdout) : [:]
+        return Self.parseNameStatus(nameStatusResult.stdoutData, stats: stats)
+    }
+
+    func changedFiles(repoPath: String, commit: String) async throws -> [GitStatusFile] {
+        try validateHash(commit)
+        return try await changedFiles(repoPath: repoPath, range: DiffRange(baseRef: "\(commit)^", headRef: commit))
     }
 
     private static func countLines(repoPath: String, relativePath: String) -> Int? {
@@ -905,7 +1082,103 @@ struct GitRepositoryService {
         return await Self.parsePatchOffMain(combinedPatch, truncated: combinedTruncated)
     }
 
-    private static func parsePatchOffMain(_ patch: String, truncated: Bool) async -> PatchAndCompareResult {
+    func patchAndCompare(
+        repoPath: String,
+        filePath: String,
+        range: DiffRange,
+        lineLimit: Int?
+    ) async throws -> PatchAndCompareResult {
+        try validatePath(repoPath: repoPath, relativePath: filePath)
+        try validateRef(range.baseRef)
+        try validateRef(range.headRef)
+
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", range.spec, "--", filePath],
+            lineLimit: lineLimit
+        )
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load diff for \(filePath)." : result.stderr)
+        }
+        return await Self.parsePatchOffMain(result.stdout, truncated: result.truncated)
+    }
+
+    func patchAndCompare(
+        repoPath: String,
+        filePath: String,
+        commit: String,
+        lineLimit: Int?
+    ) async throws -> PatchAndCompareResult {
+        try validateHash(commit)
+        return try await patchAndCompare(
+            repoPath: repoPath,
+            filePath: filePath,
+            range: DiffRange(baseRef: "\(commit)^", headRef: commit),
+            lineLimit: lineLimit
+        )
+    }
+
+    func fetchPullRequestDiffHead(repoPath: String, number: Int, remote: String) async throws -> String {
+        let localRef = Self.localPullRequestDiffRef(number: number)
+        try validateRef(remote)
+        try validateRef(localRef)
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["fetch", remote, "+refs/pull/\(number)/head:\(localRef)"]
+        )
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to fetch pull request diff." : result.stderr)
+        }
+        return localRef
+    }
+
+    static func localPullRequestDiffRef(number: Int) -> String {
+        "refs/muxy/pull/\(number)/head"
+    }
+
+    private static func parseNameStatus(_ data: Data, stats: [String: NumstatEntry]) -> [GitStatusFile] {
+        guard let decoded = String(data: data, encoding: .utf8), !decoded.isEmpty else { return [] }
+        let tokens = decoded.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+        var files: [GitStatusFile] = []
+        var index = 0
+
+        while index + 1 < tokens.count {
+            let status = tokens[index]
+            let path = tokens[index + 1]
+            let code = status.first ?? "M"
+
+            if code == "R" || code == "C", index + 2 < tokens.count {
+                let newPath = tokens[index + 2]
+                let stat = stats[newPath]
+                files.append(GitStatusFile(
+                    path: newPath,
+                    oldPath: path,
+                    xStatus: code,
+                    yStatus: " ",
+                    additions: stat?.additions,
+                    deletions: stat?.deletions,
+                    isBinary: stat?.isBinary ?? false
+                ))
+                index += 3
+            } else {
+                let stat = stats[path]
+                files.append(GitStatusFile(
+                    path: path,
+                    oldPath: nil,
+                    xStatus: code,
+                    yStatus: " ",
+                    additions: stat?.additions,
+                    deletions: stat?.deletions,
+                    isBinary: stat?.isBinary ?? false
+                ))
+                index += 2
+            }
+        }
+
+        return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+    }
+
+    static func parsePatchOffMain(_ patch: String, truncated: Bool) async -> PatchAndCompareResult {
         await GitProcessRunner.offMain {
             let parsed = GitDiffParser.parseRows(patch)
             return PatchAndCompareResult(
@@ -970,21 +1243,15 @@ struct GitRepositoryService {
     }
 
     private func untrackedOrNewFileDiff(repoPath: String, filePath: String, lineLimit: Int?) throws -> PatchAndCompareResult {
-        let fullPath = (repoPath as NSString).appendingPathComponent(filePath)
-        let resolvedRepo = (repoPath as NSString).standardizingPath
-        let resolvedFull = (fullPath as NSString).standardizingPath
-        guard resolvedFull.hasPrefix(resolvedRepo + "/") else {
+        let fileURL = URL(fileURLWithPath: repoPath).appendingPathComponent(filePath)
+        let resolvedRepo = URL(fileURLWithPath: repoPath).resolvingSymlinksInPath().standardizedFileURL.path
+        let resolvedFile = fileURL.resolvingSymlinksInPath().standardizedFileURL.path
+        guard resolvedFile.hasPrefix(resolvedRepo + "/") else {
             throw GitError.commandFailed("File path is outside the repository.")
         }
-        guard let data = FileManager.default.contents(atPath: fullPath),
-              let content = String(data: data, encoding: .utf8)
-        else {
+        guard let fileLines = try readDiffPreviewLines(path: fileURL.path, lineLimit: lineLimit) else {
             return PatchAndCompareResult(rows: [], truncated: false, additions: 0, deletions: 0)
         }
-
-        let lines = content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-        let effectiveLines = lineLimit.map { min(lines.count, $0) } ?? lines.count
-        let truncated = lineLimit.map { lines.count > $0 } ?? false
 
         var rows: [DiffDisplayRow] = []
         rows.append(DiffDisplayRow(
@@ -993,11 +1260,11 @@ struct GitRepositoryService {
             newLineNumber: nil,
             oldText: nil,
             newText: nil,
-            text: "@@ -0,0 +1,\(lines.count) @@ (new file)"
+            text: "@@ -0,0 +1,\(fileLines.lines.count) @@ (new file)"
         ))
 
-        for i in 0 ..< effectiveLines {
-            let line = String(lines[i])
+        for i in 0 ..< fileLines.lines.count {
+            let line = fileLines.lines[i]
             rows.append(DiffDisplayRow(
                 kind: .addition,
                 oldLineNumber: nil,
@@ -1010,10 +1277,51 @@ struct GitRepositoryService {
 
         return PatchAndCompareResult(
             rows: GitDiffParser.collapseContextRows(rows),
-            truncated: truncated,
-            additions: effectiveLines,
+            truncated: fileLines.truncated,
+            additions: fileLines.lines.count,
             deletions: 0
         )
+    }
+
+    private func readDiffPreviewLines(path: String, lineLimit: Int?) throws -> (lines: [String], truncated: Bool)? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+
+        guard let lineLimit else {
+            let data = handle.readDataToEndOfFile()
+            guard let content = String(data: data, encoding: .utf8) else { return nil }
+            return (content.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init), false)
+        }
+
+        var lines: [String] = []
+        lines.reserveCapacity(min(lineLimit, 4096))
+        var buffer = Data()
+        let chunkSize = 65536
+
+        while lines.count < lineLimit {
+            let chunk = try handle.read(upToCount: chunkSize) ?? Data()
+            if chunk.isEmpty {
+                if !buffer.isEmpty, let line = String(data: buffer, encoding: .utf8) {
+                    lines.append(line)
+                }
+                return (lines, false)
+            }
+
+            for byte in chunk {
+                if byte == 0x0A {
+                    guard let line = String(data: buffer, encoding: .utf8) else { return nil }
+                    lines.append(line)
+                    buffer.removeAll(keepingCapacity: true)
+                    if lines.count == lineLimit {
+                        return (lines, true)
+                    }
+                } else {
+                    buffer.append(byte)
+                }
+            }
+        }
+
+        return (lines, true)
     }
 
     func stageFiles(repoPath: String, paths: [String]) async throws {
@@ -1376,12 +1684,26 @@ struct GitRepositoryService {
 
     private static let hexCharacters = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
 
+    private static let refCharacters = CharacterSet.alphanumerics
+        .union(CharacterSet(charactersIn: "._/@-^"))
+
     private func validateHash(_ hash: String) throws {
         guard !hash.isEmpty,
               hash.count <= 40,
               hash.unicodeScalars.allSatisfy({ Self.hexCharacters.contains($0) })
         else {
             throw GitError.commandFailed("Invalid commit hash.")
+        }
+    }
+
+    private func validateRef(_ ref: String) throws {
+        guard !ref.isEmpty,
+              !ref.hasPrefix("-"),
+              !ref.contains(".."),
+              !ref.contains(" "),
+              ref.unicodeScalars.allSatisfy({ Self.refCharacters.contains($0) })
+        else {
+            throw GitError.commandFailed("Invalid Git ref.")
         }
     }
 

@@ -101,6 +101,31 @@ struct KeyBindingTests {
         #expect(combos[.renameTab] == KeyCombo(key: "t", shift: true, option: true))
     }
 
+    @Test("Source Control uses Cmd+Y by default")
+    func sourceControlUsesCommandYByDefault() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.openVCSTab] == KeyCombo(key: "y", command: true))
+        #expect(combos[.openDiffViewerTab] == KeyCombo(key: "y", command: true, shift: true))
+        #expect(!KeyBinding.defaults.contains { $0.combo == KeyCombo(key: "k", command: true) })
+        #expect(!KeyBinding.defaults.contains { $0.combo == KeyCombo(key: "j", command: true) })
+    }
+
+    @Test("KeyBinding.defaults includes scoped omnibox shortcuts")
+    func defaultsIncludesScopedOmniboxShortcuts() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.terminalOmnibox] == KeyCombo(key: "o", command: true, option: true))
+        #expect(combos[.terminalOmniboxProjects] == KeyCombo(key: "p", command: true, option: true))
+        #expect(combos[.terminalOmniboxWorktrees] == KeyCombo(key: "w", command: true, option: true))
+        #expect(combos[.terminalOmniboxCommands] == KeyCombo(key: "p", command: true, shift: true))
+        #expect(combos[.terminalOmniboxHistory] == KeyCombo(key: "h", command: true, option: true))
+    }
+
+    @Test("Refresh Worktrees uses Cmd+Opt+R by default")
+    func refreshWorktreesUsesCommandOptionRByDefault() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.refreshWorktrees] == KeyCombo(key: "r", command: true, option: true))
+    }
+
     @Test("KeyBinding Codable round-trip")
     func codableRoundTrip() throws {
         let binding = KeyBinding(

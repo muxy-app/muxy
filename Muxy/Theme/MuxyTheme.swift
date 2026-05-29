@@ -4,6 +4,8 @@ import SwiftUI
 enum MuxyTheme {
     @MainActor static var bg: Color { snapshot.bg }
     @MainActor static var nsBg: NSColor { snapshot.nsBg }
+    @MainActor static var nsFg: NSColor { snapshot.nsFg }
+    @MainActor static var nsFgMuted: NSColor { snapshot.nsFgMuted }
     @MainActor static var fg: Color { snapshot.fg }
     @MainActor static var fgMuted: Color { snapshot.fgMuted }
     @MainActor static var fgDim: Color { snapshot.fgDim }
@@ -53,6 +55,8 @@ extension MuxyTheme {
     struct Snapshot {
         let palette: EditorThemePalette
         let nsBg: NSColor
+        let nsFg: NSColor
+        let nsFgMuted: NSColor
         let bg: Color
         let fg: Color
         let fgMuted: Color
@@ -92,6 +96,8 @@ extension MuxyTheme {
 
             palette = resolvedPalette
             nsBg = bgColor
+            nsFg = fgColor
+            nsFgMuted = fgColor.withAlphaComponent(0.65)
             bg = Color(nsColor: bgColor)
             fg = Color(nsColor: fgColor)
             fgMuted = Color(nsColor: fgColor.withAlphaComponent(0.65))

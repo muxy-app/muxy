@@ -140,6 +140,10 @@ struct KeyCombo: Codable, Equatable, Hashable {
         }
     }
 
+    var isAssigned: Bool {
+        !key.isEmpty
+    }
+
     var swiftUIModifiers: SwiftUI.EventModifiers {
         var result: SwiftUI.EventModifiers = []
         let flags = nsModifierFlags
@@ -151,6 +155,8 @@ struct KeyCombo: Codable, Equatable, Hashable {
     }
 
     var displayString: String {
+        guard isAssigned else { return "Unassigned" }
+
         var parts = ""
         let flags = nsModifierFlags
         if flags.contains(.control) { parts += "⌃" }

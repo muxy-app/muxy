@@ -11,9 +11,10 @@ struct MuxyApp: App {
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
     @State private var vcsWorktreeAutoRefresher: VCSWorktreeAutoRefresher
-    private let updateService = UpdateService.shared
+    @State private var didStartDeferredServices = false
 
     init() {
+        LaunchArgumentGuard.terminateIfNeeded()
         _ = MuxyApp.launchDate
         let environment = AppEnvironment.live
         let projectStore = ProjectStore(persistence: environment.projectPersistence)
@@ -55,8 +56,11 @@ struct MuxyApp: App {
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
                 .environment(ThemeService.shared)
+                .environment(ExtensionStore.shared)
+                .environment(ExtensionSettingsStore.shared)
                 .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
+                    startDeferredServicesIfNeeded()
                     NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore
                     NotificationStore.shared.markAllAsRead()
@@ -69,19 +73,24 @@ struct MuxyApp: App {
                     appDelegate.hasUnsavedEditorTabs = { [appState] in
                         appState.unsavedEditorTabs()
                     }
-                    appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore] path in
+                    appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore, projectGroupStore] path in
                         CLIAccessor.openProjectFromPath(
                             path,
                             appState: appState,
                             projectStore: projectStore,
-                            worktreeStore: worktreeStore
+                            worktreeStore: worktreeStore,
+                            projectGroupStore: projectGroupStore
                         )
                     }
                     appDelegate.flushPendingOpens()
-                    NotificationSocketServer.shared.openProjectHandler = { [appDelegate] path in
-                        Task { @MainActor in
-                            appDelegate.handleOpenProjectPath(path)
-                        }
+                    NotificationSocketServer.shared.commandHandler = { [appState, projectStore, worktreeStore] message, context in
+                        await SocketCommandHandler.handleRequest(
+                            message,
+                            appState: appState,
+                            projectStore: projectStore,
+                            worktreeStore: worktreeStore,
+                            clientContext: context
+                        )
                     }
                     MobileServerService.shared.configure { server in
                         let delegate = RemoteServerDelegate(
@@ -94,17 +103,23 @@ struct MuxyApp: App {
                     }
                     appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
                         for id in projectIDs {
-                            if let project = projectStore.projects.first(where: { $0.id == id }) {
-                                let knownWorktrees = worktreeStore.list(for: id)
-                                Task.detached {
-                                    await WorktreeStore.cleanupOnDisk(
+                            guard let project = projectStore.projects.first(where: { $0.id == id }) else {
+                                worktreeStore.removeProject(id)
+                                continue
+                            }
+                            let knownWorktrees = worktreeStore.list(for: id)
+                            Task {
+                                do {
+                                    try await WorktreeStore.cleanupOnDisk(
                                         for: project,
                                         knownWorktrees: knownWorktrees
                                     )
+                                    projectStore.remove(id: id)
+                                    worktreeStore.removeProject(id)
+                                } catch {
+                                    ToastState.shared.show("Could not remove \(project.name): \(error.localizedDescription)")
                                 }
                             }
-                            projectStore.remove(id: id)
-                            worktreeStore.removeProject(id)
                         }
                     }
                     projectStore.onProjectRemoved = { [projectGroupStore] projectID in
@@ -144,22 +159,36 @@ struct MuxyApp: App {
                 .preferredColorScheme(MuxyTheme.colorScheme)
         }
         .defaultSize(width: 820, height: 580)
+    }
 
-        Settings {
-            SettingsView()
-                .preferredColorScheme(MuxyTheme.colorScheme)
+    private func startDeferredServicesIfNeeded() {
+        guard !didStartDeferredServices else { return }
+        didStartDeferredServices = true
+        Task { @MainActor in
+            await Task.yield()
+            SettingsJSONStore.beginAutomaticUserSettingsSync()
+            try? await Task.sleep(for: .seconds(2))
+            UpdateService.shared.start()
+            AIProviderRegistry.shared.installAll()
+            LoginShellPath.hydrateInBackground()
+            ExtensionStore.shared.startAll()
         }
     }
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var onTerminate: (() -> Void)?
     var hasUnsavedEditorTabs: (() -> [EditorTabState])?
     var openProjectFromPath: ((String) -> Void)?
 
     private var pendingOpenPaths: [String] = []
     private var systemAppearanceObserver: NSObjectProtocol?
+    private var settingsObserver: NSObjectProtocol?
+    private var extensionsObserver: NSObjectProtocol?
+    private var modalThemeObserver: NSObjectProtocol?
+    private weak var settingsWindow: NSWindow?
+    private weak var extensionsWindow: NSWindow?
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -231,8 +260,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let window = Self.mainAppWindow() {
+            sender.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
+        return false
+    }
+
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UserDefaults.standard.register(defaults: ["ApplePressAndHoldEnabled": false])
         SentryService.shared.start()
         NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.setActivationPolicy(.regular)
@@ -243,13 +285,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ThemeService.shared.applyDefaultThemeIfNeeded()
         ThemeService.shared.migrateToPairedThemeIfNeeded()
         observeSystemAppearanceChanges()
-        UpdateService.shared.start()
         ModifierKeyMonitor.shared.start()
+        NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                self?.handleOpenProjectPath(path)
+            }
+        }
         NotificationSocketServer.shared.start()
-        AIProviderRegistry.shared.installAll()
         _ = AIUsageSettingsStore.isUsageEnabled()
         DiagnosticsMenuController.shared.install()
-
+        observeSettingsRequests()
         consumeLaunchArguments()
     }
 
@@ -264,6 +309,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               isDirectory.boolValue
         else { return }
         handleOpenProjectPath(expanded)
+    }
+
+    static func mainAppWindow(excluding excludedWindow: NSWindow? = nil) -> NSWindow? {
+        NSApp.windows.first { window in
+            window !== excludedWindow && window.identifier == ShortcutContext.mainWindowIdentifier
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -353,13 +404,98 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DistributedNotificationCenter.default().removeObserver(observer)
             systemAppearanceObserver = nil
         }
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+            self.settingsObserver = nil
+        }
+        if let extensionsObserver {
+            NotificationCenter.default.removeObserver(extensionsObserver)
+            self.extensionsObserver = nil
+        }
+        if let modalThemeObserver {
+            NotificationCenter.default.removeObserver(modalThemeObserver)
+            self.modalThemeObserver = nil
+        }
         onTerminate?()
         NotificationStore.shared.saveToDisk()
         NotificationSocketServer.shared.stop()
         MainActor.assumeIsolated {
             MobileServerService.shared.stopForTermination()
             RichInputDraftStore.shared.flush()
+            ExtensionStore.shared.stopAll()
         }
+    }
+
+    @MainActor
+    private func observeSettingsRequests() {
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: .openSettingsModal,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.presentSettingsModal()
+            }
+        }
+        extensionsObserver = NotificationCenter.default.addObserver(
+            forName: .openExtensionsModal,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.presentExtensionsModal()
+            }
+        }
+        modalThemeObserver = NotificationCenter.default.addObserver(
+            forName: .themeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.settingsWindow?.backgroundColor = MuxyTheme.nsBg
+                self?.extensionsWindow?.backgroundColor = MuxyTheme.nsBg
+            }
+        }
+    }
+
+    @MainActor
+    private func presentSettingsModal() {
+        let config = AppModalConfig(
+            title: "Settings",
+            size: CGSize(width: 980, height: 680),
+            existing: settingsWindow,
+            delegate: self,
+            onClosed: { [weak self] in self?.settingsWindow = nil }
+        )
+        settingsWindow = AppModalPresenter.present(config) {
+            SettingsView()
+        }
+    }
+
+    @MainActor
+    private func presentExtensionsModal() {
+        let config = AppModalConfig(
+            title: "Extensions",
+            size: CGSize(width: 880, height: 620),
+            existing: extensionsWindow,
+            delegate: self,
+            onClosed: { [weak self] in self?.extensionsWindow = nil }
+        )
+        extensionsWindow = AppModalPresenter.present(config) {
+            ExtensionsView()
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        let closed = notification.object as? NSWindow
+        if closed === settingsWindow { settingsWindow = nil }
+        if closed === extensionsWindow { extensionsWindow = nil }
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard sender.identifier == ShortcutContext.mainWindowIdentifier else { return true }
+        NSApp.terminate(nil)
+        return false
     }
 
     @MainActor
@@ -407,6 +543,7 @@ struct WindowConfigurator: NSViewRepresentable {
         DispatchQueue.main.async {
             guard let w = v.window else { return }
             w.identifier = ShortcutContext.mainWindowIdentifier
+            if Self.closeDuplicateMainWindow(w) { return }
             w.titlebarAppearsTransparent = true
             w.titleVisibility = .hidden
             w.styleMask.insert(.fullSizeContentView)
@@ -438,6 +575,13 @@ struct WindowConfigurator: NSViewRepresentable {
 
     static func disableWindowTabbing(for window: NSWindow) {
         window.tabbingMode = .disallowed
+    }
+
+    static func closeDuplicateMainWindow(_ window: NSWindow) -> Bool {
+        guard let existingWindow = AppDelegate.mainAppWindow(excluding: window) else { return false }
+        existingWindow.makeKeyAndOrderFront(nil)
+        window.close()
+        return true
     }
 
     static func neutralizeSafeAreaInsets(in window: NSWindow) {

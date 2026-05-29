@@ -68,6 +68,10 @@ struct ProviderIconView: View {
             return NSImage(contentsOf: url)
         }
 
+        if let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil) {
+            return symbol
+        }
+
         return nil
         #else
         nil

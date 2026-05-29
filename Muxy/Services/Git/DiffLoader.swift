@@ -7,6 +7,7 @@ enum DiffLoader {
     struct Request {
         let repoPath: String
         let filePath: String
+        let cacheKey: String
         let hints: GitRepositoryService.DiffHints
         let forceFull: Bool
         let pinnedPaths: Set<String>
@@ -17,7 +18,7 @@ enum DiffLoader {
         cache: DiffCache,
         git: GitRepositoryService = GitRepositoryService()
     ) {
-        cache.markLoading(request.filePath)
+        cache.markLoading(request.cacheKey)
         let lineLimit = request.forceFull ? nil : previewLineLimit
         let task = Task { @MainActor in
             do {
@@ -35,15 +36,15 @@ enum DiffLoader {
                         deletions: result.deletions,
                         truncated: result.truncated
                     ),
-                    for: request.filePath,
+                    for: request.cacheKey,
                     pinnedPaths: request.pinnedPaths
                 )
             } catch {
                 guard !Task.isCancelled else { return }
                 let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                cache.storeError(message, for: request.filePath)
+                cache.storeError(message, for: request.cacheKey)
             }
         }
-        cache.registerTask(task, for: request.filePath)
+        cache.registerTask(task, for: request.cacheKey)
     }
 }

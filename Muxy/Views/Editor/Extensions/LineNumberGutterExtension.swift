@@ -117,7 +117,7 @@ final class LineNumberGutterExtension: EditorExtension {
 }
 
 @MainActor
-final class LineNumberGutterView: NSView {
+class LineNumberGutterView: NSView {
     weak var scrollView: NSScrollView?
 
     var labelFont: NSFont = .monospacedSystemFont(ofSize: 12, weight: .regular)

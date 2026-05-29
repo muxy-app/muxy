@@ -9,6 +9,7 @@ final class GhosttyTerminalNSView: NSView {
     private let workingDirectory: String
     private let command: String?
     private let commandInteractive: Bool
+    private let commandClosesOnExit: Bool
     var envVars: [(key: String, value: String)] = []
     var onTitleChange: ((String) -> Void)?
     var onWorkingDirectoryChange: ((String) -> Void)?
@@ -38,7 +39,7 @@ final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private var occlusionObserver: NSObjectProtocol?
 
     var closesOnCommandExit: Bool {
-        command != nil
+        command != nil && commandClosesOnExit
     }
 
     private var _markedText: String = ""
@@ -56,11 +57,13 @@ final class GhosttyTerminalNSView: NSView {
     init(
         workingDirectory: String,
         command: String? = nil,
-        commandInteractive: Bool = false
+        commandInteractive: Bool = false,
+        closesOnCommandExit: Bool = true
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.commandInteractive = commandInteractive
+        commandClosesOnExit = closesOnCommandExit
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -125,7 +128,10 @@ final class GhosttyTerminalNSView: NSView {
         config.working_directory = UnsafePointer(workingDirectoryPointer)
 
         if let command,
-           let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(interactive: commandInteractive)),
+           let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
+               interactive: commandInteractive,
+               keepsShellOpen: !commandClosesOnExit
+           )),
            let commandKey = strdup(TerminalLaunchCommand.environmentKey),
            let commandValue = strdup(command)
         {
@@ -231,7 +237,7 @@ final class GhosttyTerminalNSView: NSView {
         cleanupSurfaceConfigPointers()
     }
 
-    nonisolated(unsafe) private func cleanupSurfaceConfigPointers() {
+    nonisolated private func cleanupSurfaceConfigPointers() {
         surfaceEnvVarPointer?.deinitialize(count: surfaceEnvVarCount)
         surfaceEnvVarPointer?.deallocate()
         surfaceEnvVarPointer = nil
@@ -413,9 +419,16 @@ final class GhosttyTerminalNSView: NSView {
             surfaceFocused = nil
             return
         }
-        guard surfaceFocused != focused else { return }
+        guard Self.shouldApplySurfaceFocusChange(previous: surfaceFocused, next: focused) else {
+            surfaceFocused = focused
+            return
+        }
         ghostty_surface_set_focus(surface, focused)
         surfaceFocused = focused
+    }
+
+    static func shouldApplySurfaceFocusChange(previous: Bool?, next: Bool) -> Bool {
+        previous != next && (next || previous != nil)
     }
 
     override var acceptsFirstResponder: Bool { !overlayActive }
@@ -809,8 +822,9 @@ final class GhosttyTerminalNSView: NSView {
     private func presentContextMenu(with event: NSEvent) {
         let menu = NSMenu(title: "Terminal")
 
-        let paste = NSMenuItem(title: "Paste", action: #selector(handleContextPaste(_:)), keyEquivalent: "")
-        paste.target = self
+        let paste = ClosureMenuItem(title: "Paste") { [weak self] in
+            self?.performContextPaste()
+        }
         paste.isEnabled = NSPasteboard.general.string(forType: .string).map { !$0.isEmpty } ?? false
         menu.addItem(paste)
 
@@ -825,14 +839,12 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func contextSplitMenuItem(title: String, direction: SplitDirection, position: SplitPosition) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: #selector(handleContextSplit(_:)), keyEquivalent: "")
-        item.target = self
-        item.representedObject = ContextSplit(direction: direction, position: position)
-        return item
+        ClosureMenuItem(title: title) { [weak self] in
+            self?.onSplitRequest?(direction, position)
+        }
     }
 
-    @objc
-    private func handleContextPaste(_: Any?) {
+    private func performContextPaste() {
         window?.makeFirstResponder(self)
         if pasteboardHasImage() {
             sendRemoteBytes(Data([0x16]))
@@ -854,24 +866,8 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     @objc
-    func paste(_ sender: Any?) {
-        handleContextPaste(sender)
-    }
-
-    @objc
-    private func handleContextSplit(_ sender: NSMenuItem) {
-        guard let split = sender.representedObject as? ContextSplit else { return }
-        onSplitRequest?(split.direction, split.position)
-    }
-
-    private final class ContextSplit: NSObject {
-        let direction: SplitDirection
-        let position: SplitPosition
-
-        init(direction: SplitDirection, position: SplitPosition) {
-            self.direction = direction
-            self.position = position
-        }
+    func paste(_: Any?) {
+        performContextPaste()
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -1068,6 +1064,42 @@ final class GhosttyTerminalNSView: NSView {
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
             ghostty_surface_send_input_raw(surface, base, UInt(bytes.count))
         }
+    }
+
+    func readScreenText(lastLines: Int = 50) -> String {
+        guard let surface else { return "" }
+        var out = ghostty_cells_s()
+        guard ghostty_surface_read_cells(surface, &out) else { return "" }
+        defer { ghostty_surface_free_cells(surface, &out) }
+
+        let cols = Int(out.cols)
+        let rows = Int(out.rows)
+        guard cols > 0, rows > 0, let cells = out.cells else { return "" }
+
+        var lines: [String] = []
+        for row in 0 ..< rows {
+            var line = ""
+            for col in 0 ..< cols {
+                let cell = cells[row * cols + col]
+                let cp = cell.codepoint
+                if cp == 0 {
+                    line.append(" ")
+                } else if let scalar = Unicode.Scalar(cp) {
+                    line.append(Character(scalar))
+                } else {
+                    line.append(" ")
+                }
+            }
+            lines.append(line)
+        }
+
+        while lines.last?.allSatisfy({ $0 == " " }) == true {
+            lines.removeLast()
+        }
+
+        let trimmed = lines.map { $0.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
+        let result = trimmed.suffix(lastLines)
+        return result.joined(separator: "\n")
     }
 
     func submitRichInput(text: String) {

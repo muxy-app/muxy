@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct KeyboardShortcutsSettingsView: View {
+    @Environment(\.settingsSearchQuery) private var settingsSearchQuery
+
     private enum ListSection: String, CaseIterable, Identifiable {
         case app
         case custom
@@ -40,13 +42,16 @@ struct KeyboardShortcutsSettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             sectionPicker
-            Divider()
+            SettingsDivider()
             header
-            Divider()
+            SettingsDivider()
             switch section {
             case .app: appShortcutsList
             case .custom: customShortcutsList
             }
+        }
+        .onChange(of: settingsSearchQuery) { _, query in
+            applyGlobalSearchSection(query)
         }
     }
 
@@ -77,15 +82,16 @@ struct KeyboardShortcutsSettingsView: View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SettingsStyle.mutedForeground)
                     .font(.system(size: SettingsMetrics.labelFontSize))
                 TextField(section.searchPlaceholder, text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: SettingsMetrics.labelFontSize))
+                    .foregroundStyle(SettingsStyle.foreground)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+            .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 6))
 
             switch section {
             case .app:
@@ -96,7 +102,7 @@ struct KeyboardShortcutsSettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SettingsStyle.mutedForeground)
             case .custom:
                 Button {
                     searchText = ""
@@ -159,10 +165,16 @@ struct KeyboardShortcutsSettingsView: View {
                     },
                     onReset: { store.resetBinding(action: action)
                         conflictWarning = nil
+                    },
+                    onUnassign: {
+                        store.updateBinding(action: action, combo: KeyCombo(key: "", modifiers: 0))
+                        recordingAction = nil
+                        conflictWarning = nil
                     }
                 )
             }
         }
+        .environment(\.settingsSearchQuery, "")
     }
 
     private func filteredActions(for category: String) -> [ShortcutAction] {
@@ -183,14 +195,14 @@ struct KeyboardShortcutsSettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Custom Commands")
                 .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SettingsStyle.mutedForeground)
                 .padding(.horizontal, SettingsMetrics.horizontalPadding)
                 .padding(.top, SettingsMetrics.sectionHeaderTopPadding)
                 .padding(.bottom, 2)
 
             Text("Press the command layer shortcut, then a command key to open a new terminal tab.")
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SettingsStyle.mutedForeground)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, SettingsMetrics.horizontalPadding)
                 .padding(.bottom, SettingsMetrics.sectionHeaderBottomPadding)
@@ -274,6 +286,14 @@ struct KeyboardShortcutsSettingsView: View {
         store.updateBinding(action: action, combo: combo)
         recordingAction = nil
         conflictWarning = nil
+    }
+
+    private func applyGlobalSearchSection(_ query: String) {
+        let sections = SettingsCatalog.matchingItems(query: query)
+            .filter { $0.category == .shortcuts }
+            .map(\.section)
+        guard sections.contains("Custom Commands") else { return }
+        section = .custom
     }
 
     private func handleRecord(prefixCombo combo: KeyCombo) {
@@ -371,6 +391,7 @@ private struct ShortcutRow: View {
     let onRecord: (KeyCombo) -> Void
     let onCancel: () -> Void
     let onReset: () -> Void
+    let onUnassign: () -> Void
     @State private var hovered = false
 
     var body: some View {
@@ -390,34 +411,43 @@ private struct ShortcutRow: View {
             if let conflictAction {
                 Text("Conflicts with \"\(conflictAction.displayName)\" — press a different shortcut or Esc to cancel")
                     .font(.system(size: 10))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(SettingsStyle.warning)
             }
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
-        .background(hovered ? Color.primary.opacity(0.04) : .clear)
+        .background(hovered ? SettingsStyle.hover : .clear)
         .onHover { hovered = $0 }
     }
 
     private var comboDisplay: some View {
         HStack(spacing: 6) {
             if hovered {
+                Button(action: onUnassign) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10))
+                        .foregroundStyle(SettingsStyle.mutedForeground)
+                }
+                .buttonStyle(.plain)
+                .disabled(!combo.isAssigned)
+                .accessibilityLabel("Unassign Shortcut")
+
                 Button(action: onReset) {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(SettingsStyle.mutedForeground)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Reset Shortcut")
             }
 
             Button(action: onStartRecording) {
-                Text(combo.displayString)
+                Text(combo.isAssigned ? combo.displayString : "Unassigned")
                     .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(SettingsStyle.foreground)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                    .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 5))
             }
             .buttonStyle(.plain)
         }
@@ -431,10 +461,10 @@ private struct ShortcutRow: View {
 
             Text("Press shortcut…")
                 .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
-                .foregroundStyle(.orange)
+                .foregroundStyle(SettingsStyle.warning)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                .background(SettingsStyle.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
         }
     }
 }
@@ -466,12 +496,12 @@ private struct CommandPrefixRow: View {
             if let conflictMessage {
                 Text("\(conflictMessage) — press a different shortcut or Esc to cancel")
                     .font(.system(size: 10))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(SettingsStyle.warning)
             }
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
-        .background(hovered ? Color.primary.opacity(0.04) : .clear)
+        .background(hovered ? SettingsStyle.hover : .clear)
         .onHover { hovered = $0 }
     }
 
@@ -481,7 +511,7 @@ private struct CommandPrefixRow: View {
                 Button(action: onReset) {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(SettingsStyle.mutedForeground)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Reset Shortcut")
@@ -490,10 +520,10 @@ private struct CommandPrefixRow: View {
             Button(action: onStartRecording) {
                 Text(combo.displayString)
                     .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(SettingsStyle.foreground)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                    .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 5))
             }
             .buttonStyle(.plain)
         }
@@ -507,10 +537,10 @@ private struct CommandPrefixRow: View {
 
             Text("Press shortcut…")
                 .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
-                .foregroundStyle(.orange)
+                .foregroundStyle(SettingsStyle.warning)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                .background(SettingsStyle.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
         }
     }
 }
@@ -536,14 +566,12 @@ private struct CommandShortcutRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 TextField("Name", text: $shortcut.name)
-                    .textFieldStyle(.roundedBorder)
                     .font(.system(size: SettingsMetrics.labelFontSize))
-                    .frame(width: 120)
+                    .settingsTextInput(width: 120)
 
                 TextField("Command", text: $shortcut.command)
-                    .textFieldStyle(.roundedBorder)
                     .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
-                    .frame(maxWidth: .infinity)
+                    .settingsTextInput(maxWidth: .infinity)
 
                 if isRecording {
                     recordingView
@@ -555,12 +583,12 @@ private struct CommandShortcutRow: View {
             if let conflictMessage {
                 Text("\(conflictMessage) — press a different shortcut or Esc to cancel")
                     .font(.system(size: 10))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(SettingsStyle.warning)
             }
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)
         .padding(.vertical, SettingsMetrics.rowVerticalPadding)
-        .background(hovered ? Color.primary.opacity(0.04) : .clear)
+        .background(hovered ? SettingsStyle.hover : .clear)
         .onHover { hovered = $0 }
     }
 
@@ -569,10 +597,10 @@ private struct CommandShortcutRow: View {
             Button(action: onStartRecording) {
                 Text("\(prefixCombo.displayString) \(shortcut.combo.displayString)")
                     .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(SettingsStyle.foreground)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 5))
+                    .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 5))
             }
             .buttonStyle(.plain)
 
@@ -580,13 +608,13 @@ private struct CommandShortcutRow: View {
                 Image(systemName: "trash")
                     .font(.system(size: 10))
                     .foregroundStyle(
-                        deleteButtonHovered ? AnyShapeStyle(MuxyTheme.diffRemoveFg) : AnyShapeStyle(.secondary)
+                        deleteButtonHovered ? AnyShapeStyle(SettingsStyle.destructive) : AnyShapeStyle(SettingsStyle.mutedForeground)
                     )
                     .frame(width: Metrics.deleteButtonSize, height: Metrics.deleteButtonSize)
             }
             .buttonStyle(.plain)
             .background(
-                deleteButtonHovered ? AnyShapeStyle(MuxyTheme.diffRemoveBg) : AnyShapeStyle(.quaternary),
+                deleteButtonHovered ? AnyShapeStyle(SettingsStyle.destructiveSoft) : AnyShapeStyle(SettingsStyle.surface),
                 in: RoundedRectangle(cornerRadius: 5)
             )
             .onHover { isHovering in
@@ -605,10 +633,10 @@ private struct CommandShortcutRow: View {
 
             Text("Press key…")
                 .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
-                .foregroundStyle(.orange)
+                .foregroundStyle(SettingsStyle.warning)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+                .background(SettingsStyle.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
         }
     }
 }
@@ -628,7 +656,7 @@ private struct DeleteAllCommandShortcutsRow: View {
             Button(action: action) {
                 Text(title)
                     .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
-                    .foregroundStyle(isConfirming ? MuxyTheme.diffRemoveFg : .secondary)
+                    .foregroundStyle(isConfirming ? SettingsStyle.destructive : SettingsStyle.mutedForeground)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(backgroundStyle, in: RoundedRectangle(cornerRadius: 5))
@@ -648,6 +676,6 @@ private struct DeleteAllCommandShortcutsRow: View {
     }
 
     private var backgroundStyle: AnyShapeStyle {
-        isConfirming ? AnyShapeStyle(MuxyTheme.diffRemoveBg) : AnyShapeStyle(.quaternary)
+        isConfirming ? AnyShapeStyle(SettingsStyle.destructiveSoft) : AnyShapeStyle(SettingsStyle.surface)
     }
 }

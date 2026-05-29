@@ -49,11 +49,12 @@ extension SplitNode {
     func splitting(
         areaID: UUID,
         direction: SplitDirection,
-        position: SplitPosition
+        position: SplitPosition,
+        command: String? = nil
     ) -> (node: SplitNode, newAreaID: UUID?) {
         switch self {
         case let .tabArea(area) where area.id == areaID:
-            let newArea = TabArea(projectPath: area.projectPath)
+            let newArea = TabArea(projectPath: area.projectPath, command: command)
             let first: SplitNode = position == .first ? .tabArea(newArea) : .tabArea(area)
             let second: SplitNode = position == .first ? .tabArea(area) : .tabArea(newArea)
             let node = SplitNode.split(SplitBranch(
@@ -68,14 +69,16 @@ extension SplitNode {
             let (newFirst, id1) = branch.first.splitting(
                 areaID: areaID,
                 direction: direction,
-                position: position
+                position: position,
+                command: command
             )
             branch.first = newFirst
             if id1 != nil { return (.split(branch), id1) }
             let (newSecond, id2) = branch.second.splitting(
                 areaID: areaID,
                 direction: direction,
-                position: position
+                position: position,
+                command: command
             )
             branch.second = newSecond
             return (.split(branch), id2)

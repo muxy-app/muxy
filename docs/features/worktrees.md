@@ -32,9 +32,38 @@ The **New Worktree** sheet asks for:
 
 Muxy runs `git worktree add` and registers the new worktree with the project.
 
-## Setup commands
+## Setup & teardown commands
 
-If `.muxy/worktree.json` exists, its setup commands run automatically when a tab is created in a freshly added worktree. Use it to bootstrap dependencies (`npm install`, `bundle install`, …) for ephemeral worktrees.
+Drop a `.muxy/worktree.json` at the **source project root** (the primary worktree) to script the lifecycle of ephemeral worktrees. The file is only read from the project root — copies inside individual worktrees are ignored. One config governs every worktree spawned from that project.
+
+```json
+{
+  "setup": [
+    "npm install",
+    { "name": "Migrate DB", "command": "bundle exec rake db:migrate" }
+  ],
+  "teardown": [
+    "docker compose down",
+    "rm -rf .cache"
+  ]
+}
+```
+
+Each entry is either a plain command string or `{ "name", "command" }`.
+
+**Setup** runs when the first tab is created in a freshly added worktree — use it to install dependencies, seed data, etc.
+
+**Teardown** runs when you remove a worktree from Muxy. A sheet streams stdout/stderr live; the worktree directory is only deleted after every command exits `0`. If any command fails, removal is aborted, the error is surfaced, and the worktree stays on disk so you can investigate.
+
+Commands run in the worktree directory under your login shell, with these extra environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `MUXY_WORKTREE_PATH` | Absolute path to the worktree |
+| `MUXY_WORKTREE_NAME` | Worktree name as shown in Muxy |
+| `MUXY_WORKTREE_BRANCH` | Checked-out branch (empty if detached) |
+
+Externally managed worktrees (added with `git worktree add` outside Muxy) skip teardown — Muxy will not run scripts against directories it didn't create.
 
 ## Persistence
 

@@ -12,6 +12,7 @@ struct SplitContainer: View {
     let onSelectTab: (UUID, UUID) -> Void
     let onCreateTab: (UUID) -> Void
     let onCreateVCSTab: (UUID) -> Void
+    let onCreateDiffViewerTab: (UUID) -> Void
     let onCloseTab: (UUID, UUID) -> Void
     let onForceCloseTab: (UUID, UUID) -> Void
     let onSplit: (UUID, SplitDirection) -> Void
@@ -33,13 +34,14 @@ struct SplitContainer: View {
                 child(branch.first)
                     .frame(width: h ? first : nil, height: h ? nil : first)
 
-                ResizeHandle(axis: h ? .horizontal : .vertical) { v in
-                    let pos = h ? v.location.x : v.location.y
-                    let origin = h ? v.startLocation.x : v.startLocation.y
-                    let startPos = total * branch.ratio
-                    let newPos = startPos + (pos - origin)
-                    branch.ratio = min(max(newPos / total, 0.15), 0.85)
-                }
+                AnchoredResizeHandle(
+                    axis: h ? .horizontal : .vertical,
+                    captureAnchor: { branch.ratio },
+                    onTranslate: { start, delta in
+                        guard total > 0 else { return }
+                        branch.ratio = min(max(start + delta / total, 0.15), 0.85)
+                    }
+                )
                 .accessibilityLabel(h ? "Horizontal Split Divider" : "Vertical Split Divider")
                 .accessibilityValue("Split ratio: \(Int(branch.ratio * 100))%")
                 .accessibilityAdjustableAction { direction in
@@ -72,6 +74,7 @@ struct SplitContainer: View {
             onSelectTab: onSelectTab,
             onCreateTab: onCreateTab,
             onCreateVCSTab: onCreateVCSTab,
+            onCreateDiffViewerTab: onCreateDiffViewerTab,
             onCloseTab: onCloseTab,
             onForceCloseTab: onForceCloseTab,
             onSplit: onSplit,

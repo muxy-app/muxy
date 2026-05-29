@@ -32,23 +32,28 @@ enum MuxyNotificationHooks {
         return nil
     }
 
-    private static func findBundledScript(_ name: String, extension ext: String) -> String? {
-        guard let url = Bundle.appResources.url(forResource: name, withExtension: ext) else {
+    static func findBundledScript(_ name: String, extension ext: String, bundle: Bundle = Bundle.appResources) -> String? {
+        let find: (String?) -> URL? = { sub in
+            bundle.url(forResource: name, withExtension: ext, subdirectory: sub)
+        }
+
+        guard let url = find(nil) ?? find("scripts") else {
             return nil
         }
 
         let path = url.path
         guard FileManager.default.fileExists(atPath: path) else { return nil }
 
-        if !FileManager.default.isExecutableFile(atPath: path) {
-            do {
-                try FileManager.default.setAttributes(
-                    [.posixPermissions: FilePermissions.executable],
-                    ofItemAtPath: path
-                )
-            } catch {
-                logger.error("Failed to set executable permission on \(path): \(error.localizedDescription)")
-                return nil
+        if ext == "sh" || ext == "js" {
+            if !FileManager.default.isExecutableFile(atPath: path) {
+                do {
+                    try FileManager.default.setAttributes(
+                        [.posixPermissions: FilePermissions.executable],
+                        ofItemAtPath: path
+                    )
+                } catch {
+                    logger.error("Failed to set executable permission on \(path): \(error.localizedDescription)")
+                }
             }
         }
 

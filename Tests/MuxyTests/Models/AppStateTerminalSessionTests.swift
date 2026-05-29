@@ -127,6 +127,10 @@ private final class TerminalSessionStoreStub: TerminalSessionStoring {
         nil
     }
 
+    func popClosedTerminalTab(id _: UUID, projectID _: UUID, worktreeID _: UUID) -> ClosedTerminalTabSnapshot? {
+        nil
+    }
+
     func nextClosedSequence() -> Int64 {
         Int64(closedSnapshots.count + 1)
     }

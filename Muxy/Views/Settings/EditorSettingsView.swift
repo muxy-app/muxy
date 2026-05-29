@@ -24,7 +24,7 @@ struct EditorSettingsView: View {
                 }
                 .font(.system(size: SettingsMetrics.footnoteFontSize))
                 .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SettingsStyle.mutedForeground)
             }
             .padding(.horizontal, SettingsMetrics.horizontalPadding)
             .padding(.bottom, SettingsMetrics.verticalPadding)
@@ -51,9 +51,8 @@ struct EditorSettingsView: View {
             if settings.defaultEditor == .terminalCommand {
                 SettingsRow("Editor Command") {
                     TextField("vim", text: $settings.externalEditorCommand)
-                        .textFieldStyle(.roundedBorder)
                         .font(.system(size: SettingsMetrics.labelFontSize, design: .monospaced))
-                        .frame(width: SettingsMetrics.controlWidth)
+                        .settingsTextInput(width: SettingsMetrics.controlWidth)
                 }
             }
         }

@@ -64,6 +64,11 @@ final class ProjectGroupStore {
         save()
     }
 
+    func addProjectToActiveGroup(projectID: UUID) {
+        guard let activeGroupID else { return }
+        addProject(projectID: projectID, toGroup: activeGroupID)
+    }
+
     func removeProject(projectID: UUID, fromGroup groupID: UUID) {
         guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
         groups[index].projectIDs.removeAll { $0 == projectID }

@@ -7,7 +7,6 @@ struct ProjectPickerOverlay: View {
     let onChooseFinder: () -> Void
     let onDismiss: () -> Void
 
-    @Environment(\.openSettings) private var openSettings
     @State private var workflow: ProjectPickerWorkflow
 
     init(
@@ -36,21 +35,15 @@ struct ProjectPickerOverlay: View {
                 .ignoresSafeArea()
                 .onTapGesture { handleCommand(.dismiss) }
 
-            VStack(spacing: 0) {
-                pathBar
-                Divider().overlay(MuxyTheme.border)
-                directoryContent
-                Divider().overlay(MuxyTheme.border)
-                footer
+            OverlayPanel(width: UIMetrics.scaled(640), height: UIMetrics.scaled(460)) {
+                VStack(spacing: 0) {
+                    pathBar
+                    Divider().overlay(MuxyTheme.border)
+                    directoryContent
+                    Divider().overlay(MuxyTheme.border)
+                    footer
+                }
             }
-            .frame(width: UIMetrics.scaled(640), height: UIMetrics.scaled(460))
-            .background(MuxyTheme.bg)
-            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusXL))
-            .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusXL).stroke(MuxyTheme.border, lineWidth: 1))
-            .shadow(color: .black.opacity(0.4), radius: UIMetrics.scaled(20), y: UIMetrics.scaled(8))
-            .padding(.top, UIMetrics.scaled(60))
-            .frame(maxHeight: .infinity, alignment: .top)
-            .accessibilityAddTraits(.isModal)
         }
         .onAppear { workflow.appear() }
         .onChange(of: projectPaths) { workflow.setProjectPaths($1) }
@@ -268,8 +261,8 @@ struct ProjectPickerOverlay: View {
             DispatchQueue.main.async { onChooseFinder() }
         case .openSettingsFocusedOnDefaultLocation:
             DispatchQueue.main.async {
-                openSettings()
                 SettingsFocusCoordinator.shared.request(.projectPickerDefaultLocation)
+                NotificationCenter.default.post(name: .openSettingsModal, object: nil)
             }
         case .dismiss:
             onDismiss()
