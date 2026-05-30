@@ -296,6 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         DiagnosticsMenuController.shared.install()
         observeSettingsRequests()
         consumeLaunchArguments()
+        TmuxConfiguration.cleanupStaleSessions()
     }
 
     @MainActor
