@@ -425,10 +425,19 @@ final class ExtensionStore {
         let status = statuses[index]
         let ext = status.muxyExtension
 
-        guard let entrypointURL = ext.entrypointURL else { return }
+        guard let backgroundScriptURL = ext.backgroundScriptURL else { return }
+
+        guard let hostURL = ExtensionHostLocator.hostURL() else {
+            let message = "Extension host binary not found"
+            statuses[index].lastError = message
+            ExtensionLogStore.shared.append(extensionID: ext.id, line: "[muxy] \(message)")
+            logger.error("Cannot start extension \(ext.id): \(message)")
+            return
+        }
 
         let process = Process()
-        process.executableURL = entrypointURL
+        process.executableURL = hostURL
+        process.arguments = [backgroundScriptURL.path]
         process.currentDirectoryURL = ext.directory
 
         let token = Self.generateToken()

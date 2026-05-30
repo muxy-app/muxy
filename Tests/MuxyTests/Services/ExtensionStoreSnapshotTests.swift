@@ -42,7 +42,6 @@ struct ExtensionStoreSnapshotBuildingTests {
             {
                 "name": "enabled-ext",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
                 "events": ["pane.created"],
                 "commands": [{ "id": "ping", "title": "Ping" }],
                 "permissions": ["panes:read", "notifications:write"]
@@ -54,7 +53,6 @@ struct ExtensionStoreSnapshotBuildingTests {
             {
                 "name": "disabled-ext",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
                 "events": ["pane.closed"]
             }
             """
@@ -82,12 +80,6 @@ struct ExtensionStoreSnapshotBuildingTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let manifestURL = directory.appendingPathComponent("manifest.json")
         try Data(manifest.utf8).write(to: manifestURL)
-        let entrypoint = directory.appendingPathComponent("run.sh")
-        try Data("#!/bin/sh\n".utf8).write(to: entrypoint)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.executable],
-            ofItemAtPath: entrypoint.path
-        )
         return directory
     }
 }

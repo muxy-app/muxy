@@ -105,6 +105,9 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$SPM_BUILD_DIR/Muxy" "$APP_BUNDLE/Contents/MacOS/Muxy"
 install_name_tool -add_rpath @executable_path/../Frameworks "$APP_BUNDLE/Contents/MacOS/Muxy"
 
+cp "$SPM_BUILD_DIR/MuxyExtensionHost" "$APP_BUNDLE/Contents/MacOS/MuxyExtensionHost"
+strip -Sx "$APP_BUNDLE/Contents/MacOS/MuxyExtensionHost"
+
 echo "==> Generating dSYM"
 xcrun dsymutil "$APP_BUNDLE/Contents/MacOS/Muxy" -o "$DSYM_BUNDLE"
 
@@ -177,6 +180,12 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
                 "$binary"
         fi
     done < <(find "$APP_BUNDLE/Contents/Resources" -type f -perm -u+x -print0)
+
+    echo "==> Signing extension host (inside-out)"
+    /usr/bin/codesign --force --options runtime --timestamp \
+        --entitlements "$PROJECT_ROOT/MuxyExtensionHost/MuxyExtensionHost.entitlements" \
+        --sign "$SIGN_IDENTITY" \
+        "$APP_BUNDLE/Contents/MacOS/MuxyExtensionHost"
 
     echo "==> Signing app bundle"
     /usr/bin/codesign --force --options runtime --timestamp \

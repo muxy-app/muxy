@@ -11,14 +11,14 @@ struct ExtensionManifestTests {
         {
             "name": "hello",
             "version": "1.0.0",
-            "entrypoint": "run.sh"
+            "background": "background.js"
         }
         """#
         let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
 
         #expect(manifest.name == "hello")
         #expect(manifest.version == "1.0.0")
-        #expect(manifest.entrypoint == "run.sh")
+        #expect(manifest.background == "background.js")
         #expect(manifest.events.isEmpty)
         #expect(manifest.commands.isEmpty)
         #expect(manifest.permissions.isEmpty)
@@ -32,7 +32,7 @@ struct ExtensionManifestTests {
             "name": "demo",
             "version": "2.1",
             "description": "Test extension",
-            "entrypoint": "bin/main",
+            "background": "background.js",
             "events": ["pane.created", "tab.focused"],
             "commands": [
                 { "id": "greet", "title": "Say hello", "subtitle": "demo" }
@@ -50,18 +50,18 @@ struct ExtensionManifestTests {
         #expect(manifest.aiProvider == ExtensionAIProvider(socketTypeKey: "demo", displayName: "Demo", iconName: "sparkles"))
     }
 
-    @Test("loads from directory and resolves entrypoint")
+    @Test("loads from directory and resolves background script")
     func loadsFromDirectory() throws {
         let directory = try makeTemporaryExtension(
             manifest: """
             {
                 "name": "tmp-ext",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
+                "background": "background.js",
                 "permissions": ["panes:read"]
             }
             """,
-            files: ["run.sh": "#!/bin/sh\necho hi\n"]
+            files: ["background.js": "console.log('hi')\n"]
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -69,11 +69,11 @@ struct ExtensionManifestTests {
 
         #expect(ext.id == "tmp-ext")
         #expect(ext.manifest.permissions == [.panesRead])
-        #expect(ext.entrypointURL.map { FileManager.default.isExecutableFile(atPath: $0.path) } == true)
+        #expect(ext.backgroundScriptURL != nil)
     }
 
-    @Test("loads without an entrypoint")
-    func loadsWithoutEntrypoint() throws {
+    @Test("loads without a background script")
+    func loadsWithoutBackground() throws {
         let directory = try makeTemporaryExtension(
             manifest: """
             {
@@ -87,8 +87,8 @@ struct ExtensionManifestTests {
 
         let ext = try ExtensionManifestLoader.load(from: directory)
 
-        #expect(ext.manifest.entrypoint == nil)
-        #expect(ext.entrypointURL == nil)
+        #expect(ext.manifest.background == nil)
+        #expect(ext.backgroundScriptURL == nil)
     }
 
     @Test("migrates legacy manifest enabled=false into ExtensionEnabledStore")
@@ -99,11 +99,11 @@ struct ExtensionManifestTests {
             {
                 "name": "\(extensionID)",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
+                "background": "background.js",
                 "enabled": false
             }
             """,
-            files: ["run.sh": "#!/bin/sh\n"]
+            files: ["background.js": "console.log('hi')\n"]
         )
         defer {
             try? FileManager.default.removeItem(at: directory)
@@ -125,11 +125,11 @@ struct ExtensionManifestTests {
             {
                 "name": "\(extensionID)",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
+                "background": "background.js",
                 "enabled": false
             }
             """,
-            files: ["run.sh": "#!/bin/sh\n"]
+            files: ["background.js": "console.log('hi')\n"]
         )
         defer {
             try? FileManager.default.removeItem(at: directory)
@@ -152,22 +152,38 @@ struct ExtensionManifestTests {
         }
     }
 
-    @Test("fails when entrypoint not executable")
-    func failsWhenEntrypointNotExecutable() throws {
+    @Test("fails when background script missing")
+    func failsWhenBackgroundScriptMissing() throws {
         let directory = try makeTemporaryExtension(
             manifest: """
             {
-                "name": "no-exec",
+                "name": "no-bg",
                 "version": "1.0.0",
-                "entrypoint": "run.sh"
+                "background": "background.js"
             }
-            """,
-            files: ["run.sh": "echo hi\n"],
-            makeEntrypointExecutable: false
+            """
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
         #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects a background script that escapes the extension directory")
+    func rejectsBackgroundScriptOutsideDirectory() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "escape-bg",
+                "version": "1.0.0",
+                "background": "../escape.js"
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.backgroundScriptOutsideDirectory(directory.appendingPathComponent("../escape.js"))) {
             try ExtensionManifestLoader.load(from: directory)
         }
     }
@@ -191,13 +207,13 @@ struct ExtensionManifestTests {
         try ExtensionManifestLoader.validate(name: "my_ext.123")
     }
 
-    @Test("MuxyExtension exposes entrypoint URL and display name")
+    @Test("MuxyExtension exposes background script URL and display name")
     func muxyExtensionAccessors() {
         let directory = URL(fileURLWithPath: "/tmp/example")
-        let manifest = ExtensionManifest(name: "demo", version: "0.1.0", entrypoint: "bin/run")
+        let manifest = ExtensionManifest(name: "demo", version: "0.1.0", background: "bin/run")
         let ext = MuxyExtension(id: "demo", directory: directory, manifest: manifest)
 
-        #expect(ext.entrypointURL?.path == "/tmp/example/bin/run")
+        #expect(ext.backgroundScriptURL?.path.hasSuffix("/bin/run") == true)
         #expect(ext.displayName == "demo")
     }
 
@@ -228,11 +244,11 @@ struct ExtensionManifestTests {
         let invalid = ExtensionLoadError.manifestInvalid(URL(fileURLWithPath: "/tmp/a/manifest.json"), "bad")
         #expect(invalid.errorDescription?.contains("bad") == true)
 
-        let missing = ExtensionLoadError.entrypointMissing(URL(fileURLWithPath: "/tmp/a/run"))
+        let missing = ExtensionLoadError.backgroundScriptMissing(URL(fileURLWithPath: "/tmp/a/run"))
         #expect(missing.errorDescription?.contains("/tmp/a/run") == true)
 
-        let notExec = ExtensionLoadError.entrypointNotExecutable(URL(fileURLWithPath: "/tmp/a/run"))
-        #expect(notExec.errorDescription?.contains("executable") == true)
+        let outside = ExtensionLoadError.backgroundScriptOutsideDirectory(URL(fileURLWithPath: "/tmp/a/run"))
+        #expect(outside.errorDescription?.contains("escapes") == true)
 
         let dup = ExtensionLoadError.duplicateName("demo")
         #expect(dup.errorDescription?.contains("demo") == true)
@@ -247,7 +263,7 @@ struct ExtensionManifestTests {
         {
             "name": "demo",
             "version": "1.0.0",
-            "entrypoint": "run.sh",
+            "background": "background.js",
             "commands": [
                 { "id": "open-pr", "title": "Open PR" }
             ],
@@ -288,13 +304,11 @@ struct ExtensionManifestTests {
             {
                 "name": "topbar-bad",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
                 "topbarItems": [
                     { "id": "x", "icon": "puzzlepiece.extension", "command": "missing" }
                 ]
             }
-            """,
-            files: ["run.sh": "#!/bin/sh\n"]
+            """
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -310,14 +324,12 @@ struct ExtensionManifestTests {
             {
                 "name": "topbar-svg",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
                 "commands": [ { "id": "noop", "title": "noop" } ],
                 "topbarItems": [
                     { "id": "x", "icon": { "svg": "assets/missing.svg" }, "command": "noop" }
                 ]
             }
-            """,
-            files: ["run.sh": "#!/bin/sh\n"]
+            """
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -333,14 +345,12 @@ struct ExtensionManifestTests {
             {
                 "name": "settings-dup",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
                 "settings": [
                     { "key": "x", "title": "X", "type": "bool" },
                     { "key": "x", "title": "X again", "type": "bool" }
                 ]
             }
-            """,
-            files: ["run.sh": "#!/bin/sh\n"]
+            """
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -392,8 +402,7 @@ struct ExtensionManifestTests {
                 "panels": [ { "id": "side", "entry": "panels/side.html" } ]
             }
             """,
-            files: ["panels/side.html": "<html></html>"],
-            makeEntrypointExecutable: false
+            files: ["panels/side.html": "<html></html>"]
         )
         defer { try? FileManager.default.removeItem(at: directory) }
         let ext = try ExtensionManifestLoader.load(from: directory)
@@ -430,8 +439,7 @@ struct ExtensionManifestTests {
                 ]
             }
             """,
-            files: ["panels/side.html": "<html></html>"],
-            makeEntrypointExecutable: false
+            files: ["panels/side.html": "<html></html>"]
         )
         defer { try? FileManager.default.removeItem(at: directory) }
         #expect(throws: ExtensionLoadError.self) {
@@ -450,8 +458,7 @@ struct ExtensionManifestTests {
                     { "id": "show", "title": "Show", "action": { "kind": "togglePanel", "panel": "ghost" } }
                 ]
             }
-            """,
-            makeEntrypointExecutable: false
+            """
         )
         defer { try? FileManager.default.removeItem(at: directory) }
         #expect(throws: ExtensionLoadError.self) {
@@ -466,14 +473,12 @@ struct ExtensionManifestTests {
             {
                 "name": "topbar-empty",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
                 "commands": [ { "id": "noop", "title": "noop" } ],
                 "topbarItems": [
                     { "id": "", "icon": "x.circle", "command": "noop" }
                 ]
             }
-            """,
-            files: ["run.sh": "#!/bin/sh\n"]
+            """
         )
         defer { try? FileManager.default.removeItem(at: directory) }
         #expect(throws: ExtensionLoadError.self) {
@@ -488,13 +493,11 @@ struct ExtensionManifestTests {
             {
                 "name": "settings-empty",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
                 "settings": [
                     { "key": "", "title": "X", "type": "bool" }
                 ]
             }
-            """,
-            files: ["run.sh": "#!/bin/sh\n"]
+            """
         )
         defer { try? FileManager.default.removeItem(at: directory) }
         #expect(throws: ExtensionLoadError.self) {
@@ -509,7 +512,6 @@ struct ExtensionManifestTests {
             {
                 "name": "bad-icon",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
                 "commands": [ { "id": "noop", "title": "noop" } ],
                 "topbarItems": [
                     { "id": "x", "icon": { "svg": "assets/foo.png" }, "command": "noop" }
@@ -517,7 +519,6 @@ struct ExtensionManifestTests {
             }
             """,
             files: [
-                "run.sh": "#!/bin/sh\n",
                 "assets/foo.png": "PNG-not-SVG",
             ]
         )
@@ -567,8 +568,7 @@ struct ExtensionManifestTests {
                 "popovers": [ { "id": "info", "entry": "popovers/info.html" } ]
             }
             """,
-            files: ["popovers/info.html": "<html></html>"],
-            makeEntrypointExecutable: false
+            files: ["popovers/info.html": "<html></html>"]
         )
         defer { try? FileManager.default.removeItem(at: directory) }
         let ext = try ExtensionManifestLoader.load(from: directory)
@@ -605,8 +605,7 @@ struct ExtensionManifestTests {
                 ]
             }
             """,
-            files: ["popovers/info.html": "<html></html>"],
-            makeEntrypointExecutable: false
+            files: ["popovers/info.html": "<html></html>"]
         )
         defer { try? FileManager.default.removeItem(at: directory) }
         #expect(throws: ExtensionLoadError.self) {
@@ -625,8 +624,7 @@ struct ExtensionManifestTests {
                     { "id": "show", "title": "Show", "action": { "kind": "openPopover", "popover": "ghost" } }
                 ]
             }
-            """,
-            makeEntrypointExecutable: false
+            """
         )
         defer { try? FileManager.default.removeItem(at: directory) }
         #expect(throws: ExtensionLoadError.self) {
@@ -653,8 +651,7 @@ struct ExtensionManifestTests {
 
     private func makeTemporaryExtension(
         manifest: String,
-        files: [String: String] = [:],
-        makeEntrypointExecutable: Bool = true
+        files: [String: String] = [:]
     ) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ext-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -666,12 +663,6 @@ struct ExtensionManifestTests {
             let fileURL = directory.appendingPathComponent(path)
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(contents.utf8).write(to: fileURL)
-            if makeEntrypointExecutable {
-                try FileManager.default.setAttributes(
-                    [.posixPermissions: FilePermissions.executable],
-                    ofItemAtPath: fileURL.path
-                )
-            }
         }
         return directory
     }

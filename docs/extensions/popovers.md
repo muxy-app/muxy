@@ -80,11 +80,4 @@ The popover dismisses on outside click, or when the page asks the host to close 
 window.muxy.popover.close(): Promise<void>;
 ```
 
-From an entrypoint subprocess over the socket:
-
-```
-popover.resize|<width>|<height>
-popover.close
-```
-
-`popover.resize` and `popover.close` act on the popover currently open for the calling extension; there is no `open` verb because popovers are user-triggered from their anchor. Both require the `panels:write` permission. Popovers close automatically when the extension is disabled or stopped.
+`popover.resize` and `popover.close` are called from the popover page via `window.muxy.popover.*` (above); they act on the popover currently open for the calling extension. There is no `open` verb because popovers are user-triggered from their anchor, and the background script does not drive popovers. Both calls require the `panels:write` permission. Popovers close automatically when the extension is disabled or stopped.

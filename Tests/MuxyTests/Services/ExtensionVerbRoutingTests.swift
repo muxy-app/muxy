@@ -6,9 +6,10 @@ import Testing
 @Suite("Extension verb routing")
 @MainActor
 struct ExtensionVerbRoutingTests {
-    @Test("MuxyAPI verbNames includes the three extension verbs")
+    @Test("MuxyAPI verbNames includes the extension verbs")
     func verbNamesIncludesExtensionVerbs() {
         let verbs = MuxyAPI.Permissions.verbNames
+        #expect(verbs.contains("exec"))
         #expect(verbs.contains("extension.settings.get"))
         #expect(verbs.contains("extension.settings.set"))
         #expect(verbs.contains("extension.statusbar.set"))

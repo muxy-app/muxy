@@ -394,7 +394,7 @@ struct ExtensionManifest: Codable, Equatable {
     let name: String
     let version: String
     let description: String?
-    let entrypoint: String?
+    let background: String?
     let events: [String]
     let commands: [ExtensionPaletteCommand]
     let tabTypes: [ExtensionTabType]
@@ -410,7 +410,7 @@ struct ExtensionManifest: Codable, Equatable {
         case name
         case version
         case description
-        case entrypoint
+        case background
         case events
         case commands
         case tabTypes
@@ -427,7 +427,7 @@ struct ExtensionManifest: Codable, Equatable {
         name: String,
         version: String,
         description: String? = nil,
-        entrypoint: String? = nil,
+        background: String? = nil,
         events: [String] = [],
         commands: [ExtensionPaletteCommand] = [],
         tabTypes: [ExtensionTabType] = [],
@@ -442,7 +442,7 @@ struct ExtensionManifest: Codable, Equatable {
         self.name = name
         self.version = version
         self.description = description
-        self.entrypoint = entrypoint
+        self.background = background
         self.events = events
         self.commands = commands
         self.tabTypes = tabTypes
@@ -460,7 +460,7 @@ struct ExtensionManifest: Codable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         version = try container.decode(String.self, forKey: .version)
         description = try container.decodeIfPresent(String.self, forKey: .description)
-        entrypoint = try container.decodeIfPresent(String.self, forKey: .entrypoint)
+        background = try container.decodeIfPresent(String.self, forKey: .background)
         events = try container.decodeIfPresent([String].self, forKey: .events) ?? []
         commands = try container.decodeIfPresent([ExtensionPaletteCommand].self, forKey: .commands) ?? []
         tabTypes = try container.decodeIfPresent([ExtensionTabType].self, forKey: .tabTypes) ?? []
@@ -497,8 +497,8 @@ struct ExtensionManifest: Codable, Equatable {
 enum ExtensionLoadError: LocalizedError, Equatable {
     case manifestMissing(URL)
     case manifestInvalid(URL, String)
-    case entrypointMissing(URL)
-    case entrypointNotExecutable(URL)
+    case backgroundScriptMissing(URL)
+    case backgroundScriptOutsideDirectory(URL)
     case invalidName(String)
     case duplicateName(String)
     case tabTypeEntryMissing(tabTypeID: String, url: URL)
@@ -536,10 +536,10 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Manifest not found at \(url.path)"
         case let .manifestInvalid(url, reason):
             "Invalid manifest at \(url.path): \(reason)"
-        case let .entrypointMissing(url):
-            "Entrypoint not found at \(url.path)"
-        case let .entrypointNotExecutable(url):
-            "Entrypoint at \(url.path) is not executable"
+        case let .backgroundScriptMissing(url):
+            "Background script not found at \(url.path)"
+        case let .backgroundScriptOutsideDirectory(url):
+            "Background script at \(url.path) escapes the extension directory"
         case let .invalidName(name):
             "Extension name '\(name)' contains invalid characters (use letters, digits, dash, underscore, dot)"
         case let .duplicateName(name):
@@ -609,9 +609,9 @@ struct MuxyExtension: Identifiable, Equatable {
     let directory: URL
     let manifest: ExtensionManifest
 
-    var entrypointURL: URL? {
-        guard let entrypoint = manifest.entrypoint else { return nil }
-        return directory.appendingPathComponent(entrypoint)
+    var backgroundScriptURL: URL? {
+        guard let background = manifest.background else { return nil }
+        return resolveResource(background)
     }
 
     var displayName: String { manifest.name }
@@ -658,16 +658,19 @@ enum ExtensionManifestLoader {
 
         try validate(name: manifest.name)
 
-        if let entrypoint = manifest.entrypoint.map(directory.appendingPathComponent) {
-            guard FileManager.default.fileExists(atPath: entrypoint.path) else {
-                throw ExtensionLoadError.entrypointMissing(entrypoint)
+        let muxyExtension = MuxyExtension(id: manifest.name, directory: directory, manifest: manifest)
+
+        if let background = manifest.background {
+            guard let backgroundURL = muxyExtension.resolveResource(background) else {
+                throw ExtensionLoadError.backgroundScriptOutsideDirectory(
+                    directory.appendingPathComponent(background)
+                )
             }
-            guard FileManager.default.isExecutableFile(atPath: entrypoint.path) else {
-                throw ExtensionLoadError.entrypointNotExecutable(entrypoint)
+            guard FileManager.default.fileExists(atPath: backgroundURL.path) else {
+                throw ExtensionLoadError.backgroundScriptMissing(backgroundURL)
             }
         }
 
-        let muxyExtension = MuxyExtension(id: manifest.name, directory: directory, manifest: manifest)
         try validateTabTypes(manifest: manifest, in: muxyExtension)
         try validatePanels(manifest: manifest, in: muxyExtension)
         try validatePopovers(manifest: manifest, in: muxyExtension)

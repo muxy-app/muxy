@@ -123,11 +123,12 @@ enum ExtensionScaffoldService {
 
         - `manifest.json` — declares the extension to Muxy.
 
-        Add an `"entrypoint"` to the manifest only if the extension needs to
-        receive pushed workspace events. Muxy launches that executable as a
-        long-running process that connects to "$MUXY_SOCKET_PATH" and
-        authenticates with "$MUXY_EXTENSION_TOKEN" before subscribing. Command,
-        topbar, status bar, tab, and runScript extensions need no entrypoint.
+        Add a `"background"` script (e.g. `background.js`) to the manifest only
+        if the extension needs to receive pushed workspace events or run shell
+        commands in the background. Muxy runs it as a long-lived process that
+        subscribes to events with `muxy.events.subscribe` and runs commands with
+        `muxy.exec`. Command, topbar, status bar, tab, and runScript extensions
+        need no background script.
 
         ## Editing
 

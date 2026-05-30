@@ -2,21 +2,20 @@
 
 > **Status:** under active development. The manifest format, permission set, and event wire format may change without notice. Marked **DEV** in Settings.
 
-Extensions are user-installed directories that Muxy loads and talks to over the existing notification Unix socket. They can react to workspace events, register palette commands, and (with permission) drive the same verbs the `muxy` CLI exposes. Most extensions are manifest-only and run no process; an extension keeps a long-lived subprocess running only when it declares an `entrypoint` to receive pushed events.
+Extensions are user-installed directories that Muxy loads and runs. They can react to workspace events, register palette commands, and (with permission) drive the same verbs the `muxy` CLI exposes. Most extensions are manifest-only and run no process; an extension keeps a long-lived background process running only when it declares a `background` script to receive pushed events or run background shell commands.
 
 ```mermaid
 flowchart TB
   Disk[~/.config/muxy/extensions/<name>/]
-  Disk -->|manifest.json + entrypoint| Loader[ExtensionStore]
-  Loader -->|Process spawn<br/>MUXY_SOCKET_PATH + MUXY_EXTENSION_ID| Ext[Extension subprocess]
-  Ext <-->|Unix socket<br/>muxy.sock| Server[NotificationSocketServer]
-  Server -->|broadcast events| Ext
-  Ext -->|identify / subscribe / verbs| Server
-  Server -->|verbs| Handler[SocketCommandHandler]
+  Disk -->|manifest.json + background.js| Loader[ExtensionStore]
+  Loader -->|run background script| Host[MuxyExtensionHost]
+  Host -->|muxy global| Script[background.js]
+  Script -->|events.subscribe / exec| Host
+  Host -->|verbs| Handler[SocketCommandHandler]
   Handler -->|permission check| Store[ExtensionStore]
   Handler --> App[AppState / Stores]
   App -->|state changes| Emitter[ExtensionEventEmitter]
-  Emitter -->|broadcast| Server
+  Emitter -->|deliver events| Host
 ```
 
 ## Pages
@@ -35,37 +34,38 @@ flowchart TB
 ~/.config/muxy/extensions/
   <name>/
     manifest.json
-    <entrypoint>      # optional executable; only for pushed events
+    background.js     # optional background script; only for pushed events / background exec
 ```
 
-`ExtensionStore` scans the directory on app start, validates each manifest, and spawns one subprocess per enabled extension **that declares an entrypoint**. Extensions without one register their UI (commands, topbar, status bar, tabs) and run `runScript` commands with no resident process. Settings → Extensions lists every loaded extension with toggle, permissions, and recent stdout/stderr.
+`ExtensionStore` scans the directory on app start, validates each manifest, and runs the `background.js` of each enabled extension **that declares one** in a long-lived host process (`MuxyExtensionHost`). Extensions without one register their UI (commands, topbar, status bar, tabs) and run `runScript` commands with no resident process. Settings → Extensions lists every loaded extension with toggle, permissions, and recent log output.
 
 ## How extensions talk to Muxy
 
-Extensions use the same Unix socket as the `muxy` CLI, with a small protocol on top: two sticky commands (`identify`, `subscribe`) followed by any of the existing verbs.
+A background script talks to Muxy through the `muxy` global the host injects — there is no socket protocol for authors to speak. It exposes:
 
-```
-identify|<extension-id>|<token>  # claim identity; token comes from MUXY_EXTENSION_TOKEN env
-subscribe|<event-name>           # receive `event|<name>|key=value...` lines
-<verb>|<args>                    # any CLI verb (permission-gated)
+```js
+muxy.extensionID                       // the extension's name
+muxy.events.subscribe(name, handler)   // receive declared events
+muxy.events.unsubscribe(name, handler)
+muxy.exec(argv[, options])             // run a shell command (needs commands:exec)
+console.log / console.warn / console.error
 ```
 
-See [Events](events.md) for the handshake walkthrough and the line format.
+The richer state/mutation API (`muxy.tabs`, `muxy.panes`, `muxy.projects`, `muxy.worktrees`) is available to tab/panel/popover pages via `window.muxy`, not to the background script. See [Events](events.md) for the event list and payloads.
 
 ## Process & failure model
 
-- One long-lived subprocess per extension that declares an entrypoint. Crashes are surfaced in Settings → Extensions; the extension is marked `stopped` until toggled or the app restarts.
-- Stdout and stderr are captured to an in-app rolling log (last 200 lines per extension).
-- Stopping Muxy terminates all extension subprocesses.
+- One long-lived background process per extension that declares a `background` script. Crashes are surfaced in Settings → Extensions; the extension is marked `stopped` until toggled or the app restarts.
+- `console.*` output is captured to an in-app rolling log (last 200 lines per extension).
+- Stopping Muxy terminates all extension background processes.
 
 ## Security model
 
 - **Process isolation.** A misbehaving extension can't take down Muxy.
 - **Manifest-declared permissions.** Every state-changing verb requires a matching `permissions` entry. The check happens in `SocketCommandHandler`.
-- **Subscription allowlist.** An identified extension can only `subscribe` to events declared in its manifest `events` array, or to its own `command.<id>` events.
-- **Identify allowlist.** An extension can only `identify` as a name that `ExtensionStore` actually loaded from disk.
-- **Not covered.** Peer-process authentication. Any local process that can reach the socket and knows a loaded extension's name can identify as it. Treat the socket as a local-user trust boundary, not a sandbox.
+- **Subscription allowlist.** An extension can only subscribe to events declared in its manifest `events` array, or to its own `command.<id>` events.
+- **Loaded-from-disk only.** Muxy only runs the `background.js` of an extension it actually loaded from disk.
 
 ## Reference implementation
 
-The `hello` example used during development is at `~/.config/muxy/extensions/hello/` — a shell script that subscribes to a few events and posts a notification back when its palette command fires.
+The bundled demo extension is the authoritative reference — see its `SKILL.md`. A background script subscribes to a few events and runs `muxy.exec` when one fires.

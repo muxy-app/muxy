@@ -62,15 +62,7 @@ window.muxy.panels.toggle(panelID, data?): Promise<void>;
 window.muxy.panels.close(panelID): Promise<void>;
 ```
 
-From an entrypoint subprocess over the socket:
-
-```
-panel.open|<panelID>[|<json-data>]
-panel.toggle|<panelID>[|<json-data>]
-panel.close|<panelID>
-```
-
-`data` overrides the panel's `defaultData` for that instance and is exposed to the page as `window.muxy.data`.
+Panels are opened and closed from a tab/panel/popover page via `window.muxy.panels.*` (above); the background script does not open panels. `data` overrides the panel's `defaultData` for that instance and is exposed to the page as `window.muxy.data`.
 
 ## Header controls
 

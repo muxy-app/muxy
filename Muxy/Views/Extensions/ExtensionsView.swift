@@ -344,7 +344,7 @@ private struct ExtensionStatusBadge: View {
     @MainActor
     private var info: (String, Color) {
         if status.isRunning { return ("running", MuxyTheme.diffAddFg) }
-        if status.isEnabled, status.muxyExtension.entrypointURL == nil { return ("active", MuxyTheme.diffAddFg) }
+        if status.isEnabled, status.muxyExtension.backgroundScriptURL == nil { return ("active", MuxyTheme.diffAddFg) }
         if status.isEnabled { return ("stopped", MuxyTheme.fgMuted) }
         return ("disabled", MuxyTheme.fgDim)
     }

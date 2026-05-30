@@ -18,7 +18,7 @@ struct ExtensionScaffoldServiceTests {
 
         #expect(extensionURL.lastPathComponent == "demo")
         try assertManifest(at: extensionURL, name: "demo", version: "0.1.0", description: "A demo extension")
-        try assertNoEntrypoint(at: extensionURL)
+        try assertNoBackground(at: extensionURL)
         try assertClaudeMarkdown(at: extensionURL, includes: "# demo")
         try assertAgentsSymlinkPointsToClaude(at: extensionURL)
         try assertGitignore(at: extensionURL)
@@ -119,7 +119,7 @@ struct ExtensionScaffoldServiceTests {
         #expect(loaded.id == "loadable")
         #expect(loaded.manifest.version == "0.2.0")
         #expect(loaded.manifest.description == "Round-trip")
-        #expect(loaded.manifest.entrypoint == nil)
+        #expect(loaded.manifest.background == nil)
     }
 
     private struct Fixture {
@@ -160,13 +160,13 @@ struct ExtensionScaffoldServiceTests {
         let manifest = try loadManifest(at: extensionURL)
         #expect(manifest["name"] as? String == name)
         #expect(manifest["version"] as? String == version)
-        #expect(manifest["entrypoint"] == nil)
+        #expect(manifest["background"] == nil)
         #expect(manifest["description"] as? String == description)
     }
 
-    private func assertNoEntrypoint(at extensionURL: URL) throws {
-        let entrypoint = extensionURL.appendingPathComponent("run.sh")
-        #expect(!FileManager.default.fileExists(atPath: entrypoint.path))
+    private func assertNoBackground(at extensionURL: URL) throws {
+        let manifest = try loadManifest(at: extensionURL)
+        #expect(manifest["background"] == nil)
     }
 
     private func assertClaudeMarkdown(at extensionURL: URL, includes substring: String) throws {

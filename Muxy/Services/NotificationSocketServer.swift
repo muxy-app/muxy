@@ -19,10 +19,12 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     final class ClientSession: @unchecked Sendable {
         static let droppedNotificationDisconnectThreshold = 100
+        static let maxConcurrentCommands = 8
 
         var fd: Int32
         var pendingClose = false
         var commandInFlight = false
+        var inFlightCommandCount = 0
         var extensionID: String?
         var subscriptions: Set<String> = []
         var writeBuffer = Data()
@@ -323,14 +325,20 @@ final class NotificationSocketServer: @unchecked Sendable {
             enqueueWrite(session: session, text: "error:no handler registered\n")
             return
         }
+        guard session.inFlightCommandCount < ClientSession.maxConcurrentCommands else {
+            enqueueWrite(session: session, text: "error:too many concurrent commands\n")
+            return
+        }
         let context = ClientContext(extensionID: session.extensionID)
         session.commandInFlight = true
+        session.inFlightCommandCount += 1
         Task { @Sendable [weak self] in
             let response = await handler(message, context)
             guard let self else { return }
             self.queue.async { [weak self] in
                 self?.enqueueWrite(session: session, text: response + "\n")
-                session.commandInFlight = false
+                session.inFlightCommandCount -= 1
+                session.commandInFlight = session.inFlightCommandCount > 0
             }
         }
     }

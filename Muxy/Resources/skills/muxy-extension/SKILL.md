@@ -5,13 +5,13 @@ description: Use when authoring or modifying a Muxy extension. Covers manifest f
 
 # Muxy Extension Author Guide
 
-Muxy extensions live in `~/.config/muxy/extensions/<name>/` and load when Muxy starts. Each extension is a directory containing a `manifest.json`. An executable entrypoint is optional and most extensions don't need one — declaring an entrypoint makes Muxy keep a long-lived subprocess running for the whole lifetime of the extension, so add one only when the extension needs to receive pushed events. Optional resources (HTML tabs, scripts, icons, assets) live alongside.
+Muxy extensions live in `~/.config/muxy/extensions/<name>/` and load when Muxy starts. Each extension is a directory containing a `manifest.json`. A `background` script (`background.js`) is optional and most extensions don't need one — declaring it makes Muxy run a long-lived background process for the whole lifetime of the extension, so add one only when the extension needs to receive pushed events or run shell commands in the background. Optional resources (HTML tabs, scripts, icons, assets) live alongside.
 
 ## When to use this skill
 
 Use this skill when:
 
-- Writing a new Muxy extension (manifest, entrypoint, tab UI).
+- Writing a new Muxy extension (manifest, background script, tab UI).
 - Adding a command, topbar item, status-bar item, settings entry, tab type, panel, or popover.
 - Styling an extension tab so it adapts to the user's current Muxy theme.
 - Reading Muxy state (panes, tabs, projects, worktrees) or executing shell from a tab.
@@ -24,7 +24,7 @@ A typical extension looks like this:
 ```
 my-extension/
 ├── manifest.json           # required
-├── run.sh                  # optional executable entrypoint (only for pushed events)
+├── background.js           # optional background script (events / muxy.exec)
 ├── CLAUDE.md               # author guide for this extension
 ├── AGENTS.md → CLAUDE.md   # symlink for non-Claude agents
 ├── .gitignore
@@ -49,7 +49,7 @@ The full reference manifest, taken from the bundled demo extension:
   "name": "demo",
   "version": "0.2.0",
   "description": "Reference extension: playground tab, runScript command, topbar icon, status bar items, and settings.",
-  "entrypoint": "run.sh",
+  "background": "background.js",
   "permissions": [
     "tabs:read", "tabs:write",
     "panes:read", "panes:write",
@@ -117,8 +117,8 @@ Field-by-field:
 - `name` — required. Alphanumerics, dash, underscore, dot only. Must match the directory name.
 - `version` — required semver string.
 - `description` — optional one-line summary shown in the Extensions modal.
-- `entrypoint` — optional relative path. When present, must exist and be executable; Muxy launches it as a long-lived subprocess that stays running for the lifetime of the extension. Provide it only to receive pushed events — command, topbar, status bar, tab, and `runScript` extensions need none, and omitting it means Muxy keeps no resident process.
-- `permissions` — array of permission strings. Declare only what the entrypoint or tabs actually use.
+- `background` — optional relative path to a JavaScript file. When present it must exist inside the extension directory; Muxy runs it in a long-lived host process for the lifetime of the extension. Provide it only to receive pushed events (`muxy.events.subscribe`) or run background shell commands (`muxy.exec`) — command, topbar, status bar, tab, and `runScript` extensions need none, and omitting it means Muxy keeps no resident process.
+- `permissions` — array of permission strings. Declare only what the background script or tabs actually use.
 - `events` — array of event names this extension subscribes to (for example `pane.created`, `tab.focused`, `pane.closed`). Command events (`command.<id>`) are auto-allowed.
 - `tabTypes` — declares HTML pages renderable as tabs.
 - `panels` — declares HTML pages renderable as dockable/floating panels (`position`: `right`|`bottom`, `mode`: `floating`|`pinned`, optional `icon`/`title`/`hiddenControls`). Requires `panels:write` to open/close at runtime. One pinned and one floating panel per position; opening another in that slot replaces it.
@@ -127,7 +127,7 @@ Field-by-field:
 - `topbarItems` / `statusBarItems` — UI hooks bound to a command. `icon` is either `{ "symbol": "<sf-symbol>" }` or `{ "svg": "<relative/path.svg>" }`.
 - `settings` — user-visible settings (`string` | `bool` | `number`) reachable from `extension.settings.get` over the socket and editable in the Extensions modal.
 
-Common load failures: a declared entrypoint that is missing or not executable, tab/panel/popover entry escapes the extension directory, a command references an unknown `tabType`, `panel`, or `popover`, a topbar or status-bar item references an unknown command. Failures appear in the Extensions modal under "Load Errors".
+Common load failures: a declared `background` script that is missing or escapes the extension directory, tab/panel/popover entry escapes the extension directory, a command references an unknown `tabType`, `panel`, or `popover`, a topbar or status-bar item references an unknown command. Failures appear in the Extensions modal under "Load Errors".
 
 ## Permissions reference
 
@@ -150,68 +150,30 @@ Permissions are gated server-side. Requests without the matching permission fail
 
 Principle: least privilege. Add a permission only when adding the call that requires it.
 
-## Entrypoint
+## Background script
 
-The entrypoint is optional. Manifest UI (palette commands, topbar items, status-bar items, tab types) and `runScript` commands all work without one. Add an entrypoint only when the extension must **receive pushed events** — Muxy launches it as a long-lived subprocess that holds the socket connection open to get `event|...` lines. Without an entrypoint there is no resident process and no idle socket session.
+The `background` script is optional. Manifest UI (palette commands, topbar items, status-bar items, tab types) and `runScript` commands all work without one. Add a background script only when the extension must **receive pushed events** or **run shell commands on its own** (not in response to a tab). Muxy runs the script in a long-lived host process for the lifetime of the extension; without one there is no resident process.
 
-When present, the entrypoint runs for the lifetime of the extension. Muxy launches it with these environment variables:
+The host exposes a small `muxy` global to `background.js`:
 
-- `MUXY_SOCKET_PATH` — Unix-domain socket path for IPC.
-- `MUXY_EXTENSION_ID` — the extension's `name`.
-- `MUXY_EXTENSION_TOKEN` — auth token. Every request must include it.
-- `MUXY_EXTENSION_LOG` — log file path. stdout/stderr also land here.
+- `muxy.extensionID` — the extension's `name`.
+- `muxy.events.subscribe(name, handler)` / `muxy.events.unsubscribe(name, handler)` — receive workspace events declared in `events`. `handler(payload)` is called with the event payload object.
+- `muxy.exec(argv[, options])` / `muxy.exec(options)` — run a shell command (needs `commands:exec`; prompts the user the first time, then honours remembered allow/deny rules). Returns `{ stdout, stderr, exitCode, timedOut, truncated }`.
+- `console.log` / `console.warn` / `console.error` — written to the extension log.
 
-### Minimum entrypoint (sleep forever)
+The richer state/mutation API (`muxy.tabs`, `muxy.panes`, `muxy.projects`, `muxy.worktrees`) is available to **tab/panel/popover pages** via `window.muxy`, not to the background script.
 
-```sh
-#!/bin/sh
-echo "[muxy] $MUXY_EXTENSION_ID started"
-while true; do sleep 3600; done
+### Example `background.js` (subscribe to an event, run a command)
+
+```js
+muxy.events.subscribe('pane.created', async (payload) => {
+  console.log('pane created', payload.paneID);
+  const result = await muxy.exec(['git', 'status', '--short']);
+  console.log(result.stdout);
+});
 ```
 
-A bare sleep loop holds a process and socket session open but does nothing — drop the entrypoint entirely rather than ship this. Add an entrypoint only when it subscribes to events and reacts, as in the socket protocol below.
-
-### Full entrypoint (reads a setting, pushes status-bar text)
-
-This is the exact `run.sh` from the demo extension. It identifies, reads its `refreshSeconds` setting, and updates the left status-bar item every tick using `nc -U`:
-
-```sh
-#!/bin/bash
-set -eu
-
-SOCKET="${MUXY_SOCKET_PATH:?MUXY_SOCKET_PATH is required}"
-EXT_ID="${MUXY_EXTENSION_ID:?MUXY_EXTENSION_ID is required}"
-TOKEN="${MUXY_EXTENSION_TOKEN:?MUXY_EXTENSION_TOKEN is required}"
-
-send() {
-    local request="$1"
-    printf '%s\n' "$request" | nc -U -w 2 "$SOCKET" | head -n 1
-}
-
-get_setting() {
-    local key="$1"
-    local response
-    response=$(send "identify|${EXT_ID}|${TOKEN}
-extension.settings.get|${key}" | tail -n 1)
-    case "$response" in
-        "ok\t"*) printf '%s' "${response#ok	}" ;;
-        *)       printf '' ;;
-    esac
-}
-
-set_ticker() {
-    send "identify|${EXT_ID}|${TOKEN}
-extension.statusbar.set|ticker|$1" >/dev/null
-}
-
-set_ticker "starting"
-while true; do
-    set_ticker "$(date -u +%H:%M:%SZ)"
-    sleep "$(get_setting refreshSeconds || echo 5)"
-done
-```
-
-Socket frames are pipe-delimited and newline-terminated. The first frame on every connection must be `identify|<extensionID>|<token>`.
+The first `muxy.exec` for a given command prompts the user in the main window. If they allow-and-remember it, matching commands run without prompting; if they deny, the call rejects with "response not allowed".
 
 ## In-tab bridge (`window.muxy`)
 
@@ -489,7 +451,7 @@ hello-world/
     └── styles.css
 ```
 
-This extension only opens a tab from a palette command, so it declares no entrypoint and runs no subprocess.
+This extension only opens a tab from a palette command, so it declares no background script and runs no resident process.
 
 ```json
 // manifest.json
@@ -612,18 +574,18 @@ A status-bar item that opens a self-sizing popover. The popover replaces what us
 </html>
 ```
 
-The popover anchors to the status-bar item, opens/toggles when it is clicked, and dismisses on outside click. No entrypoint is needed.
+The popover anchors to the status-bar item, opens/toggles when it is clicked, and dismisses on outside click. No background script is needed.
 
 ## Reload workflow
 
-After editing `manifest.json`, scripts, tab HTML/CSS/JS, or the entrypoint, click **Reload** in the Muxy Extensions modal. Muxy terminates the running process and re-validates the manifest. Tabs are not auto-refreshed — close and reopen them, or use `tabs.open` to get a fresh instance.
+After editing `manifest.json`, scripts, tab HTML/CSS/JS, or the background script, click **Reload** in the Muxy Extensions modal. Muxy terminates the running process and re-validates the manifest. Tabs are not auto-refreshed — close and reopen them, or use `tabs.open` to get a fresh instance.
 
 ## Quick checklist before shipping
 
-- [ ] `manifest.json` parses; any declared `entrypoint` exists and is executable.
+- [ ] `manifest.json` parses; any declared `background` script exists inside the extension directory.
 - [ ] `permissions` declares only what is actually used.
 - [ ] Every CSS rule for UI chrome uses `var(--muxy-…)`.
 - [ ] `muxy.onThemeChange` is wired for any canvas/SVG/JS-rendered color.
 - [ ] Hover and active states are visible in both light and dark themes.
 - [ ] No hardcoded paths to `~/.config/muxy` from inside the extension — use `muxy.exec({ cwd: … })` or rely on the working directory Muxy sets.
-- [ ] Event-driven work happens in the entrypoint, not in tab JS, so closing a tab does not lose state. No entrypoint unless events are needed.
+- [ ] Event-driven work happens in the background script, not in tab JS, so closing a tab does not lose state. No background script unless events or background `muxy.exec` are needed.

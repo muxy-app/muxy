@@ -20,6 +20,17 @@ let package = Package(
             name: "MuxyShared",
             path: "MuxyShared"
         ),
+        .executableTarget(
+            name: "MuxyExtensionHost",
+            dependencies: [
+                "MuxyShared",
+            ],
+            path: "MuxyExtensionHost",
+            linkerSettings: [
+                .linkedFramework("Foundation"),
+                .linkedFramework("JavaScriptCore"),
+            ]
+        ),
         .target(
             name: "GhosttyKit",
             path: "GhosttyKit",
@@ -80,6 +91,7 @@ let package = Package(
                 "Muxy",
                 "MuxyShared",
                 "MuxyServer",
+                "MuxyExtensionHost",
                 .product(name: "Yams", package: "Yams"),
             ],
             path: "Tests/MuxyTests",

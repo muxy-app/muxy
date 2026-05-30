@@ -11,7 +11,6 @@ struct ExtensionTabManifestTests {
         {
           "name": "x",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "commands": [{ "id": "ping", "title": "Ping" }]
         }
         """)
@@ -24,7 +23,6 @@ struct ExtensionTabManifestTests {
         {
           "name": "x",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [{ "id": "viewer", "title": "Viewer", "entry": "tabs/x.html" }],
           "commands": [{
             "id": "open",
@@ -47,7 +45,6 @@ struct ExtensionTabManifestTests {
         {
           "name": "x",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "commands": [{
             "id": "go",
             "title": "Go",
@@ -68,7 +65,6 @@ struct ExtensionTabManifestTests {
         {
           "name": "x",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [{
             "id": "viewer",
             "title": "Viewer",
@@ -96,7 +92,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "dupe",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [
             { "id": "viewer", "title": "A", "entry": "a.html" },
             { "id": "viewer", "title": "B", "entry": "b.html" }
@@ -116,7 +111,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "x",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "commands": [{
             "id": "bad",
             "title": "Bad",
@@ -137,7 +131,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "esc",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [{ "id": "v", "title": "V", "entry": "../escape.html" }]
         }
         """)
@@ -154,7 +147,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "missing",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [{ "id": "v", "title": "V", "entry": "tabs/nope.html" }]
         }
         """)
@@ -171,7 +163,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "noscript",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "commands": [{
             "id": "go",
             "title": "Go",
@@ -192,7 +183,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "good",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [{ "id": "v", "title": "V", "entry": "tabs/v.html" }],
           "commands": [{
             "id": "open",
@@ -217,8 +207,7 @@ struct ExtensionTabValidationTests {
         let directory = try makeExtension(manifest: """
         {
           "name": "trav",
-          "version": "1.0",
-          "entrypoint": "run.sh"
+          "version": "1.0"
         }
         """)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -234,12 +223,6 @@ struct ExtensionTabValidationTests {
             .appendingPathComponent("ext-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data(manifest.utf8).write(to: directory.appendingPathComponent("manifest.json"))
-        let entrypoint = directory.appendingPathComponent("run.sh")
-        try Data("#!/bin/sh\n".utf8).write(to: entrypoint)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.executable],
-            ofItemAtPath: entrypoint.path
-        )
         for (relPath, contents) in extraFiles {
             let fileURL = directory.appendingPathComponent(relPath)
             try FileManager.default.createDirectory(

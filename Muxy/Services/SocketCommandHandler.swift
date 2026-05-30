@@ -223,8 +223,54 @@ enum SocketCommandHandler {
                 height: parts[2],
                 extensionID: clientContext.extensionID
             )
+        case "exec":
+            guard parts.count >= 2 else { return "error:usage exec|<base64-json>" }
+            return await handleExec(
+                base64Payload: parts[1],
+                appState: appState,
+                worktreeStore: worktreeStore,
+                extensionID: clientContext.extensionID
+            )
         default:
             return "error:unknown command \(cmd)"
+        }
+    }
+
+    private static func handleExec(
+        base64Payload: String,
+        appState: AppState,
+        worktreeStore: WorktreeStore?,
+        extensionID: String?
+    ) async -> String {
+        guard let extensionID else { return "error:identify required" }
+        guard let data = Data(base64Encoded: base64Payload),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return "error:invalid exec payload" }
+
+        let request: ExecRequest
+        do {
+            request = try ExtensionBridgeShared.decodeExecRequest(json)
+        } catch {
+            return "error:\(error.localizedDescription)"
+        }
+
+        let defaultCwd = ExtensionBridgeShared.activeWorktreePath(
+            appState: appState,
+            worktreeStore: worktreeStore
+        )
+        do {
+            let result = try await ExtensionCommandExecutor.exec(
+                request: request,
+                extensionID: extensionID,
+                defaultCwd: defaultCwd
+            )
+            let resultJSON = ExtensionBridgeShared.encodeExecResult(result)
+            guard let encoded = try? JSONSerialization.data(withJSONObject: resultJSON) else {
+                return "error:exec result encoding failed"
+            }
+            return encoded.base64EncodedString()
+        } catch {
+            return "error:\(error.localizedDescription)"
         }
     }
 

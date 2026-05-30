@@ -134,6 +134,7 @@ enum MuxyAPI {
         static let verbNames: Set<String> = Set(cliAliases.keys).union(extensionVerbs)
 
         private static let extensionVerbs: Set<String> = [
+            "exec",
             "extension.settings.get",
             "extension.settings.set",
             "extension.statusbar.set",
