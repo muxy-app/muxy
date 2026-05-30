@@ -279,6 +279,7 @@ private final class TmuxControlModeProcess: @unchecked Sendable {
     private let lock = NSLock()
     private var _process: Process?
     private var _outputPipe: Pipe?
+    private var _inputPipe: Pipe?
     private var _isRunning = false
 
     init(tmuxBinary: String, socket: String, session: String, handler: @escaping @Sendable (Data) -> Void) {
@@ -299,14 +300,16 @@ private final class TmuxControlModeProcess: @unchecked Sendable {
 
         let process = Process()
         let pipe = Pipe()
+        let inputPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: tmuxBinary)
         process.arguments = ["-L", socket, "-C", "attach-session", "-t", session]
+        process.standardInput = inputPipe
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
 
         _process = process
         _outputPipe = pipe
+        _inputPipe = inputPipe
         _isRunning = true
 
         let capturedHandler = handler
@@ -342,13 +345,16 @@ private final class TmuxControlModeProcess: @unchecked Sendable {
     func stop() {
         lock.lock()
         let pipe = _outputPipe
+        let inputPipe = _inputPipe
         let proc = _process
         _outputPipe = nil
+        _inputPipe = nil
         _process = nil
         _isRunning = false
         lock.unlock()
 
         pipe?.fileHandleForReading.readabilityHandler = nil
+        inputPipe?.fileHandleForWriting.closeFile()
         if let proc, proc.isRunning {
             proc.terminate()
         }
@@ -362,5 +368,15 @@ private final class TmuxControlModeProcess: @unchecked Sendable {
         lock.lock()
         _isRunning = false
         lock.unlock()
+    }
+
+    func send(_ command: String) {
+        lock.lock()
+        let pipe = _inputPipe
+        lock.unlock()
+
+        guard let pipe else { return }
+        guard let data = (command + "\n").data(using: .utf8) else { return }
+        pipe.fileHandleForWriting.write(data)
     }
 }
