@@ -1,7 +1,10 @@
 import AppKit
 import Darwin
 import GhosttyKit
+import os
 import UniformTypeIdentifiers
+
+private let logger = Logger(subsystem: "app.muxy", category: "GhosttyTerminalNSView")
 
 final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
@@ -307,9 +310,12 @@ final class GhosttyTerminalNSView: NSView {
             UserDefaults.standard.bool(forKey: GeneralSettingsKeys.lowMemoryMode)
     }
 
+    nonisolated(unsafe) private static var tmuxConfigWritten = false
+
     private static func ensureTmuxConfig() -> String {
         let dir = MuxyFileStorage.appSupportDirectory()
         let path = dir.appendingPathComponent("tmux.conf").path
+        guard !tmuxConfigWritten else { return path }
         let config = """
         set -g status off
         set -g escape-time 0
@@ -318,7 +324,12 @@ final class GhosttyTerminalNSView: NSView {
         set -g default-terminal "xterm-256color"
         set -g aggressive-resize on
         """
-        try? config.write(toFile: path, atomically: true, encoding: .utf8)
+        do {
+            try config.write(toFile: path, atomically: true, encoding: .utf8)
+            tmuxConfigWritten = true
+        } catch {
+            logger.error("Failed to write tmux config: \(error.localizedDescription)")
+        }
         return path
     }
 
