@@ -43,6 +43,16 @@ struct PopoverHostTests {
         #expect(!host.isOpen(anchorID: "a"))
     }
 
+    @Test("close by extension only closes a matching extension")
+    func closeByExtensionMatches() {
+        let host = makeHost()
+        host.toggle(anchorID: "a", extensionID: "ext", popover: popover(), data: nil)
+        host.close(extensionID: "other")
+        #expect(host.isOpen(anchorID: "a"))
+        host.close(extensionID: "ext")
+        #expect(!host.isOpen(anchorID: "a"))
+    }
+
     @Test("resize clamps the reported size and is scoped to the extension")
     func resizeClampsAndScopes() {
         let host = makeHost()

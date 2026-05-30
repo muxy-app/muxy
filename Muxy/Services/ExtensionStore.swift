@@ -66,6 +66,7 @@ final class ExtensionStore {
         ExtensionIconAssetCache.shared.invalidateAll()
         for status in statuses {
             ExtensionPanelRegistry.shared.closeAll(extensionID: status.id)
+            PopoverHost.shared.close(extensionID: status.id)
         }
         rebuildExtensionUICache()
         publishSnapshot()
@@ -90,6 +91,7 @@ final class ExtensionStore {
             statusBarTextOverrides.removeValue(forKey: extensionID)
             ExtensionIconAssetCache.shared.invalidate(extensionID: extensionID)
             ExtensionPanelRegistry.shared.closeAll(extensionID: extensionID)
+            PopoverHost.shared.close(extensionID: extensionID)
         }
         rebuildExtensionUICache()
         publishSnapshot()
@@ -170,7 +172,9 @@ final class ExtensionStore {
         statuses
             .filter(\.isEnabled)
             .flatMap { status in
-                status.muxyExtension.manifest.commands.map { PaletteCommandBinding(muxyExtension: status.muxyExtension, command: $0) }
+                status.muxyExtension.manifest.commands
+                    .filter { !$0.action.isAnchored }
+                    .map { PaletteCommandBinding(muxyExtension: status.muxyExtension, command: $0) }
             }
     }
 
@@ -277,14 +281,8 @@ final class ExtensionStore {
                 panel: panel,
                 data: nil
             )
-        case let .openPopover(popoverID):
-            guard let popover = muxyExtension.manifest.popover(id: popoverID) else { return }
-            PopoverHost.shared.toggle(
-                anchorID: "command:\(invocation.extensionID):\(invocation.commandID)",
-                extensionID: invocation.extensionID,
-                popover: popover,
-                data: nil
-            )
+        case .openPopover:
+            break
         case let .runScript(script):
             runExtensionScript(script: script, in: muxyExtension, invocation: invocation)
         }
@@ -513,6 +511,7 @@ final class ExtensionStore {
         let wasIntentional = intentionalStops.remove(extensionID) != nil
         guard let index = statuses.firstIndex(where: { $0.id == extensionID }) else { return }
         statuses[index].isRunning = false
+        PopoverHost.shared.close(extensionID: extensionID)
         let outcome = Self.classifyTermination(
             wasIntentional: wasIntentional,
             terminationStatus: process.terminationStatus

@@ -287,6 +287,11 @@ enum ExtensionCommandAction: Codable, Equatable {
     case openPopover(popover: String)
     case runScript(script: String)
 
+    var isAnchored: Bool {
+        if case .openPopover = self { return true }
+        return false
+    }
+
     private enum CodingKeys: String, CodingKey {
         case kind
         case tabType

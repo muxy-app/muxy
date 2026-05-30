@@ -642,6 +642,15 @@ struct ExtensionManifestTests {
         #expect(decoded == action)
     }
 
+    @Test("only openPopover actions are anchored to a UI item")
+    func anchoredActionsAreOpenPopover() {
+        #expect(ExtensionCommandAction.openPopover(popover: "usage").isAnchored)
+        #expect(!ExtensionCommandAction.event.isAnchored)
+        #expect(!ExtensionCommandAction.togglePanel(panel: "dashboard").isAnchored)
+        #expect(!ExtensionCommandAction.openTab(tabType: "logs", data: nil).isAnchored)
+        #expect(!ExtensionCommandAction.runScript(script: "s.js").isAnchored)
+    }
+
     private func makeTemporaryExtension(
         manifest: String,
         files: [String: String] = [:],
