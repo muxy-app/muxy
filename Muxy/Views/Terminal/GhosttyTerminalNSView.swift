@@ -221,7 +221,11 @@ final class GhosttyTerminalNSView: NSView {
     func destroySurface() {
         if let surface {
             if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
+                let isRemote = TerminalViewRegistry.shared.isOwnedByRemote(paneID)
                 RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: surface)
+                if isRemote {
+                    RemoteTerminalStreamer.shared.attach(paneID: paneID, surface: nil)
+                }
             }
             ghostty_surface_free(surface)
         }

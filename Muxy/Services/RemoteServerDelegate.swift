@@ -194,36 +194,48 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func sendTerminalInput(paneID: UUID, bytes: Data, clientID: UUID) {
-        guard let view = TerminalViewRegistry.shared.existingView(for: paneID) else {
-            logger.warning("No terminal view for pane \(paneID)")
-            return
-        }
-
         guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
             return
         }
 
-        view.sendRemoteBytes(bytes)
+        if let view = TerminalViewRegistry.shared.existingView(for: paneID),
+           view.surface != nil
+        {
+            view.sendRemoteBytes(bytes)
+        } else if GhosttyTerminalNSView.surfaceEvictionEnabled() {
+            TmuxCaptureService.shared.sendInput(paneID: paneID, bytes: bytes)
+        } else {
+            logger.warning("No terminal view or surface for pane \(paneID)")
+        }
     }
 
     func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool, clientID: UUID) {
-        guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
-              let surface = view.surface
-        else { return }
-
         guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
             return
         }
 
-        let mods: ghostty_input_scroll_mods_t = precise ? 1 : 0
-        ghostty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
+        if let view = TerminalViewRegistry.shared.existingView(for: paneID),
+           let surface = view.surface
+        {
+            let mods: ghostty_input_scroll_mods_t = precise ? 1 : 0
+            ghostty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
+        } else if GhosttyTerminalNSView.surfaceEvictionEnabled() {
+            TmuxCaptureService.shared.scroll(paneID: paneID, deltaY: deltaY)
+        }
     }
 
     func resizeTerminal(paneID: UUID, cols: UInt32, rows: UInt32, clientID: UUID) {
         guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
             return
         }
-        applyPTYSize(paneID: paneID, cols: cols, rows: rows)
+
+        if let view = TerminalViewRegistry.shared.existingView(for: paneID),
+           view.surface != nil
+        {
+            applyPTYSize(paneID: paneID, cols: cols, rows: rows)
+        } else if GhosttyTerminalNSView.surfaceEvictionEnabled() {
+            TmuxCaptureService.shared.resizeSession(paneID: paneID, cols: cols, rows: rows)
+        }
     }
 
     private func applyPTYSize(paneID: UUID, cols: UInt32, rows: UInt32) {
@@ -313,8 +325,11 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     private func buildTerminalSnapshot(paneID: UUID) -> Data? {
-        guard let snapshot = getTerminalContent(paneID: paneID) else { return nil }
-        return RemoteTerminalSnapshotBuilder.buildBytes(from: snapshot)
+        if let snapshot = getTerminalContent(paneID: paneID) {
+            return RemoteTerminalSnapshotBuilder.buildBytes(from: snapshot)
+        }
+        guard GhosttyTerminalNSView.surfaceEvictionEnabled() else { return nil }
+        return TmuxCaptureService.shared.captureSnapshot(paneID: paneID)
     }
 
     func releasePane(paneID: UUID, clientID: UUID) {

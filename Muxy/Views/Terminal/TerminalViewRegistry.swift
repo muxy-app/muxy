@@ -55,6 +55,11 @@ final class TerminalViewRegistry {
                 evictionWorkItems[paneID]?.cancel()
                 evictionWorkItems.removeValue(forKey: paneID)
             } else if view.surface != nil {
+                if isOwnedByRemote(paneID) {
+                    evictionWorkItems[paneID]?.cancel()
+                    evictionWorkItems.removeValue(forKey: paneID)
+                    continue
+                }
                 evictionWorkItems[paneID]?.cancel()
                 let workItem = DispatchWorkItem { [weak view] in
                     guard let view, view.surface != nil else { return }

@@ -15,24 +15,34 @@ final class RemoteTerminalStreamer {
 
     private init() {}
 
-    func attach(paneID: UUID, surface: ghostty_surface_t) {
+    func attach(paneID: UUID, surface: ghostty_surface_t?) {
         if tokenByPane[paneID] != nil { return }
-        let token = nextToken
-        nextToken += 1
-        tokenByPane[paneID] = token
-        paneByToken[token] = paneID
-        ghostty_surface_set_data_callback(
-            surface,
-            ptyDataCallback,
-            UnsafeMutableRawPointer(bitPattern: UInt(token))
-        )
+
+        if let surface {
+            let token = nextToken
+            nextToken += 1
+            tokenByPane[paneID] = token
+            paneByToken[token] = paneID
+            ghostty_surface_set_data_callback(
+                surface,
+                ptyDataCallback,
+                UnsafeMutableRawPointer(bitPattern: UInt(token))
+            )
+        } else if GhosttyTerminalNSView.surfaceEvictionEnabled() {
+            TmuxCaptureService.shared.startStreaming(paneID: paneID) { [weak self] bytes in
+                self?.forward(paneID: paneID, bytes: bytes)
+            }
+        }
     }
 
-    func detach(paneID: UUID, surface: ghostty_surface_t) {
-        ghostty_surface_set_data_callback(surface, nil, nil)
+    func detach(paneID: UUID, surface: ghostty_surface_t?) {
+        if let surface {
+            ghostty_surface_set_data_callback(surface, nil, nil)
+        }
         if let token = tokenByPane.removeValue(forKey: paneID) {
             paneByToken.removeValue(forKey: token)
         }
+        TmuxCaptureService.shared.stopStreaming(paneID: paneID)
     }
 
     fileprivate func pane(for token: Int) -> UUID? {
