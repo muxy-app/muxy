@@ -261,7 +261,8 @@ final class TmuxCaptureService {
                     chars = afterBackslash
                 }
             } else {
-                result.append(chars.first!.asciiValue!)
+                let char = chars.first!
+                result.append(Data(String(char).utf8))
                 chars = chars.dropFirst()
             }
         }
