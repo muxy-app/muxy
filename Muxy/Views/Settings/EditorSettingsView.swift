@@ -6,7 +6,7 @@ struct EditorSettingsView: View {
     @State private var markdownFonts: [String] = []
     @State private var allowMarkdownRemoteImages = MarkdownPreviewPreferences.allowRemoteImages
     @AppStorage(RichInputPreferences.floatingKey) private var richInputFloating = RichInputPreferences.defaultFloating
-    @AppStorage(RichInputPreferences.positionKey) private var richInputPosition: RichInputPanelPosition = RichInputPreferences
+    @AppStorage(RichInputPreferences.positionKey) private var richInputPosition: PanelPosition = RichInputPreferences
         .defaultPosition
 
     private var showsAppearanceSection: Bool { settings.defaultEditor == .builtIn }
@@ -139,7 +139,7 @@ struct EditorSettingsView: View {
 
             SettingsRow("Position") {
                 Picker("", selection: $richInputPosition) {
-                    ForEach(RichInputPanelPosition.allCases) { position in
+                    ForEach(PanelPosition.allCases) { position in
                         Text(position.displayName).tag(position)
                     }
                 }

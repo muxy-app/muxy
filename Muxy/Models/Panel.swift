@@ -67,20 +67,17 @@ struct PanelChrome {
     let iconSymbol: String?
     let title: String?
     let hiddenControls: Set<PanelHeaderControl>
-    let leadingButtons: [PanelHeaderButton]
     let trailingButtons: [PanelHeaderButton]
 
     init(
         iconSymbol: String? = nil,
         title: String? = nil,
         hiddenControls: Set<PanelHeaderControl> = [],
-        leadingButtons: [PanelHeaderButton] = [],
         trailingButtons: [PanelHeaderButton] = []
     ) {
         self.iconSymbol = iconSymbol
         self.title = title
         self.hiddenControls = hiddenControls
-        self.leadingButtons = leadingButtons
         self.trailingButtons = trailingButtons
     }
 
@@ -91,7 +88,6 @@ struct PanelChrome {
     var hasHeaderContent: Bool {
         iconSymbol != nil
             || title != nil
-            || !leadingButtons.isEmpty
             || !trailingButtons.isEmpty
             || !hiddenControls.isSuperset(of: PanelHeaderControl.allCases)
     }

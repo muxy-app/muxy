@@ -201,7 +201,7 @@ enum SettingsJSONStore {
             SidebarCollapsedStyle.storageKey: Set(SidebarCollapsedStyle.allCases.map(\.rawValue)),
             SidebarExpandedStyle.storageKey: Set(SidebarExpandedStyle.allCases.map(\.rawValue)),
             "muxy.vcsDisplayMode": Set(VCSDisplayMode.allCases.map(\.rawValue)),
-            RichInputPreferences.positionKey: Set(RichInputPanelPosition.allCases.map(\.rawValue)),
+            RichInputPreferences.positionKey: Set(PanelPosition.allCases.map(\.rawValue)),
             "editor.defaultEditor": Set(EditorSettings.DefaultEditor.allCases.map(\.rawValue)),
             "editor.htmlDefaultViewMode": Set(EditorMarkdownViewMode.allCases.map(\.rawValue)),
             "editor.richInputImageStrategy": Set(RichInputImageStrategy.allCases.map(\.rawValue)),

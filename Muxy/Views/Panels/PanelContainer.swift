@@ -34,9 +34,6 @@ struct PanelContainer<Content: View>: View {
                     .foregroundStyle(MuxyTheme.fg)
                     .lineLimit(1)
             }
-            ForEach(chrome.leadingButtons) { button in
-                customButton(button)
-            }
             Spacer(minLength: UIMetrics.spacing2)
             HStack(spacing: 0) {
                 ForEach(chrome.trailingButtons) { button in

@@ -33,27 +33,6 @@ struct MainWindow: View {
     @Environment(GhosttyService.self) private var ghostty
     @Environment(\.openWindow) private var openWindow
     @State private var dragCoordinator = TabDragCoordinator()
-    private enum AttachedVCSLayout {
-        static let minWidth: CGFloat = 200
-        static let defaultWidth: CGFloat = 400
-        static let maxWidth: CGFloat = 800
-    }
-
-    private enum FileTreeLayout {
-        static let minWidth: CGFloat = 180
-        static let defaultWidth: CGFloat = 260
-        static let maxWidth: CGFloat = 600
-    }
-
-    private enum RichInputPanelLayout {
-        static let minWidth: CGFloat = 280
-        static let defaultWidth: CGFloat = 380
-        static let maxWidth: CGFloat = 800
-        static let minHeight: CGFloat = 120
-        static let defaultHeight: CGFloat = 220
-        static let maxHeight: CGFloat = 600
-    }
-
     private enum CloseConfirmationKind {
         case lastTab
         case unsavedEditor
@@ -88,18 +67,18 @@ struct MainWindow: View {
     }
 
     @State var panelHost = PanelHost.shared
-    @State private var vcsPanelWidth: Double = .init(AttachedVCSLayout.defaultWidth)
-    @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
+    @State private var vcsPanelWidth: Double = PanelLayoutMetrics.vcsDefaultWidth
+    @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = PanelLayoutMetrics.fileTreeDefaultWidth
     @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
     @State private var fileTreeLastTerminalPaths: [WorktreeKey: String] = [:]
     @AppStorage(GeneralSettingsKeys.fileTreeSource) private var fileTreeSourceRaw = FileTreeSourcePreference.defaultValue.rawValue
     @AppStorage("muxy.extensionPanelWidth") private var extensionPanelWidth: Double = PanelLayoutMetrics.extensionDefaultWidth
     @AppStorage("muxy.extensionPanelHeight") private var extensionPanelHeight: Double = PanelLayoutMetrics.extensionDefaultHeight
-    @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = .init(RichInputPanelLayout.defaultWidth)
-    @AppStorage("muxy.richInputPanelHeight") private var richInputPanelHeight: Double = .init(RichInputPanelLayout.defaultHeight)
+    @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = PanelLayoutMetrics.richInputDefaultWidth
+    @AppStorage("muxy.richInputPanelHeight") private var richInputPanelHeight: Double = PanelLayoutMetrics.richInputDefaultHeight
     @AppStorage(RichInputPreferences.fontSizeKey) private var richInputFontSize: Double = RichInputPreferences.defaultFontSize
     @AppStorage(RichInputPreferences.floatingKey) private var richInputFloating = RichInputPreferences.defaultFloating
-    @AppStorage(RichInputPreferences.positionKey) private var richInputPosition: RichInputPanelPosition = RichInputPreferences
+    @AppStorage(RichInputPreferences.positionKey) private var richInputPosition: PanelPosition = RichInputPreferences
         .defaultPosition
     @AppStorage(RichInputPreferences.broadcastKey) private var richInputBroadcast = RichInputPreferences.defaultBroadcast
     @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
@@ -113,7 +92,7 @@ struct MainWindow: View {
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
-    @AppStorage("muxy.extensionConsoleHeight") private var extensionConsoleHeight: Double = .init(RichInputPanelLayout.defaultHeight)
+    @AppStorage("muxy.extensionConsoleHeight") private var extensionConsoleHeight: Double = PanelLayoutMetrics.consoleDefaultHeight
     @State private var extensionOutputSelected: String?
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
@@ -1039,26 +1018,20 @@ struct MainWindow: View {
     private func vcsPanelBody(position: PanelPosition) -> some View {
         if VCSDisplayMode.current == .attached, let state = activeVCSState {
             PanelContainer(
-                chrome: PanelChrome(
-                    iconSymbol: "arrow.triangle.branch",
-                    title: "Source Control",
-                    hiddenControls: [.pin, .position]
-                ),
+                chrome: PanelChrome(hiddenControls: [.close, .pin, .position]),
                 mode: .pinned,
                 position: position,
-                onClose: { panelHost.close(BuiltinPanel.vcs) },
+                onClose: nil,
                 onTogglePin: nil,
                 onTogglePosition: nil,
                 content: {
                     VCSTabView(state: state, focused: false, onFocus: {})
                 }
             )
-            .modifier(builtinPanelFrame(
+            .modifier(PanelFrame(
                 position: position,
-                width: $vcsPanelWidth,
-                height: $vcsPanelWidth,
-                widthRange: AttachedVCSLayout.minWidth ... AttachedVCSLayout.maxWidth,
-                heightRange: AttachedVCSLayout.minWidth ... AttachedVCSLayout.maxWidth
+                size: $vcsPanelWidth,
+                range: PanelLayoutMetrics.vcsWidthRange
             ))
         }
     }
@@ -1067,14 +1040,10 @@ struct MainWindow: View {
     private func fileTreePanelBody(position: PanelPosition) -> some View {
         if let treeState = activeFileTreeState {
             PanelContainer(
-                chrome: PanelChrome(
-                    iconSymbol: "folder",
-                    title: "Files",
-                    hiddenControls: [.pin, .position]
-                ),
+                chrome: PanelChrome(hiddenControls: [.close, .pin, .position]),
                 mode: .pinned,
                 position: position,
-                onClose: { toggleFileTreePanel() },
+                onClose: nil,
                 onTogglePin: nil,
                 onTogglePosition: nil,
                 content: {
@@ -1099,12 +1068,10 @@ struct MainWindow: View {
                     .id(activeFileTreeIdentity)
                 }
             )
-            .modifier(builtinPanelFrame(
+            .modifier(PanelFrame(
                 position: position,
-                width: $fileTreePanelWidth,
-                height: $fileTreePanelWidth,
-                widthRange: FileTreeLayout.minWidth ... FileTreeLayout.maxWidth,
-                heightRange: FileTreeLayout.minWidth ... FileTreeLayout.maxWidth
+                size: $fileTreePanelWidth,
+                range: PanelLayoutMetrics.fileTreeWidthRange
             ))
         }
     }
@@ -1133,12 +1100,12 @@ struct MainWindow: View {
                     )
                 }
             )
-            .modifier(builtinPanelFrame(
+            .modifier(PanelFrame(
                 position: position,
-                width: $richInputPanelWidth,
-                height: $richInputPanelHeight,
-                widthRange: RichInputPanelLayout.minWidth ... RichInputPanelLayout.maxWidth,
-                heightRange: RichInputPanelLayout.minHeight ... RichInputPanelLayout.maxHeight
+                size: position == .bottom ? $richInputPanelHeight : $richInputPanelWidth,
+                range: position == .bottom
+                    ? PanelLayoutMetrics.richInputHeightRange
+                    : PanelLayoutMetrics.richInputWidthRange
             ))
         }
     }
@@ -1167,12 +1134,10 @@ struct MainWindow: View {
                 )
             }
         )
-        .modifier(builtinPanelFrame(
+        .modifier(PanelFrame(
             position: position,
-            width: $extensionConsoleHeight,
-            height: $extensionConsoleHeight,
-            widthRange: RichInputPanelLayout.minHeight ... RichInputPanelLayout.maxHeight,
-            heightRange: RichInputPanelLayout.minHeight ... RichInputPanelLayout.maxHeight
+            size: $extensionConsoleHeight,
+            range: PanelLayoutMetrics.consoleHeightRange
         ))
     }
 
@@ -1183,30 +1148,14 @@ struct MainWindow: View {
                 state: state,
                 placement: PanelPlacement(panelID: panelID, position: position, mode: mode)
             )
-            .modifier(builtinPanelFrame(
+            .modifier(PanelFrame(
                 position: position,
-                width: $extensionPanelWidth,
-                height: $extensionPanelHeight,
-                widthRange: PanelLayoutMetrics.extensionWidthRange,
-                heightRange: PanelLayoutMetrics.extensionHeightRange
+                size: position == .bottom ? $extensionPanelHeight : $extensionPanelWidth,
+                range: position == .bottom
+                    ? PanelLayoutMetrics.extensionHeightRange
+                    : PanelLayoutMetrics.extensionWidthRange
             ))
         }
-    }
-
-    private func builtinPanelFrame(
-        position: PanelPosition,
-        width: Binding<Double>,
-        height: Binding<Double>,
-        widthRange: ClosedRange<CGFloat>,
-        heightRange: ClosedRange<CGFloat>
-    ) -> PanelFrame {
-        PanelFrame(
-            position: position,
-            width: width,
-            height: height,
-            widthRange: widthRange,
-            heightRange: heightRange
-        )
     }
 
     private var richInputBroadcastButton: PanelHeaderButton {
@@ -1382,7 +1331,7 @@ struct MainWindow: View {
     private func toggleRichInputPanel() {
         guard let richInputState = activeRichInputState else { return }
         guard richInputPanelVisible else {
-            panelHost.open(BuiltinPanel.richInput, at: richInputPosition.panelPosition, mode: richInputMode)
+            panelHost.open(BuiltinPanel.richInput, at: richInputPosition, mode: richInputMode)
             ExtensionPanelRegistry.shared.pruneClosed()
             richInputState.focusVersion += 1
             return
@@ -1406,9 +1355,9 @@ struct MainWindow: View {
     }
 
     private func toggleRichInputPosition() {
-        richInputPosition = richInputPosition == .right ? .bottom : .right
+        richInputPosition = richInputPosition.opposite
         guard richInputPanelVisible else { return }
-        panelHost.move(BuiltinPanel.richInput, to: richInputPosition.panelPosition)
+        panelHost.move(BuiltinPanel.richInput, to: richInputPosition)
         ExtensionPanelRegistry.shared.pruneClosed()
     }
 
