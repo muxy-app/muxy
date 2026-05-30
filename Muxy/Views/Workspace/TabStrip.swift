@@ -48,6 +48,7 @@ struct PaneTabStrip: View {
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ExtensionStore.self) private var extensionStore
+    @State private var popoverHost = PopoverHost.shared
     @State private var dragState = TabDragState()
 
     static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
@@ -111,6 +112,7 @@ struct PaneTabStrip: View {
                         action: { triggerExtensionCommand(binding: binding) }
                     )
                     .help(binding.item.tooltip ?? binding.item.id)
+                    .extensionPopover(anchorID: binding.id, host: popoverHost)
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))
@@ -227,6 +229,15 @@ struct PaneTabStrip: View {
     }
 
     private func triggerExtensionCommand(binding: ExtensionStore.TopbarItemBinding) {
+        if let popover = extensionStore.popover(for: binding.muxyExtension, command: binding.item.command) {
+            popoverHost.toggle(
+                anchorID: binding.id,
+                extensionID: binding.muxyExtension.id,
+                popover: popover,
+                data: nil
+            )
+            return
+        }
         extensionStore.triggerCommand(
             ExtensionStore.CommandInvocation(
                 extensionID: binding.muxyExtension.id,

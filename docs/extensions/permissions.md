@@ -30,7 +30,7 @@ flowchart LR
 | `worktrees:read` | `list-worktrees` |
 | `worktrees:write` | `create-worktree`, `switch-worktree`, `refresh-worktrees` |
 | `notifications:write` | Post notifications via `type\|paneID\|title\|body` |
-| `panels:write` | `panel.open`, `panel.toggle`, `panel.close` — open and close the extension's declared [panels](panels.md). |
+| `panels:write` | `panel.open`, `panel.toggle`, `panel.close` — open and close the extension's declared [panels](panels.md); `popover.resize`, `popover.close` — size and dismiss the extension's open [popover](popovers.md). |
 | `commands:run-script` | Execute `runScript` palette command actions in the per-extension JavaScriptCore context. |
 | `commands:exec` | Run shell commands via `muxy.exec` (subprocess execution with stdout/stderr capture). |
 

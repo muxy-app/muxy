@@ -40,6 +40,16 @@ enum MuxyAPIDispatcher {
                 panelID: stringArg(args, "panel")
             ))
             return NSNull()
+        case "popover.close":
+            try unwrap(MuxyAPI.Popovers.close(extensionID: context.extensionID))
+            return NSNull()
+        case "popover.resize":
+            try unwrap(MuxyAPI.Popovers.resize(
+                extensionID: context.extensionID,
+                width: doubleArg(args, "width"),
+                height: doubleArg(args, "height")
+            ))
+            return NSNull()
         case "exec":
             return try await handleExec(args: args, context: context)
         case "tabs.list":
@@ -215,6 +225,13 @@ enum MuxyAPIDispatcher {
 
     private static func stringArg(_ args: [String: Any], _ key: String) throws -> String {
         if let value = args[key] as? String { return value }
+        throw APIError.invalidArguments("missing argument '\(key)'")
+    }
+
+    private static func doubleArg(_ args: [String: Any], _ key: String) throws -> Double {
+        if let value = args[key] as? Double { return value }
+        if let value = args[key] as? Int { return Double(value) }
+        if let value = args[key] as? NSNumber { return value.doubleValue }
         throw APIError.invalidArguments("missing argument '\(key)'")
     }
 

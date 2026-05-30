@@ -30,6 +30,7 @@ Every extension declares itself in a `manifest.json` at the root of its director
 | `commands` | object[] | no | Palette commands to register. See [Palette Commands](palette-commands.md). |
 | `tabTypes` | object[] | no | Webview tab types the extension exposes. See [Tabs](tabs.md). |
 | `panels` | object[] | no | Dockable/floating webview panels the extension exposes. See [Panels](panels.md). |
+| `popovers` | object[] | no | Transient webview popovers anchored to a topbar/status bar item. See [Popovers](popovers.md). |
 | `topbarItems` | object[] | no | Icons to attach to the tab strip. See [Topbar](topbar.md). |
 | `statusBarItems` | object[] | no | Icons to attach to the footer status bar. See [Status Bar](statusbar.md). |
 | `settings` | object[] | no | Typed settings shown in the Settings sidebar. See [Settings](settings.md). |

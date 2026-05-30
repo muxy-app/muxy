@@ -12,7 +12,7 @@ Muxy extensions live in `~/.config/muxy/extensions/<name>/` and load when Muxy s
 Use this skill when:
 
 - Writing a new Muxy extension (manifest, entrypoint, tab UI).
-- Adding a command, topbar item, status-bar item, settings entry, or tab type.
+- Adding a command, topbar item, status-bar item, settings entry, tab type, panel, or popover.
 - Styling an extension tab so it adapts to the user's current Muxy theme.
 - Reading Muxy state (panes, tabs, projects, worktrees) or executing shell from a tab.
 - Subscribing to Muxy events or pushing live updates to the status bar.
@@ -122,11 +122,12 @@ Field-by-field:
 - `events` — array of event names this extension subscribes to (for example `pane.created`, `tab.focused`, `pane.closed`). Command events (`command.<id>`) are auto-allowed.
 - `tabTypes` — declares HTML pages renderable as tabs.
 - `panels` — declares HTML pages renderable as dockable/floating panels (`position`: `right`|`bottom`, `mode`: `floating`|`pinned`, optional `icon`/`title`/`hiddenControls`). Requires `panels:write` to open/close at runtime. One pinned and one floating panel per position; opening another in that slot replaces it.
-- `commands` — palette commands. Each command's `action.kind` is `event` (default — fires `command.<id>`), `openTab`, `togglePanel`, or `runScript`.
+- `popovers` — declares HTML pages renderable as transient popovers anchored to a topbar/status-bar item (`entry` required; optional `title`, `width`, `height` defaulting to 320×360). Frameless, auto-dismiss on outside click, at most one open at a time. Opened via an `openPopover` command bound to a topbar/status-bar item; the page sizes itself with `muxy.popover.resize()` (needs `panels:write`).
+- `commands` — palette commands. Each command's `action.kind` is `event` (default — fires `command.<id>`), `openTab`, `togglePanel`, `openPopover`, or `runScript`.
 - `topbarItems` / `statusBarItems` — UI hooks bound to a command. `icon` is either `{ "symbol": "<sf-symbol>" }` or `{ "svg": "<relative/path.svg>" }`.
 - `settings` — user-visible settings (`string` | `bool` | `number`) reachable from `extension.settings.get` over the socket and editable in the Extensions modal.
 
-Common load failures: a declared entrypoint that is missing or not executable, tab/panel entry escapes the extension directory, a command references an unknown `tabType` or `panel`, a topbar or status-bar item references an unknown command. Failures appear in the Extensions modal under "Load Errors".
+Common load failures: a declared entrypoint that is missing or not executable, tab/panel/popover entry escapes the extension directory, a command references an unknown `tabType`, `panel`, or `popover`, a topbar or status-bar item references an unknown command. Failures appear in the Extensions modal under "Load Errors".
 
 ## Permissions reference
 
@@ -143,6 +144,7 @@ Permissions are gated server-side. Requests without the matching permission fail
 | `worktrees:read` | `worktrees.list` |
 | `worktrees:write` | `worktrees.switch`, `worktrees.refresh` |
 | `notifications:write` | `toast` |
+| `panels:write` | `panel.open`, `panel.toggle`, `panel.close`, `popover.resize`, `popover.close` |
 | `commands:run-script` | `runScript` commands |
 | `commands:exec` | `muxy.exec` (always prompts the user the first time) |
 
@@ -274,6 +276,22 @@ await muxy.panels.open('dashboard', { tab: 'logs' }); // override defaultData fo
 await muxy.panels.close('dashboard');
 ```
 
+### Size / close a popover
+
+Available inside a popover page. Requires `panels:write`. A popover is opened by the user from its anchoring topbar/status-bar item (there is no `open` from JS) — the page only sizes itself to its content and can dismiss itself.
+
+```js
+// Fit the popover to its content once laid out:
+window.addEventListener('load', () =>
+  muxy.popover.resize(
+    document.documentElement.scrollWidth,
+    document.documentElement.scrollHeight
+  )
+);
+
+await muxy.popover.close(); // dismiss self
+```
+
 ### Drive terminal panes
 
 ```js
@@ -349,7 +367,9 @@ Receive the payload in the tab as `muxy.data`.
 
 ## Theming — adapt to the user's current Muxy theme
 
-**Do not hardcode colors.** Muxy supports paired light/dark themes and a user-selected accent color. Every extension tab inherits CSS custom properties on `document.documentElement` that match the live theme. They update automatically when the user changes theme.
+**Do not hardcode colors. Adopting the app theme is the best practice — and it is required for popovers,** which sit directly against the app chrome and look broken if they don't match. Muxy supports paired light/dark themes and a user-selected accent color. Every extension webview — tab, panel, **and popover** — inherits the same CSS custom properties on `document.documentElement` that match the live theme. They update automatically when the user changes theme, and the rules below apply identically to all three surfaces.
+
+**Popovers: leave the page background transparent.** The webview is presented over the native macOS popover material (translucent vibrancy that is already light/dark-aware), and its backing is non-opaque. Set `body { background: transparent; }` — do **not** paint `--muxy-background` on the popover body — so the system material shows through and the popover matches macOS automatically. Foreground text, accents, and translucent `--muxy-surface` chips/buttons still use the theme variables as usual. (Tabs and panels fill their whole region, so they *do* paint `--muxy-background` on the body.)
 
 ### Available CSS variables
 
@@ -532,6 +552,67 @@ button:hover { background: var(--muxy-hover); border-color: var(--muxy-accent); 
 ```
 
 > Note: `muxy.toast` requires `notifications:write`. Add it to `permissions` if you use it.
+
+## End-to-end example (popover)
+
+A status-bar item that opens a self-sizing popover. The popover replaces what used to be a built-in popover (e.g. an AI-usage meter): a small, read-mostly surface anchored to its item.
+
+```json
+// manifest.json
+{
+  "name": "status-popover",
+  "version": "0.1.0",
+  "permissions": ["panels:write"],
+  "popovers": [
+    { "id": "summary", "title": "Summary", "entry": "popovers/summary.html", "width": 280, "height": 200 }
+  ],
+  "commands": [
+    { "id": "open-summary", "title": "Status: Summary", "action": { "kind": "openPopover", "popover": "summary" } }
+  ],
+  "statusBarItems": [
+    { "id": "summary", "icon": { "symbol": "gauge" }, "text": "Status", "side": "right", "command": "open-summary" }
+  ]
+}
+```
+
+```html
+<!-- popovers/summary.html -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    /* Popover: transparent body so the native macOS popover material shows through. */
+    body { margin: 0; font: 13px -apple-system, system-ui, sans-serif;
+           background: transparent; color: var(--muxy-foreground); }
+    .box { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .line { color: var(--muxy-foreground-muted); }
+    button { font: inherit; padding: 6px 10px; border-radius: 6px;
+             background: var(--muxy-surface); color: inherit;
+             border: 1px solid var(--muxy-border); cursor: pointer; }
+    button:hover { background: var(--muxy-hover); border-color: var(--muxy-accent); }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <strong>Summary</strong>
+    <span class="line" id="line">loading…</span>
+    <button onclick="muxy.popover.close()">Close</button>
+  </div>
+  <script>
+    document.getElementById('line').textContent = `running as ${muxy.extensionID}`;
+    window.addEventListener('load', () =>
+      muxy.popover.resize(
+        document.documentElement.scrollWidth,
+        document.documentElement.scrollHeight
+      )
+    );
+  </script>
+</body>
+</html>
+```
+
+The popover anchors to the status-bar item, opens/toggles when it is clicked, and dismisses on outside click. No entrypoint is needed.
 
 ## Reload workflow
 

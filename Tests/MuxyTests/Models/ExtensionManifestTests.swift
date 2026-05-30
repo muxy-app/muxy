@@ -527,6 +527,121 @@ struct ExtensionManifestTests {
         }
     }
 
+    @Test("decodes popovers with defaults and explicit values")
+    func decodesPopovers() throws {
+        let json = #"""
+        {
+            "name": "popover-ext",
+            "version": "1.0.0",
+            "popovers": [
+                { "id": "minimal", "entry": "popovers/a.html" },
+                {
+                    "id": "full",
+                    "title": "Usage",
+                    "entry": "popovers/b.html",
+                    "width": 280,
+                    "height": 200
+                }
+            ]
+        }
+        """#
+        let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+        #expect(manifest.popovers.count == 2)
+        let minimal = try #require(manifest.popover(id: "minimal"))
+        #expect(minimal.width == ExtensionPopover.defaultWidth)
+        #expect(minimal.height == ExtensionPopover.defaultHeight)
+        #expect(minimal.title == nil)
+        let full = try #require(manifest.popover(id: "full"))
+        #expect(full.title == "Usage")
+        #expect(full.width == 280)
+        #expect(full.height == 200)
+    }
+
+    @Test("loads an extension declaring a valid popover")
+    func loadsPopover() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "popover-ok",
+                "version": "1.0.0",
+                "popovers": [ { "id": "info", "entry": "popovers/info.html" } ]
+            }
+            """,
+            files: ["popovers/info.html": "<html></html>"],
+            makeEntrypointExecutable: false
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ext = try ExtensionManifestLoader.load(from: directory)
+        #expect(ext.manifest.popover(id: "info") != nil)
+    }
+
+    @Test("rejects a popover whose entry is missing")
+    func rejectsPopoverMissingEntry() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "popover-missing",
+                "version": "1.0.0",
+                "popovers": [ { "id": "info", "entry": "popovers/info.html" } ]
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects duplicate popover ids")
+    func rejectsDuplicatePopovers() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "popover-dup",
+                "version": "1.0.0",
+                "popovers": [
+                    { "id": "info", "entry": "popovers/info.html" },
+                    { "id": "info", "entry": "popovers/info.html" }
+                ]
+            }
+            """,
+            files: ["popovers/info.html": "<html></html>"],
+            makeEntrypointExecutable: false
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects command referencing an unknown popover")
+    func rejectsCommandUnknownPopover() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "popover-cmd-bad",
+                "version": "1.0.0",
+                "commands": [
+                    { "id": "show", "title": "Show", "action": { "kind": "openPopover", "popover": "ghost" } }
+                ]
+            }
+            """,
+            makeEntrypointExecutable: false
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("openPopover command action round-trips through Codable")
+    func openPopoverActionRoundTrips() throws {
+        let action = ExtensionCommandAction.openPopover(popover: "usage")
+        let encoded = try JSONEncoder().encode(action)
+        let decoded = try JSONDecoder().decode(ExtensionCommandAction.self, from: encoded)
+        #expect(decoded == action)
+    }
+
     private func makeTemporaryExtension(
         manifest: String,
         files: [String: String] = [:],

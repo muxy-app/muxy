@@ -178,6 +178,13 @@ final class ExtensionStore {
         side == .left ? leftStatusBarItems : rightStatusBarItems
     }
 
+    func popover(for muxyExtension: MuxyExtension, command commandID: String) -> ExtensionPopover? {
+        guard let command = muxyExtension.manifest.commands.first(where: { $0.id == commandID }),
+              case let .openPopover(popoverID) = command.action
+        else { return nil }
+        return muxyExtension.manifest.popover(id: popoverID)
+    }
+
     private func rebuildExtensionUICache() {
         var topbar: [TopbarItemBinding] = []
         var left: [StatusBarItemBinding] = []
@@ -268,6 +275,14 @@ final class ExtensionStore {
             ExtensionPanelRegistry.shared.toggle(
                 extensionID: invocation.extensionID,
                 panel: panel,
+                data: nil
+            )
+        case let .openPopover(popoverID):
+            guard let popover = muxyExtension.manifest.popover(id: popoverID) else { return }
+            PopoverHost.shared.toggle(
+                anchorID: "command:\(invocation.extensionID):\(invocation.commandID)",
+                extensionID: invocation.extensionID,
+                popover: popover,
                 data: nil
             )
         case let .runScript(script):

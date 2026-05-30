@@ -17,6 +17,7 @@ struct ProjectStatusBar: View {
     @Binding var extensionOutputVisible: Bool
     var onTriggerExtensionCommand: ((ExtensionStore.StatusBarItemBinding) -> Void)?
     @Environment(ExtensionStore.self) private var extensionStore
+    @State private var popoverHost = PopoverHost.shared
     @AppStorage(AIUsageSettingsStore.usageEnabledKey) private var usageEnabled = false
     @AppStorage(AIUsageSettingsStore.usageDisplayModeKey) private var usageDisplayModeRaw = AIUsageSettingsStore
         .defaultUsageDisplayMode.rawValue
@@ -206,8 +207,18 @@ struct ProjectStatusBar: View {
     }
 
     private func extensionItem(binding: ExtensionStore.StatusBarItemBinding) -> some View {
-        Button {
-            onTriggerExtensionCommand?(binding)
+        let popover = extensionStore.popover(for: binding.muxyExtension, command: binding.item.command)
+        return Button {
+            if let popover {
+                popoverHost.toggle(
+                    anchorID: binding.id,
+                    extensionID: binding.muxyExtension.id,
+                    popover: popover,
+                    data: nil
+                )
+            } else {
+                onTriggerExtensionCommand?(binding)
+            }
         } label: {
             HStack(spacing: 4) {
                 ExtensionIconView(
@@ -226,6 +237,7 @@ struct ProjectStatusBar: View {
         .buttonStyle(.plain)
         .help(binding.item.tooltip ?? binding.item.id)
         .accessibilityLabel(binding.item.tooltip ?? binding.item.id)
+        .extensionPopover(anchorID: binding.id, host: popoverHost)
     }
 
     private var previewProviderDisplay: (percent: Int, iconName: String)? {

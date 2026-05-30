@@ -620,6 +620,7 @@ private struct ExtensionDetailPage: View {
         case .event: "event"
         case let .openTab(tabType, _): "opens \(tabType)"
         case let .togglePanel(panel): "toggles \(panel)"
+        case let .openPopover(popover): "opens \(popover)"
         case let .runScript(script): "runs \(script)"
         }
     }

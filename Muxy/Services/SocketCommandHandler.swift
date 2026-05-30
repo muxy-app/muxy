@@ -214,6 +214,15 @@ enum SocketCommandHandler {
         case "panel.close":
             guard parts.count >= 2 else { return "error:usage panel.close|panelID" }
             return handlePanelClose(panelID: parts[1], extensionID: clientContext.extensionID)
+        case "popover.close":
+            return handlePopoverClose(extensionID: clientContext.extensionID)
+        case "popover.resize":
+            guard parts.count >= 3 else { return "error:usage popover.resize|width|height" }
+            return handlePopoverResize(
+                width: parts[1],
+                height: parts[2],
+                extensionID: clientContext.extensionID
+            )
         default:
             return "error:unknown command \(cmd)"
         }
@@ -239,6 +248,22 @@ enum SocketCommandHandler {
         guard let extensionID else { return "error:identify required" }
         return serialize(
             MuxyAPI.Panels.close(extensionID: extensionID, panelID: panelID),
+            ok: "ok"
+        )
+    }
+
+    private static func handlePopoverClose(extensionID: String?) -> String {
+        guard let extensionID else { return "error:identify required" }
+        return serialize(MuxyAPI.Popovers.close(extensionID: extensionID), ok: "ok")
+    }
+
+    private static func handlePopoverResize(width: String, height: String, extensionID: String?) -> String {
+        guard let extensionID else { return "error:identify required" }
+        guard let widthValue = Double(width), let heightValue = Double(height) else {
+            return "error:usage popover.resize|width|height"
+        }
+        return serialize(
+            MuxyAPI.Popovers.resize(extensionID: extensionID, width: widthValue, height: heightValue),
             ok: "ok"
         )
     }

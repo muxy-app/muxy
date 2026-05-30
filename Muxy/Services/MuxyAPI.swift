@@ -140,6 +140,8 @@ enum MuxyAPI {
             "panel.open",
             "panel.close",
             "panel.toggle",
+            "popover.close",
+            "popover.resize",
         ]
 
         private static let cliAliases: [String: String] = [
@@ -189,6 +191,8 @@ enum MuxyAPI {
             "panel.open": .panelsWrite,
             "panel.close": .panelsWrite,
             "panel.toggle": .panelsWrite,
+            "popover.close": .panelsWrite,
+            "popover.resize": .panelsWrite,
             "exec": .commandsExec,
         ]
     }
@@ -217,6 +221,22 @@ enum MuxyAPI {
         static func close(extensionID: String, panelID: String) -> Result<Void, APIError> {
             let hostPanelID = ExtensionPanelState.hostPanelID(extensionID: extensionID, panelID: panelID)
             ExtensionPanelRegistry.shared.close(hostPanelID: hostPanelID)
+            return .success(())
+        }
+    }
+
+    @MainActor
+    enum Popovers {
+        static func close(extensionID: String) -> Result<Void, APIError> {
+            PopoverHost.shared.close(extensionID: extensionID)
+            return .success(())
+        }
+
+        static func resize(extensionID: String, width: Double, height: Double) -> Result<Void, APIError> {
+            guard width > 0, height > 0 else {
+                return .failure(.invalidArguments("popover.resize requires positive width and height"))
+            }
+            PopoverHost.shared.resize(extensionID: extensionID, width: width, height: height)
             return .success(())
         }
     }

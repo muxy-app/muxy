@@ -155,6 +155,53 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
     }
 }
 
+struct ExtensionPopover: Codable, Equatable, Identifiable {
+    static let defaultWidth: Double = 320
+    static let defaultHeight: Double = 360
+
+    let id: String
+    let title: String?
+    let entry: String
+    let width: Double
+    let height: Double
+    let defaultData: ExtensionJSON?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case entry
+        case width
+        case height
+        case defaultData
+    }
+
+    init(
+        id: String,
+        title: String? = nil,
+        entry: String,
+        width: Double = ExtensionPopover.defaultWidth,
+        height: Double = ExtensionPopover.defaultHeight,
+        defaultData: ExtensionJSON? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.entry = entry
+        self.width = width
+        self.height = height
+        self.defaultData = defaultData
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        entry = try container.decode(String.self, forKey: .entry)
+        width = try container.decodeIfPresent(Double.self, forKey: .width) ?? ExtensionPopover.defaultWidth
+        height = try container.decodeIfPresent(Double.self, forKey: .height) ?? ExtensionPopover.defaultHeight
+        defaultData = try container.decodeIfPresent(ExtensionJSON.self, forKey: .defaultData)
+    }
+}
+
 enum ExtensionIcon: Codable, Equatable {
     case symbol(String)
     case svg(String)
@@ -237,12 +284,14 @@ enum ExtensionCommandAction: Codable, Equatable {
     case event
     case openTab(tabType: String, data: ExtensionJSON?)
     case togglePanel(panel: String)
+    case openPopover(popover: String)
     case runScript(script: String)
 
     private enum CodingKeys: String, CodingKey {
         case kind
         case tabType
         case panel
+        case popover
         case data
         case script
     }
@@ -251,6 +300,7 @@ enum ExtensionCommandAction: Codable, Equatable {
         case event
         case openTab
         case togglePanel
+        case openPopover
         case runScript
     }
 
@@ -267,6 +317,9 @@ enum ExtensionCommandAction: Codable, Equatable {
         case .togglePanel:
             let panel = try container.decode(String.self, forKey: .panel)
             self = .togglePanel(panel: panel)
+        case .openPopover:
+            let popover = try container.decode(String.self, forKey: .popover)
+            self = .openPopover(popover: popover)
         case .runScript:
             let script = try container.decode(String.self, forKey: .script)
             self = .runScript(script: script)
@@ -285,6 +338,9 @@ enum ExtensionCommandAction: Codable, Equatable {
         case let .togglePanel(panel):
             try container.encode(Kind.togglePanel, forKey: .kind)
             try container.encode(panel, forKey: .panel)
+        case let .openPopover(popover):
+            try container.encode(Kind.openPopover, forKey: .kind)
+            try container.encode(popover, forKey: .popover)
         case let .runScript(script):
             try container.encode(Kind.runScript, forKey: .kind)
             try container.encode(script, forKey: .script)
@@ -338,6 +394,7 @@ struct ExtensionManifest: Codable, Equatable {
     let commands: [ExtensionPaletteCommand]
     let tabTypes: [ExtensionTabType]
     let panels: [ExtensionPanel]
+    let popovers: [ExtensionPopover]
     let permissions: [ExtensionPermission]
     let aiProvider: ExtensionAIProvider?
     let topbarItems: [ExtensionTopbarItem]
@@ -353,6 +410,7 @@ struct ExtensionManifest: Codable, Equatable {
         case commands
         case tabTypes
         case panels
+        case popovers
         case permissions
         case aiProvider
         case topbarItems
@@ -369,6 +427,7 @@ struct ExtensionManifest: Codable, Equatable {
         commands: [ExtensionPaletteCommand] = [],
         tabTypes: [ExtensionTabType] = [],
         panels: [ExtensionPanel] = [],
+        popovers: [ExtensionPopover] = [],
         permissions: [ExtensionPermission] = [],
         aiProvider: ExtensionAIProvider? = nil,
         topbarItems: [ExtensionTopbarItem] = [],
@@ -383,6 +442,7 @@ struct ExtensionManifest: Codable, Equatable {
         self.commands = commands
         self.tabTypes = tabTypes
         self.panels = panels
+        self.popovers = popovers
         self.permissions = permissions
         self.aiProvider = aiProvider
         self.topbarItems = topbarItems
@@ -400,6 +460,7 @@ struct ExtensionManifest: Codable, Equatable {
         commands = try container.decodeIfPresent([ExtensionPaletteCommand].self, forKey: .commands) ?? []
         tabTypes = try container.decodeIfPresent([ExtensionTabType].self, forKey: .tabTypes) ?? []
         panels = try container.decodeIfPresent([ExtensionPanel].self, forKey: .panels) ?? []
+        popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
         permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
         aiProvider = try container.decodeIfPresent(ExtensionAIProvider.self, forKey: .aiProvider)
         topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
@@ -413,6 +474,10 @@ struct ExtensionManifest: Codable, Equatable {
 
     func panel(id: String) -> ExtensionPanel? {
         panels.first { $0.id == id }
+    }
+
+    func popover(id: String) -> ExtensionPopover? {
+        popovers.first { $0.id == id }
     }
 
     func setting(key: String) -> ExtensionSettingEntry? {
@@ -439,8 +504,12 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case duplicatePanel(String)
     case panelSVGMissing(panelID: String, url: URL)
     case panelSVGOutsideDirectory(panelID: String, url: URL)
+    case popoverEntryMissing(popoverID: String, url: URL)
+    case popoverEntryOutsideDirectory(popoverID: String, url: URL)
+    case duplicatePopover(String)
     case commandReferencesUnknownTabType(commandID: String, tabType: String)
     case commandReferencesUnknownPanel(commandID: String, panel: String)
+    case commandReferencesUnknownPopover(commandID: String, popover: String)
     case scriptMissing(commandID: String, url: URL)
     case scriptOutsideDirectory(commandID: String, url: URL)
     case topbarItemEmptyID
@@ -486,10 +555,18 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Panel '\(panelID)' icon SVG not found at \(url.path)"
         case let .panelSVGOutsideDirectory(panelID, url):
             "Panel '\(panelID)' icon SVG at \(url.path) escapes the extension directory"
+        case let .popoverEntryMissing(popoverID, url):
+            "Popover '\(popoverID)' entry not found at \(url.path)"
+        case let .popoverEntryOutsideDirectory(popoverID, url):
+            "Popover '\(popoverID)' entry at \(url.path) escapes the extension directory"
+        case let .duplicatePopover(id):
+            "Duplicate popover '\(id)'"
         case let .commandReferencesUnknownTabType(commandID, tabType):
             "Command '\(commandID)' references unknown tab type '\(tabType)'"
         case let .commandReferencesUnknownPanel(commandID, panel):
             "Command '\(commandID)' references unknown panel '\(panel)'"
+        case let .commandReferencesUnknownPopover(commandID, popover):
+            "Command '\(commandID)' references unknown popover '\(popover)'"
         case let .scriptMissing(commandID, url):
             "Command '\(commandID)' script not found at \(url.path)"
         case let .scriptOutsideDirectory(commandID, url):
@@ -588,6 +665,7 @@ enum ExtensionManifestLoader {
         let muxyExtension = MuxyExtension(id: manifest.name, directory: directory, manifest: manifest)
         try validateTabTypes(manifest: manifest, in: muxyExtension)
         try validatePanels(manifest: manifest, in: muxyExtension)
+        try validatePopovers(manifest: manifest, in: muxyExtension)
         try validateCommands(manifest: manifest, in: muxyExtension)
         try validateTopbarItems(manifest: manifest, in: muxyExtension)
         try validateStatusBarItems(manifest: manifest, in: muxyExtension)
@@ -658,9 +736,28 @@ enum ExtensionManifestLoader {
         }
     }
 
+    private static func validatePopovers(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
+        var seen = Set<String>()
+        for popover in manifest.popovers {
+            guard seen.insert(popover.id).inserted else {
+                throw ExtensionLoadError.duplicatePopover(popover.id)
+            }
+            guard let url = muxyExtension.resolveResource(popover.entry) else {
+                throw ExtensionLoadError.popoverEntryOutsideDirectory(
+                    popoverID: popover.id,
+                    url: muxyExtension.directory.appendingPathComponent(popover.entry)
+                )
+            }
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw ExtensionLoadError.popoverEntryMissing(popoverID: popover.id, url: url)
+            }
+        }
+    }
+
     private static func validateCommands(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
         let tabTypeIDs = Set(manifest.tabTypes.map(\.id))
         let panelIDs = Set(manifest.panels.map(\.id))
+        let popoverIDs = Set(manifest.popovers.map(\.id))
         for command in manifest.commands {
             switch command.action {
             case .event:
@@ -677,6 +774,13 @@ enum ExtensionManifestLoader {
                     throw ExtensionLoadError.commandReferencesUnknownPanel(
                         commandID: command.id,
                         panel: panel
+                    )
+                }
+            case let .openPopover(popover):
+                guard popoverIDs.contains(popover) else {
+                    throw ExtensionLoadError.commandReferencesUnknownPopover(
+                        commandID: command.id,
+                        popover: popover
                     )
                 }
             case let .runScript(script):

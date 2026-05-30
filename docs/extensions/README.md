@@ -15,6 +15,7 @@ User-installed directories that Muxy loads and talks to over the existing notifi
 | [Palette Commands](palette-commands.md) | Register commands and react to triggers |
 | [Tabs](tabs.md) | Register webview tab types and the injected `window.muxy` JS API |
 | [Panels](panels.md) | Register dockable/floating webview panels and the placement rules |
+| [Popovers](popovers.md) | Anchor a transient webview popover to a topbar/status bar item |
 | [Topbar](topbar.md) | Attach icons to the tab strip that trigger a command |
 | [Status Bar](statusbar.md) | Attach icons to the footer status bar; update text live |
 | [Settings](settings.md) | Declare typed settings and read/write them at runtime |
