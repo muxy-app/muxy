@@ -13,6 +13,8 @@ final class PanelHost {
 
     private(set) var placements: [PanelPlacement] = []
 
+    var onDisplace: ((String) -> Void)?
+
     func placement(for panelID: String) -> PanelPlacement? {
         placements.first { $0.panelID == panelID }
     }
@@ -31,8 +33,10 @@ final class PanelHost {
 
     func open(_ panelID: String, at position: PanelPosition, mode: PanelMode) {
         placements.removeAll { $0.panelID == panelID }
+        let displaced = placements.filter { $0.position == position && $0.mode == mode }
         placements.removeAll { $0.position == position && $0.mode == mode }
         placements.append(PanelPlacement(panelID: panelID, position: position, mode: mode))
+        displaced.forEach { onDisplace?($0.panelID) }
     }
 
     func toggle(_ panelID: String, at position: PanelPosition, mode: PanelMode) {

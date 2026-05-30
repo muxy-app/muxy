@@ -1284,7 +1284,6 @@ struct MainWindow: View {
             return
         }
         panelHost.toggle(BuiltinPanel.vcs, at: .right, mode: .pinned)
-        ExtensionPanelRegistry.shared.pruneClosed()
     }
 
     private func toggleFileTreePanel() {
@@ -1303,7 +1302,6 @@ struct MainWindow: View {
         }
         ensureFileTreeState(for: project)
         panelHost.open(BuiltinPanel.fileTree, at: .right, mode: .pinned)
-        ExtensionPanelRegistry.shared.pruneClosed()
     }
 
     private var activeRichInputState: RichInputState? {
@@ -1332,7 +1330,6 @@ struct MainWindow: View {
         guard let richInputState = activeRichInputState else { return }
         guard richInputPanelVisible else {
             panelHost.open(BuiltinPanel.richInput, at: richInputPosition, mode: richInputMode)
-            ExtensionPanelRegistry.shared.pruneClosed()
             richInputState.focusVersion += 1
             return
         }
@@ -1351,14 +1348,12 @@ struct MainWindow: View {
         richInputFloating.toggle()
         guard richInputPanelVisible else { return }
         panelHost.setMode(richInputMode, for: BuiltinPanel.richInput)
-        ExtensionPanelRegistry.shared.pruneClosed()
     }
 
     private func toggleRichInputPosition() {
         richInputPosition = richInputPosition.opposite
         guard richInputPanelVisible else { return }
         panelHost.move(BuiltinPanel.richInput, to: richInputPosition)
-        ExtensionPanelRegistry.shared.pruneClosed()
     }
 
     private func closeRichInputPanel() {

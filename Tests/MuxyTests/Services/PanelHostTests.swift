@@ -84,4 +84,20 @@ struct PanelHostTests {
         #expect(host.placement(for: "b")?.position == .right)
         #expect(!host.isOpen("a"))
     }
+
+    @Test("opening over an occupied slot reports the displaced panel")
+    func displaceNotifiesEvictedPanel() {
+        let host = makeHost()
+        let previous = host.onDisplace
+        defer { host.onDisplace = previous }
+        var displaced: [String] = []
+        host.onDisplace = { displaced.append($0) }
+
+        host.open("a", at: .right, mode: .floating)
+        host.open("b", at: .right, mode: .floating)
+        #expect(displaced == ["a"])
+
+        host.move("b", to: .right)
+        #expect(displaced == ["a"])
+    }
 }

@@ -7,6 +7,10 @@ final class ExtensionPanelRegistry {
 
     private(set) var openStates: [ExtensionPanelState] = []
 
+    init() {
+        PanelHost.shared.onDisplace = { [weak self] _ in self?.pruneClosed() }
+    }
+
     func state(forHostPanelID hostPanelID: String) -> ExtensionPanelState? {
         openStates.first { $0.hostPanelID == hostPanelID }
     }
@@ -26,7 +30,6 @@ final class ExtensionPanelRegistry {
         )
         openStates.append(state)
         PanelHost.shared.open(hostPanelID, at: panel.position, mode: panel.mode)
-        pruneClosed()
         return state
     }
 
@@ -41,12 +44,10 @@ final class ExtensionPanelRegistry {
 
     func setMode(_ mode: PanelMode, forHostPanelID hostPanelID: String) {
         PanelHost.shared.setMode(mode, for: hostPanelID)
-        pruneClosed()
     }
 
     func move(_ position: PanelPosition, forHostPanelID hostPanelID: String) {
         PanelHost.shared.move(hostPanelID, to: position)
-        pruneClosed()
     }
 
     func close(hostPanelID: String) {
@@ -61,7 +62,7 @@ final class ExtensionPanelRegistry {
         openStates.removeAll { $0.extensionID == extensionID }
     }
 
-    func pruneClosed() {
+    private func pruneClosed() {
         openStates.removeAll { !PanelHost.shared.isOpen($0.hostPanelID) }
     }
 }
