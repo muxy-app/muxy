@@ -28,10 +28,9 @@ struct TmuxConfigurationTests {
 
 @Suite("TmuxCaptureService.parseControlOutput")
 struct TmuxControlOutputParsingTests {
-    @Test("parses single %output line with base64 payload")
-    func singleOutputLine() {
-        let payload = "SGVsbG8gV29ybGQ="
-        let input = "%output %1 \(payload)\n"
+    @Test("parses single %output line with plain text")
+    func singlePlainOutput() {
+        let input = "%output %1 Hello World\n"
         let data = input.data(using: .utf8)!
 
         let results = TmuxCaptureService.parseControlOutput(data)
@@ -39,37 +38,47 @@ struct TmuxControlOutputParsingTests {
         #expect(results[0] == Data("Hello World".utf8))
     }
 
+    @Test("parses %output with octal-escaped carriage return and newline")
+    func octalEscapedOutput() {
+        let input = "%output %0 Hello\015\012World\n"
+        let data = input.data(using: .utf8)!
+
+        let results = TmuxCaptureService.parseControlOutput(data)
+        #expect(results.count == 1)
+        let expected = Data("Hello\r\nWorld".utf8)
+        #expect(results[0] == expected)
+    }
+
+    @Test("parses %output with ANSI escape sequence")
+    func ansiEscapeOutput() {
+        let input = "%output %0 \033[31mRed\033[0m\n"
+        let data = input.data(using: .utf8)!
+
+        let results = TmuxCaptureService.parseControlOutput(data)
+        #expect(results.count == 1)
+        let expected = Data("\u{1B}[31mRed\u{1B}[0m".utf8)
+        #expect(results[0] == expected)
+    }
+
     @Test("parses multiple %output lines")
     func multipleOutputLines() {
-        let payload1 = "YWJj"
-        let payload2 = "eHl6"
-        let input = "%output %1 \(payload1)\n%output %2 \(payload2)\n"
+        let input = "%output %1 abc\015\012\n%output %2 xyz\n"
         let data = input.data(using: .utf8)!
 
         let results = TmuxCaptureService.parseControlOutput(data)
         #expect(results.count == 2)
-        #expect(results[0] == Data("abc".utf8))
+        #expect(results[0] == Data("abc\r\n".utf8))
         #expect(results[1] == Data("xyz".utf8))
     }
 
     @Test("skips non-%output lines")
     func skipsNonOutputLines() {
-        let payload = "YWJj"
-        let input = "%layout %1 80x24\n%output %2 \(payload)\n%exit\n"
+        let input = "%layout %1 80x24\n%output %2 data\n%exit\n"
         let data = input.data(using: .utf8)!
 
         let results = TmuxCaptureService.parseControlOutput(data)
         #expect(results.count == 1)
-        #expect(results[0] == Data("abc".utf8))
-    }
-
-    @Test("returns empty for invalid base64")
-    func invalidBase64() {
-        let input = "%output %1 !!!invalid!!!\n"
-        let data = input.data(using: .utf8)!
-
-        let results = TmuxCaptureService.parseControlOutput(data)
-        #expect(results.isEmpty)
+        #expect(results[0] == Data("data".utf8))
     }
 
     @Test("returns empty for %output with missing payload")
@@ -97,12 +106,45 @@ struct TmuxControlOutputParsingTests {
 
     @Test("handles payload with spaces")
     func payloadWithSpaces() {
-        let payload = "aGVsbG8gd29ybGQ="
-        let input = "%output %1 \(payload)\n"
+        let input = "%output %1 hello world\n"
         let data = input.data(using: .utf8)!
 
         let results = TmuxCaptureService.parseControlOutput(data)
         #expect(results.count == 1)
         #expect(String(data: results[0], encoding: .utf8) == "hello world")
+    }
+
+    @Test("handles octal escape for null byte")
+    func octalNullByte() {
+        let input = "%output %0 a\000b\n"
+        let data = input.data(using: .utf8)!
+
+        let results = TmuxCaptureService.parseControlOutput(data)
+        #expect(results.count == 1)
+        var expected = Data("a".utf8)
+        expected.append(0x00)
+        expected.append(Data("b".utf8))
+        #expect(results[0] == expected)
+    }
+
+    @Test("handles multiple consecutive octal escapes")
+    func consecutiveOctalEscapes() {
+        let input = "%output %0 \015\012\033[31m\n"
+        let data = input.data(using: .utf8)!
+
+        let results = TmuxCaptureService.parseControlOutput(data)
+        #expect(results.count == 1)
+        let expected = Data("\r\n\u{1B}[31m".utf8)
+        #expect(results[0] == expected)
+    }
+
+    @Test("handles backslash followed by non-octal as literal backslash")
+    func backslashNonOctal() {
+        let input = "%output %0 path\\to\\file\n"
+        let data = input.data(using: .utf8)!
+
+        let results = TmuxCaptureService.parseControlOutput(data)
+        #expect(results.count == 1)
+        #expect(String(data: results[0], encoding: .utf8) == "path\\to\\file")
     }
 }
