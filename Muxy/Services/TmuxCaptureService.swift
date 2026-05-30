@@ -136,10 +136,11 @@ final class TmuxCaptureService {
     }
 
     func sendInput(paneID: UUID, bytes: Data) {
-        if let process = streamingProcesses[paneID] {
-            guard let text = String(data: bytes, encoding: .utf8) ?? String(data: bytes, encoding: .ascii) else {
-                return
-            }
+        guard let text = String(data: bytes, encoding: .utf8) ?? String(data: bytes, encoding: .ascii) else {
+            return
+        }
+
+        if let process = streamingProcesses[paneID], !text.contains("\n") {
             process.send("send-keys -t \(TmuxConfiguration.sessionName(for: paneID)) -l \(text)")
             return
         }
