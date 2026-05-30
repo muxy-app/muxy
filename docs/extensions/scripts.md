@@ -1,6 +1,6 @@
 # Inline Scripts (`runScript` Commands)
 
-A palette command with `action.kind = "runScript"` runs a JavaScript file in a per-extension JavaScriptCore context. The script has access to the same `muxy.*` API as webview tabs — minus DOM and theme — and is executed when the user picks the command from the palette.
+A palette command with `action.kind = "runScript"` runs a JavaScript file in an in-process JavaScriptCore context when the user picks it. The script has the same `muxy.*` API as webview tabs, minus DOM, theme, and events. Requires the `commands:run-script` permission.
 
 ```json
 {
@@ -25,14 +25,13 @@ muxy.toast({
 
 ## Lifecycle
 
-- The first time a script for an extension runs, Muxy creates a `JSContext` and a dedicated dispatch queue for it.
-- The context is **cached** for the extension's lifetime. Subsequent invocations reuse it, so any `var` / `function` defined in a previous run is still visible.
-- The context is **evicted** when the extension is disabled or reloaded (Settings → Extensions → Reload Extensions).
-- The script source is read fresh from disk on every invocation, so editing the file picks up on the next palette trigger — no app restart.
+- The `JSContext` is created on first run and **cached for the extension's lifetime**, so `var`/`function` defined in one run remain visible to the next.
+- It is **evicted** when the extension is disabled or reloaded (Settings → Extensions → Reload Extensions).
+- The script **source is re-read from disk on every run**, so edits apply on the next palette trigger with no restart.
 
 ## API surface
 
-`muxy.extensionID` plus the same methods as webview tabs:
+`muxy.extensionID` plus the same synchronous methods as webview tabs:
 
 ```
 muxy.toast(opts)
@@ -42,33 +41,32 @@ muxy.projects.{list, switchTo}
 muxy.worktrees.{list, switchTo, refresh}
 ```
 
-Plus `muxy.exec(argv, options?)` / `muxy.exec({ shell, ... })` for running shell commands (requires `commands:exec`):
+Plus `muxy.exec(argv, options?)` / `muxy.exec({ shell, ... })` to run shell commands (requires `commands:exec`):
 
 ```js
 const status = muxy.exec(['git', 'status', '--short']);
 console.log(status.stdout);
 ```
 
-**Differences from the webview API:**
+Differences from the webview API:
 
-- All calls are **synchronous** — `muxy.panes.list()` and `muxy.exec(...)` return values directly, not Promises. Internally Muxy blocks the script's dispatch queue while the async work runs on the main actor; the main thread is not blocked, so the UI stays responsive.
-- No `muxy.theme`, `muxy.onThemeChange`, `muxy.data`, or `muxy.tabInstanceID` — scripts are not tied to a tab and have no rendering surface.
-- No `muxy.events.subscribe` — scripts are strictly one-shot.
+- All calls are **synchronous** — they return values directly, not Promises. Muxy blocks the script's own dispatch queue while the work runs on the main actor, so the UI stays responsive.
+- No `muxy.theme`, `muxy.data`, or `muxy.tabInstanceID` — scripts have no tab or rendering surface.
+- No `muxy.events.subscribe` — scripts are one-shot.
 
 ## Permissions
 
-Running a `runScript` command requires `commands:run-script`. Each verb the script calls (`muxy.panes.send`, etc.) is gated by its own permission as on every other surface. If the script calls a method without the matching permission, the method throws an `Error("permission denied (<perm>)")` that the script can catch.
+Each verb is gated by its own permission, as on every surface (see [Permissions](permissions.md)). Calling a method without its permission throws `Error("permission denied (<perm>)")`, which the script can catch.
 
 ## Errors and logging
 
-- `console.log`, `console.warn`, and `console.error` are bridged to the extension's [log file](logs.md), tagged `[log]`, `[warn]`, `[err]`.
-- If the script throws, the error message is appended as `[err]` and the failed run is recorded with a `[muxy] runScript failed` line.
-- If the script file is missing, the run is skipped and logged.
+- `console.log`, `console.warn`, `console.error` are bridged to the extension's [log file](logs.md), tagged `[log]`, `[warn]`, `[err]`.
+- A thrown error is logged as `[err]` plus a `[muxy] runScript failed` line. A missing script file is skipped and logged.
 
 ## When to use a script vs. a webview tab
 
 | Use `runScript` when | Use a webview tab when |
 | --- | --- |
-| You're acting on workspace state and don't need UI | You need to render anything |
-| The work fits in one shot — fire and forget | You want long-lived per-instance state |
-| You want shared module-like state across invocations of *one* extension | You need DOM events, forms, charts, etc. |
+| You act on workspace state and need no UI | You need to render anything |
+| The work is fire-and-forget | You want long-lived per-instance state |
+| You want module-like state shared across runs of *one* extension | You need DOM events, forms, charts, etc. |

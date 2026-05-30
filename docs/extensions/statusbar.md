@@ -1,6 +1,6 @@
 # Status Bar Items
 
-Extensions can place items in either side of the footer status bar — the row that shows the project path, branch, and rich-input controls. Each item has an icon, optional text, and triggers one of the extension's declared palette commands.
+A status bar item is an icon (with optional text) Muxy adds to either side of the footer status bar — the row that shows the project path, branch, and rich-input controls. Clicking it runs one of the extension's declared [commands](palette-commands.md).
 
 ```json
 {
@@ -27,27 +27,20 @@ Extensions can place items in either side of the footer status bar — the row t
 | `id` | string | yes | Unique within the extension. |
 | `icon` | object | yes | `{ "symbol": "<sf-symbol>" }` or `{ "svg": "<path>" }`. See [Icons](manifest.md#icons). |
 | `text` | string | no | Static text shown next to the icon. Can be replaced at runtime — see below. |
-| `tooltip` | string | no | Hover tooltip / accessibility label. Defaults to the id. |
-| `side` | string | yes | `left` or `right`. Items group with the built-in status bar entries on that side. |
+| `tooltip` | string | no | Hover tooltip / accessibility label. Defaults to the `id`. |
+| `side` | string | yes | `left` or `right`. Groups with the built-in entries on that side. |
 | `command` | string | yes | Must reference a declared `commands[].id`. |
 
 ## Updating text at runtime
 
-```
-identify|<extension-id>|<token>
-extension.statusbar.set|<itemID>|<text>
-```
+Item text can be changed at runtime over the **socket** — this is the `extension.statusbar.set` verb, used by the `muxy` CLI and advanced integrations. It is **not** currently exposed as a method on the background `muxy` global, so a `background.js` script cannot set it directly today.
 
-`<token>` comes from the `MUXY_EXTENSION_TOKEN` environment variable Muxy injects when it spawns the extension. The connecting process must echo it back; identify is rejected otherwise.
+The socket contract is `extension.statusbar.set|<itemID>[|<text>]`. Muxy handles the identity handshake; callers do not write it themselves. Omitting the text argument clears the override back to the manifest value.
 
 | Response | Meaning |
 | --- | --- |
-| `ok` | Text updated. To clear back to the manifest value, send `extension.statusbar.set\|<itemID>` (no third argument) or pass an empty text \(`extension.statusbar.set\|<itemID>\|`\). |
-| `error:identify required` | Connection has not called `identify` yet. |
-| `error:unknown status bar item '<id>'` | The id is not declared in the extension's `statusBarItems`. |
+| `ok` | Text updated (or cleared, when no text is given). |
+| `error:identify required` | The connection has not been identified yet. |
+| `error:unknown status bar item '<id>'` | The id is not declared in `statusBarItems`. |
 
-The override lives in-memory for the lifetime of the session. Disabling or reloading the extension clears it.
-
-## Separators
-
-The footer status bar draws a 1-pixel separator between every item on each side, including extension items. A separator is appended after the last left item and prepended before the first right item, so the two groups always have a visible edge against the central spacer.
+The override is in-memory for the session; disabling or reloading the extension clears it.

@@ -1,6 +1,6 @@
 # Extension Tabs
 
-Extensions can register custom tab types that render HTML/CSS/JS inside Muxy. Each opened tab is its own `WKWebView`. The Muxy host injects a `window.muxy` JavaScript API that calls the same typed `MuxyAPI` layer as the socket and the CLI — same permission gates apply.
+A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Muxy. Each opened tab is a separate `WKWebView`; tabs do not share a JavaScript context. The page talks to Muxy through the injected [`window.muxy`](#windowmuxy) bridge, which enforces the same [permissions](permissions.md) as everything else.
 
 ## Declaring a tab type
 
@@ -18,11 +18,7 @@ Extensions can register custom tab types that render HTML/CSS/JS inside Muxy. Ea
     }
   ],
   "commands": [
-    {
-      "id": "open-pr",
-      "title": "Open PR…",
-      "action": { "kind": "openTab", "tabType": "pr-viewer" }
-    }
+    { "id": "open-pr", "title": "Open PR…", "action": { "kind": "openTab", "tabType": "pr-viewer" } }
   ]
 }
 ```
@@ -31,31 +27,27 @@ Extensions can register custom tab types that render HTML/CSS/JS inside Muxy. Ea
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `id` | string | yes | Stable per extension. Used to reference the tab type from commands and from `muxy.tabs.open()`. |
-| `title` | string | yes | Default tab title. Used until the page sets a `customTitle`. |
-| `entry` | string | yes | Path relative to the extension directory. Must resolve inside the directory (no `..` traversal). |
-| `defaultData` | object | no | JSON payload merged into `window.muxy.data` when no explicit data is passed. |
+| `id` | string | yes | Stable per extension. Referenced from `openTab` commands and from `muxy.tabs.open()`. |
+| `title` | string | yes | Default tab title, until the page sets its own. |
+| `entry` | string | yes | HTML path relative to the extension directory. Must resolve inside it (no `..` traversal). |
+| `defaultData` | object | no | JSON merged into `window.muxy.data` when no explicit data is passed at open time. |
 
-The loader validates that `entry` exists and lives inside the extension directory; openTab commands must reference a declared tab type id.
-
-## Asset loading
-
-The webview loads its entry HTML at `muxy-ext://<extensionID>/<entry>` and the page can reference its own files with relative paths (`<link href="styles.css">`, `<script src="app.js">`). The `muxy-ext://` scheme is only registered inside the webview's configuration — it isn't a system-wide URL handler — and the scheme handler is locked to that one extension's directory.
+The page loads at `muxy-ext://<extensionID>/<entry>` and references its own files with relative paths; the scheme is scoped to that one extension's directory.
 
 ## window.muxy
 
-The native side injects `window.muxy` at document start, before any of the page's scripts run. Every method returns a `Promise`.
+Muxy injects `window.muxy` before the page's scripts run. Every method returns a `Promise` and requires its matching manifest permission — an unauthorized call rejects with `permission denied (<permission>)`.
 
 ```ts
 window.muxy = {
   extensionID: string,
   tabInstanceID: string,
-  data: object | null,         // the payload the tab was opened with
+  data: object | null,                 // payload the tab was opened with (or defaultData)
 
   toast({ title, body?, paneID? }): Promise<void>,
 
   tabs: {
-    open(request): Promise<void>,      // { kind, filePath?, extension? }
+    open(request): Promise<void>,       // see "Opening another tab"
     list(): Promise<TabInfo[]>,
     switchTo(idOrIndex): Promise<void>,
     new(): Promise<string | null>,
@@ -72,9 +64,9 @@ window.muxy = {
     rename(paneID, title): Promise<void>,
   },
 
-  projects: { list(), switchTo(identifier) },
-  events: { subscribe(name, callback): unsubscribe },
+  projects:  { list(), switchTo(identifier) },
   worktrees: { list(project?), switchTo(identifier, project?), refresh(project?) },
+  events:    { subscribe(name, callback): unsubscribe },
   exec(argv: string[], options?): Promise<ExecResult>,
   exec(options: { shell: string, ... }): Promise<ExecResult>,
 }
@@ -87,18 +79,13 @@ interface ExecResult {
 }
 ```
 
-Each call requires the matching manifest permission — e.g. `panes.send` requires `panes:write`. Unauthorized calls reject with `Error("permission denied (panes:write)")`.
-
 ### Opening another tab
 
+`tabs.open` accepts three kinds: `editor` (with a `filePath`), `vcs`, and `extensionWebView` (with a target `extension`).
+
 ```js
-// Open the editor on a specific file
 await muxy.tabs.open({ kind: 'editor', filePath: '/path/to/foo.swift' });
-
-// Open the VCS panel
 await muxy.tabs.open({ kind: 'vcs' });
-
-// Open an extension tab type (own or another extension's)
 await muxy.tabs.open({
   kind: 'extensionWebView',
   extension: { id: 'pr-tools', tabType: 'pr-viewer', data: { prNumber: 42 } },
@@ -109,59 +96,39 @@ await muxy.tabs.open({
 
 ### Running shell commands
 
+`exec` requires `commands:exec`. Use the argv form to avoid a shell (no quoting concerns) or the `{ shell }` form for pipes and expansion.
+
 ```js
-// argv form — no shell, no quoting concerns
 const { stdout, exitCode } = await muxy.exec(['git', 'diff', '--name-only']);
-if (exitCode === 0) {
-  for (const file of stdout.split('\n').filter(Boolean)) {
-    console.log('changed:', file);
-  }
-}
-
-// shell form — pipes, redirects, expansion
 const counted = await muxy.exec({ shell: 'git diff | wc -l' });
-
-// with options
 await muxy.exec(['ls'], { cwd: '~', timeoutMs: 5000 });
 ```
 
-Requires `commands:exec`. The default working directory is the active worktree's path; override via `options.cwd` (`~` expands). Default timeout is 30 seconds; on timeout the child is `SIGTERM`'d, then `SIGKILL`'d 2 s later, and the Promise resolves with `timedOut: true`. Output is capped at 10 MB combined; when exceeded the Promise still resolves with `truncated: true` and the captured prefix. PATH is hydrated from the user's login shell at app startup, so common commands (`git`, `npm`, …) resolve without absolute paths. The UI never blocks — child processes run on a background queue.
+- Default cwd is the active worktree; override with `options.cwd` (`~` expands).
+- Default timeout is 30 s. On timeout the child gets `SIGTERM`, then `SIGKILL` 2 s later, and the Promise resolves with `timedOut: true`.
+- Combined output is capped at 10 MB; beyond that it resolves with `truncated: true` and the captured prefix.
+- `PATH` is taken from the user's login shell at startup, so `git`, `npm`, etc. resolve without absolute paths.
 
 ### Subscribing to workspace events
 
 ```js
-const unsubscribe = muxy.events.subscribe('tab.focused', (payload) => {
-  console.log('tab focused:', payload.tabID);
-});
-
-// Later, when you don't need it anymore:
+const unsubscribe = muxy.events.subscribe('tab.focused', (p) => console.log(p.tabID));
 unsubscribe();
 ```
 
-The event must be declared in the extension's manifest `events: [...]` array (or be a `command.<id>` event of the same extension, which is auto-allowed). Unknown events reject the subscribe call with `Error("event <name> not declared in manifest")`.
-
-Subscriptions are dropped automatically when the page reloads, when the tab closes, and when the extension is disabled or reloaded.
-
-## Calling from the extension subprocess
-
-The subprocess can open tabs over the socket too:
-
-```
-open-tab|{"kind":"extensionWebView","extension":{"id":"pr-tools","tabType":"pr-viewer","data":{"prNumber":42}}}
-```
-
-This requires `tabs:write` like any other tabs-mutating verb.
+The event must be listed in the manifest `events` array (a `command.<id>` event of the same extension is auto-allowed); otherwise the subscribe rejects. Subscriptions drop automatically on page reload, tab close, and extension disable/reload.
 
 ## Persistence
 
-Workspace restoration persists the tab's `extensionID`, `tabTypeID`, and `data`. On restart, the tab reopens with the same payload. If the extension is no longer loaded when restore runs, the tab renders a placeholder until the extension comes back.
+Workspace restore persists each tab's `extensionID`, `tabTypeID`, and `data`, so it reopens with the same payload. If the extension isn't loaded when restore runs, the tab shows a placeholder until it returns.
 
 ## Logging
 
-The injected `window.muxy` wraps `console.log`, `console.warn`, and `console.error` so they also write to the extension's [log file](logs.md), tagged `[log]`, `[warn]`, `[err]`. Uncaught errors and unhandled promise rejections are captured the same way.
+`console.log` / `warn` / `error`, uncaught errors, and unhandled rejections are mirrored to the extension's [log file](logs.md).
 
-## Limits and gotchas
+## Limits
 
-- One `WKWebView` per tab instance. Tabs do not share JavaScript context. To share state across tabs, route through the extension subprocess.
-- The page cannot navigate to external URLs (`http://`, `https://`, `file://`). Only `muxy-ext://` and `about:` are allowed. Open external links yourself with `muxy.tabs.open()` for an editor tab or a future link-handling API.
-- For non-webview command logic (no DOM), use the [`runScript`](scripts.md) command action instead of opening a hidden tab.
+- One `WKWebView` per tab instance; tabs do not share state. Coordinate shared state through your background script.
+- Pages can only navigate within `muxy-ext://` and `about:` — no `http`/`https`/`file`. Open external content via `muxy.tabs.open()`.
+- Opening a tab is a page capability (`window.muxy`). The background script has no tabs API.
+- For command logic with no UI, use a [`runScript`](scripts.md) command action instead of a hidden tab.

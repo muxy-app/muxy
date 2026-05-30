@@ -1,11 +1,11 @@
 # Extension Panels
 
-Panels are dockable or floating webviews that live alongside Muxy's built-in panels (Source Control, Files, Rich Input). They render the same way as [tabs](tabs.md) — each panel is its own `WKWebView` with the injected `window.muxy` API — but instead of a tab they occupy a docked slot or float over the workspace.
+A panel is a webview that docks beside the workspace or floats over it, alongside Muxy's built-in panels (Source Control, Files, Rich Input). Each panel is its own `WKWebView` with the injected [`window.muxy`](tabs.md#windowmuxy) bridge, just like a [tab](tabs.md) — it simply occupies a docked or floating slot instead of a tab.
 
-All panels in Muxy, built-in and extension, obey the same placement rules:
+Every panel, built-in or extension, follows the same placement rules per position (`right` or `bottom`):
 
-- At most **one pinned panel per position** (right or bottom). Pinning another panel to a position unpins the current one.
-- At most **one floating panel per position**. Opening a floating panel where one is already floating closes the existing one.
+- **One pinned panel per position.** Pinning another panel to a position unpins the current one.
+- **One floating panel per position.** Opening a floating panel where one already floats closes the existing one.
 
 ## Declaring a panel
 
@@ -26,11 +26,7 @@ All panels in Muxy, built-in and extension, obey the same placement rules:
     }
   ],
   "commands": [
-    {
-      "id": "open-review",
-      "title": "Open Review Panel",
-      "action": { "kind": "togglePanel", "panel": "review" }
-    }
+    { "id": "open-review", "title": "Open Review Panel", "action": { "kind": "togglePanel", "panel": "review" } }
   ]
 }
 ```
@@ -39,22 +35,24 @@ All panels in Muxy, built-in and extension, obey the same placement rules:
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `id` | string | yes | Stable per extension. Referenced from commands and from `muxy.panels.*`. |
-| `entry` | string | yes | Path relative to the extension directory. Must resolve inside the directory (no `..` traversal). |
+| `id` | string | yes | Stable per extension. Referenced from `togglePanel` commands and from `muxy.panels.*`. |
+| `entry` | string | yes | HTML path relative to the extension directory. Must resolve inside it (no `..` traversal). |
 | `title` | string | no | Shown in the panel header. Omit to hide the title. |
-| `icon` | string \| object | no | SF Symbol name or `{ "svg": "assets/icon.svg" }`. Shown in the panel header. |
+| `icon` | string \| object | no | SF Symbol name, or `{ "svg": "assets/icon.svg" }`. Shown in the header. |
 | `position` | string | no | `right` or `bottom`. Defaults to `right`. |
 | `mode` | string | no | `floating` or `pinned`. Defaults to `floating`. |
 | `hiddenControls` | string[] | no | Header controls to hide: any of `close`, `pin`, `position`. Defaults to none hidden. |
-| `defaultData` | object | no | JSON payload merged into `window.muxy.data` when no explicit data is passed. |
+| `defaultData` | object | no | JSON merged into `window.muxy.data` when no explicit data is passed. |
 
-The loader validates that `entry` exists inside the extension directory, that panel ids are unique, and that `togglePanel` commands reference a declared panel id.
+## Header controls
+
+The host owns the panel header: optional icon and title on the left; on the right (unless hidden via `hiddenControls`) a position toggle (right ⇄ bottom), a pin toggle (float ⇄ dock), and a close button. Your webview fills the rest.
 
 ## Opening and closing
 
 A `togglePanel` command toggles the panel from the palette, a topbar button, or a status bar item.
 
-From a webview (a tab or another panel), the `panels:write` permission unlocks:
+From any page (a tab or another panel), with the `panels:write` permission:
 
 ```ts
 window.muxy.panels.open(panelID, data?): Promise<void>;
@@ -62,10 +60,4 @@ window.muxy.panels.toggle(panelID, data?): Promise<void>;
 window.muxy.panels.close(panelID): Promise<void>;
 ```
 
-Panels are opened and closed from a tab/panel/popover page via `window.muxy.panels.*` (above); the background script does not open panels. `data` overrides the panel's `defaultData` for that instance and is exposed to the page as `window.muxy.data`.
-
-## Header controls
-
-The panel header is owned by the host. It shows the optional icon and title on the left, and on the right — unless hidden via `hiddenControls` — a position toggle (right ⇄ bottom), a pin toggle (float ⇄ dock), and a close button. The webview content fills the rest of the panel.
-
-Panels close automatically when the extension is disabled or stopped.
+`data` overrides the panel's `defaultData` for that instance and is exposed to the page as `window.muxy.data`. Opening a panel is a page capability — the background script has no panels API. Panels close automatically when the extension is disabled or stopped.

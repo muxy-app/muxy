@@ -1,49 +1,33 @@
 # Events
 
-Extensions opt in to events by sending `subscribe|<event>` after `identify`. Subscribed events arrive on the same connection as `event|<name>|key=value|key=value...` lines.
+Events let an extension react to what's happening in the workspace — a pane opening, a project switch, one of its own palette commands firing. You subscribe to them by name and get a callback when they occur.
 
-## Handshake
+Subscribe from your `background.js`:
 
-```mermaid
-sequenceDiagram
-  participant E as Extension
-  participant M as Muxy
-
-  E->>M: identify|hello|<token>
-  M-->>E: ok
-  E->>M: subscribe|pane.created
-  M-->>E: ok
-  E->>M: subscribe|command.ping
-  M-->>E: ok
-  Note over M: User triggers Hello: Ping from palette
-  M--)E: event|command.ping|command=ping|extension=hello
-  Note over M: User splits a pane
-  M--)E: event|pane.created|paneID=...
+```js
+muxy.events.subscribe('pane.created', (payload) => {
+  console.log('new pane', payload.paneID);
+});
 ```
 
-The connection stays open for the lifetime of the extension subprocess. Muxy fans out matching events to every subscribed session.
+In a tab/panel/popover page, the same API is on the bridge as `window.muxy.events.subscribe(...)`. The handler receives the payload as a plain object; Muxy handles the host process, identity, and transport for you.
 
-## Identify rules
+Events originate in the main process from `ExtensionEventEmitter`, which diffs workspace state and fans matching events out to subscribed extensions.
 
-- `identify|<id>|<token>` is checked against the set of extensions currently loaded by `ExtensionStore`. Unknown IDs are rejected with `error:unknown extension <id>`.
-- `<token>` must match the value Muxy passed to the subprocess as `MUXY_EXTENSION_TOKEN`. Mismatches return `error:invalid extension token`. The token is regenerated on every extension start.
-- An extension may identify only once per connection. Subsequent `identify` lines overwrite the session's claimed ID — but must still present the correct token.
-- Sessions that never call `identify` (e.g. the `muxy` CLI) are treated as unidentified. They can still call verbs that don't require an extension identity.
+## Subscribing
 
-## Subscribe rules
+- **Workspace events** (`pane.*`, `tab.*`, `project.*`, `worktree.*`, `notification.posted`) must be listed in your manifest `events` array before you can subscribe. Subscribing to anything not declared is rejected.
+- **Command events** (`command.<id>`) are auto-allowed: declaring a command in `manifest.commands` is implicit consent to receive its trigger, so you do not add it to `events`.
 
-An identified extension can only subscribe to events that are either:
+```json
+{
+  "events": ["pane.created", "project.switched"]
+}
+```
 
-1. listed in its manifest `events` array, or
-2. the event name of one of its own palette commands (`command.<id>` — auto-allowed; no `events` entry needed).
-
-Anything else returns `error:event <name> not declared in manifest`.
-
-When an extension is **reloaded** or **disabled**, every active session's `extensionID` is cleared and its subscriptions are re-filtered against the new manifest. Any in-flight subscription to an event no longer declared is dropped silently.
+When an extension is reloaded or disabled, its subscriptions are dropped and re-filtered against the new manifest.
 
 ## Available events
-
-All workspace events require the extension to list them in `manifest.events` before they can be subscribed. The `command.<id>` family is the one exception: an extension's own command events are auto-allowed (declaring the command in `manifest.commands` is implicit consent to receive its trigger).
 
 | Event | Payload keys | Allowed by |
 | --- | --- | --- |
@@ -57,18 +41,4 @@ All workspace events require the extension to list them in `manifest.events` bef
 | `notification.posted` | `paneID`, `projectID`, `tabID`, `title` | `events: ["notification.posted"]` |
 | `command.<id>` | `command`, `extension` | Auto-allowed when `commands[].id == <id>` |
 
-## Wire format
-
-```
-event|<name>|<key>=<value>|<key>=<value>
-```
-
-Keys are alphabetically sorted. Values have `|` and newlines stripped to keep the line parseable. UTF-8, newline-terminated. The full line — including the trailing `\n` — never exceeds 64 KiB; oversized payloads truncate sender-side.
-
-## Event sources inside Muxy
-
-- Workspace deltas (panes/tabs/projects/worktrees) are computed in `ExtensionEventEmitter` by snapshotting `AppState` before and after every `dispatch`.
-- `notification.posted` is emitted from `NotificationStore` when a notification clears the focus filter.
-- `command.<id>` is emitted from `ExtensionStore.triggerCommand` when the palette item is selected.
-
-All sources route through `NotificationSocketServer.broadcast(event:)`, which fans out to any session whose `subscriptions` set contains the event name.
+See [Permissions](permissions.md) for how `events` fits the manifest, and [Palette Commands](palette-commands.md) for `command.<id>`.

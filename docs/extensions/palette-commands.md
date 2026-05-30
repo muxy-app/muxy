@@ -1,6 +1,6 @@
 # Palette Commands
 
-Extensions can declare commands that appear in Muxy's command palette. Selecting a command fires a `command.<id>` event back to the extension.
+Extensions can declare commands that appear in Muxy's command palette. Picking a command either fires a `command.<id>` event back to your extension or runs a built-in action (open a tab, toggle a panel, run a script).
 
 ```json
 {
@@ -19,61 +19,40 @@ Extensions can declare commands that appear in Muxy's command palette. Selecting
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `id` | string | yes | Stable per extension. Used to form the event name `command.<id>`. |
-| `title` | string | yes | Shown as the palette row title. |
-| `subtitle` | string | no | Shown as a dimmer second line. Defaults to the extension's display name. |
-| `action` | object | no | What happens when the command is picked. Defaults to `{ "kind": "event" }`. |
+| `id` | string | yes | Stable per extension. Forms the event name `command.<id>`. |
+| `title` | string | yes | The palette row title. |
+| `subtitle` | string | no | Dimmer second line. Defaults to the extension's display name. |
+| `action` | object | no | What happens when picked. Defaults to `{ "kind": "event" }`. |
 
 ## Actions
 
 | Kind | Behavior | Extra fields |
 | --- | --- | --- |
-| `event` | Broadcasts `command.<id>` over the socket. Default if `action` is omitted. | — |
+| `event` | Fires `command.<id>` to your extension. Default if `action` is omitted. | — |
 | `openTab` | Opens an extension webview tab of the named type. | `tabType` (required, must reference a declared [tab type](tabs.md)); `data` (optional JSON merged into `window.muxy.data`). |
 | `togglePanel` | Toggles an extension [panel](panels.md) open/closed. | `panel` (required, must reference a declared panel id). |
-| `openPopover` | Toggles an extension [popover](popovers.md) anchored to its topbar/status bar item. | `popover` (required, must reference a declared popover id). |
-| `runScript` | Runs the script in a JavaScriptCore context with the same `muxy.*` API as webview tabs (no DOM). Read the [Scripts](scripts.md) page. Requires `commands:run-script`. | `script` (required, relative path within the extension directory). |
+| `openPopover` | Toggles an extension [popover](popovers.md) anchored to its topbar/status-bar item. | `popover` (required, must reference a declared popover id). |
+| `runScript` | Runs a script in an in-process JavaScriptCore context with the same `muxy.*` API as webview tabs (no DOM). See [Scripts](scripts.md). Requires `commands:run-script`. | `script` (required, relative path within the extension directory). |
 
 ## How it surfaces
 
-Extension commands appear in the **Custom Commands** scope of the omnibox (default `⌘⇧P`), under their own **Extension Commands** section. They are searchable by extension name, title, and subtitle.
-
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant P as Palette
-  participant Store as ExtensionStore
-  participant Server as NotificationSocketServer
-  participant E as Extension
-
-  U->>P: ⌘⇧P → "Hello: Ping"
-  P->>Store: triggerCommand(extensionID, commandID)
-  Store->>Server: broadcast(event: command.ping)
-  Server--)E: event|command.ping|command=ping|extension=hello
-  E->>E: react (e.g. post a notification)
-```
+Commands appear in the **Custom Commands** scope of the omnibox (default `⌘⇧P`), under an **Extension Commands** section, searchable by extension name, title, and subtitle.
 
 ## Reacting to a command
 
-The extension must subscribe to its own command event. The command id auto-allowlists the corresponding `command.<id>` event — you do **not** need to add it to the manifest `events` array.
+For the default `event` action, subscribe to your own command event in `background.js`. The command id auto-allows its `command.<id>` event, so you do **not** add it to the manifest `events` array.
 
-```bash
-identify|hello|"$MUXY_EXTENSION_TOKEN"
-subscribe|command.ping
-```
-
-When the palette item is picked, the extension receives:
-
-```
-event|command.ping|command=ping|extension=hello
+```js
+muxy.events.subscribe('command.ping', ({ command, extension }) => {
+  // react, e.g. post a notification
+});
 ```
 
 ## Permissions
 
-There is no `commands:*` permission. Registering a command is free; reacting to it requires whatever permissions the reaction itself needs (e.g. `notifications:write` to post a toast back, or `panes:write` to open a split).
+There is no `commands:*` permission. Registering a command is free; reacting to one requires whatever permission the reaction needs (e.g. `notifications:write` to post a toast, `panes:write` to open a split). The `runScript` action additionally requires `commands:run-script`.
 
 ## Limits and gotchas
 
-- Disabled extensions do not contribute commands.
-- Commands disappear from the palette as soon as the extension is toggled off in Settings.
-- Command titles are not deduplicated across extensions; two extensions can register a command titled `Build`. Use a prefix (`MyExt: Build`) to disambiguate.
+- Disabled extensions contribute no commands; they leave the palette the moment the extension is toggled off in Settings.
+- Titles are not deduplicated across extensions. Prefix yours (`MyExt: Build`) to disambiguate.

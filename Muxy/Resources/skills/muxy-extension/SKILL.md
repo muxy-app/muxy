@@ -1,21 +1,30 @@
 ---
 name: muxy-extension
-description: Use when authoring or modifying a Muxy extension. Covers manifest fields, the runtime socket protocol, the in-tab `window.muxy` bridge, theme adaptation, and end-to-end examples drawn from the reference extension.
+description: Use when authoring or modifying a Muxy extension. Covers manifest fields, the two extension surfaces (the `background.js` host and the in-page `window.muxy` bridge), the permission model, theme adaptation, and end-to-end examples drawn from the reference extension.
 ---
 
 # Muxy Extension Author Guide
 
-Muxy extensions live in `~/.config/muxy/extensions/<name>/` and load when Muxy starts. Each extension is a directory containing a `manifest.json`. A `background` script (`background.js`) is optional and most extensions don't need one — declaring it makes Muxy run a long-lived background process for the whole lifetime of the extension, so add one only when the extension needs to receive pushed events or run shell commands in the background. Optional resources (HTML tabs, scripts, icons, assets) live alongside.
+Muxy extensions live in `~/.config/muxy/extensions/<name>/` and load when Muxy starts. Each extension is a directory containing a `manifest.json`. Optional resources (HTML tabs, a background script, icons, assets) live alongside.
+
+## The two surfaces — pick the right one
+
+A Muxy extension has two independent surfaces. Most of getting an extension right is choosing the correct one for each piece of work:
+
+- **UI pages (in-process).** Tabs, panels, and popovers are HTML/CSS/JS rendered in a `WKWebView`. Their page scripts get the **full `window.muxy` API** — `tabs`, `panes`, `projects`, `worktrees`, `events`, `exec`, `toast`, `panels`, `popover`, plus `data`, `theme`, and `tabInstanceID`. Use a page whenever you need to *show* something.
+- **Background script (`background.js`, out-of-process).** Optional. Muxy runs it in a long-lived host process and gives it a **small `muxy` global** — only `extensionID`, `events.subscribe`/`unsubscribe`, `exec`, and `console.*`. Use it only to **react to pushed events** or **run shell commands on a schedule/in the background**, independent of any open tab. Most extensions don't need one.
+
+Rule of thumb: long-lived, event-driven, or headless work → `background.js`. Anything the user looks at → a UI page. Don't open a hidden tab just to run logic — use a [`runScript`](#run-script-commands-javascriptcore-sandbox) command instead.
 
 ## When to use this skill
 
 Use this skill when:
 
-- Writing a new Muxy extension (manifest, background script, tab UI).
+- Writing a new Muxy extension (manifest, background script, tab/panel/popover UI).
 - Adding a command, topbar item, status-bar item, settings entry, tab type, panel, or popover.
-- Styling an extension tab so it adapts to the user's current Muxy theme.
-- Reading Muxy state (panes, tabs, projects, worktrees) or executing shell from a tab.
-- Subscribing to Muxy events or pushing live updates to the status bar.
+- Styling an extension page so it adapts to the user's current Muxy theme.
+- Reading Muxy state (panes, tabs, projects, worktrees) or running shell commands from a page.
+- Reacting to workspace events from a `background.js` script.
 
 ## Project layout
 
@@ -125,7 +134,7 @@ Field-by-field:
 - `popovers` — declares HTML pages renderable as transient popovers anchored to a topbar/status-bar item (`entry` required; optional `title`, `width`, `height` defaulting to 320×360). Frameless, auto-dismiss on outside click, at most one open at a time. Opened via an `openPopover` command bound to a topbar/status-bar item; the page sizes itself with `muxy.popover.resize()` (needs `panels:write`).
 - `commands` — palette commands. Each command's `action.kind` is `event` (default — fires `command.<id>`), `openTab`, `togglePanel`, `openPopover`, or `runScript`.
 - `topbarItems` / `statusBarItems` — UI hooks bound to a command. `icon` is either `{ "symbol": "<sf-symbol>" }` or `{ "svg": "<relative/path.svg>" }`.
-- `settings` — user-visible settings (`string` | `bool` | `number`) reachable from `extension.settings.get` over the socket and editable in the Extensions modal.
+- `settings` — user-visible settings (`string` | `bool` | `number`) editable in the Extensions modal. Values persist per extension. (Reading/writing them programmatically is a socket verb used by the `muxy` CLI; it is not exposed on the background `muxy` global yet.)
 
 Common load failures: a declared `background` script that is missing or escapes the extension directory, tab/panel/popover entry escapes the extension directory, a command references an unknown `tabType`, `panel`, or `popover`, a topbar or status-bar item references an unknown command. Failures appear in the Extensions modal under "Load Errors".
 
@@ -300,9 +309,9 @@ Only events declared in `manifest.events` (or auto-allowed command events) reach
 await muxy.toast({ title: 'Done', body: 'Build finished in 3.2s' });
 ```
 
-## Run-script commands (Node-style sandbox)
+## Run-script commands (JavaScriptCore sandbox)
 
-A command with `{ "kind": "runScript", "script": "scripts/x.js" }` runs in a tiny JS sandbox that exposes the same `muxy.*` surface as tabs, plus `console.log`. Use this for one-shot tasks that compute data and then open a tab to display it.
+A command with `{ "kind": "runScript", "script": "scripts/x.js" }` runs in a per-extension JavaScriptCore context (no DOM, no Node) that exposes the same `muxy.*` surface as tabs, plus `console.log`. Calls are **synchronous** here (no `await`). Use this for one-shot tasks that compute data and then open a tab to display it — it's the right tool for headless logic triggered from the palette, instead of opening a hidden tab.
 
 Example — `scripts/git-status.js` from the demo extension:
 

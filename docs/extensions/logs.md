@@ -1,22 +1,24 @@
 # Extension Logs
 
-Every loaded extension gets its own log file at:
+Every loaded extension gets its own log file:
 
 ```
 ~/.config/muxy/extensions/<name>/logs/output.log
 ```
 
-Subprocess stdout/stderr is redirected directly to that file. Webview tabs and `runScript` commands' `console.log` / `console.warn` / `console.error` calls also feed the same file via the JS bridge, prefixed with `[log]`, `[warn]`, or `[err]`.
+The background host's stdout/stderr is captured into this file. In pages and `runScript` contexts, `console.log` / `console.warn` / `console.error` also feed it via the JS bridge, tagged `[log]`, `[warn]`, or `[err]`.
 
 ## Viewing logs
 
 Three surfaces:
 
 - **Settings → Extensions → Show Logs**: inline tail of the last 200 lines, plus a "Reveal Log File" button.
-- **Bottom-dock Extension Output panel**: click the `ext output` chip in the status bar to open. Drop-down picks the extension; the file is tailed live via a file system event source — no polling, no in-memory buffer.
-- **Open the file directly** in any editor: it is a plain UTF-8 newline-separated text file.
+- **Bottom-dock Extension Output panel**: click the `ext output` chip in the status bar, then pick the extension. The file is live-tailed via a file system event source — no polling.
+- **Open the file directly** in any editor — it is plain UTF-8 text.
 
-## From inside an extension
+## Logging from an extension
+
+In pages and `runScript` JS contexts, use `console.*`:
 
 ```js
 console.log('hello', { count: panes.length });
@@ -24,27 +26,14 @@ console.warn('the pane title is suspicious:', pane.title);
 console.error('failed to do thing', err);
 ```
 
-These work identically in both webview tabs and `runScript` JS contexts. The output is appended to the extension's `output.log`.
-
-From the subprocess, anything you write to stdout or stderr also lands there:
-
-```bash
-echo "[my-ext] started" 1>&2
-```
-
-You can also write to it directly using the `MUXY_EXTENSION_LOG` environment variable that Muxy sets when spawning the subprocess:
-
-```bash
-printf '[ping] %s\n' "$(date)" >> "$MUXY_EXTENSION_LOG"
-```
+In `background.js`, the same `console.*` calls work, and anything the host writes to stdout/stderr lands in the file too.
 
 ## Size and rotation
 
 - Cap: **5 MB** per file.
-- Trim policy: a background pass every **10 minutes** checks each extension's log file. Any file over 5 MB is trimmed in place to roughly the most recent 1.25 MB (last ~25%). The trim is line-aligned — the oldest lines are dropped, the most recent are preserved.
-- No mtime/checkpoint state is persisted; the pass uses the live file size and the most-recent modification time as hints.
+- A background pass every **10 minutes** trims any file over the cap in place, down to roughly the most recent 1.25 MB. The trim is line-aligned — oldest lines are dropped, newest preserved.
 
-If you need finer control, write to your own file alongside `output.log`. Muxy does not manage other files in the `logs/` directory.
+To keep something Muxy won't trim, write to your own file alongside `output.log`; Muxy does not manage other files in `logs/`.
 
 ## Format
 
@@ -57,4 +46,4 @@ If you need finer control, write to your own file alongside `output.log`. Muxy d
     at handle (script.js:14:5)
 ```
 
-The `[muxy]` prefix is reserved for lifecycle events emitted by Muxy itself. Everything else is your extension's output. Timestamps are not added today — emit them yourself if you need them.
+The `[muxy]` prefix is reserved for lifecycle events emitted by Muxy itself. Timestamps are not added — emit them yourself if you need them.
