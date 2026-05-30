@@ -96,6 +96,11 @@ enum ExtensionWebBridge {
                     list() { return send('projects.list', {}); },
                     switchTo(identifier) { return send('projects.switch', { identifier: String(identifier) }); },
                 },
+                panels: {
+                    open(panel, data) { return send('panel.open', { panel: String(panel), data: data ?? null }); },
+                    toggle(panel, data) { return send('panel.toggle', { panel: String(panel), data: data ?? null }); },
+                    close(panel) { return send('panel.close', { panel: String(panel) }); },
+                },
                 exec(argvOrOptions, maybeOptions) {
                     let payload;
                     if (Array.isArray(argvOrOptions)) {
@@ -158,6 +163,7 @@ enum ExtensionWebBridge {
             Object.freeze(muxy.tabs);
             Object.freeze(muxy.panes);
             Object.freeze(muxy.projects);
+            Object.freeze(muxy.panels);
             Object.freeze(muxy.worktrees);
             Object.freeze(muxy.events);
             Object.freeze(muxy);

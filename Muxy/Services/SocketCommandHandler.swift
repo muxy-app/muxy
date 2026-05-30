@@ -202,9 +202,45 @@ enum SocketCommandHandler {
             let rawText = parts.count >= 3 ? parts.dropFirst(2).joined(separator: "|") : nil
             let text = (rawText?.isEmpty == true) ? nil : rawText
             return handleStatusBarSet(itemID: parts[1], text: text, extensionID: clientContext.extensionID)
+        case "panel.open",
+             "panel.toggle":
+            guard parts.count >= 2 else { return "error:usage \(cmd)|panelID[|<json-data>]" }
+            return handlePanelOpen(
+                panelID: parts[1],
+                rawData: parts.count >= 3 ? parts.dropFirst(2).joined(separator: "|") : nil,
+                toggle: cmd == "panel.toggle",
+                extensionID: clientContext.extensionID
+            )
+        case "panel.close":
+            guard parts.count >= 2 else { return "error:usage panel.close|panelID" }
+            return handlePanelClose(panelID: parts[1], extensionID: clientContext.extensionID)
         default:
             return "error:unknown command \(cmd)"
         }
+    }
+
+    private static func handlePanelOpen(
+        panelID: String,
+        rawData: String?,
+        toggle: Bool,
+        extensionID: String?
+    ) -> String {
+        guard let extensionID else { return "error:identify required" }
+        let data = rawData
+            .flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONDecoder().decode(ExtensionJSON.self, from: $0) }
+        return serialize(
+            MuxyAPI.Panels.open(extensionID: extensionID, panelID: panelID, data: data, toggle: toggle),
+            ok: "ok"
+        )
+    }
+
+    private static func handlePanelClose(panelID: String, extensionID: String?) -> String {
+        guard let extensionID else { return "error:identify required" }
+        return serialize(
+            MuxyAPI.Panels.close(extensionID: extensionID, panelID: panelID),
+            ok: "ok"
+        )
     }
 
     private static func handleSettingsGet(key: String, extensionID: String?) -> String {

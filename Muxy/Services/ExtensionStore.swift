@@ -64,6 +64,9 @@ final class ExtensionStore {
         }
         statusBarTextOverrides.removeAll()
         ExtensionIconAssetCache.shared.invalidateAll()
+        for status in statuses {
+            ExtensionPanelRegistry.shared.closeAll(extensionID: status.id)
+        }
         rebuildExtensionUICache()
         publishSnapshot()
     }
@@ -86,6 +89,7 @@ final class ExtensionStore {
         if !enabled {
             statusBarTextOverrides.removeValue(forKey: extensionID)
             ExtensionIconAssetCache.shared.invalidate(extensionID: extensionID)
+            ExtensionPanelRegistry.shared.closeAll(extensionID: extensionID)
         }
         rebuildExtensionUICache()
         publishSnapshot()
@@ -258,6 +262,13 @@ final class ExtensionStore {
                 data: data,
                 in: muxyExtension,
                 appState: invocation.appState
+            )
+        case let .togglePanel(panelID):
+            guard let panel = muxyExtension.manifest.panel(id: panelID) else { return }
+            ExtensionPanelRegistry.shared.toggle(
+                extensionID: invocation.extensionID,
+                panel: panel,
+                data: nil
             )
         case let .runScript(script):
             runExtensionScript(script: script, in: muxyExtension, invocation: invocation)

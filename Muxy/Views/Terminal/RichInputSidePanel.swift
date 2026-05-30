@@ -5,20 +5,13 @@ import UniformTypeIdentifiers
 struct RichInputSidePanel: View {
     @Bindable var state: RichInputState
     let worktreeKey: WorktreeKey
-    let onDismiss: () -> Void
     let onSubmit: (_ appendReturn: Bool, _ selectedText: String?) -> Void
 
     @State private var editorSettings = EditorSettings.shared
     @AppStorage(RichInputPreferences.fontSizeKey) private var fontSize: Double = RichInputPreferences.defaultFontSize
-    @AppStorage(RichInputPreferences.positionKey) private var position: RichInputPanelPosition = RichInputPreferences
-        .defaultPosition
-    @AppStorage(RichInputPreferences.floatingKey) private var floating: Bool = RichInputPreferences.defaultFloating
-    @AppStorage(RichInputPreferences.broadcastKey) private var broadcast: Bool = RichInputPreferences.defaultBroadcast
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Rectangle().fill(MuxyTheme.border).frame(height: 1)
             MarkdownTextEditor(
                 text: $state.text,
                 focusVersion: state.focusVersion,
@@ -102,92 +95,6 @@ struct RichInputSidePanel: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .allowsHitTesting(false)
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "keyboard")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fgMuted)
-            Text("Rich Input")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fg)
-            Spacer(minLength: 8)
-            Button(action: toggleBroadcast) {
-                Image(systemName: broadcastToggleIcon)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(broadcast ? MuxyTheme.accent : MuxyTheme.fgMuted)
-            }
-            .buttonStyle(RichInputToolbarButtonStyle())
-            .accessibilityLabel(broadcastToggleLabel)
-            .help(broadcastToggleLabel)
-            Button(action: toggleFloating) {
-                Image(systemName: pinToggleIcon)
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            .buttonStyle(RichInputToolbarButtonStyle())
-            .accessibilityLabel(pinToggleLabel)
-            .help(pinToggleLabel)
-            Button(action: togglePosition) {
-                Image(systemName: positionToggleIcon)
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            .buttonStyle(RichInputToolbarButtonStyle())
-            .accessibilityLabel(positionToggleLabel)
-            .help(positionToggleLabel)
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-            }
-            .buttonStyle(RichInputToolbarButtonStyle())
-            .accessibilityLabel("Close Rich Input")
-            .help("Close Rich Input")
-        }
-        .padding(.horizontal, 10)
-        .frame(height: 32)
-        .background(MuxyTheme.bg)
-    }
-
-    private var positionToggleIcon: String {
-        switch position {
-        case .right: "rectangle.bottomhalf.inset.filled"
-        case .bottom: "rectangle.righthalf.inset.filled"
-        }
-    }
-
-    private var positionToggleLabel: String {
-        switch position {
-        case .right: "Move to Bottom"
-        case .bottom: "Move to Right"
-        }
-    }
-
-    private func togglePosition() {
-        position = position == .right ? .bottom : .right
-    }
-
-    private var pinToggleIcon: String {
-        floating ? "pin" : "pin.slash"
-    }
-
-    private var pinToggleLabel: String {
-        floating ? "Dock Panel" : "Float Panel"
-    }
-
-    private func toggleFloating() {
-        floating.toggle()
-    }
-
-    private var broadcastToggleIcon: String {
-        broadcast ? "dot.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right.slash"
-    }
-
-    private var broadcastToggleLabel: String {
-        broadcast ? "Broadcast On — Send to All Split Panes" : "Broadcast Off — Send to Active Pane"
-    }
-
-    private func toggleBroadcast() {
-        broadcast.toggle()
     }
 
     private func increaseFontSize() {

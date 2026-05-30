@@ -18,6 +18,28 @@ enum MuxyAPIDispatcher {
         switch verb {
         case "toast":
             return try await handleToast(args: args, context: context)
+        case "panel.open":
+            try unwrap(MuxyAPI.Panels.open(
+                extensionID: context.extensionID,
+                panelID: stringArg(args, "panel"),
+                data: panelData(args),
+                toggle: false
+            ))
+            return NSNull()
+        case "panel.toggle":
+            try unwrap(MuxyAPI.Panels.open(
+                extensionID: context.extensionID,
+                panelID: stringArg(args, "panel"),
+                data: panelData(args),
+                toggle: true
+            ))
+            return NSNull()
+        case "panel.close":
+            try unwrap(MuxyAPI.Panels.close(
+                extensionID: context.extensionID,
+                panelID: stringArg(args, "panel")
+            ))
+            return NSNull()
         case "exec":
             return try await handleExec(args: args, context: context)
         case "tabs.list":
@@ -201,6 +223,12 @@ enum MuxyAPIDispatcher {
         case let .success(value): return value
         case let .failure(error): throw error
         }
+    }
+
+    private static func panelData(_ args: [String: Any]) -> ExtensionJSON? {
+        guard let raw = args["data"] else { return nil }
+        guard let data = try? JSONSerialization.data(withJSONObject: raw) else { return nil }
+        return try? JSONDecoder().decode(ExtensionJSON.self, from: data)
     }
 
     private static func decodeOpenTabRequest(_ args: [String: Any]) throws -> OpenTabRequest {

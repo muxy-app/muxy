@@ -349,6 +349,116 @@ struct ExtensionManifestTests {
         }
     }
 
+    @Test("decodes panels with defaults and explicit values")
+    func decodesPanels() throws {
+        let json = #"""
+        {
+            "name": "panel-ext",
+            "version": "1.0.0",
+            "panels": [
+                { "id": "minimal", "entry": "panels/a.html" },
+                {
+                    "id": "full",
+                    "title": "Sidebar",
+                    "icon": "sidebar.left",
+                    "entry": "panels/b.html",
+                    "position": "bottom",
+                    "mode": "pinned",
+                    "hiddenControls": ["pin", "position"]
+                }
+            ]
+        }
+        """#
+        let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+        #expect(manifest.panels.count == 2)
+        let minimal = try #require(manifest.panel(id: "minimal"))
+        #expect(minimal.position == .right)
+        #expect(minimal.mode == .floating)
+        #expect(minimal.hiddenControls.isEmpty)
+        let full = try #require(manifest.panel(id: "full"))
+        #expect(full.title == "Sidebar")
+        #expect(full.position == .bottom)
+        #expect(full.mode == .pinned)
+        #expect(full.hiddenControls == [.pin, .position])
+    }
+
+    @Test("loads an extension declaring a valid panel")
+    func loadsPanel() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "panel-ok",
+                "version": "1.0.0",
+                "panels": [ { "id": "side", "entry": "panels/side.html" } ]
+            }
+            """,
+            files: ["panels/side.html": "<html></html>"],
+            makeEntrypointExecutable: false
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let ext = try ExtensionManifestLoader.load(from: directory)
+        #expect(ext.manifest.panel(id: "side") != nil)
+    }
+
+    @Test("rejects a panel whose entry is missing")
+    func rejectsPanelMissingEntry() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "panel-missing",
+                "version": "1.0.0",
+                "panels": [ { "id": "side", "entry": "panels/side.html" } ]
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects duplicate panel ids")
+    func rejectsDuplicatePanels() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "panel-dup",
+                "version": "1.0.0",
+                "panels": [
+                    { "id": "side", "entry": "panels/side.html" },
+                    { "id": "side", "entry": "panels/side.html" }
+                ]
+            }
+            """,
+            files: ["panels/side.html": "<html></html>"],
+            makeEntrypointExecutable: false
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects command referencing an unknown panel")
+    func rejectsCommandUnknownPanel() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "panel-cmd-bad",
+                "version": "1.0.0",
+                "commands": [
+                    { "id": "show", "title": "Show", "action": { "kind": "togglePanel", "panel": "ghost" } }
+                ]
+            }
+            """,
+            makeEntrypointExecutable: false
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
     @Test("rejects empty topbar item id")
     func rejectsEmptyTopbarID() throws {
         let directory = try makeTemporaryExtension(

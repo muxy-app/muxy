@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 
 struct ExtensionOutputPanel: View {
-    @Binding var isPresented: Bool
     @Binding var selectedExtensionID: String?
 
     @State private var store = ExtensionStore.shared
@@ -17,10 +16,6 @@ struct ExtensionOutputPanel: View {
         }
         .frame(maxWidth: .infinity)
         .background(MuxyTheme.bg)
-        .overlay(
-            Rectangle().fill(MuxyTheme.border).frame(height: 1),
-            alignment: .top
-        )
         .onAppear { restartTailer() }
         .onDisappear { tailer?.stop() }
         .onChange(of: effectiveExtensionID) { _, _ in
@@ -30,9 +25,6 @@ struct ExtensionOutputPanel: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text("Extension Output")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fg)
             Menu {
                 ForEach(store.statuses) { status in
                     Button(status.muxyExtension.displayName) {
@@ -70,13 +62,6 @@ struct ExtensionOutputPanel: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(MuxyTheme.accent)
-            Button {
-                isPresented = false
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(MuxyTheme.fgMuted)
         }
         .font(.system(size: UIMetrics.fontFootnote))
         .padding(.horizontal, 10)
@@ -110,7 +95,7 @@ struct ExtensionOutputPanel: View {
                 proxy.scrollTo(newCount - 1, anchor: .bottom)
             }
         }
-        .frame(maxHeight: 220)
+        .frame(maxHeight: .infinity)
     }
 
     private var effectiveExtensionID: String? {

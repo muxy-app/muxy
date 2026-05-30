@@ -121,11 +121,12 @@ Field-by-field:
 - `permissions` — array of permission strings. Declare only what the entrypoint or tabs actually use.
 - `events` — array of event names this extension subscribes to (for example `pane.created`, `tab.focused`, `pane.closed`). Command events (`command.<id>`) are auto-allowed.
 - `tabTypes` — declares HTML pages renderable as tabs.
-- `commands` — palette commands. Each command's `action.kind` is `event` (default — fires `command.<id>`), `openTab`, or `runScript`.
+- `panels` — declares HTML pages renderable as dockable/floating panels (`position`: `right`|`bottom`, `mode`: `floating`|`pinned`, optional `icon`/`title`/`hiddenControls`). Requires `panels:write` to open/close at runtime. One pinned and one floating panel per position; opening another in that slot replaces it.
+- `commands` — palette commands. Each command's `action.kind` is `event` (default — fires `command.<id>`), `openTab`, `togglePanel`, or `runScript`.
 - `topbarItems` / `statusBarItems` — UI hooks bound to a command. `icon` is either `{ "symbol": "<sf-symbol>" }` or `{ "svg": "<relative/path.svg>" }`.
 - `settings` — user-visible settings (`string` | `bool` | `number`) reachable from `extension.settings.get` over the socket and editable in the Extensions modal.
 
-Common load failures: a declared entrypoint that is missing or not executable, tab entry escapes the extension directory, a command references an unknown `tabType`, a topbar or status-bar item references an unknown command. Failures appear in the Extensions modal under "Load Errors".
+Common load failures: a declared entrypoint that is missing or not executable, tab/panel entry escapes the extension directory, a command references an unknown `tabType` or `panel`, a topbar or status-bar item references an unknown command. Failures appear in the Extensions modal under "Load Errors".
 
 ## Permissions reference
 
@@ -260,6 +261,17 @@ await muxy.tabs.open({
     data: { source: 'self', when: new Date().toISOString() },
   },
 });
+```
+
+### Open / close panels
+
+Requires `panels:write`. The panel id must be declared under `panels` in the manifest.
+
+```js
+await muxy.panels.open('dashboard');                 // open (or move) the panel
+await muxy.panels.toggle('dashboard');               // open if closed, close if open
+await muxy.panels.open('dashboard', { tab: 'logs' }); // override defaultData for this instance
+await muxy.panels.close('dashboard');
 ```
 
 ### Drive terminal panes

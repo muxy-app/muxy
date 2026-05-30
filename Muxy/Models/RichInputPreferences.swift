@@ -29,4 +29,11 @@ enum RichInputPanelPosition: String, CaseIterable, Identifiable {
         case .bottom: "Bottom"
         }
     }
+
+    var panelPosition: PanelPosition {
+        switch self {
+        case .right: .right
+        case .bottom: .bottom
+        }
+    }
 }

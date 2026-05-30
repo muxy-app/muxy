@@ -494,6 +494,7 @@ private struct ExtensionDetailPage: View {
                 permissionsBlock
                 if !ext.manifest.commands.isEmpty { commandsBlock }
                 if !ext.manifest.tabTypes.isEmpty { tabTypesBlock }
+                if !ext.manifest.panels.isEmpty { panelsBlock }
                 grantsBlock
                 logsBlock
             }
@@ -618,6 +619,7 @@ private struct ExtensionDetailPage: View {
         switch action {
         case .event: "event"
         case let .openTab(tabType, _): "opens \(tabType)"
+        case let .togglePanel(panel): "toggles \(panel)"
         case let .runScript(script): "runs \(script)"
         }
     }
@@ -632,6 +634,25 @@ private struct ExtensionDetailPage: View {
                             .foregroundStyle(MuxyTheme.fg)
                             .frame(minWidth: 140, alignment: .leading)
                         Text(tabType.title)
+                            .font(.system(size: 11))
+                            .foregroundStyle(MuxyTheme.fgMuted)
+                    }
+                    .padding(.vertical, 3)
+                }
+            }
+        }
+    }
+
+    private var panelsBlock: some View {
+        DetailSection(title: "Panels") {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(ext.manifest.panels) { panel in
+                    HStack(spacing: 8) {
+                        Text(panel.id)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(MuxyTheme.fg)
+                            .frame(minWidth: 140, alignment: .leading)
+                        Text("\(panel.position.displayName) · \(panel.mode.rawValue)")
                             .font(.system(size: 11))
                             .foregroundStyle(MuxyTheme.fgMuted)
                     }

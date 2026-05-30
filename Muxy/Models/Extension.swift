@@ -63,6 +63,7 @@ enum ExtensionPermission: String, Codable, CaseIterable {
     case worktreesRead = "worktrees:read"
     case worktreesWrite = "worktrees:write"
     case notificationsWrite = "notifications:write"
+    case panelsWrite = "panels:write"
     case commandsRunScript = "commands:run-script"
     case commandsExec = "commands:exec"
 
@@ -83,7 +84,8 @@ enum ExtensionPermission: String, Codable, CaseIterable {
              .tabsWrite,
              .projectsWrite,
              .worktreesWrite,
-             .notificationsWrite:
+             .notificationsWrite,
+             .panelsWrite:
             .write
         case .commandsRunScript,
              .commandsExec:
@@ -97,6 +99,60 @@ struct ExtensionTabType: Codable, Equatable, Identifiable {
     let title: String
     let entry: String
     let defaultData: ExtensionJSON?
+}
+
+struct ExtensionPanel: Codable, Equatable, Identifiable {
+    let id: String
+    let title: String?
+    let icon: ExtensionIcon?
+    let entry: String
+    let position: PanelPosition
+    let mode: PanelMode
+    let hiddenControls: [PanelHeaderControl]
+    let defaultData: ExtensionJSON?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case icon
+        case entry
+        case position
+        case mode
+        case hiddenControls
+        case defaultData
+    }
+
+    init(
+        id: String,
+        title: String? = nil,
+        icon: ExtensionIcon? = nil,
+        entry: String,
+        position: PanelPosition = .right,
+        mode: PanelMode = .floating,
+        hiddenControls: [PanelHeaderControl] = [],
+        defaultData: ExtensionJSON? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.icon = icon
+        self.entry = entry
+        self.position = position
+        self.mode = mode
+        self.hiddenControls = hiddenControls
+        self.defaultData = defaultData
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        icon = try container.decodeIfPresent(ExtensionIcon.self, forKey: .icon)
+        entry = try container.decode(String.self, forKey: .entry)
+        position = try container.decodeIfPresent(PanelPosition.self, forKey: .position) ?? .right
+        mode = try container.decodeIfPresent(PanelMode.self, forKey: .mode) ?? .floating
+        hiddenControls = try container.decodeIfPresent([PanelHeaderControl].self, forKey: .hiddenControls) ?? []
+        defaultData = try container.decodeIfPresent(ExtensionJSON.self, forKey: .defaultData)
+    }
 }
 
 enum ExtensionIcon: Codable, Equatable {
@@ -180,11 +236,13 @@ struct ExtensionSettingEntry: Codable, Equatable, Identifiable {
 enum ExtensionCommandAction: Codable, Equatable {
     case event
     case openTab(tabType: String, data: ExtensionJSON?)
+    case togglePanel(panel: String)
     case runScript(script: String)
 
     private enum CodingKeys: String, CodingKey {
         case kind
         case tabType
+        case panel
         case data
         case script
     }
@@ -192,6 +250,7 @@ enum ExtensionCommandAction: Codable, Equatable {
     private enum Kind: String, Codable {
         case event
         case openTab
+        case togglePanel
         case runScript
     }
 
@@ -205,6 +264,9 @@ enum ExtensionCommandAction: Codable, Equatable {
             let tabType = try container.decode(String.self, forKey: .tabType)
             let data = try container.decodeIfPresent(ExtensionJSON.self, forKey: .data)
             self = .openTab(tabType: tabType, data: data)
+        case .togglePanel:
+            let panel = try container.decode(String.self, forKey: .panel)
+            self = .togglePanel(panel: panel)
         case .runScript:
             let script = try container.decode(String.self, forKey: .script)
             self = .runScript(script: script)
@@ -220,6 +282,9 @@ enum ExtensionCommandAction: Codable, Equatable {
             try container.encode(Kind.openTab, forKey: .kind)
             try container.encode(tabType, forKey: .tabType)
             try container.encodeIfPresent(data, forKey: .data)
+        case let .togglePanel(panel):
+            try container.encode(Kind.togglePanel, forKey: .kind)
+            try container.encode(panel, forKey: .panel)
         case let .runScript(script):
             try container.encode(Kind.runScript, forKey: .kind)
             try container.encode(script, forKey: .script)
@@ -272,6 +337,7 @@ struct ExtensionManifest: Codable, Equatable {
     let events: [String]
     let commands: [ExtensionPaletteCommand]
     let tabTypes: [ExtensionTabType]
+    let panels: [ExtensionPanel]
     let permissions: [ExtensionPermission]
     let aiProvider: ExtensionAIProvider?
     let topbarItems: [ExtensionTopbarItem]
@@ -286,6 +352,7 @@ struct ExtensionManifest: Codable, Equatable {
         case events
         case commands
         case tabTypes
+        case panels
         case permissions
         case aiProvider
         case topbarItems
@@ -301,6 +368,7 @@ struct ExtensionManifest: Codable, Equatable {
         events: [String] = [],
         commands: [ExtensionPaletteCommand] = [],
         tabTypes: [ExtensionTabType] = [],
+        panels: [ExtensionPanel] = [],
         permissions: [ExtensionPermission] = [],
         aiProvider: ExtensionAIProvider? = nil,
         topbarItems: [ExtensionTopbarItem] = [],
@@ -314,6 +382,7 @@ struct ExtensionManifest: Codable, Equatable {
         self.events = events
         self.commands = commands
         self.tabTypes = tabTypes
+        self.panels = panels
         self.permissions = permissions
         self.aiProvider = aiProvider
         self.topbarItems = topbarItems
@@ -330,6 +399,7 @@ struct ExtensionManifest: Codable, Equatable {
         events = try container.decodeIfPresent([String].self, forKey: .events) ?? []
         commands = try container.decodeIfPresent([ExtensionPaletteCommand].self, forKey: .commands) ?? []
         tabTypes = try container.decodeIfPresent([ExtensionTabType].self, forKey: .tabTypes) ?? []
+        panels = try container.decodeIfPresent([ExtensionPanel].self, forKey: .panels) ?? []
         permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
         aiProvider = try container.decodeIfPresent(ExtensionAIProvider.self, forKey: .aiProvider)
         topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
@@ -339,6 +409,10 @@ struct ExtensionManifest: Codable, Equatable {
 
     func tabType(id: String) -> ExtensionTabType? {
         tabTypes.first { $0.id == id }
+    }
+
+    func panel(id: String) -> ExtensionPanel? {
+        panels.first { $0.id == id }
     }
 
     func setting(key: String) -> ExtensionSettingEntry? {
@@ -360,7 +434,13 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case tabTypeEntryMissing(tabTypeID: String, url: URL)
     case tabTypeEntryOutsideDirectory(tabTypeID: String, url: URL)
     case duplicateTabType(String)
+    case panelEntryMissing(panelID: String, url: URL)
+    case panelEntryOutsideDirectory(panelID: String, url: URL)
+    case duplicatePanel(String)
+    case panelSVGMissing(panelID: String, url: URL)
+    case panelSVGOutsideDirectory(panelID: String, url: URL)
     case commandReferencesUnknownTabType(commandID: String, tabType: String)
+    case commandReferencesUnknownPanel(commandID: String, panel: String)
     case scriptMissing(commandID: String, url: URL)
     case scriptOutsideDirectory(commandID: String, url: URL)
     case topbarItemEmptyID
@@ -396,8 +476,20 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Tab type '\(tabTypeID)' entry at \(url.path) escapes the extension directory"
         case let .duplicateTabType(id):
             "Duplicate tab type '\(id)'"
+        case let .panelEntryMissing(panelID, url):
+            "Panel '\(panelID)' entry not found at \(url.path)"
+        case let .panelEntryOutsideDirectory(panelID, url):
+            "Panel '\(panelID)' entry at \(url.path) escapes the extension directory"
+        case let .duplicatePanel(id):
+            "Duplicate panel '\(id)'"
+        case let .panelSVGMissing(panelID, url):
+            "Panel '\(panelID)' icon SVG not found at \(url.path)"
+        case let .panelSVGOutsideDirectory(panelID, url):
+            "Panel '\(panelID)' icon SVG at \(url.path) escapes the extension directory"
         case let .commandReferencesUnknownTabType(commandID, tabType):
             "Command '\(commandID)' references unknown tab type '\(tabType)'"
+        case let .commandReferencesUnknownPanel(commandID, panel):
+            "Command '\(commandID)' references unknown panel '\(panel)'"
         case let .scriptMissing(commandID, url):
             "Command '\(commandID)' script not found at \(url.path)"
         case let .scriptOutsideDirectory(commandID, url):
@@ -495,6 +587,7 @@ enum ExtensionManifestLoader {
 
         let muxyExtension = MuxyExtension(id: manifest.name, directory: directory, manifest: manifest)
         try validateTabTypes(manifest: manifest, in: muxyExtension)
+        try validatePanels(manifest: manifest, in: muxyExtension)
         try validateCommands(manifest: manifest, in: muxyExtension)
         try validateTopbarItems(manifest: manifest, in: muxyExtension)
         try validateStatusBarItems(manifest: manifest, in: muxyExtension)
@@ -539,8 +632,35 @@ enum ExtensionManifestLoader {
         }
     }
 
+    private static func validatePanels(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
+        var seen = Set<String>()
+        for panel in manifest.panels {
+            guard seen.insert(panel.id).inserted else {
+                throw ExtensionLoadError.duplicatePanel(panel.id)
+            }
+            guard let url = muxyExtension.resolveResource(panel.entry) else {
+                throw ExtensionLoadError.panelEntryOutsideDirectory(
+                    panelID: panel.id,
+                    url: muxyExtension.directory.appendingPathComponent(panel.entry)
+                )
+            }
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw ExtensionLoadError.panelEntryMissing(panelID: panel.id, url: url)
+            }
+            if let icon = panel.icon {
+                try validateIcon(
+                    icon,
+                    in: muxyExtension,
+                    missing: { ExtensionLoadError.panelSVGMissing(panelID: panel.id, url: $0) },
+                    outside: { ExtensionLoadError.panelSVGOutsideDirectory(panelID: panel.id, url: $0) }
+                )
+            }
+        }
+    }
+
     private static func validateCommands(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
         let tabTypeIDs = Set(manifest.tabTypes.map(\.id))
+        let panelIDs = Set(manifest.panels.map(\.id))
         for command in manifest.commands {
             switch command.action {
             case .event:
@@ -550,6 +670,13 @@ enum ExtensionManifestLoader {
                     throw ExtensionLoadError.commandReferencesUnknownTabType(
                         commandID: command.id,
                         tabType: tabType
+                    )
+                }
+            case let .togglePanel(panel):
+                guard panelIDs.contains(panel) else {
+                    throw ExtensionLoadError.commandReferencesUnknownPanel(
+                        commandID: command.id,
+                        panel: panel
                     )
                 }
             case let .runScript(script):

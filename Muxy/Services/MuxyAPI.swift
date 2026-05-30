@@ -137,6 +137,9 @@ enum MuxyAPI {
             "extension.settings.get",
             "extension.settings.set",
             "extension.statusbar.set",
+            "panel.open",
+            "panel.close",
+            "panel.toggle",
         ]
 
         private static let cliAliases: [String: String] = [
@@ -183,8 +186,39 @@ enum MuxyAPI {
             "worktrees.switch": .worktreesWrite,
             "worktrees.refresh": .worktreesWrite,
             "toast": .notificationsWrite,
+            "panel.open": .panelsWrite,
+            "panel.close": .panelsWrite,
+            "panel.toggle": .panelsWrite,
             "exec": .commandsExec,
         ]
+    }
+
+    @MainActor
+    enum Panels {
+        static func open(
+            extensionID: String,
+            panelID: String,
+            data: ExtensionJSON?,
+            toggle: Bool
+        ) -> Result<Void, APIError> {
+            guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID),
+                  let panel = muxyExtension.manifest.panel(id: panelID)
+            else {
+                return .failure(.invalidArguments("unknown panel '\(panelID)'"))
+            }
+            if toggle {
+                ExtensionPanelRegistry.shared.toggle(extensionID: extensionID, panel: panel, data: data)
+            } else {
+                ExtensionPanelRegistry.shared.open(extensionID: extensionID, panel: panel, data: data)
+            }
+            return .success(())
+        }
+
+        static func close(extensionID: String, panelID: String) -> Result<Void, APIError> {
+            let hostPanelID = ExtensionPanelState.hostPanelID(extensionID: extensionID, panelID: panelID)
+            ExtensionPanelRegistry.shared.close(hostPanelID: hostPanelID)
+            return .success(())
+        }
     }
 
     @MainActor
