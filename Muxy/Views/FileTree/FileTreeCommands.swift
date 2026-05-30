@@ -197,6 +197,11 @@ final class FileTreeCommands {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
+    func openWithDefaultApp(_ path: String) {
+        let url = URL(fileURLWithPath: path)
+        NSWorkspace.shared.open(url)
+    }
+
     func openInTerminal(path: String) {
         let dir = resolveDirectoryContext(for: path)
         openTerminal(dir)

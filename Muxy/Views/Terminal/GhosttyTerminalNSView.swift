@@ -25,6 +25,7 @@ final class GhosttyTerminalNSView: NSView {
     var onCmdClickFile: ((String) -> Void)?
     var resolveCmdHoverFile: ((String) -> Bool)?
     var onOpenURL: ((URL) -> Bool)?
+    var contextMenuResolveFile: ((String) -> String?)?
     private var isShowingHandCursor = false
     private var fileHoverUnderlineLayer: CAShapeLayer?
     private var lastMouseTopDownPoint: CGPoint?
@@ -203,6 +204,7 @@ final class GhosttyTerminalNSView: NSView {
         onOpenURL = nil
         onCmdClickFile = nil
         resolveCmdHoverFile = nil
+        contextMenuResolveFile = nil
         onTitleChange = nil
         onFocus = nil
         onExternalDragHoverChange = nil
@@ -822,6 +824,20 @@ final class GhosttyTerminalNSView: NSView {
     private func presentContextMenu(with event: NSEvent) {
         let menu = NSMenu(title: "Terminal")
 
+        if let word = readWordUnderMouse(),
+           let resolved = contextMenuResolveFile?(word)
+        {
+            let openItem = NSMenuItem(
+                title: "Open with Default App",
+                action: #selector(handleContextOpenFile(_:)),
+                keyEquivalent: ""
+            )
+            openItem.target = self
+            openItem.representedObject = resolved
+            menu.addItem(openItem)
+            menu.addItem(.separator())
+        }
+
         let paste = ClosureMenuItem(title: "Paste") { [weak self] in
             self?.performContextPaste()
         }
@@ -842,6 +858,12 @@ final class GhosttyTerminalNSView: NSView {
         ClosureMenuItem(title: title) { [weak self] in
             self?.onSplitRequest?(direction, position)
         }
+    }
+
+    @objc
+    private func handleContextOpenFile(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
     private func performContextPaste() {

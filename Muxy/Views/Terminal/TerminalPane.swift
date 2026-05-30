@@ -253,6 +253,10 @@ struct TerminalBridge: NSViewRepresentable {
                 NotificationStore.shared.appState?.openFile(resolved, projectID: projectID, preserveFocus: true)
             }
         }
+        view.contextMenuResolveFile = { [projectPath] token in
+            let workDir = state.currentWorkingDirectory ?? projectPath
+            return Self.resolveFilePath(token, projectPath: workDir)
+        }
         view.resolveCmdHoverFile = { token in
             Self.resolveFilePath(token, projectPath: projectPath) != nil
         }
