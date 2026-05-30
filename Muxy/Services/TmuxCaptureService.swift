@@ -136,6 +136,14 @@ final class TmuxCaptureService {
     }
 
     func sendInput(paneID: UUID, bytes: Data) {
+        if let process = streamingProcesses[paneID] {
+            guard let text = String(data: bytes, encoding: .utf8) ?? String(data: bytes, encoding: .ascii) else {
+                return
+            }
+            process.send("send-keys -t \(TmuxConfiguration.sessionName(for: paneID)) -l \(text)")
+            return
+        }
+
         guard let tmux = TmuxConfiguration.findBinary() else { return }
         let session = TmuxConfiguration.sessionName(for: paneID)
         let socket = TmuxConfiguration.socketName
@@ -166,6 +174,11 @@ final class TmuxCaptureService {
     }
 
     func resizeSession(paneID: UUID, cols: UInt32, rows: UInt32) {
+        if let process = streamingProcesses[paneID] {
+            process.send("refresh-client -C \(cols)x\(rows)")
+            return
+        }
+
         guard let tmux = TmuxConfiguration.findBinary() else { return }
         let session = TmuxConfiguration.sessionName(for: paneID)
         let socket = TmuxConfiguration.socketName
@@ -193,12 +206,17 @@ final class TmuxCaptureService {
     }
 
     func scroll(paneID: UUID, deltaY: Double) {
+        let key = deltaY > 0 ? "Up" : "Down"
+        let lines = min(max(1, Int(abs(deltaY))), 20)
+
+        if let process = streamingProcesses[paneID] {
+            process.send("send-keys -t \(TmuxConfiguration.sessionName(for: paneID)) -N \(lines) \(key)")
+            return
+        }
+
         guard let tmux = TmuxConfiguration.findBinary() else { return }
         let session = TmuxConfiguration.sessionName(for: paneID)
         let socket = TmuxConfiguration.socketName
-
-        let key = deltaY > 0 ? "Up" : "Down"
-        let lines = min(max(1, Int(abs(deltaY))), 20)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tmux)
