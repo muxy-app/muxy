@@ -131,8 +131,9 @@ final class GhosttyTerminalNSView: NSView {
 
         if Self.surfaceEvictionEnabled(), let tmux = Self.findTmuxBinary(), let sessionName = tmuxSessionName() {
             let configPath = Self.ensureTmuxConfig()
-            let quotedConfig = "'\(configPath)'"
-            let quotedDir = "'\(workingDirectory)'"
+            let escapedConfig = ShellEscaper.escape(configPath)
+            let escapedDir = ShellEscaper.escape(workingDirectory)
+            let escapedSession = ShellEscaper.escape(sessionName)
             let tmuxCommand: String
             if let command,
                let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
@@ -145,11 +146,11 @@ final class GhosttyTerminalNSView: NSView {
                 surfaceCStringPointers.append(contentsOf: [loginWrapped, commandKey, commandValue])
                 cEnvVars.append(ghostty_env_var_s(key: commandKey, value: commandValue))
                 let loginCmd = String(cString: loginWrapped)
-                tmuxCommand = "\(tmux) -L \(Self.tmuxSocketName) -f \(quotedConfig)" +
-                    " new-session -A -s \(sessionName) -x 200 -y 50 \(loginCmd)"
+                tmuxCommand = "\(tmux) -L \(Self.tmuxSocketName) -f \(escapedConfig)" +
+                    " new-session -A -s \(escapedSession) -x 200 -y 50 \(loginCmd)"
             } else {
-                tmuxCommand = "\(tmux) -L \(Self.tmuxSocketName) -f \(quotedConfig)" +
-                    " new-session -A -s \(sessionName) -c \(quotedDir) -x 200 -y 50"
+                tmuxCommand = "\(tmux) -L \(Self.tmuxSocketName) -f \(escapedConfig)" +
+                    " new-session -A -s \(escapedSession) -c \(escapedDir) -x 200 -y 50"
             }
             guard let cmdPtr = strdup(tmuxCommand) else { return }
             surfaceCStringPointers.append(cmdPtr)
