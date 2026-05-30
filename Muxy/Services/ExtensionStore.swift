@@ -38,6 +38,8 @@ final class ExtensionStore {
     private var intentionalStops: Set<String> = []
     private let rootDirectoryURL: URL
 
+    nonisolated private static let processTerminationGracePeriod: TimeInterval = 2
+
     private init(rootDirectory: URL = ExtensionStore.defaultRootDirectory) {
         rootDirectoryURL = rootDirectory
     }
@@ -59,8 +61,8 @@ final class ExtensionStore {
     }
 
     func stopAll() {
-        for status in statuses where status.isRunning {
-            stopProcess(extensionID: status.id)
+        for extensionID in Array(processes.keys) {
+            stopProcess(extensionID: extensionID)
         }
         statusBarTextOverrides.removeAll()
         ExtensionIconAssetCache.shared.invalidateAll()
@@ -476,11 +478,24 @@ final class ExtensionStore {
         guard let process = processes.removeValue(forKey: extensionID) else { return }
         if process.isRunning {
             intentionalStops.insert(extensionID)
-            process.terminate()
+            Self.terminateProcessTree(pid: process.processIdentifier)
         }
         if let index = statuses.firstIndex(where: { $0.id == extensionID }) {
             statuses[index].isRunning = false
         }
+    }
+
+    nonisolated private static func terminateProcessTree(pid: pid_t) {
+        let group = getpgid(pid)
+        let target = group > 0 ? group : pid
+        killpg(target, SIGTERM)
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + processTerminationGracePeriod) {
+            killpg(target, SIGKILL)
+        }
+    }
+
+    nonisolated static func terminateProcessTreeForTesting(pid: pid_t) {
+        terminateProcessTree(pid: pid)
     }
 
     private static func generateToken() -> String {
@@ -493,9 +508,9 @@ final class ExtensionStore {
     }
 
     private func handleTermination(extensionID: String, process: Process) {
+        let wasIntentional = intentionalStops.remove(extensionID) != nil
         guard processes[extensionID] === process else { return }
         processes.removeValue(forKey: extensionID)
-        let wasIntentional = intentionalStops.remove(extensionID) != nil
         guard let index = statuses.firstIndex(where: { $0.id == extensionID }) else { return }
         statuses[index].isRunning = false
         let outcome = Self.classifyTermination(
