@@ -3,6 +3,15 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "TmuxCaptureService")
 
+/// Manages tmux sessions for terminal capture and streaming in Low Memory Mode.
+///
+/// Two codepaths:
+/// - **Control mode** (`TmuxControlModeProcess`): persistent tmux `-C` connection per streaming pane.
+///   Reads `%output` notifications (octal `\xxx` escaping) and sends commands via stdin.
+/// - **CLI fallback**: spawns short-lived `Process()` for non-streaming operations (`captureSnapshot`).
+///
+/// Streaming panes route `sendInput`, `resizeSession`, and `scroll` through the control mode
+/// stdin to avoid per-keystroke process spawning. Non-streaming panes fall back to CLI.
 @MainActor
 final class TmuxCaptureService {
     static let shared = TmuxCaptureService()
