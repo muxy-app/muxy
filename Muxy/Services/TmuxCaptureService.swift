@@ -9,66 +9,52 @@ final class TmuxCaptureService {
 
     private var streamingProcesses: [UUID: TmuxControlModeProcess] = [:]
     private var streamHandlers: [UUID: (Data) -> Void] = [:]
+    private static let maxConcurrentStreams = 32
 
     private init() {}
 
-    private static let socketName = "muxy"
-    private static let sessionPrefix = "muxy-"
+    func captureSnapshot(paneID: UUID) async -> Data? {
+        guard let tmux = TmuxConfiguration.findBinary() else { return nil }
+        let session = TmuxConfiguration.sessionName(for: paneID)
+        let socket = TmuxConfiguration.socketName
 
-    private static let binarySearchPaths = [
-        "/opt/homebrew/bin/tmux",
-        "/usr/local/bin/tmux",
-        "/opt/local/bin/tmux",
-        "/usr/bin/tmux",
-    ]
+        return await Task.detached {
+            let captureProcess = Process()
+            let pipe = Pipe()
+            captureProcess.executableURL = URL(fileURLWithPath: tmux)
+            captureProcess.arguments = [
+                "-L", socket,
+                "capture-pane",
+                "-t", session,
+                "-p", "-e",
+                "-S", "-5000", "-E", "50",
+            ]
+            captureProcess.standardOutput = pipe
+            captureProcess.standardError = FileHandle.nullDevice
 
-    static func findBinary() -> String? {
-        binarySearchPaths.first { FileManager.default.isExecutableFile(atPath: $0) }
+            do {
+                try captureProcess.run()
+                captureProcess.waitUntilExit()
+            } catch {
+                logger.error("tmux capture-pane failed: \(error.localizedDescription)")
+                return nil
+            }
+
+            guard captureProcess.terminationStatus == 0 else {
+                logger.warning("tmux capture-pane exited with status \(captureProcess.terminationStatus)")
+                return nil
+            }
+
+            let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard !outputData.isEmpty else { return nil }
+
+            let cursorData = Self.captureCursorPosition(session: session, socket: socket)
+            return Self.buildAnsiSnapshot(outputData: outputData, cursorData: cursorData)
+        }.value
     }
 
-    static func sessionName(for paneID: UUID) -> String {
-        "\(sessionPrefix)\(paneID.uuidString.prefix(8))"
-    }
-
-    func captureSnapshot(paneID: UUID) -> Data? {
-        guard let tmux = Self.findBinary() else { return nil }
-        let session = Self.sessionName(for: paneID)
-        let socket = Self.socketName
-
-        let captureProcess = Process()
-        let pipe = Pipe()
-        captureProcess.executableURL = URL(fileURLWithPath: tmux)
-        captureProcess.arguments = [
-            "-L", socket,
-            "capture-pane",
-            "-t", session,
-            "-p", "-e",
-            "-S", "-5000", "-E", "50",
-        ]
-        captureProcess.standardOutput = pipe
-        captureProcess.standardError = FileHandle.nullDevice
-
-        do {
-            try captureProcess.run()
-            captureProcess.waitUntilExit()
-        } catch {
-            logger.error("tmux capture-pane failed: \(error.localizedDescription)")
-            return nil
-        }
-
-        guard captureProcess.terminationStatus == 0 else {
-            logger.warning("tmux capture-pane exited with status \(captureProcess.terminationStatus)")
-            return nil
-        }
-
-        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard !outputData.isEmpty else { return nil }
-
-        let cursorData = captureCursorPosition(tmux: tmux, socket: socket, session: session)
-        return buildAnsiSnapshot(outputData: outputData, cursorData: cursorData)
-    }
-
-    private func captureCursorPosition(tmux: String, socket: String, session: String) -> (x: Int, y: Int)? {
+    nonisolated private static func captureCursorPosition(session: String, socket: String) -> (x: Int, y: Int)? {
+        guard let tmux = TmuxConfiguration.findBinary() else { return nil }
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: tmux)
@@ -100,7 +86,7 @@ final class TmuxCaptureService {
         return (x, y)
     }
 
-    private func buildAnsiSnapshot(outputData: Data, cursorData: (x: Int, y: Int)?) -> Data {
+    nonisolated private static func buildAnsiSnapshot(outputData: Data, cursorData: (x: Int, y: Int)?) -> Data {
         var result = outputData
 
         if let cursor = cursorData {
@@ -115,12 +101,16 @@ final class TmuxCaptureService {
 
     func startStreaming(paneID: UUID, handler: @escaping (Data) -> Void) {
         guard streamingProcesses[paneID] == nil else { return }
-        guard let tmux = Self.findBinary() else { return }
+        guard let tmux = TmuxConfiguration.findBinary() else { return }
+        guard streamingProcesses.count < Self.maxConcurrentStreams else {
+            logger.warning("Streaming limit reached (\(Self.maxConcurrentStreams)), cannot stream pane \(paneID)")
+            return
+        }
 
         streamHandlers[paneID] = handler
 
-        let session = Self.sessionName(for: paneID)
-        let socket = Self.socketName
+        let session = TmuxConfiguration.sessionName(for: paneID)
+        let socket = TmuxConfiguration.socketName
         let controlProcess = TmuxControlModeProcess(
             tmuxBinary: tmux,
             socket: socket,
@@ -146,9 +136,9 @@ final class TmuxCaptureService {
     }
 
     func sendInput(paneID: UUID, bytes: Data) {
-        guard let tmux = Self.findBinary() else { return }
-        let session = Self.sessionName(for: paneID)
-        let socket = Self.socketName
+        guard let tmux = TmuxConfiguration.findBinary() else { return }
+        let session = TmuxConfiguration.sessionName(for: paneID)
+        let socket = TmuxConfiguration.socketName
 
         guard let text = String(data: bytes, encoding: .utf8) ?? String(data: bytes, encoding: .ascii) else {
             return
@@ -176,9 +166,9 @@ final class TmuxCaptureService {
     }
 
     func resizeSession(paneID: UUID, cols: UInt32, rows: UInt32) {
-        guard let tmux = Self.findBinary() else { return }
-        let session = Self.sessionName(for: paneID)
-        let socket = Self.socketName
+        guard let tmux = TmuxConfiguration.findBinary() else { return }
+        let session = TmuxConfiguration.sessionName(for: paneID)
+        let socket = TmuxConfiguration.socketName
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tmux)
@@ -203,9 +193,9 @@ final class TmuxCaptureService {
     }
 
     func scroll(paneID: UUID, deltaY: Double) {
-        guard let tmux = Self.findBinary() else { return }
-        let session = Self.sessionName(for: paneID)
-        let socket = Self.socketName
+        guard let tmux = TmuxConfiguration.findBinary() else { return }
+        let session = TmuxConfiguration.sessionName(for: paneID)
+        let socket = TmuxConfiguration.socketName
 
         let key = deltaY > 0 ? "Up" : "Down"
         let lines = min(max(1, Int(abs(deltaY))), 20)
@@ -231,77 +221,10 @@ final class TmuxCaptureService {
             }
         }
     }
-}
 
-private final class TmuxControlModeProcess: Sendable {
-    private let tmuxBinary: String
-    private let socket: String
-    private let session: String
-    private let handler: @Sendable (Data) -> Void
-    nonisolated(unsafe) private var process: Process?
-    nonisolated(unsafe) private var outputPipe: Pipe?
-    nonisolated(unsafe) private var isRunning = false
-
-    init(tmuxBinary: String, socket: String, session: String, handler: @escaping @Sendable (Data) -> Void) {
-        self.tmuxBinary = tmuxBinary
-        self.socket = socket
-        self.session = session
-        self.handler = handler
-    }
-
-    func start() {
-        guard !isRunning else { return }
-
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: tmuxBinary)
-        process.arguments = ["-L", socket, "-C", "attach-session", "-t", session]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        process.standardInput = FileHandle.nullDevice
-
-        self.process = process
-        outputPipe = pipe
-        isRunning = true
-
-        let capturedHandler = handler
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else {
-                self?.stop()
-                return
-            }
-            Self.parseControlOutput(data, handler: capturedHandler)
-        }
-
-        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            do {
-                try process.run()
-                process.waitUntilExit()
-                DispatchQueue.main.async {
-                    self?.isRunning = false
-                }
-            } catch {
-                logger.error("tmux control mode failed to start: \(error.localizedDescription)")
-                DispatchQueue.main.async {
-                    self?.isRunning = false
-                }
-            }
-        }
-    }
-
-    func stop() {
-        isRunning = false
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
-        outputPipe = nil
-        if let process, process.isRunning {
-            process.terminate()
-        }
-        self.process = nil
-    }
-
-    private static func parseControlOutput(_ data: Data, handler: @Sendable @escaping (Data) -> Void) {
-        guard let output = String(data: data, encoding: .utf8) else { return }
+    nonisolated static func parseControlOutput(_ data: Data) -> [Data] {
+        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        var results: [Data] = []
 
         for line in output.split(separator: "\n") {
             let lineStr = String(line)
@@ -313,10 +236,103 @@ private final class TmuxControlModeProcess: Sendable {
 
             let encodedPayload = String(parts[1])
             guard let decoded = Data(base64Encoded: encodedPayload) else { continue }
+            results.append(decoded)
+        }
 
-            DispatchQueue.main.async {
-                handler(decoded)
+        return results
+    }
+}
+
+private final class TmuxControlModeProcess: @unchecked Sendable {
+    private let tmuxBinary: String
+    private let socket: String
+    private let session: String
+    private let handler: @Sendable (Data) -> Void
+    private let lock = NSLock()
+    private var _process: Process?
+    private var _outputPipe: Pipe?
+    private var _isRunning = false
+
+    init(tmuxBinary: String, socket: String, session: String, handler: @escaping @Sendable (Data) -> Void) {
+        self.tmuxBinary = tmuxBinary
+        self.socket = socket
+        self.session = session
+        self.handler = handler
+    }
+
+    deinit {
+        stop()
+    }
+
+    func start() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !_isRunning else { return }
+
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: tmuxBinary)
+        process.arguments = ["-L", socket, "-C", "attach-session", "-t", session]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        _process = process
+        _outputPipe = pipe
+        _isRunning = true
+
+        let capturedHandler = handler
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                self?.performStop()
+                return
+            }
+            for decoded in TmuxCaptureService.parseControlOutput(data) {
+                DispatchQueue.main.async {
+                    capturedHandler(decoded)
+                }
             }
         }
+
+        DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+            do {
+                try process.run()
+                process.waitUntilExit()
+                DispatchQueue.main.async {
+                    self?.clearRunningFlag()
+                }
+            } catch {
+                logger.error("tmux control mode failed to start: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self?.clearRunningFlag()
+                }
+            }
+        }
+    }
+
+    func stop() {
+        lock.lock()
+        let pipe = _outputPipe
+        let proc = _process
+        _outputPipe = nil
+        _process = nil
+        _isRunning = false
+        lock.unlock()
+
+        pipe?.fileHandleForReading.readabilityHandler = nil
+        if let proc, proc.isRunning {
+            proc.terminate()
+        }
+    }
+
+    private func performStop() {
+        stop()
+    }
+
+    private func clearRunningFlag() {
+        lock.lock()
+        _isRunning = false
+        lock.unlock()
     }
 }

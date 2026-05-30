@@ -28,7 +28,7 @@ final class RemoteTerminalStreamer {
                 ptyDataCallback,
                 UnsafeMutableRawPointer(bitPattern: UInt(token))
             )
-        } else if GhosttyTerminalNSView.surfaceEvictionEnabled() {
+        } else if TmuxConfiguration.lowMemoryModeEnabled() {
             TmuxCaptureService.shared.startStreaming(paneID: paneID) { [weak self] bytes in
                 self?.forward(paneID: paneID, bytes: bytes)
             }
@@ -42,7 +42,9 @@ final class RemoteTerminalStreamer {
         if let token = tokenByPane.removeValue(forKey: paneID) {
             paneByToken.removeValue(forKey: token)
         }
-        TmuxCaptureService.shared.stopStreaming(paneID: paneID)
+        if surface == nil {
+            TmuxCaptureService.shared.stopStreaming(paneID: paneID)
+        }
     }
 
     fileprivate func pane(for token: Int) -> UUID? {

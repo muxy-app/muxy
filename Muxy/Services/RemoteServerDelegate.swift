@@ -202,7 +202,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
            view.surface != nil
         {
             view.sendRemoteBytes(bytes)
-        } else if GhosttyTerminalNSView.surfaceEvictionEnabled() {
+        } else if TmuxConfiguration.lowMemoryModeEnabled() {
             TmuxCaptureService.shared.sendInput(paneID: paneID, bytes: bytes)
         } else {
             logger.warning("No terminal view or surface for pane \(paneID)")
@@ -219,7 +219,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         {
             let mods: ghostty_input_scroll_mods_t = precise ? 1 : 0
             ghostty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
-        } else if GhosttyTerminalNSView.surfaceEvictionEnabled() {
+        } else if TmuxConfiguration.lowMemoryModeEnabled() {
             TmuxCaptureService.shared.scroll(paneID: paneID, deltaY: deltaY)
         }
     }
@@ -233,7 +233,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
            view.surface != nil
         {
             applyPTYSize(paneID: paneID, cols: cols, rows: rows)
-        } else if GhosttyTerminalNSView.surfaceEvictionEnabled() {
+        } else if TmuxConfiguration.lowMemoryModeEnabled() {
             TmuxCaptureService.shared.resizeSession(paneID: paneID, cols: cols, rows: rows)
         }
     }
@@ -291,14 +291,28 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32) {
         ensureTerminalView(paneID: paneID)
-        let snapshotBytes = buildTerminalSnapshot(paneID: paneID)
         PaneOwnershipStore.shared.assign(paneID: paneID, to: clientID)
-        if let bytes = snapshotBytes, !bytes.isEmpty {
+
+        if let snapshotBytes = buildSyncTerminalSnapshot(paneID: paneID) {
+            let dto = TerminalOutputEventDTO(paneID: paneID, bytes: snapshotBytes)
+            let event = MuxyEvent(event: .terminalSnapshot, data: .terminalSnapshot(dto))
+            server?.send(event, to: clientID)
+        } else if TmuxConfiguration.lowMemoryModeEnabled() {
+            sendAsyncTmuxSnapshot(paneID: paneID, clientID: clientID)
+        }
+
+        applyPTYSize(paneID: paneID, cols: cols, rows: rows)
+    }
+
+    private func sendAsyncTmuxSnapshot(paneID: UUID, clientID: UUID) {
+        Task {
+            guard let bytes = await TmuxCaptureService.shared.captureSnapshot(paneID: paneID),
+                  !bytes.isEmpty
+            else { return }
             let dto = TerminalOutputEventDTO(paneID: paneID, bytes: bytes)
             let event = MuxyEvent(event: .terminalSnapshot, data: .terminalSnapshot(dto))
             server?.send(event, to: clientID)
         }
-        applyPTYSize(paneID: paneID, cols: cols, rows: rows)
     }
 
     private func ensureTerminalView(paneID: UUID) {
@@ -324,12 +338,9 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         }
     }
 
-    private func buildTerminalSnapshot(paneID: UUID) -> Data? {
-        if let snapshot = getTerminalContent(paneID: paneID) {
-            return RemoteTerminalSnapshotBuilder.buildBytes(from: snapshot)
-        }
-        guard GhosttyTerminalNSView.surfaceEvictionEnabled() else { return nil }
-        return TmuxCaptureService.shared.captureSnapshot(paneID: paneID)
+    private func buildSyncTerminalSnapshot(paneID: UUID) -> Data? {
+        guard let snapshot = getTerminalContent(paneID: paneID) else { return nil }
+        return RemoteTerminalSnapshotBuilder.buildBytes(from: snapshot)
     }
 
     func releasePane(paneID: UUID, clientID: UUID) {

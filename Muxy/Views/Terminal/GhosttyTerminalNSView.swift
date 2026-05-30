@@ -284,34 +284,20 @@ final class GhosttyTerminalNSView: NSView {
         surfaceCStringPointers.removeAll()
     }
 
-    private static let tmuxSocketName = "muxy"
-    private static let tmuxSessionPrefix = "muxy-"
-    nonisolated(unsafe) private static var cachedTmuxBinary: String?
+    private static let tmuxSocketName = TmuxConfiguration.socketName
+    private static let tmuxSessionPrefix = TmuxConfiguration.sessionPrefix
     private var cachedTmuxSessionName: String?
 
     private static func findTmuxBinary() -> String? {
-        if let cached = cachedTmuxBinary, FileManager.default.isExecutableFile(atPath: cached) {
-            return cached
-        }
-        cachedTmuxBinary = nil
-        let candidates = [
-            "/opt/homebrew/bin/tmux",
-            "/usr/local/bin/tmux",
-            "/opt/local/bin/tmux",
-            "/usr/bin/tmux",
-        ]
-        let found = candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
-        if let found { cachedTmuxBinary = found }
-        return found
+        TmuxConfiguration.findBinary()
     }
 
     static func tmuxAvailable() -> Bool {
-        findTmuxBinary() != nil
+        TmuxConfiguration.findBinary() != nil
     }
 
     static func surfaceEvictionEnabled() -> Bool {
-        findTmuxBinary() != nil &&
-            UserDefaults.standard.bool(forKey: GeneralSettingsKeys.lowMemoryMode)
+        TmuxConfiguration.lowMemoryModeEnabled()
     }
 
     nonisolated(unsafe) private static var tmuxConfigWritten = false
