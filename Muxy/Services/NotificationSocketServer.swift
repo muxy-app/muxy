@@ -406,16 +406,6 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
 
-        if message == "split-right" || message.hasPrefix("split-right|") {
-            logger.info("Received legacy split-right request via socket")
-            return
-        }
-
-        if message == "split-down" || message.hasPrefix("split-down|") {
-            logger.info("Received legacy split-down request via socket")
-            return
-        }
-
         let parts = message.split(separator: "|", maxSplits: 3).map(String.init)
         guard parts.count >= 3 else {
             logger.warning("Invalid message on notification socket: expected type|paneID|title|body")

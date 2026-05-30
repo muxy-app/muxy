@@ -5,8 +5,8 @@ import Testing
 
 @Suite("ExtensionProcessTree")
 struct ExtensionProcessTreeTests {
-    @Test("terminating an entry point kills its child processes")
-    func terminatingEntryPointKillsChildren() async throws {
+    @Test("terminating the extension host kills its child processes")
+    func terminatingHostKillsChildren() async throws {
         let marker = UUID().uuidString
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")

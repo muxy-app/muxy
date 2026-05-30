@@ -447,9 +447,9 @@ final class ExtensionStore {
         environment["MUXY_SOCKET_PATH"] = NotificationSocketServer.socketPath
         environment["MUXY_EXTENSION_ID"] = ext.id
         environment["MUXY_EXTENSION_TOKEN"] = token
-        let logURL = ExtensionLogStore.shared.logURL(extensionID: ext.id, directory: ext.directory)
-        environment["MUXY_EXTENSION_LOG"] = logURL.path
         process.environment = environment
+
+        let logURL = ExtensionLogStore.shared.logURL(extensionID: ext.id, directory: ext.directory)
 
         if let logHandle = openProcessLogHandle(at: logURL) {
             process.standardOutput = logHandle
