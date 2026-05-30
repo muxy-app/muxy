@@ -4,6 +4,12 @@ import Security
 
 private let logger = Logger(subsystem: "app.muxy", category: "ExtensionStore")
 
+protocol ExtensionSnapshotSink: Sendable {
+    func applyExtensionSnapshot(_ snapshot: NotificationSocketServer.ExtensionSnapshot)
+}
+
+extension NotificationSocketServer: ExtensionSnapshotSink {}
+
 @MainActor
 @Observable
 final class ExtensionStore {
@@ -37,11 +43,31 @@ final class ExtensionStore {
     private var tokens: [String: String] = [:]
     private var intentionalStops: Set<String> = []
     private let rootDirectoryURL: URL
+    private let snapshotSink: ExtensionSnapshotSink
+    private let resolveHostURL: @MainActor () -> URL?
 
     nonisolated private static let processTerminationGracePeriod: TimeInterval = 2
 
-    private init(rootDirectory: URL = ExtensionStore.defaultRootDirectory) {
+    private init(
+        rootDirectory: URL = ExtensionStore.defaultRootDirectory,
+        snapshotSink: ExtensionSnapshotSink = NotificationSocketServer.shared,
+        resolveHostURL: @escaping @MainActor () -> URL? = { ExtensionHostLocator.hostURL() }
+    ) {
         rootDirectoryURL = rootDirectory
+        self.snapshotSink = snapshotSink
+        self.resolveHostURL = resolveHostURL
+    }
+
+    static func makeForTesting(
+        rootDirectory: URL,
+        snapshotSink: ExtensionSnapshotSink,
+        resolveHostURL: @escaping @MainActor () -> URL?
+    ) -> ExtensionStore {
+        ExtensionStore(rootDirectory: rootDirectory, snapshotSink: snapshotSink, resolveHostURL: resolveHostURL)
+    }
+
+    func hasSpawnedProcessForTesting(extensionID: String) -> Bool {
+        processes[extensionID] != nil
     }
 
     static var defaultRootDirectory: URL {
@@ -124,7 +150,7 @@ final class ExtensionStore {
     }
 
     private func publishSnapshot() {
-        NotificationSocketServer.shared.applyExtensionSnapshot(snapshotForSocketServer())
+        snapshotSink.applyExtensionSnapshot(snapshotForSocketServer())
     }
 
     static func buildSnapshotForTesting(
@@ -427,7 +453,7 @@ final class ExtensionStore {
 
         guard let backgroundScriptURL = ext.backgroundScriptURL else { return }
 
-        guard let hostURL = ExtensionHostLocator.hostURL() else {
+        guard let hostURL = resolveHostURL() else {
             let message = "Extension host binary not found"
             statuses[index].lastError = message
             ExtensionLogStore.shared.append(extensionID: ext.id, line: "[muxy] \(message)")
@@ -442,6 +468,7 @@ final class ExtensionStore {
 
         let token = Self.generateToken()
         tokens[ext.id] = token
+        publishSnapshot()
 
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_SOCKET_PATH"] = NotificationSocketServer.socketPath
@@ -472,6 +499,8 @@ final class ExtensionStore {
                 line: "[muxy] started \(ext.id) v\(ext.manifest.version)"
             )
         } catch {
+            tokens.removeValue(forKey: ext.id)
+            publishSnapshot()
             statuses[index].lastError = error.localizedDescription
             ExtensionLogStore.shared.append(
                 extensionID: ext.id,
