@@ -40,7 +40,7 @@ struct TmuxControlOutputParsingTests {
 
     @Test("parses %output with octal-escaped carriage return and newline")
     func octalEscapedOutput() {
-        let input = "%output %0 Hello\015\012World\n"
+        let input = "%output %0 Hello\\015\\012World\n"
         let data = input.data(using: .utf8)!
 
         let results = TmuxCaptureService.parseControlOutput(data)
@@ -51,7 +51,7 @@ struct TmuxControlOutputParsingTests {
 
     @Test("parses %output with ANSI escape sequence")
     func ansiEscapeOutput() {
-        let input = "%output %0 \033[31mRed\033[0m\n"
+        let input = "%output %0 \\033[31mRed\\033[0m\n"
         let data = input.data(using: .utf8)!
 
         let results = TmuxCaptureService.parseControlOutput(data)
@@ -62,7 +62,7 @@ struct TmuxControlOutputParsingTests {
 
     @Test("parses multiple %output lines")
     func multipleOutputLines() {
-        let input = "%output %1 abc\015\012\n%output %2 xyz\n"
+        let input = "%output %1 abc\\015\\012\n%output %2 xyz\n"
         let data = input.data(using: .utf8)!
 
         let results = TmuxCaptureService.parseControlOutput(data)
@@ -116,7 +116,7 @@ struct TmuxControlOutputParsingTests {
 
     @Test("handles octal escape for null byte")
     func octalNullByte() {
-        let input = "%output %0 a\000b\n"
+        let input = "%output %0 a\\000b\n"
         let data = input.data(using: .utf8)!
 
         let results = TmuxCaptureService.parseControlOutput(data)
@@ -129,7 +129,7 @@ struct TmuxControlOutputParsingTests {
 
     @Test("handles multiple consecutive octal escapes")
     func consecutiveOctalEscapes() {
-        let input = "%output %0 \015\012\033[31m\n"
+        let input = "%output %0 \\015\\012\\033[31m\n"
         let data = input.data(using: .utf8)!
 
         let results = TmuxCaptureService.parseControlOutput(data)

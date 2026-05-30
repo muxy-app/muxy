@@ -234,12 +234,39 @@ final class TmuxCaptureService {
             let parts = withoutPrefix.split(separator: " ", maxSplits: 1)
             guard parts.count == 2 else { continue }
 
-            let encodedPayload = String(parts[1])
-            guard let decoded = Data(base64Encoded: encodedPayload) else { continue }
-            results.append(decoded)
+            let payload = String(parts[1])
+            results.append(decodeOctalEscapes(payload))
         }
 
         return results
+    }
+
+    nonisolated private static func decodeOctalEscapes(_ input: String) -> Data {
+        var result = Data()
+        var chars = input[...]
+
+        while !chars.isEmpty {
+            if chars.first == "\\" {
+                let afterBackslash = chars.dropFirst()
+                guard afterBackslash.count >= 3 else {
+                    result.append(Data(afterBackslash.utf8))
+                    break
+                }
+                let octalChars = afterBackslash.prefix(3)
+                if let byte = UInt8(octalChars, radix: 8) {
+                    result.append(byte)
+                    chars = afterBackslash.dropFirst(3)
+                } else {
+                    result.append(0x5C)
+                    chars = afterBackslash
+                }
+            } else {
+                result.append(chars.first!.asciiValue!)
+                chars = chars.dropFirst()
+            }
+        }
+
+        return result
     }
 }
 
