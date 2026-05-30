@@ -150,17 +150,14 @@ final class TmuxCaptureService {
         }
 
         if let process = streamingProcesses[paneID], !text.contains("\n") {
-            process.send("send-keys -t \(TmuxConfiguration.sessionName(for: paneID)) -l \(text)")
+            let quoted = text.replacingOccurrences(of: "'", with: "'\\''")
+            process.send("send-keys -t \(TmuxConfiguration.sessionName(for: paneID)) -l '\(quoted)'")
             return
         }
 
         guard let tmux = TmuxConfiguration.findBinary() else { return }
         let session = TmuxConfiguration.sessionName(for: paneID)
         let socket = TmuxConfiguration.socketName
-
-        guard let text = String(data: bytes, encoding: .utf8) ?? String(data: bytes, encoding: .ascii) else {
-            return
-        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tmux)
