@@ -59,9 +59,8 @@ struct ExtensionConsentServiceTests {
         )
 
         async let decision = service.gate(request)
-        try? await Task.sleep(for: .milliseconds(50))
-        let pending = service.pendingPrompt
-        #expect(pending?.id == request.id)
+        await waitUntil { service.pendingPrompt?.id == request.id }
+        #expect(service.pendingPrompt?.id == request.id)
         service.respond(requestID: request.id, choice: .allowAndRemember)
 
         let resolved = await decision
@@ -82,7 +81,7 @@ struct ExtensionConsentServiceTests {
         )
 
         async let decision = service.gate(request)
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil { service.pendingPrompt?.id == request.id }
         service.respond(requestID: request.id, choice: .denyOnce)
         let resolved = await decision
         #expect(resolved == .deny)
@@ -104,7 +103,9 @@ struct ExtensionConsentServiceTests {
             )
             pending.append(Task { await service.gate(request) })
         }
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil {
+            (service.pendingPrompt == nil ? 0 : 1) + service.queuedPrompts.count == cap
+        }
 
         let overflow = ExtensionConsentRequestBuilder.make(
             extensionID: "noisy",
@@ -143,18 +144,31 @@ struct ExtensionConsentServiceTests {
             source: "test"
         )
         async let firstDecision = service.gate(first)
+        await waitUntil { service.pendingPrompt?.id == first.id }
+
         async let secondDecision = service.gate(second)
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil { service.queuedPrompts.count == 1 }
         #expect(service.pendingPrompt?.id == first.id)
-        #expect(service.queuedPrompts.count == 1)
+        #expect(service.queuedPrompts.first?.id == second.id)
+
         service.respond(requestID: first.id, choice: .allowOnce)
-        try? await Task.sleep(for: .milliseconds(50))
-        #expect(service.pendingPrompt?.id == second.id)
+        await waitUntil { service.pendingPrompt?.id == second.id }
         service.respond(requestID: second.id, choice: .denyOnce)
         let firstResult = await firstDecision
         let secondResult = await secondDecision
         #expect(firstResult == .allow)
         #expect(secondResult == .deny)
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        _ condition: () -> Bool
+    ) async {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            if ContinuousClock.now >= deadline { return }
+            await Task.yield()
+        }
     }
 
     private func makeGrantStore() -> ExtensionGrantStore {
