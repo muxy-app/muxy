@@ -46,6 +46,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private var inProcessObservers: [UUID: @Sendable (ExtensionEvent) -> Void] = [:]
 
     var openProjectHandler: (@Sendable (String) -> Void)?
+    var installExtensionHandler: (@Sendable (String) -> Void)?
     var commandHandler: (@Sendable (String, ClientContext) async -> String)?
 
     struct ClientContext {
@@ -403,6 +404,18 @@ final class NotificationSocketServer: @unchecked Sendable {
             }
             logger.info("Received open-project request via socket")
             openProjectHandler?(path)
+            return
+        }
+
+        let installPrefix = "install-extension|"
+        if message.hasPrefix(installPrefix) {
+            let name = String(message.dropFirst(installPrefix.count))
+            guard !name.isEmpty else {
+                logger.warning("Ignoring install-extension for empty name")
+                return
+            }
+            logger.info("Received install-extension request via socket")
+            installExtensionHandler?(name)
             return
         }
 

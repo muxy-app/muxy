@@ -59,10 +59,16 @@ enum AppModalPresenter {
         @ViewBuilder content: () -> some View
     ) -> NSWindow? {
         if let existing = config.existing {
+            NSApp.activate(ignoringOtherApps: true)
+            let previousBehavior = existing.collectionBehavior
+            existing.collectionBehavior.insert(.moveToActiveSpace)
             existing.makeKeyAndOrderFront(nil)
+            existing.collectionBehavior = previousBehavior
             return existing
         }
-        guard let parent = NSApp.keyWindow ?? NSApp.mainWindow else { return nil }
+        guard let parent = AppDelegate.activateMainWindowOnCurrentSpace()
+            ?? NSApp.keyWindow ?? NSApp.mainWindow
+        else { return nil }
         let host = NSHostingController(
             rootView: content()
                 .frame(width: config.size.width, height: config.size.height)

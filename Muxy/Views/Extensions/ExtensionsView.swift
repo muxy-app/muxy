@@ -2,10 +2,20 @@ import AppKit
 import SwiftUI
 
 struct ExtensionsView: View {
+    let installName: String?
+
     @State private var store = ExtensionStore.shared
     @State private var grantStore = ExtensionGrantStore.shared
     @State private var selectedExtensionID: String?
+    @State private var activeInstallName: String?
     @State private var showCreateSheet = false
+
+    init(installName: String? = nil) {
+        self.installName = installName
+        _activeInstallName = State(initialValue: installName)
+    }
+
+    private var isShowingInstallPage: Bool { activeInstallName != nil }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,11 +34,25 @@ struct ExtensionsView: View {
                 onFinish: { showCreateSheet = false }
             )
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openExtensionInstall)) { notification in
+            guard let name = notification.userInfo?[ExtensionInstallUserInfoKey.name] as? String else { return }
+            selectedExtensionID = nil
+            activeInstallName = name
+        }
     }
 
     @ViewBuilder
     private var content: some View {
-        if let id = selectedExtensionID, let status = store.statuses.first(where: { $0.id == id }) {
+        if let name = activeInstallName {
+            ExtensionInstallPage(
+                name: name,
+                store: store,
+                onInstalled: { installedID in
+                    activeInstallName = nil
+                    selectedExtensionID = installedID
+                }
+            )
+        } else if let id = selectedExtensionID, let status = store.statuses.first(where: { $0.id == id }) {
             ExtensionDetailPage(
                 status: status,
                 store: store,
@@ -44,9 +68,10 @@ struct ExtensionsView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            if selectedExtensionID != nil {
+            if selectedExtensionID != nil || isShowingInstallPage {
                 Button {
                     selectedExtensionID = nil
+                    activeInstallName = nil
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
@@ -73,7 +98,7 @@ struct ExtensionsView: View {
                 }
             }
             Spacer()
-            if selectedExtensionID == nil {
+            if selectedExtensionID == nil, !isShowingInstallPage {
                 Button {
                     showCreateSheet = true
                 } label: {

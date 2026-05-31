@@ -105,6 +105,93 @@ final class ExtensionStore {
         startAll()
     }
 
+    func install(expectedName: String, zip: Data) async throws {
+        let staged = try await Self.unpackAndValidate(expectedName: expectedName, zip: zip)
+        defer { try? FileManager.default.removeItem(at: staged.workspace) }
+
+        let target = rootDirectoryURL.appendingPathComponent(expectedName, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: rootDirectoryURL,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: FilePermissions.privateDirectory]
+        )
+
+        if statuses.contains(where: { $0.id == expectedName }) {
+            stopProcess(extensionID: expectedName)
+        }
+        if FileManager.default.fileExists(atPath: target.path) {
+            try FileManager.default.removeItem(at: target)
+        }
+        try FileManager.default.moveItem(at: staged.manifestRoot, to: target)
+
+        reload()
+    }
+
+    private struct StagedExtension {
+        let manifestRoot: URL
+        let workspace: URL
+    }
+
+    nonisolated private static func unpackAndValidate(expectedName: String, zip: Data) async throws -> StagedExtension {
+        let fileManager = FileManager.default
+        let workspace = fileManager.temporaryDirectory
+            .appendingPathComponent("muxy-ext-install-\(UUID().uuidString)", isDirectory: true)
+        let extractDir = workspace.appendingPathComponent("extract", isDirectory: true)
+        let archiveURL = workspace.appendingPathComponent("\(expectedName).zip")
+
+        do {
+            try fileManager.createDirectory(at: extractDir, withIntermediateDirectories: true)
+            try zip.write(to: archiveURL)
+            try runUnzip(archiveURL: archiveURL, destination: extractDir)
+
+            let manifestRoot = try locateManifestRoot(in: extractDir)
+            let loaded = try ExtensionManifestLoader.load(from: manifestRoot)
+            guard loaded.id == expectedName else {
+                throw MarketplaceError.invalidArchive
+            }
+            return StagedExtension(manifestRoot: manifestRoot, workspace: workspace)
+        } catch {
+            try? fileManager.removeItem(at: workspace)
+            if error is MarketplaceError { throw error }
+            if error is ExtensionLoadError { throw MarketplaceError.invalidArchive }
+            throw MarketplaceError.unpackFailed(error.localizedDescription)
+        }
+    }
+
+    nonisolated private static func runUnzip(archiveURL: URL, destination: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-o", "-q", archiveURL.path, "-d", destination.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw MarketplaceError.unpackFailed("unzip exited with status \(process.terminationStatus)")
+        }
+    }
+
+    nonisolated private static func locateManifestRoot(in directory: URL) throws -> URL {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: directory.appendingPathComponent("manifest.json").path) {
+            return directory
+        }
+        let entries = (try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        let directories = entries.filter { url in
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
+        guard directories.count == 1,
+              fileManager.fileExists(atPath: directories[0].appendingPathComponent("manifest.json").path)
+        else {
+            throw MarketplaceError.invalidArchive
+        }
+        return directories[0]
+    }
+
     func setEnabled(_ enabled: Bool, for extensionID: String) {
         guard let index = statuses.firstIndex(where: { $0.id == extensionID }) else { return }
         ExtensionEnabledStore.setEnabled(enabled, extensionID: extensionID)

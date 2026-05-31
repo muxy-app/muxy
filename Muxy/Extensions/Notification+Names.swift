@@ -16,6 +16,7 @@ extension Notification.Name {
     static let openProjectPicker = Notification.Name("MuxyOpenProjectPicker")
     static let openSettingsModal = Notification.Name("MuxyOpenSettingsModal")
     static let openExtensionsModal = Notification.Name("MuxyOpenExtensionsModal")
+    static let openExtensionInstall = Notification.Name("MuxyOpenExtensionInstall")
     static let openExtensionDirectoryAsProject = Notification.Name("MuxyOpenExtensionDirectoryAsProject")
     static let focusProjectPickerDefaultLocation = Notification.Name("MuxyFocusProjectPickerDefaultLocation")
     static let saveActiveEditor = Notification.Name("MuxySaveActiveEditor")
@@ -37,4 +38,8 @@ enum ExternalDragHoverUserInfoKey {
 
 enum OpenExtensionDirectoryUserInfoKey {
     static let path = "path"
+}
+
+enum ExtensionInstallUserInfoKey {
+    static let name = "name"
 }

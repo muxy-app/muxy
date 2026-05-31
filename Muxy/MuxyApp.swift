@@ -1,5 +1,8 @@
 import AppKit
+import os
 import SwiftUI
+
+private let deepLinkLogger = Logger(subsystem: "app.muxy", category: "DeepLink")
 
 @main
 struct MuxyApp: App {
@@ -184,6 +187,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var openProjectFromPath: ((String) -> Void)?
 
     private var pendingOpenPaths: [String] = []
+    private var pendingInstallName: String?
+    private var isReadyForModals = false
     private var systemAppearanceObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
     private var extensionsObserver: NSObjectProtocol?
@@ -213,6 +218,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for path in queued {
             handler(path)
         }
+        isReadyForModals = true
+        if let name = pendingInstallName {
+            pendingInstallName = nil
+            presentExtensionsModal(installName: name)
+        }
+    }
+
+    @MainActor
+    func handleInstallExtension(name: String) {
+        guard isReadyForModals else {
+            pendingInstallName = name
+            return
+        }
+        presentExtensionsModal(installName: name)
     }
 
     nonisolated static func resolveProjectPath(from url: URL) -> String? {
@@ -253,12 +272,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return standardized
     }
 
+    nonisolated static func resolveInstallName(from url: URL) -> String? {
+        guard url.scheme == "muxy", url.host == "extensions" else { return nil }
+        let segments = url.pathComponents.filter { $0 != "/" }
+        guard segments.first == "install" else { return nil }
+        guard let raw = segments.dropFirst().first?.removingPercentEncoding, !raw.isEmpty else { return nil }
+        return raw
+    }
+
     @MainActor
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            guard let path = Self.resolveProjectPath(from: url) else { continue }
-            handleOpenProjectPath(path)
+            handleIncomingURL(url)
         }
+    }
+
+    @MainActor
+    func handleIncomingURL(_ url: URL) {
+        deepLinkLogger.log("incoming url: \(url.absoluteString, privacy: .public)")
+        if let name = Self.resolveInstallName(from: url) {
+            handleInstallExtension(name: name)
+            return
+        }
+        guard let path = Self.resolveProjectPath(from: url) else { return }
+        handleOpenProjectPath(path)
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
@@ -274,8 +311,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @MainActor
+    private func registerURLEventHandler() {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
+    @MainActor
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        registerURLEventHandler()
+    }
+
+    @MainActor
+    @objc
+    private func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent _: NSAppleEventDescriptor) {
+        guard let string = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: string)
+        else { return }
+        handleIncomingURL(url)
+    }
+
+    @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
         UserDefaults.standard.register(defaults: ["ApplePressAndHoldEnabled": false])
+        registerURLEventHandler()
         SentryService.shared.start()
         NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.setActivationPolicy(.regular)
@@ -291,6 +353,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
             Task { @MainActor [weak self] in
                 self?.handleOpenProjectPath(path)
+            }
+        }
+        NotificationSocketServer.shared.installExtensionHandler = { [weak self] name in
+            Task { @MainActor [weak self] in
+                self?.handleInstallExtension(name: name)
             }
         }
         NotificationSocketServer.shared.start()
@@ -317,6 +384,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.windows.first { window in
             window !== excludedWindow && window.identifier == ShortcutContext.mainWindowIdentifier
         }
+    }
+
+    @MainActor
+    @discardableResult
+    static func activateMainWindowOnCurrentSpace() -> NSWindow? {
+        NSApp.activate(ignoringOtherApps: true)
+        guard let window = mainAppWindow() else { return nil }
+        let previousBehavior = window.collectionBehavior
+        window.collectionBehavior.insert(.moveToActiveSpace)
+        window.makeKeyAndOrderFront(nil)
+        window.collectionBehavior = previousBehavior
+        return window
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -475,7 +554,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @MainActor
-    private func presentExtensionsModal() {
+    private func presentExtensionsModal(installName: String? = nil) {
         let config = AppModalConfig(
             title: "Extensions",
             size: CGSize(width: 880, height: 620),
@@ -484,7 +563,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             onClosed: { [weak self] in self?.extensionsWindow = nil }
         )
         extensionsWindow = AppModalPresenter.present(config) {
-            ExtensionsView()
+            ExtensionsView(installName: installName)
+        }
+        if let installName {
+            NotificationCenter.default.post(
+                name: .openExtensionInstall,
+                object: nil,
+                userInfo: [ExtensionInstallUserInfoKey.name: installName]
+            )
         }
     }
 
