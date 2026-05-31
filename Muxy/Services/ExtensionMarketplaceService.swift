@@ -77,6 +77,8 @@ actor ExtensionMarketplaceService {
         let data: T
     }
 
+    private static let maximumDownloadBytes = 100 * 1024 * 1024
+
     private let baseURL: URL
     private let session: URLSession
 
@@ -118,11 +120,14 @@ actor ExtensionMarketplaceService {
     }
 
     func download(_ ext: MarketplaceExtension) async throws -> Data {
+        guard ext.size > 0, ext.size <= Self.maximumDownloadBytes else {
+            throw MarketplaceError.sizeMismatch
+        }
         guard let url = URL(string: ext.downloadURL) else {
             throw MarketplaceError.invalidArchive
         }
 
-        let (data, response) = try await self.data(for: URLRequest(url: url))
+        let (data, response) = try await bytes(for: URLRequest(url: url), limit: ext.size)
         if let http = response as? HTTPURLResponse, http.statusCode == 404 {
             throw MarketplaceError.notFound
         }
@@ -140,6 +145,25 @@ actor ExtensionMarketplaceService {
     private func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         do {
             return try await session.data(for: request)
+        } catch let error as MarketplaceError {
+            throw error
+        } catch {
+            throw MarketplaceError.network(error.localizedDescription)
+        }
+    }
+
+    private func bytes(for request: URLRequest, limit: Int) async throws -> (Data, URLResponse) {
+        do {
+            let (stream, response) = try await session.bytes(for: request)
+            var data = Data()
+            data.reserveCapacity(limit)
+            for try await byte in stream {
+                data.append(byte)
+                guard data.count <= limit else {
+                    throw MarketplaceError.sizeMismatch
+                }
+            }
+            return (data, response)
         } catch let error as MarketplaceError {
             throw error
         } catch {

@@ -106,7 +106,9 @@ final class ExtensionStore {
     }
 
     func install(expectedName: String, zip: Data) async throws {
-        let staged = try await Self.unpackAndValidate(expectedName: expectedName, zip: zip)
+        let staged = try await Task.detached {
+            try Self.unpackAndValidate(expectedName: expectedName, zip: zip)
+        }.value
         defer { try? FileManager.default.removeItem(at: staged.workspace) }
 
         let target = rootDirectoryURL.appendingPathComponent(expectedName, isDirectory: true)
@@ -132,7 +134,7 @@ final class ExtensionStore {
         let workspace: URL
     }
 
-    nonisolated private static func unpackAndValidate(expectedName: String, zip: Data) async throws -> StagedExtension {
+    nonisolated private static func unpackAndValidate(expectedName: String, zip: Data) throws -> StagedExtension {
         let fileManager = FileManager.default
         let workspace = fileManager.temporaryDirectory
             .appendingPathComponent("muxy-ext-install-\(UUID().uuidString)", isDirectory: true)
