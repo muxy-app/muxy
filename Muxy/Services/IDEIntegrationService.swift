@@ -555,6 +555,7 @@ final class IDEIntegrationService: ObservableObject {
         "com.microsoft.VSCodeInsiders": .init(symbolName: "chevron.left.forwardslash.chevron.right", rank: 11, group: .editor),
         "com.vscodium": .init(symbolName: "chevron.left.forwardslash.chevron.right", rank: 12, group: .editor),
         "com.todesktop.230313mzl4w4u92": .init(symbolName: "cursorarrow.click.2", rank: 13, group: .editor),
+        "com.code.athas": .init(symbolName: "chevron.left.forwardslash.chevron.right", rank: 34, group: .editor),
         "dev.zed.Zed": .init(symbolName: "bolt.horizontal", rank: 14, group: .editor),
         "com.exafunction.windsurf": .init(symbolName: "wind", rank: 15, group: .editor),
         "com.qoder.ide": .init(symbolName: "chevron.left.forwardslash.chevron.right", rank: 16, group: .editor),

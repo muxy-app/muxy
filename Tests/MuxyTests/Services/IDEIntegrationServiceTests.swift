@@ -342,6 +342,53 @@ struct IDEIntegrationServiceTests {
         #expect(app?.group == .editor)
     }
 
+    @Test("classifies Athas by curated bundle identifier")
+    func classifiesAthasByCuratedBundleIdentifier() {
+        let metadata = IDEIntegrationService.AppMetadata(
+            bundleIdentifier: "com.code.athas",
+            displayName: "Athas",
+            executableName: "athas",
+            category: "public.app-category.developer-tools",
+            appURL: URL(fileURLWithPath: "/Applications/Athas.app")
+        )
+
+        let app = IDEIntegrationService.ideApplication(from: metadata)
+
+        #expect(app?.displayName == "Athas")
+        #expect(app?.group == .editor)
+    }
+
+    @Test("launchCommands opens Athas generically with project and file")
+    func launchCommandsOpensAthasGenericallyWithProjectAndFile() {
+        let ide = IDEIntegrationService.IDEApplication(
+            bundleIdentifier: "com.code.athas",
+            displayName: "Athas",
+            appURL: URL(fileURLWithPath: "/Applications/Athas.app"),
+            symbolName: "chevron.left.forwardslash.chevron.right",
+            rank: 34,
+            group: .editor
+        )
+        let location = IDEIntegrationService.EditorLocation(
+            filePath: "/tmp/repo/Sources/App.swift",
+            line: 12,
+            column: 7
+        )
+
+        let commands = IDEIntegrationService.launchCommands(
+            for: ide,
+            projectPath: "/tmp/repo",
+            editorLocation: location,
+            availableCLICommands: [:]
+        )
+
+        #expect(commands == [
+            .init(
+                executablePath: "/usr/bin/open",
+                arguments: ["-a", "/Applications/Athas.app", "/tmp/repo", "/tmp/repo/Sources/App.swift"]
+            ),
+        ])
+    }
+
     @Test("classifies Antigravity IDE by curated bundle identifier")
     func classifiesAntigravityIDEByCuratedBundleIdentifier() {
         let metadata = IDEIntegrationService.AppMetadata(
