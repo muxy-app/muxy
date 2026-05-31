@@ -38,6 +38,7 @@ final class ExtensionStore {
 
     private(set) var statuses: [ExtensionStatus] = []
     private(set) var loadFailures: [LoadFailure] = []
+    private(set) var availableUpdates: [String: String] = [:]
 
     private var processes: [String: Process] = [:]
     private var tokens: [String: String] = [:]
@@ -45,26 +46,38 @@ final class ExtensionStore {
     private let rootDirectoryURL: URL
     private let snapshotSink: ExtensionSnapshotSink
     private let resolveHostURL: @MainActor () -> URL?
+    private let marketplace: ExtensionMarketplaceService
 
     nonisolated private static let processTerminationGracePeriod: TimeInterval = 2
 
     private init(
         rootDirectory: URL = ExtensionStore.defaultRootDirectory,
         snapshotSink: ExtensionSnapshotSink = NotificationSocketServer.shared,
-        resolveHostURL: @escaping @MainActor () -> URL? = { ExtensionHostLocator.hostURL() }
+        resolveHostURL: @escaping @MainActor () -> URL? = { ExtensionHostLocator.hostURL() },
+        marketplace: ExtensionMarketplaceService = .shared
     ) {
         rootDirectoryURL = rootDirectory
         self.snapshotSink = snapshotSink
         self.resolveHostURL = resolveHostURL
+        self.marketplace = marketplace
     }
 
     static func makeForTesting(
         rootDirectory: URL,
         snapshotSink: ExtensionSnapshotSink,
-        resolveHostURL: @escaping @MainActor () -> URL?
+        resolveHostURL: @escaping @MainActor () -> URL?,
+        marketplace: ExtensionMarketplaceService = .shared
     ) -> ExtensionStore {
-        ExtensionStore(rootDirectory: rootDirectory, snapshotSink: snapshotSink, resolveHostURL: resolveHostURL)
+        ExtensionStore(
+            rootDirectory: rootDirectory,
+            snapshotSink: snapshotSink,
+            resolveHostURL: resolveHostURL,
+            marketplace: marketplace
+        )
     }
+
+    var hasUpdates: Bool { !availableUpdates.isEmpty }
+    var updateCount: Int { availableUpdates.count }
 
     func hasSpawnedProcessForTesting(extensionID: String) -> Bool {
         processes[extensionID] != nil
@@ -127,6 +140,55 @@ final class ExtensionStore {
         try FileManager.default.moveItem(at: staged.manifestRoot, to: target)
 
         reload()
+    }
+
+    func availableUpdateVersion(for extensionID: String) -> String? {
+        availableUpdates[extensionID]
+    }
+
+    func checkForUpdates() async {
+        let installed = statuses.map(\.id)
+        guard !installed.isEmpty else {
+            availableUpdates = [:]
+            return
+        }
+        guard let remote = try? await marketplace.resolveVersions(names: installed) else { return }
+
+        var updates: [String: String] = [:]
+        for status in statuses {
+            guard let remoteVersion = remote[status.id] else { continue }
+            let installedVersion = status.muxyExtension.manifest.version
+            if SemanticVersion.isUpdate(installed: installedVersion, available: remoteVersion) {
+                updates[status.id] = remoteVersion
+            }
+        }
+        availableUpdates = updates
+    }
+
+    func update(extensionID: String) async throws {
+        let ext = try await marketplace.fetch(name: extensionID)
+        let zip = try await marketplace.download(ext)
+        try await install(expectedName: ext.name, zip: zip)
+        availableUpdates.removeValue(forKey: extensionID)
+    }
+
+    struct UpdateAllResult {
+        var succeeded: [String] = []
+        var failed: [(id: String, message: String)] = []
+    }
+
+    func updateAll() async -> UpdateAllResult {
+        var result = UpdateAllResult()
+        for extensionID in availableUpdates.keys.sorted() {
+            do {
+                try await update(extensionID: extensionID)
+                result.succeeded.append(extensionID)
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                result.failed.append((id: extensionID, message: message))
+            }
+        }
+        return result
     }
 
     private struct StagedExtension {
@@ -522,6 +584,16 @@ final class ExtensionStore {
                 ))
                 logger.error("Failed to load extension at \(url.path): \(error.localizedDescription)")
             }
+        }
+        pruneResolvedUpdates()
+    }
+
+    private func pruneResolvedUpdates() {
+        guard !availableUpdates.isEmpty else { return }
+        availableUpdates = availableUpdates.filter { id, remoteVersion in
+            guard let installed = statuses.first(where: { $0.id == id })?.muxyExtension.manifest.version
+            else { return false }
+            return SemanticVersion.isUpdate(installed: installed, available: remoteVersion)
         }
     }
 

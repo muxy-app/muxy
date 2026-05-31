@@ -176,6 +176,7 @@ struct MuxyApp: App {
             AIProviderRegistry.shared.installAll()
             LoginShellPath.hydrateInBackground()
             ExtensionStore.shared.startAll()
+            await ExtensionStore.shared.checkForUpdates()
         }
     }
 }

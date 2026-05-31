@@ -37,6 +37,29 @@ struct ExtensionMarketplaceServiceTests {
         #expect(ext.resolvedPermissions == [.tabsRead, .tabsWrite])
     }
 
+    @Test("resolveVersions decodes the flat version map and drops nulls")
+    func resolveVersionsDecodesMap() async throws {
+        let json = """
+        { "git-status": "1.4.2", "dracula-theme": "0.9.1", "ghost": null }
+        """
+        let service = makeService { _ in (200, Data(json.utf8)) }
+
+        let map = try await service.resolveVersions(names: ["git-status", "dracula-theme", "ghost"])
+
+        #expect(map["git-status"] == "1.4.2")
+        #expect(map["dracula-theme"] == "0.9.1")
+        #expect(map["ghost"] == nil)
+    }
+
+    @Test("resolveVersions returns empty for no names without a request")
+    func resolveVersionsEmpty() async throws {
+        let service = makeService { _ in (500, Data()) }
+
+        let map = try await service.resolveVersions(names: [])
+
+        #expect(map.isEmpty)
+    }
+
     @Test("maps 404 to notFound")
     func fetchMapsNotFound() async throws {
         let service = makeService { _ in (404, Data(#"{"message":"Not Found"}"#.utf8)) }

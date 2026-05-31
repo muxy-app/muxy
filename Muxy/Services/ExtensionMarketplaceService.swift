@@ -78,6 +78,7 @@ actor ExtensionMarketplaceService {
     }
 
     private static let maximumDownloadBytes = 100 * 1024 * 1024
+    private static let versionsBatchLimit = 100
 
     private let baseURL: URL
     private let session: URLSession
@@ -95,6 +96,42 @@ actor ExtensionMarketplaceService {
         components.scheme = "https"
         components.host = "muxy.app"
         return components.url ?? URL(fileURLWithPath: "/")
+    }
+
+    func resolveVersions(names: [String]) async throws -> [String: String] {
+        let unique = Array(Set(names))
+        guard !unique.isEmpty else { return [:] }
+
+        var resolved: [String: String] = [:]
+        for batch in stride(from: 0, to: unique.count, by: Self.versionsBatchLimit) {
+            let slice = Array(unique[batch ..< min(batch + Self.versionsBatchLimit, unique.count)])
+            let chunk = try await resolveVersionsBatch(names: slice)
+            resolved.merge(chunk) { _, new in new }
+        }
+        return resolved
+    }
+
+    private func resolveVersionsBatch(names: [String]) async throws -> [String: String] {
+        let url = baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("extensions")
+            .appendingPathComponent("versions")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["names": names])
+
+        let (data, response) = try await data(for: request)
+        try ensureSuccess(response)
+
+        do {
+            let map = try JSONDecoder().decode([String: String?].self, from: data)
+            return map.compactMapValues { $0 }
+        } catch {
+            throw MarketplaceError.network(error.localizedDescription)
+        }
     }
 
     func fetch(name: String) async throws -> MarketplaceExtension {

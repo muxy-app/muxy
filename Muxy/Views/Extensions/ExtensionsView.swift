@@ -9,6 +9,7 @@ struct ExtensionsView: View {
     @State private var selectedExtensionID: String?
     @State private var activeInstallName: String?
     @State private var showCreateSheet = false
+    @State private var isUpdatingAll = false
 
     init(installName: String? = nil) {
         self.installName = installName
@@ -38,6 +39,9 @@ struct ExtensionsView: View {
             guard let name = notification.userInfo?[ExtensionInstallUserInfoKey.name] as? String else { return }
             selectedExtensionID = nil
             activeInstallName = name
+        }
+        .task {
+            await store.checkForUpdates()
         }
     }
 
@@ -99,6 +103,27 @@ struct ExtensionsView: View {
             }
             Spacer()
             if selectedExtensionID == nil, !isShowingInstallPage {
+                if store.hasUpdates {
+                    Button {
+                        Task { await updateAll() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            if isUpdatingAll {
+                                ProgressView().controlSize(.small)
+                            }
+                            Text(isUpdatingAll ? "Updating…" : "Update All (\(store.updateCount))")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(MuxyTheme.accent, in: RoundedRectangle(cornerRadius: 6))
+                        .opacity(isUpdatingAll ? 0.7 : 1)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isUpdatingAll)
+                    .help("Update all extensions with available updates")
+                }
                 Button {
                     showCreateSheet = true
                 } label: {
@@ -143,6 +168,21 @@ struct ExtensionsView: View {
         .frame(height: 56)
         .background(MuxyTheme.bg)
     }
+
+    private func updateAll() async {
+        isUpdatingAll = true
+        defer { isUpdatingAll = false }
+        let result = await store.updateAll()
+        if result.failed.isEmpty {
+            ToastState.shared.show("Updated \(result.succeeded.count) extension\(result.succeeded.count == 1 ? "" : "s")")
+        } else {
+            let names = result.failed.map(\.id).joined(separator: ", ")
+            ToastState.shared.show(
+                title: "Some extensions failed to update",
+                body: names
+            )
+        }
+    }
 }
 
 private struct ExtensionsDivider: View {
@@ -156,6 +196,7 @@ private struct ExtensionsDivider: View {
 private struct ExtensionsListPage: View {
     let store: ExtensionStore
     let onSelect: (String) -> Void
+    @State private var updatingIDs: Set<String> = []
 
     var body: some View {
         ScrollView {
@@ -169,9 +210,13 @@ private struct ExtensionsListPage: View {
                 } else {
                     VStack(spacing: 0) {
                         ForEach(Array(store.statuses.enumerated()), id: \.element.id) { index, status in
-                            ExtensionRow(status: status) {
-                                onSelect(status.id)
-                            }
+                            ExtensionRow(
+                                status: status,
+                                availableVersion: store.availableUpdateVersion(for: status.id),
+                                isUpdating: updatingIDs.contains(status.id),
+                                onUpdate: { Task { await updateOne(status.id) } },
+                                onOpen: { onSelect(status.id) }
+                            )
                             if index < store.statuses.count - 1 {
                                 Rectangle()
                                     .fill(MuxyTheme.border)
@@ -188,6 +233,17 @@ private struct ExtensionsListPage: View {
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private func updateOne(_ extensionID: String) async {
+        updatingIDs.insert(extensionID)
+        defer { updatingIDs.remove(extensionID) }
+        do {
+            try await store.update(extensionID: extensionID)
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            ToastState.shared.show(title: "Could not update \(extensionID)", body: message)
         }
     }
 
@@ -251,51 +307,93 @@ private struct LoadFailuresBlock: View {
 
 private struct ExtensionRow: View {
     let status: ExtensionStore.ExtensionStatus
+    var availableVersion: String?
+    var isUpdating = false
+    var onUpdate: () -> Void = {}
     let onOpen: () -> Void
     @State private var hovered = false
 
     private var ext: MuxyExtension { status.muxyExtension }
 
     var body: some View {
-        Button(action: onOpen) {
-            HStack(spacing: 12) {
-                Image(systemName: "puzzlepiece.extension.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                    .frame(width: 22)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(ext.displayName)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(MuxyTheme.fg)
-                            .lineLimit(1)
-                        Text("v\(ext.manifest.version)")
-                            .font(.system(size: 11))
-                            .foregroundStyle(MuxyTheme.fgMuted)
-                        ExtensionStatusBadge(status: status)
-                    }
-                    if let description = ext.manifest.description, !description.isEmpty {
-                        Text(description)
-                            .font(.system(size: 11))
-                            .foregroundStyle(MuxyTheme.fgMuted)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                }
-                Spacer(minLength: 12)
-                ExtensionPermissionSummary(permissions: ext.manifest.permissions)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(MuxyTheme.fgDim)
+        HStack(spacing: 12) {
+            Button(action: onOpen) {
+                rowContent
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(hovered ? MuxyTheme.hover : Color.clear)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            if let availableVersion {
+                ExtensionUpdateButton(version: availableVersion, isUpdating: isUpdating, action: onUpdate)
+                    .padding(.trailing, 14)
+            }
+        }
+        .background(hovered ? MuxyTheme.hover : Color.clear)
+        .onHover { hovered = $0 }
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "puzzlepiece.extension.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(ext.displayName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(MuxyTheme.fg)
+                        .lineLimit(1)
+                    Text("v\(ext.manifest.version)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                    ExtensionStatusBadge(status: status)
+                }
+                if let description = ext.manifest.description, !description.isEmpty {
+                    Text(description)
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuxyTheme.fgMuted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            Spacer(minLength: 12)
+            ExtensionPermissionSummary(permissions: ext.manifest.permissions)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fgDim)
+        }
+        .padding(.leading, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct ExtensionUpdateButton: View {
+    let version: String
+    let isUpdating: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if isUpdating {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 11))
+                }
+                Text(isUpdating ? "Updating…" : "Update v\(version)")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(MuxyTheme.accent, in: RoundedRectangle(cornerRadius: 6))
+            .opacity(isUpdating ? 0.7 : 1)
         }
         .buttonStyle(.plain)
-        .onHover { hovered = $0 }
+        .disabled(isUpdating)
+        .help("Update to v\(version)")
     }
 }
 
@@ -501,8 +599,13 @@ private struct ExtensionDetailPage: View {
     let store: ExtensionStore
     let grantStore: ExtensionGrantStore
     @State private var showLogs = false
+    @State private var isUpdating = false
 
     private var ext: MuxyExtension { status.muxyExtension }
+
+    private var availableVersion: String? {
+        store.availableUpdateVersion(for: status.id)
+    }
 
     private var grantRules: [ExtensionGrantRule] {
         grantStore.rules.filter { $0.extensionID == status.id }
@@ -539,6 +642,13 @@ private struct ExtensionDetailPage: View {
                     .foregroundStyle(MuxyTheme.fgMuted)
                 ExtensionStatusBadge(status: status)
                 Spacer()
+                if let availableVersion {
+                    ExtensionUpdateButton(
+                        version: availableVersion,
+                        isUpdating: isUpdating,
+                        action: { Task { await update() } }
+                    )
+                }
                 Toggle("", isOn: enabledBinding)
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -775,6 +885,17 @@ private struct ExtensionDetailPage: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(MuxyTheme.border, lineWidth: 1)
         )
+    }
+
+    private func update() async {
+        isUpdating = true
+        defer { isUpdating = false }
+        do {
+            try await store.update(extensionID: status.id)
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            ToastState.shared.show(title: "Could not update \(status.id)", body: message)
+        }
     }
 
     private var enabledBinding: Binding<Bool> {

@@ -342,6 +342,7 @@ struct SidebarFooter: View {
     var sidebarExpanded = false
     @State private var showThemePicker = false
     @State private var showNotifications = false
+    @State private var extensionStore = ExtensionStore.shared
 
     private var notificationStore: NotificationStore { NotificationStore.shared }
 
@@ -381,6 +382,16 @@ struct SidebarFooter: View {
         NotificationCenter.default.post(name: .openExtensionsModal, object: nil)
     }
 
+    private var extensionsHelp: String {
+        guard extensionStore.hasUpdates else { return "Extensions" }
+        let count = extensionStore.updateCount
+        return count == 1 ? "Extensions (1 update available)" : "Extensions (\(count) updates available)"
+    }
+
+    private var extensionsAccessibilityLabel: String {
+        extensionStore.hasUpdates ? "Extensions, updates available" : "Extensions"
+    }
+
     private var collapsedFooter: some View {
         VStack(spacing: UIMetrics.spacing2) {
             IconButton(symbol: notificationBellIcon, accessibilityLabel: "Notifications") { showNotifications.toggle() }
@@ -388,8 +399,12 @@ struct SidebarFooter: View {
                 .popover(isPresented: $showNotifications) {
                     NotificationPanel(onDismiss: { showNotifications = false })
                 }
-            IconButton(symbol: "puzzlepiece.extension", accessibilityLabel: "Extensions") { openExtensions() }
-                .help("Extensions")
+            IconButton(
+                symbol: "puzzlepiece.extension",
+                showsBadge: extensionStore.hasUpdates,
+                accessibilityLabel: extensionsAccessibilityLabel
+            ) { openExtensions() }
+                .help(extensionsHelp)
             IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }
@@ -411,8 +426,12 @@ struct SidebarFooter: View {
                 .popover(isPresented: $showNotifications) {
                     NotificationPanel(onDismiss: { showNotifications = false })
                 }
-            IconButton(symbol: "puzzlepiece.extension", accessibilityLabel: "Extensions") { openExtensions() }
-                .help("Extensions")
+            IconButton(
+                symbol: "puzzlepiece.extension",
+                showsBadge: extensionStore.hasUpdates,
+                accessibilityLabel: extensionsAccessibilityLabel
+            ) { openExtensions() }
+                .help(extensionsHelp)
             IconButton(symbol: "paintpalette", accessibilityLabel: "Theme Picker") { showThemePicker.toggle() }
                 .help("Theme Picker (\(KeyBindingStore.shared.combo(for: .toggleThemePicker).displayString))")
                 .popover(isPresented: $showThemePicker) { ThemePicker(mode: .sidebar) }
