@@ -48,6 +48,26 @@ struct SocketCommandHandlerTests {
         #expect(paneID.flatMap { pane(with: $0, appState: appState)?.startupCommand } == "(echo a | wc); exec \"$0\" -l")
     }
 
+    @Test("split with startup command requires exec permission")
+    func splitWithCommandRequiresExecPermission() {
+        let plainSplit = SocketCommandHandler.requiredPermissions(
+            command: "split-right",
+            parts: ["split-right"]
+        )
+        let commandSplit = SocketCommandHandler.requiredPermissions(
+            command: "split-right",
+            parts: ["split-right", "", "echo hello"]
+        )
+        let whitespaceCommandSplit = SocketCommandHandler.requiredPermissions(
+            command: "split-down",
+            parts: ["split-down", "", "   "]
+        )
+
+        #expect(plainSplit == [.panesWrite])
+        #expect(commandSplit == [.panesWrite, .commandsExec])
+        #expect(whitespaceCommandSplit == [.panesWrite])
+    }
+
     @Test("split fails without active project")
     func splitFailsWithoutActiveProject() async {
         let appState = AppState(

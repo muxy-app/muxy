@@ -12,7 +12,7 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | Permission | Grants |
 | --- | --- |
 | `panes:read` | `read-screen`, `list-panes` |
-| `panes:write` | `split-right`, `split-down`, `send`, `send-keys`, `close-pane`, `rename-pane` |
+| `panes:write` | `split-right`, `split-down`, `send`, `send-keys`, `close-pane`, `rename-pane`. Split requests with a startup command also require `commands:exec`. |
 | `tabs:read` | `list-tabs` |
 | `tabs:write` | `switch-tab`, `new-tab`, `next-tab`, `previous-tab`, `open-tab` |
 | `projects:read` | `list-projects` |

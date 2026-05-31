@@ -14,11 +14,12 @@ enum SocketCommandHandler {
             return "error:empty command"
         }
 
-        if let extensionID = clientContext.extensionID,
-           let required = MuxyAPI.Permissions.required(for: cmd),
-           !ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: required)
-        {
-            return "error:permission denied (\(required.rawValue))"
+        if let extensionID = clientContext.extensionID {
+            for required in requiredPermissions(command: cmd, parts: parts)
+                where !ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: required)
+            {
+                return "error:permission denied (\(required.rawValue))"
+            }
         }
 
         switch cmd {
@@ -420,6 +421,16 @@ enum SocketCommandHandler {
             return (fromPane, parts.dropFirst(1).dropLast().joined(separator: "|"))
         }
         return (nil, parts.dropFirst(1).joined(separator: "|"))
+    }
+
+    static func requiredPermissions(command: String, parts: [String]) -> [ExtensionPermission] {
+        var permissions = MuxyAPI.Permissions.required(for: command).map { [$0] } ?? []
+        guard command == "split-right" || command == "split-down" else { return permissions }
+        let splitRequest = parseSplitRequest(parts: parts)
+        let trimmedCommand = splitRequest.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedCommand?.isEmpty == false else { return permissions }
+        permissions.append(.commandsExec)
+        return permissions
     }
 
     private static func serialize<T>(
