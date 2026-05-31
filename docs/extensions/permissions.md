@@ -19,7 +19,7 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `projects:write` | `switch-project` |
 | `worktrees:read` | `list-worktrees` |
 | `worktrees:write` | `create-worktree`, `switch-worktree`, `refresh-worktrees` |
-| `notifications:write` | Post notifications |
+| `notifications:write` | `notifications.notify` (or its `toast` alias) to post a notification |
 | `panels:write` | `panel.open`, `panel.toggle`, `panel.close` for declared [panels](panels.md); `popover.resize`, `popover.close` for the extension's open [popover](popovers.md). |
 | `commands:run-script` | Execute `runScript` palette command actions in the per-extension JavaScriptCore context. |
 | `commands:exec` | Run shell commands via `muxy.exec` (subprocess execution with stdout/stderr capture). |
@@ -60,6 +60,5 @@ Rules can be reviewed, refined, or removed in `Settings → Extensions → Permi
 
 - **Subscribing to events** is gated separately by the manifest `events` array — see [Events](events.md). The caller's identity, not a `permissions` entry, decides what it can subscribe to.
 - **Receiving palette command triggers.** Once an extension declares a command in `commands`, it can subscribe to its own `command.<id>` event without listing it under `events`.
-- **AI provider routing.** Declaring `aiProvider` in the manifest is enough; there is no separate permission today.
 
 Permissions are coarse (verb groups, not individual verbs) on purpose while the API is in flux. Expect the list to expand and possibly split (e.g. `panes:send` vs `panes:close`) once a dedicated extension API layer lands.

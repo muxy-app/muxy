@@ -17,7 +17,7 @@ A palette command with `action.kind = "runScript"` runs a JavaScript file in an 
 
 ```js
 const panes = muxy.panes.list();
-muxy.toast({
+muxy.notifications.notify({
   title: 'Pane audit',
   body: `${panes.length} pane(s) — focused: ${panes.find(p => p.isFocused)?.title ?? 'none'}`,
 });
@@ -34,7 +34,7 @@ muxy.toast({
 `muxy.extensionID` plus the same synchronous methods as webview tabs:
 
 ```
-muxy.toast(opts)
+muxy.notifications.notify(opts)      // alias: muxy.toast(opts)
 muxy.tabs.{list, switchTo, new, next, previous, open}
 muxy.panes.{list, send, sendKeys, readScreen, close, rename}
 muxy.projects.{list, switchTo}

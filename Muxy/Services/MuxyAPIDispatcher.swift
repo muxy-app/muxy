@@ -16,8 +16,9 @@ enum MuxyAPIDispatcher {
             throw APIError.underlying("permission denied (\(required.rawValue))")
         }
         switch verb {
-        case "toast":
-            return try await handleToast(args: args, context: context)
+        case "toast",
+             "notifications.notify":
+            return try await handleNotify(args: args, context: context)
         case "panel.open":
             try unwrap(MuxyAPI.Panels.open(
                 extensionID: context.extensionID,
@@ -180,13 +181,13 @@ enum MuxyAPIDispatcher {
         return ExtensionBridgeShared.encodeExecResult(result)
     }
 
-    private static func handleToast(args: [String: Any], context: Context) async throws -> Any {
+    private static func handleNotify(args: [String: Any], context: Context) async throws -> Any {
         let title = (args["title"] as? String) ?? ""
         let body = (args["body"] as? String) ?? ""
         guard !title.isEmpty || !body.isEmpty else {
-            throw APIError.invalidArguments("toast requires title or body")
+            throw APIError.invalidArguments("notification requires title or body")
         }
-        let source = AIProviderRegistry.shared.notificationSource(for: context.extensionID)
+        let source = MuxyNotification.Source.aiProvider(context.extensionID)
         if let paneIDString = args["paneID"] as? String, let paneID = UUID(uuidString: paneIDString) {
             NotificationStore.shared.add(
                 paneID: paneID,

@@ -11,7 +11,7 @@ Muxy extensions live in `~/.config/muxy/extensions/<name>/` and load when Muxy s
 
 A Muxy extension has two independent surfaces. Most of getting an extension right is choosing the correct one for each piece of work:
 
-- **UI pages (in-process).** Tabs, panels, and popovers are HTML/CSS/JS rendered in a `WKWebView`. Their page scripts get the **full `window.muxy` API** — `tabs`, `panes`, `projects`, `worktrees`, `events`, `exec`, `toast`, `panels`, `popover`, plus `data`, `theme`, and `tabInstanceID`. Use a page whenever you need to *show* something.
+- **UI pages (in-process).** Tabs, panels, and popovers are HTML/CSS/JS rendered in a `WKWebView`. Their page scripts get the **full `window.muxy` API** — `tabs`, `panes`, `projects`, `worktrees`, `events`, `exec`, `notifications`, `panels`, `popover`, plus `data`, `theme`, and `tabInstanceID`. Use a page whenever you need to *show* something.
 - **Background script (`background.js`, out-of-process).** Optional. Muxy runs it in a long-lived host process and gives it a **small `muxy` global** — only `extensionID`, `events.subscribe`/`unsubscribe`, `exec`, and `console.*`. Use it only to **react to pushed events** or **run shell commands on a schedule/in the background**, independent of any open tab. Most extensions don't need one.
 
 Rule of thumb: long-lived, event-driven, or headless work → `background.js`. Anything the user looks at → a UI page. Don't open a hidden tab just to run logic — use a [`runScript`](#run-script-commands-javascriptcore-sandbox) command instead.
@@ -152,7 +152,7 @@ Permissions are gated server-side. Requests without the matching permission fail
 | `projects:write` | `projects.switch` |
 | `worktrees:read` | `worktrees.list` |
 | `worktrees:write` | `worktrees.switch`, `worktrees.refresh` |
-| `notifications:write` | `toast` |
+| `notifications:write` | `notifications.notify` (alias: `toast`) |
 | `panels:write` | `panel.open`, `panel.toggle`, `panel.close`, `popover.resize`, `popover.close` |
 | `commands:run-script` | `runScript` commands |
 | `commands:exec` | `muxy.exec` (always prompts the user the first time) |
@@ -306,7 +306,7 @@ Only events declared in `manifest.events` (or auto-allowed command events) reach
 ### Notifications
 
 ```js
-await muxy.toast({ title: 'Done', body: 'Build finished in 3.2s' });
+await muxy.notifications.notify({ title: 'Done', body: 'Build finished in 3.2s' });
 ```
 
 ## Run-script commands (JavaScriptCore sandbox)
@@ -496,7 +496,7 @@ This extension only opens a tab from a palette command, so it declares no backgr
   <script>
     document.getElementById('who').textContent = muxy.extensionID;
     document.getElementById('say').addEventListener('click', () =>
-      muxy.toast({ title: 'Hello', body: `theme: ${muxy.theme.colorScheme}` })
+      muxy.notifications.notify({ title: 'Hello', body: `theme: ${muxy.theme.colorScheme}` })
     );
   </script>
 </body>
@@ -522,7 +522,7 @@ button {
 button:hover { background: var(--muxy-hover); border-color: var(--muxy-accent); }
 ```
 
-> Note: `muxy.toast` requires `notifications:write`. Add it to `permissions` if you use it.
+> Note: `muxy.notifications.notify` requires `notifications:write`. Add it to `permissions` if you use it.
 
 ## End-to-end example (popover)
 

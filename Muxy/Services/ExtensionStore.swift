@@ -384,17 +384,6 @@ final class ExtensionStore {
         ))
     }
 
-    func declaredAIProvider(for socketTypeKey: String) -> (extensionID: String, provider: ExtensionAIProvider)? {
-        for status in statuses where status.isEnabled {
-            if let provider = status.muxyExtension.manifest.aiProvider,
-               provider.socketTypeKey == socketTypeKey
-            {
-                return (status.id, provider)
-            }
-        }
-        return nil
-    }
-
     private func loadFromDisk() {
         statuses = []
         loadFailures = []

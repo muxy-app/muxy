@@ -44,7 +44,10 @@ window.muxy = {
   tabInstanceID: string,
   data: object | null,                 // payload the tab was opened with (or defaultData)
 
-  toast({ title, body?, paneID? }): Promise<void>,
+  notifications: {
+    notify({ title, body?, paneID? }): Promise<void>,   // requires notifications:write
+  },
+  toast({ title, body?, paneID? }): Promise<void>,        // same as notifications.notify
 
   tabs: {
     open(request): Promise<void>,       // see "Opening another tab"

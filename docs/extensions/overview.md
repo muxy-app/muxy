@@ -21,7 +21,6 @@ Events originate in the main process (`ExtensionEventEmitter` diffs workspace st
 | [Permissions](permissions.md) | Permission grants and runtime consent |
 | [Events](events.md) | Subscribable events and payloads |
 | [Palette Commands](palette-commands.md) | Commands that appear in the command palette |
-| [AI Provider Hooks](ai-provider.md) | Route third-party notifications to a custom source |
 
 ## Where extensions live
 

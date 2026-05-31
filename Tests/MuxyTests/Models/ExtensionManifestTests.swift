@@ -22,10 +22,9 @@ struct ExtensionManifestTests {
         #expect(manifest.events.isEmpty)
         #expect(manifest.commands.isEmpty)
         #expect(manifest.permissions.isEmpty)
-        #expect(manifest.aiProvider == nil)
     }
 
-    @Test("decodes full manifest with permissions, events, commands and aiProvider")
+    @Test("decodes full manifest with permissions, events and commands")
     func decodesFullManifest() throws {
         let json = #"""
         {
@@ -37,8 +36,7 @@ struct ExtensionManifestTests {
             "commands": [
                 { "id": "greet", "title": "Say hello", "subtitle": "demo" }
             ],
-            "permissions": ["panes:read", "tabs:write"],
-            "aiProvider": { "socketTypeKey": "demo", "displayName": "Demo", "iconName": "sparkles" }
+            "permissions": ["panes:read", "tabs:write", "notifications:write"]
         }
         """#
         let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
@@ -46,8 +44,7 @@ struct ExtensionManifestTests {
         #expect(manifest.description == "Test extension")
         #expect(manifest.events == ["pane.created", "tab.focused"])
         #expect(manifest.commands == [ExtensionPaletteCommand(id: "greet", title: "Say hello", subtitle: "demo")])
-        #expect(manifest.permissions == [.panesRead, .tabsWrite])
-        #expect(manifest.aiProvider == ExtensionAIProvider(socketTypeKey: "demo", displayName: "Demo", iconName: "sparkles"))
+        #expect(manifest.permissions == [.panesRead, .tabsWrite, .notificationsWrite])
     }
 
     @Test("loads from directory and resolves background script")

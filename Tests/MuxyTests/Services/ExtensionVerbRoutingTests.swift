@@ -15,6 +15,12 @@ struct ExtensionVerbRoutingTests {
         #expect(verbs.contains("extension.statusbar.set"))
     }
 
+    @Test("notifications.notify and toast both require notifications:write")
+    func notifyVerbRequiresNotificationsWrite() {
+        #expect(MuxyAPI.Permissions.required(for: "notifications.notify") == .notificationsWrite)
+        #expect(MuxyAPI.Permissions.required(for: "toast") == .notificationsWrite)
+    }
+
     @Test("MuxyAPI verbNames includes the legacy CLI verbs")
     func verbNamesIncludesLegacyVerbs() {
         let verbs = MuxyAPI.Permissions.verbNames

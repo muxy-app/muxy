@@ -189,6 +189,7 @@ enum MuxyAPI {
             "worktrees.switch": .worktreesWrite,
             "worktrees.refresh": .worktreesWrite,
             "toast": .notificationsWrite,
+            "notifications.notify": .notificationsWrite,
             "panel.open": .panelsWrite,
             "panel.close": .panelsWrite,
             "panel.toggle": .panelsWrite,

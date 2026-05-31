@@ -74,6 +74,9 @@ enum ExtensionWebBridge {
                 toast(opts) {
                     return send('toast', opts || {});
                 },
+                notifications: {
+                    notify(opts) { return send('notifications.notify', opts || {}); },
+                },
                 tabs: {
                     open(request) { return send('tabs.open', request || {}); },
                     list() { return send('tabs.list', {}); },
@@ -164,6 +167,7 @@ enum ExtensionWebBridge {
                 },
             };
 
+            Object.freeze(muxy.notifications);
             Object.freeze(muxy.tabs);
             Object.freeze(muxy.panes);
             Object.freeze(muxy.projects);

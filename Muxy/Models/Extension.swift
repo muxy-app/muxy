@@ -384,12 +384,6 @@ struct ExtensionPaletteCommand: Codable, Equatable, Identifiable {
     var eventName: String { "command.\(id)" }
 }
 
-struct ExtensionAIProvider: Codable, Equatable {
-    let socketTypeKey: String
-    let displayName: String
-    let iconName: String
-}
-
 struct ExtensionManifest: Codable, Equatable {
     let name: String
     let version: String
@@ -401,7 +395,6 @@ struct ExtensionManifest: Codable, Equatable {
     let panels: [ExtensionPanel]
     let popovers: [ExtensionPopover]
     let permissions: [ExtensionPermission]
-    let aiProvider: ExtensionAIProvider?
     let topbarItems: [ExtensionTopbarItem]
     let statusBarItems: [ExtensionStatusBarItem]
     let settings: [ExtensionSettingEntry]
@@ -417,7 +410,6 @@ struct ExtensionManifest: Codable, Equatable {
         case panels
         case popovers
         case permissions
-        case aiProvider
         case topbarItems
         case statusBarItems
         case settings
@@ -434,7 +426,6 @@ struct ExtensionManifest: Codable, Equatable {
         panels: [ExtensionPanel] = [],
         popovers: [ExtensionPopover] = [],
         permissions: [ExtensionPermission] = [],
-        aiProvider: ExtensionAIProvider? = nil,
         topbarItems: [ExtensionTopbarItem] = [],
         statusBarItems: [ExtensionStatusBarItem] = [],
         settings: [ExtensionSettingEntry] = []
@@ -449,7 +440,6 @@ struct ExtensionManifest: Codable, Equatable {
         self.panels = panels
         self.popovers = popovers
         self.permissions = permissions
-        self.aiProvider = aiProvider
         self.topbarItems = topbarItems
         self.statusBarItems = statusBarItems
         self.settings = settings
@@ -467,7 +457,6 @@ struct ExtensionManifest: Codable, Equatable {
         panels = try container.decodeIfPresent([ExtensionPanel].self, forKey: .panels) ?? []
         popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
         permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
-        aiProvider = try container.decodeIfPresent(ExtensionAIProvider.self, forKey: .aiProvider)
         topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
         statusBarItems = try container.decodeIfPresent([ExtensionStatusBarItem].self, forKey: .statusBarItems) ?? []
         settings = try container.decodeIfPresent([ExtensionSettingEntry].self, forKey: .settings) ?? []

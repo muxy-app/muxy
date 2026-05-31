@@ -22,6 +22,8 @@ Muxy listens on a Unix domain socket:
 
 The path is exported to every Muxy terminal as `MUXY_SOCKET_PATH`, with a per-pane identifier `MUXY_PANE_ID`. Any process running inside a Muxy pane can read these and send a message.
 
+> Extensions don't use this socket for notifications — they call `muxy.notifications.notify(...)` through the [extension API](../extensions/README.md) (gated by `notifications:write`). This socket is the path for shell-capable tools: AI agent hooks, CLIs, and build scripts.
+
 ## Wire format
 
 One message per connection: a single UTF-8 line with four pipe-separated fields:
@@ -32,7 +34,7 @@ One message per connection: a single UTF-8 line with four pipe-separated fields:
 
 | Field | Required | Description |
 | --- | --- | --- |
-| `type` | yes | Source identifier. Unknown values are accepted and shown generically. Built-in: `claude_hook`, `codex_hook`, `cursor_hook`, `droid_hook`, `opencode`. |
+| `type` | yes | Source identifier. Unknown values are accepted and shown generically. Built-in: `claude_hook`, `codex_hook`, `cursor_hook`, `droid_hook`, `opencode`, `pi`. |
 | `paneID` | yes | Pane the event belongs to. Use `$MUXY_PANE_ID` from inside a Muxy terminal. Leave empty to attach to the active pane. |
 | `title` | yes | Notification title. Empty falls back to `Task completed!`. |
 | `body` | no | Body. Must not contain `\|` or newlines — replace them first. |

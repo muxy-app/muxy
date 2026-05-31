@@ -18,6 +18,7 @@ public enum ExtensionBridgeJS {
             const muxy = {
                 extensionID: \(extLiteral),
                 \(surface == .inProcess ? "toast: (opts) => dispatch('toast', opts || {})," : "")
+                \(surface == .inProcess ? "notifications: { notify: (opts) => dispatch('notifications.notify', opts || {}) }," : "")
                 exec(argvOrOptions, maybeOptions) {
                     let payload;
                     if (Array.isArray(argvOrOptions)) {
@@ -43,7 +44,8 @@ public enum ExtensionBridgeJS {
         \(surface == .inProcess ? workspaceBlock : "")
         \(surface == .background ? eventsBlock : "")
             \(surface == .inProcess ?
-            "Object.freeze(muxy.tabs); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees);" : "")
+            "Object.freeze(muxy.notifications); Object.freeze(muxy.tabs); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees);" :
+            "")
             \(surface == .background ? "Object.freeze(muxy.events);" : "")
             Object.freeze(muxy);
             this.muxy = muxy;

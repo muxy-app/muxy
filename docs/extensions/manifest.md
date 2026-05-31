@@ -12,8 +12,7 @@ Every extension declares itself in a `manifest.json` at the root of its director
   "events": ["pane.created", "tab.focused", "notification.posted"],
   "commands": [
     { "id": "ping", "title": "Hello: Ping", "subtitle": "Demo command" }
-  ],
-  "aiProvider": null
+  ]
 }
 ```
 
@@ -34,7 +33,6 @@ Every extension declares itself in a `manifest.json` at the root of its director
 | `topbarItems` | object[] | no | Icons attached to the tab strip. See [Topbar](topbar.md). |
 | `statusBarItems` | object[] | no | Icons attached to the footer status bar. See [Status Bar](statusbar.md). |
 | `settings` | object[] | no | Typed settings shown in the Settings sidebar. See [Settings](settings.md). |
-| `aiProvider` | object | no | Optional notification source mapping. See [AI Provider Hooks](ai-provider.md). |
 
 Extensions are enabled by default after loading. The Settings → Extensions toggle is persisted in `UserDefaults` under `muxy.ext.enabled.<extension-id>` and survives launches. A legacy `enabled` manifest field is no longer part of the schema; if present with no user override, it is migrated into that UserDefaults entry on first load and otherwise ignored.
 

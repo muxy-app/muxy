@@ -78,7 +78,6 @@ flowchart TD
 | [Settings](settings.md) | Declare typed settings and read/write them at runtime |
 | [Scripts](scripts.md) | Run JS files as palette commands in a per-extension JSContext |
 | [Logs](logs.md) | Where logs live on disk, console.* bridge, size cap and trim policy |
-| [AI Provider Hooks](ai-provider.md) | Route third-party agent notifications to a custom source |
 
 ## Quick reference
 
