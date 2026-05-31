@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 
@@ -46,14 +47,52 @@ struct ExtensionStoreUpdateTests {
         #expect(!store.hasUpdates)
     }
 
+    @Test("update installs the remote version and clears the flag")
+    func updateInstallsRemoteVersion() async throws {
+        let root = makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = makeStore(root: root, versions: ["demo-ext": "2.0.0"])
+        StubMarketplaceURLProtocol.packages["demo-ext"] = try makeExtensionZip(name: "demo-ext", version: "2.0.0")
+
+        try await store.install(expectedName: "demo-ext", zip: makeExtensionZip(name: "demo-ext", version: "1.0.0"))
+        await store.checkForUpdates()
+        #expect(store.hasUpdates)
+
+        try await store.update(extensionID: "demo-ext")
+
+        #expect(!store.hasUpdates)
+        #expect(store.statuses.first(where: { $0.id == "demo-ext" })?.muxyExtension.manifest.version == "2.0.0")
+    }
+
+    @Test("updateAll reports successes and failures separately")
+    func updateAllAggregatesResults() async throws {
+        let root = makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = makeStore(root: root, versions: ["ok-ext": "2.0.0", "fail-ext": "2.0.0"])
+        StubMarketplaceURLProtocol.packages["ok-ext"] = try makeExtensionZip(name: "ok-ext", version: "2.0.0")
+
+        try await store.install(expectedName: "ok-ext", zip: makeExtensionZip(name: "ok-ext", version: "1.0.0"))
+        try await store.install(expectedName: "fail-ext", zip: makeExtensionZip(name: "fail-ext", version: "1.0.0"))
+        await store.checkForUpdates()
+        #expect(store.updateCount == 2)
+
+        let result = await store.updateAll()
+
+        #expect(result.succeeded == ["ok-ext"])
+        #expect(result.failed.map(\.id) == ["fail-ext"])
+        #expect(store.availableUpdateVersion(for: "ok-ext") == nil)
+        #expect(store.availableUpdateVersion(for: "fail-ext") == "2.0.0")
+    }
+
     private func makeRoot() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("update-root-\(UUID().uuidString)")
     }
 
     private func makeStore(root: URL, versions: [String: String]) -> ExtensionStore {
-        StubVersionsURLProtocol.versions = versions
+        StubMarketplaceURLProtocol.reset()
+        StubMarketplaceURLProtocol.versions = versions
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [StubVersionsURLProtocol.self]
+        configuration.protocolClasses = [StubMarketplaceURLProtocol.self]
         let marketplace = ExtensionMarketplaceService(
             baseURL: URL(string: "https://muxy.test")!,
             session: URLSession(configuration: configuration)
@@ -100,8 +139,16 @@ private final class NoopUpdateSnapshotSink: ExtensionSnapshotSink {
     nonisolated func applyExtensionSnapshot(_: NotificationSocketServer.ExtensionSnapshot) {}
 }
 
-private final class StubVersionsURLProtocol: URLProtocol {
+private final class StubMarketplaceURLProtocol: URLProtocol {
     nonisolated(unsafe) static var versions: [String: String] = [:]
+    nonisolated(unsafe) static var packages: [String: Data] = [:]
+
+    static func reset() {
+        versions = [:]
+        packages = [:]
+    }
+
+    static func downloadURL(for name: String) -> String { "https://muxy.test/download/\(name)" }
 
     override class func canInit(with _: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -111,13 +158,56 @@ private final class StubVersionsURLProtocol: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }
-        let map = Self.versions.mapValues { Optional($0) }
-        let data = (try? JSONSerialization.data(withJSONObject: map)) ?? Data("{}".utf8)
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        let (status, data) = response(for: url)
+        let httpResponse = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: httpResponse, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
 
     override func stopLoading() {}
+
+    private func response(for url: URL) -> (Int, Data) {
+        let path = url.path
+        if path.hasSuffix("/api/extensions/versions") {
+            let map = Self.versions.mapValues { Optional($0) }
+            return (200, (try? JSONSerialization.data(withJSONObject: map)) ?? Data("{}".utf8))
+        }
+        if path.hasPrefix("/download/") {
+            let name = url.lastPathComponent
+            guard let package = Self.packages[name] else { return (404, Data()) }
+            return (200, package)
+        }
+        if path.hasPrefix("/api/extensions/") {
+            let name = url.lastPathComponent
+            guard let package = Self.packages[name] else { return (404, Data("{}".utf8)) }
+            return (200, Self.envelope(name: name, package: package))
+        }
+        return (404, Data())
+    }
+
+    private static func envelope(name: String, package: Data) -> Data {
+        let sha = SHA256.hash(data: package).map { String(format: "%02x", $0) }.joined()
+        let json = """
+        {
+            "data": {
+                "name": "\(name)",
+                "description": null,
+                "permissions": [],
+                "author": null,
+                "homepage": null,
+                "repository": null,
+                "categories": [],
+                "icon_url": null,
+                "screenshot_paths": [],
+                "downloads": 0,
+                "current_version": "2.0.0",
+                "sha256": "\(sha)",
+                "size": \(package.count),
+                "download_url": "\(downloadURL(for: name))"
+            }
+        }
+        """
+        return Data(json.utf8)
+    }
 }

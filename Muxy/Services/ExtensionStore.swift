@@ -152,7 +152,13 @@ final class ExtensionStore {
             availableUpdates = [:]
             return
         }
-        guard let remote = try? await marketplace.resolveVersions(names: installed) else { return }
+        let remote: [String: String]
+        do {
+            remote = try await marketplace.resolveVersions(names: installed)
+        } catch {
+            logger.error("Failed to check for extension updates: \(error.localizedDescription)")
+            return
+        }
 
         var updates: [String: String] = [:]
         for status in statuses {
