@@ -371,6 +371,7 @@ final class ExtensionStore {
         guard let command = muxyExtension.manifest.commands.first(where: { $0.id == commandID }),
               case let .openPopover(popoverID) = command.action
         else { return nil }
+        guard commandCanRun(command, extensionID: muxyExtension.id, logFailure: false) else { return nil }
         return muxyExtension.manifest.popover(id: popoverID)
     }
 
@@ -440,9 +441,10 @@ final class ExtensionStore {
     }
 
     func triggerCommand(_ invocation: CommandInvocation) {
-        guard let muxyExtension = statuses.first(where: { $0.id == invocation.extensionID })?.muxyExtension,
+        guard let muxyExtension = loadedExtension(id: invocation.extensionID),
               let command = muxyExtension.manifest.commands.first(where: { $0.id == invocation.commandID })
         else { return }
+        guard commandCanRun(command, extensionID: invocation.extensionID) else { return }
 
         switch command.action {
         case .event:
@@ -473,18 +475,29 @@ final class ExtensionStore {
         }
     }
 
+    private func commandCanRun(
+        _ command: ExtensionPaletteCommand,
+        extensionID: String,
+        logFailure: Bool = true
+    ) -> Bool {
+        guard let permission = command.action.requiredPermission else { return true }
+        guard extensionHasPermission(id: extensionID, permission: permission) else {
+            if logFailure {
+                ExtensionLogStore.shared.append(
+                    extensionID: extensionID,
+                    line: "[muxy] command \(command.id) blocked: missing \(permission.rawValue) permission"
+                )
+            }
+            return false
+        }
+        return true
+    }
+
     private func runExtensionScript(
         script: String,
         in muxyExtension: MuxyExtension,
         invocation: CommandInvocation
     ) {
-        guard extensionHasPermission(id: invocation.extensionID, permission: .commandsRunScript) else {
-            ExtensionLogStore.shared.append(
-                extensionID: invocation.extensionID,
-                line: "[muxy] runScript blocked: missing commands:run-script permission"
-            )
-            return
-        }
         guard let scriptURL = muxyExtension.resolveResource(script) else {
             ExtensionLogStore.shared.append(
                 extensionID: invocation.extensionID,

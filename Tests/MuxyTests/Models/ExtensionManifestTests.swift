@@ -646,6 +646,15 @@ struct ExtensionManifestTests {
         #expect(!ExtensionCommandAction.runScript(script: "s.js").isAnchored)
     }
 
+    @Test("command actions declare required manifest permissions")
+    func actionRequiredPermissions() {
+        #expect(ExtensionCommandAction.event.requiredPermission == nil)
+        #expect(ExtensionCommandAction.openTab(tabType: "logs", data: nil).requiredPermission == .tabsWrite)
+        #expect(ExtensionCommandAction.togglePanel(panel: "dashboard").requiredPermission == .panelsWrite)
+        #expect(ExtensionCommandAction.openPopover(popover: "usage").requiredPermission == .panelsWrite)
+        #expect(ExtensionCommandAction.runScript(script: "s.js").requiredPermission == .commandsRunScript)
+    }
+
     private func makeTemporaryExtension(
         manifest: String,
         files: [String: String] = [:]

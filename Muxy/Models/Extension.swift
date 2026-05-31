@@ -292,6 +292,20 @@ enum ExtensionCommandAction: Codable, Equatable {
         return false
     }
 
+    var requiredPermission: ExtensionPermission? {
+        switch self {
+        case .event:
+            nil
+        case .openTab:
+            .tabsWrite
+        case .togglePanel,
+             .openPopover:
+            .panelsWrite
+        case .runScript:
+            .commandsRunScript
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case kind
         case tabType
