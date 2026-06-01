@@ -137,6 +137,8 @@ final class GhosttyTerminalNSView: NSView {
             let escapedConfig = ShellEscaper.escape(configPath)
             let escapedDir = ShellEscaper.escape(workingDirectory)
             let escapedSession = ShellEscaper.escape(sessionName)
+            let envFlags = envVars.map { "-e \(ShellEscaper.escape("\($0.key)=\($0.value)"))" }
+                .joined(separator: " ")
             let tmuxCommand: String
             if let command,
                let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
@@ -150,10 +152,10 @@ final class GhosttyTerminalNSView: NSView {
                 cEnvVars.append(ghostty_env_var_s(key: commandKey, value: commandValue))
                 let loginCmd = String(cString: loginWrapped)
                 tmuxCommand = "\(tmux) -L \(Self.tmuxSocketName) -f \(escapedConfig)" +
-                    " new-session -A -s \(escapedSession) -x 200 -y 50 \(loginCmd)"
+                    " new-session -A -s \(escapedSession) \(envFlags) -x 200 -y 50 \(loginCmd)"
             } else {
                 tmuxCommand = "\(tmux) -L \(Self.tmuxSocketName) -f \(escapedConfig)" +
-                    " new-session -A -s \(escapedSession) -c \(escapedDir) -x 200 -y 50"
+                    " new-session -A -s \(escapedSession) \(envFlags) -c \(escapedDir) -x 200 -y 50"
             }
             guard let cmdPtr = strdup(tmuxCommand) else { return }
             surfaceCStringPointers.append(cmdPtr)
@@ -305,7 +307,6 @@ final class GhosttyTerminalNSView: NSView {
     private static func ensureTmuxConfig() -> String {
         let dir = MuxyFileStorage.appSupportDirectory()
         let path = dir.appendingPathComponent("tmux.conf").path
-        guard !tmuxConfigWritten else { return path }
         let config = """
         set -g status off
         set -g escape-time 0
@@ -313,14 +314,37 @@ final class GhosttyTerminalNSView: NSView {
         set -g mouse on
         set -g default-terminal "xterm-256color"
         set -g aggressive-resize on
+        set -g allow-passthrough on
+        set -s terminal-features[0] "xterm-256color:allow-passthrough"
         """
+        guard !tmuxConfigWritten else { return path }
         do {
             try config.write(toFile: path, atomically: true, encoding: .utf8)
             tmuxConfigWritten = true
+            applyPassthroughToRunningServer()
         } catch {
             logger.error("Failed to write tmux config: \(error.localizedDescription)")
         }
         return path
+    }
+
+    private static func applyPassthroughToRunningServer() {
+        guard let tmux = findTmuxBinary() else { return }
+        let socket = tmuxSocketName
+        DispatchQueue.global(qos: .utility).async {
+            for args in [
+                ["-L", socket, "set-option", "-s", "allow-passthrough", "on"],
+                ["-L", socket, "set-option", "-s", "terminal-features[0]", "xterm-256color:allow-passthrough"],
+            ] {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: tmux)
+                process.arguments = args
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = FileHandle.nullDevice
+                try? process.run()
+                process.waitUntilExit()
+            }
+        }
     }
 
     private func tmuxSessionName() -> String? {
