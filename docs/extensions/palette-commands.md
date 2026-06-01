@@ -23,6 +23,17 @@ Extensions can declare commands that appear in Muxy's command palette. Picking a
 | `title` | string | yes | The palette row title. |
 | `subtitle` | string | no | Dimmer second line. Defaults to the extension's display name. |
 | `action` | object | no | What happens when picked. Defaults to `{ "kind": "event" }`. |
+| `defaultShortcut` | string | no | A keyboard shortcut that runs the command, e.g. `"cmd+shift+e"`. See below. |
+
+## Keyboard shortcuts
+
+A command may declare a `defaultShortcut` (e.g. `"cmd+ctrl+p"`). On load Muxy
+auto-assigns it when the combo is free; if it is already taken (by an app
+shortcut, a custom command, or another extension), the command registers
+**unassigned**. The first extension to claim a combo keeps it. Users view and
+rebind these under **Settings → Keyboard Shortcuts → App Shortcuts**, grouped by
+extension name. Pressing the shortcut runs the command's `action`, exactly as
+picking it from the palette does.
 
 ## Actions
 

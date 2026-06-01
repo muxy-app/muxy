@@ -121,6 +121,58 @@ struct KeyCombo: Codable, Equatable, Hashable {
         self.modifiers = flags
     }
 
+    init?(parsing description: String) {
+        let tokens = description
+            .lowercased()
+            .split(whereSeparator: { $0 == "+" || $0 == "-" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard let rawKey = tokens.last else { return nil }
+
+        var command = false
+        var shift = false
+        var control = false
+        var option = false
+        for token in tokens.dropLast() {
+            switch token {
+            case "cmd",
+                 "command",
+                 "meta",
+                 "super": command = true
+            case "shift": shift = true
+            case "ctrl",
+                 "control": control = true
+            case "opt",
+                 "option",
+                 "alt": option = true
+            default: return nil
+            }
+        }
+
+        guard let key = Self.parsedKey(from: rawKey) else { return nil }
+        self.init(key: key, command: command, shift: shift, control: control, option: option)
+        guard isAssigned else { return nil }
+    }
+
+    private static func parsedKey(from token: String) -> String? {
+        switch token {
+        case "left",
+             leftArrowKey: leftArrowKey
+        case "right",
+             rightArrowKey: rightArrowKey
+        case "up",
+             upArrowKey: upArrowKey
+        case "down",
+             downArrowKey: downArrowKey
+        case "tab",
+             tabKey: tabKey
+        case "return",
+             "enter",
+             returnKey: returnKey
+        default: token.count == 1 ? token : nil
+        }
+    }
+
     var nsModifierFlags: NSEvent.ModifierFlags {
         NSEvent.ModifierFlags(rawValue: modifiers).intersection(Self.supportedModifierMask)
     }

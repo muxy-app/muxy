@@ -179,6 +179,7 @@ struct MainWindow: View {
         .background(MainWindowShortcutInterceptor(
             onShortcut: { action in handleShortcutAction(action) },
             onCommandShortcut: { shortcut in handleCommandShortcut(shortcut) },
+            onExtensionShortcut: { shortcut in handleExtensionShortcut(shortcut) },
             onMouseBack: { appState.goBack() },
             onMouseForward: { appState.goForward() }
         ))
@@ -960,6 +961,17 @@ struct MainWindow: View {
         return true
     }
 
+    private func handleExtensionShortcut(_ shortcut: ExtensionShortcut) -> Bool {
+        ExtensionStore.shared.triggerCommand(.init(
+            extensionID: shortcut.extensionID,
+            commandID: shortcut.commandID,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
+        ))
+        return true
+    }
+
     private var activeProjectHasSplitWorkspace: Bool {
         guard let project = activeProject,
               let root = appState.workspaceRoot(for: project.id)
@@ -1672,6 +1684,7 @@ private struct NavigationArrowButton: View {
 private struct MainWindowShortcutInterceptor: NSViewRepresentable {
     let onShortcut: (ShortcutAction) -> Bool
     let onCommandShortcut: (CommandShortcut) -> Bool
+    let onExtensionShortcut: (ExtensionShortcut) -> Bool
     let onMouseBack: () -> Void
     let onMouseForward: () -> Void
 
@@ -1679,6 +1692,7 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
         let view = ShortcutInterceptingView()
         view.onShortcut = onShortcut
         view.onCommandShortcut = onCommandShortcut
+        view.onExtensionShortcut = onExtensionShortcut
         view.onMouseBack = onMouseBack
         view.onMouseForward = onMouseForward
         return view
@@ -1687,6 +1701,7 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
     func updateNSView(_ nsView: ShortcutInterceptingView, context: Context) {
         nsView.onShortcut = onShortcut
         nsView.onCommandShortcut = onCommandShortcut
+        nsView.onExtensionShortcut = onExtensionShortcut
         nsView.onMouseBack = onMouseBack
         nsView.onMouseForward = onMouseForward
     }
@@ -1695,6 +1710,7 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
 private final class ShortcutInterceptingView: NSView {
     var onShortcut: ((ShortcutAction) -> Bool)?
     var onCommandShortcut: ((CommandShortcut) -> Bool)?
+    var onExtensionShortcut: ((ExtensionShortcut) -> Bool)?
     var onMouseBack: (() -> Void)?
     var onMouseForward: (() -> Void)?
     private var mouseMonitor: Any?
@@ -1733,6 +1749,12 @@ private final class ShortcutInterceptingView: NSView {
 
         if let action = KeyBindingStore.shared.action(for: event, scopes: scopes) {
             if onShortcut?(action) == true {
+                return true
+            }
+        }
+
+        if let shortcut = ExtensionShortcutStore.shared.match(event: event, scopes: scopes) {
+            if onExtensionShortcut?(shortcut) == true {
                 return true
             }
         }

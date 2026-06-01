@@ -35,9 +35,12 @@ struct KeyboardShortcutsSettingsView: View {
     @State private var commandConflictWarning: (id: UUID, message: String)?
     @State private var deleteAllCommandShortcutsSecondsRemaining = 0
     @State private var deleteAllCommandShortcutsTask: Task<Void, Never>?
+    @State private var recordingExtensionShortcutID: String?
+    @State private var extensionConflictWarning: (id: String, message: String)?
 
     private var store: KeyBindingStore { KeyBindingStore.shared }
     private var commandStore: CommandShortcutStore { CommandShortcutStore.shared }
+    private var extensionStore: ExtensionShortcutStore { ExtensionShortcutStore.shared }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -125,16 +128,91 @@ struct KeyboardShortcutsSettingsView: View {
 
     private var appShortcutsList: some View {
         let visibleCategories = ShortcutAction.categories.filter { !filteredActions(for: $0).isEmpty }
+        let extensionGroups = filteredExtensionGroups
         return ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0) {
                 ForEach(visibleCategories, id: \.self) { category in
                     categorySection(
                         title: category,
                         actions: filteredActions(for: category),
-                        isLast: category == visibleCategories.last
+                        isLast: category == visibleCategories.last && extensionGroups.isEmpty
                     )
                 }
+                ForEach(extensionGroups) { group in
+                    extensionSection(group: group, isLast: group.id == extensionGroups.last?.id)
+                }
             }
+        }
+    }
+
+    private func extensionSection(group: ExtensionShortcutGroup, isLast: Bool) -> some View {
+        SettingsSection(group.extensionName, showsDivider: !isLast) {
+            ForEach(group.entries) { entry in
+                ShortcutRow(
+                    title: entry.commandTitle,
+                    combo: entry.combo,
+                    isRecording: recordingExtensionShortcutID == entry.id,
+                    conflictMessage: extensionConflictWarning?.id == entry.id ? extensionConflictWarning?.message : nil,
+                    onStartRecording: {
+                        discardPendingCommandShortcut()
+                        recordingAction = nil
+                        recordingCommandPrefix = false
+                        recordingCommandShortcutID = nil
+                        recordingExtensionShortcutID = entry.id
+                        extensionConflictWarning = nil
+                    },
+                    onRecord: { combo in handleRecord(extensionEntry: entry, combo: combo) },
+                    onCancel: {
+                        recordingExtensionShortcutID = nil
+                        extensionConflictWarning = nil
+                    },
+                    onReset: {
+                        extensionStore.resetCombo(
+                            extensionID: entry.extensionID,
+                            commandID: entry.commandID,
+                            defaultCombo: entry.defaultCombo
+                        )
+                        recordingExtensionShortcutID = nil
+                        extensionConflictWarning = nil
+                    },
+                    onUnassign: {
+                        extensionStore.unassign(extensionID: entry.extensionID, commandID: entry.commandID)
+                        recordingExtensionShortcutID = nil
+                        extensionConflictWarning = nil
+                    }
+                )
+            }
+        }
+        .environment(\.settingsSearchQuery, "")
+    }
+
+    private func handleRecord(extensionEntry entry: ExtensionShortcutEntry, combo: KeyCombo) {
+        if let message = extensionStore.conflictMessage(
+            for: combo,
+            extensionID: entry.extensionID,
+            commandID: entry.commandID
+        ) {
+            extensionConflictWarning = (id: entry.id, message: "\(message) — press a different shortcut or Esc to cancel")
+            return
+        }
+        extensionStore.updateCombo(extensionID: entry.extensionID, commandID: entry.commandID, combo: combo)
+        recordingExtensionShortcutID = nil
+        extensionConflictWarning = nil
+    }
+
+    private var filteredExtensionGroups: [ExtensionShortcutGroup] {
+        let groups = ExtensionShortcutGroup.build(
+            shortcuts: extensionStore.shortcuts,
+            statuses: ExtensionStore.shared.statuses
+        )
+        guard !searchText.isEmpty else { return groups }
+        return groups.compactMap { group in
+            let entries = group.entries.filter {
+                $0.commandTitle.localizedCaseInsensitiveContains(searchText)
+                    || group.extensionName.localizedCaseInsensitiveContains(searchText)
+            }
+            guard !entries.isEmpty else { return nil }
+            return ExtensionShortcutGroup(extensionID: group.extensionID, extensionName: group.extensionName, entries: entries)
         }
     }
 
@@ -148,10 +226,12 @@ struct KeyboardShortcutsSettingsView: View {
         SettingsSection(title, showsDivider: !isLast) {
             ForEach(actions) { action in
                 ShortcutRow(
-                    action: action,
+                    title: action.displayName,
                     combo: store.combo(for: action),
                     isRecording: recordingAction == action,
-                    conflictAction: conflictWarning?.action == action ? conflictWarning?.existing : nil,
+                    conflictMessage: conflictWarning?.action == action
+                        ? "Conflicts with \"\(conflictWarning?.existing.displayName ?? "")\" — press a different shortcut or Esc to cancel"
+                        : nil,
                     onStartRecording: {
                         discardPendingCommandShortcut()
                         recordingAction = action
@@ -383,10 +463,10 @@ struct KeyboardShortcutsSettingsView: View {
 }
 
 private struct ShortcutRow: View {
-    let action: ShortcutAction
+    let title: String
     let combo: KeyCombo
     let isRecording: Bool
-    let conflictAction: ShortcutAction?
+    let conflictMessage: String?
     let onStartRecording: () -> Void
     let onRecord: (KeyCombo) -> Void
     let onCancel: () -> Void
@@ -397,7 +477,7 @@ private struct ShortcutRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(action.displayName)
+                Text(title)
                     .font(.system(size: SettingsMetrics.labelFontSize))
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -408,8 +488,8 @@ private struct ShortcutRow: View {
                 }
             }
 
-            if let conflictAction {
-                Text("Conflicts with \"\(conflictAction.displayName)\" — press a different shortcut or Esc to cancel")
+            if let conflictMessage {
+                Text(conflictMessage)
                     .font(.system(size: 10))
                     .foregroundStyle(SettingsStyle.warning)
             }

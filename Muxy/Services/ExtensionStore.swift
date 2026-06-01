@@ -96,6 +96,7 @@ final class ExtensionStore {
             startExtension(at: index)
         }
         rebuildExtensionUICache()
+        syncExtensionShortcuts()
         publishSnapshot()
     }
 
@@ -280,6 +281,7 @@ final class ExtensionStore {
             PopoverHost.shared.close(extensionID: extensionID)
         }
         rebuildExtensionUICache()
+        syncExtensionShortcuts()
         publishSnapshot()
     }
 
@@ -401,6 +403,11 @@ final class ExtensionStore {
         topbarItems = topbar
         leftStatusBarItems = left
         rightStatusBarItems = right
+    }
+
+    private func syncExtensionShortcuts() {
+        let enabled = statuses.filter(\.isEnabled).map(\.muxyExtension)
+        ExtensionShortcutStore.shared.syncBindings(for: enabled)
     }
 
     func setStatusBarText(extensionID: String, itemID: String, text: String?) -> Bool {

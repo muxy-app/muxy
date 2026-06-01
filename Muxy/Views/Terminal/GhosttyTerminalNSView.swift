@@ -393,6 +393,7 @@ final class GhosttyTerminalNSView: NSView {
         let scopes = ShortcutContext.activeScopes(for: window)
         return KeyBindingStore.shared.isRegisteredShortcut(event: event, scopes: scopes)
             || CommandShortcutStore.shared.isRegisteredShortcut(event: event, scopes: scopes)
+            || ExtensionShortcutStore.shared.isRegisteredShortcut(event: event, scopes: scopes)
     }
 
     private static let systemShortcutKeys: Set<String> = ["q", "h", "m", ","]

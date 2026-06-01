@@ -210,7 +210,12 @@
         "id": { "type": "string", "minLength": 1 },
         "title": { "type": "string" },
         "subtitle": { "type": "string" },
-        "action": { "$ref": "#/$defs/commandAction" }
+        "action": { "$ref": "#/$defs/commandAction" },
+        "defaultShortcut": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Default keyboard shortcut for this command, e.g. \"cmd+shift+e\". Auto-assigned on load when free; registered unassigned when the combo is already taken. Editable in Settings → Keyboard Shortcuts."
+        }
       }
     },
     "commandAction": {

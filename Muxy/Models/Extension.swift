@@ -372,19 +372,28 @@ struct ExtensionPaletteCommand: Codable, Equatable, Identifiable {
     let title: String
     let subtitle: String?
     let action: ExtensionCommandAction
+    let defaultShortcut: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
         case title
         case subtitle
         case action
+        case defaultShortcut
     }
 
-    init(id: String, title: String, subtitle: String? = nil, action: ExtensionCommandAction = .event) {
+    init(
+        id: String,
+        title: String,
+        subtitle: String? = nil,
+        action: ExtensionCommandAction = .event,
+        defaultShortcut: String? = nil
+    ) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.action = action
+        self.defaultShortcut = defaultShortcut
     }
 
     init(from decoder: Decoder) throws {
@@ -393,9 +402,14 @@ struct ExtensionPaletteCommand: Codable, Equatable, Identifiable {
         title = try container.decode(String.self, forKey: .title)
         subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
         action = try container.decodeIfPresent(ExtensionCommandAction.self, forKey: .action) ?? .event
+        defaultShortcut = try container.decodeIfPresent(String.self, forKey: .defaultShortcut)
     }
 
     var eventName: String { "command.\(id)" }
+
+    var defaultCombo: KeyCombo? {
+        defaultShortcut.flatMap(KeyCombo.init(parsing:))
+    }
 }
 
 struct ExtensionManifest: Codable, Equatable {
