@@ -123,9 +123,6 @@ enum ExtensionScaffoldService {
     }
 
     private static func writeViteConfig(in directory: URL) throws {
-        // Build to `dist/`, the directory the publishing pipeline packs and the
-        // app installs. Keep readable output so the shipped bundle stays
-        // reviewable.
         let contents = """
         import { defineConfig } from "vite";
 

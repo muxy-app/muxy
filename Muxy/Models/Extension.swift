@@ -476,9 +476,6 @@ struct ExtensionManifest: Codable, Equatable {
         settings = try container.decodeIfPresent([ExtensionSettingEntry].self, forKey: .settings) ?? []
     }
 
-    /// Builds the manifest from a decoded `package.json`: identity (`name`,
-    /// `version`) comes from the top-level npm fields; everything else comes
-    /// from the `muxy` object.
     init(package: PackageManifest) {
         let muxy = package.muxy
         name = package.name
@@ -517,9 +514,6 @@ struct ExtensionManifest: Codable, Equatable {
     }
 }
 
-/// The extension `package.json`. Identity (`name`, `version`) lives at the top
-/// level where npm expects it; all Muxy-specific manifest fields live under the
-/// `muxy` key. Other npm fields (scripts, dependencies, …) are ignored here.
 struct PackageManifest: Codable, Equatable {
     let name: String
     let version: String
@@ -532,8 +526,6 @@ struct PackageManifest: Codable, Equatable {
     }
 }
 
-/// The body of the manifest — everything that used to live in `manifest.json`
-/// except `name`/`version`, now nested under `package.json`'s `muxy` key.
 struct MuxyManifestBody: Codable, Equatable {
     let description: String?
     let background: String?
@@ -583,6 +575,7 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case backgroundScriptMissing(URL)
     case backgroundScriptOutsideDirectory(URL)
     case invalidName(String)
+    case nameDirectoryMismatch(name: String, directory: String)
     case duplicateName(String)
     case tabTypeEntryMissing(tabTypeID: String, url: URL)
     case tabTypeEntryOutsideDirectory(tabTypeID: String, url: URL)
@@ -625,6 +618,8 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Background script at \(url.path) escapes the extension directory"
         case let .invalidName(name):
             "Extension name '\(name)' contains invalid characters (use letters, digits, dash, underscore, dot)"
+        case let .nameDirectoryMismatch(name, directory):
+            "Extension name '\(name)' must match its directory name '\(directory)'"
         case let .duplicateName(name):
             "Duplicate extension name '\(name)'"
         case let .tabTypeEntryMissing(tabTypeID, url):
@@ -719,8 +714,6 @@ enum ExtensionManifestLoader {
         return set
     }()
 
-    /// Name of the manifest file an extension ships. The Muxy manifest lives
-    /// under the `muxy` key of the npm `package.json`.
     static let manifestFileName = "package.json"
 
     static func load(from directory: URL) throws -> MuxyExtension {

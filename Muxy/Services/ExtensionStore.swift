@@ -581,6 +581,12 @@ final class ExtensionStore {
 
             do {
                 let ext = try ExtensionManifestLoader.load(from: url)
+                guard ext.id == url.lastPathComponent else {
+                    throw ExtensionLoadError.nameDirectoryMismatch(
+                        name: ext.id,
+                        directory: url.lastPathComponent
+                    )
+                }
                 guard !seenIDs.contains(ext.id) else {
                     loadFailures.append(LoadFailure(
                         directory: url,

@@ -142,7 +142,6 @@ struct ExtensionScaffoldServiceTests {
         }
     }
 
-    /// Reads the scaffolded `package.json` as a JSON object.
     private func loadPackage(at extensionURL: URL) throws -> [String: Any] {
         let data = try Data(contentsOf: extensionURL.appendingPathComponent("package.json"))
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -152,7 +151,6 @@ struct ExtensionScaffoldServiceTests {
         return object
     }
 
-    /// The Muxy manifest body lives under the `muxy` key of `package.json`.
     private func loadManifest(at extensionURL: URL) throws -> [String: Any] {
         let package = try loadPackage(at: extensionURL)
         return package["muxy"] as? [String: Any] ?? [:]
@@ -165,7 +163,6 @@ struct ExtensionScaffoldServiceTests {
         description: String
     ) throws {
         let package = try loadPackage(at: extensionURL)
-        // Identity is top-level; a build script is required.
         #expect(package["name"] as? String == name)
         #expect(package["version"] as? String == version)
         #expect((package["scripts"] as? [String: Any])?["build"] as? String != nil)
