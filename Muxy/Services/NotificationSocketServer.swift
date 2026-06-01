@@ -42,6 +42,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private var acceptSource: DispatchSourceRead?
     private let queue = DispatchQueue(label: "app.muxy.notificationSocket")
     private var subscribers: [ObjectIdentifier: ClientSession] = [:]
+    private var liveSessionByExtension: [String: ClientSession] = [:]
     private var readSources: [ObjectIdentifier: DispatchSourceRead] = [:]
     private var extensionSnapshot = ExtensionSnapshot(entries: [:])
     private var inProcessObservers: [UUID: @Sendable (ExtensionEvent) -> Void] = [:]
@@ -169,7 +170,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     private func session(forExtension extensionID: String) -> ClientSession? {
-        subscribers.values.first { $0.extensionID == extensionID }
+        liveSessionByExtension[extensionID]
     }
 
     struct InvokeResult: Equatable {
@@ -390,6 +391,7 @@ final class NotificationSocketServer: @unchecked Sendable {
                 return "error:invalid extension token"
             }
             session.extensionID = claimedID
+            liveSessionByExtension[claimedID] = session
             return "ok"
         case "subscribe":
             let parts = message.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
@@ -605,6 +607,9 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     private func closeSession(_ session: ClientSession) {
+        if let extensionID = session.extensionID, liveSessionByExtension[extensionID] === session {
+            liveSessionByExtension.removeValue(forKey: extensionID)
+        }
         failPendingInvokes(for: session)
         session.writeSource?.cancel()
         session.writeSource = nil

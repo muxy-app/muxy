@@ -120,18 +120,10 @@ final class HostBridge: @unchecked Sendable {
             NSNull()
         }
         let box = ContextBox(context)
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let handlers = box.context.objectForKeyedSubscript("__muxyRemoteHandlers")
-            let handler = handlers?.objectForKeyedSubscript(parsed.action)
-            guard let handler, !handler.isUndefined, !handler.isNull else {
-                self.sendInvokeResult(callID: parsed.callID, ok: false, payload: Data("no handler registered for '\(parsed.action)'".utf8))
-                return
-            }
+        DispatchQueue.main.async {
             let argument = JSValue(object: payloadValue, in: box.context) ?? JSValue(nullIn: box.context)
-            let returned = handler.call(withArguments: [argument as Any])
-            let resolver = box.context.objectForKeyedSubscript("__muxyResolveInvoke")
-            resolver?.call(withArguments: [parsed.callID, returned as Any])
+            let dispatcher = box.context.objectForKeyedSubscript("__muxyDispatchInvoke")
+            dispatcher?.call(withArguments: [parsed.callID, parsed.action, argument as Any])
         }
     }
 
@@ -142,7 +134,7 @@ final class HostBridge: @unchecked Sendable {
     }
 
     static func parseInvoke(_ line: String) -> (callID: String, action: String, payload: String)? {
-        let parts = line.components(separatedBy: "|")
+        let parts = line.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
         guard parts.count >= 4, parts[0] == "invoke" else { return nil }
         let callID = parts[1]
         let action = parts[2]

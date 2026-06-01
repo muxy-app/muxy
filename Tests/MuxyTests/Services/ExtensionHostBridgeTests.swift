@@ -59,6 +59,14 @@ struct ExtensionHostBridgeTests {
         #expect(HostBridge.parseInvoke("invoke||forecast|payload") == nil)
         #expect(HostBridge.parseInvoke("event|forecast|payload") == nil)
     }
+
+    @Test("keeps the payload intact when it would otherwise contain delimiters")
+    func parsesInvokePreservesPayload() {
+        let parsed = HostBridge.parseInvoke("invoke|call-1|forecast|a|b|c")
+        let result = try? #require(parsed)
+        #expect(result?.action == "forecast")
+        #expect(result?.payload == "a|b|c")
+    }
 }
 
 @Suite("MuxyExtensionHost socket client")

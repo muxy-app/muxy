@@ -149,8 +149,20 @@ public enum ExtensionBridgeJS {
                     delete remoteHandlers[String(action)];
                 },
             };
-            this.__muxyResolveInvoke = (callID, valueOrPromise) => {
-                Promise.resolve(valueOrPromise).then(
+            this.__muxyDispatchInvoke = (callID, action, argument) => {
+                const handler = remoteHandlers[String(action)];
+                if (typeof handler !== 'function') {
+                    __muxyInvokeReject(callID, "no handler registered for '" + action + "'");
+                    return;
+                }
+                let result;
+                try {
+                    result = handler(argument);
+                } catch (error) {
+                    __muxyInvokeReject(callID, String((error && error.message) || error));
+                    return;
+                }
+                Promise.resolve(result).then(
                     (value) => {
                         let json;
                         try {

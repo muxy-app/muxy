@@ -94,6 +94,13 @@ enum ExtensionPermission: String, Codable, CaseIterable {
             .action
         }
     }
+
+    var displayName: String {
+        switch self {
+        case .remoteServe: "remote-api"
+        default: rawValue
+        }
+    }
 }
 
 struct ExtensionTabType: Codable, Equatable, Identifiable {
@@ -626,6 +633,7 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case settingEmptyKey
     case duplicateSettingKey(String)
     case remoteMethodEmptyID
+    case remoteMethodInvalidID(String)
     case duplicateRemoteMethod(String)
 
     var errorDescription: String? {
@@ -702,6 +710,8 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Duplicate setting key '\(key)'"
         case .remoteMethodEmptyID:
             "Remote method id must not be empty"
+        case let .remoteMethodInvalidID(id):
+            "Remote method id '\(id)' must not contain control characters or '|'"
         case let .duplicateRemoteMethod(id):
             "Duplicate remote method '\(id)'"
         }
@@ -997,6 +1007,9 @@ enum ExtensionManifestLoader {
         var seen = Set<String>()
         for method in manifest.remoteMethods {
             guard !method.id.isEmpty else { throw ExtensionLoadError.remoteMethodEmptyID }
+            guard !method.id.unicodeScalars.contains(where: { $0 == "|" || CharacterSet.controlCharacters.contains($0) }) else {
+                throw ExtensionLoadError.remoteMethodInvalidID(method.id)
+            }
             guard seen.insert(method.id).inserted else {
                 throw ExtensionLoadError.duplicateRemoteMethod(method.id)
             }

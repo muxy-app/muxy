@@ -215,7 +215,8 @@ private struct ExtensionsListPage: View {
                                 availableVersion: store.availableUpdateVersion(for: status.id),
                                 isUpdating: updatingIDs.contains(status.id),
                                 onUpdate: { Task { await updateOne(status.id) } },
-                                onOpen: { onSelect(status.id) }
+                                onOpen: { onSelect(status.id) },
+                                onSetEnabled: { store.setEnabled($0, for: status.id) }
                             )
                             if index < store.statuses.count - 1 {
                                 Rectangle()
@@ -311,9 +312,14 @@ private struct ExtensionRow: View {
     var isUpdating = false
     var onUpdate: () -> Void = {}
     let onOpen: () -> Void
+    var onSetEnabled: (Bool) -> Void = { _ in }
     @State private var hovered = false
 
     private var ext: MuxyExtension { status.muxyExtension }
+
+    private var enabledBinding: Binding<Bool> {
+        Binding(get: { status.isEnabled }, set: onSetEnabled)
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -323,8 +329,13 @@ private struct ExtensionRow: View {
             .buttonStyle(.plain)
             if let availableVersion {
                 ExtensionUpdateButton(version: availableVersion, isUpdating: isUpdating, action: onUpdate)
-                    .padding(.trailing, 14)
             }
+            Toggle("", isOn: enabledBinding)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .help(status.isEnabled ? "Disable extension" : "Enable extension")
+                .padding(.trailing, 14)
         }
         .background(hovered ? MuxyTheme.hover : Color.clear)
         .onHover { hovered = $0 }
@@ -500,7 +511,7 @@ private struct ExtensionPermissionTag: View {
             Circle()
                 .fill(color)
                 .frame(width: 5, height: 5)
-            Text(permission.rawValue)
+            Text(permission.displayName)
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(color)
             if let kindLabel {
@@ -533,9 +544,9 @@ private struct ExtensionPermissionTag: View {
 
     private var helpText: String {
         switch permission.kind {
-        case .read: "Read access: \(permission.rawValue)"
-        case .write: "Write access: \(permission.rawValue)"
-        case .action: "Action: \(permission.rawValue)"
+        case .read: "Read access: \(permission.displayName)"
+        case .write: "Write access: \(permission.displayName)"
+        case .action: "Action: \(permission.displayName)"
         }
     }
 }

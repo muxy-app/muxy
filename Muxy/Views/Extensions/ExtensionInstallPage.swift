@@ -320,7 +320,7 @@ private struct ExtensionInstallPermissionTag: View {
         let color = tagColor
         HStack(spacing: 4) {
             Circle().fill(color).frame(width: 5, height: 5)
-            Text(permission)
+            Text(ExtensionPermission(rawValue: permission)?.displayName ?? permission)
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(color)
         }

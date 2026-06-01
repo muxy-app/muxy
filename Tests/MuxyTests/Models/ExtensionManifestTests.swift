@@ -428,6 +428,25 @@ struct ExtensionManifestTests {
         }
     }
 
+    @Test("rejects remote method id containing the wire delimiter")
+    func rejectsDelimiterRemoteMethodID() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "remote-pipe",
+                "version": "1.0.0",
+                "remoteMethods": [
+                    { "id": "a|b" }
+                ]
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.remoteMethodInvalidID("a|b")) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
     @Test("decodes panels with defaults and explicit values")
     func decodesPanels() throws {
         let json = #"""
@@ -781,5 +800,11 @@ struct ExtensionPermissionKindTests {
         for permission in ExtensionPermission.allCases {
             _ = permission.kind
         }
+    }
+
+    @Test("remote:serve displays as remote-api and others use the raw value")
+    func permissionDisplayName() {
+        #expect(ExtensionPermission.remoteServe.displayName == "remote-api")
+        #expect(ExtensionPermission.commandsExec.displayName == "commands:exec")
     }
 }
