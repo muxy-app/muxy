@@ -30,14 +30,32 @@ final class HostBridge: @unchecked Sendable {
         }
         context.setObject(subscribe, forKeyedSubscript: "__muxySubscribe" as NSString)
 
+        let invokeResolve: @convention(block) (String, String) -> Void = { [weak self] callID, json in
+            self?.sendInvokeResult(callID: callID, ok: true, payload: Data(json.utf8))
+        }
+        context.setObject(invokeResolve, forKeyedSubscript: "__muxyInvokeResolve" as NSString)
+
+        let invokeReject: @convention(block) (String, String) -> Void = { [weak self] callID, message in
+            self?.sendInvokeResult(callID: callID, ok: false, payload: Data(message.utf8))
+        }
+        context.setObject(invokeReject, forKeyedSubscript: "__muxyInvokeReject" as NSString)
+
         context.evaluateScript(ExtensionBridgeJS.script(extensionID: extensionID, surface: .background))
     }
 
     private func dispatch(verb: String, args: JSValue?) -> Any {
-        guard verb == "exec" else {
+        let dict = (args?.toDictionary() as? [String: Any]) ?? [:]
+        switch verb {
+        case "exec":
+            return dispatchExec(dict)
+        case "notifications.notify":
+            return dispatchNotify(dict)
+        default:
             return ["ok": false, "error": "verb '\(verb)' is not available in background context"]
         }
-        let dict = (args?.toDictionary() as? [String: Any]) ?? [:]
+    }
+
+    private func dispatchExec(_ dict: [String: Any]) -> Any {
         guard let payload = try? JSONSerialization.data(withJSONObject: dict) else {
             return ["ok": false, "error": "could not encode exec payload"]
         }
@@ -58,6 +76,28 @@ final class HostBridge: @unchecked Sendable {
         }
     }
 
+    private func dispatchNotify(_ dict: [String: Any]) -> Any {
+        let title = sanitize(dict["title"] as? String ?? "")
+        let body = sanitize(dict["body"] as? String ?? "")
+        guard !title.isEmpty || !body.isEmpty else {
+            return ["ok": false, "error": "notification requires title or body"]
+        }
+        let paneID = sanitize(dict["paneID"] as? String ?? "")
+        let line = "\(sanitize(extensionID))|\(paneID)|\(title)|\(body)"
+        do {
+            try client.send(line)
+            return ["ok": true, "value": NSNull()]
+        } catch {
+            return ["ok": false, "error": "\(error)"]
+        }
+    }
+
+    private func sanitize(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "|", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+    }
+
     private func subscribe(name: String) {
         do {
             let reply = try client.sendAndWaitReply("subscribe|\(name)")
@@ -68,6 +108,47 @@ final class HostBridge: @unchecked Sendable {
         } catch {
             FileHandle.standardError.write(Data("[muxy-extension-host] subscribe \(name) error: \(error)\n".utf8))
         }
+    }
+
+    func handleInvokeLine(_ line: String) {
+        guard let parsed = Self.parseInvoke(line) else { return }
+        let payloadValue: Any = if let data = Data(base64Encoded: parsed.payload),
+                                   let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        {
+            object
+        } else {
+            NSNull()
+        }
+        let box = ContextBox(context)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let handlers = box.context.objectForKeyedSubscript("__muxyRemoteHandlers")
+            let handler = handlers?.objectForKeyedSubscript(parsed.action)
+            guard let handler, !handler.isUndefined, !handler.isNull else {
+                self.sendInvokeResult(callID: parsed.callID, ok: false, payload: Data("no handler registered for '\(parsed.action)'".utf8))
+                return
+            }
+            let argument = JSValue(object: payloadValue, in: box.context) ?? JSValue(nullIn: box.context)
+            let returned = handler.call(withArguments: [argument as Any])
+            let resolver = box.context.objectForKeyedSubscript("__muxyResolveInvoke")
+            resolver?.call(withArguments: [parsed.callID, returned as Any])
+        }
+    }
+
+    private func sendInvokeResult(callID: String, ok: Bool, payload: Data) {
+        let status = ok ? "ok" : "err"
+        let line = "invoke-result|\(callID)|\(status)|\(payload.base64EncodedString())"
+        try? client.send(line)
+    }
+
+    static func parseInvoke(_ line: String) -> (callID: String, action: String, payload: String)? {
+        let parts = line.components(separatedBy: "|")
+        guard parts.count >= 4, parts[0] == "invoke" else { return nil }
+        let callID = parts[1]
+        let action = parts[2]
+        guard !callID.isEmpty, !action.isEmpty else { return nil }
+        let payload = parts[3]
+        return (callID, action, payload)
     }
 
     func handleEventLine(_ line: String) {

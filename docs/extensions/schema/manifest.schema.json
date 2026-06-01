@@ -85,6 +85,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/setting" }
         },
+        "remoteMethods": {
+          "type": "array",
+          "description": "Named API methods this extension serves to the mobile app via the remote server. Requires the `remote:serve` permission. Handlers are registered in the background script with `muxy.remote.handle(id, fn)`.",
+          "items": { "$ref": "#/$defs/remoteMethod" }
+        },
         "marketplace": {
           "type": "object",
           "description": "Listing metadata used by the marketplace. Required: icon + at least one screenshot. Ignored by the app loader. The pricing key is reserved for a future paid-extensions feature and is not yet enforced.",
@@ -138,7 +143,8 @@
         "notifications:write",
         "panels:write",
         "commands:run-script",
-        "commands:exec"
+        "commands:exec",
+        "remote:serve"
       ]
     },
     "icon": {
@@ -308,6 +314,15 @@
         "description": { "type": "string" },
         "type": { "enum": ["string", "bool", "number"] },
         "defaultValue": {}
+      }
+    },
+    "remoteMethod": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" }
       }
     }
   }

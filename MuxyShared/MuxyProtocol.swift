@@ -40,7 +40,7 @@ public struct MuxyEvent: Codable, Sendable {
     }
 }
 
-public struct MuxyError: Codable, Sendable {
+public struct MuxyError: Codable, Sendable, Error {
     public let code: Int
     public let message: String
 
@@ -55,6 +55,13 @@ public struct MuxyError: Codable, Sendable {
     public static let unauthorized = MuxyError(code: 401, message: "Authentication required")
     public static let pairingDenied = MuxyError(code: 403, message: "Pairing denied")
     public static let pairingTimeout = MuxyError(code: 408, message: "Pairing request timed out")
+    public static let forbidden = MuxyError(code: 403, message: "Forbidden")
+    public static let extensionUnavailable = MuxyError(code: 503, message: "Extension unavailable")
+    public static let timeout = MuxyError(code: 504, message: "Request timed out")
+
+    public static func extensionError(_ message: String) -> MuxyError {
+        MuxyError(code: 502, message: message)
+    }
 }
 
 public enum MuxyMethod: String, Codable, Sendable {
@@ -99,6 +106,7 @@ public enum MuxyMethod: String, Codable, Sendable {
     case markNotificationRead
     case subscribe
     case unsubscribe
+    case extensionRequest
 }
 
 public enum MuxyParams: Codable, Sendable {
@@ -141,6 +149,7 @@ public enum MuxyParams: Codable, Sendable {
     case markNotificationRead(MarkNotificationReadParams)
     case subscribe(SubscribeParams)
     case unsubscribe(UnsubscribeParams)
+    case extensionRequest(ExtensionRequestParams)
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -190,6 +199,7 @@ public enum MuxyParams: Codable, Sendable {
         case "markNotificationRead": self = try .markNotificationRead(container.decode(MarkNotificationReadParams.self, forKey: .value))
         case "subscribe": self = try .subscribe(container.decode(SubscribeParams.self, forKey: .value))
         case "unsubscribe": self = try .unsubscribe(container.decode(UnsubscribeParams.self, forKey: .value))
+        case "extensionRequest": self = try .extensionRequest(container.decode(ExtensionRequestParams.self, forKey: .value))
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown param type: \(type)")
         }
     }
@@ -275,6 +285,8 @@ public enum MuxyParams: Codable, Sendable {
             try container.encode(v, forKey: .value)
         case let .unsubscribe(v): try container.encode("unsubscribe", forKey: .type)
             try container.encode(v, forKey: .value)
+        case let .extensionRequest(v): try container.encode("extensionRequest", forKey: .type)
+            try container.encode(v, forKey: .value)
         }
     }
 }
@@ -295,6 +307,7 @@ public enum MuxyResult: Codable, Sendable {
     case vcsDiff(VCSDiffDTO)
     case projectLogo(ProjectLogoDTO)
     case notifications([NotificationDTO])
+    case extensionResult(ExtensionResultDTO)
     case ok
 
     private enum CodingKeys: String, CodingKey {
@@ -321,6 +334,7 @@ public enum MuxyResult: Codable, Sendable {
         case "vcsDiff": self = try .vcsDiff(container.decode(VCSDiffDTO.self, forKey: .value))
         case "projectLogo": self = try .projectLogo(container.decode(ProjectLogoDTO.self, forKey: .value))
         case "notifications": self = try .notifications(container.decode([NotificationDTO].self, forKey: .value))
+        case "extensionResult": self = try .extensionResult(container.decode(ExtensionResultDTO.self, forKey: .value))
         case "ok": self = .ok
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown result type: \(type)")
         }
@@ -358,6 +372,8 @@ public enum MuxyResult: Codable, Sendable {
         case let .projectLogo(v): try container.encode("projectLogo", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .notifications(v): try container.encode("notifications", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .extensionResult(v): try container.encode("extensionResult", forKey: .type)
             try container.encode(v, forKey: .value)
         case .ok: try container.encode("ok", forKey: .type)
         }

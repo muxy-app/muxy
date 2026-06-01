@@ -782,6 +782,55 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         NotificationStore.shared.markAsRead(notificationID)
     }
 
+    func extensionRequest(
+        extension extensionID: String,
+        action: String,
+        payload: MuxyJSON,
+        clientID: UUID
+    ) async -> Result<MuxyJSON, MuxyError> {
+        guard let loaded = ExtensionStore.shared.loadedExtension(id: extensionID) else {
+            return .failure(.notFound)
+        }
+        guard loaded.manifest.remoteMethod(id: action) != nil else {
+            return .failure(.notFound)
+        }
+        guard ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: .remoteServe) else {
+            return .failure(.forbidden)
+        }
+
+        let deviceName = PaneOwnershipStore.shared.deviceName(for: clientID) ?? "Mobile"
+        let consent = ExtensionConsentRequestBuilder.make(
+            extensionID: extensionID,
+            verb: .remoteInvoke,
+            payload: .remote(action: action, deviceName: deviceName),
+            source: "remote-server"
+        )
+        guard await ExtensionConsentService.shared.gate(consent) == .allow else {
+            return .failure(.forbidden)
+        }
+
+        let payloadData: Data
+        do {
+            payloadData = try payload.encoded()
+        } catch {
+            return .failure(.invalidParams)
+        }
+
+        do {
+            let resultData = try await NotificationSocketServer.shared.invokeRemote(
+                extensionID: extensionID,
+                action: action,
+                payload: payloadData
+            )
+            let value = try MuxyJSON.decoded(from: resultData)
+            return .success(value)
+        } catch let error as MuxyError {
+            return .failure(error)
+        } catch {
+            return .failure(.extensionError(error.localizedDescription))
+        }
+    }
+
     private func resolveWorktreePath(projectID: UUID) -> String? {
         guard let worktreeID = appState.activeWorktreeID[projectID],
               let worktree = worktreeStore.worktree(projectID: projectID, worktreeID: worktreeID)

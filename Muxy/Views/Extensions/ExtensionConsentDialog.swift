@@ -242,6 +242,7 @@ struct ExtensionConsentDialog: View {
              .panesSendKeys: "keyboard.fill"
         case .panesReadScreen: "eye.fill"
         case .tabsOpenForeign: "rectangle.stack.fill"
+        case .remoteInvoke: "antenna.radiowaves.left.and.right"
         }
     }
 
@@ -252,6 +253,7 @@ struct ExtensionConsentDialog: View {
         case .panesSendKeys: "wants to press keys in a terminal"
         case .panesReadScreen: "wants to read terminal output"
         case .tabsOpenForeign: "wants to open another extension's tab"
+        case .remoteInvoke: "wants to serve a mobile request"
         }
     }
 }

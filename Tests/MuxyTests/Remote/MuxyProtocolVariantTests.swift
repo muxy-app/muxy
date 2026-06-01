@@ -39,6 +39,18 @@ struct MuxyProtocolVariantTests {
         }
     }
 
+    @Test("MuxyJSON round-trips nested values")
+    func muxyJSONRoundTrips() throws {
+        let value = MuxyJSON.object([
+            "name": .string("muxy"),
+            "count": .number(3),
+            "ok": .bool(true),
+            "tags": .array([.string("a"), .null]),
+        ])
+        let decoded = try MuxyJSON.decoded(from: value.encoded())
+        #expect(decoded == value)
+    }
+
     @Test("pane owner display name uses local and remote names")
     func paneOwnerDisplayName() {
         #expect(PaneOwnerDTO.mac(deviceName: "Mac").displayName == "Mac")
@@ -115,6 +127,7 @@ struct MuxyProtocolVariantTests {
             ProtocolSample(.markNotificationRead(MarkNotificationReadParams(notificationID: ids.notificationID)), caseName: ".markNotificationRead"),
             ProtocolSample(.subscribe(SubscribeParams(events: [.workspaceChanged, .themeChanged])), caseName: ".subscribe"),
             ProtocolSample(.unsubscribe(UnsubscribeParams(events: [.terminalOutput])), caseName: ".unsubscribe"),
+            ProtocolSample(.extensionRequest(ExtensionRequestParams(extension: "weather", action: "forecast", payload: .object(["city": .string("Berlin")]))), caseName: ".extensionRequest"),
         ]
     }
 
@@ -136,6 +149,7 @@ struct MuxyProtocolVariantTests {
             ProtocolSample(.vcsDiff(diff), caseName: ".vcsDiff"),
             ProtocolSample(.projectLogo(ProjectLogoDTO(projectID: ids.projectID, pngData: "base64")), caseName: ".projectLogo"),
             ProtocolSample(.notifications([notification(ids)]), caseName: ".notifications"),
+            ProtocolSample(.extensionResult(ExtensionResultDTO(payload: .array([.number(1), .bool(true), .null]))), caseName: ".extensionResult"),
             ProtocolSample(.ok, caseName: ".ok"),
         ]
     }

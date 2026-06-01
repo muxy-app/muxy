@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "NotificationSocketServer")
@@ -44,6 +45,8 @@ final class NotificationSocketServer: @unchecked Sendable {
     private var readSources: [ObjectIdentifier: DispatchSourceRead] = [:]
     private var extensionSnapshot = ExtensionSnapshot(entries: [:])
     private var inProcessObservers: [UUID: @Sendable (ExtensionEvent) -> Void] = [:]
+    private var pendingInvokes: [String: CheckedContinuation<Data, Error>] = [:]
+    private var invokeOwner: [String: ObjectIdentifier] = [:]
 
     var openProjectHandler: (@Sendable (String) -> Void)?
     var installExtensionHandler: (@Sendable (String) -> Void)?
@@ -124,6 +127,87 @@ final class NotificationSocketServer: @unchecked Sendable {
     func removeInProcessObserver(_ token: UUID) {
         queue.async { [weak self] in
             self?.inProcessObservers.removeValue(forKey: token)
+        }
+    }
+
+    static let invokeTimeout: Duration = .seconds(15)
+
+    func invokeRemote(extensionID: String, action: String, payload: Data) async throws -> Data {
+        let callID = UUID().uuidString
+        let base64 = payload.base64EncodedString()
+
+        let invokeTask = Task {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+                queue.async { [weak self] in
+                    guard let self else {
+                        continuation.resume(throwing: MuxyError.extensionUnavailable)
+                        return
+                    }
+                    guard let session = self.session(forExtension: extensionID) else {
+                        continuation.resume(throwing: MuxyError.extensionUnavailable)
+                        return
+                    }
+                    self.pendingInvokes[callID] = continuation
+                    self.invokeOwner[callID] = ObjectIdentifier(session)
+                    self.enqueueWrite(session: session, text: "invoke|\(callID)|\(action)|\(base64)\n")
+                }
+            }
+        }
+
+        let timeoutTask = Task {
+            try? await Task.sleep(for: Self.invokeTimeout)
+            guard !Task.isCancelled else { return }
+            self.queue.async { [weak self] in
+                guard let self, let continuation = self.pendingInvokes.removeValue(forKey: callID) else { return }
+                self.invokeOwner.removeValue(forKey: callID)
+                continuation.resume(throwing: MuxyError.timeout)
+            }
+        }
+
+        defer { timeoutTask.cancel() }
+        return try await invokeTask.value
+    }
+
+    private func session(forExtension extensionID: String) -> ClientSession? {
+        subscribers.values.first { $0.extensionID == extensionID }
+    }
+
+    struct InvokeResult: Equatable {
+        let callID: String
+        let ok: Bool
+        let body: Data
+    }
+
+    static func parseInvokeResult(_ message: String) -> InvokeResult? {
+        let parts = message.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 3, parts[0] == "invoke-result", !parts[1].isEmpty else { return nil }
+        let status = parts[2]
+        guard status == "ok" || status == "err" else { return nil }
+        let body = parts.count >= 4 ? (Data(base64Encoded: parts[3]) ?? Data()) : Data()
+        return InvokeResult(callID: parts[1], ok: status == "ok", body: body)
+    }
+
+    private func handleInvokeResult(_ message: String, session: ClientSession) {
+        guard let parsed = Self.parseInvokeResult(message) else { return }
+        guard let owner = invokeOwner[parsed.callID], owner == ObjectIdentifier(session) else { return }
+        guard let continuation = pendingInvokes.removeValue(forKey: parsed.callID) else { return }
+        invokeOwner.removeValue(forKey: parsed.callID)
+
+        if parsed.ok {
+            continuation.resume(returning: parsed.body)
+            return
+        }
+        let messageText = String(data: parsed.body, encoding: .utf8) ?? "extension error"
+        continuation.resume(throwing: MuxyError.extensionError(messageText))
+    }
+
+    private func failPendingInvokes(for session: ClientSession) {
+        let owner = ObjectIdentifier(session)
+        let callIDs = invokeOwner.filter { $0.value == owner }.map(\.key)
+        for callID in callIDs {
+            invokeOwner.removeValue(forKey: callID)
+            guard let continuation = pendingInvokes.removeValue(forKey: callID) else { continue }
+            continuation.resume(throwing: MuxyError.extensionUnavailable)
         }
     }
 
@@ -281,6 +365,11 @@ final class NotificationSocketServer: @unchecked Sendable {
 
         if Self.commandNames.contains(head) {
             processCommand(trimmed, session: session)
+            return
+        }
+
+        if head == "invoke-result" {
+            handleInvokeResult(trimmed, session: session)
             return
         }
 
@@ -516,6 +605,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     private func closeSession(_ session: ClientSession) {
+        failPendingInvokes(for: session)
         session.writeSource?.cancel()
         session.writeSource = nil
         if session.fd >= 0, !session.pendingClose {

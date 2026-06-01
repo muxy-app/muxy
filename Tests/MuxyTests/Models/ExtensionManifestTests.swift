@@ -356,6 +356,78 @@ struct ExtensionManifestTests {
         }
     }
 
+    @Test("defaults remoteMethods to empty when absent")
+    func defaultsRemoteMethodsEmpty() throws {
+        let json = #"""
+        {
+            "name": "hello",
+            "version": "1.0.0"
+        }
+        """#
+        let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+        #expect(manifest.remoteMethods.isEmpty)
+    }
+
+    @Test("decodes remoteMethods and remote:serve permission")
+    func decodesRemoteMethods() throws {
+        let json = #"""
+        {
+            "name": "weather",
+            "version": "1.0.0",
+            "background": "background.js",
+            "permissions": ["remote:serve"],
+            "remoteMethods": [
+                { "id": "forecast", "description": "Get forecast" },
+                { "id": "current" }
+            ]
+        }
+        """#
+        let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+        #expect(manifest.permissions == [.remoteServe])
+        #expect(manifest.remoteMethods.map(\.id) == ["forecast", "current"])
+        #expect(manifest.remoteMethod(id: "forecast")?.description == "Get forecast")
+        #expect(manifest.remoteMethod(id: "missing") == nil)
+    }
+
+    @Test("rejects duplicate remote method ids")
+    func rejectsDuplicateRemoteMethods() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "remote-dup",
+                "version": "1.0.0",
+                "remoteMethods": [
+                    { "id": "ping" },
+                    { "id": "ping" }
+                ]
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects empty remote method id")
+    func rejectsEmptyRemoteMethodID() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "remote-empty",
+                "version": "1.0.0",
+                "remoteMethods": [
+                    { "id": "" }
+                ]
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
     @Test("decodes panels with defaults and explicit values")
     func decodesPanels() throws {
         let json = #"""
@@ -701,6 +773,7 @@ struct ExtensionPermissionKindTests {
     func mapsActionPermissions() {
         #expect(ExtensionPermission.commandsRunScript.kind == .action)
         #expect(ExtensionPermission.commandsExec.kind == .action)
+        #expect(ExtensionPermission.remoteServe.kind == .action)
     }
 
     @Test("covers every permission case")

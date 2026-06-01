@@ -51,6 +51,14 @@ Notes:
 
 `subscribe` / `unsubscribe` are accepted for compatibility, but clients should still be prepared to receive all broadcast event types.
 
+## Extensions
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `extensionRequest` | `extension`, `action`, `payload` | `extensionResult` |
+
+`extensionRequest` proxies a call to an installed extension that serves the named `action`. `payload` and the `extensionResult.payload` are arbitrary JSON. The desktop resolves the handler, prompts the user for consent, runs it in the extension's background script, and returns its value. Errors: `404` (unknown extension or undeclared action), `403` (extension lacks `remote:serve` or consent denied), `503` (extension not running), `502` (handler failed), `504` (handler timed out). See [extension remote methods](../extensions/remote-methods.md).
+
 ## Git & worktrees
 
 | Method | Parameters | Result |

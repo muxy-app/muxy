@@ -76,6 +76,7 @@ flowchart TD
 | [Topbar](topbar.md) | Attach icons to the tab strip that trigger a command |
 | [Status Bar](statusbar.md) | Attach icons to the footer status bar; update text live |
 | [Settings](settings.md) | Declare typed settings and read/write them at runtime |
+| [Remote Methods](remote-methods.md) | Serve named API methods to the mobile app via the remote server |
 | [Scripts](scripts.md) | Run JS files as palette commands in a per-extension JSContext |
 | [Logs](logs.md) | Where logs live on disk, console.* bridge, size cap and trim policy |
 | [Contributing](contributing.md) | Create, validate, and publish an extension |

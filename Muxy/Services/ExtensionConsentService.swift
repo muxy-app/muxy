@@ -223,6 +223,8 @@ enum ExtensionConsentRequestBuilder {
             return ("read screen of pane \(id)", ["pane: \(id)"])
         case let (.tabsOpenForeign, .foreignTab(target, tab)):
             return ("open \(target) tab \(tab)", ["extension: \(target)", "tab type: \(tab)"])
+        case let (.remoteInvoke, .remote(action, deviceName)):
+            return ("\(deviceName) calls \(action)", ["device: \(deviceName)", "action: \(action)"])
         default:
             return ("(unknown)", [])
         }

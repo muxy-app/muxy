@@ -2,7 +2,7 @@
 
 Every extension is an npm + [Vite](https://vitejs.dev) project. Its manifest is the `muxy` object inside the `package.json` at the root of its directory.
 
-Identity (`name` and `version`) lives at the **top level** of `package.json` — npm's single source of truth. **Every other manifest field** (`description`, `background`, `events`, `permissions`, `tabTypes`, `panels`, `popovers`, `commands`, `topbarItems`, `statusBarItems`, `settings`, `marketplace`) lives under the `muxy` key.
+Identity (`name` and `version`) lives at the **top level** of `package.json` — npm's single source of truth. **Every other manifest field** (`description`, `background`, `events`, `permissions`, `tabTypes`, `panels`, `popovers`, `commands`, `topbarItems`, `statusBarItems`, `settings`, `remoteMethods`, `marketplace`) lives under the `muxy` key.
 
 `package.json` must also declare a `build` script. The publishing pipeline runs `npm run build` (Vite) and ships the build output directory, `dist/`. The app installs and reads from `dist/`, so every entry/asset path inside `muxy` (popover/tab `entry`, `background`, marketplace `icon`/`screenshots`) resolves against the build output, not your source tree.
 
@@ -54,6 +54,7 @@ All Muxy-specific manifest fields live under the `muxy` object.
 | `topbarItems` | object[] | no | Icons attached to the tab strip. See [Topbar](topbar.md). |
 | `statusBarItems` | object[] | no | Icons attached to the footer status bar. See [Status Bar](statusbar.md). |
 | `settings` | object[] | no | Typed settings shown in the Settings sidebar. See [Settings](settings.md). |
+| `remoteMethods` | object[] | no | Named API methods served to the mobile app. Requires `remote:serve`. See [Remote Methods](remote-methods.md). |
 | `marketplace` | object | no | Listing metadata (icon, screenshots, author, categories) used by the marketplace. Ignored by the app loader. |
 
 Extensions are enabled by default after loading. The Settings → Extensions toggle is persisted in `UserDefaults` under `muxy.ext.enabled.<extension-id>` and survives launches. A legacy `enabled` manifest field is no longer part of the schema; if present with no user override, it is migrated into that UserDefaults entry on first load and otherwise ignored.

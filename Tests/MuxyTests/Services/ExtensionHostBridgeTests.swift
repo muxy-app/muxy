@@ -43,6 +43,22 @@ struct ExtensionHostBridgeTests {
         #expect(object?["paneID"] == "abc")
         #expect(object?["title"] == "hi")
     }
+
+    @Test("parses an invoke line with call id, action and payload")
+    func parsesInvoke() {
+        let parsed = HostBridge.parseInvoke("invoke|call-1|forecast|eyJjaXR5IjoiQmVybGluIn0=")
+        let result = try? #require(parsed)
+        #expect(result?.callID == "call-1")
+        #expect(result?.action == "forecast")
+        #expect(result?.payload == "eyJjaXR5IjoiQmVybGluIn0=")
+    }
+
+    @Test("rejects malformed invoke lines")
+    func rejectsMalformedInvoke() {
+        #expect(HostBridge.parseInvoke("invoke|call-1") == nil)
+        #expect(HostBridge.parseInvoke("invoke||forecast|payload") == nil)
+        #expect(HostBridge.parseInvoke("event|forecast|payload") == nil)
+    }
 }
 
 @Suite("MuxyExtensionHost socket client")
@@ -93,6 +109,27 @@ struct ExtensionHostSocketClientTests {
         let reply = try client.sendAndWaitReply("exec|payload")
         #expect(reply == "ok")
         #expect(received.lines.contains("event|pane.created|paneID=abc"))
+    }
+
+    @Test("an interleaved invoke line is routed to onInvoke and does not satisfy a reply")
+    func invokeDoesNotSatisfyReply() throws {
+        let (client, server) = makePair()
+        defer { close(server) }
+
+        let received = EventBox()
+        client.onInvoke { received.append($0) }
+        client.startReading()
+
+        Thread.detachNewThread { [server] in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            _ = read(server, &buffer, buffer.count)
+            self.writeLine("invoke|call-1|forecast|cGF5bG9hZA==", to: server)
+            self.writeLine("ok", to: server)
+        }
+
+        let reply = try client.sendAndWaitReply("exec|payload")
+        #expect(reply == "ok")
+        #expect(received.lines.contains("invoke|call-1|forecast|cGF5bG9hZA=="))
     }
 
     @Test("EOF wakes a blocked sendAndWaitReply")

@@ -23,6 +23,7 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `panels:write` | `panel.open`, `panel.toggle`, `panel.close` for declared [panels](panels.md); `popover.resize`, `popover.close` for the extension's open [popover](popovers.md). |
 | `commands:run-script` | Execute `runScript` palette command actions in the per-extension JavaScriptCore context. |
 | `commands:exec` | Run shell commands via `muxy.exec` (subprocess execution with stdout/stderr capture). |
+| `remote:serve` | Serve [remote methods](remote-methods.md) declared in `remoteMethods` to the mobile app over the remote server. Each call also prompts for runtime consent. |
 
 ## Runtime consent
 
@@ -34,6 +35,7 @@ These verbs prompt the user at runtime even when the manifest permission is gran
 | `panes.send` | Typing arbitrary text into an active terminal. |
 | `panes.sendKeys` | Pressing keys (including Ctrl+C, Enter) in an active terminal. |
 | `panes.readScreen` | Reading the visible contents of a terminal. |
+| `remote.invoke` | Running an extension's [remote method](remote-methods.md) handler in response to a mobile request. Remembered per action. |
 
 The prompt shows the extension, the verb, and the literal payload (full argv, the keystroke, or the pane id). The user picks:
 

@@ -16,6 +16,7 @@ final class HostSocketClient: @unchecked Sendable {
     private var closed = false
     private var readBuffer = Data()
     private var eventHandler: ((String) -> Void)?
+    private var invokeHandler: ((String) -> Void)?
 
     init(socketPath: String) throws {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -49,6 +50,10 @@ final class HostSocketClient: @unchecked Sendable {
 
     func onEvent(_ handler: @escaping (String) -> Void) {
         eventHandler = handler
+    }
+
+    func onInvoke(_ handler: @escaping (String) -> Void) {
+        invokeHandler = handler
     }
 
     func startReading() {
@@ -122,6 +127,10 @@ final class HostSocketClient: @unchecked Sendable {
     private func deliver(_ line: String) {
         if line.hasPrefix("event|") {
             eventHandler?(line)
+            return
+        }
+        if line.hasPrefix("invoke|") {
+            invokeHandler?(line)
             return
         }
         replyLock.lock()

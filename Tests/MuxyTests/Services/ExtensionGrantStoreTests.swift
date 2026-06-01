@@ -277,6 +277,37 @@ struct ExtensionGrantStoreTests {
         #expect(match == .any)
     }
 
+    @Test("remoteActionEquals rule matches only the same action")
+    func remoteActionEqualsMatch() {
+        let store = makeStore()
+        let rule = ExtensionGrantRule(
+            extensionID: "ext",
+            verb: .remoteInvoke,
+            match: .remoteActionEquals("forecast"),
+            decision: .allow
+        )
+        store.add(rule)
+        #expect(store.evaluate(
+            extensionID: "ext",
+            verb: .remoteInvoke,
+            payload: .remote(action: "forecast", deviceName: "iPad")
+        ) == .allow(ruleID: rule.id))
+        #expect(store.evaluate(
+            extensionID: "ext",
+            verb: .remoteInvoke,
+            payload: .remote(action: "other", deviceName: "iPad")
+        ) == .ask)
+    }
+
+    @Test("remote invoke default remember match scopes to the action")
+    func remoteInvokeDefaultRemember() {
+        let match = ExtensionGrantSuggestion.defaultRememberMatch(
+            verb: .remoteInvoke,
+            payload: .remote(action: "forecast", deviceName: "iPad")
+        )
+        #expect(match == .remoteActionEquals("forecast"))
+    }
+
     private func makeStore() -> ExtensionGrantStore {
         ExtensionGrantStore(fileURL: tempURL())
     }

@@ -45,6 +45,10 @@ client.onEvent { [weak bridge] line in
     bridge?.handleEventLine(line)
 }
 
+client.onInvoke { [weak bridge] line in
+    bridge?.handleInvokeLine(line)
+}
+
 client.startReading()
 
 do {

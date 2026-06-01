@@ -75,6 +75,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func getProjectLogo(projectID: UUID) -> ProjectLogoDTO?
     func listNotifications() -> [NotificationDTO]
     func markNotificationRead(_ notificationID: UUID)
+    func extensionRequest(extension: String, action: String, payload: MuxyJSON, clientID: UUID) async -> Result<MuxyJSON, MuxyError>
 }
 
 public final class MuxyRemoteServer: @unchecked Sendable {
@@ -703,6 +704,23 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             }
             delegate.releasePane(paneID: params.paneID, clientID: clientID)
             return MuxyResponse(id: request.id, result: .ok)
+
+        case .extensionRequest:
+            guard case let .extensionRequest(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            let result = await delegate.extensionRequest(
+                extension: params.extension,
+                action: params.action,
+                payload: params.payload,
+                clientID: clientID
+            )
+            switch result {
+            case let .success(payload):
+                return MuxyResponse(id: request.id, result: .extensionResult(ExtensionResultDTO(payload: payload)))
+            case let .failure(error):
+                return MuxyResponse(id: request.id, error: error)
+            }
         }
     }
 

@@ -14,6 +14,7 @@ enum ExtensionGatedVerb: String, Codable, CaseIterable {
     case panesSendKeys = "panes.sendKeys"
     case panesReadScreen = "panes.readScreen"
     case tabsOpenForeign = "tabs.openForeign"
+    case remoteInvoke = "remote.invoke"
 }
 
 enum ExtensionGrantMatch: Codable, Equatable {
@@ -23,6 +24,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
     case shellExact(String)
     case paneEquals(String)
     case foreignTabEquals(targetExtensionID: String, tabTypeID: String)
+    case remoteActionEquals(String)
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -38,6 +40,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case shellExact
         case paneEquals
         case foreignTabEquals
+        case remoteActionEquals
     }
 
     init(from decoder: Decoder) throws {
@@ -59,6 +62,8 @@ enum ExtensionGrantMatch: Codable, Equatable {
                 targetExtensionID: container.decode(String.self, forKey: .target),
                 tabTypeID: container.decode(String.self, forKey: .string)
             )
+        case .remoteActionEquals:
+            self = try .remoteActionEquals(container.decode(String.self, forKey: .string))
         }
     }
 
@@ -83,6 +88,9 @@ enum ExtensionGrantMatch: Codable, Equatable {
             try container.encode(Kind.foreignTabEquals, forKey: .kind)
             try container.encode(target, forKey: .target)
             try container.encode(tab, forKey: .string)
+        case let .remoteActionEquals(action):
+            try container.encode(Kind.remoteActionEquals, forKey: .kind)
+            try container.encode(action, forKey: .string)
         }
     }
 
@@ -91,6 +99,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case .any: 0
         case .paneEquals,
              .shellExact: 100
+        case .remoteActionEquals: 120
         case .foreignTabEquals: 150
         case let .argvPrefix(tokens): 50 + tokens.count
         case let .argvExact(tokens): 200 + tokens.count
@@ -105,6 +114,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .shellExact(value): "sh: \(value)"
         case let .paneEquals(value): "pane: \(value)"
         case let .foreignTabEquals(target, tab): "tab: \(target)/\(tab)"
+        case let .remoteActionEquals(action): "action: \(action)"
         }
     }
 }
@@ -113,6 +123,7 @@ enum ExtensionGatedPayload {
     case exec(argv: [String]?, shell: String?)
     case pane(id: String)
     case foreignTab(targetExtensionID: String, tabTypeID: String)
+    case remote(action: String, deviceName: String)
 
     func matches(_ match: ExtensionGrantMatch) -> Bool {
         switch (self, match) {
@@ -130,6 +141,8 @@ enum ExtensionGatedPayload {
             return id == expected
         case let (.foreignTab(target, tab), .foreignTabEquals(expectedTarget, expectedTab)):
             return target == expectedTarget && tab == expectedTab
+        case let (.remote(action, _), .remoteActionEquals(expected)):
+            return action == expected
         default:
             return false
         }
@@ -275,6 +288,8 @@ enum ExtensionGrantSuggestion {
             }
             if let shell { return .shellExact(shell) }
             return .any
+        case let (.remoteInvoke, .remote(action, _)):
+            return .remoteActionEquals(action)
         case (.panesSend, _),
              (.panesSendKeys, _),
              (.panesReadScreen, _),
