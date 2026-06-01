@@ -508,7 +508,8 @@ struct ExtensionManifestTests {
                     "entry": "panels/b.html",
                     "position": "bottom",
                     "mode": "pinned",
-                    "hiddenControls": ["pin", "position"]
+                    "hiddenControls": ["pin", "position"],
+                    "hideTopbar": true
                 }
             ]
         }
@@ -519,11 +520,13 @@ struct ExtensionManifestTests {
         #expect(minimal.position == .right)
         #expect(minimal.mode == .floating)
         #expect(minimal.hiddenControls.isEmpty)
+        #expect(!minimal.hideTopbar)
         let full = try #require(manifest.panel(id: "full"))
         #expect(full.title == "Sidebar")
         #expect(full.position == .bottom)
         #expect(full.mode == .pinned)
         #expect(full.hiddenControls == [.pin, .position])
+        #expect(full.hideTopbar)
     }
 
     @Test("loads an extension declaring a valid panel")

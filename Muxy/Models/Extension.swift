@@ -118,6 +118,7 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
     let position: PanelPosition
     let mode: PanelMode
     let hiddenControls: [PanelHeaderControl]
+    let hideTopbar: Bool
     let defaultData: ExtensionJSON?
 
     private enum CodingKeys: String, CodingKey {
@@ -128,6 +129,7 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
         case position
         case mode
         case hiddenControls
+        case hideTopbar
         case defaultData
     }
 
@@ -139,6 +141,7 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
         position: PanelPosition = .right,
         mode: PanelMode = .floating,
         hiddenControls: [PanelHeaderControl] = [],
+        hideTopbar: Bool = false,
         defaultData: ExtensionJSON? = nil
     ) {
         self.id = id
@@ -148,6 +151,7 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
         self.position = position
         self.mode = mode
         self.hiddenControls = hiddenControls
+        self.hideTopbar = hideTopbar
         self.defaultData = defaultData
     }
 
@@ -160,6 +164,7 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
         position = try container.decodeIfPresent(PanelPosition.self, forKey: .position) ?? .right
         mode = try container.decodeIfPresent(PanelMode.self, forKey: .mode) ?? .floating
         hiddenControls = try container.decodeIfPresent([PanelHeaderControl].self, forKey: .hiddenControls) ?? []
+        hideTopbar = try container.decodeIfPresent(Bool.self, forKey: .hideTopbar) ?? false
         defaultData = try container.decodeIfPresent(ExtensionJSON.self, forKey: .defaultData)
     }
 }

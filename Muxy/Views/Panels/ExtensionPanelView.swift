@@ -40,7 +40,8 @@ struct ExtensionPanelView: View {
         PanelChrome(
             iconSymbol: panel.icon.flatMap(symbol(from:)),
             title: panel.title,
-            hiddenControls: Set(panel.hiddenControls)
+            hiddenControls: Set(panel.hiddenControls),
+            hidesHeader: panel.hideTopbar
         )
     }
 

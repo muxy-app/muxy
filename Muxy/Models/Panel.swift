@@ -68,17 +68,20 @@ struct PanelChrome {
     let title: String?
     let hiddenControls: Set<PanelHeaderControl>
     let trailingButtons: [PanelHeaderButton]
+    let hidesHeader: Bool
 
     init(
         iconSymbol: String? = nil,
         title: String? = nil,
         hiddenControls: Set<PanelHeaderControl> = [],
-        trailingButtons: [PanelHeaderButton] = []
+        trailingButtons: [PanelHeaderButton] = [],
+        hidesHeader: Bool = false
     ) {
         self.iconSymbol = iconSymbol
         self.title = title
         self.hiddenControls = hiddenControls
         self.trailingButtons = trailingButtons
+        self.hidesHeader = hidesHeader
     }
 
     func shows(_ control: PanelHeaderControl) -> Bool {
@@ -86,7 +89,8 @@ struct PanelChrome {
     }
 
     var hasHeaderContent: Bool {
-        iconSymbol != nil
+        guard !hidesHeader else { return false }
+        return iconSymbol != nil
             || title != nil
             || !trailingButtons.isEmpty
             || !hiddenControls.isSuperset(of: PanelHeaderControl.allCases)

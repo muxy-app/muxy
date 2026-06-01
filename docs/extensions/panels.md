@@ -42,11 +42,14 @@ Every panel, built-in or extension, follows the same placement rules per positio
 | `position` | string | no | `right` or `bottom`. Defaults to `right`. |
 | `mode` | string | no | `floating` or `pinned`. Defaults to `floating`. |
 | `hiddenControls` | string[] | no | Header controls to hide: any of `close`, `pin`, `position`. Defaults to none hidden. |
+| `hideTopbar` | boolean | no | Hide the entire panel header, including icon, title, and all controls. Your webview fills the whole panel. Defaults to `false`. |
 | `defaultData` | object | no | JSON merged into `window.muxy.data` when no explicit data is passed. |
 
 ## Header controls
 
 The host owns the panel header: optional icon and title on the left; on the right (unless hidden via `hiddenControls`) a position toggle (right ⇄ bottom), a pin toggle (float ⇄ dock), and a close button. Your webview fills the rest.
+
+Set `hideTopbar: true` to drop the header entirely — no icon, title, or controls — and render the panel as a single edge-to-edge webview. The panel must then provide its own way to close itself (e.g. a `togglePanel` command, or `window.muxy.panels.close`).
 
 ## Opening and closing
 
