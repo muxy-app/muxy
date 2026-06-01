@@ -290,25 +290,10 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     private func ensureTerminalView(paneID: UUID) {
-        if TerminalViewRegistry.shared.existingView(for: paneID) != nil { return }
-        guard let location = appState.locatePane(paneID: paneID) else {
+        guard TerminalViewRegistry.shared.existingView(for: paneID) == nil else { return }
+        guard TerminalViewMaterializer.ensureMaterialized(paneID: paneID, appState: appState) != nil else {
             logger.warning("Cannot materialize pane \(paneID): no matching tab in workspace")
             return
-        }
-        let pane = location.pane
-        let view = TerminalViewRegistry.shared.view(
-            for: paneID,
-            workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
-            command: pane.startupCommand,
-            commandInteractive: pane.startupCommandInteractive,
-            closesOnCommandExit: pane.closesOnStartupCommandExit
-        )
-        if view.envVars.isEmpty {
-            view.envVars = TerminalEnvVarBuilder.build(paneID: paneID, worktreeKey: location.worktreeKey)
-        }
-        view.materializeHeadless()
-        if view.surface == nil {
-            logger.warning("Headless materialization left pane \(paneID) without a surface")
         }
     }
 

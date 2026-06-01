@@ -814,6 +814,11 @@ private func waitForView(
     if let appState, locateTab(paneID: paneID, appState: appState) == nil {
         return nil
     }
+    if let appState,
+       let view = TerminalViewMaterializer.ensureMaterialized(paneID: paneID, appState: appState)
+    {
+        return view
+    }
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if let view = TerminalViewRegistry.shared.existingView(for: paneID) {
