@@ -18,6 +18,7 @@ enum ExtensionThemeSnapshot {
         values["diffRemove"] = hex(MuxyTheme.nsDiffRemove)
         values["diffHunk"] = hex(MuxyTheme.nsDiffHunk)
         values["colorScheme"] = MuxyTheme.colorScheme == .dark ? "dark" : "light"
+        values["topbarHeight"] = "\(Int(UIMetrics.titleBarHeight.rounded()))px"
         return values
     }
 

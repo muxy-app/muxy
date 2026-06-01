@@ -34,6 +34,46 @@ A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Mux
 
 The page loads at `muxy-ext://<extensionID>/<entry>` and references its own files with relative paths; the scheme is scoped to that one extension's directory.
 
+## Topbar (recommended)
+
+A tab fills its whole region with one webview, so the page renders all of its own chrome. Muxy's own tabs (editor, source control, diff viewer) open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**
+
+The bar's height tracks the user's interface scale (Settings → Interface), so don't hardcode it — Muxy injects it as the `--muxy-topbar-height` CSS variable, updated live when the scale or theme changes. Use it together with the theme variables so the bar matches the app exactly:
+
+```css
+.topbar {
+  box-sizing: content-box;
+  height: var(--muxy-topbar-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: var(--muxy-background);
+  border-bottom: 1px solid var(--muxy-border);
+  flex: 0 0 auto;
+}
+.topbar .title { color: var(--muxy-foreground); font-weight: 600; }
+.topbar .actions { margin-left: auto; display: flex; gap: 4px; }
+```
+
+`--muxy-topbar-height` is the bar's content height; native tabs draw their 1px divider *below* it, so keep `box-sizing: content-box` on `.topbar` (the border adds beneath the height rather than eating into it) for the divider to land on the same line as adjacent native tabs.
+
+```html
+<body>
+  <header class="topbar">
+    <span class="title">PR Viewer</span>
+    <span class="actions">
+      <button id="refresh">Refresh</button>
+    </span>
+  </header>
+  <main class="content"><!-- your tab body --></main>
+</body>
+```
+
+Because the topbar is your own HTML, you control its contents — put a title and icon on the left and as many action buttons or icons on either side as you need. To render edge-to-edge content instead (a canvas, a custom layout that owns the whole tab), simply omit the topbar; nothing in Muxy forces one.
+
+See [theming](README.md) and the SKILL for the full `--muxy-*` variable list and copy-paste CSS.
+
 ## window.muxy
 
 Muxy injects `window.muxy` before the page's scripts run. Every method returns a `Promise` and requires its matching manifest permission — an unauthorized call rejects with `permission denied (<permission>)`.

@@ -1,9 +1,40 @@
 body {
   margin: 0;
-  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
   font: 13px -apple-system, system-ui, sans-serif;
   background: var(--muxy-background);
   color: var(--muxy-foreground);
+}
+
+.topbar {
+  box-sizing: content-box;
+  height: var(--muxy-topbar-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: var(--muxy-background);
+  border-bottom: 1px solid var(--muxy-border);
+  flex: 0 0 auto;
+}
+
+.topbar .title {
+  color: var(--muxy-foreground);
+  font-weight: 600;
+}
+
+.topbar .actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.content {
+  flex: 1;
+  overflow: auto;
+  padding: 24px;
 }
 
 h1 {

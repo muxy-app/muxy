@@ -5,8 +5,15 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <h1>Hello, <span id="who">world</span>!</h1>
-    <button id="say">Toast</button>
+    <header class="topbar">
+      <span class="title">Hello</span>
+      <span class="actions">
+        <button id="say">Toast</button>
+      </span>
+    </header>
+    <main class="content">
+      <h1>Hello, <span id="who">world</span>!</h1>
+    </main>
     <script>
       document.getElementById("who").textContent = muxy.extensionID;
       document.getElementById("say").addEventListener("click", () =>

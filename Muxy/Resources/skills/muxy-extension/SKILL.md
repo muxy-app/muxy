@@ -142,7 +142,7 @@ Field-by-field:
 - `muxy.background` — optional relative path (resolved against `dist/`) to a JavaScript file. When present it must exist inside `dist/`; Muxy runs it in a long-lived host process for the lifetime of the extension. Provide it only to receive pushed events (`muxy.events.subscribe`) or run background shell commands (`muxy.exec`) — command, topbar, status bar, tab, and `runScript` extensions need none, and omitting it means Muxy keeps no resident process.
 - `muxy.permissions` — array of permission strings. Declare only what the background script or tabs actually use.
 - `muxy.events` — array of event names this extension subscribes to (for example `pane.created`, `tab.focused`, `pane.closed`). Command events (`command.<id>`) are auto-allowed.
-- `muxy.tabTypes` — declares HTML pages (in `dist/`) renderable as tabs.
+- `muxy.tabTypes` — declares HTML pages (in `dist/`) renderable as tabs. A tab fills its whole region with one webview, so the page renders all of its own chrome — including, by recommendation, a [topbar](#tab-topbar-recommended) matching the app's native tabs.
 - `muxy.panels` — declares HTML pages renderable as dockable/floating panels (`position`: `right`|`bottom`, `mode`: `floating`|`pinned`, optional `icon`/`title`/`hiddenControls`). Requires `panels:write` to open/close at runtime. One pinned and one floating panel per position; opening another in that slot replaces it.
 - `muxy.popovers` — declares HTML pages renderable as transient popovers anchored to a topbar/status-bar item (`entry` required; optional `title`, `width`, `height` defaulting to 320×360). Frameless, auto-dismiss on outside click, at most one open at a time. Opened via an `openPopover` command bound to a topbar/status-bar item; the page sizes itself with `muxy.popover.resize()` (needs `panels:write`).
 - `muxy.commands` — palette commands. Each command's `action.kind` is `event` (default — fires `command.<id>`), `openTab`, `togglePanel`, `openPopover`, or `runScript`.
@@ -249,6 +249,42 @@ await muxy.tabs.open({
   },
 });
 ```
+
+### Tab topbar (recommended)
+
+A tab fills its whole region with a single webview — "one content for the entire tab" — so the page renders **all** of its own chrome. Muxy's native tabs (editor, source control, diff viewer) each open with a thin **topbar**: a horizontal bar at the top holding a title/icon on the left and controls on the right. **Render a matching topbar at the top of your tab page** so it looks native and so split panes line up — alignment only holds when every tab uses the same bar geometry.
+
+Do **not** hardcode the bar height: it tracks the user's interface scale (Settings → Interface) and updates live. Muxy injects the scaled height as `--muxy-topbar-height` (re-pushed on scale and theme changes), so use that variable plus the theme variables:
+
+```css
+.topbar {
+  box-sizing: content-box;
+  height: var(--muxy-topbar-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: var(--muxy-background);
+  border-bottom: 1px solid var(--muxy-border);
+  flex: 0 0 auto;
+}
+.topbar .title   { color: var(--muxy-foreground); font-weight: 600; }
+.topbar .actions { margin-left: auto; display: flex; gap: 4px; }
+```
+
+`--muxy-topbar-height` is the bar's **content** height. Native tabs draw their 1px divider *below* the bar, so the topbar must keep `box-sizing: content-box` — the `border-bottom` then adds beneath the height instead of eating into it, and the divider lands on the same line as adjacent native tabs in a split. (Under a global `* { box-sizing: border-box }` reset, the border would sit 1px high.)
+
+```html
+<body style="margin:0;display:flex;flex-direction:column;height:100vh;">
+  <header class="topbar">
+    <span class="title">Git Dashboard</span>
+    <span class="actions"><button id="refresh">↻</button></span>
+  </header>
+  <main style="flex:1;overflow:auto;"><!-- tab body --></main>
+</body>
+```
+
+The topbar is your own HTML, so you place its title, icon, and as many buttons/icons on either side as you need. To render edge-to-edge content with no bar (a canvas, a custom full-tab layout), simply omit the topbar — nothing in Muxy forces one, but matching the app is the recommended default.
 
 ### Open / close panels
 
@@ -372,6 +408,7 @@ Receive the payload in the tab as `muxy.data`.
 | `--muxy-diff-remove` | Removed lines, error states |
 | `--muxy-diff-hunk` | Hunk headers in diffs |
 | `--muxy-color-scheme` | Mirrors `document.documentElement.style.colorScheme` (`light` / `dark`) |
+| `--muxy-topbar-height` | Height of the app's tab topbar; tracks the user's interface scale. Use it for a tab's own topbar so it aligns with native tabs/panels. |
 
 ### Best-practice CSS — copy as a starting point
 
@@ -513,8 +550,13 @@ This extension only opens a tab from a palette command, so it declares no backgr
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <h1>Hello, <span id="who">world</span>!</h1>
-  <button id="say">Toast</button>
+  <header class="topbar">
+    <span class="title">Hello</span>
+    <span class="actions"><button id="say">Toast</button></span>
+  </header>
+  <main class="content">
+    <h1>Hello, <span id="who">world</span>!</h1>
+  </main>
   <script>
     document.getElementById('who').textContent = muxy.extensionID;
     document.getElementById('say').addEventListener('click', () =>
@@ -528,11 +570,22 @@ This extension only opens a tab from a palette command, so it declares no backgr
 ```css
 /* src/tabs/styles.css */
 body {
-  margin: 0; padding: 24px;
+  margin: 0; display: flex; flex-direction: column; height: 100vh;
   font: 13px -apple-system, system-ui, sans-serif;
   background: var(--muxy-background);
   color: var(--muxy-foreground);
 }
+.topbar {
+  box-sizing: content-box;
+  height: var(--muxy-topbar-height);
+  display: flex; align-items: center; gap: 8px; padding: 0 12px;
+  background: var(--muxy-background);
+  border-bottom: 1px solid var(--muxy-border);
+  flex: 0 0 auto;
+}
+.topbar .title   { color: var(--muxy-foreground); font-weight: 600; }
+.topbar .actions { margin-left: auto; display: flex; gap: 4px; }
+.content { flex: 1; overflow: auto; padding: 24px; }
 h1 { font-size: 18px; color: var(--muxy-accent); }
 button {
   background: var(--muxy-surface);
