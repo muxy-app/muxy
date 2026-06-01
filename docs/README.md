@@ -57,7 +57,7 @@ flowchart TB
 | Page | What's in it |
 | --- | --- |
 | [Overview](extensions/overview.md) | Architecture, lifecycle, security model |
-| [Manifest](extensions/manifest.md) | `manifest.json` fields, subprocess environment |
+| [Manifest](extensions/manifest.md) | `package.json` `muxy` fields, subprocess environment |
 | [Permissions](extensions/permissions.md) | What each permission grants |
 | [Events](extensions/events.md) | Identify/subscribe handshake, event list |
 | [Palette Commands](extensions/palette-commands.md) | Register palette commands, react to triggers |

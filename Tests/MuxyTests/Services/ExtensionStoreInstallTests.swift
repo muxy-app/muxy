@@ -17,7 +17,7 @@ struct ExtensionStoreInstallTests {
         try await store.install(expectedName: "demo-ext", zip: zip)
 
         #expect(store.statuses.contains { $0.id == "demo-ext" })
-        let manifest = root.appendingPathComponent("demo-ext/manifest.json")
+        let manifest = root.appendingPathComponent("demo-ext/package.json")
         #expect(FileManager.default.fileExists(atPath: manifest.path))
     }
 
@@ -74,7 +74,7 @@ struct ExtensionStoreInstallTests {
             "background": "background.js"
         }
         """
-        try Data(manifest.utf8).write(to: source.appendingPathComponent("manifest.json"))
+        try ExtensionManifestFixture.write(flatManifest: manifest, to: source)
         try Data("console.log('hi')\n".utf8).write(to: source.appendingPathComponent("background.js"))
 
         let archive = workspace.appendingPathComponent("\(name).zip")

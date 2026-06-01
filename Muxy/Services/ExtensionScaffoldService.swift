@@ -61,7 +61,9 @@ enum ExtensionScaffoldService {
 
         do {
             try FileManager.default.createDirectory(at: extensionDirectory, withIntermediateDirectories: false)
-            try writeManifest(name: name, version: version, description: description, in: extensionDirectory)
+            try writePackageJSON(name: name, version: version, description: description, in: extensionDirectory)
+            try writeViteConfig(in: extensionDirectory)
+            try writeIndexHTML(name: name, in: extensionDirectory)
             try writeClaudeMarkdown(name: name, description: description, in: extensionDirectory)
             try writeAgentsSymlink(in: extensionDirectory)
             try writeGitignore(in: extensionDirectory)
@@ -85,27 +87,84 @@ enum ExtensionScaffoldService {
             .appendingPathComponent("skills/muxy-extension/SKILL.md")
     }
 
-    private static func writeManifest(
+    private static func writePackageJSON(
         name: String,
         version: String,
         description: String,
         in directory: URL
     ) throws {
-        var manifest: [String: Any] = [
-            "name": name,
-            "version": version,
+        var muxy: [String: Any] = [
             "events": [],
             "commands": [],
             "permissions": [],
         ]
         if !description.isEmpty {
-            manifest["description"] = description
+            muxy["description"] = description
         }
+        let packageJSON: [String: Any] = [
+            "name": name,
+            "version": version,
+            "private": true,
+            "type": "module",
+            "scripts": [
+                "dev": "vite",
+                "build": "vite build",
+            ],
+            "devDependencies": [
+                "vite": "^5.0.0",
+            ],
+            "muxy": muxy,
+        ]
         let data = try JSONSerialization.data(
-            withJSONObject: manifest,
+            withJSONObject: packageJSON,
             options: [.prettyPrinted, .sortedKeys]
         )
-        try data.write(to: directory.appendingPathComponent("manifest.json"))
+        try data.write(to: directory.appendingPathComponent("package.json"))
+    }
+
+    private static func writeViteConfig(in directory: URL) throws {
+        // Build to `dist/`, the directory the publishing pipeline packs and the
+        // app installs. Keep readable output so the shipped bundle stays
+        // reviewable.
+        let contents = """
+        import { defineConfig } from "vite";
+
+        export default defineConfig({
+          build: {
+            outDir: "dist",
+            emptyOutDir: true,
+            minify: false,
+          },
+        });
+        """
+        try Data(contents.utf8).write(to: directory.appendingPathComponent("vite.config.js"))
+    }
+
+    private static func writeIndexHTML(name: String, in directory: URL) throws {
+        let contents = """
+        <!doctype html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <title>\(name)</title>
+          </head>
+          <body>
+            <div id="app"></div>
+            <script type="module" src="/src/main.js"></script>
+          </body>
+        </html>
+        """
+        try Data(contents.utf8).write(to: directory.appendingPathComponent("index.html"))
+
+        let srcDirectory = directory.appendingPathComponent("src", isDirectory: true)
+        try FileManager.default.createDirectory(at: srcDirectory, withIntermediateDirectories: true)
+        let main = """
+        // Entry point. Use any npm packages or framework you like (React, Vue,
+        // Svelte, …); Vite bundles them into dist/. Talk to the host via the
+        // injected `window.muxy` API.
+        document.querySelector("#app").textContent = "Hello from \(name)";
+        """
+        try Data(main.utf8).write(to: srcDirectory.appendingPathComponent("main.js"))
     }
 
     private static func writeClaudeMarkdown(
@@ -117,23 +176,30 @@ enum ExtensionScaffoldService {
         let contents = """
         # \(name)\(header)
 
-        Muxy extension scaffolded by Muxy.
+        Muxy extension scaffolded by Muxy. This is an npm + Vite project.
 
         ## Layout
 
-        - `manifest.json` — declares the extension to Muxy.
+        - `package.json` — npm manifest. Identity (`name`, `version`) is at the
+          top level; all Muxy fields live under the `muxy` key. A `build` script
+          (Vite) is required.
+        - `vite.config.js` — builds to `dist/`, the directory Muxy installs.
+        - `index.html` + `src/` — your source. Use any npm packages or framework
+          (React, Vue, Svelte, …); Vite bundles them into `dist/`.
 
-        Add a `"background"` script (e.g. `background.js`) to the manifest only
-        if the extension needs to receive pushed workspace events or run shell
-        commands in the background. Muxy runs it as a long-lived process that
-        subscribes to events with `muxy.events.subscribe` and runs commands with
-        `muxy.exec`. Command, topbar, status bar, tab, and runScript extensions
-        need no background script.
+        Add a `"background"` script (e.g. `background.js`) under the `muxy` key
+        only if the extension needs to receive pushed workspace events or run
+        shell commands in the background. Muxy runs it as a long-lived process
+        that subscribes to events with `muxy.events.subscribe` and runs commands
+        with `muxy.exec`. Command, topbar, status bar, tab, and runScript
+        extensions need no background script.
 
-        ## Editing
+        ## Building & editing
 
-        After changing `manifest.json`, click "Reload" in the Muxy Extensions
-        modal to pick up the changes.
+        Install deps with `npm install`, then `npm run build` to produce
+        `dist/`. After rebuilding, click "Reload" in the Muxy Extensions modal to
+        pick up the changes. (`npm run dev` runs Vite's dev server for fast
+        iteration.)
 
         ## Skill
 

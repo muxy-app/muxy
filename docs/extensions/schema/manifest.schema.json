@@ -1,11 +1,10 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://muxy.app/schema/manifest.schema.json",
-  "title": "Muxy Extension Manifest",
-  "description": "Mirror of the Swift ExtensionManifest loader in muxy-app/muxy. Source of truth is MuxyExtension.load/validate; this schema is the marketplace mirror, backed by an app contract test.",
+  "title": "Muxy Extension package.json",
+  "description": "An extension is an npm + Vite project. Identity (name, version) lives at the top level of package.json; all Muxy manifest fields live under the `muxy` key. Mirror of the Swift PackageManifest/ExtensionManifest loader in muxy-app/muxy — source of truth is MuxyExtension.load/validate; this schema is the marketplace mirror, backed by an app contract test.",
   "type": "object",
-  "additionalProperties": false,
-  "required": ["name", "version"],
+  "required": ["name", "version", "scripts", "muxy"],
   "properties": {
     "$schema": {
       "type": "string",
@@ -23,84 +22,103 @@
       "description": "Semver. A published name@version is immutable; bump for any change.",
       "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z-.]+)?(?:\\+[0-9A-Za-z-.]+)?$"
     },
-    "description": {
-      "type": "string",
-      "maxLength": 200
-    },
-    "background": {
-      "type": "string",
-      "description": "Relative path to a background JS file inside the extension directory."
-    },
-    "events": {
-      "type": "array",
-      "items": { "type": "string" },
-      "uniqueItems": true
-    },
-    "permissions": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": { "$ref": "#/$defs/permission" }
-    },
-    "tabTypes": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/tabType" }
-    },
-    "panels": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/panel" }
-    },
-    "popovers": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/popover" }
-    },
-    "commands": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/command" }
-    },
-    "topbarItems": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/topbarItem" }
-    },
-    "statusBarItems": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/statusBarItem" }
-    },
-    "settings": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/setting" }
-    },
-    "marketplace": {
+    "scripts": {
       "type": "object",
-      "description": "Listing metadata used by the marketplace. Required: icon + at least one screenshot. Ignored by the app loader. The pricing key is reserved for a future paid-extensions feature and is not yet enforced.",
-      "additionalProperties": false,
-      "required": ["icon", "screenshots"],
+      "description": "npm scripts. A `build` script is required: the publishing pipeline runs it (Vite) and ships the build output (dist/).",
+      "required": ["build"],
       "properties": {
-        "author": { "type": "string" },
-        "github": { "type": "string", "description": "Author's GitHub username." },
-        "homepage": { "type": "string", "format": "uri" },
-        "repository": { "type": "string", "format": "uri" },
-        "categories": {
+        "build": { "type": "string", "minLength": 1 }
+      }
+    },
+    "muxy": {
+      "type": "object",
+      "description": "All Muxy-specific manifest fields. Entry/asset paths resolve against the build output (dist/).",
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "type": "string",
+          "description": "Optional pointer to this schema. Ignored by the app loader."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "background": {
+          "type": "string",
+          "description": "Relative path to a background JS file inside the build output."
+        },
+        "events": {
           "type": "array",
           "items": { "type": "string" },
           "uniqueItems": true
         },
-        "icon": {
-          "type": "string",
-          "description": "Relative path to the listing icon inside the extension directory. SVG (preferred) or square PNG ≥256×256.",
-          "pattern": "\\.(svg|png)$"
-        },
-        "screenshots": {
+        "permissions": {
           "type": "array",
-          "description": "Relative paths to listing screenshots inside the extension directory. At least one required. PNG, 1600×1000 (16:10).",
-          "minItems": 1,
-          "maxItems": 6,
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "\\.png$" }
+          "items": { "$ref": "#/$defs/permission" }
         },
-        "pricing": {
+        "tabTypes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tabType" }
+        },
+        "panels": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/panel" }
+        },
+        "popovers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/popover" }
+        },
+        "commands": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/command" }
+        },
+        "topbarItems": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/topbarItem" }
+        },
+        "statusBarItems": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/statusBarItem" }
+        },
+        "settings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/setting" }
+        },
+        "marketplace": {
           "type": "object",
-          "description": "Reserved. Not enforced in v1.",
-          "additionalProperties": true
+          "description": "Listing metadata used by the marketplace. Required: icon + at least one screenshot. Ignored by the app loader. The pricing key is reserved for a future paid-extensions feature and is not yet enforced.",
+          "additionalProperties": false,
+          "required": ["icon", "screenshots"],
+          "properties": {
+            "author": { "type": "string" },
+            "github": { "type": "string", "description": "Author's GitHub username." },
+            "homepage": { "type": "string", "format": "uri" },
+            "repository": { "type": "string", "format": "uri" },
+            "categories": {
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true
+            },
+            "icon": {
+              "type": "string",
+              "description": "Relative path to the listing icon inside the build output. SVG (preferred) or square PNG ≥256×256.",
+              "pattern": "\\.(svg|png)$"
+            },
+            "screenshots": {
+              "type": "array",
+              "description": "Relative paths to listing screenshots inside the build output. At least one required. PNG, 1600×1000 (16:10).",
+              "minItems": 1,
+              "maxItems": 6,
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "\\.png$" }
+            },
+            "pricing": {
+              "type": "object",
+              "description": "Reserved. Not enforced in v1.",
+              "additionalProperties": true
+            }
+          }
         }
       }
     }

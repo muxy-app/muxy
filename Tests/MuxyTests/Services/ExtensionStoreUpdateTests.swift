@@ -119,7 +119,7 @@ struct ExtensionStoreUpdateTests {
             "background": "background.js"
         }
         """
-        try Data(manifest.utf8).write(to: source.appendingPathComponent("manifest.json"))
+        try ExtensionManifestFixture.write(flatManifest: manifest, to: source)
         try Data("console.log('hi')\n".utf8).write(to: source.appendingPathComponent("background.js"))
 
         let archive = workspace.appendingPathComponent("\(name).zip")

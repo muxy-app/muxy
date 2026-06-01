@@ -63,7 +63,7 @@ struct ExtensionStoreStartOrderingTests {
             "events": ["pane.created"]
         }
         """
-        try Data(manifest.utf8).write(to: directory.appendingPathComponent("manifest.json"))
+        try ExtensionManifestFixture.write(flatManifest: manifest, to: directory)
         try Data("console.log('hi')\n".utf8).write(to: directory.appendingPathComponent("background.js"))
         return (directory, parent)
     }

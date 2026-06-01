@@ -476,6 +476,26 @@ struct ExtensionManifest: Codable, Equatable {
         settings = try container.decodeIfPresent([ExtensionSettingEntry].self, forKey: .settings) ?? []
     }
 
+    /// Builds the manifest from a decoded `package.json`: identity (`name`,
+    /// `version`) comes from the top-level npm fields; everything else comes
+    /// from the `muxy` object.
+    init(package: PackageManifest) {
+        let muxy = package.muxy
+        name = package.name
+        version = package.version
+        description = muxy.description
+        background = muxy.background
+        events = muxy.events
+        commands = muxy.commands
+        tabTypes = muxy.tabTypes
+        panels = muxy.panels
+        popovers = muxy.popovers
+        permissions = muxy.permissions
+        topbarItems = muxy.topbarItems
+        statusBarItems = muxy.statusBarItems
+        settings = muxy.settings
+    }
+
     func tabType(id: String) -> ExtensionTabType? {
         tabTypes.first { $0.id == id }
     }
@@ -494,6 +514,66 @@ struct ExtensionManifest: Codable, Equatable {
 
     func statusBarItem(id: String) -> ExtensionStatusBarItem? {
         statusBarItems.first { $0.id == id }
+    }
+}
+
+/// The extension `package.json`. Identity (`name`, `version`) lives at the top
+/// level where npm expects it; all Muxy-specific manifest fields live under the
+/// `muxy` key. Other npm fields (scripts, dependencies, …) are ignored here.
+struct PackageManifest: Codable, Equatable {
+    let name: String
+    let version: String
+    let muxy: MuxyManifestBody
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case version
+        case muxy
+    }
+}
+
+/// The body of the manifest — everything that used to live in `manifest.json`
+/// except `name`/`version`, now nested under `package.json`'s `muxy` key.
+struct MuxyManifestBody: Codable, Equatable {
+    let description: String?
+    let background: String?
+    let events: [String]
+    let commands: [ExtensionPaletteCommand]
+    let tabTypes: [ExtensionTabType]
+    let panels: [ExtensionPanel]
+    let popovers: [ExtensionPopover]
+    let permissions: [ExtensionPermission]
+    let topbarItems: [ExtensionTopbarItem]
+    let statusBarItems: [ExtensionStatusBarItem]
+    let settings: [ExtensionSettingEntry]
+
+    private enum CodingKeys: String, CodingKey {
+        case description
+        case background
+        case events
+        case commands
+        case tabTypes
+        case panels
+        case popovers
+        case permissions
+        case topbarItems
+        case statusBarItems
+        case settings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        background = try container.decodeIfPresent(String.self, forKey: .background)
+        events = try container.decodeIfPresent([String].self, forKey: .events) ?? []
+        commands = try container.decodeIfPresent([ExtensionPaletteCommand].self, forKey: .commands) ?? []
+        tabTypes = try container.decodeIfPresent([ExtensionTabType].self, forKey: .tabTypes) ?? []
+        panels = try container.decodeIfPresent([ExtensionPanel].self, forKey: .panels) ?? []
+        popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
+        permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
+        topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
+        statusBarItems = try container.decodeIfPresent([ExtensionStatusBarItem].self, forKey: .statusBarItems) ?? []
+        settings = try container.decodeIfPresent([ExtensionSettingEntry].self, forKey: .settings) ?? []
     }
 }
 
@@ -639,8 +719,12 @@ enum ExtensionManifestLoader {
         return set
     }()
 
+    /// Name of the manifest file an extension ships. The Muxy manifest lives
+    /// under the `muxy` key of the npm `package.json`.
+    static let manifestFileName = "package.json"
+
     static func load(from directory: URL) throws -> MuxyExtension {
-        let manifestURL = directory.appendingPathComponent("manifest.json")
+        let manifestURL = directory.appendingPathComponent(manifestFileName)
         guard FileManager.default.fileExists(atPath: manifestURL.path) else {
             throw ExtensionLoadError.manifestMissing(manifestURL)
         }
@@ -654,7 +738,8 @@ enum ExtensionManifestLoader {
 
         let manifest: ExtensionManifest
         do {
-            manifest = try JSONDecoder().decode(ExtensionManifest.self, from: data)
+            let package = try JSONDecoder().decode(PackageManifest.self, from: data)
+            manifest = ExtensionManifest(package: package)
         } catch {
             throw ExtensionLoadError.manifestInvalid(manifestURL, error.localizedDescription)
         }

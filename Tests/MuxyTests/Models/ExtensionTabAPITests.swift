@@ -222,7 +222,7 @@ struct ExtensionTabValidationTests {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ext-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Data(manifest.utf8).write(to: directory.appendingPathComponent("manifest.json"))
+        try ExtensionManifestFixture.write(flatManifest: manifest, to: directory)
         for (relPath, contents) in extraFiles {
             let fileURL = directory.appendingPathComponent(relPath)
             try FileManager.default.createDirectory(

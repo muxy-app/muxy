@@ -15,27 +15,52 @@ ship an extension to everyone.
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org) 18 or newer.
+- [Node.js](https://nodejs.org) 18 or newer (npm comes with it).
 - A Muxy installation to test against.
 
 ## 1. Start from the example
 
-Copy the example as your starting point:
+Copy the example as your starting point. An extension is an npm + [Vite](https://vitejs.dev)
+project — the directory name must match the package `name`:
 
 ```bash
 cp -r examples/hello-world my-extension
 ```
 
-## 2. Edit the manifest
+## 2. Edit `package.json`
 
-Open `my-extension/manifest.json` and update the fields. See the
-[manifest reference](manifest.md) for every option, and the
+Open `my-extension/package.json`. Keep `name` (matching the directory) and `version` at
+the top level, and put every Muxy manifest field under the `muxy` key. Your `package.json`
+must declare a `build` script — the publishing pipeline runs `npm run build` and ships the
+`dist/` it produces.
+
+```json
+{
+  "name": "my-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build" },
+  "devDependencies": { "vite": "^5.0.0" },
+  "muxy": {
+    "description": "What it does",
+    "permissions": ["notifications:write"],
+    "commands": [{ "id": "ping", "title": "My Extension: Ping" }]
+  }
+}
+```
+
+See the [manifest reference](manifest.md) for every option, and the
 [schema](schema/manifest.schema.json) for the authoritative contract.
 
 ## 3. Build your UI
 
-Extensions are HTML/CSS/JS. The example includes a tab; adapt it or add panels,
-popovers, palette commands, and more. See the rest of this docs set for each surface:
+Extensions are bundled with Vite, so use any npm packages and any framework — React, Vue,
+Svelte, or plain HTML/CSS/JS. Entry/asset paths in `muxy` (popover/tab `entry`,
+`background`, marketplace `icon`/`screenshots`) resolve against the build output, so make
+sure `vite build` emits them into `dist/`. The example includes a tab; adapt it or add
+panels, popovers, palette commands, and more. See the rest of this docs set for each
+surface:
 
 - [Overview](overview.md) — architecture, lifecycle, security model
 - [Permissions](permissions.md) — request the minimum you need
@@ -43,9 +68,18 @@ popovers, palette commands, and more. See the rest of this docs set for each sur
 - [Palette commands](palette-commands.md), [Topbar](topbar.md), [Status bar](statusbar.md)
 - [Settings](settings.md), [Scripts](scripts.md), [Logs](logs.md)
 
+Install dependencies and produce a build:
+
+```bash
+cd my-extension
+npm install
+npm run build
+```
+
 ## 4. Test in Muxy
 
-Load your unpacked extension from Muxy's developer settings and iterate.
+Build first (`npm run build`), then load the unpacked extension's `dist/` from Muxy's
+developer settings and iterate. During development, `npm run dev` runs Vite's dev server.
 
 ## 5. Validate and publish
 
@@ -56,12 +90,12 @@ extension into `extensions/<your-extension>/`, and run its tooling:
 ```bash
 npm install
 npm run validate
-npm run pack -- my-extension
+npm run build
 ```
 
-Then open a pull request against that repository. CI validates every submission; once
-a maintainer approves and merges, the publish workflow signs and releases your
-extension.
+Then open a pull request against that repository. CI installs, builds (`npm run build`),
+and validates every submission; once a maintainer approves and merges, the publish workflow
+runs the build, signs the resulting `dist/`, and releases your extension.
 
 ## Style and quality
 

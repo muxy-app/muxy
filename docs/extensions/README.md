@@ -2,14 +2,14 @@
 
 > **Status:** under active development. Marked **DEV** in **Settings → Extensions**. The manifest format, permission set, and wire format may change without notice.
 
-User-installed directories that Muxy loads and runs. Extensions can react to workspace events, register palette commands, post notifications, and (with permission) drive the same verbs the `muxy` CLI exposes. Most need no background script; Muxy keeps a long-lived background process only for extensions that declare one to receive pushed events or run background shell commands.
+User-installed directories that Muxy loads and runs. Each extension is an npm + [Vite](https://vitejs.dev) project: authors use any framework (React, Vue, Svelte, vanilla), `npm run build` bundles it into a `dist/` directory, and that build output is what gets published and installed. Extensions can react to workspace events, register palette commands, post notifications, and (with permission) drive the same verbs the `muxy` CLI exposes. Most need no background script; Muxy keeps a long-lived background process only for extensions that declare one to receive pushed events or run background shell commands.
 
 ## Architecture
 
-On launch, the main process (`ExtensionStore`) scans `~/.config/muxy/extensions/`, loads the enabled ones, and splits each into two independent surfaces:
+On launch, the main process (`ExtensionStore`) scans `~/.config/muxy/extensions/` (each entry the installed `dist/` of an extension, with its `package.json`), loads the enabled ones, and splits each into two independent surfaces:
 
 - **Hooks API (main process).** Declared UI — panels, tabs, popovers, topbar/status-bar items — is registered in-process and rendered in the main window as `WKWebView`s. Their JS talks to Muxy through the injected `window.muxy` bridge (`ExtensionBridgeHandler` → `MuxyAPIDispatcher`); **no subprocess and no socket are involved**.
-- **Background script (subprocess).** If the extension declares a `background` script, `ExtensionStore.startExtension` spawns `MuxyExtensionHost` — a tiny bundled Swift + JavaScriptCore binary — to run `background.js`. It is where **`muxy.events.subscribe` listeners live** and where `muxy.exec` is called. The host connects back to the main process over the Unix socket (`NotificationSocketServer`).
+- **Background script (subprocess).** If the extension declares a `muxy.background` script, `ExtensionStore.startExtension` spawns `MuxyExtensionHost` — a tiny bundled Swift + JavaScriptCore binary — to run `background.js`. It is where **`muxy.events.subscribe` listeners live** and where `muxy.exec` is called. The host connects back to the main process over the Unix socket (`NotificationSocketServer`).
 
 Events are produced in the main process by `ExtensionEventEmitter` (it diffs workspace state on each change) and broadcast to subscribed host sessions over the socket; the host dispatches them to the `muxy.events` listeners in `background.js`. A `muxy.exec` call travels the socket to `SocketCommandHandler`, which gates it: `ExtensionGrantStore.evaluate` checks for a remembered (whitelisted) rule; if none, `ExtensionConsentService.gate` prompts in the main window; on approval `ExtensionCommandExecutor` runs the command and the result is returned to `background.js`.
 
@@ -21,7 +21,7 @@ flowchart TD
     main -.->|opens UI in| window
 
     scan --> load["load enabled extensions"]
-    load --> hasBg{"has<br/>background.js?"}
+    load --> hasBg{"has<br/>muxy.background?"}
     load -->|register UI hooks| hooks
 
     subgraph hooks["Hooks API (main process)"]
@@ -66,7 +66,7 @@ flowchart TD
 | Page | What's in it |
 | --- | --- |
 | [Overview](overview.md) | Architecture, lifecycle, security model |
-| [Manifest](manifest.md) | `manifest.json` fields, validation, background script environment |
+| [Manifest](manifest.md) | `package.json` `muxy` fields, validation, background script environment |
 | [Permissions](permissions.md) | What each permission grants, what isn't gated |
 | [Events](events.md) | Identify/subscribe handshake, event list, wire format |
 | [Palette Commands](palette-commands.md) | Register commands and react to triggers |
@@ -88,8 +88,10 @@ flowchart TD
 
 ## Quick reference
 
-- Install path: `~/.config/muxy/extensions/<name>/`
-- Background script: optional `background.js`, run in a host process that injects the `muxy` global
+- Project: an npm + Vite project; `npm run build` emits `dist/`, which is what is published and installed
+- Manifest: the `muxy` object in `package.json` (`name`/`version` stay top-level)
+- Install path: `~/.config/muxy/extensions/<name>/` (the installed `dist/`)
+- Background script: optional `muxy.background` JS, run in a host process that injects the `muxy` global
 - Background API: `muxy.extensionID`, `muxy.events.subscribe`, `muxy.exec`, `console.*`
 - See [the muxy CLI feature page](../features/muxy-cli.md) for the verb vocabulary
 
@@ -98,41 +100,56 @@ flowchart TD
 Most extensions need no background script. A manifest alone registers commands, topbar/status bar items, tabs, and `runScript` handlers, and Muxy keeps no resident process for it:
 
 ```
-~/.config/muxy/extensions/hello/
-  manifest.json
+hello/
+  package.json
+  vite.config.js
+  src/…
 ```
 
 ```json
 {
   "name": "hello",
   "version": "0.1.0",
-  "permissions": ["notifications:write"],
-  "commands": [
-    { "id": "ping", "title": "Hello: Ping" }
-  ]
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build" },
+  "devDependencies": { "vite": "^5.0.0" },
+  "muxy": {
+    "permissions": ["notifications:write"],
+    "commands": [
+      { "id": "ping", "title": "Hello: Ping" }
+    ]
+  }
 }
 ```
 
 ## Example with a background script
 
-Add a `background` script **only** to receive pushed events or run background shell commands. Muxy then runs it in a long-lived host process that stays alive for the lifetime of the extension:
+Add a `muxy.background` script **only** to receive pushed events or run background shell commands. Muxy then runs it in a long-lived host process that stays alive for the lifetime of the extension. The path resolves against the build output, so make sure `vite build` emits it into `dist/`:
 
 ```
-~/.config/muxy/extensions/hello/
-  manifest.json
-  background.js
+hello/
+  package.json
+  vite.config.js
+  src/background.js
 ```
 
 ```json
 {
   "name": "hello",
   "version": "0.1.0",
-  "background": "background.js",
-  "permissions": ["commands:exec"],
-  "events": ["pane.created"],
-  "commands": [
-    { "id": "ping", "title": "Hello: Ping" }
-  ]
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build" },
+  "devDependencies": { "vite": "^5.0.0" },
+  "muxy": {
+    "background": "background.js",
+    "permissions": ["commands:exec"],
+    "events": ["pane.created"],
+    "commands": [
+      { "id": "ping", "title": "Hello: Ping" }
+    ]
+  }
 }
 ```
 

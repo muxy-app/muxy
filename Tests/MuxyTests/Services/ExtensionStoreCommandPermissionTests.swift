@@ -96,7 +96,7 @@ struct ExtensionStoreCommandPermissionTests {
             "commands": [{"id":"run","title":"Run","action":\(action)}]
         }
         """
-        try Data(manifest.utf8).write(to: directory.appendingPathComponent("manifest.json"))
+        try ExtensionManifestFixture.write(flatManifest: manifest, to: directory)
         for (path, contents) in files {
             let url = directory.appendingPathComponent(path)
             try FileManager.default.createDirectory(

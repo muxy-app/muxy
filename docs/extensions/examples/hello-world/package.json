@@ -1,0 +1,35 @@
+{
+  "name": "hello-world",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  },
+  "muxy": {
+    "$schema": "https://raw.githubusercontent.com/muxy-app/muxy/main/docs/extensions/schema/manifest.schema.json",
+    "description": "Minimal Muxy extension: a palette command that opens a theme-aware tab.",
+    "permissions": ["tabs:write", "notifications:write"],
+    "tabTypes": [
+      { "id": "main", "title": "Hello", "entry": "tabs/index.html" }
+    ],
+    "commands": [
+      {
+        "id": "open",
+        "title": "Hello World: Open",
+        "action": { "kind": "openTab", "tabType": "main" }
+      }
+    ],
+    "marketplace": {
+      "author": "Muxy",
+      "homepage": "https://muxy.app",
+      "categories": ["example"],
+      "icon": "assets/icon.svg",
+      "screenshots": ["assets/screenshot-1.png"]
+    }
+  }
+}

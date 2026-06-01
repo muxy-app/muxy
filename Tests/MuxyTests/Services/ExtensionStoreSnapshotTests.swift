@@ -78,8 +78,7 @@ struct ExtensionStoreSnapshotBuildingTests {
     private func makeTemporaryExtension(manifest: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ext-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let manifestURL = directory.appendingPathComponent("manifest.json")
-        try Data(manifest.utf8).write(to: manifestURL)
+        try ExtensionManifestFixture.write(flatManifest: manifest, to: directory)
         return directory
     }
 }
