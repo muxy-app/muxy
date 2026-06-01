@@ -214,7 +214,7 @@
         "defaultShortcut": {
           "type": "string",
           "minLength": 1,
-          "description": "Default keyboard shortcut for this command, e.g. \"cmd+shift+e\". Auto-assigned on load when free; registered unassigned when the combo is already taken. Editable in Settings → Keyboard Shortcuts."
+          "description": "Default keyboard shortcut for this command, e.g. \"cmd+shift+e\". Must include at least one of cmd, ctrl, or opt; bare keys are ignored. Auto-assigned on load when free; registered unassigned when the combo is already taken. Editable in Settings → Keyboard Shortcuts."
         }
       }
     },

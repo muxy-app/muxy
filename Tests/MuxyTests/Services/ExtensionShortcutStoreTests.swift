@@ -93,6 +93,13 @@ struct KeyComboParsingTests {
         #expect(KeyCombo(parsing: "cmd+return") == KeyCombo(key: KeyCombo.returnKey, command: true))
     }
 
+    @Test("rejects combos without a command, control, or option modifier")
+    func rejectsModifierlessCombos() {
+        #expect(KeyCombo(parsing: "e") == nil)
+        #expect(KeyCombo(parsing: "shift+e") == nil)
+        #expect(KeyCombo(parsing: "return") == nil)
+    }
+
     @Test("returns nil for unparseable strings")
     func rejectsInvalid() {
         #expect(KeyCombo(parsing: "") == nil)

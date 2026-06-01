@@ -149,6 +149,7 @@ struct KeyCombo: Codable, Equatable, Hashable {
             }
         }
 
+        guard command || control || option else { return nil }
         guard let key = Self.parsedKey(from: rawKey) else { return nil }
         self.init(key: key, command: command, shift: shift, control: control, option: option)
         guard isAssigned else { return nil }

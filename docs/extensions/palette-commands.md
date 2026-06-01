@@ -27,7 +27,8 @@ Extensions can declare commands that appear in Muxy's command palette. Picking a
 
 ## Keyboard shortcuts
 
-A command may declare a `defaultShortcut` (e.g. `"cmd+ctrl+p"`). On load Muxy
+A command may declare a `defaultShortcut` (e.g. `"cmd+ctrl+p"`). It must include
+at least one of `cmd`, `ctrl`, or `opt`; bare keys are ignored. On load Muxy
 auto-assigns it when the combo is free; if it is already taken (by an app
 shortcut, a custom command, or another extension), the command registers
 **unassigned**. The first extension to claim a combo keeps it. Users view and
