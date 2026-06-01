@@ -765,9 +765,11 @@ enum ExtensionManifestLoader {
     }()
 
     static let manifestFileName = "package.json"
+    static let buildOutputDirectoryName = "dist"
 
     static func load(from directory: URL) throws -> MuxyExtension {
-        let manifestURL = directory.appendingPathComponent(manifestFileName)
+        let root = resolvedRoot(for: directory)
+        let manifestURL = root.appendingPathComponent(manifestFileName)
         guard FileManager.default.fileExists(atPath: manifestURL.path) else {
             throw ExtensionLoadError.manifestMissing(manifestURL)
         }
@@ -789,12 +791,12 @@ enum ExtensionManifestLoader {
 
         try validate(name: manifest.name)
 
-        let muxyExtension = MuxyExtension(id: manifest.name, directory: directory, manifest: manifest)
+        let muxyExtension = MuxyExtension(id: manifest.name, directory: root, manifest: manifest)
 
         if let background = manifest.background {
             guard let backgroundURL = muxyExtension.resolveResource(background) else {
                 throw ExtensionLoadError.backgroundScriptOutsideDirectory(
-                    directory.appendingPathComponent(background)
+                    root.appendingPathComponent(background)
                 )
             }
             guard FileManager.default.fileExists(atPath: backgroundURL.path) else {
@@ -814,6 +816,13 @@ enum ExtensionManifestLoader {
         migrateLegacyEnabledFlag(rawManifest: data, extensionID: manifest.name)
 
         return muxyExtension
+    }
+
+    static func resolvedRoot(for directory: URL) -> URL {
+        let buildOutput = directory.appendingPathComponent(buildOutputDirectoryName)
+        let buildManifest = buildOutput.appendingPathComponent(manifestFileName)
+        guard FileManager.default.fileExists(atPath: buildManifest.path) else { return directory }
+        return buildOutput
     }
 
     private static func migrateLegacyEnabledFlag(rawManifest: Data, extensionID: String) {

@@ -78,8 +78,9 @@ npm run build
 
 ## 4. Test in Muxy
 
-Build first (`npm run build`), then load the unpacked extension's `dist/` from Muxy's
-developer settings and iterate. During development, `npm run dev` runs Vite's dev server.
+Put your project in `~/.config/muxy/extensions/<name>/` (the directory name must match the
+package `name`) and run `npm run build`. Muxy loads from the `dist/` build output when it
+exists, so you can keep your source alongside it and just rebuild to pick up changes.
 
 ## 5. Validate and publish
 
