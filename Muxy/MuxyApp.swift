@@ -343,7 +343,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         NotificationSocketServer.shared.start()
-        _ = AIUsageSettingsStore.isUsageEnabled()
         DiagnosticsMenuController.shared.install()
         observeSettingsRequests()
         consumeLaunchArguments()

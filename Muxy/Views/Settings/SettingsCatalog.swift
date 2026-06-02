@@ -11,7 +11,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case voice
     case notifications
     case mobile
-    case ai
     case json
 
     var id: String { rawValue }
@@ -27,7 +26,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .voice: "Voice"
         case .notifications: "Notifications"
         case .mobile: "Mobile"
-        case .ai: "AI"
         case .json: "JSON"
         }
     }
@@ -43,7 +41,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .voice: "mic"
         case .notifications: "bell"
         case .mobile: "iphone"
-        case .ai: "sparkles"
         case .json: "curlybraces"
         }
     }
@@ -530,46 +527,6 @@ enum SettingsCatalog {
             description: "Manages mobile devices that can connect.",
             category: .mobile,
             section: "Approved Devices"
-        ),
-
-        SettingsCatalogItem(
-            key: AIUsageSettingsStore.usageEnabledKey,
-            title: "Enable AI Usage",
-            description: "Shows the AI usage board in the sidebar.",
-            category: .ai,
-            section: "AI Usage",
-            defaultValue: false
-        ),
-        SettingsCatalogItem(
-            key: AIUsageSettingsStore.usageDisplayModeKey,
-            title: "Usage Display Mode",
-            description: "Shows used or remaining AI quota.",
-            category: .ai,
-            section: "AI Usage",
-            defaultValue: AIUsageSettingsStore.defaultUsageDisplayMode.rawValue
-        ),
-        SettingsCatalogItem(
-            key: AIUsageSettingsStore.autoRefreshIntervalKey,
-            title: "Auto Refresh",
-            description: "Controls how often AI usage data refreshes.",
-            category: .ai,
-            section: "AI Usage",
-            defaultValue: AIUsageSettingsStore.defaultAutoRefreshInterval.rawValue
-        ),
-        SettingsCatalogItem(
-            key: AIUsageSettingsStore.showSecondaryLimitsKey,
-            title: "Show Secondary Limits",
-            description: "Shows weekly and monthly quotas next to primary usage.",
-            category: .ai,
-            section: "AI Usage",
-            defaultValue: AIUsageSettingsStore.defaultShowSecondaryLimits
-        ),
-        SettingsCatalogItem(
-            key: "aiUsage.providers",
-            title: "Tracked Usage Providers",
-            description: "Chooses which providers appear on the usage board.",
-            category: .ai,
-            section: "AI Usage"
         ),
     ]
 

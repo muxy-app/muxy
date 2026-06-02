@@ -85,16 +85,6 @@ See [Remote Server](../remote-server/overview.md).
 - **Commit Prompt** — prompt used to generate commit messages.
 - **Pull Request Prompt** — prompt used to generate PR drafts.
 
-## AI Usage
-
-- **Enable AI usage tracking** — global toggle.
-- **Display mode** — show *used* or *remaining* values.
-- **Auto‑refresh** — Off / 5m / 15m / 30m / 1h.
-- **Show secondary limits** — keep / hide non‑primary metrics.
-- **Per‑provider toggles** — enable each provider individually.
-
-See [AI Usage](../features/ai-usage.md).
-
 ## JSON
 
 The JSON tab exposes editable settings as `settings.json`.

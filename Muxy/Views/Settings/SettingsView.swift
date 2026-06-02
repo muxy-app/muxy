@@ -129,12 +129,6 @@ struct SettingsView: View {
             NotificationSettingsView()
         case .mobile:
             MobileSettingsView()
-        case .ai:
-            SettingsContainer {
-                SettingsSection("AI Usage", showsDivider: false) {
-                    AIUsageSettingsView()
-                }
-            }
         case .json:
             SettingsJSONEditorView()
         }

@@ -416,12 +416,6 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.toggleThemePicker)
             }
             .shortcut(for: .toggleThemePicker, store: keyBindings)
-
-            Button("AI Usage") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.toggleAIUsage)
-            }
-            .shortcut(for: .toggleAIUsage, store: keyBindings)
         }
 
         CommandGroup(replacing: .help) {

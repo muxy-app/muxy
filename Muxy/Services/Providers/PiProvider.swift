@@ -3,7 +3,7 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "PiProvider")
 
-struct PiProvider: AIProviderIntegration, AIUsageProvider {
+struct PiProvider: AIProviderIntegration {
     let id = "pi"
     let displayName = "Pi"
     let socketTypeKey = "pi"

@@ -21,7 +21,6 @@ extension Notification.Name {
     static let windowFullScreenDidChange = Notification.Name("MuxyWindowFullScreenDidChange")
     static let toggleSidebar = Notification.Name("MuxyToggleSidebar")
     static let toggleNotificationPanel = Notification.Name("MuxyToggleNotificationPanel")
-    static let toggleAIUsage = Notification.Name("MuxyToggleAIUsage")
     static let vcsRepoDidChange = Notification.Name("MuxyVCSRepoDidChange")
     static let vcsDidRefresh = Notification.Name("MuxyVCSDidRefresh")
     static let externalDragHoverChanged = Notification.Name("MuxyExternalDragHoverChanged")

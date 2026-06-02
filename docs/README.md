@@ -39,7 +39,6 @@ flowchart TB
 | [File Tree](features/file-tree.md) | Gitignore-aware tree, file ops, drag & drop |
 | [Notifications](features/notifications.md) | OSC sequences, hooks, socket API |
 | [AI Assistant](features/ai-assistant.md) | Draft commit messages and PR text from diffs |
-| [AI Usage](features/ai-usage.md) | Claude Code, Copilot, Codex, Cursor, and more |
 | [Themes](features/themes.md) | Theme picker and Ghostty config |
 
 ## Layouts
@@ -89,7 +88,6 @@ flowchart TB
 | [Source Control](architecture/vcs.md) | Source Control tab, PR flow |
 | [Notifications](architecture/notifications.md) | Sources, routing, click-to-navigate |
 | [UI Scaling](architecture/ui-scaling.md) | Centralized chrome metrics with user-adjustable scale |
-| [AI Usage Tracking](architecture/ai-usage.md) | Provider registry, credentials, refresh lifecycle |
 | [Remote Server](architecture/remote-server.md) | WebSocket server, terminal streaming, pairing |
 | [CLI & URL Scheme](architecture/cli-and-url-scheme.md) | `muxy` wrapper, `muxy://` URL, socket entry |
 | [Updates](architecture/updates.md) | Sparkle channels and release flow |

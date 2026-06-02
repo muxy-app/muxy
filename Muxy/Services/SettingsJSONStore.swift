@@ -102,7 +102,6 @@ enum SettingsJSONStore {
         dictionary["shortcuts.app"] = keyBindingsJSONObject(KeyBinding.defaults)
         dictionary["shortcuts.customCommands"] = commandShortcutsJSONObject(CommandShortcutConfiguration())
         dictionary["ai.providers"] = notificationProviderSettings(defaultValue: true)
-        dictionary["aiUsage.providers"] = aiUsageProviderSettings(defaultValue: false)
         dictionary["mobile.approvedDevices"] = []
         return dictionary
     }
@@ -118,7 +117,6 @@ enum SettingsJSONStore {
             shortcuts: CommandShortcutStore.shared.shortcuts
         ))
         dictionary["ai.providers"] = notificationProviderSettings()
-        dictionary["aiUsage.providers"] = aiUsageProviderSettings()
         dictionary["mobile.approvedDevices"] = codableJSONObject(ApprovedDevicesStore.shared.devices) ?? []
         return dictionary
     }
@@ -206,7 +204,6 @@ enum SettingsJSONStore {
             "editor.richInputImageStrategy": Set(RichInputImageStrategy.allCases.map(\.rawValue)),
             NotificationSettings.Key.sound: Set(NotificationSound.allCases.map(\.rawValue)),
             NotificationSettings.Key.toastPosition: Set(ToastPosition.allCases.map(\.rawValue)),
-            AIUsageSettingsStore.usageDisplayModeKey: Set(AIUsageDisplayMode.allCases.map(\.rawValue)),
         ]
         guard let allowed = allowedValues[key] else { return }
         guard allowed.contains(value) else { throw SettingsJSONError.invalidValue(key) }
@@ -218,9 +215,6 @@ enum SettingsJSONStore {
                 throw SettingsJSONError.invalidValue(key)
             }
             return
-        }
-        if key == AIUsageSettingsStore.autoRefreshIntervalKey {
-            guard AIUsageAutoRefreshInterval(rawValue: value) != nil else { throw SettingsJSONError.invalidValue(key) }
         }
     }
 
@@ -273,7 +267,6 @@ enum SettingsJSONStore {
         case "shortcuts.app",
              "shortcuts.customCommands",
              "ai.providers",
-             "aiUsage.providers",
              "mobile.approvedDevices":
             true
         default:
@@ -289,8 +282,7 @@ enum SettingsJSONStore {
             guard let configuration = commandShortcutConfiguration(from: value), isValidKeyCombo(configuration.prefixCombo),
                   configuration.shortcuts.allSatisfy({ isValidKeyCombo($0.combo) })
             else { throw SettingsJSONError.invalidValue(key) }
-        case "ai.providers",
-             "aiUsage.providers":
+        case "ai.providers":
             guard let values = value as? [String: Any], values.values.allSatisfy({ $0 is Bool }) else {
                 throw SettingsJSONError.invalidValue(key)
             }
@@ -340,13 +332,6 @@ enum SettingsJSONStore {
                 provider.isEnabled = enabled
             }
             AIProviderRegistry.shared.installAll()
-        case "aiUsage.providers":
-            guard let values = value as? [String: Any] else { return true }
-            for provider in AIUsageProviderCatalog.providers {
-                guard let enabled = values[provider.id] as? Bool else { continue }
-                AIUsageProviderTrackingStore.setTracked(enabled, providerID: provider.id)
-            }
-            AIUsageService.shared.recomposeSnapshots()
         case "mobile.approvedDevices":
             guard let devices: [ApprovedDevice] = codableValue(from: value) else { return true }
             ApprovedDevicesStore.shared.replaceDevices(devices)
@@ -460,12 +445,6 @@ enum SettingsJSONStore {
     private static func notificationProviderSettings(defaultValue: Bool? = nil) -> [String: Bool] {
         Dictionary(uniqueKeysWithValues: AIProviderRegistry.shared.providers.map { provider in
             (provider.id, defaultValue ?? provider.isEnabled)
-        })
-    }
-
-    private static func aiUsageProviderSettings(defaultValue: Bool? = nil) -> [String: Bool] {
-        Dictionary(uniqueKeysWithValues: AIUsageProviderCatalog.providers.map { provider in
-            (provider.id, defaultValue ?? AIUsageProviderTrackingStore.isTracked(providerID: provider.id))
         })
     }
 

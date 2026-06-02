@@ -63,19 +63,6 @@ final class AIProviderRegistry {
         piProvider,
     ]
 
-    lazy var usageProviders: [any AIUsageProvider] = [
-        claudeCodeProvider,
-        CodexUsageProvider(),
-        CopilotUsageProvider(),
-        CursorUsageProvider(),
-        AmpUsageProvider(),
-        ZaiUsageProvider(),
-        MiniMaxUsageProvider(),
-        KimiUsageProvider(),
-        FactoryUsageProvider(),
-        piProvider,
-    ]
-
     private init() {}
 
     func installAll() {

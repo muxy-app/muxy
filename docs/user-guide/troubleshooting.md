@@ -52,12 +52,6 @@ After authenticating, restart Muxy or click **Refresh** in the PR list.
 - macOS may have suppressed Muxy's system notifications — check **System Settings → Notifications → Muxy**.
 - For socket‑based integrations, verify the socket exists: `ls -l ~/Library/Application\ Support/Muxy/muxy.sock`.
 
-## AI usage shows nothing
-
-- Check the provider is enabled in **Settings → AI Usage**.
-- Make sure the relevant credential (env var, JSON file, or Keychain entry) exists.
-- Click **Refresh** in the popover and watch `log stream` for parser errors.
-
 ## Reset state
 
 If you want to start fresh, quit Muxy and remove:
