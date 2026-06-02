@@ -76,7 +76,6 @@ struct MainWindow: View {
     @AppStorage(RichInputPreferences.broadcastKey) private var richInputBroadcast = RichInputPreferences.defaultBroadcast
     @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
     @State private var showQuickOpen = false
-    @State private var showFindInFiles = false
     @State private var showTerminalOmnibox = false
     @State private var terminalOmniboxLaunchScope = TerminalOmniboxLaunchScope.openTabs
     @State private var showProjectPicker = false
@@ -156,12 +155,10 @@ struct MainWindow: View {
         .overlay { modalOverlayLayer }
         .overlay { ExtensionConsentOverlay() }
         .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
-        .animation(.easeInOut(duration: 0.15), value: showFindInFiles)
         .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)
         .animation(.easeInOut(duration: 0.15), value: showProjectPicker)
         .modifier(OverlayExitTracker(
             showQuickOpen: showQuickOpen,
-            showFindInFiles: showFindInFiles,
             showTerminalOmnibox: showTerminalOmnibox,
             showProjectPicker: showProjectPicker,
             onAnimatingOut: { overlayAnimatingOut = $0 }
@@ -181,9 +178,6 @@ struct MainWindow: View {
         .ignoresSafeArea(.container, edges: .top)
         .onReceive(NotificationCenter.default.publisher(for: .quickOpen)) { _ in
             showQuickOpen.toggle()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .findInFiles)) { _ in
-            showFindInFiles.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openProjectPicker)) { _ in
             showProjectPicker = true
@@ -558,7 +552,6 @@ struct MainWindow: View {
 
     private var overlayActive: Bool {
         showQuickOpen
-            || showFindInFiles
             || showTerminalOmnibox
             || showProjectPicker
             || overlayAnimatingOut
@@ -567,7 +560,6 @@ struct MainWindow: View {
     @ViewBuilder
     private var modalOverlayLayer: some View {
         quickOpenOverlay
-        findInFilesOverlay
         terminalOmniboxOverlay
         projectPickerOverlay
     }
@@ -582,26 +574,6 @@ struct MainWindow: View {
                     appState.openFile(filePath, projectID: project.id)
                 },
                 onDismiss: { showQuickOpen = false }
-            )
-            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-        }
-    }
-
-    @ViewBuilder
-    private var findInFilesOverlay: some View {
-        if showFindInFiles, let project = activeProject {
-            FindInFilesOverlay(
-                projectPath: activeWorktreePath(for: project),
-                onSelect: { match in
-                    showFindInFiles = false
-                    appState.openFile(
-                        match.absolutePath,
-                        projectID: project.id,
-                        line: match.lineNumber,
-                        column: match.column
-                    )
-                },
-                onDismiss: { showFindInFiles = false }
             )
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
         }
@@ -1809,7 +1781,6 @@ private final class ObserverHolder {
 
 private struct OverlayExitTracker: ViewModifier {
     let showQuickOpen: Bool
-    let showFindInFiles: Bool
     let showTerminalOmnibox: Bool
     let showProjectPicker: Bool
     let onAnimatingOut: (Bool) -> Void
@@ -1817,7 +1788,6 @@ private struct OverlayExitTracker: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: showQuickOpen) { _, visible in trackExit(visible) }
-            .onChange(of: showFindInFiles) { _, visible in trackExit(visible) }
             .onChange(of: showTerminalOmnibox) { _, visible in trackExit(visible) }
             .onChange(of: showProjectPicker) { _, visible in trackExit(visible) }
     }

@@ -54,7 +54,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case submitRichInput
     case submitRichInputWithoutReturn
     case quickOpen
-    case findInFiles
     case terminalOmnibox
     case terminalOmniboxProjects
     case terminalOmniboxWorktrees
@@ -114,7 +113,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .submitRichInput,
         .submitRichInputWithoutReturn,
         .quickOpen,
-        .findInFiles,
         .terminalOmnibox,
         .terminalOmniboxProjects,
         .terminalOmniboxWorktrees,
@@ -190,7 +188,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
                 scope: .richInput
             )
         case .quickOpen: ShortcutMetadata(displayName: "Quick Open", category: "App", scope: .mainWindow)
-        case .findInFiles: ShortcutMetadata(displayName: "Find in Files", category: "App", scope: .mainWindow)
         case .terminalOmnibox: ShortcutMetadata(displayName: "Terminal Omnibox Open Tabs", category: "Terminal", scope: .mainWindow)
         case .terminalOmniboxProjects: ShortcutMetadata(
                 displayName: "Terminal Omnibox Projects",
@@ -340,7 +337,6 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .submitRichInput, combo: KeyCombo(key: KeyCombo.returnKey, command: true)),
         Self(action: .submitRichInputWithoutReturn, combo: KeyCombo(key: KeyCombo.returnKey, command: true, shift: true)),
         Self(action: .quickOpen, combo: KeyCombo(key: "p", command: true)),
-        Self(action: .findInFiles, combo: KeyCombo(key: "f", command: true, shift: true)),
         Self(action: .terminalOmnibox, combo: KeyCombo(key: "o", command: true, option: true)),
         Self(action: .terminalOmniboxProjects, combo: KeyCombo(key: "p", command: true, option: true)),
         Self(action: .terminalOmniboxWorktrees, combo: KeyCombo(key: "w", command: true, option: true)),

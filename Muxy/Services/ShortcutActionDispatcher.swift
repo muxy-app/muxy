@@ -157,9 +157,6 @@ struct ShortcutActionDispatcher {
         case .quickOpen:
             notificationCenter.post(name: .quickOpen, object: nil)
             return true
-        case .findInFiles:
-            notificationCenter.post(name: .findInFiles, object: nil)
-            return true
         case .terminalOmnibox:
             postTerminalOmnibox(scope: .openTabs)
             return true

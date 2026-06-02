@@ -12,10 +12,6 @@ Most Ghostty options work — fonts, colors, padding, keybinds, shell integratio
 
 `⌘F` opens an inline search overlay scoped to the focused pane. Enter / Shift-Enter cycle through matches; Escape dismisses.
 
-## Find in files
-
-`Cmd+Shift+F` searches text across the active project. It uses `rg`, supports match case and whole word, and opens the selected match in the editor.
-
 ## Copy and paste
 
 | Action | Shortcut |

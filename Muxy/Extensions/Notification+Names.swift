@@ -8,7 +8,6 @@ extension Notification.Name {
     static let toggleFileTree = Notification.Name("MuxyToggleFileTree")
     static let refocusActiveTerminal = Notification.Name("MuxyRefocusActiveTerminal")
     static let quickOpen = Notification.Name("MuxyQuickOpen")
-    static let findInFiles = Notification.Name("MuxyFindInFiles")
     static let terminalOmnibox = Notification.Name("MuxyTerminalOmnibox")
     static let openProjectPicker = Notification.Name("MuxyOpenProjectPicker")
     static let openSettingsModal = Notification.Name("MuxyOpenSettingsModal")

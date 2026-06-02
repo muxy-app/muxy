@@ -227,12 +227,6 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .quickOpen, store: keyBindings)
 
-            Button("Find in Files") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.findInFiles)
-            }
-            .shortcut(for: .findInFiles, store: keyBindings)
-
             Button("Save") {
                 guard isMainWindowFocused else { return }
                 performShortcutAction(.saveFile)

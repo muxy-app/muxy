@@ -7,7 +7,6 @@ Muxy includes a lightweight built-in code editor that opens files as tabs. Desig
 | How | Notes |
 | --- | --- |
 | `⌘P` (Quick Open) | Fuzzy file search over the active worktree |
-| `⌘⇧F` (Find in Files) | Search text across the active project |
 | File tree → click / right-click → Open | Editor tab for the file |
 | File menu → Open File… | Standard open panel |
 | Drag a file from Finder | Drop on the tab bar |

@@ -31,7 +31,6 @@ Lightweight terminal that has a rich API for extensions
 - Git worktrees
 - Diff viewer (unified & split)
 - File tree
-- Find in files
 - Quick open & command palette
 - Text editor with syntax highlighting
 - Markdown & HTML preview (with Mermaid diagrams)
