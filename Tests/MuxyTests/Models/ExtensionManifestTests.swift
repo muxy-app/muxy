@@ -101,6 +101,32 @@ struct ExtensionManifestTests {
         #expect(ext.backgroundScriptURL?.path == distDirectory.appendingPathComponent("background.js").path)
     }
 
+    @Test("resolves resources from dist when present but the manifest stays at the root")
+    func resolvesResourcesFromBuildOutputWithoutDistManifest() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ext-\(UUID().uuidString)")
+        let distDirectory = directory.appendingPathComponent("dist")
+        try FileManager.default.createDirectory(at: distDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try ExtensionManifestFixture.write(
+            flatManifest: """
+            {
+                "name": "built-ext",
+                "version": "1.0.0",
+                "background": "background.js"
+            }
+            """,
+            to: directory
+        )
+        try Data("console.log('hi')\n".utf8)
+            .write(to: distDirectory.appendingPathComponent("background.js"))
+
+        let ext = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(ext.directory.path == distDirectory.path)
+        #expect(ext.backgroundScriptURL?.path == distDirectory.appendingPathComponent("background.js").path)
+    }
+
     @Test("loads from the directory root when no dist build output exists")
     func loadsFromRootWithoutBuildOutput() throws {
         let directory = try makeTemporaryExtension(

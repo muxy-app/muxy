@@ -773,8 +773,7 @@ enum ExtensionManifestLoader {
     static let buildOutputDirectoryName = "dist"
 
     static func load(from directory: URL) throws -> MuxyExtension {
-        let root = resolvedRoot(for: directory)
-        let manifestURL = root.appendingPathComponent(manifestFileName)
+        let manifestURL = resolveManifestURL(in: directory)
         guard FileManager.default.fileExists(atPath: manifestURL.path) else {
             throw ExtensionLoadError.manifestMissing(manifestURL)
         }
@@ -796,12 +795,13 @@ enum ExtensionManifestLoader {
 
         try validate(name: manifest.name)
 
-        let muxyExtension = MuxyExtension(id: manifest.name, directory: root, manifest: manifest)
+        let resourceRoot = resolveResourceRoot(for: directory)
+        let muxyExtension = MuxyExtension(id: manifest.name, directory: resourceRoot, manifest: manifest)
 
         if let background = manifest.background {
             guard let backgroundURL = muxyExtension.resolveResource(background) else {
                 throw ExtensionLoadError.backgroundScriptOutsideDirectory(
-                    root.appendingPathComponent(background)
+                    resourceRoot.appendingPathComponent(background)
                 )
             }
             guard FileManager.default.fileExists(atPath: backgroundURL.path) else {
@@ -823,11 +823,23 @@ enum ExtensionManifestLoader {
         return muxyExtension
     }
 
-    static func resolvedRoot(for directory: URL) -> URL {
+    static func resolveResourceRoot(for directory: URL) -> URL {
         let buildOutput = directory.appendingPathComponent(buildOutputDirectoryName)
-        let buildManifest = buildOutput.appendingPathComponent(manifestFileName)
-        guard FileManager.default.fileExists(atPath: buildManifest.path) else { return directory }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: buildOutput.path, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else { return directory }
         return buildOutput
+    }
+
+    private static func resolveManifestURL(in directory: URL) -> URL {
+        let buildManifest = directory
+            .appendingPathComponent(buildOutputDirectoryName)
+            .appendingPathComponent(manifestFileName)
+        guard FileManager.default.fileExists(atPath: buildManifest.path) else {
+            return directory.appendingPathComponent(manifestFileName)
+        }
+        return buildManifest
     }
 
     private static func migrateLegacyEnabledFlag(rawManifest: Data, extensionID: String) {
