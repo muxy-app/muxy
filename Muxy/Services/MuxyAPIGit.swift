@@ -337,7 +337,7 @@ extension MuxyAPI {
             }
         }
 
-        private static func read<T>(
+        private static func read<T: Sendable>(
             _ projectIdentifier: String?,
             _ context: Context,
             _ work: (String) async throws -> T
@@ -352,7 +352,7 @@ extension MuxyAPI {
             }
         }
 
-        private static func write<T>(
+        private static func write<T: Sendable>(
             _ projectIdentifier: String?,
             operation: String,
             context: Context,
