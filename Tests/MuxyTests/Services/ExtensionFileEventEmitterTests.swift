@@ -41,6 +41,25 @@ struct ExtensionFileEventEmitterTests {
         #expect(collector.count(forProjectPath: "/empty-repo") == 0)
     }
 
+    @Test("collapses duplicate path within the dedupe window")
+    func dropsDuplicateWithinWindow() async {
+        let collector = EventCollector()
+        let token = NotificationSocketServer.shared.addInProcessObserver { event in
+            collector.add(event)
+        }
+        defer { NotificationSocketServer.shared.removeInProcessObserver(token) }
+
+        ExtensionFileEventEmitter.emit(paths: ["/dup-repo/a.txt"], projectPath: "/dup-repo")
+        ExtensionFileEventEmitter.emit(paths: ["/dup-repo/a.txt"], projectPath: "/dup-repo")
+
+        let delivered = await waitFor(timeout: 2.0) {
+            collector.count(forProjectPath: "/dup-repo") == 1
+        }
+        #expect(delivered)
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        #expect(collector.count(forProjectPath: "/dup-repo") == 1)
+    }
+
     private func waitFor(timeout: TimeInterval, condition: () -> Bool) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
