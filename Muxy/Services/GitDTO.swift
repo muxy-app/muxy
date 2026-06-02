@@ -1,6 +1,8 @@
 import Foundation
 
 enum GitDTO {
+    private static let isoFormat = Date.ISO8601FormatStyle()
+
     static func status(_ snapshot: GitStatusSnapshot) -> [String: Any] {
         [
             "branch": snapshot.branch,
@@ -149,6 +151,6 @@ enum GitDTO {
     }
 
     private static func iso(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
+        date.formatted(isoFormat)
     }
 }

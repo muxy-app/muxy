@@ -12,6 +12,10 @@ extension MuxyAPI {
 
         private static let service = GitRepositoryService()
 
+        static let maxLogCount = 1000
+        static let maxPRListLimit = 200
+        static let maxDiffLineLimit = 100_000
+
         static func status(
             projectIdentifier: String?,
             context: Context
@@ -38,7 +42,7 @@ extension MuxyAPI {
                 return try await service.patchAndCompare(
                     repoPath: repoPath,
                     filePath: filePath,
-                    lineLimit: lineLimit,
+                    lineLimit: lineLimit.map { min($0, maxDiffLineLimit) },
                     hints: hints
                 )
             }
@@ -51,7 +55,11 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<[GitCommit], APIError> {
             await read(projectIdentifier, context) { repoPath in
-                try await service.commitLog(repoPath: repoPath, maxCount: maxCount, skip: skip)
+                try await service.commitLog(
+                    repoPath: repoPath,
+                    maxCount: min(max(maxCount, 0), maxLogCount),
+                    skip: max(skip, 0)
+                )
             }
         }
 
@@ -100,7 +108,11 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<[GitRepositoryService.PRListItem], APIError> {
             await read(projectIdentifier, context) { repoPath in
-                try await service.listPullRequests(repoPath: repoPath, filter: filter, limit: limit)
+                try await service.listPullRequests(
+                    repoPath: repoPath,
+                    filter: filter,
+                    limit: min(max(limit, 1), maxPRListLimit)
+                )
             }
         }
 

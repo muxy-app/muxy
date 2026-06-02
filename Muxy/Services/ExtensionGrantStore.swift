@@ -26,6 +26,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
     case paneEquals(String)
     case foreignTabEquals(targetExtensionID: String, tabTypeID: String)
     case remoteActionEquals(String)
+    case gitOperationEquals(String)
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -42,6 +43,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case paneEquals
         case foreignTabEquals
         case remoteActionEquals
+        case gitOperationEquals
     }
 
     init(from decoder: Decoder) throws {
@@ -65,6 +67,8 @@ enum ExtensionGrantMatch: Codable, Equatable {
             )
         case .remoteActionEquals:
             self = try .remoteActionEquals(container.decode(String.self, forKey: .string))
+        case .gitOperationEquals:
+            self = try .gitOperationEquals(container.decode(String.self, forKey: .string))
         }
     }
 
@@ -92,6 +96,9 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .remoteActionEquals(action):
             try container.encode(Kind.remoteActionEquals, forKey: .kind)
             try container.encode(action, forKey: .string)
+        case let .gitOperationEquals(operation):
+            try container.encode(Kind.gitOperationEquals, forKey: .kind)
+            try container.encode(operation, forKey: .string)
         }
     }
 
@@ -101,6 +108,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case .paneEquals,
              .shellExact: 100
         case .remoteActionEquals: 120
+        case .gitOperationEquals: 130
         case .foreignTabEquals: 150
         case let .argvPrefix(tokens): 50 + tokens.count
         case let .argvExact(tokens): 200 + tokens.count
@@ -116,6 +124,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .paneEquals(value): "pane: \(value)"
         case let .foreignTabEquals(target, tab): "tab: \(target)/\(tab)"
         case let .remoteActionEquals(action): "action: \(action)"
+        case let .gitOperationEquals(operation): "git: \(operation)"
         }
     }
 }
@@ -145,6 +154,8 @@ enum ExtensionGatedPayload {
             return target == expectedTarget && tab == expectedTab
         case let (.remote(action, _), .remoteActionEquals(expected)):
             return action == expected
+        case let (.git(operation, _), .gitOperationEquals(expected)):
+            return operation == expected
         default:
             return false
         }
@@ -292,6 +303,8 @@ enum ExtensionGrantSuggestion {
             return .any
         case let (.remoteInvoke, .remote(action, _)):
             return .remoteActionEquals(action)
+        case let (.gitWrite, .git(operation, _)):
+            return .gitOperationEquals(operation)
         case (.panesSend, _),
              (.panesSendKeys, _),
              (.panesReadScreen, _),

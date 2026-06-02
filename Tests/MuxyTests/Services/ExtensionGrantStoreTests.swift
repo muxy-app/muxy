@@ -308,6 +308,37 @@ struct ExtensionGrantStoreTests {
         #expect(match == .remoteActionEquals("forecast"))
     }
 
+    @Test("gitOperationEquals rule matches only the same operation")
+    func gitOperationEqualsMatch() {
+        let store = makeStore()
+        let rule = ExtensionGrantRule(
+            extensionID: "ext",
+            verb: .gitWrite,
+            match: .gitOperationEquals("push"),
+            decision: .allow
+        )
+        store.add(rule)
+        #expect(store.evaluate(
+            extensionID: "ext",
+            verb: .gitWrite,
+            payload: .git(operation: "push", repoPath: "/repo")
+        ) == .allow(ruleID: rule.id))
+        #expect(store.evaluate(
+            extensionID: "ext",
+            verb: .gitWrite,
+            payload: .git(operation: "discard", repoPath: "/repo")
+        ) == .ask)
+    }
+
+    @Test("git write default remember match scopes to the operation")
+    func gitWriteDefaultRemember() {
+        let match = ExtensionGrantSuggestion.defaultRememberMatch(
+            verb: .gitWrite,
+            payload: .git(operation: "push", repoPath: "/repo")
+        )
+        #expect(match == .gitOperationEquals("push"))
+    }
+
     private func makeStore() -> ExtensionGrantStore {
         ExtensionGrantStore(fileURL: tempURL())
     }

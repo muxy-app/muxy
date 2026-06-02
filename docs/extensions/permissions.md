@@ -38,7 +38,7 @@ These verbs prompt the user at runtime even when the manifest permission is gran
 | `panes.sendKeys` | Pressing keys (including Ctrl+C, Enter) in an active terminal. |
 | `panes.readScreen` | Reading the visible contents of a terminal. |
 | `remote.invoke` | Running an extension's [remote method](remote-methods.md) handler in response to a mobile request. Remembered per action. |
-| `git.*` (writes) | Mutating the repository (stage, commit, push, pull, branch, PR, worktree). Remembered as `any` for the extension's git writes. |
+| `git.*` (writes) | Mutating the repository (stage, commit, push, pull, branch, PR, worktree). Remembered per operation (allowing `push` does not allow `discard`). |
 
 The prompt shows the extension, the verb, and the literal payload (full argv, the keystroke, or the pane id). The user picks:
 
