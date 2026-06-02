@@ -241,11 +241,6 @@ private struct HelpFeaturesView: View {
             docPath: "docs/features/notifications.md"
         ),
         Feature(
-            title: "AI Usage",
-            summary: "Quota tracking for Claude Code, Copilot, Codex, Cursor, and more.",
-            docPath: "docs/features/ai-usage.md"
-        ),
-        Feature(
             title: "Themes",
             summary: "Paired light / dark themes synced with macOS appearance and Ghostty colors.",
             docPath: "docs/features/themes.md"
