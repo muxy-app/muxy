@@ -33,7 +33,7 @@ enum ExtensionDialogService {
         for (button, equivalent) in zip(buttons, equivalents) {
             button.keyEquivalent = equivalent
         }
-        let result = await runModal(alert)
+        let result = try await runModal(alert)
         guard let index = buttonIndex(for: result, buttonCount: request.buttons.count) else {
             return nil
         }
@@ -49,7 +49,7 @@ enum ExtensionDialogService {
         defer { release(request.extensionID) }
         let alert = makeAlert(title: request.title, message: request.message, style: request.style)
         alert.addButton(withTitle: "OK")
-        _ = await runModal(alert)
+        _ = try await runModal(alert)
     }
 
     static func makeConfirmRequest(extensionID: String, args: [String: Any]) throws -> ConfirmRequest {
@@ -92,8 +92,8 @@ enum ExtensionDialogService {
 
     static func keyEquivalents(for request: ConfirmRequest) -> [String] {
         request.buttons.enumerated().map { index, label in
-            if label == request.cancelButton { return "\u{1B}" }
             if index == 0 { return "\r" }
+            if label == request.cancelButton { return "\u{1B}" }
             return ""
         }
     }
@@ -137,9 +137,9 @@ enum ExtensionDialogService {
         return index
     }
 
-    private static func runModal(_ alert: NSAlert) async -> NSApplication.ModalResponse {
+    private static func runModal(_ alert: NSAlert) async throws -> NSApplication.ModalResponse {
         guard let parent = parentWindow() else {
-            return alert.runModal()
+            throw APIError.invalidArguments("no window available to present the dialog")
         }
         return await withCheckedContinuation { continuation in
             alert.beginSheetModal(for: parent) { response in

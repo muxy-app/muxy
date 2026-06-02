@@ -55,4 +55,4 @@ await muxy.dialog.alert({
 - The call blocks the caller until the user responds. From a background script this pauses that script's event loop the same way `exec` does, so don't open a dialog from a hot event path.
 - Only **one dialog per extension** can be open at a time; a second call while one is showing rejects rather than stacking sheets.
 - `title`, `message`, and each button label are capped at 2000 characters, and `buttons` is limited to the first 3.
-- Dialogs present on the main Muxy window; if no window is available the sheet falls back to an application-modal dialog.
+- Dialogs present as a sheet on the main Muxy window; if no window is available the call rejects rather than presenting a blocking dialog.

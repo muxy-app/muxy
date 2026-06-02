@@ -120,6 +120,18 @@ struct ExtensionDialogServiceTests {
         #expect(ExtensionDialogService.keyEquivalents(for: request) == ["\r", "\u{1B}"])
     }
 
+    @Test("when default and cancel are the same label Return wins")
+    func keyEquivalentsDefaultEqualsCancel() throws {
+        let request = try ExtensionDialogService.makeConfirmRequest(extensionID: "ext", args: [
+            "title": "Proceed?",
+            "buttons": ["Delete", "Cancel"],
+            "default": "Cancel",
+            "cancel": "Cancel",
+        ])
+        #expect(request.buttons == ["Cancel", "Delete"])
+        #expect(ExtensionDialogService.keyEquivalents(for: request) == ["\r", ""])
+    }
+
     @Test("without a cancel label only the default button is bound")
     func keyEquivalentsDefaultOnly() throws {
         let request = try ExtensionDialogService.makeConfirmRequest(extensionID: "ext", args: [
