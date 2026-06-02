@@ -99,6 +99,29 @@ struct OpenTabRequest: Decodable {
         let id: String
         let tabType: String
         let data: ExtensionJSON?
+        let singleton: Bool
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case tabType
+            case data
+            case singleton
+        }
+
+        init(id: String, tabType: String, data: ExtensionJSON?, singleton: Bool = false) {
+            self.id = id
+            self.tabType = tabType
+            self.data = data
+            self.singleton = singleton
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            tabType = try container.decode(String.self, forKey: .tabType)
+            data = try container.decodeIfPresent(ExtensionJSON.self, forKey: .data)
+            singleton = try container.decodeIfPresent(Bool.self, forKey: .singleton) ?? false
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -713,7 +736,8 @@ enum MuxyAPI {
                         extensionID: payload.id,
                         tabTypeID: payload.tabType,
                         title: tabType.title,
-                        data: payload.data ?? tabType.defaultData
+                        data: payload.data ?? tabType.defaultData,
+                        singleton: payload.singleton
                     )
                 ))
                 return .success(())

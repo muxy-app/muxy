@@ -30,6 +30,16 @@ enum ExtensionWebBridge {
             const themeListeners = new Set();
             let currentTheme = \(themeLiteral);
 
+            const dataListeners = new Set();
+            let currentData = \(encodedData);
+
+            window.__muxyApplyData = (data) => {
+                currentData = data ?? null;
+                for (const listener of dataListeners) {
+                    try { listener(currentData); } catch (_) {}
+                }
+            };
+
             const writeThemeToDocument = (theme) => {
                 const root = document.documentElement;
                 if (!root) return;
@@ -64,7 +74,12 @@ enum ExtensionWebBridge {
             const muxy = {
                 extensionID: \(extensionLiteral),
                 tabInstanceID: \(instanceLiteral),
-                data: \(encodedData),
+                get data() { return currentData; },
+                onDataChange(callback) {
+                    if (typeof callback !== 'function') return () => {};
+                    dataListeners.add(callback);
+                    return () => dataListeners.delete(callback);
+                },
                 get theme() { return currentTheme; },
                 onThemeChange(callback) {
                     if (typeof callback !== 'function') return () => {};
@@ -222,6 +237,17 @@ enum ExtensionWebBridge {
         (() => {
             if (typeof window.__muxyApplyTheme === 'function') {
                 window.__muxyApplyTheme(\(literal));
+            }
+        })();
+        """
+    }
+
+    static func dataUpdateScript(data: ExtensionJSON?) -> String {
+        let literal = encodeAsLiteral(data)
+        return """
+        (() => {
+            if (typeof window.__muxyApplyData === 'function') {
+                window.__muxyApplyData(\(literal));
             }
         })();
         """

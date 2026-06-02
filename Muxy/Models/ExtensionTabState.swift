@@ -7,7 +7,7 @@ final class ExtensionTabState: Identifiable {
     let extensionID: String
     let tabTypeID: String
     let projectPath: String
-    let initialData: ExtensionJSON?
+    var data: ExtensionJSON?
 
     var customTitle: String?
     var defaultTitle: String
@@ -21,12 +21,12 @@ final class ExtensionTabState: Identifiable {
         tabTypeID: String,
         projectPath: String,
         defaultTitle: String,
-        initialData: ExtensionJSON? = nil
+        data: ExtensionJSON? = nil
     ) {
         self.extensionID = extensionID
         self.tabTypeID = tabTypeID
         self.projectPath = projectPath
         self.defaultTitle = defaultTitle
-        self.initialData = initialData
+        self.data = data
     }
 }

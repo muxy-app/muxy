@@ -251,16 +251,16 @@ struct ExtensionTabStateTests {
         #expect(state.displayTitle == "Renamed")
     }
 
-    @Test("initialData is preserved")
-    func initialDataPreserved() {
+    @Test("data is preserved")
+    func dataPreserved() {
         let state = ExtensionTabState(
             extensionID: "ext",
             tabTypeID: "viewer",
             projectPath: "/tmp",
             defaultTitle: "Viewer",
-            initialData: .object(["n": .number(1)])
+            data: .object(["n": .number(1)])
         )
-        #expect(state.initialData == .object(["n": .number(1)]))
+        #expect(state.data == .object(["n": .number(1)]))
     }
 }
 
@@ -274,7 +274,7 @@ struct TerminalTabExtensionRoundTrip {
             tabTypeID: "pr-viewer",
             projectPath: "/tmp/test",
             defaultTitle: "PR Viewer",
-            initialData: .object(["prNumber": .number(42)])
+            data: .object(["prNumber": .number(42)])
         )
         let tab = TerminalTab(extensionState: state)
         let snapshot = tab.snapshot()
@@ -304,7 +304,7 @@ struct TerminalTabExtensionRoundTrip {
         #expect(restored?.extensionID == "pr-tools")
         #expect(restored?.tabTypeID == "pr-viewer")
         #expect(restored?.defaultTitle == "PR Viewer")
-        #expect(restored?.initialData == .object(["prNumber": .number(7)]))
+        #expect(restored?.data == .object(["prNumber": .number(7)]))
     }
 
     @Test("restored extensionWebView falls back to terminal when fields missing")
@@ -416,6 +416,19 @@ struct OpenTabRequestTests {
         #expect(payload.id == "pr-tools")
         #expect(payload.tabType == "pr-viewer")
         #expect(payload.data == .object(["prNumber": .number(42)]))
+        #expect(payload.singleton == false)
+    }
+
+    @Test("decodes singleton flag on extension payload")
+    func singletonRequest() throws {
+        let request = try decode("""
+        {
+          "kind": "extensionWebView",
+          "extension": { "id": "pr-tools", "tabType": "pr-viewer", "singleton": true }
+        }
+        """)
+        let payload = try #require(request.extensionPayload)
+        #expect(payload.singleton == true)
     }
 
     private func decode(_ json: String) throws -> OpenTabRequest {

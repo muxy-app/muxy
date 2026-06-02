@@ -61,7 +61,9 @@ struct ExtensionWebView: NSViewRepresentable {
         return webView
     }
 
-    func updateNSView(_: WKWebView, context _: Context) {}
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.applyDataIfChanged(initialData, in: webView)
+    }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.stopObservingThemeChanges()
@@ -116,6 +118,14 @@ struct ExtensionWebView: NSViewRepresentable {
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             ))
+        }
+
+        func applyDataIfChanged(_ data: ExtensionJSON?, in webView: WKWebView) {
+            guard data != initialData else { return }
+            initialData = data
+            reinstallBridgeScript()
+            let script = ExtensionWebBridge.dataUpdateScript(data: data)
+            webView.evaluateJavaScript(script, completionHandler: nil)
         }
 
         func observeThemeChanges(for webView: WKWebView) {

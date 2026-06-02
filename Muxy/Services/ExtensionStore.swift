@@ -557,7 +557,8 @@ final class ExtensionStore {
                 extensionID: extensionID,
                 tabTypeID: tabTypeID,
                 title: tabType.title,
-                data: data ?? tabType.defaultData
+                data: data ?? tabType.defaultData,
+                singleton: false
             )
         ))
     }

@@ -83,6 +83,7 @@ window.muxy = {
   extensionID: string,
   tabInstanceID: string,
   data: object | null,                 // payload the tab was opened with (or defaultData)
+  onDataChange(callback): unsubscribe, // fires when a singleton tab is reopened with new data
 
   notifications: {
     notify({ title, body?, paneID? }): Promise<void>,   // requires notifications:write
@@ -136,6 +137,17 @@ await muxy.tabs.open({
 ```
 
 `extensionWebView` requires the target extension to be loaded and the named tab type to exist.
+
+By default every `open` creates a new tab. Pass `singleton: true` to keep one tab per tab type instead — if a tab of that type is already open, Muxy focuses it and pushes the new `data` into the live page rather than duplicating it. The page receives the new payload through `muxy.onDataChange`:
+
+```js
+await muxy.tabs.open({
+  kind: 'extensionWebView',
+  extension: { id: 'pr-tools', tabType: 'pr-viewer', singleton: true, data: { prNumber: 42 } },
+});
+
+muxy.onDataChange((data) => render(data));
+```
 
 ### Running shell commands
 

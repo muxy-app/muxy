@@ -203,6 +203,73 @@ struct WorkspaceReducerTests {
         #expect(area?.activeTabID == firstTabID)
     }
 
+    @Test("createExtensionTab adds extension tab")
+    func createExtensionTab() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+
+        let action = extensionTabAction(projectID: projectID, data: .object(["pr": .number(1)]), singleton: false)
+        _ = WorkspaceReducer.reduce(action: action, state: &state)
+
+        let area = focusedArea(in: state, projectID: projectID)
+        #expect(area?.activeTab?.kind == .extensionWebView)
+        #expect(area?.activeTab?.content.extensionState?.data == .object(["pr": .number(1)]))
+    }
+
+    @Test("non-singleton extension tab opens a duplicate every time")
+    func createExtensionTabDuplicates() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+
+        let action = extensionTabAction(projectID: projectID, data: nil, singleton: false)
+        _ = WorkspaceReducer.reduce(action: action, state: &state)
+        _ = WorkspaceReducer.reduce(action: action, state: &state)
+
+        let area = focusedArea(in: state, projectID: projectID)
+        #expect(area?.tabs.filter { $0.kind == .extensionWebView }.count == 2)
+    }
+
+    @Test("singleton extension tab focuses existing tab and reloads its data")
+    func createExtensionTabSingletonReuses() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+
+        let first = extensionTabAction(projectID: projectID, data: .object(["pr": .number(1)]), singleton: true)
+        _ = WorkspaceReducer.reduce(action: first, state: &state)
+        let area = focusedArea(in: state, projectID: projectID)
+        let firstTabID = area?.activeTabID
+
+        area?.createTab()
+
+        let second = extensionTabAction(projectID: projectID, data: .object(["pr": .number(2)]), singleton: true)
+        _ = WorkspaceReducer.reduce(action: second, state: &state)
+
+        #expect(area?.tabs.filter { $0.kind == .extensionWebView }.count == 1)
+        #expect(area?.activeTabID == firstTabID)
+        #expect(area?.activeTab?.content.extensionState?.data == .object(["pr": .number(2)]))
+    }
+
+    private func extensionTabAction(
+        projectID: UUID,
+        data: ExtensionJSON?,
+        singleton: Bool
+    ) -> AppState.Action {
+        .createExtensionTab(
+            projectID: projectID,
+            areaID: nil,
+            request: AppState.CreateExtensionTabRequest(
+                extensionID: "pr-tools",
+                tabTypeID: "pr-viewer",
+                title: "PR Viewer",
+                data: data,
+                singleton: singleton
+            )
+        )
+    }
+
     @Test("createEditorTab adds editor tab")
     func createEditorTab() {
         let projectID = UUID()

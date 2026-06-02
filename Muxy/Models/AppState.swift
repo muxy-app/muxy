@@ -27,6 +27,7 @@ final class AppState {
         let tabTypeID: String
         let title: String
         let data: ExtensionJSON?
+        let singleton: Bool
     }
 
     enum Action {

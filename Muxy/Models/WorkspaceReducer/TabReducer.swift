@@ -129,8 +129,22 @@ enum TabReducer {
         state: inout WorkspaceState
     ) {
         guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
+              let root = state.workspaceRoots[key],
               let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
         else { return }
+        if request.singleton {
+            for existingArea in root.allAreas() {
+                guard let existing = existingArea.findExtensionTab(
+                    extensionID: request.extensionID,
+                    tabTypeID: request.tabTypeID
+                )
+                else { continue }
+                existing.content.extensionState?.data = request.data
+                FocusReducer.focusArea(existingArea.id, key: key, state: &state)
+                existingArea.selectTab(existing.id)
+                return
+            }
+        }
         FocusReducer.focusArea(area.id, key: key, state: &state)
         area.createExtensionTab(
             extensionID: request.extensionID,

@@ -248,6 +248,13 @@ await muxy.tabs.open({
     data: { source: 'self', when: new Date().toISOString() },
   },
 });
+
+// singleton: reuse one tab per tabType instead of duplicating. If it's already
+// open, Muxy focuses it and pushes the new data into the live page (muxy.onDataChange).
+await muxy.tabs.open({
+  kind: 'extensionWebView',
+  extension: { id: muxy.extensionID, tabType: 'dashboard', singleton: true, data: { prNumber: 42 } },
+});
 ```
 
 ### Tab topbar (recommended)
@@ -384,7 +391,7 @@ muxy.tabs.open({
 });
 ```
 
-Receive the payload in the tab as `muxy.data`.
+Receive the payload in the tab as `muxy.data`. For `singleton` tabs that get reopened with new data, react to the update with `muxy.onDataChange((data) => render(data))`.
 
 ## Theming — adapt to the user's current Muxy theme
 

@@ -19,7 +19,7 @@ struct ExtensionWebViewPane: View {
                     extensionID: muxyExtension.id,
                     instanceID: state.id.uuidString,
                     entryURL: entryURL,
-                    initialData: state.initialData,
+                    initialData: state.data,
                     appState: appState,
                     projectStore: projectStore,
                     worktreeStore: worktreeStore,

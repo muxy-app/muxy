@@ -165,13 +165,20 @@ final class TabArea: Identifiable {
         )))
     }
 
+    func findExtensionTab(extensionID: String, tabTypeID: String) -> TerminalTab? {
+        tabs.first { tab in
+            guard let state = tab.content.extensionState else { return false }
+            return state.extensionID == extensionID && state.tabTypeID == tabTypeID
+        }
+    }
+
     func createExtensionTab(extensionID: String, tabTypeID: String, title: String, data: ExtensionJSON?) {
         let state = ExtensionTabState(
             extensionID: extensionID,
             tabTypeID: tabTypeID,
             projectPath: projectPath,
             defaultTitle: title,
-            initialData: data
+            data: data
         )
         insertTab(TerminalTab(extensionState: state))
     }
