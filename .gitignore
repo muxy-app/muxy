@@ -15,7 +15,6 @@ Muxy/Resources/ghostty
 !Muxy/Resources/ghostty/themes
 !Muxy/Resources/ghostty/themes/**
 Muxy/Resources/terminfo
-Muxy/Resources/rg
 /ghostty
 /build
 .agents/
