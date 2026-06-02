@@ -27,6 +27,9 @@ guard let source = try? String(contentsOfFile: scriptPath, encoding: .utf8) else
     fail("could not read background script at \(scriptPath)")
 }
 
+let parentDeathMonitor = ParentDeathMonitor()
+parentDeathMonitor.start()
+
 let client: HostSocketClient
 do {
     client = try HostSocketClient(socketPath: socketPath)
