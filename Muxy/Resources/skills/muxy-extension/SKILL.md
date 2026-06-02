@@ -141,7 +141,7 @@ Field-by-field:
 - `muxy.description` — optional one-line summary shown in the Extensions modal.
 - `muxy.background` — optional relative path (resolved against `dist/`) to a JavaScript file. When present it must exist inside `dist/`; Muxy runs it in a long-lived host process for the lifetime of the extension. Provide it only to receive pushed events (`muxy.events.subscribe`) or run background shell commands (`muxy.exec`) — command, topbar, status bar, tab, and `runScript` extensions need none, and omitting it means Muxy keeps no resident process.
 - `muxy.permissions` — array of permission strings. Declare only what the background script or tabs actually use.
-- `muxy.events` — array of event names this extension subscribes to (for example `pane.created`, `tab.focused`, `pane.closed`). Command events (`command.<id>`) are auto-allowed.
+- `muxy.events` — array of event names this extension subscribes to (for example `pane.created`, `tab.focused`, `pane.closed`, `file.changed`). Command events (`command.<id>`) are auto-allowed. `file.changed` fires when a file under a watched project/worktree root changes (debounced ~0.3s, Git-internal lock/dir noise skipped); its payload is `{ path, projectPath }` — one event per changed `path`, `projectPath` being the watched root.
 - `muxy.tabTypes` — declares HTML pages (in `dist/`) renderable as tabs. A tab fills its whole region with one webview, so the page renders all of its own chrome — including, by recommendation, a [topbar](#tab-topbar-recommended) matching the app's native tabs.
 - `muxy.panels` — declares HTML pages renderable as dockable/floating panels (`position`: `right`|`bottom`, `mode`: `floating`|`pinned`, optional `icon`/`title`/`hiddenControls`, or `hideTopbar: true` to drop the whole header and render edge-to-edge — the page must then close itself). Requires `panels:write` to open/close at runtime. One pinned and one floating panel per position; opening another in that slot replaces it.
 - `muxy.popovers` — declares HTML pages renderable as transient popovers anchored to a topbar/status-bar item (`entry` required; optional `title`, `width`, `height` defaulting to 320×360). Frameless, auto-dismiss on outside click, at most one open at a time. Opened via an `openPopover` command bound to a topbar/status-bar item; the page sizes itself with `muxy.popover.resize()` (needs `panels:write`).
@@ -193,6 +193,10 @@ muxy.events.subscribe('pane.created', async (payload) => {
   console.log('pane created', payload.paneID);
   const result = await muxy.exec(['git', 'status', '--short']);
   console.log(result.stdout);
+});
+
+muxy.events.subscribe('file.changed', (payload) => {
+  console.log('file changed', payload.path, 'in', payload.projectPath);
 });
 ```
 

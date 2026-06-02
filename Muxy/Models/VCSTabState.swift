@@ -247,7 +247,9 @@ final class VCSTabState {
     }
 
     private func startWatching() {
-        watcher = FileSystemWatcher(directoryPath: projectPath) { [weak self] in
+        let path = projectPath
+        watcher = FileSystemWatcher(directoryPath: path) { [weak self] changedPaths in
+            ExtensionFileEventEmitter.emit(paths: changedPaths, projectPath: path)
             Task { @MainActor [weak self] in
                 self?.watcherDidFire()
             }

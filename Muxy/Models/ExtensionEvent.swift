@@ -32,4 +32,5 @@ enum ExtensionEventName {
     static let projectSwitched = "project.switched"
     static let worktreeSwitched = "worktree.switched"
     static let notificationPosted = "notification.posted"
+    static let fileChanged = "file.changed"
 }

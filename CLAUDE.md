@@ -44,6 +44,11 @@ Run `scripts/checks.sh --fix` after every task.
 - Low memory and CPU usage is one of the key factors
 - Simpler, flexible and scalable approaches are key factors
 
+## Extensions
+
+- When providing API or hook or features to extensions, Make sure we update the extension SKILL and docs.
+- Extension features usually need testing, offer a demo extension at ~/.config/muxy/extensions to the user.
+
 ## Code Review
 
 - Review the PRs/Code against the purpose of the PR/Issue/Asked. If you find unrelated issues to the PR during the review, Report them in a separate section.

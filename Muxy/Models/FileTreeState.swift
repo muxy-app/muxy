@@ -436,7 +436,9 @@ final class FileTreeState {
     }
 
     private func installWatcher() {
-        watcher = FileSystemWatcher(directoryPath: rootPath) { [weak self] in
+        let path = rootPath
+        watcher = FileSystemWatcher(directoryPath: path) { [weak self] changedPaths in
+            ExtensionFileEventEmitter.emit(paths: changedPaths, projectPath: path)
             Task { @MainActor [weak self] in
                 self?.refresh()
             }

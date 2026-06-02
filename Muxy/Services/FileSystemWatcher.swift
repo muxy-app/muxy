@@ -5,9 +5,10 @@ final class FileSystemWatcher: @unchecked Sendable {
     private let queue = DispatchQueue(label: "app.muxy.fs-watcher", qos: .utility)
     private var stream: FSEventStreamRef?
     private var debounceWork: DispatchWorkItem?
-    private var handler: (@Sendable () -> Void)?
+    private var pendingPaths = Set<String>()
+    private var handler: (@Sendable ([String]) -> Void)?
 
-    init?(directoryPath: String, handler: @escaping @Sendable () -> Void) {
+    init?(directoryPath: String, handler: @escaping @Sendable ([String]) -> Void) {
         guard FileManager.default.fileExists(atPath: directoryPath) else { return nil }
 
         self.handler = handler
@@ -25,14 +26,16 @@ final class FileSystemWatcher: @unchecked Sendable {
                 else { return }
                 let flags = Array(UnsafeBufferPointer(start: eventFlags, count: numEvents))
 
-                let dominated = zip(paths, flags).allSatisfy { path, flag in
+                let relevant = zip(paths, flags).compactMap { path, flag -> String? in
                     let isGitInternal = path.contains("/.git/")
                     let isLockFile = path.hasSuffix(".lock")
-                    return isGitInternal && isLockFile || flag & UInt32(kFSEventStreamEventFlagItemIsDir) != 0 && isGitInternal
+                    let isDirectory = flag & UInt32(kFSEventStreamEventFlagItemIsDir) != 0
+                    if isGitInternal, isLockFile || isDirectory { return nil }
+                    return path
                 }
-                guard !dominated else { return }
+                guard !relevant.isEmpty else { return }
 
-                watcher.scheduleRefresh()
+                watcher.scheduleRefresh(paths: relevant)
             },
             &context,
             paths,
@@ -56,10 +59,14 @@ final class FileSystemWatcher: @unchecked Sendable {
         FSEventStreamRelease(stream)
     }
 
-    private func scheduleRefresh() {
+    private func scheduleRefresh(paths: [String]) {
+        pendingPaths.formUnion(paths)
         debounceWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.handler?()
+            guard let self else { return }
+            let changed = Array(pendingPaths)
+            pendingPaths.removeAll()
+            handler?(changed)
         }
         debounceWork = work
         queue.asyncAfter(deadline: .now() + 0.3, execute: work)

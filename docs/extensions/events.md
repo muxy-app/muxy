@@ -16,7 +16,7 @@ Events originate in the main process from `ExtensionEventEmitter`, which diffs w
 
 ## Subscribing
 
-- **Workspace events** (`pane.*`, `tab.*`, `project.*`, `worktree.*`, `notification.posted`) must be listed in your manifest `events` array before you can subscribe. Subscribing to anything not declared is rejected.
+- **Workspace events** (`pane.*`, `tab.*`, `project.*`, `worktree.*`, `notification.posted`, `file.changed`) must be listed in your manifest `events` array before you can subscribe. Subscribing to anything not declared is rejected.
 - **Command events** (`command.<id>`) are auto-allowed: declaring a command in `manifest.commands` is implicit consent to receive its trigger, so you do not add it to `events`.
 
 ```json
@@ -39,6 +39,9 @@ When an extension is reloaded or disabled, its subscriptions are dropped and re-
 | `project.switched` | `projectID` | `events: ["project.switched"]` |
 | `worktree.switched` | `projectID`, `worktreeID` | `events: ["worktree.switched"]` |
 | `notification.posted` | `paneID`, `projectID`, `tabID`, `title` | `events: ["notification.posted"]` |
+| `file.changed` | `path`, `projectPath` | `events: ["file.changed"]` |
 | `command.<id>` | `command`, `extension` | Auto-allowed when `commands[].id == <id>` |
+
+`file.changed` fires for files under a watched project/worktree root (the same watcher the source-control and file-tree views use). It is debounced (~0.3s) and skips Git-internal noise (`.git/` lock files and directories); one event is delivered per changed `path`, with `projectPath` set to the watched root.
 
 See [Permissions](permissions.md) for how `events` fits the manifest, and [Palette Commands](palette-commands.md) for `command.<id>`.
