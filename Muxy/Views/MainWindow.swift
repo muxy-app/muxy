@@ -31,7 +31,6 @@ struct MainWindow: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(GhosttyService.self) private var ghostty
-    @Environment(\.openWindow) private var openWindow
     @State private var dragCoordinator = TabDragCoordinator()
     private enum CloseConfirmationKind {
         case lastTab
@@ -216,7 +215,6 @@ struct MainWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
         }
-        .background(WindowOpenReceiver(openWindow: openWindow))
         .modifier(SidePanelNotificationListeners(
             onToggleFileTree: { toggleFileTreePanel() },
             onToggleRichInput: { toggleRichInputPanel() },
@@ -1706,18 +1704,6 @@ private final class ShortcutInterceptingView: NSView {
         guard let mouseMonitor else { return }
         NSEvent.removeMonitor(mouseMonitor)
         self.mouseMonitor = nil
-    }
-}
-
-private struct WindowOpenReceiver: View {
-    let openWindow: OpenWindowAction
-
-    var body: some View {
-        Color.clear
-            .frame(width: 0, height: 0)
-            .onReceive(NotificationCenter.default.publisher(for: .openHelpWindow)) { _ in
-                openWindow(id: "help")
-            }
     }
 }
 

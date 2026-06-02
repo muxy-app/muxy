@@ -419,12 +419,6 @@ struct MuxyCommands: Commands {
         }
 
         CommandGroup(replacing: .help) {
-            Button("Muxy Help") {
-                openHelpWindow()
-            }
-
-            Divider()
-
             Button("Documentation") {
                 HelpLinks.openDocs()
             }
@@ -447,9 +441,5 @@ struct MuxyCommands: Commands {
                 HelpLinks.openIssues()
             }
         }
-    }
-
-    private func openHelpWindow() {
-        NotificationCenter.default.post(name: .openHelpWindow, object: nil)
     }
 }

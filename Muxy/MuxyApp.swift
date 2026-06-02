@@ -139,12 +139,6 @@ struct MuxyApp: App {
                 updateService: .shared
             )
         }
-
-        Window("Muxy Help", id: "help") {
-            HelpView()
-                .preferredColorScheme(MuxyTheme.colorScheme)
-        }
-        .defaultSize(width: 820, height: 580)
     }
 
     private func startDeferredServicesIfNeeded() {
