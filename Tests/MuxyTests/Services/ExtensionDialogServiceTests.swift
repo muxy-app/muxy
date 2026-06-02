@@ -17,7 +17,7 @@ struct ExtensionDialogServiceTests {
 
     @Test("confirm parses fields and styles")
     func confirmParsesFields() throws {
-        let request = try ExtensionDialogService.makeConfirmRequest(args: [
+        let request = try ExtensionDialogService.makeConfirmRequest(extensionID: "ext", args: [
             "title": "Delete branch?",
             "message": "Cannot be undone.",
             "buttons": ["Delete", "Cancel"],
@@ -33,7 +33,7 @@ struct ExtensionDialogServiceTests {
 
     @Test("confirm moves the default button to the front")
     func confirmReordersDefault() throws {
-        let request = try ExtensionDialogService.makeConfirmRequest(args: [
+        let request = try ExtensionDialogService.makeConfirmRequest(extensionID: "ext", args: [
             "title": "Proceed?",
             "buttons": ["Delete", "Cancel"],
             "default": "Cancel",
@@ -44,26 +44,47 @@ struct ExtensionDialogServiceTests {
 
     @Test("confirm defaults buttons and drops empties")
     func confirmDefaultsButtons() throws {
-        let fallback = try ExtensionDialogService.makeConfirmRequest(args: ["title": "Hi"])
+        let fallback = try ExtensionDialogService.makeConfirmRequest(extensionID: "ext", args: ["title": "Hi"])
         #expect(fallback.buttons == ["OK", "Cancel"])
 
-        let filtered = try ExtensionDialogService.makeConfirmRequest(args: [
+        let filtered = try ExtensionDialogService.makeConfirmRequest(extensionID: "ext", args: [
             "title": "Hi",
             "buttons": ["Yes", "", "No"],
         ])
         #expect(filtered.buttons == ["Yes", "No"])
     }
 
+    @Test("confirm caps the button count")
+    func confirmCapsButtonCount() throws {
+        let request = try ExtensionDialogService.makeConfirmRequest(extensionID: "ext", args: [
+            "title": "Pick",
+            "buttons": ["A", "B", "C", "D", "E"],
+        ])
+        #expect(request.buttons.count == ExtensionDialogService.maxButtonCount)
+        #expect(request.buttons == ["A", "B", "C"])
+    }
+
+    @Test("confirm clamps oversized text")
+    func confirmClampsText() throws {
+        let long = String(repeating: "x", count: ExtensionDialogService.maxTextLength + 500)
+        let request = try ExtensionDialogService.makeConfirmRequest(extensionID: "ext", args: [
+            "title": long,
+            "message": long,
+        ])
+        #expect(request.title.count == ExtensionDialogService.maxTextLength)
+        #expect(request.message.count == ExtensionDialogService.maxTextLength)
+    }
+
     @Test("confirm requires title or message")
     func confirmRequiresContent() {
         #expect(throws: APIError.self) {
-            try ExtensionDialogService.makeConfirmRequest(args: [:])
+            try ExtensionDialogService.makeConfirmRequest(extensionID: "ext", args: [:])
         }
     }
 
     @Test("alert parses fields and defaults to informational")
     func alertParsesFields() throws {
-        let request = try ExtensionDialogService.makeAlertRequest(args: [
+        let request = try ExtensionDialogService.makeAlertRequest(extensionID: "ext", args: [
             "message": "Build finished",
         ])
         #expect(request.title.isEmpty)
@@ -73,7 +94,7 @@ struct ExtensionDialogServiceTests {
 
     @Test("alert maps critical style")
     func alertCriticalStyle() throws {
-        let request = try ExtensionDialogService.makeAlertRequest(args: [
+        let request = try ExtensionDialogService.makeAlertRequest(extensionID: "ext", args: [
             "title": "Failure",
             "style": "critical",
         ])
@@ -83,13 +104,13 @@ struct ExtensionDialogServiceTests {
     @Test("alert requires title or message")
     func alertRequiresContent() {
         #expect(throws: APIError.self) {
-            try ExtensionDialogService.makeAlertRequest(args: [:])
+            try ExtensionDialogService.makeAlertRequest(extensionID: "ext", args: [:])
         }
     }
 
     @Test("Return maps to the first button and Esc to the cancel label")
     func keyEquivalentsMapReturnAndEscape() throws {
-        let request = try ExtensionDialogService.makeConfirmRequest(args: [
+        let request = try ExtensionDialogService.makeConfirmRequest(extensionID: "ext", args: [
             "title": "Proceed?",
             "buttons": ["Discard", "Keep"],
             "default": "Keep",
@@ -101,7 +122,7 @@ struct ExtensionDialogServiceTests {
 
     @Test("without a cancel label only the default button is bound")
     func keyEquivalentsDefaultOnly() throws {
-        let request = try ExtensionDialogService.makeConfirmRequest(args: [
+        let request = try ExtensionDialogService.makeConfirmRequest(extensionID: "ext", args: [
             "title": "Proceed?",
             "buttons": ["Yes", "No"],
         ])

@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 enum ExtensionDialogService {
     struct ConfirmRequest: Equatable {
+        let extensionID: String
         let title: String
         let message: String
         let buttons: [String]
@@ -12,16 +13,21 @@ enum ExtensionDialogService {
     }
 
     struct AlertRequest: Equatable {
+        let extensionID: String
         let title: String
         let message: String
         let style: NSAlert.Style
     }
 
-    static func confirm(_ request: ConfirmRequest) async -> String? {
-        let alert = NSAlert()
-        alert.alertStyle = request.style
-        alert.messageText = request.title
-        alert.informativeText = request.message
+    static let maxTextLength = 2000
+    static let maxButtonCount = 3
+
+    private static var busyExtensionIDs: Set<String> = []
+
+    static func confirm(_ request: ConfirmRequest) async throws -> String? {
+        try claim(request.extensionID)
+        defer { release(request.extensionID) }
+        let alert = makeAlert(title: request.title, message: request.message, style: request.style)
         let buttons = request.buttons.map { alert.addButton(withTitle: $0) }
         let equivalents = keyEquivalents(for: request)
         for (button, equivalent) in zip(buttons, equivalents) {
@@ -38,44 +44,46 @@ enum ExtensionDialogService {
         return label
     }
 
-    static func alert(_ request: AlertRequest) async {
-        let alert = NSAlert()
-        alert.alertStyle = request.style
-        alert.messageText = request.title
-        alert.informativeText = request.message
+    static func alert(_ request: AlertRequest) async throws {
+        try claim(request.extensionID)
+        defer { release(request.extensionID) }
+        let alert = makeAlert(title: request.title, message: request.message, style: request.style)
         alert.addButton(withTitle: "OK")
         _ = await runModal(alert)
     }
 
-    static func makeConfirmRequest(args: [String: Any]) throws -> ConfirmRequest {
-        let title = string(args, "title") ?? ""
-        let message = string(args, "message") ?? ""
+    static func makeConfirmRequest(extensionID: String, args: [String: Any]) throws -> ConfirmRequest {
+        let title = clamped(string(args, "title") ?? "")
+        let message = clamped(string(args, "message") ?? "")
         guard !title.isEmpty || !message.isEmpty else {
             throw APIError.invalidArguments("dialog requires title or message")
         }
         var buttons = (args["buttons"] as? [Any])?.compactMap { $0 as? String } ?? []
-        buttons = buttons.filter { !$0.isEmpty }
+        buttons = buttons.map(clamped).filter { !$0.isEmpty }
         if buttons.isEmpty {
             buttons = ["OK", "Cancel"]
         }
-        let defaultButton = string(args, "default")
+        buttons = Array(buttons.prefix(maxButtonCount))
+        let defaultButton = string(args, "default").map(clamped)
         return ConfirmRequest(
+            extensionID: extensionID,
             title: title,
             message: message,
             buttons: orderedButtons(buttons, defaultLabel: defaultButton),
             defaultButton: defaultButton,
-            cancelButton: string(args, "cancel"),
+            cancelButton: string(args, "cancel").map(clamped),
             style: style(from: string(args, "style"))
         )
     }
 
-    static func makeAlertRequest(args: [String: Any]) throws -> AlertRequest {
-        let title = string(args, "title") ?? ""
-        let message = string(args, "message") ?? ""
+    static func makeAlertRequest(extensionID: String, args: [String: Any]) throws -> AlertRequest {
+        let title = clamped(string(args, "title") ?? "")
+        let message = clamped(string(args, "message") ?? "")
         guard !title.isEmpty || !message.isEmpty else {
             throw APIError.invalidArguments("alert requires title or message")
         }
         return AlertRequest(
+            extensionID: extensionID,
             title: title,
             message: message,
             style: style(from: string(args, "style"))
@@ -88,6 +96,29 @@ enum ExtensionDialogService {
             if index == 0 { return "\r" }
             return ""
         }
+    }
+
+    private static func makeAlert(title: String, message: String, style: NSAlert.Style) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = style
+        alert.messageText = title
+        alert.informativeText = message
+        return alert
+    }
+
+    private static func claim(_ extensionID: String) throws {
+        guard !busyExtensionIDs.contains(extensionID) else {
+            throw APIError.invalidArguments("a dialog is already open for this extension")
+        }
+        busyExtensionIDs.insert(extensionID)
+    }
+
+    private static func release(_ extensionID: String) {
+        busyExtensionIDs.remove(extensionID)
+    }
+
+    private static func clamped(_ value: String) -> String {
+        String(value.prefix(maxTextLength))
     }
 
     private static func orderedButtons(_ buttons: [String], defaultLabel: String?) -> [String] {
