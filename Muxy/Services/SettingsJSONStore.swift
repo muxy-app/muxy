@@ -200,14 +200,12 @@ enum SettingsJSONStore {
             "muxy.ui.scale": Set(UIScale.Preset.allCases.map(\.rawValue)),
             SidebarCollapsedStyle.storageKey: Set(SidebarCollapsedStyle.allCases.map(\.rawValue)),
             SidebarExpandedStyle.storageKey: Set(SidebarExpandedStyle.allCases.map(\.rawValue)),
-            "muxy.vcsDisplayMode": Set(VCSDisplayMode.allCases.map(\.rawValue)),
             RichInputPreferences.positionKey: Set(PanelPosition.allCases.map(\.rawValue)),
             "editor.defaultEditor": Set(EditorSettings.DefaultEditor.allCases.map(\.rawValue)),
             "editor.htmlDefaultViewMode": Set(EditorMarkdownViewMode.allCases.map(\.rawValue)),
             "editor.richInputImageStrategy": Set(RichInputImageStrategy.allCases.map(\.rawValue)),
             NotificationSettings.Key.sound: Set(NotificationSound.allCases.map(\.rawValue)),
             NotificationSettings.Key.toastPosition: Set(ToastPosition.allCases.map(\.rawValue)),
-            AIAssistantSettings.providerKey: Set(AIAssistantProvider.allCases.map(\.rawValue)),
             AIUsageSettingsStore.usageDisplayModeKey: Set(AIUsageDisplayMode.allCases.map(\.rawValue)),
         ]
         guard let allowed = allowedValues[key] else { return }

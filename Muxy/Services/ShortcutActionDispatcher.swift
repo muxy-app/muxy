@@ -29,7 +29,7 @@ struct ShortcutActionDispatcher {
         projectGroupStore.filteredProjects(from: projectStore.projects)
     }
 
-    func perform(_ action: ShortcutAction, activeProject: Project?, openVCS: (Project) -> Void) -> Bool {
+    func perform(_ action: ShortcutAction, activeProject: Project?) -> Bool {
         if let index = action.tabSelectionIndex {
             guard let projectID = appState.activeProjectID else { return false }
             appState.selectTabByIndex(index, projectID: projectID)
@@ -154,14 +154,6 @@ struct ShortcutActionDispatcher {
         case .submitRichInput,
              .submitRichInputWithoutReturn:
             return false
-        case .openVCSTab:
-            guard let activeProject else { return false }
-            openVCS(activeProject)
-            return true
-        case .openDiffViewerTab:
-            guard let activeProject else { return false }
-            appState.openDiffViewer(projectID: activeProject.id)
-            return true
         case .quickOpen:
             notificationCenter.post(name: .quickOpen, object: nil)
             return true

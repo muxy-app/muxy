@@ -107,7 +107,7 @@ struct WorkspaceSnapshotTests {
             projectPath: testPath,
             tabs: [
                 TerminalTabSnapshot(kind: .terminal, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Shell"),
-                TerminalTabSnapshot(kind: .vcs, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Git Diff"),
+                TerminalTabSnapshot(kind: .editor, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Editor"),
             ],
             activeTabIndex: 1
         )
@@ -148,7 +148,7 @@ struct WorkspaceSnapshotTests {
         )
         let area2 = TabAreaSnapshot(
             id: UUID(), projectPath: testPath,
-            tabs: [TerminalTabSnapshot(kind: .vcs, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "VCS")],
+            tabs: [TerminalTabSnapshot(kind: .editor, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Editor")],
             activeTabIndex: 0
         )
         let branchSnapshot = SplitBranchSnapshot(

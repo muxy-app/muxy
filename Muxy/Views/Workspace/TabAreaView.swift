@@ -5,14 +5,11 @@ struct TabAreaView: View {
     let isFocused: Bool
     let isActiveProject: Bool
     let showTabStrip: Bool
-    let showVCSButton: Bool
     let projectID: UUID
     let shortcutIndexOffset: Int
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
-    let onCreateVCSTab: () -> Void
-    let onCreateDiffViewerTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onForceCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
@@ -41,13 +38,10 @@ struct TabAreaView: View {
                     tabs: PaneTabStrip.snapshots(from: area.tabs),
                     activeTabID: area.activeTabID,
                     isFocused: isFocused,
-                    showVCSButton: showVCSButton,
                     projectID: projectID,
                     shortcutIndexOffset: shortcutIndexOffset,
                     onSelectTab: onSelectTab,
                     onCreateTab: onCreateTab,
-                    onCreateVCSTab: onCreateVCSTab,
-                    onCreateDiffViewerTab: onCreateDiffViewerTab,
                     onCloseTab: onCloseTab,
                     onCloseOtherTabs: { tabID in
                         closeTabs(area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id))
@@ -216,12 +210,8 @@ private struct TabContentView: View {
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
             )
-        case let .vcs(vcsState):
-            VCSTabView(state: vcsState, focused: focused, onFocus: onFocus)
         case let .editor(editorState):
             EditorPane(state: editorState, focused: focused, onFocus: onFocus)
-        case let .diffViewer(diffState):
-            DiffViewerPane(state: diffState, tabArea: area, focused: focused, onFocus: onFocus)
         case let .imageViewer(imageState):
             ImageViewerPane(state: imageState, focused: focused, onFocus: onFocus)
         case let .extensionWebView(extensionState):

@@ -225,6 +225,8 @@ enum ExtensionConsentRequestBuilder {
             return ("open \(target) tab \(tab)", ["extension: \(target)", "tab type: \(tab)"])
         case let (.remoteInvoke, .remote(action, deviceName)):
             return ("\(deviceName) calls \(action)", ["device: \(deviceName)", "action: \(action)"])
+        case let (.gitWrite, .git(operation, repoPath)):
+            return ("git \(operation)", ["operation: \(operation)", "repo: \(repoPath)"])
         default:
             return ("(unknown)", [])
         }

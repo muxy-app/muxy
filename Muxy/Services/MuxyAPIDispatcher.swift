@@ -170,6 +170,144 @@ enum MuxyAPIDispatcher {
             ))
             return ["count": result.count]
         default:
+            if verb.hasPrefix("git.") {
+                return try await handleGit(verb: verb, args: args, context: context)
+            }
+            throw APIError.invalidArguments("unknown verb \(verb)")
+        }
+    }
+
+    private static func handleGit(verb: String, args: [String: Any], context: Context) async throws -> Any {
+        guard let projectStore = context.projectStore,
+              let worktreeStore = context.worktreeStore
+        else { throw APIError.worktreeStoreUnavailable }
+        let git = MuxyAPI.Git.Context(
+            extensionID: context.extensionID,
+            appState: context.appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
+        )
+        let project = args["project"] as? String
+
+        switch verb {
+        case "git.status":
+            return try await GitDTO.status(unwrap(MuxyAPI.Git.status(projectIdentifier: project, context: git)))
+        case "git.diff":
+            return try await GitDTO.diff(unwrap(MuxyAPI.Git.diff(
+                projectIdentifier: project,
+                filePath: stringArg(args, "filePath"),
+                staged: args["staged"] as? Bool,
+                lineLimit: intArg(args, "lineLimit"),
+                context: git
+            )))
+        case "git.log":
+            return try await unwrap(MuxyAPI.Git.log(
+                projectIdentifier: project,
+                maxCount: intArg(args, "maxCount") ?? 100,
+                skip: intArg(args, "skip") ?? 0,
+                context: git
+            )).map(GitDTO.commit)
+        case "git.branches":
+            return try await unwrap(MuxyAPI.Git.branches(projectIdentifier: project, context: git))
+        case "git.currentBranch":
+            return try await unwrap(MuxyAPI.Git.currentBranch(projectIdentifier: project, context: git))
+        case "git.aheadBehind":
+            return try await GitDTO.aheadBehind(unwrap(MuxyAPI.Git.aheadBehind(projectIdentifier: project, context: git)))
+        case "git.pr.info":
+            let info = try await unwrap(MuxyAPI.Git.pullRequestInfo(projectIdentifier: project, context: git))
+            return info.map(GitDTO.prInfo) ?? NSNull()
+        case "git.pr.list":
+            return try await unwrap(MuxyAPI.Git.pullRequestList(
+                projectIdentifier: project,
+                filter: prListFilter(args["filter"] as? String),
+                limit: intArg(args, "limit") ?? 100,
+                context: git
+            )).map(GitDTO.prListItem)
+        case "git.worktrees":
+            return try await unwrap(MuxyAPI.Git.worktrees(projectIdentifier: project, context: git))
+                .map(GitDTO.worktree)
+        case "git.stage":
+            try await unwrap(MuxyAPI.Git.stage(projectIdentifier: project, paths: stringArrayArg(args, "paths"), context: git))
+            return NSNull()
+        case "git.unstage":
+            try await unwrap(MuxyAPI.Git.unstage(projectIdentifier: project, paths: stringArrayArg(args, "paths"), context: git))
+            return NSNull()
+        case "git.discard":
+            try await unwrap(MuxyAPI.Git.discard(
+                projectIdentifier: project,
+                paths: stringArrayArg(args, "paths"),
+                untrackedPaths: stringArrayArg(args, "untrackedPaths"),
+                context: git
+            ))
+            return NSNull()
+        case "git.commit":
+            let hash = try await unwrap(MuxyAPI.Git.commit(
+                projectIdentifier: project,
+                message: stringArg(args, "message"),
+                stageAll: args["stageAll"] as? Bool ?? false,
+                context: git
+            ))
+            return ["hash": hash]
+        case "git.push":
+            try await unwrap(MuxyAPI.Git.push(projectIdentifier: project, context: git))
+            return NSNull()
+        case "git.pull":
+            try await unwrap(MuxyAPI.Git.pull(projectIdentifier: project, context: git))
+            return NSNull()
+        case "git.branch.create":
+            try await unwrap(MuxyAPI.Git.createBranch(projectIdentifier: project, name: stringArg(args, "name"), context: git))
+            return NSNull()
+        case "git.branch.switch":
+            try await unwrap(MuxyAPI.Git.switchBranch(projectIdentifier: project, branch: stringArg(args, "branch"), context: git))
+            return NSNull()
+        case "git.pr.create":
+            return try await GitDTO.prInfo(unwrap(MuxyAPI.Git.createPullRequest(
+                MuxyAPI.Git.CreatePRRequest(
+                    projectIdentifier: project,
+                    title: stringArg(args, "title"),
+                    body: args["body"] as? String ?? "",
+                    baseBranch: args["baseBranch"] as? String,
+                    draft: args["draft"] as? Bool ?? false
+                ),
+                context: git
+            )))
+        case "git.pr.merge":
+            try await unwrap(MuxyAPI.Git.mergePullRequest(
+                projectIdentifier: project,
+                number: intArgRequired(args, "number"),
+                method: prMergeMethod(args["method"] as? String),
+                deleteBranch: args["deleteBranch"] as? Bool ?? true,
+                context: git
+            ))
+            return NSNull()
+        case "git.pr.close":
+            try await unwrap(MuxyAPI.Git.closePullRequest(
+                projectIdentifier: project,
+                number: intArgRequired(args, "number"),
+                context: git
+            ))
+            return NSNull()
+        case "git.worktree.add":
+            try await unwrap(MuxyAPI.Git.addWorktree(
+                MuxyAPI.Git.AddWorktreeRequest(
+                    projectIdentifier: project,
+                    path: stringArg(args, "path"),
+                    branch: stringArg(args, "branch"),
+                    createBranch: args["createBranch"] as? Bool ?? false,
+                    baseBranch: args["baseBranch"] as? String
+                ),
+                context: git
+            ))
+            return NSNull()
+        case "git.worktree.remove":
+            try await unwrap(MuxyAPI.Git.removeWorktree(
+                projectIdentifier: project,
+                path: stringArg(args, "path"),
+                force: args["force"] as? Bool ?? false,
+                context: git
+            ))
+            return NSNull()
+        default:
             throw APIError.invalidArguments("unknown verb \(verb)")
         }
     }
@@ -301,5 +439,30 @@ enum MuxyAPIDispatcher {
             "branch": worktree.branch ?? NSNull(),
             "isActive": worktree.isActive,
         ]
+    }
+
+    private static func intArg(_ args: [String: Any], _ key: String) -> Int? {
+        if let value = args[key] as? Int { return value }
+        if let value = args[key] as? NSNumber { return value.intValue }
+        return nil
+    }
+
+    private static func intArgRequired(_ args: [String: Any], _ key: String) throws -> Int {
+        guard let value = intArg(args, key) else {
+            throw APIError.invalidArguments("missing argument '\(key)'")
+        }
+        return value
+    }
+
+    private static func stringArrayArg(_ args: [String: Any], _ key: String) -> [String] {
+        (args[key] as? [Any])?.compactMap { $0 as? String } ?? []
+    }
+
+    private static func prListFilter(_ raw: String?) -> GitRepositoryService.PRListFilter {
+        raw.flatMap(GitRepositoryService.PRListFilter.init(rawValue:)) ?? .open
+    }
+
+    private static func prMergeMethod(_ raw: String?) -> GitRepositoryService.PRMergeMethod {
+        raw.flatMap(GitRepositoryService.PRMergeMethod.init(rawValue:)) ?? .merge
     }
 }

@@ -44,16 +44,15 @@ struct KeyBindingStoreTests {
         let store = KeyBindingStore(persistence: persistence)
         let combo = KeyCombo(key: "u", command: true)
 
-        #expect(store.combo(for: .openVCSTab) == KeyCombo(key: "y", command: true))
-        #expect(store.combo(for: .openDiffViewerTab) == KeyCombo(key: "y", command: true, shift: true))
+        #expect(store.combo(for: .refreshWorktrees) == KeyCombo(key: "r", command: true, option: true))
 
-        store.updateBinding(action: .openVCSTab, combo: combo)
+        store.updateBinding(action: .refreshWorktrees, combo: combo)
 
-        #expect(store.combo(for: .openVCSTab) == combo)
+        #expect(store.combo(for: .refreshWorktrees) == combo)
 
-        store.resetBinding(action: .openVCSTab)
+        store.resetBinding(action: .refreshWorktrees)
 
-        #expect(store.combo(for: .openVCSTab) == KeyCombo(key: "y", command: true))
+        #expect(store.combo(for: .refreshWorktrees) == KeyCombo(key: "r", command: true, option: true))
     }
 
     @Test("action can be unassigned")
@@ -62,15 +61,15 @@ struct KeyBindingStoreTests {
         let store = KeyBindingStore(persistence: persistence)
         let combo = KeyCombo(key: "", modifiers: 0)
         let event = try keyEvent(
-            characters: "y",
-            charactersIgnoringModifiers: "y",
-            keyCode: 16,
-            modifiers: [.command]
+            characters: "r",
+            charactersIgnoringModifiers: "r",
+            keyCode: 15,
+            modifiers: [.command, .option]
         )
 
-        store.updateBinding(action: .openVCSTab, combo: combo)
+        store.updateBinding(action: .refreshWorktrees, combo: combo)
 
-        #expect(store.combo(for: .openVCSTab) == combo)
+        #expect(store.combo(for: .refreshWorktrees) == combo)
         #expect(store.action(for: event, scopes: [.mainWindow]) == nil)
     }
 

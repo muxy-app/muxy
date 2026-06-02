@@ -37,7 +37,6 @@ struct MainWindow: View {
         case lastTab
         case unsavedEditor
         case runningProcess
-        case diffComments
 
         var title: String {
             switch self {
@@ -47,8 +46,6 @@ struct MainWindow: View {
                 "Save Changes Before Closing?"
             case .runningProcess:
                 "Close Tab?"
-            case .diffComments:
-                "Discard Comments?"
             }
         }
 
@@ -60,14 +57,11 @@ struct MainWindow: View {
                 "This file has unsaved changes. If you don't save, your changes will be lost."
             case .runningProcess:
                 "A process is still running in this tab. Are you sure you want to close it?"
-            case .diffComments:
-                "This diff has comments that haven't been sent to an agent. Closing will discard them."
             }
         }
     }
 
     @State var panelHost = PanelHost.shared
-    @State private var vcsPanelWidth: Double = PanelLayoutMetrics.vcsDefaultWidth
     @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = PanelLayoutMetrics.fileTreeDefaultWidth
     @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
     @State private var fileTreeLastTerminalPaths: [WorktreeKey: String] = [:]
@@ -224,15 +218,14 @@ struct MainWindow: View {
         }
         .background(WindowOpenReceiver(openWindow: openWindow))
         .modifier(SidePanelNotificationListeners(
-            onToggleAttachedVCS: { toggleAttachedVCSPanel() },
             onToggleFileTree: { toggleFileTreePanel() },
             onToggleRichInput: { toggleRichInputPanel() },
             onToggleVoiceRecording: { _ = openVoiceRecorder() }
         ))
-        .onChange(of: vcsPruneSignature) {
+        .onChange(of: worktreeKeysSignature) {
             pruneFileTreeStates()
         }
-        .onChange(of: vcsEnsureSignature) {
+        .onChange(of: activeWorktreeSignature) {
             guard let project = activeProject else { return }
             if fileTreePanelVisible {
                 ensureFileTreeState(for: project)
@@ -257,11 +250,9 @@ struct MainWindow: View {
             lastTab: appState.pendingLastTabClose != nil,
             unsavedEditor: appState.pendingUnsavedEditorTabClose != nil,
             runningProcess: appState.pendingProcessTabClose != nil,
-            diffComments: appState.pendingDiffCommentsTabClose != nil,
             onLastTab: { presentCloseConfirmation(.lastTab) },
             onUnsavedEditor: { presentCloseConfirmation(.unsavedEditor) },
-            onRunningProcess: { presentCloseConfirmation(.runningProcess) },
-            onDiffComments: { presentCloseConfirmation(.diffComments) }
+            onRunningProcess: { presentCloseConfirmation(.runningProcess) }
         ))
         .onChange(of: appState.pendingSaveErrorMessage != nil) { _, isPresented in
             guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
@@ -452,7 +443,6 @@ struct MainWindow: View {
                 activeTabID: area.activeTabID,
                 isFocused: true,
                 isWindowTitleBar: true,
-                showVCSButton: true,
                 showDevelopmentBadge: AppEnvironment.isDevelopment,
                 openInIDEProjectPath: activeWorktreePath(for: project),
                 openInIDEFilePath: area.activeTab?.content.editorState?.filePath,
@@ -468,20 +458,6 @@ struct MainWindow: View {
                 },
                 onCreateTab: {
                     appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
-                },
-                onCreateVCSTab: {
-                    openVCS(for: project, preferredAreaID: area.id)
-                },
-                onCreateDiffViewerTab: {
-                    appState.dispatch(.createDiffViewerTab(
-                        projectID: project.id,
-                        areaID: area.id,
-                        request: AppState.DiffViewerRequest(
-                            vcs: VCSStateStore.shared.state(for: area.projectPath),
-                            filePath: nil,
-                            isStaged: false
-                        )
-                    ))
                 },
                 onCloseTab: { tabID in
                     appState.closeTab(tabID, areaID: area.id, projectID: project.id)
@@ -566,14 +542,11 @@ struct MainWindow: View {
                             )
                             LayoutPickerMenu(projectID: project.id)
                         }
-                        if let project = activeProject, activeProjectHasSplitWorkspace {
+                        if activeProject != nil, activeProjectHasSplitWorkspace {
                             IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
                                 NotificationCenter.default.post(name: .quickOpen, object: nil)
                             }
                             .help("Quick Open (\(KeyBindingStore.shared.combo(for: .quickOpen).displayString))")
-                            FileDiffIconButton {
-                                openVCS(for: project)
-                            }
                             FileTreeIconButton {
                                 NotificationCenter.default.post(name: .toggleFileTree, object: nil)
                             }
@@ -938,9 +911,7 @@ struct MainWindow: View {
         if action == .toggleVoiceRecording {
             return openVoiceRecorder()
         }
-        return shortcutDispatcher.perform(action, activeProject: activeProject) { project in
-            openVCS(for: project)
-        }
+        return shortcutDispatcher.perform(action, activeProject: activeProject)
     }
 
     private func openVoiceRecorder() -> Bool {
@@ -984,7 +955,6 @@ struct MainWindow: View {
         projectStore.projects.filter { appState.workspaceRoot(for: $0.id) != nil }
     }
 
-    var vcsPanelVisible: Bool { panelHost.isOpen(BuiltinPanel.vcs) }
     var fileTreePanelVisible: Bool { panelHost.isOpen(BuiltinPanel.fileTree) }
     var richInputPanelVisible: Bool { panelHost.isOpen(BuiltinPanel.richInput) }
     var showExtensionOutput: Bool { panelHost.isOpen(BuiltinPanel.extensionConsole) }
@@ -1014,8 +984,6 @@ struct MainWindow: View {
     @ViewBuilder
     private func panelContent(for panelID: String, position: PanelPosition, mode: PanelMode) -> some View {
         switch panelID {
-        case BuiltinPanel.vcs:
-            vcsPanelBody(position: position)
         case BuiltinPanel.fileTree:
             fileTreePanelBody(position: position)
         case BuiltinPanel.richInput:
@@ -1024,28 +992,6 @@ struct MainWindow: View {
             extensionConsolePanelBody(position: position, mode: mode)
         default:
             extensionPanelBody(panelID: panelID, position: position, mode: mode)
-        }
-    }
-
-    @ViewBuilder
-    private func vcsPanelBody(position: PanelPosition) -> some View {
-        if VCSDisplayMode.current == .attached, let state = activeVCSState {
-            PanelContainer(
-                chrome: PanelChrome(hiddenControls: [.close, .pin, .position]),
-                mode: .pinned,
-                position: position,
-                onClose: nil,
-                onTogglePin: nil,
-                onTogglePosition: nil,
-                content: {
-                    VCSTabView(state: state, focused: false, onFocus: {})
-                }
-            )
-            .modifier(PanelFrame(
-                position: position,
-                size: $vcsPanelWidth,
-                range: PanelLayoutMetrics.vcsWidthRange
-            ))
         }
     }
 
@@ -1283,20 +1229,10 @@ struct MainWindow: View {
     }
 
     private func pruneFileTreeStates() {
-        let validKeys = validVCSKeys()
+        let validKeys = validWorktreeKeys()
         fileTreeStates = fileTreeStates.filter { validKeys.contains($0.key) }
         fileTreeLastTerminalPaths = fileTreeLastTerminalPaths.filter { validKeys.contains($0.key) }
         richInputStates = richInputStates.filter { validKeys.contains($0.key) }
-    }
-
-    private func toggleAttachedVCSPanel() {
-        guard VCSDisplayMode.current == .attached,
-              activeProject != nil
-        else {
-            panelHost.close(BuiltinPanel.vcs)
-            return
-        }
-        panelHost.toggle(BuiltinPanel.vcs, at: .right, mode: .pinned)
     }
 
     private func toggleFileTreePanel() {
@@ -1397,13 +1333,6 @@ struct MainWindow: View {
         return root.allAreas().compactMap { $0.activeTab?.content.pane?.id }
     }
 
-    private var activeVCSState: VCSTabState? {
-        guard let project = activeProject,
-              appState.activeWorktreeKey(for: project.id) != nil
-        else { return nil }
-        return VCSStateStore.shared.state(for: activeWorktreePath(for: project))
-    }
-
     private func activeWorktreePath(for project: Project) -> String {
         guard let key = appState.activeWorktreeKey(for: project.id) else { return project.path }
         return worktreeStore
@@ -1411,23 +1340,7 @@ struct MainWindow: View {
             .path ?? project.path
     }
 
-    private func openVCS(for project: Project, preferredAreaID: UUID? = nil) {
-        VCSDisplayMode.current.route(
-            tab: {
-                let areaID = preferredAreaID
-                    ?? appState.focusedAreaID(for: project.id)
-                    ?? appState.workspaceRoot(for: project.id)?.allAreas().first?.id
-                guard let areaID else { return }
-                appState.dispatch(.createVCSTab(projectID: project.id, areaID: areaID))
-            },
-            window: { openWindow(id: "vcs") },
-            attached: {
-                toggleAttachedVCSPanel()
-            }
-        )
-    }
-
-    private func validVCSKeys() -> Set<WorktreeKey> {
+    private func validWorktreeKeys() -> Set<WorktreeKey> {
         var keys: Set<WorktreeKey> = []
         for project in projectStore.projects {
             for worktree in worktreeStore.list(for: project.id) {
@@ -1437,7 +1350,7 @@ struct MainWindow: View {
         return keys
     }
 
-    private var vcsPruneSignature: [String] {
+    private var worktreeKeysSignature: [String] {
         var result: [String] = []
         for project in projectStore.projects {
             result.append(project.id.uuidString)
@@ -1448,7 +1361,7 @@ struct MainWindow: View {
         return result
     }
 
-    private var vcsEnsureSignature: String {
+    private var activeWorktreeSignature: String {
         let projectID = appState.activeProjectID?.uuidString ?? ""
         let worktreeID = appState.activeProjectID.flatMap { appState.activeWorktreeID[$0] }?.uuidString ?? ""
         return "\(projectID):\(worktreeID)"
@@ -1475,8 +1388,7 @@ struct MainWindow: View {
             alert.buttons[2].keyEquivalent = "d"
             alert.buttons[2].keyEquivalentModifierMask = [.command]
         case .lastTab,
-             .runningProcess,
-             .diffComments:
+             .runningProcess:
             alert.addButton(withTitle: "Close")
             alert.addButton(withTitle: "Cancel")
             alert.buttons[0].keyEquivalent = "\r"
@@ -1513,12 +1425,6 @@ struct MainWindow: View {
                     appState.confirmCloseRunningTab()
                 } else {
                     appState.cancelCloseRunningTab()
-                }
-            case .diffComments:
-                if response == .alertFirstButtonReturn {
-                    appState.confirmCloseDiffCommentsTab()
-                } else {
-                    appState.cancelCloseDiffCommentsTab()
                 }
             }
         }
@@ -1611,11 +1517,9 @@ private struct TabCloseConfirmationObserver: ViewModifier {
     let lastTab: Bool
     let unsavedEditor: Bool
     let runningProcess: Bool
-    let diffComments: Bool
     let onLastTab: () -> Void
     let onUnsavedEditor: () -> Void
     let onRunningProcess: () -> Void
-    let onDiffComments: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -1630,10 +1534,6 @@ private struct TabCloseConfirmationObserver: ViewModifier {
             .onChange(of: runningProcess) { _, isPresented in
                 guard isPresented else { return }
                 onRunningProcess()
-            }
-            .onChange(of: diffComments) { _, isPresented in
-                guard isPresented else { return }
-                onDiffComments()
             }
     }
 }
@@ -1815,9 +1715,6 @@ private struct WindowOpenReceiver: View {
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
-            .onReceive(NotificationCenter.default.publisher(for: .openVCSWindow)) { _ in
-                openWindow(id: "vcs")
-            }
             .onReceive(NotificationCenter.default.publisher(for: .openHelpWindow)) { _ in
                 openWindow(id: "help")
             }
@@ -1825,16 +1722,12 @@ private struct WindowOpenReceiver: View {
 }
 
 private struct SidePanelNotificationListeners: ViewModifier {
-    let onToggleAttachedVCS: () -> Void
     let onToggleFileTree: () -> Void
     let onToggleRichInput: () -> Void
     let onToggleVoiceRecording: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(for: .toggleAttachedVCS)) { _ in
-                onToggleAttachedVCS()
-            }
             .onReceive(NotificationCenter.default.publisher(for: .toggleFileTree)) { _ in
                 onToggleFileTree()
             }

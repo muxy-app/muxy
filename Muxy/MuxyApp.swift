@@ -13,7 +13,6 @@ struct MuxyApp: App {
     @State private var projectStore: ProjectStore
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
-    @State private var vcsWorktreeAutoRefresher: VCSWorktreeAutoRefresher
     @State private var didStartDeferredServices = false
 
     init() {
@@ -37,16 +36,10 @@ struct MuxyApp: App {
         let projectGroupStore = ProjectGroupStore(
             persistence: environment.projectGroupPersistence
         )
-        let vcsWorktreeAutoRefresher = VCSWorktreeAutoRefresher(
-            appState: appState,
-            projectStore: projectStore,
-            worktreeStore: worktreeStore
-        )
         _appState = State(initialValue: appState)
         _projectStore = State(initialValue: projectStore)
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
-        _vcsWorktreeAutoRefresher = State(initialValue: vcsWorktreeAutoRefresher)
     }
 
     var body: some Scene {
@@ -146,17 +139,6 @@ struct MuxyApp: App {
                 updateService: .shared
             )
         }
-
-        Window("Source Control", id: "vcs") {
-            VCSWindowView()
-                .environment(appState)
-                .environment(projectStore)
-                .environment(worktreeStore)
-                .environment(projectGroupStore)
-                .environment(GhosttyService.shared)
-                .preferredColorScheme(MuxyTheme.colorScheme)
-        }
-        .defaultSize(width: 700, height: 600)
 
         Window("Muxy Help", id: "help") {
             HelpView()

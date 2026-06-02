@@ -140,6 +140,8 @@
         "projects:write",
         "worktrees:read",
         "worktrees:write",
+        "git:read",
+        "git:write",
         "notifications:write",
         "panels:write",
         "commands:run-script",

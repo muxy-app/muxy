@@ -156,7 +156,7 @@ enum MuxyAPI {
 
         static let verbNames: Set<String> = Set(cliAliases.keys).union(extensionVerbs)
 
-        private static let extensionVerbs: Set<String> = [
+        private static let extensionVerbs: Set<String> = Set([
             "exec",
             "dialog.confirm",
             "dialog.alert",
@@ -168,6 +168,31 @@ enum MuxyAPI {
             "panel.toggle",
             "popover.close",
             "popover.resize",
+        ]).union(gitVerbs)
+
+        static let gitVerbs: Set<String> = [
+            "git.status",
+            "git.diff",
+            "git.log",
+            "git.branches",
+            "git.currentBranch",
+            "git.aheadBehind",
+            "git.pr.info",
+            "git.pr.list",
+            "git.worktrees",
+            "git.stage",
+            "git.unstage",
+            "git.discard",
+            "git.commit",
+            "git.push",
+            "git.pull",
+            "git.branch.create",
+            "git.branch.switch",
+            "git.pr.create",
+            "git.pr.merge",
+            "git.pr.close",
+            "git.worktree.add",
+            "git.worktree.remove",
         ]
 
         private static let cliAliases: [String: String] = [
@@ -213,6 +238,28 @@ enum MuxyAPI {
             "worktrees.create": .worktreesWrite,
             "worktrees.switch": .worktreesWrite,
             "worktrees.refresh": .worktreesWrite,
+            "git.status": .gitRead,
+            "git.diff": .gitRead,
+            "git.log": .gitRead,
+            "git.branches": .gitRead,
+            "git.currentBranch": .gitRead,
+            "git.aheadBehind": .gitRead,
+            "git.pr.info": .gitRead,
+            "git.pr.list": .gitRead,
+            "git.worktrees": .gitRead,
+            "git.stage": .gitWrite,
+            "git.unstage": .gitWrite,
+            "git.discard": .gitWrite,
+            "git.commit": .gitWrite,
+            "git.push": .gitWrite,
+            "git.pull": .gitWrite,
+            "git.branch.create": .gitWrite,
+            "git.branch.switch": .gitWrite,
+            "git.pr.create": .gitWrite,
+            "git.pr.merge": .gitWrite,
+            "git.pr.close": .gitWrite,
+            "git.worktree.add": .gitWrite,
+            "git.worktree.remove": .gitWrite,
             "toast": .notificationsWrite,
             "notifications.notify": .notificationsWrite,
             "panel.open": .panelsWrite,
@@ -685,9 +732,6 @@ enum MuxyAPI {
             case .terminal:
                 appState.dispatch(.createTab(projectID: projectID, areaID: nil))
                 return .success(())
-            case .vcs:
-                appState.dispatch(.createVCSTab(projectID: projectID, areaID: nil))
-                return .success(())
             case .editor:
                 guard let filePath = request.filePath, !filePath.isEmpty else {
                     return .failure(.invalidArguments("editor tabs require filePath"))
@@ -743,8 +787,6 @@ enum MuxyAPI {
                     )
                 ))
                 return .success(())
-            case .diffViewer:
-                return .failure(.invalidArguments("diffViewer cannot be opened via open-tab yet"))
             }
         }
     }

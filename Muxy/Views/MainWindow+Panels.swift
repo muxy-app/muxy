@@ -1,16 +1,12 @@
 import SwiftUI
 
 enum BuiltinPanel {
-    static let vcs = "builtin:vcs"
     static let fileTree = "builtin:fileTree"
     static let richInput = "builtin:richInput"
     static let extensionConsole = "builtin:extensionConsole"
 }
 
 enum PanelLayoutMetrics {
-    static let vcsWidthRange: ClosedRange<CGFloat> = 200 ... 800
-    static let vcsDefaultWidth: Double = 400
-
     static let fileTreeWidthRange: ClosedRange<CGFloat> = 180 ... 600
     static let fileTreeDefaultWidth: Double = 260
 

@@ -209,18 +209,19 @@ struct TabAreaTests {
         #expect(roundTrip.isPinned)
     }
 
-    @Test("TerminalTab restore falls back for unsupported persisted tab kinds")
-    func terminalTabRestoreFallsBackForUnsupportedKinds() {
-        for kind in [TerminalTab.Kind.diffViewer, .editor, .imageViewer] {
-            let snapshot = TerminalTabSnapshot(
-                kind: kind,
-                customTitle: nil,
-                colorID: nil,
-                isPinned: false,
-                projectPath: testPath,
-                paneTitle: "Fallback"
-            )
-
+    @Test("TerminalTab restore decodes legacy kinds as terminal")
+    func terminalTabRestoreDecodesLegacyKindsAsTerminal() throws {
+        for legacy in ["vcs", "diffViewer", "unknownKind"] {
+            let json = """
+            {
+                "kind": "\(legacy)",
+                "id": "\(UUID().uuidString)",
+                "isPinned": false,
+                "projectPath": "\(testPath)",
+                "paneTitle": "Fallback"
+            }
+            """
+            let snapshot = try JSONDecoder().decode(TerminalTabSnapshot.self, from: Data(json.utf8))
             let tab = TerminalTab(restoring: snapshot)
 
             #expect(tab.kind == .terminal)
@@ -231,29 +232,14 @@ struct TabAreaTests {
     @Test("TerminalTab content accessors return only matching state")
     func terminalTabContentAccessorsReturnOnlyMatchingState() {
         let terminal = TerminalTab(pane: TerminalPaneState(projectPath: testPath))
-        let vcs = TerminalTab(vcsState: VCSTabState(projectPath: testPath))
         let editor = TerminalTab(editorState: EditorTabState(projectPath: testPath, filePath: "/tmp/test/file.md"))
-        let diffViewer = TerminalTab(diffViewerState: DiffViewerTabState(vcs: VCSTabState(projectPath: testPath)))
         let imageViewer = TerminalTab(imageViewerState: ImageViewerTabState(projectPath: testPath, filePath: "/tmp/test/icon.png"))
 
         #expect(terminal.content.pane != nil)
-        #expect(terminal.content.vcsState == nil)
-        #expect(vcs.content.vcsState != nil)
-        #expect(vcs.title == "Git Diff")
         #expect(editor.content.editorState != nil)
         #expect(editor.content.projectPath == testPath)
-        #expect(diffViewer.content.diffViewerState != nil)
-        #expect(diffViewer.kind == .diffViewer)
         #expect(imageViewer.content.imageViewerState != nil)
         #expect(imageViewer.kind == .imageViewer)
-    }
-
-    @Test("createVCSTab adds tab with VCS content")
-    func createVCSTab() {
-        let area = TabArea(projectPath: testPath)
-        area.createVCSTab()
-        #expect(area.tabs.count == 2)
-        #expect(area.activeTab?.kind == .vcs)
     }
 
     @Test("createEditorTab adds tab with editor content")
@@ -361,11 +347,11 @@ struct TabAreaTests {
     }
 
     @Test("closeTab non-terminal returns nil paneID")
-    func closeTabVCS() {
+    func closeTabNonTerminal() {
         let area = TabArea(projectPath: testPath)
-        area.createVCSTab()
-        let vcsTabID = area.activeTabID!
-        let paneID = area.closeTab(vcsTabID)
+        area.createEditorTab(filePath: "/tmp/test/file.swift")
+        let editorTabID = area.activeTabID!
+        let paneID = area.closeTab(editorTabID)
         #expect(paneID == nil)
         #expect(area.tabs.count == 1)
     }

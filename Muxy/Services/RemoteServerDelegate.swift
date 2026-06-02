@@ -8,6 +8,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "RemoteServerDelega
 
 @MainActor
 final class RemoteServerDelegate: MuxyRemoteServerDelegate {
+    static let diffPreviewLineLimit = 20000
     private let appState: AppState
     private let projectStore: ProjectStore
     private let worktreeStore: WorktreeStore
@@ -145,13 +146,10 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func createTab(projectID: UUID, areaID: UUID?, kind: TabKindDTO) -> TabDTO? {
         switch kind {
-        case .terminal:
-            appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
-        case .vcs:
-            appState.dispatch(.createVCSTab(projectID: projectID, areaID: areaID))
-        case .editor:
-            appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
-        case .diffViewer:
+        case .terminal,
+             .vcs,
+             .editor,
+             .diffViewer:
             appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
         case .imageViewer:
             return nil
@@ -377,18 +375,22 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO? {
         guard let repoPath = try? repoPath(projectID: projectID) else { return nil }
-        let state = VCSStateStore.shared.state(for: repoPath)
-        if !state.hasCompletedInitialLoad {
-            await state.refreshAndWait()
-        }
-        return Self.toStatusDTO(state)
+        return await vcsStatusDTO(repoPath: repoPath, forceFresh: false)
     }
 
     func vcsRefresh(projectID: UUID) async -> VCSStatusDTO? {
         guard let repoPath = try? repoPath(projectID: projectID) else { return nil }
-        let state = VCSStateStore.shared.state(for: repoPath)
-        await state.refreshAndWait()
-        return Self.toStatusDTO(state)
+        return await vcsStatusDTO(repoPath: repoPath, forceFresh: true)
+    }
+
+    private func vcsStatusDTO(repoPath: String, forceFresh: Bool) async -> VCSStatusDTO? {
+        guard let snapshot = try? await GitStatusAggregator.snapshot(
+            repoPath: repoPath,
+            forceFreshPullRequest: forceFresh,
+            git: gitService
+        )
+        else { return nil }
+        return Self.toStatusDTO(snapshot)
     }
 
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws {
@@ -441,11 +443,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func vcsGetDiff(projectID: UUID, filePath: String, forceFull: Bool) async throws -> VCSDiffDTO {
         let repoPath = try repoPath(projectID: projectID)
-        let state = VCSStateStore.shared.state(for: repoPath)
-        if !state.hasCompletedInitialLoad {
-            await state.refreshAndWait()
-        }
-        let file = state.files.first { $0.path == filePath }
+        let files = try await gitService.changedFiles(repoPath: repoPath)
+        let file = files.first { $0.path == filePath }
         if file?.isBinary == true {
             return VCSDiffDTO(
                 filePath: filePath,
@@ -465,7 +464,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         } else {
             .unknown
         }
-        let lineLimit = forceFull ? nil : DiffLoader.previewLineLimit
+        let lineLimit = forceFull ? nil : Self.diffPreviewLineLimit
         let result = try await gitService.patchAndCompare(
             repoPath: repoPath,
             filePath: filePath,
@@ -503,17 +502,15 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func vcsListBranches(projectID: UUID) async throws -> VCSBranchesDTO {
         let repoPath = try repoPath(projectID: projectID)
-        let state = VCSStateStore.shared.state(for: repoPath)
-        if !state.hasCompletedInitialLoad {
-            await state.refreshAndWait()
-        }
-        guard let current = state.branchName else {
+        guard let current = try? await gitService.currentBranch(repoPath: repoPath) else {
             throw RemoteVCSError.notGitRepo
         }
-        return VCSBranchesDTO(
+        async let branches = try? gitService.listBranches(repoPath: repoPath)
+        async let defaultBranch = gitService.defaultBranch(repoPath: repoPath)
+        return await VCSBranchesDTO(
             current: current,
-            locals: state.branches,
-            defaultBranch: state.defaultBranch
+            locals: branches ?? [],
+            defaultBranch: defaultBranch
         )
     }
 
@@ -677,17 +674,16 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         )
     }
 
-    private static func toStatusDTO(_ state: VCSTabState) -> VCSStatusDTO? {
-        guard let branch = state.branchName else { return nil }
-        let pullRequest = state.pullRequestInfo.map(Self.toPullRequestDTO)
+    private static func toStatusDTO(_ snapshot: GitStatusSnapshot) -> VCSStatusDTO? {
+        let pullRequest = snapshot.pullRequest.map(Self.toPullRequestDTO)
         return VCSStatusDTO(
-            branch: branch,
-            aheadCount: state.aheadBehind.ahead,
-            behindCount: state.aheadBehind.behind,
-            hasUpstream: state.aheadBehind.hasUpstream,
-            stagedFiles: state.files.filter(\.isStaged).map { Self.toFileDTO($0, staged: true) },
-            changedFiles: state.files.filter(\.isUnstaged).map { Self.toFileDTO($0, staged: false) },
-            defaultBranch: state.defaultBranch,
+            branch: snapshot.branch,
+            aheadCount: snapshot.aheadBehind.ahead,
+            behindCount: snapshot.aheadBehind.behind,
+            hasUpstream: snapshot.aheadBehind.hasUpstream,
+            stagedFiles: snapshot.stagedFiles.map { Self.toFileDTO($0, staged: true) },
+            changedFiles: snapshot.unstagedFiles.map { Self.toFileDTO($0, staged: false) },
+            defaultBranch: snapshot.defaultBranch,
             pullRequest: pullRequest
         )
     }

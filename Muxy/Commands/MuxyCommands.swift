@@ -57,13 +57,7 @@ struct MuxyCommands: Commands {
     }
 
     private func performShortcutAction(_ action: ShortcutAction) {
-        _ = shortcutDispatcher.perform(action, activeProject: activeProject) { project in
-            VCSDisplayMode.current.route(
-                tab: { appState.createVCSTab(projectID: project.id) },
-                window: { NotificationCenter.default.post(name: .openVCSWindow, object: nil) },
-                attached: { NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil) }
-            )
-        }
+        _ = shortcutDispatcher.perform(action, activeProject: activeProject)
     }
 
     private var isMarkdownPreviewActive: Bool {
@@ -226,18 +220,6 @@ struct MuxyCommands: Commands {
                     }
                 }
             }
-
-            Button("Source Control") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.openVCSTab)
-            }
-            .shortcut(for: .openVCSTab, store: keyBindings)
-
-            Button("Diff Viewer") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.openDiffViewerTab)
-            }
-            .shortcut(for: .openDiffViewerTab, store: keyBindings)
 
             Button("Quick Open") {
                 guard isMainWindowFocused else { return }

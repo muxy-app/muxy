@@ -15,6 +15,7 @@ enum ExtensionGatedVerb: String, Codable, CaseIterable {
     case panesReadScreen = "panes.readScreen"
     case tabsOpenForeign = "tabs.openForeign"
     case remoteInvoke = "remote.invoke"
+    case gitWrite = "git.write"
 }
 
 enum ExtensionGrantMatch: Codable, Equatable {
@@ -124,6 +125,7 @@ enum ExtensionGatedPayload {
     case pane(id: String)
     case foreignTab(targetExtensionID: String, tabTypeID: String)
     case remote(action: String, deviceName: String)
+    case git(operation: String, repoPath: String)
 
     func matches(_ match: ExtensionGrantMatch) -> Bool {
         switch (self, match) {

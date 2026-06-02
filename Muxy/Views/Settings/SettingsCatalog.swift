@@ -277,15 +277,6 @@ enum SettingsCatalog {
             defaultValue: SidebarExpandedStyle.defaultValue.rawValue
         ),
         SettingsCatalogItem(
-            key: "muxy.vcsDisplayMode",
-            title: "Source Control Display Mode",
-            description: "Controls how source control is shown.",
-            category: .appearance,
-            section: "Source Control",
-            defaultValue: VCSDisplayMode.attached.rawValue
-        ),
-
-        SettingsCatalogItem(
             key: "editor.defaultEditor",
             title: "Default Editor",
             description: "Chooses between Muxy's editor and a terminal editor command.",
@@ -539,71 +530,6 @@ enum SettingsCatalog {
             description: "Manages mobile devices that can connect.",
             category: .mobile,
             section: "Approved Devices"
-        ),
-
-        SettingsCatalogItem(
-            key: AIAssistantSettings.providerKey,
-            title: "AI Assistant Tool",
-            description: "Chooses the CLI tool used for commit and PR generation.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: AIAssistantProvider.claude.rawValue
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.claudeModelKey,
-            title: "Claude Model",
-            description: "Optional Claude model override.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.codexModelKey,
-            title: "Codex Model",
-            description: "Optional Codex model override.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.opencodeModelKey,
-            title: "OpenCode Model",
-            description: "Optional OpenCode model override.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.piModelKey,
-            title: "Pi Model",
-            description: "Optional Pi model override.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.customCommandKey,
-            title: "Custom AI Command",
-            description: "Command used when the custom AI provider is selected.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.commitPromptKey,
-            title: "Commit Prompt",
-            description: "Prompt used to generate commit messages.",
-            category: .ai,
-            section: "Commit Prompt",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.prPromptKey,
-            title: "Pull Request Prompt",
-            description: "Prompt used to generate pull request drafts.",
-            category: .ai,
-            section: "Pull Request Prompt",
-            defaultValue: ""
         ),
 
         SettingsCatalogItem(

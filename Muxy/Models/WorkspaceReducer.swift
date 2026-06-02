@@ -91,9 +91,6 @@ enum WorkspaceReducer {
         case let .createCommandTab(request):
             TabReducer.createCommandTab(request, state: &state)
 
-        case let .createVCSTab(projectID, areaID):
-            TabReducer.createVCSTab(projectID: projectID, areaID: areaID, state: &state)
-
         case let .createEditorTab(projectID, areaID, filePath, suppressInitialFocus):
             TabReducer.createEditorTab(
                 projectID: projectID,
@@ -109,14 +106,6 @@ enum WorkspaceReducer {
                 areaID: areaID,
                 filePath: filePath,
                 command: command,
-                state: &state
-            )
-
-        case let .createDiffViewerTab(projectID, areaID, request):
-            TabReducer.createDiffViewerTab(
-                projectID: projectID,
-                areaID: areaID,
-                request: request,
                 state: &state
             )
 

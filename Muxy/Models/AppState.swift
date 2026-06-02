@@ -15,13 +15,6 @@ final class AppState {
         var command: String?
     }
 
-    struct DiffViewerRequest {
-        let vcs: VCSTabState
-        let filePath: String?
-        let isStaged: Bool
-        var source: DiffViewerTabState.Source = .workingTree
-    }
-
     struct CreateExtensionTabRequest {
         let extensionID: String
         let tabTypeID: String
@@ -43,10 +36,8 @@ final class AppState {
         case createTab(projectID: UUID, areaID: UUID?)
         case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
         case createCommandTab(CommandTabRequest)
-        case createVCSTab(projectID: UUID, areaID: UUID?)
         case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String, suppressInitialFocus: Bool)
         case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
-        case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
         case createImageViewerTab(projectID: UUID, areaID: UUID?, filePath: String)
         case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
         case restoreClosedTerminalTab(projectID: UUID, areaID: UUID?, snapshot: ClosedTerminalTabSnapshot)
@@ -100,7 +91,6 @@ final class AppState {
     var pendingLastTabClose: PendingTabClose?
     var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
-    var pendingDiffCommentsTabClose: PendingTabClose?
     var pendingSaveErrorMessage: String?
     let navigation = NavigationHistory()
     private var focusHistory: [WorktreeKey: [UUID]] = [:]
@@ -307,10 +297,6 @@ final class AppState {
         ))
     }
 
-    func createVCSTab(projectID: UUID) {
-        dispatch(.createVCSTab(projectID: projectID, areaID: nil))
-    }
-
     func openFile(
         _ filePath: String,
         projectID: UUID,
@@ -443,49 +429,6 @@ final class AppState {
         }
     }
 
-    func openDiffViewer(vcs: VCSTabState, filePath: String, isStaged: Bool, projectID: UUID) {
-        for area in allAreas(for: projectID) {
-            if let tab = area.tabs.first(where: { tab in
-                tab.content.diffViewerState != nil
-            }) {
-                tab.content.diffViewerState?.select(filePath: filePath, isStaged: isStaged)
-                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
-                return
-            }
-        }
-        dispatch(.createDiffViewerTab(
-            projectID: projectID,
-            areaID: nil,
-            request: DiffViewerRequest(vcs: vcs, filePath: filePath, isStaged: isStaged)
-        ))
-    }
-
-    func openDiffViewer(vcs: VCSTabState, source: DiffViewerTabState.Source, projectID: UUID) {
-        dispatch(.createDiffViewerTab(
-            projectID: projectID,
-            areaID: nil,
-            request: DiffViewerRequest(vcs: vcs, filePath: nil, isStaged: false, source: source)
-        ))
-    }
-
-    func openDiffViewer(projectID: UUID) {
-        guard let worktreePath = activeWorktreePath(for: projectID) else { return }
-        let vcs = VCSStateStore.shared.state(for: worktreePath)
-        for area in allAreas(for: projectID) {
-            if let tab = area.tabs.first(where: { tab in
-                tab.content.diffViewerState != nil
-            }) {
-                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
-                return
-            }
-        }
-        dispatch(.createDiffViewerTab(
-            projectID: projectID,
-            areaID: nil,
-            request: DiffViewerRequest(vcs: vcs, filePath: nil, isStaged: false)
-        ))
-    }
-
     private func openFileInExternalEditor(_ filePath: String, projectID: UUID, command: String) {
         for area in allAreas(for: projectID) {
             if let tab = area.tabs.first(where: { $0.content.pane?.externalEditorFilePath == filePath }) {
@@ -508,10 +451,6 @@ final class AppState {
         }
         if needsProcessConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
             pendingProcessTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
-            return
-        }
-        if needsDiffCommentsConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
-            pendingDiffCommentsTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
         }
         closeTabWithLastCheck(tabID, areaID: areaID, projectID: projectID)
@@ -564,16 +503,6 @@ final class AppState {
 
     func cancelCloseUnsavedEditorTab() {
         pendingUnsavedEditorTabClose = nil
-    }
-
-    func confirmCloseDiffCommentsTab() {
-        guard let pending = pendingDiffCommentsTabClose else { return }
-        pendingDiffCommentsTabClose = nil
-        closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
-    }
-
-    func cancelCloseDiffCommentsTab() {
-        pendingDiffCommentsTabClose = nil
     }
 
     private func closeTabWithLastCheck(_ tabID: UUID, areaID: UUID, projectID: UUID) {
@@ -803,16 +732,6 @@ final class AppState {
               let paneID = tab.content.pane?.id
         else { return false }
         return terminalViews.needsConfirmQuit(for: paneID)
-    }
-
-    private func needsDiffCommentsConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
-        guard let key = activeWorktreeKey(for: projectID),
-              let root = workspaceRoots[key],
-              let area = root.findArea(id: areaID),
-              let tab = area.tabs.first(where: { $0.id == tabID }),
-              let diffState = tab.content.diffViewerState
-        else { return false }
-        return diffState.hasUnsentSessionComments
     }
 
     func selectTabByIndex(_ index: Int, projectID: UUID) {

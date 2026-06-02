@@ -124,13 +124,9 @@ final class WorktreeStore {
 
     func remove(worktreeID: UUID, from projectID: UUID) {
         guard var list = worktrees[projectID] else { return }
-        let removed = list.filter { $0.id == worktreeID && $0.canBeRemoved }
         list.removeAll { $0.id == worktreeID && $0.canBeRemoved }
         setWorktrees(list, for: projectID)
         save(projectID: projectID)
-        for worktree in removed {
-            VCSStateStore.shared.remove(path: worktree.path)
-        }
     }
 
     func refreshFromGit(project: Project) async throws -> [Worktree] {
@@ -280,11 +276,6 @@ final class WorktreeStore {
     }
 
     func removeProject(_ projectID: UUID) {
-        let removedPaths: [String] = if let existing = worktrees[projectID] {
-            existing.map(\.path)
-        } else {
-            []
-        }
         if let existing = worktrees[projectID] {
             for worktree in existing where projectIDByPath[worktree.path] == projectID {
                 projectIDByPath.removeValue(forKey: worktree.path)
@@ -295,9 +286,6 @@ final class WorktreeStore {
             try persistence.removeWorktrees(projectID: projectID)
         } catch {
             logger.error("Failed to remove worktrees file for project \(projectID): \(error)")
-        }
-        for path in removedPaths {
-            VCSStateStore.shared.remove(path: path)
         }
     }
 

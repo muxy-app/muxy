@@ -5,27 +5,21 @@ import Foundation
 final class TerminalTab: Identifiable {
     enum Kind: String, Codable {
         case terminal
-        case vcs
         case editor
-        case diffViewer
         case imageViewer
         case extensionWebView
     }
 
     enum Content {
         case terminal(TerminalPaneState)
-        case vcs(VCSTabState)
         case editor(EditorTabState)
-        case diffViewer(DiffViewerTabState)
         case imageViewer(ImageViewerTabState)
         case extensionWebView(ExtensionTabState)
 
         var kind: Kind {
             switch self {
             case .terminal: .terminal
-            case .vcs: .vcs
             case .editor: .editor
-            case .diffViewer: .diffViewer
             case .imageViewer: .imageViewer
             case .extensionWebView: .extensionWebView
             }
@@ -36,18 +30,8 @@ final class TerminalTab: Identifiable {
             return pane
         }
 
-        var vcsState: VCSTabState? {
-            guard case let .vcs(state) = self else { return nil }
-            return state
-        }
-
         var editorState: EditorTabState? {
             guard case let .editor(state) = self else { return nil }
-            return state
-        }
-
-        var diffViewerState: DiffViewerTabState? {
-            guard case let .diffViewer(state) = self else { return nil }
             return state
         }
 
@@ -64,9 +48,7 @@ final class TerminalTab: Identifiable {
         var projectPath: String {
             switch self {
             case let .terminal(pane): pane.projectPath
-            case let .vcs(state): state.projectPath
             case let .editor(state): state.projectPath
-            case let .diffViewer(state): state.projectPath
             case let .imageViewer(state): state.projectPath
             case let .extensionWebView(state): state.projectPath
             }
@@ -88,11 +70,7 @@ final class TerminalTab: Identifiable {
         switch content {
         case let .terminal(pane):
             return pane.title
-        case .vcs:
-            return "Git Diff"
         case let .editor(state):
-            return state.displayTitle
-        case let .diffViewer(state):
             return state.displayTitle
         case let .imageViewer(state):
             return state.displayTitle
@@ -106,19 +84,9 @@ final class TerminalTab: Identifiable {
         content = .terminal(pane)
     }
 
-    init(vcsState: VCSTabState) {
-        id = UUID()
-        content = .vcs(vcsState)
-    }
-
     init(editorState: EditorTabState) {
         id = UUID()
         content = .editor(editorState)
-    }
-
-    init(diffViewerState: DiffViewerTabState) {
-        id = UUID()
-        content = .diffViewer(diffViewerState)
     }
 
     init(imageViewerState: ImageViewerTabState) {
@@ -149,8 +117,6 @@ final class TerminalTab: Identifiable {
                 initialWorkingDirectory: restoredWorkingDirectory,
                 restoredSession: restoredSession
             ))
-        case .vcs:
-            content = .vcs(VCSStateStore.shared.state(for: snapshot.projectPath))
         case .editor:
             if let filePath = snapshot.filePath {
                 content = .editor(EditorTabState(
@@ -161,8 +127,6 @@ final class TerminalTab: Identifiable {
             } else {
                 content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
             }
-        case .diffViewer:
-            content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
         case .imageViewer:
             if let filePath = snapshot.filePath {
                 if EditorTabState.usesHTMLPreview(filePath: filePath) {

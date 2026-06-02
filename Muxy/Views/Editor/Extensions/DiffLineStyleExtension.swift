@@ -1,5 +1,11 @@
 import AppKit
 
+struct DiffEditorGutterLine: Equatable {
+    let kind: DiffDisplayRow.Kind
+    let oldLineNumber: Int?
+    let newLineNumber: Int?
+}
+
 @MainActor
 final class DiffGutterExtension: EditorExtension {
     let identifier = "diff-gutter"

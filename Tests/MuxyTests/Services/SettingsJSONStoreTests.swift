@@ -103,7 +103,7 @@ struct SettingsJSONStoreTests {
         try SettingsJSONStore.saveUserSettingsText("""
         {
           "shortcuts.app": {
-            "openVCSTab": {
+            "refreshWorktrees": {
               "key": "",
               "modifiers": 0
             }
@@ -111,7 +111,7 @@ struct SettingsJSONStoreTests {
         }
         """)
 
-        #expect(KeyBindingStore.shared.combo(for: .openVCSTab) == KeyCombo(key: "", modifiers: 0))
+        #expect(KeyBindingStore.shared.combo(for: .refreshWorktrees) == KeyCombo(key: "", modifiers: 0))
     }
 
     @Test

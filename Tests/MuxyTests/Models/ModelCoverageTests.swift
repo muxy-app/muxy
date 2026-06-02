@@ -79,15 +79,13 @@ struct ModelCoverageTests {
         #expect(UIMetrics.titleBarHeight == 32)
     }
 
-    @Test("Sidebar and VCS display modes expose storage defaults and routing")
-    func sidebarAndVCSDisplayModesExposeBehavior() {
+    @Test("Sidebar display modes expose storage defaults and routing")
+    func sidebarDisplayModesExposeBehavior() {
         UserDefaults.standard.removeObject(forKey: SidebarCollapsedStyle.storageKey)
         UserDefaults.standard.removeObject(forKey: SidebarExpandedStyle.storageKey)
-        UserDefaults.standard.removeObject(forKey: "muxy.vcsDisplayMode")
         defer {
             UserDefaults.standard.removeObject(forKey: SidebarCollapsedStyle.storageKey)
             UserDefaults.standard.removeObject(forKey: SidebarExpandedStyle.storageKey)
-            UserDefaults.standard.removeObject(forKey: "muxy.vcsDisplayMode")
         }
 
         #expect(SidebarCollapsedStyle.allCases.map(\.id) == ["hidden", "icons"])
@@ -101,18 +99,6 @@ struct ModelCoverageTests {
         #expect(SidebarExpandedStyle.current == .wide)
         UserDefaults.standard.set("icons", forKey: SidebarExpandedStyle.storageKey)
         #expect(SidebarExpandedStyle.current == .icons)
-
-        #expect(VCSDisplayMode.allCases.map(\.id) == ["tab", "window", "attached"])
-        #expect(VCSDisplayMode.allCases.map(\.title) == ["Tab", "Window", "Attached"])
-        #expect(VCSDisplayMode.current == .attached)
-        UserDefaults.standard.set("window", forKey: "muxy.vcsDisplayMode")
-        #expect(VCSDisplayMode.current == .window)
-
-        var routed: [String] = []
-        VCSDisplayMode.tab.route { routed.append("tab") } window: { routed.append("window") } attached: { routed.append("attached") }
-        VCSDisplayMode.window.route { routed.append("tab") } window: { routed.append("window") } attached: { routed.append("attached") }
-        VCSDisplayMode.attached.route { routed.append("tab") } window: { routed.append("window") } attached: { routed.append("attached") }
-        #expect(routed == ["tab", "window", "attached"])
     }
 
     @Test("Worktree config decodes object, string, missing, and invalid setup formats")

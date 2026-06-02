@@ -160,7 +160,8 @@ struct TerminalTabSnapshot: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        kind = try container.decodeIfPresent(TerminalTab.Kind.self, forKey: .kind) ?? .terminal
+        let rawKind = try container.decodeIfPresent(String.self, forKey: .kind)
+        kind = rawKind.flatMap(TerminalTab.Kind.init(rawValue:)) ?? .terminal
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
         colorID = try container.decodeIfPresent(String.self, forKey: .colorID)

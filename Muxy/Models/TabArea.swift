@@ -55,7 +55,7 @@ final class TabArea: Identifiable {
     }
 
     func snapshot() -> TabAreaSnapshot {
-        let persistedTabs = tabs.filter { $0.kind != .diffViewer }
+        let persistedTabs = tabs
         let activeIndex = persistedTabs.firstIndex(where: { $0.id == activeTabID })
         return TabAreaSnapshot(
             id: id,
@@ -112,10 +112,6 @@ final class TabArea: Identifiable {
         insertTab(tab)
     }
 
-    func createVCSTab() {
-        insertTab(TerminalTab(vcsState: VCSStateStore.shared.state(for: projectPath)))
-    }
-
     func createEditorTab(filePath: String, suppressInitialFocus: Bool = false) {
         if let existing = tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
             selectTab(existing.id)
@@ -128,30 +124,6 @@ final class TabArea: Identifiable {
         )
         editorState.suppressInitialFocus = suppressInitialFocus
         insertTab(TerminalTab(editorState: editorState))
-    }
-
-    func createDiffViewerTab(
-        vcs: VCSTabState,
-        filePath: String?,
-        isStaged: Bool,
-        source: DiffViewerTabState.Source = .workingTree
-    ) {
-        if let existing = tabs.first(where: { tab in
-            tab.content.diffViewerState != nil
-        }) {
-            existing.content.diffViewerState?.setSource(source, filePath: filePath, isStaged: isStaged)
-            if let filePath {
-                existing.content.diffViewerState?.select(filePath: filePath, isStaged: isStaged)
-            }
-            selectTab(existing.id)
-            return
-        }
-        insertTab(TerminalTab(diffViewerState: DiffViewerTabState(
-            vcs: vcs,
-            filePath: filePath,
-            isStaged: isStaged,
-            source: source
-        )))
     }
 
     func createImageViewerTab(filePath: String) {

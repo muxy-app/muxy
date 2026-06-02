@@ -65,9 +65,11 @@ public enum ExtensionBridgeJS {
         \(surface == .inProcess ? workspaceBlock : "")
         \(surface == .background ? eventsBlock : "")
         \(surface == .background ? remoteBlock : "")
+        \(gitBlock)
             \(surface == .inProcess ?
             "Object.freeze(muxy.tabs); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees);" :
             "")
+            Object.freeze(muxy.git); Object.freeze(muxy.git.pr); Object.freeze(muxy.git.branch); Object.freeze(muxy.git.worktree);
             Object.freeze(muxy.notifications);
             Object.freeze(muxy.dialog);
             \(surface == .background ? "Object.freeze(muxy.events); Object.freeze(muxy.remote);" : "")
@@ -135,6 +137,82 @@ public enum ExtensionBridgeJS {
                     project: project == null ? null : String(project),
                 }),
                 refresh:  (project)             => dispatch('worktrees.refresh', { project: project == null ? null : String(project) }),
+            };
+    """
+
+    private static let gitBlock = """
+            const gitProject = (o) => (o && o.project != null ? String(o.project) : null);
+            muxy.git = {
+                status:        (o) => dispatch('git.status', { project: gitProject(o) }),
+                diff:          (o) => dispatch('git.diff', {
+                    project: gitProject(o),
+                    filePath: String((o || {}).filePath || ''),
+                    staged: (o || {}).staged == null ? null : Boolean(o.staged),
+                    lineLimit: (o || {}).lineLimit == null ? null : Number(o.lineLimit),
+                }),
+                log:           (o) => dispatch('git.log', {
+                    project: gitProject(o),
+                    maxCount: (o || {}).maxCount == null ? null : Number(o.maxCount),
+                    skip: (o || {}).skip == null ? null : Number(o.skip),
+                }),
+                branches:      (o) => dispatch('git.branches', { project: gitProject(o) }),
+                currentBranch: (o) => dispatch('git.currentBranch', { project: gitProject(o) }),
+                aheadBehind:   (o) => dispatch('git.aheadBehind', { project: gitProject(o) }),
+                worktrees:     (o) => dispatch('git.worktrees', { project: gitProject(o) }),
+                stage:         (o) => dispatch('git.stage', { project: gitProject(o), paths: ((o || {}).paths || []).map(String) }),
+                unstage:       (o) => dispatch('git.unstage', { project: gitProject(o), paths: ((o || {}).paths || []).map(String) }),
+                discard:       (o) => dispatch('git.discard', {
+                    project: gitProject(o),
+                    paths: ((o || {}).paths || []).map(String),
+                    untrackedPaths: ((o || {}).untrackedPaths || []).map(String),
+                }),
+                commit:        (o) => dispatch('git.commit', {
+                    project: gitProject(o),
+                    message: String((o || {}).message || ''),
+                    stageAll: Boolean((o || {}).stageAll),
+                }),
+                push:          (o) => dispatch('git.push', { project: gitProject(o) }),
+                pull:          (o) => dispatch('git.pull', { project: gitProject(o) }),
+                branch: {
+                    create: (o) => dispatch('git.branch.create', { project: gitProject(o), name: String((o || {}).name || '') }),
+                    switchTo: (o) => dispatch('git.branch.switch', { project: gitProject(o), branch: String((o || {}).branch || '') }),
+                },
+                pr: {
+                    info:   (o) => dispatch('git.pr.info', { project: gitProject(o) }),
+                    list:   (o) => dispatch('git.pr.list', {
+                        project: gitProject(o),
+                        filter: (o || {}).filter == null ? null : String(o.filter),
+                        limit: (o || {}).limit == null ? null : Number(o.limit),
+                    }),
+                    create: (o) => dispatch('git.pr.create', {
+                        project: gitProject(o),
+                        title: String((o || {}).title || ''),
+                        body: String((o || {}).body || ''),
+                        baseBranch: (o || {}).baseBranch == null ? null : String(o.baseBranch),
+                        draft: Boolean((o || {}).draft),
+                    }),
+                    merge:  (o) => dispatch('git.pr.merge', {
+                        project: gitProject(o),
+                        number: Number((o || {}).number),
+                        method: (o || {}).method == null ? null : String(o.method),
+                        deleteBranch: (o || {}).deleteBranch == null ? true : Boolean(o.deleteBranch),
+                    }),
+                    close:  (o) => dispatch('git.pr.close', { project: gitProject(o), number: Number((o || {}).number) }),
+                },
+                worktree: {
+                    add: (o) => dispatch('git.worktree.add', {
+                        project: gitProject(o),
+                        path: String((o || {}).path || ''),
+                        branch: String((o || {}).branch || ''),
+                        createBranch: Boolean((o || {}).createBranch),
+                        baseBranch: (o || {}).baseBranch == null ? null : String(o.baseBranch),
+                    }),
+                    remove: (o) => dispatch('git.worktree.remove', {
+                        project: gitProject(o),
+                        path: String((o || {}).path || ''),
+                        force: Boolean((o || {}).force),
+                    }),
+                },
             };
     """
 

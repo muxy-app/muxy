@@ -4,7 +4,6 @@ struct InterfaceSettingsView: View {
     @State private var uiScale = UIScale.shared
     @AppStorage(GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch)
     private var autoExpandWorktrees = false
-    @AppStorage("muxy.vcsDisplayMode") private var vcsDisplayMode = VCSDisplayMode.attached.rawValue
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyle = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyle = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
@@ -26,7 +25,7 @@ struct InterfaceSettingsView: View {
                 SettingsToggleRow(label: "Show Status Bar", isOn: $showStatusBar)
             }
 
-            SettingsSection("Sidebar") {
+            SettingsSection("Sidebar", showsDivider: false) {
                 SettingsToggleRow(
                     label: "Auto-expand worktrees on project switch",
                     isOn: $autoExpandWorktrees
@@ -59,19 +58,6 @@ struct InterfaceSettingsView: View {
                         .pickerStyle(.segmented)
                         .fixedSize()
                     }
-                    .frame(width: SettingsMetrics.controlWidth)
-                }
-            }
-
-            SettingsSection("Source Control", showsDivider: false) {
-                SettingsRow("Display Mode") {
-                    Picker("", selection: $vcsDisplayMode) {
-                        ForEach(VCSDisplayMode.allCases) { mode in
-                            Text(mode.title).tag(mode.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
                     .frame(width: SettingsMetrics.controlWidth)
                 }
             }

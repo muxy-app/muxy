@@ -40,10 +40,6 @@ struct WorkspaceReducerTests {
         state.workspaceRoots[key]?.findArea(id: areaID)
     }
 
-    private func makeDiff() -> DiffCache.LoadedDiff {
-        DiffCache.LoadedDiff(rows: [], additions: 1, deletions: 0, truncated: false)
-    }
-
     @Test("selectProject creates workspace if new")
     func selectProjectNew() {
         let projectID = UUID()
@@ -167,40 +163,6 @@ struct WorkspaceReducerTests {
 
         let area = focusedArea(in: state, projectID: projectID)
         #expect(area?.tabs.count == 2)
-    }
-
-    @Test("createVCSTab adds VCS tab")
-    func createVCSTab() {
-        let projectID = UUID()
-        let worktreeID = UUID()
-        var state = makeState(projectID: projectID, worktreeID: worktreeID)
-
-        let action = AppState.Action.createVCSTab(projectID: projectID, areaID: nil)
-        _ = WorkspaceReducer.reduce(action: action, state: &state)
-
-        let area = focusedArea(in: state, projectID: projectID)
-        #expect(area?.activeTab?.kind == .vcs)
-    }
-
-    @Test("createVCSTab focuses existing VCS tab instead of adding a duplicate")
-    func createVCSTabReusesExisting() {
-        let projectID = UUID()
-        let worktreeID = UUID()
-        var state = makeState(projectID: projectID, worktreeID: worktreeID)
-
-        let action = AppState.Action.createVCSTab(projectID: projectID, areaID: nil)
-        _ = WorkspaceReducer.reduce(action: action, state: &state)
-        let firstArea = focusedArea(in: state, projectID: projectID)
-        let firstTabID = firstArea?.activeTabID
-
-        firstArea?.createTab()
-        #expect(firstArea?.activeTab?.kind == .terminal)
-
-        _ = WorkspaceReducer.reduce(action: action, state: &state)
-
-        let area = focusedArea(in: state, projectID: projectID)
-        #expect(area?.tabs.filter { $0.kind == .vcs }.count == 1)
-        #expect(area?.activeTabID == firstTabID)
     }
 
     @Test("createExtensionTab adds extension tab")
@@ -374,39 +336,6 @@ struct WorkspaceReducerTests {
 
         #expect(state.workspaceRoots[key] == nil)
         #expect(effects.projectIDsToRemove.contains(projectID))
-    }
-
-    @Test("closeTab diff viewer clears diff viewer cache")
-    func closeTabDiffViewerClearsDiffViewerCache() {
-        let projectID = UUID()
-        let worktreeID = UUID()
-        var state = makeState(projectID: projectID, worktreeID: worktreeID)
-        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
-        let areaID = state.focusedAreaID[key]!
-        let vcs = VCSTabState(projectPath: testPath)
-        let viewerKey = DiffViewerTabState.cacheKey(filePath: "file.swift", isStaged: false)
-
-        vcs.diffCache.store(makeDiff(), for: viewerKey, pinnedPaths: [])
-        vcs.diffCache.store(makeDiff(), for: "file.swift", pinnedPaths: [])
-        _ = WorkspaceReducer.reduce(
-            action: .createDiffViewerTab(
-                projectID: projectID,
-                areaID: areaID,
-                request: .init(vcs: vcs, filePath: "file.swift", isStaged: false)
-            ),
-            state: &state
-        )
-        let area = state.workspaceRoots[key]!.findArea(id: areaID)!
-        let tabID = area.activeTabID!
-
-        _ = WorkspaceReducer.reduce(
-            action: .closeTab(projectID: projectID, areaID: areaID, tabID: tabID),
-            state: &state
-        )
-
-        #expect(vcs.diffCache.diff(for: viewerKey) == nil)
-        #expect(vcs.diffCache.diff(for: "file.swift") != nil)
-        vcs.diffCache.cancelAll()
     }
 
     @Test("selectTab changes activeTabID")
