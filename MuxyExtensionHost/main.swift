@@ -7,6 +7,9 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
+let parentDeathMonitor = ParentDeathMonitor()
+parentDeathMonitor.start()
+
 let environment = ProcessInfo.processInfo.environment
 
 guard let scriptPath = CommandLine.arguments.dropFirst().first else {
@@ -26,9 +29,6 @@ let token = environment["MUXY_EXTENSION_TOKEN"] ?? ""
 guard let source = try? String(contentsOfFile: scriptPath, encoding: .utf8) else {
     fail("could not read background script at \(scriptPath)")
 }
-
-let parentDeathMonitor = ParentDeathMonitor()
-parentDeathMonitor.start()
 
 let client: HostSocketClient
 do {
