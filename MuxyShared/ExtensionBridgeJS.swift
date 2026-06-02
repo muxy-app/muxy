@@ -40,6 +40,27 @@ public enum ExtensionBridgeJS {
                     }
                     return dispatch('exec', payload);
                 },
+                dialog: {
+                    confirm(opts) {
+                        const o = opts || {};
+                        const payload = {};
+                        if (o.title != null) payload.title = String(o.title);
+                        if (o.message != null) payload.message = String(o.message);
+                        if (Array.isArray(o.buttons)) payload.buttons = o.buttons.map(String);
+                        if (o.default != null) payload.default = String(o.default);
+                        if (o.cancel != null) payload.cancel = String(o.cancel);
+                        if (o.style != null) payload.style = String(o.style);
+                        return dispatch('dialog.confirm', payload);
+                    },
+                    alert(opts) {
+                        const o = opts || {};
+                        const payload = {};
+                        if (o.title != null) payload.title = String(o.title);
+                        if (o.message != null) payload.message = String(o.message);
+                        if (o.style != null) payload.style = String(o.style);
+                        return dispatch('dialog.alert', payload);
+                    },
+                },
             };
         \(surface == .inProcess ? workspaceBlock : "")
         \(surface == .background ? eventsBlock : "")
@@ -48,6 +69,7 @@ public enum ExtensionBridgeJS {
             "Object.freeze(muxy.tabs); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees);" :
             "")
             Object.freeze(muxy.notifications);
+            Object.freeze(muxy.dialog);
             \(surface == .background ? "Object.freeze(muxy.events); Object.freeze(muxy.remote);" : "")
             Object.freeze(muxy);
             this.muxy = muxy;

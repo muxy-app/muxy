@@ -62,5 +62,6 @@ Rules can be reviewed, refined, or removed in `Settings → Extensions → Permi
 
 - **Subscribing to events** is gated separately by the manifest `events` array — see [Events](events.md). The caller's identity, not a `permissions` entry, decides what it can subscribe to.
 - **Receiving palette command triggers.** Once an extension declares a command in `commands`, it can subscribe to its own `command.<id>` event without listing it under `events`.
+- **Native dialogs.** `muxy.dialog.confirm` / `muxy.dialog.alert` present a sheet the user must dismiss — see [Dialogs](dialogs.md). Being user-driven and UI-only, they need no permission.
 
 Permissions are coarse (verb groups, not individual verbs) on purpose while the API is in flux. Expect the list to expand and possibly split (e.g. `panes:send` vs `panes:close`) once a dedicated extension API layer lands.

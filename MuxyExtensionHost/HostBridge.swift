@@ -50,6 +50,9 @@ final class HostBridge: @unchecked Sendable {
             return dispatchExec(dict)
         case "notifications.notify":
             return dispatchNotify(dict)
+        case "dialog.confirm",
+             "dialog.alert":
+            return dispatchDialog(verb: verb, dict: dict)
         default:
             return ["ok": false, "error": "verb '\(verb)' is not available in background context"]
         }
@@ -69,6 +72,27 @@ final class HostBridge: @unchecked Sendable {
                   let value = try? JSONSerialization.jsonObject(with: data)
             else {
                 return ["ok": false, "error": "invalid exec reply"]
+            }
+            return ["ok": true, "value": value]
+        } catch {
+            return ["ok": false, "error": "\(error)"]
+        }
+    }
+
+    private func dispatchDialog(verb: String, dict: [String: Any]) -> Any {
+        guard let payload = try? JSONSerialization.data(withJSONObject: dict) else {
+            return ["ok": false, "error": "could not encode dialog payload"]
+        }
+        let line = "\(verb)|\(payload.base64EncodedString())"
+        do {
+            let reply = try client.sendAndWaitReply(line)
+            if reply.hasPrefix("error:") {
+                return ["ok": false, "error": String(reply.dropFirst("error:".count))]
+            }
+            guard let data = Data(base64Encoded: reply),
+                  let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+            else {
+                return ["ok": false, "error": "invalid dialog reply"]
             }
             return ["ok": true, "value": value]
         } catch {

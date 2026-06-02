@@ -123,6 +123,27 @@ enum ExtensionWebBridge {
                     close() { return send('popover.close', {}); },
                     resize(width, height) { return send('popover.resize', { width: Number(width), height: Number(height) }); },
                 },
+                dialog: {
+                    confirm(opts) {
+                        const o = opts || {};
+                        const payload = {};
+                        if (o.title != null) payload.title = String(o.title);
+                        if (o.message != null) payload.message = String(o.message);
+                        if (Array.isArray(o.buttons)) payload.buttons = o.buttons.map(String);
+                        if (o.default != null) payload.default = String(o.default);
+                        if (o.cancel != null) payload.cancel = String(o.cancel);
+                        if (o.style != null) payload.style = String(o.style);
+                        return send('dialog.confirm', payload);
+                    },
+                    alert(opts) {
+                        const o = opts || {};
+                        const payload = {};
+                        if (o.title != null) payload.title = String(o.title);
+                        if (o.message != null) payload.message = String(o.message);
+                        if (o.style != null) payload.style = String(o.style);
+                        return send('dialog.alert', payload);
+                    },
+                },
                 exec(argvOrOptions, maybeOptions) {
                     let payload;
                     if (Array.isArray(argvOrOptions)) {
@@ -188,6 +209,7 @@ enum ExtensionWebBridge {
             Object.freeze(muxy.projects);
             Object.freeze(muxy.panels);
             Object.freeze(muxy.popover);
+            Object.freeze(muxy.dialog);
             Object.freeze(muxy.worktrees);
             Object.freeze(muxy.events);
             Object.freeze(muxy);

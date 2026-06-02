@@ -53,6 +53,13 @@ enum MuxyAPIDispatcher {
             return NSNull()
         case "exec":
             return try await handleExec(args: args, context: context)
+        case "dialog.confirm":
+            let request = try ExtensionDialogService.makeConfirmRequest(args: args)
+            return await ExtensionDialogService.confirm(request) ?? NSNull()
+        case "dialog.alert":
+            let request = try ExtensionDialogService.makeAlertRequest(args: args)
+            await ExtensionDialogService.alert(request)
+            return NSNull()
         case "tabs.list":
             return try unwrap(MuxyAPI.Tabs.list(appState: context.appState)).map(tabDict)
         case "tabs.switch":

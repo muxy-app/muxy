@@ -73,6 +73,7 @@ flowchart TD
 | [Tabs](tabs.md) | Register webview tab types and the injected `window.muxy` JS API |
 | [Panels](panels.md) | Register dockable/floating webview panels and the placement rules |
 | [Popovers](popovers.md) | Anchor a transient webview popover to a topbar/status bar item |
+| [Dialogs](dialogs.md) | Present native confirm/alert sheets on the main window |
 | [Topbar](topbar.md) | Attach icons to the tab strip that trigger a command |
 | [Status Bar](statusbar.md) | Attach icons to the footer status bar; update text live |
 | [Settings](settings.md) | Declare typed settings and read/write them at runtime |
@@ -93,7 +94,7 @@ flowchart TD
 - Manifest: the `muxy` object in `package.json` (`name`/`version` stay top-level)
 - Install path: `~/.config/muxy/extensions/<name>/` (the installed `dist/`)
 - Background script: optional `muxy.background` JS, run in a host process that injects the `muxy` global
-- Background API: `muxy.extensionID`, `muxy.events.subscribe`, `muxy.exec`, `console.*`
+- Background API: `muxy.extensionID`, `muxy.events.subscribe`, `muxy.exec`, `muxy.dialog`, `console.*`
 - See [the muxy CLI feature page](../features/muxy-cli.md) for the verb vocabulary
 
 ## Minimal example

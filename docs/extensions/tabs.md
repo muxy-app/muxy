@@ -90,6 +90,11 @@ window.muxy = {
   },
   toast({ title, body?, paneID? }): Promise<void>,        // same as notifications.notify
 
+  dialog: {                                               // native sheets — see dialogs.md
+    confirm(opts): Promise<string | null>,                // resolves the chosen button label, null on cancel
+    alert(opts): Promise<void>,
+  },
+
   tabs: {
     open(request): Promise<void>,       // see "Opening another tab"
     list(): Promise<TabInfo[]>,

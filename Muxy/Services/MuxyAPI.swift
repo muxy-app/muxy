@@ -158,6 +158,8 @@ enum MuxyAPI {
 
         private static let extensionVerbs: Set<String> = [
             "exec",
+            "dialog.confirm",
+            "dialog.alert",
             "extension.settings.get",
             "extension.settings.set",
             "extension.statusbar.set",

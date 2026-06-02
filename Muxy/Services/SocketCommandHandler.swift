@@ -232,6 +232,12 @@ enum SocketCommandHandler {
                 worktreeStore: worktreeStore,
                 extensionID: clientContext.extensionID
             )
+        case "dialog.confirm":
+            guard parts.count >= 2 else { return "error:usage dialog.confirm|<base64-json>" }
+            return await handleDialogConfirm(base64Payload: parts[1])
+        case "dialog.alert":
+            guard parts.count >= 2 else { return "error:usage dialog.alert|<base64-json>" }
+            return await handleDialogAlert(base64Payload: parts[1])
         default:
             return "error:unknown command \(cmd)"
         }
@@ -273,6 +279,48 @@ enum SocketCommandHandler {
         } catch {
             return "error:\(error.localizedDescription)"
         }
+    }
+
+    private static func handleDialogConfirm(base64Payload: String) async -> String {
+        guard let args = decodeJSONObject(base64Payload) else {
+            return "error:invalid dialog payload"
+        }
+        let request: ExtensionDialogService.ConfirmRequest
+        do {
+            request = try ExtensionDialogService.makeConfirmRequest(args: args)
+        } catch {
+            return "error:\((error as? APIError)?.message ?? error.localizedDescription)"
+        }
+        let choice = await ExtensionDialogService.confirm(request)
+        return encodeJSONFragment(choice ?? NSNull())
+    }
+
+    private static func handleDialogAlert(base64Payload: String) async -> String {
+        guard let args = decodeJSONObject(base64Payload) else {
+            return "error:invalid alert payload"
+        }
+        let request: ExtensionDialogService.AlertRequest
+        do {
+            request = try ExtensionDialogService.makeAlertRequest(args: args)
+        } catch {
+            return "error:\((error as? APIError)?.message ?? error.localizedDescription)"
+        }
+        await ExtensionDialogService.alert(request)
+        return encodeJSONFragment(NSNull())
+    }
+
+    private static func decodeJSONObject(_ base64Payload: String) -> [String: Any]? {
+        guard let data = Data(base64Encoded: base64Payload),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return json
+    }
+
+    private static func encodeJSONFragment(_ value: Any) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]) else {
+            return "error:dialog result encoding failed"
+        }
+        return data.base64EncodedString()
     }
 
     private static func handlePanelOpen(
