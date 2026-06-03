@@ -8,8 +8,8 @@ All methods are async (return a `Promise`) and operate on the **active worktree 
 
 | Permission | Methods |
 | --- | --- |
-| `git:read` | `status`, `diff`, `log`, `branches`, `currentBranch`, `aheadBehind`, `pr.info`, `pr.list`, `worktrees` |
-| `git:write` | `stage`, `unstage`, `discard`, `commit`, `push`, `pull`, `branch.create`, `branch.switchTo`, `pr.create`, `pr.merge`, `pr.close`, `worktree.add`, `worktree.remove` |
+| `git:read` | `status`, `diff`, `log`, `branches`, `remoteBranches`, `currentBranch`, `aheadBehind`, `pr.info`, `pr.list`, `worktrees` |
+| `git:write` | `stage`, `unstage`, `discard`, `commit`, `push`, `pull`, `checkout`, `cherryPick`, `revert`, `branch.create`, `branch.switchTo`, `branch.deleteRemote`, `tag.create`, `pr.create`, `pr.merge`, `pr.close`, `pr.checkout`, `pr.checkoutWorktree`, `worktree.add`, `worktree.remove`, `worktree.switchTo` |
 
 Every **write** also prompts the user for [runtime consent](permissions.md#runtime-consent) the first time, remembered as an allow/deny rule for the extension.
 
@@ -62,12 +62,13 @@ const commits = await muxy.git.log({ maxCount: 50, skip: 0 });
 // [{ hash, shortHash, subject, authorName, authorDate, isMerge, parentHashes, refs: [{ name, kind }] }]
 ```
 
-### `muxy.git.branches(opts?)` · `muxy.git.currentBranch(opts?)` · `muxy.git.aheadBehind(opts?)`
+### `muxy.git.branches(opts?)` · `muxy.git.remoteBranches(opts?)` · `muxy.git.currentBranch(opts?)` · `muxy.git.aheadBehind(opts?)`
 
 ```js
-await muxy.git.branches();       // ["main", "feature/x"]
-await muxy.git.currentBranch();  // "feature/x"
-await muxy.git.aheadBehind();    // { ahead, behind, hasUpstream }
+await muxy.git.branches();        // ["main", "feature/x"]
+await muxy.git.remoteBranches();  // ["origin/main", "origin/feature/x"]
+await muxy.git.currentBranch();   // "feature/x"
+await muxy.git.aheadBehind();     // { ahead, behind, hasUpstream }
 ```
 
 ### `muxy.git.pr.info(opts?)` · `muxy.git.pr.list(opts?)`
@@ -99,15 +100,25 @@ await muxy.git.commit({ message: "Fix bug", stageAll: true }); // => { hash }
 await muxy.git.push();   // sets upstream automatically if missing
 await muxy.git.pull();
 
+await muxy.git.checkout({ hash: "a1b2c3d" });          // detached checkout of a commit
+await muxy.git.cherryPick({ hash: "a1b2c3d" });
+await muxy.git.revert({ hash: "a1b2c3d" });            // staged, not committed
+
 await muxy.git.branch.create({ name: "feature/y" });   // creates and switches
 await muxy.git.branch.switchTo({ branch: "main" });
+await muxy.git.branch.deleteRemote({ branch: "feature/old" });
+
+await muxy.git.tag.create({ name: "v1.0.0", hash: "a1b2c3d" });
 
 await muxy.git.pr.create({ title: "Add Y", body: "…", baseBranch: "main", draft: false }); // => PR info
 await muxy.git.pr.merge({ number: 42, method: "squash", deleteBranch: true }); // method: merge | squash | rebase
 await muxy.git.pr.close({ number: 42 });
+await muxy.git.pr.checkout({ number: 42 });                              // checks the PR out locally
+await muxy.git.pr.checkoutWorktree({ number: 42, path: "~/code/pr-42" }); // => { branch }
 
 await muxy.git.worktree.add({ path: "~/code/app-y", branch: "feature/y", createBranch: true, baseBranch: "main" });
 await muxy.git.worktree.remove({ path: "~/code/app-y", force: false });
+await muxy.git.worktree.switchTo({ identifier: "feature/y" }); // activate a worktree (id, name, branch, or path)
 ```
 
 ## Errors
@@ -130,6 +141,6 @@ try {
 
 ## Notes
 
-- `muxy.git` is available to extension **tabs**, **panels**, **popovers**, and **background scripts** alike.
+- `muxy.git` is available to extension **tabs**, **panels**, and **popovers**. Background scripts only expose `exec`, `notifications.notify`, and `dialog.*`.
 - The app continues to own the worktree lifecycle it shows in the sidebar; `git.worktree.*` operates on the same underlying git worktrees, so changes are reflected after a refresh.
 - There are no AI helpers here — generate commit messages or PR bodies with your own model via `muxy.exec` if you need them.

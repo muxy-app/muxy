@@ -34,16 +34,11 @@ extension MuxyAPI {
         ) async -> Result<GitRepositoryService.PatchAndCompareResult, APIError> {
             guard !filePath.isEmpty else { return .failure(.invalidArguments("filePath is required")) }
             return await read(projectIdentifier, context) { repoPath in
-                let hints = GitRepositoryService.DiffHints(
-                    hasStaged: staged ?? true,
-                    hasUnstaged: !(staged ?? false),
-                    isUntrackedOrNew: false
-                )
-                return try await service.patchAndCompare(
+                try await service.patchAndCompare(
                     repoPath: repoPath,
                     filePath: filePath,
                     lineLimit: lineLimit.map { min($0, maxDiffLineLimit) },
-                    hints: hints
+                    hints: diffHints(staged: staged)
                 )
             }
         }
@@ -227,6 +222,106 @@ extension MuxyAPI {
             }
         }
 
+        static func remoteBranches(
+            projectIdentifier: String?,
+            context: Context
+        ) async -> Result<[String], APIError> {
+            await read(projectIdentifier, context) { repoPath in
+                try await service.listRemoteBranches(repoPath: repoPath)
+            }
+        }
+
+        static func deleteRemoteBranch(
+            projectIdentifier: String?,
+            branch: String,
+            context: Context
+        ) async -> Result<Void, APIError> {
+            let trimmed = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return .failure(.invalidArguments("branch is required")) }
+            return await write(projectIdentifier, operation: "branch.deleteRemote", context: context) { repoPath in
+                try await service.deleteRemoteBranch(repoPath: repoPath, branch: trimmed)
+            }
+        }
+
+        static func checkout(
+            projectIdentifier: String?,
+            hash: String,
+            context: Context
+        ) async -> Result<Void, APIError> {
+            let trimmed = hash.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return .failure(.invalidArguments("hash is required")) }
+            return await write(projectIdentifier, operation: "checkout", context: context) { repoPath in
+                try await service.checkoutDetached(repoPath: repoPath, hash: trimmed)
+            }
+        }
+
+        static func cherryPick(
+            projectIdentifier: String?,
+            hash: String,
+            context: Context
+        ) async -> Result<Void, APIError> {
+            let trimmed = hash.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return .failure(.invalidArguments("hash is required")) }
+            return await write(projectIdentifier, operation: "cherryPick", context: context) { repoPath in
+                try await service.cherryPick(repoPath: repoPath, hash: trimmed)
+            }
+        }
+
+        static func revert(
+            projectIdentifier: String?,
+            hash: String,
+            context: Context
+        ) async -> Result<Void, APIError> {
+            let trimmed = hash.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return .failure(.invalidArguments("hash is required")) }
+            return await write(projectIdentifier, operation: "revert", context: context) { repoPath in
+                try await service.revert(repoPath: repoPath, hash: trimmed)
+            }
+        }
+
+        static func createTag(
+            projectIdentifier: String?,
+            name: String,
+            hash: String,
+            context: Context
+        ) async -> Result<Void, APIError> {
+            let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedHash = hash.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedName.isEmpty, !trimmedHash.isEmpty else {
+                return .failure(.invalidArguments("name and hash are required"))
+            }
+            return await write(projectIdentifier, operation: "tag.create", context: context) { repoPath in
+                try await service.createTag(repoPath: repoPath, name: trimmedName, hash: trimmedHash)
+            }
+        }
+
+        static func checkoutPullRequest(
+            projectIdentifier: String?,
+            number: Int,
+            context: Context
+        ) async -> Result<Void, APIError> {
+            await write(projectIdentifier, operation: "pr.checkout", context: context) { repoPath in
+                try await service.checkoutPullRequest(repoPath: repoPath, number: number)
+            }
+        }
+
+        static func checkoutPullRequestWorktree(
+            projectIdentifier: String?,
+            path: String,
+            number: Int,
+            context: Context
+        ) async -> Result<String, APIError> {
+            let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedPath.isEmpty else { return .failure(.invalidArguments("path is required")) }
+            return await write(projectIdentifier, operation: "pr.checkoutWorktree", context: context) { repoPath in
+                try await service.createPullRequestWorktree(
+                    repoPath: repoPath,
+                    path: NSString(string: trimmedPath).expandingTildeInPath,
+                    number: number
+                )
+            }
+        }
+
         struct CreatePRRequest {
             let projectIdentifier: String?
             let title: String
@@ -335,6 +430,13 @@ extension MuxyAPI {
                     force: force
                 )
             }
+        }
+
+        private static func diffHints(staged: Bool?) -> GitRepositoryService.DiffHints {
+            guard let staged else {
+                return GitRepositoryService.DiffHints(hasStaged: false, hasUnstaged: false, isUntrackedOrNew: false)
+            }
+            return GitRepositoryService.DiffHints(hasStaged: staged, hasUnstaged: !staged, isUntrackedOrNew: false)
         }
 
         private static func read<T: Sendable>(
