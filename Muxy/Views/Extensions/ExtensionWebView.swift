@@ -178,6 +178,7 @@ struct ExtensionWebView: NSViewRepresentable {
 
         func webView(_: WKWebView, didCommit _: WKNavigation!) {
             bridge?.dropAllEventSubscriptions()
+            pushThemeUpdate()
         }
     }
 }
