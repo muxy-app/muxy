@@ -61,6 +61,16 @@ public enum ExtensionBridgeJS {
                         return dispatch('dialog.alert', payload);
                     },
                 },
+                modal: {
+                    open(opts) {
+                        const o = opts || {};
+                        const payload = { items: Array.isArray(o.items) ? o.items : [] };
+                        if (o.placeholder != null) payload.placeholder = String(o.placeholder);
+                        if (o.emptyLabel != null) payload.emptyLabel = String(o.emptyLabel);
+                        if (o.noMatchLabel != null) payload.noMatchLabel = String(o.noMatchLabel);
+                        return dispatch('modal.open', payload);
+                    },
+                },
             };
         \(surface == .inProcess ? workspaceBlock : "")
         \(surface == .inProcess ? filesBlock : "")
@@ -73,6 +83,7 @@ public enum ExtensionBridgeJS {
             Object.freeze(muxy.git); Object.freeze(muxy.git.pr); Object.freeze(muxy.git.branch); Object.freeze(muxy.git.worktree);
             Object.freeze(muxy.notifications);
             Object.freeze(muxy.dialog);
+            Object.freeze(muxy.modal);
             \(surface == .background ? "Object.freeze(muxy.events); Object.freeze(muxy.remote);" : "")
             Object.freeze(muxy);
             this.muxy = muxy;

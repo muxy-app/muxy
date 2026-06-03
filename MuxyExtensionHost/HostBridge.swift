@@ -51,8 +51,9 @@ final class HostBridge: @unchecked Sendable {
         case "notifications.notify":
             return dispatchNotify(dict)
         case "dialog.confirm",
-             "dialog.alert":
-            return dispatchDialog(verb: verb, dict: dict)
+             "dialog.alert",
+             "modal.open":
+            return dispatchValueReturning(verb: verb, dict: dict)
         default:
             return ["ok": false, "error": "verb '\(verb)' is not available in background context"]
         }
@@ -79,9 +80,9 @@ final class HostBridge: @unchecked Sendable {
         }
     }
 
-    private func dispatchDialog(verb: String, dict: [String: Any]) -> Any {
+    private func dispatchValueReturning(verb: String, dict: [String: Any]) -> Any {
         guard let payload = try? JSONSerialization.data(withJSONObject: dict) else {
-            return ["ok": false, "error": "could not encode dialog payload"]
+            return ["ok": false, "error": "could not encode \(verb) payload"]
         }
         let line = "\(verb)|\(payload.base64EncodedString())"
         do {
@@ -92,7 +93,7 @@ final class HostBridge: @unchecked Sendable {
             guard let data = Data(base64Encoded: reply),
                   let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
             else {
-                return ["ok": false, "error": "invalid dialog reply"]
+                return ["ok": false, "error": "invalid \(verb) reply"]
             }
             return ["ok": true, "value": value]
         } catch {

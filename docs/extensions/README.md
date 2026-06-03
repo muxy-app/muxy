@@ -76,6 +76,7 @@ flowchart TD
 | [Files](files.md) | Workspace filesystem access: list, read, stat, write, mkdir, rename, move, delete |
 | [Popovers](popovers.md) | Anchor a transient webview popover to a topbar/status bar item |
 | [Dialogs](dialogs.md) | Present native confirm/alert sheets on the main window |
+| [Modal](modal.md) | Present a native searchable picker; resolves with the selected item |
 | [Topbar](topbar.md) | Attach icons to the tab strip that trigger a command |
 | [Status Bar](statusbar.md) | Attach icons to the footer status bar; update text live |
 | [Settings](settings.md) | Declare typed settings and read/write them at runtime |
@@ -96,7 +97,7 @@ flowchart TD
 - Manifest: the `muxy` object in `package.json` (`name`/`version` stay top-level)
 - Install path: `~/.config/muxy/extensions/<name>/` (the installed `dist/`)
 - Background script: optional `muxy.background` JS, run in a host process that injects the `muxy` global
-- Background API: `muxy.extensionID`, `muxy.events.subscribe`, `muxy.exec`, `muxy.dialog`, `console.*`
+- Background API: `muxy.extensionID`, `muxy.events.subscribe`, `muxy.exec`, `muxy.dialog`, `muxy.modal`, `console.*`
 - See [the muxy CLI feature page](../features/muxy-cli.md) for the verb vocabulary
 
 ## Minimal example

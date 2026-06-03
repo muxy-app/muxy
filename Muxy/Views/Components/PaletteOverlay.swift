@@ -165,10 +165,23 @@ struct PaletteSearchField: NSViewRepresentable {
         field.cell?.sendsActionOnEndEditing = false
         field.onEscape = onEscape
         field.onControlKey = onControlKey
-        DispatchQueue.main.async {
-            field.window?.makeFirstResponder(field)
-        }
+        claimFocus(for: field, attemptsRemaining: 5)
         return field
+    }
+
+    private func claimFocus(for field: NSTextField, attemptsRemaining: Int) {
+        guard attemptsRemaining > 0 else { return }
+        DispatchQueue.main.async {
+            guard let window = field.window else {
+                claimFocus(for: field, attemptsRemaining: attemptsRemaining - 1)
+                return
+            }
+            if field.currentEditor() != nil {
+                return
+            }
+            window.makeFirstResponder(field)
+            claimFocus(for: field, attemptsRemaining: attemptsRemaining - 1)
+        }
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {

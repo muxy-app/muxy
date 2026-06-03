@@ -238,6 +238,9 @@ enum SocketCommandHandler {
         case "dialog.alert":
             guard parts.count >= 2 else { return "error:usage dialog.alert|<base64-json>" }
             return await handleDialogAlert(base64Payload: parts[1], extensionID: clientContext.extensionID)
+        case "modal.open":
+            guard parts.count >= 2 else { return "error:usage modal.open|<base64-json>" }
+            return await handleModalOpen(base64Payload: parts[1], extensionID: clientContext.extensionID)
         default:
             return "error:unknown command \(cmd)"
         }
@@ -309,6 +312,27 @@ enum SocketCommandHandler {
         }
     }
 
+    private static func handleModalOpen(base64Payload: String, extensionID: String?) async -> String {
+        guard let extensionID else { return "error:identify required" }
+        guard let args = decodeJSONObject(base64Payload) else {
+            return "error:invalid modal payload"
+        }
+        do {
+            let selected = try await ExtensionModalService.shared.present(extensionID: extensionID, args: args)
+            return encodeJSONFragment(selected.map(modalItemDict) ?? NSNull())
+        } catch {
+            return "error:\((error as? APIError)?.message ?? error.localizedDescription)"
+        }
+    }
+
+    private static func modalItemDict(_ item: ExtensionModalService.Item) -> [String: Any] {
+        [
+            "id": item.id,
+            "title": item.title,
+            "subtitle": item.subtitle ?? NSNull(),
+        ]
+    }
+
     private static func decodeJSONObject(_ base64Payload: String) -> [String: Any]? {
         guard let data = Data(base64Encoded: base64Payload),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -318,7 +342,7 @@ enum SocketCommandHandler {
 
     private static func encodeJSONFragment(_ value: Any) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]) else {
-            return "error:dialog result encoding failed"
+            return "error:result encoding failed"
         }
         return data.base64EncodedString()
     }

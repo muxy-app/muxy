@@ -154,6 +154,7 @@ struct MainWindow: View {
         .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
         .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)
         .animation(.easeInOut(duration: 0.15), value: showProjectPicker)
+        .animation(.easeInOut(duration: 0.15), value: ExtensionModalService.shared.active)
         .modifier(OverlayExitTracker(
             showQuickOpen: showQuickOpen,
             showTerminalOmnibox: showTerminalOmnibox,
@@ -531,6 +532,7 @@ struct MainWindow: View {
         showQuickOpen
             || showTerminalOmnibox
             || showProjectPicker
+            || ExtensionModalService.shared.active != nil
             || overlayAnimatingOut
     }
 
@@ -539,6 +541,19 @@ struct MainWindow: View {
         quickOpenOverlay
         terminalOmniboxOverlay
         projectPickerOverlay
+        extensionModalOverlay
+    }
+
+    @ViewBuilder
+    private var extensionModalOverlay: some View {
+        if let request = ExtensionModalService.shared.active {
+            ExtensionModalOverlay(
+                request: request,
+                onSelect: { item in ExtensionModalService.shared.select(item) },
+                onDismiss: { ExtensionModalService.shared.dismiss() }
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        }
     }
 
     @ViewBuilder

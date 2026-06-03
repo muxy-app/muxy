@@ -160,6 +160,7 @@ enum MuxyAPI {
             "exec",
             "dialog.confirm",
             "dialog.alert",
+            "modal.open",
             "extension.settings.get",
             "extension.settings.set",
             "extension.statusbar.set",
