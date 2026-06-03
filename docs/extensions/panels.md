@@ -79,11 +79,11 @@ A panel may declare custom icon buttons that sit in its native header, just left
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | string | yes | Unique within the panel. |
-| `icon` | object | yes | `{ "symbol": "<sf-symbol>" }`. SVG icons are not yet supported in the header; declare an SF Symbol. |
+| `icon` | object | yes | `{ "symbol": "<sf-symbol>" }` or `{ "svg": "icons/foo.svg" }`, same as topbar and status-bar icons. |
 | `tooltip` | string | no | Hover tooltip / accessibility label. Defaults to the `id`. |
 | `command` | string | yes | Must reference a declared `commands[].id`. |
 
-A header button with an `event` command fires `command.<id>` to your pages — the panel webview subscribes with `muxy.events.subscribe('command.<id>', …)` to react (e.g. switch the active view). Header buttons are hidden when `hideTopbar` is `true`, since there is no header to host them.
+A header button with an `event` command fires `command.<id>` to your pages — the panel webview subscribes with `muxy.events.subscribe('command.<id>', …)` to react (e.g. switch the active view). `openPopover` commands do nothing from a header button, since the button is not a popover anchor; use `event`, `togglePanel`, `openTab`, or `runScript`. Header buttons are hidden when `hideTopbar` is `true`, since there is no header to host them.
 
 Set `hideTopbar: true` to drop the header entirely — no icon, title, or controls — and render the panel as a single edge-to-edge webview. The panel must then provide its own way to close itself (e.g. a `togglePanel` command, or `window.muxy.panels.close`).
 

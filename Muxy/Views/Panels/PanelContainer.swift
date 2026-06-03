@@ -64,15 +64,29 @@ struct PanelContainer<Content: View>: View {
         .background(MuxyTheme.bg)
     }
 
+    @ViewBuilder
     private func customButton(_ button: PanelHeaderButton) -> some View {
-        IconButton(
-            symbol: button.symbol,
-            color: button.isActive ? MuxyTheme.accent : MuxyTheme.fgMuted,
-            hoverColor: button.isActive ? MuxyTheme.accent : MuxyTheme.fg,
-            accessibilityLabel: button.label,
-            action: button.action
-        )
-        .help(button.label)
+        switch button.icon {
+        case let .symbol(name):
+            IconButton(
+                symbol: name,
+                color: button.isActive ? MuxyTheme.accent : MuxyTheme.fgMuted,
+                hoverColor: button.isActive ? MuxyTheme.accent : MuxyTheme.fg,
+                accessibilityLabel: button.label,
+                action: button.action
+            )
+            .help(button.label)
+        case let .extensionIcon(icon, muxyExtension):
+            ExtensionIconButton(
+                icon: icon,
+                muxyExtension: muxyExtension,
+                color: button.isActive ? MuxyTheme.accent : MuxyTheme.fgMuted,
+                hoverColor: button.isActive ? MuxyTheme.accent : MuxyTheme.fg,
+                accessibilityLabel: button.label,
+                action: button.action
+            )
+            .help(button.label)
+        }
     }
 
     private func control(symbol: String, label: String, action: @escaping () -> Void) -> some View {

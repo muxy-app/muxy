@@ -34,22 +34,38 @@ enum PanelHeaderControl: String, CaseIterable, Codable {
     case position
 }
 
+enum PanelHeaderButtonIcon: Equatable {
+    case symbol(String)
+    case extensionIcon(ExtensionIcon, MuxyExtension)
+
+    static func == (lhs: PanelHeaderButtonIcon, rhs: PanelHeaderButtonIcon) -> Bool {
+        switch (lhs, rhs) {
+        case let (.symbol(left), .symbol(right)):
+            left == right
+        case let (.extensionIcon(leftIcon, leftExtension), .extensionIcon(rightIcon, rightExtension)):
+            leftIcon == rightIcon && leftExtension.id == rightExtension.id
+        default:
+            false
+        }
+    }
+}
+
 struct PanelHeaderButton: Identifiable, Equatable {
     let id: String
-    let symbol: String
+    let icon: PanelHeaderButtonIcon
     let label: String
     let isActive: Bool
     let action: () -> Void
 
     init(
         id: String,
-        symbol: String,
+        icon: PanelHeaderButtonIcon,
         label: String,
         isActive: Bool = false,
         action: @escaping () -> Void
     ) {
         self.id = id
-        self.symbol = symbol
+        self.icon = icon
         self.label = label
         self.isActive = isActive
         self.action = action
@@ -57,7 +73,7 @@ struct PanelHeaderButton: Identifiable, Equatable {
 
     static func == (lhs: PanelHeaderButton, rhs: PanelHeaderButton) -> Bool {
         lhs.id == rhs.id
-            && lhs.symbol == rhs.symbol
+            && lhs.icon == rhs.icon
             && lhs.label == rhs.label
             && lhs.isActive == rhs.isActive
     }

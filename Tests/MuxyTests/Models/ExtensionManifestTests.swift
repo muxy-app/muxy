@@ -441,6 +441,122 @@ struct ExtensionManifestTests {
         #expect(panel.headerButtons.map(\.id) == ["prs"])
     }
 
+    @Test("rejects panel header button with empty id")
+    func rejectsPanelHeaderButtonEmptyID() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "panel-hb-empty",
+                "version": "1.0.0",
+                "commands": [ { "id": "show-prs", "title": "PRs" } ],
+                "panels": [
+                    {
+                        "id": "side",
+                        "entry": "panels/side.html",
+                        "headerButtons": [
+                            { "id": "", "icon": "arrow.triangle.pull", "command": "show-prs" }
+                        ]
+                    }
+                ]
+            }
+            """,
+            files: ["panels/side.html": "<html></html>"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects duplicate panel header button ids")
+    func rejectsDuplicatePanelHeaderButton() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "panel-hb-dup",
+                "version": "1.0.0",
+                "commands": [ { "id": "show-prs", "title": "PRs" } ],
+                "panels": [
+                    {
+                        "id": "side",
+                        "entry": "panels/side.html",
+                        "headerButtons": [
+                            { "id": "prs", "icon": "arrow.triangle.pull", "command": "show-prs" },
+                            { "id": "prs", "icon": "pencil", "command": "show-prs" }
+                        ]
+                    }
+                ]
+            }
+            """,
+            files: ["panels/side.html": "<html></html>"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects panel header button with missing SVG")
+    func rejectsPanelHeaderButtonMissingSVG() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "panel-hb-svg",
+                "version": "1.0.0",
+                "commands": [ { "id": "show-prs", "title": "PRs" } ],
+                "panels": [
+                    {
+                        "id": "side",
+                        "entry": "panels/side.html",
+                        "headerButtons": [
+                            { "id": "prs", "icon": { "svg": "assets/missing.svg" }, "command": "show-prs" }
+                        ]
+                    }
+                ]
+            }
+            """,
+            files: ["panels/side.html": "<html></html>"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("loads a panel header button with an SVG icon")
+    func loadsPanelHeaderButtonSVG() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "panel-hb-svg-ok",
+                "version": "1.0.0",
+                "commands": [ { "id": "show-prs", "title": "PRs" } ],
+                "panels": [
+                    {
+                        "id": "side",
+                        "entry": "panels/side.html",
+                        "headerButtons": [
+                            { "id": "prs", "icon": { "svg": "assets/prs.svg" }, "command": "show-prs" }
+                        ]
+                    }
+                ]
+            }
+            """,
+            files: [
+                "panels/side.html": "<html></html>",
+                "assets/prs.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+            ]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let ext = try ExtensionManifestLoader.load(from: directory)
+        let panel = try #require(ext.manifest.panel(id: "side"))
+        #expect(panel.headerButtons.first?.icon == .svg("assets/prs.svg"))
+    }
+
     @Test("rejects topbar item with missing SVG")
     func rejectsTopbarMissingSVG() throws {
         let directory = try makeTemporaryExtension(

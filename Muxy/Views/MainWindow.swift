@@ -1039,9 +1039,9 @@ struct MainWindow: View {
     private var richInputBroadcastButton: PanelHeaderButton {
         PanelHeaderButton(
             id: "richInput.broadcast",
-            symbol: richInputBroadcast
+            icon: .symbol(richInputBroadcast
                 ? "dot.radiowaves.left.and.right"
-                : "antenna.radiowaves.left.and.right.slash",
+                : "antenna.radiowaves.left.and.right.slash"),
             label: richInputBroadcast
                 ? "Broadcast On — Send to All Split Panes"
                 : "Broadcast Off — Send to Active Pane",
