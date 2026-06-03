@@ -75,6 +75,21 @@ struct MuxyAPIFilesTests {
         #expect(MuxyAPI.Files.resolve(root: root, relativePath: "alias/note.txt") == root + "/real/note.txt")
     }
 
+    @Test("contained returns in-root paths and throws on escape")
+    func containedGuardsAtOpTime() async throws {
+        let root = try makeTempDir()
+        let outside = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(atPath: root)
+            try? FileManager.default.removeItem(atPath: outside)
+        }
+        #expect(try MuxyAPI.Files.contained(root: root, relativePath: "src/main.swift") == root + "/src/main.swift")
+        try FileManager.default.createSymbolicLink(atPath: root + "/link", withDestinationPath: outside)
+        #expect(throws: FileSystemOperationError.self) {
+            _ = try MuxyAPI.Files.contained(root: root, relativePath: "link/secret.txt")
+        }
+    }
+
     @Test("writeFile overwrites and round-trips contents")
     func writeFileRoundTrips() async throws {
         let root = try makeTempDir()

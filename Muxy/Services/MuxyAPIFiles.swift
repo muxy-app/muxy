@@ -18,7 +18,7 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<[FileTreeEntry], APIError> {
             await read(projectIdentifier, context) { root in
-                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
+                let absolute = try contained(root: root, relativePath: path)
                 return await FileTreeService.loadChildren(of: absolute, repoRoot: root)
             }
         }
@@ -35,8 +35,8 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<ReadResult, APIError> {
             await read(projectIdentifier, context) { root in
-                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
-                return try await GitProcessRunner.offMainThrowing {
+                try await GitProcessRunner.offMainThrowing {
+                    let absolute = try contained(root: root, relativePath: path)
                     let url = URL(fileURLWithPath: absolute)
                     let attributes = try FileManager.default.attributesOfItem(atPath: absolute)
                     let size = (attributes[.size] as? Int) ?? 0
@@ -65,8 +65,8 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<StatResult, APIError> {
             await read(projectIdentifier, context) { root in
-                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
-                return try await GitProcessRunner.offMainThrowing {
+                try await GitProcessRunner.offMainThrowing {
+                    let absolute = try contained(root: root, relativePath: path)
                     var isDirectory: ObjCBool = false
                     guard FileManager.default.fileExists(atPath: absolute, isDirectory: &isDirectory) else {
                         throw FileSystemOperationError.sourceMissing(absolute)
@@ -89,9 +89,11 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<String, APIError> {
             await write(projectIdentifier, operation: "write", path: path, context: context) { root in
-                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
-                try await FileSystemOperations.writeFile(contents: contents, atAbsolutePath: absolute)
-                return relative(absolute, root: root)
+                try await GitProcessRunner.offMainThrowing {
+                    let absolute = try contained(root: root, relativePath: path)
+                    try FileSystemOperations.writeFileSync(contents: contents, atAbsolutePath: absolute)
+                    return relative(absolute, root: root)
+                }
             }
         }
 
@@ -101,11 +103,13 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<String, APIError> {
             await write(projectIdentifier, operation: "mkdir", path: path, context: context) { root in
-                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
-                let parent = (absolute as NSString).deletingLastPathComponent
-                let name = (absolute as NSString).lastPathComponent
-                let created = try await FileSystemOperations.createFolder(named: name, in: parent)
-                return relative(created, root: root)
+                try await GitProcessRunner.offMainThrowing {
+                    let absolute = try contained(root: root, relativePath: path)
+                    let parent = (absolute as NSString).deletingLastPathComponent
+                    let name = (absolute as NSString).lastPathComponent
+                    let created = try FileSystemOperations.createFolderSync(named: name, in: parent)
+                    return relative(created, root: root)
+                }
             }
         }
 
@@ -116,9 +120,12 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<String, APIError> {
             await write(projectIdentifier, operation: "rename", path: path, context: context) { root in
-                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
-                let moved = try await FileSystemOperations.rename(at: absolute, to: newName)
-                context.appState.handleFileMoved(from: absolute, to: moved)
+                let (source, moved) = try await GitProcessRunner.offMainThrowing {
+                    let absolute = try contained(root: root, relativePath: path)
+                    let moved = try FileSystemOperations.renameSync(at: absolute, to: newName)
+                    return (absolute, moved)
+                }
+                context.appState.handleFileMoved(from: source, to: moved)
                 return relative(moved, root: root)
             }
         }
@@ -130,16 +137,15 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<[String], APIError> {
             await write(projectIdentifier, operation: "move", path: destination, context: context) { root in
-                guard let destinationAbsolute = resolve(root: root, relativePath: destination) else {
-                    throw escapeError(destination)
+                let (sources, moved) = try await GitProcessRunner.offMainThrowing {
+                    let destinationAbsolute = try contained(root: root, relativePath: destination)
+                    let sources = try paths.map { try contained(root: root, relativePath: $0) }
+                    let moved = try FileSystemOperations.transferSync(
+                        sources: sources,
+                        destinationDirectory: destinationAbsolute
+                    )
+                    return (sources, moved)
                 }
-                var sources: [String] = []
-                sources.reserveCapacity(paths.count)
-                for path in paths {
-                    guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
-                    sources.append(absolute)
-                }
-                let moved = try await FileSystemOperations.move(sources, into: destinationAbsolute)
                 for (source, target) in zip(sources, moved) {
                     context.appState.handleFileMoved(from: source, to: target)
                 }
@@ -153,14 +159,18 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<Void, APIError> {
             await write(projectIdentifier, operation: "delete", path: paths.first ?? "", context: context) { root in
-                var absolutes: [String] = []
-                absolutes.reserveCapacity(paths.count)
-                for path in paths {
-                    guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
-                    absolutes.append(absolute)
+                let absolutes = try await GitProcessRunner.offMainThrowing {
+                    try paths.map { try contained(root: root, relativePath: $0) }
                 }
                 try await FileSystemOperations.moveToTrash(absolutes)
             }
+        }
+
+        nonisolated static func contained(root: String, relativePath: String) throws -> String {
+            guard let absolute = resolve(root: root, relativePath: relativePath) else {
+                throw escapeError(relativePath)
+            }
+            return absolute
         }
 
         nonisolated static func resolve(root: String, relativePath: String) -> String? {
