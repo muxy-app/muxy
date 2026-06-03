@@ -28,6 +28,7 @@ enum ExtensionWebBridge {
             };
 
             const gitProject = (o) => (o && o.project != null ? String(o.project) : null);
+            const filesProject = (o) => (o && o.project != null ? String(o.project) : null);
 
             const themeListeners = new Set();
             let currentTheme = \(themeLiteral);
@@ -253,6 +254,36 @@ enum ExtensionWebBridge {
                         }); },
                     },
                 },
+                files: {
+                    list(path, o) { return send('files.list', { project: filesProject(o), path: String(path == null ? '' : path) }); },
+                    read(path, o) { return send('files.read', { project: filesProject(o), path: String(path == null ? '' : path) }); },
+                    stat(path, o) { return send('files.stat', { project: filesProject(o), path: String(path == null ? '' : path) }); },
+                    write(path, contents, o) {
+                        return send('files.write', {
+                            project: filesProject(o),
+                            path: String(path == null ? '' : path),
+                            contents: String(contents == null ? '' : contents),
+                        });
+                    },
+                    mkdir(path, o) { return send('files.mkdir', { project: filesProject(o), path: String(path == null ? '' : path) }); },
+                    rename(path, newName, o) {
+                        return send('files.rename', {
+                            project: filesProject(o),
+                            path: String(path == null ? '' : path),
+                            newName: String(newName == null ? '' : newName),
+                        });
+                    },
+                    move(paths, into, o) {
+                        return send('files.move', {
+                            project: filesProject(o),
+                            paths: (paths || []).map(String),
+                            into: String(into == null ? '' : into),
+                        });
+                    },
+                    delete(paths, o) {
+                        return send('files.delete', { project: filesProject(o), paths: (paths || []).map(String) });
+                    },
+                },
                 events: {
                     subscribe(name, callback) {
                         if (typeof name !== 'string' || typeof callback !== 'function') {
@@ -293,6 +324,7 @@ enum ExtensionWebBridge {
             Object.freeze(muxy.git.pr);
             Object.freeze(muxy.git.branch);
             Object.freeze(muxy.git.worktree);
+            Object.freeze(muxy.files);
             Object.freeze(muxy.events);
             Object.freeze(muxy);
             window.muxy = muxy;

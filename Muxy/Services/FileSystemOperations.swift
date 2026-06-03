@@ -37,6 +37,16 @@ enum FileSystemOperations {
         }
     }
 
+    static func writeFile(contents: String, atAbsolutePath absolutePath: String) async throws {
+        try await GitProcessRunner.offMainThrowing {
+            do {
+                try contents.write(toFile: absolutePath, atomically: true, encoding: .utf8)
+            } catch {
+                throw FileSystemOperationError.underlying(error.localizedDescription)
+            }
+        }
+    }
+
     static func rename(at absolutePath: String, to rawName: String) async throws -> String {
         try await GitProcessRunner.offMainThrowing {
             try renameSync(at: absolutePath, to: rawName)

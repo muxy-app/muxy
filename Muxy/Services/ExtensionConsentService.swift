@@ -227,6 +227,8 @@ enum ExtensionConsentRequestBuilder {
             return ("\(deviceName) calls \(action)", ["device: \(deviceName)", "action: \(action)"])
         case let (.gitWrite, .git(operation, repoPath)):
             return ("git \(operation)", ["operation: \(operation)", "repo: \(repoPath)"])
+        case let (.filesWrite, .file(operation, path)):
+            return ("file \(operation)", ["operation: \(operation)", "path: \(path)"])
         default:
             return ("(unknown)", [])
         }

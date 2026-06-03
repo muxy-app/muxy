@@ -42,6 +42,6 @@ When an extension is reloaded or disabled, its subscriptions are dropped and re-
 | `file.changed` | `path`, `projectPath` | `events: ["file.changed"]` |
 | `command.<id>` | `command`, `extension` | Auto-allowed when `commands[].id == <id>` |
 
-`file.changed` fires for files under a watched project/worktree root (the same watcher the source-control and file-tree views use). It is debounced (~0.3s) and skips Git-internal noise (`.git/` lock files and directories); one event is delivered per changed `path`, with `projectPath` set to the watched root.
+`file.changed` fires for files under the active project/worktree root. It is debounced (~0.3s) and skips Git-internal noise (`.git/` lock files and directories); one event is delivered per changed `path`, with `projectPath` set to the watched root. Pair it with [`muxy.files`](files.md) to build a reactive file tree.
 
 See [Permissions](permissions.md) for how `events` fits the manifest, and [Palette Commands](palette-commands.md) for `command.<id>`.

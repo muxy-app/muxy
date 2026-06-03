@@ -168,7 +168,18 @@ enum MuxyAPI {
             "panel.toggle",
             "popover.close",
             "popover.resize",
-        ]).union(gitVerbs)
+        ]).union(gitVerbs).union(filesVerbs)
+
+        static let filesVerbs: Set<String> = [
+            "files.list",
+            "files.read",
+            "files.stat",
+            "files.write",
+            "files.mkdir",
+            "files.rename",
+            "files.move",
+            "files.delete",
+        ]
 
         static let gitVerbs: Set<String> = [
             "git.status",
@@ -260,6 +271,14 @@ enum MuxyAPI {
             "git.pr.close": .gitWrite,
             "git.worktree.add": .gitWrite,
             "git.worktree.remove": .gitWrite,
+            "files.list": .filesRead,
+            "files.read": .filesRead,
+            "files.stat": .filesRead,
+            "files.write": .filesWrite,
+            "files.mkdir": .filesWrite,
+            "files.rename": .filesWrite,
+            "files.move": .filesWrite,
+            "files.delete": .filesWrite,
             "toast": .notificationsWrite,
             "notifications.notify": .notificationsWrite,
             "panel.open": .panelsWrite,

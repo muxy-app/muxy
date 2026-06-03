@@ -150,14 +150,6 @@ enum SettingsCatalog {
             defaultValue: false
         ),
         SettingsCatalogItem(
-            key: GeneralSettingsKeys.fileTreeSource,
-            title: "File Tree Root Directory",
-            description: "Controls whether the file tree follows the project or active terminal.",
-            category: .projects,
-            section: "File Tree",
-            defaultValue: FileTreeSourcePreference.defaultValue.rawValue
-        ),
-        SettingsCatalogItem(
             key: ProjectPickerPreferences.storageKey,
             title: "Project Picker",
             description: "Chooses the picker used when opening projects.",

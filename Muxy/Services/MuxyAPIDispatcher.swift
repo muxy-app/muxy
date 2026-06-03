@@ -173,6 +173,82 @@ enum MuxyAPIDispatcher {
             if verb.hasPrefix("git.") {
                 return try await handleGit(verb: verb, args: args, context: context)
             }
+            if verb.hasPrefix("files.") {
+                return try await handleFiles(verb: verb, args: args, context: context)
+            }
+            throw APIError.invalidArguments("unknown verb \(verb)")
+        }
+    }
+
+    private static func handleFiles(verb: String, args: [String: Any], context: Context) async throws -> Any {
+        guard let projectStore = context.projectStore,
+              let worktreeStore = context.worktreeStore
+        else { throw APIError.worktreeStoreUnavailable }
+        let files = MuxyAPI.Files.Context(
+            extensionID: context.extensionID,
+            appState: context.appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
+        )
+        let project = args["project"] as? String
+
+        switch verb {
+        case "files.list":
+            return try await unwrap(MuxyAPI.Files.list(
+                projectIdentifier: project,
+                path: stringArg(args, "path"),
+                context: files
+            )).map(FilesDTO.entry)
+        case "files.read":
+            return try await FilesDTO.readResult(unwrap(MuxyAPI.Files.read(
+                projectIdentifier: project,
+                path: stringArg(args, "path"),
+                context: files
+            )))
+        case "files.stat":
+            return try await FilesDTO.stat(unwrap(MuxyAPI.Files.stat(
+                projectIdentifier: project,
+                path: stringArg(args, "path"),
+                context: files
+            )))
+        case "files.write":
+            let path = try await unwrap(MuxyAPI.Files.write(
+                projectIdentifier: project,
+                path: stringArg(args, "path"),
+                contents: stringArg(args, "contents"),
+                context: files
+            ))
+            return ["path": path]
+        case "files.mkdir":
+            let path = try await unwrap(MuxyAPI.Files.mkdir(
+                projectIdentifier: project,
+                path: stringArg(args, "path"),
+                context: files
+            ))
+            return ["path": path]
+        case "files.rename":
+            let path = try await unwrap(MuxyAPI.Files.rename(
+                projectIdentifier: project,
+                path: stringArg(args, "path"),
+                newName: stringArg(args, "newName"),
+                context: files
+            ))
+            return ["path": path]
+        case "files.move":
+            return try await unwrap(MuxyAPI.Files.move(
+                projectIdentifier: project,
+                paths: stringArrayArg(args, "paths"),
+                into: stringArg(args, "into"),
+                context: files
+            ))
+        case "files.delete":
+            try await unwrap(MuxyAPI.Files.delete(
+                projectIdentifier: project,
+                paths: stringArrayArg(args, "paths"),
+                context: files
+            ))
+            return NSNull()
+        default:
             throw APIError.invalidArguments("unknown verb \(verb)")
         }
     }

@@ -178,9 +178,6 @@ struct ShortcutActionDispatcher {
         case .toggleSidebar:
             notificationCenter.post(name: .toggleSidebar, object: nil)
             return true
-        case .toggleFileTree:
-            notificationCenter.post(name: .toggleFileTree, object: nil)
-            return true
         case .navigateBack:
             guard appState.navigation.canGoBack else { return false }
             appState.goBack()

@@ -21,6 +21,8 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `worktrees:write` | `create-worktree`, `switch-worktree`, `refresh-worktrees` |
 | `git:read` | `git.status`, `git.diff`, `git.log`, `git.branches`, `git.currentBranch`, `git.aheadBehind`, `git.pr.info`, `git.pr.list`, `git.worktrees` — see [Git](git.md). |
 | `git:write` | `git.stage`, `git.unstage`, `git.discard`, `git.commit`, `git.push`, `git.pull`, `git.branch.*`, `git.pr.*` (create/merge/close), `git.worktree.*`. Each call also prompts for runtime consent. |
+| `files:read` | `files.list`, `files.read`, `files.stat` — see [Files](files.md). |
+| `files:write` | `files.write`, `files.mkdir`, `files.rename`, `files.move`, `files.delete`. Each call also prompts for runtime consent. |
 | `notifications:write` | `notifications.notify` (or its `toast` alias) to post a notification |
 | `panels:write` | `panel.open`, `panel.toggle`, `panel.close` for declared [panels](panels.md); `popover.resize`, `popover.close` for the extension's open [popover](popovers.md). |
 | `commands:run-script` | Execute `runScript` palette command actions in the per-extension JavaScriptCore context. |
@@ -39,6 +41,7 @@ These verbs prompt the user at runtime even when the manifest permission is gran
 | `panes.readScreen` | Reading the visible contents of a terminal. |
 | `remote.invoke` | Running an extension's [remote method](remote-methods.md) handler in response to a mobile request. Remembered per action. |
 | `git.*` (writes) | Mutating the repository (stage, commit, push, pull, branch, PR, worktree). Remembered per operation (allowing `push` does not allow `discard`). |
+| `files.*` (writes) | Modifying workspace files (write, mkdir, rename, move, delete). Remembered per operation (allowing `write` does not allow `delete`). |
 
 The prompt shows the extension, the verb, and the literal payload (full argv, the keystroke, or the pane id). The user picks:
 

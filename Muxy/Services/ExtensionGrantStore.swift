@@ -16,6 +16,7 @@ enum ExtensionGatedVerb: String, Codable, CaseIterable {
     case tabsOpenForeign = "tabs.openForeign"
     case remoteInvoke = "remote.invoke"
     case gitWrite = "git.write"
+    case filesWrite = "files.write"
 }
 
 enum ExtensionGrantMatch: Codable, Equatable {
@@ -27,6 +28,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
     case foreignTabEquals(targetExtensionID: String, tabTypeID: String)
     case remoteActionEquals(String)
     case gitOperationEquals(String)
+    case fileOperationEquals(String)
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -44,6 +46,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case foreignTabEquals
         case remoteActionEquals
         case gitOperationEquals
+        case fileOperationEquals
     }
 
     init(from decoder: Decoder) throws {
@@ -69,6 +72,8 @@ enum ExtensionGrantMatch: Codable, Equatable {
             self = try .remoteActionEquals(container.decode(String.self, forKey: .string))
         case .gitOperationEquals:
             self = try .gitOperationEquals(container.decode(String.self, forKey: .string))
+        case .fileOperationEquals:
+            self = try .fileOperationEquals(container.decode(String.self, forKey: .string))
         }
     }
 
@@ -99,6 +104,9 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .gitOperationEquals(operation):
             try container.encode(Kind.gitOperationEquals, forKey: .kind)
             try container.encode(operation, forKey: .string)
+        case let .fileOperationEquals(operation):
+            try container.encode(Kind.fileOperationEquals, forKey: .kind)
+            try container.encode(operation, forKey: .string)
         }
     }
 
@@ -109,6 +117,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
              .shellExact: 100
         case .remoteActionEquals: 120
         case .gitOperationEquals: 130
+        case .fileOperationEquals: 135
         case .foreignTabEquals: 150
         case let .argvPrefix(tokens): 50 + tokens.count
         case let .argvExact(tokens): 200 + tokens.count
@@ -125,6 +134,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .foreignTabEquals(target, tab): "tab: \(target)/\(tab)"
         case let .remoteActionEquals(action): "action: \(action)"
         case let .gitOperationEquals(operation): "git: \(operation)"
+        case let .fileOperationEquals(operation): "file: \(operation)"
         }
     }
 }
@@ -135,6 +145,7 @@ enum ExtensionGatedPayload {
     case foreignTab(targetExtensionID: String, tabTypeID: String)
     case remote(action: String, deviceName: String)
     case git(operation: String, repoPath: String)
+    case file(operation: String, path: String)
 
     func matches(_ match: ExtensionGrantMatch) -> Bool {
         switch (self, match) {
@@ -155,6 +166,8 @@ enum ExtensionGatedPayload {
         case let (.remote(action, _), .remoteActionEquals(expected)):
             return action == expected
         case let (.git(operation, _), .gitOperationEquals(expected)):
+            return operation == expected
+        case let (.file(operation, _), .fileOperationEquals(expected)):
             return operation == expected
         default:
             return false
@@ -305,6 +318,8 @@ enum ExtensionGrantSuggestion {
             return .remoteActionEquals(action)
         case let (.gitWrite, .git(operation, _)):
             return .gitOperationEquals(operation)
+        case let (.filesWrite, .file(operation, _)):
+            return .fileOperationEquals(operation)
         case (.panesSend, _),
              (.panesSendKeys, _),
              (.panesReadScreen, _),

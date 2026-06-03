@@ -1,0 +1,275 @@
+import Foundation
+
+extension MuxyAPI {
+    @MainActor
+    enum Files {
+        struct Context {
+            let extensionID: String
+            let appState: AppState
+            let projectStore: ProjectStore
+            let worktreeStore: WorktreeStore
+        }
+
+        nonisolated static let maxReadBytes = 5 * 1024 * 1024
+
+        static func list(
+            projectIdentifier: String?,
+            path: String,
+            context: Context
+        ) async -> Result<[FileTreeEntry], APIError> {
+            await read(projectIdentifier, context) { root in
+                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
+                return await FileTreeService.loadChildren(of: absolute, repoRoot: root)
+            }
+        }
+
+        struct ReadResult {
+            let relativePath: String
+            let content: String
+            let size: Int
+        }
+
+        static func read(
+            projectIdentifier: String?,
+            path: String,
+            context: Context
+        ) async -> Result<ReadResult, APIError> {
+            await read(projectIdentifier, context) { root in
+                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
+                return try await GitProcessRunner.offMainThrowing {
+                    let url = URL(fileURLWithPath: absolute)
+                    let attributes = try FileManager.default.attributesOfItem(atPath: absolute)
+                    let size = (attributes[.size] as? Int) ?? 0
+                    guard size <= maxReadBytes else {
+                        throw FileSystemOperationError.underlying("file exceeds \(maxReadBytes) byte read limit")
+                    }
+                    let data = try Data(contentsOf: url)
+                    guard let content = String(data: data, encoding: .utf8) else {
+                        throw FileSystemOperationError.underlying("file is not valid UTF-8 text")
+                    }
+                    return ReadResult(relativePath: relative(absolute, root: root), content: content, size: size)
+                }
+            }
+        }
+
+        struct StatResult {
+            let name: String
+            let relativePath: String
+            let isDirectory: Bool
+            let size: Int
+        }
+
+        static func stat(
+            projectIdentifier: String?,
+            path: String,
+            context: Context
+        ) async -> Result<StatResult, APIError> {
+            await read(projectIdentifier, context) { root in
+                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
+                return try await GitProcessRunner.offMainThrowing {
+                    var isDirectory: ObjCBool = false
+                    guard FileManager.default.fileExists(atPath: absolute, isDirectory: &isDirectory) else {
+                        throw FileSystemOperationError.sourceMissing(absolute)
+                    }
+                    let attributes = try FileManager.default.attributesOfItem(atPath: absolute)
+                    return StatResult(
+                        name: (absolute as NSString).lastPathComponent,
+                        relativePath: relative(absolute, root: root),
+                        isDirectory: isDirectory.boolValue,
+                        size: (attributes[.size] as? Int) ?? 0
+                    )
+                }
+            }
+        }
+
+        static func write(
+            projectIdentifier: String?,
+            path: String,
+            contents: String,
+            context: Context
+        ) async -> Result<String, APIError> {
+            await write(projectIdentifier, operation: "write", path: path, context: context) { root in
+                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
+                try await FileSystemOperations.writeFile(contents: contents, atAbsolutePath: absolute)
+                return relative(absolute, root: root)
+            }
+        }
+
+        static func mkdir(
+            projectIdentifier: String?,
+            path: String,
+            context: Context
+        ) async -> Result<String, APIError> {
+            await write(projectIdentifier, operation: "mkdir", path: path, context: context) { root in
+                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
+                let parent = (absolute as NSString).deletingLastPathComponent
+                let name = (absolute as NSString).lastPathComponent
+                let created = try await FileSystemOperations.createFolder(named: name, in: parent)
+                return relative(created, root: root)
+            }
+        }
+
+        static func rename(
+            projectIdentifier: String?,
+            path: String,
+            newName: String,
+            context: Context
+        ) async -> Result<String, APIError> {
+            await write(projectIdentifier, operation: "rename", path: path, context: context) { root in
+                guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
+                let moved = try await FileSystemOperations.rename(at: absolute, to: newName)
+                context.appState.handleFileMoved(from: absolute, to: moved)
+                return relative(moved, root: root)
+            }
+        }
+
+        static func move(
+            projectIdentifier: String?,
+            paths: [String],
+            into destination: String,
+            context: Context
+        ) async -> Result<[String], APIError> {
+            await write(projectIdentifier, operation: "move", path: destination, context: context) { root in
+                guard let destinationAbsolute = resolve(root: root, relativePath: destination) else {
+                    throw escapeError(destination)
+                }
+                var sources: [String] = []
+                sources.reserveCapacity(paths.count)
+                for path in paths {
+                    guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
+                    sources.append(absolute)
+                }
+                let moved = try await FileSystemOperations.move(sources, into: destinationAbsolute)
+                for (source, target) in zip(sources, moved) {
+                    context.appState.handleFileMoved(from: source, to: target)
+                }
+                return moved.map { relative($0, root: root) }
+            }
+        }
+
+        static func delete(
+            projectIdentifier: String?,
+            paths: [String],
+            context: Context
+        ) async -> Result<Void, APIError> {
+            await write(projectIdentifier, operation: "delete", path: paths.first ?? "", context: context) { root in
+                var absolutes: [String] = []
+                absolutes.reserveCapacity(paths.count)
+                for path in paths {
+                    guard let absolute = resolve(root: root, relativePath: path) else { throw escapeError(path) }
+                    absolutes.append(absolute)
+                }
+                try await FileSystemOperations.moveToTrash(absolutes)
+            }
+        }
+
+        nonisolated static func resolve(root: String, relativePath: String) -> String? {
+            let base = URL(fileURLWithPath: root).resolvingSymlinksInPath()
+            let trimmed = relativePath.hasPrefix("/") ? String(relativePath.dropFirst()) : relativePath
+            let target = base.appendingPathComponent(trimmed).standardizedFileURL
+            guard isInside(target, base: base) else { return nil }
+            guard isInside(resolvingExistingAncestor(of: target), base: base) else { return nil }
+            return target.path
+        }
+
+        nonisolated private static func isInside(_ url: URL, base: URL) -> Bool {
+            url.path == base.path || url.path.hasPrefix(base.path + "/")
+        }
+
+        nonisolated private static func resolvingExistingAncestor(of url: URL) -> URL {
+            var existing = url
+            while !FileManager.default.fileExists(atPath: existing.path), existing.pathComponents.count > 1 {
+                existing = existing.deletingLastPathComponent()
+            }
+            let resolvedExisting = existing.resolvingSymlinksInPath()
+            let remainder = url.path.dropFirst(existing.path.count)
+            guard !remainder.isEmpty else { return resolvedExisting }
+            return resolvedExisting.appendingPathComponent(String(remainder)).standardizedFileURL
+        }
+
+        nonisolated private static func relative(_ absolute: String, root: String) -> String {
+            let base = URL(fileURLWithPath: root).resolvingSymlinksInPath().path
+            let normalized = URL(fileURLWithPath: absolute).standardizedFileURL.resolvingSymlinksInPath().path
+            guard normalized.hasPrefix(base + "/") else { return (absolute as NSString).lastPathComponent }
+            return String(normalized.dropFirst(base.count + 1))
+        }
+
+        nonisolated private static func escapeError(_ path: String) -> FileSystemOperationError {
+            .underlying("path '\(path)' escapes the workspace root")
+        }
+
+        nonisolated private static func message(for error: Error) -> String {
+            if let operationError = error as? FileSystemOperationError {
+                return operationError.userMessage
+            }
+            return error.localizedDescription
+        }
+
+        private static func read<T: Sendable>(
+            _ projectIdentifier: String?,
+            _ context: Context,
+            _ work: (String) async throws -> T
+        ) async -> Result<T, APIError> {
+            guard let root = workspaceRoot(projectIdentifier, context: context) else {
+                return .failure(.projectNotFound(projectIdentifier ?? ""))
+            }
+            do {
+                return try await .success(work(root))
+            } catch {
+                return .failure(.underlying(message(for: error)))
+            }
+        }
+
+        private static func write<T: Sendable>(
+            _ projectIdentifier: String?,
+            operation: String,
+            path: String,
+            context: Context,
+            _ work: (String) async throws -> T
+        ) async -> Result<T, APIError> {
+            guard let root = workspaceRoot(projectIdentifier, context: context) else {
+                return .failure(.projectNotFound(projectIdentifier ?? ""))
+            }
+            let consent = ExtensionConsentRequestBuilder.make(
+                extensionID: context.extensionID,
+                verb: .filesWrite,
+                payload: .file(operation: operation, path: path),
+                source: "muxy-api"
+            )
+            guard await ExtensionConsentService.shared.gate(consent) == .allow else {
+                return .failure(.consentDenied(verb: "files.\(operation)"))
+            }
+            do {
+                return try await .success(work(root))
+            } catch {
+                return .failure(.underlying(message(for: error)))
+            }
+        }
+
+        private static func workspaceRoot(_ projectIdentifier: String?, context: Context) -> String? {
+            let project: Project? = if let projectIdentifier, !projectIdentifier.isEmpty {
+                matchProject(projectIdentifier, in: context.projectStore.projects)
+            } else if let activeProjectID = context.appState.activeProjectID {
+                context.projectStore.projects.first { $0.id == activeProjectID }
+            } else {
+                nil
+            }
+            guard let project else { return nil }
+            if let worktreeID = context.appState.activeWorktreeID[project.id],
+               let worktree = context.worktreeStore.worktree(projectID: project.id, worktreeID: worktreeID)
+            {
+                return worktree.path
+            }
+            return project.path
+        }
+
+        private static func matchProject(_ identifier: String, in projects: [Project]) -> Project? {
+            let standardizedPath = URL(fileURLWithPath: identifier).standardizedFileURL.path
+            return projects.first { project in
+                project.id.uuidString == identifier
+                    || project.name.localizedCaseInsensitiveCompare(identifier) == .orderedSame
+                    || URL(fileURLWithPath: project.path).standardizedFileURL.path == standardizedPath
+            }
+        }
+    }
+}

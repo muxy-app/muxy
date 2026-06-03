@@ -1,15 +1,11 @@
 import SwiftUI
 
 enum BuiltinPanel {
-    static let fileTree = "builtin:fileTree"
     static let richInput = "builtin:richInput"
     static let extensionConsole = "builtin:extensionConsole"
 }
 
 enum PanelLayoutMetrics {
-    static let fileTreeWidthRange: ClosedRange<CGFloat> = 180 ... 600
-    static let fileTreeDefaultWidth: Double = 260
-
     static let richInputWidthRange: ClosedRange<CGFloat> = 280 ... 800
     static let richInputDefaultWidth: Double = 380
     static let richInputHeightRange: ClosedRange<CGFloat> = 120 ... 600

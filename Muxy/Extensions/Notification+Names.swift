@@ -5,7 +5,6 @@ extension Notification.Name {
     static let toggleThemePicker = Notification.Name("MuxyToggleThemePicker")
     static let themeDidChange = Notification.Name("MuxyThemeDidChange")
     static let findInTerminal = Notification.Name("MuxyFindInTerminal")
-    static let toggleFileTree = Notification.Name("MuxyToggleFileTree")
     static let refocusActiveTerminal = Notification.Name("MuxyRefocusActiveTerminal")
     static let quickOpen = Notification.Name("MuxyQuickOpen")
     static let terminalOmnibox = Notification.Name("MuxyTerminalOmnibox")

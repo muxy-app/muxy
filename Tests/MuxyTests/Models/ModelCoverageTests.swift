@@ -505,13 +505,6 @@ struct ModelCoverageTests {
         #expect([.light, .dark].contains(MuxyTheme.colorScheme))
     }
 
-    @Test("File tree source preference exposes display values")
-    func fileTreeSourcePreferenceExposesDisplayValues() {
-        #expect(FileTreeSourcePreference.allCases.map(\.id) == ["projectBase", "activeTerminal"])
-        #expect(FileTreeSourcePreference.allCases.map(\.title) == ["Project base", "Active terminal directory"])
-        #expect(FileTreeSourcePreference.defaultValue == .projectBase)
-    }
-
     @Test("Rich input draft, strategy, and state preserve attachments")
     func richInputModelsPreserveAttachments() throws {
         #expect(RichInputDraft.empty.isEmpty)

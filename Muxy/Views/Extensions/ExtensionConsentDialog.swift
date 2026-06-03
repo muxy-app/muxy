@@ -244,6 +244,7 @@ struct ExtensionConsentDialog: View {
         case .tabsOpenForeign: "rectangle.stack.fill"
         case .remoteInvoke: "antenna.radiowaves.left.and.right"
         case .gitWrite: "arrow.triangle.branch"
+        case .filesWrite: "doc.fill"
         }
     }
 
@@ -256,6 +257,7 @@ struct ExtensionConsentDialog: View {
         case .tabsOpenForeign: "wants to open another extension's tab"
         case .remoteInvoke: "wants to serve a mobile request"
         case .gitWrite: "wants to modify the git repository"
+        case .filesWrite: "wants to modify workspace files"
         }
     }
 }

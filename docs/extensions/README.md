@@ -73,6 +73,7 @@ flowchart TD
 | [Tabs](tabs.md) | Register webview tab types and the injected `window.muxy` JS API |
 | [Panels](panels.md) | Register dockable/floating webview panels and the placement rules |
 | [Git](git.md) | Repository access: status, diff, log, branches, PRs, worktrees |
+| [Files](files.md) | Workspace filesystem access: list, read, stat, write, mkdir, rename, move, delete |
 | [Popovers](popovers.md) | Anchor a transient webview popover to a topbar/status bar item |
 | [Dialogs](dialogs.md) | Present native confirm/alert sheets on the main window |
 | [Topbar](topbar.md) | Attach icons to the tab strip that trigger a command |

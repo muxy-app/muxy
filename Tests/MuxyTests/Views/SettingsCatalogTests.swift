@@ -29,7 +29,7 @@ struct SettingsCatalogTests {
 
     @Test
     func settingsUseWorkflowCategories() {
-        #expect(SettingsCatalog.items.contains { $0.key == GeneralSettingsKeys.fileTreeSource && $0.category == .projects })
+        #expect(SettingsCatalog.items.contains { $0.key == ProjectPickerPreferences.storageKey && $0.category == .projects })
         #expect(SettingsCatalog.items.contains { $0.key == GeneralSettingsKeys.autoCopyTerminalSelection && $0.category == .terminal })
         #expect(SettingsCatalog.items.contains { $0.key == RecordingPreferences.languageKey && $0.category == .voice })
     }

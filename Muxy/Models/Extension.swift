@@ -64,6 +64,8 @@ enum ExtensionPermission: String, Codable, CaseIterable {
     case worktreesWrite = "worktrees:write"
     case gitRead = "git:read"
     case gitWrite = "git:write"
+    case filesRead = "files:read"
+    case filesWrite = "files:write"
     case notificationsWrite = "notifications:write"
     case panelsWrite = "panels:write"
     case commandsRunScript = "commands:run-script"
@@ -82,13 +84,15 @@ enum ExtensionPermission: String, Codable, CaseIterable {
              .tabsRead,
              .projectsRead,
              .worktreesRead,
-             .gitRead:
+             .gitRead,
+             .filesRead:
             .read
         case .panesWrite,
              .tabsWrite,
              .projectsWrite,
              .worktreesWrite,
              .gitWrite,
+             .filesWrite,
              .notificationsWrite,
              .panelsWrite:
             .write

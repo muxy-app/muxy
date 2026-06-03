@@ -192,7 +192,6 @@ enum SettingsJSONStore {
     private static func validateAllowedString(_ value: String, key: String) throws {
         let allowedValues: [String: Set<String>] = [
             UpdateChannel.storageKey: Set(UpdateChannel.allCases.map(\.rawValue)),
-            GeneralSettingsKeys.fileTreeSource: Set(FileTreeSourcePreference.allCases.map(\.rawValue)),
             ProjectPickerPreferences.storageKey: Set(ProjectPickerMode.allCases.map(\.rawValue)),
             SentryConsent.storageKey: Set(["", SentryConsent.allowed.rawValue, SentryConsent.denied.rawValue]),
             "muxy.ui.scale": Set(UIScale.Preset.allCases.map(\.rawValue)),

@@ -63,11 +63,12 @@ public enum ExtensionBridgeJS {
                 },
             };
         \(surface == .inProcess ? workspaceBlock : "")
+        \(surface == .inProcess ? filesBlock : "")
         \(surface == .background ? eventsBlock : "")
         \(surface == .background ? remoteBlock : "")
         \(gitBlock)
             \(surface == .inProcess ?
-            "Object.freeze(muxy.tabs); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees);" :
+            "Object.freeze(muxy.tabs); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees); Object.freeze(muxy.files);" :
             "")
             Object.freeze(muxy.git); Object.freeze(muxy.git.pr); Object.freeze(muxy.git.branch); Object.freeze(muxy.git.worktree);
             Object.freeze(muxy.notifications);
@@ -213,6 +214,32 @@ public enum ExtensionBridgeJS {
                         force: Boolean((o || {}).force),
                     }),
                 },
+            };
+    """
+
+    private static let filesBlock = """
+            const filesProject = (o) => (o && o.project != null ? String(o.project) : null);
+            muxy.files = {
+                list:   (path, o) => dispatch('files.list', { project: filesProject(o), path: String(path == null ? '' : path) }),
+                read:   (path, o) => dispatch('files.read', { project: filesProject(o), path: String(path == null ? '' : path) }),
+                stat:   (path, o) => dispatch('files.stat', { project: filesProject(o), path: String(path == null ? '' : path) }),
+                write:  (path, contents, o) => dispatch('files.write', {
+                    project: filesProject(o),
+                    path: String(path == null ? '' : path),
+                    contents: String(contents == null ? '' : contents),
+                }),
+                mkdir:  (path, o) => dispatch('files.mkdir', { project: filesProject(o), path: String(path == null ? '' : path) }),
+                rename: (path, newName, o) => dispatch('files.rename', {
+                    project: filesProject(o),
+                    path: String(path == null ? '' : path),
+                    newName: String(newName == null ? '' : newName),
+                }),
+                move:   (paths, into, o) => dispatch('files.move', {
+                    project: filesProject(o),
+                    paths: (paths || []).map(String),
+                    into: String(into == null ? '' : into),
+                }),
+                delete: (paths, o) => dispatch('files.delete', { project: filesProject(o), paths: (paths || []).map(String) }),
             };
     """
 

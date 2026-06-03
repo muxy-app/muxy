@@ -61,10 +61,7 @@ struct MainWindow: View {
     }
 
     @State var panelHost = PanelHost.shared
-    @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = PanelLayoutMetrics.fileTreeDefaultWidth
-    @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
-    @State private var fileTreeLastTerminalPaths: [WorktreeKey: String] = [:]
-    @AppStorage(GeneralSettingsKeys.fileTreeSource) private var fileTreeSourceRaw = FileTreeSourcePreference.defaultValue.rawValue
+    @State private var workspaceFileWatcher = WorkspaceFileWatcher()
     @AppStorage("muxy.extensionPanelWidth") private var extensionPanelWidth: Double = PanelLayoutMetrics.extensionDefaultWidth
     @AppStorage("muxy.extensionPanelHeight") private var extensionPanelHeight: Double = PanelLayoutMetrics.extensionDefaultHeight
     @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = PanelLayoutMetrics.richInputDefaultWidth
@@ -210,34 +207,18 @@ struct MainWindow: View {
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
         }
         .modifier(SidePanelNotificationListeners(
-            onToggleFileTree: { toggleFileTreePanel() },
             onToggleRichInput: { toggleRichInputPanel() },
             onToggleVoiceRecording: { _ = openVoiceRecorder() }
         ))
         .onChange(of: worktreeKeysSignature) {
-            pruneFileTreeStates()
+            pruneWorktreeStates()
         }
         .onChange(of: activeWorktreeSignature) {
-            guard let project = activeProject else { return }
-            if fileTreePanelVisible {
-                ensureFileTreeState(for: project)
-            }
+            updateWorkspaceFileWatcher()
         }
-        .modifier(FileTreeSourceObserver(
-            activeTerminalCWD: activeTerminalPane?.currentWorkingDirectory,
-            activeTerminalID: activeTerminalPane?.id,
-            sourceRaw: fileTreeSourceRaw,
-            onTerminalChange: refreshFileTreeRootForActiveTerminal,
-            onSourceChange: {
-                guard let project = activeProject else { return }
-                ensureFileTreeState(for: project)
-            }
-        ))
-        .modifier(FileTreeSelectionSync(
-            filePath: activeEditorFilePath,
-            panelVisible: fileTreePanelVisible,
-            sync: syncFileTreeSelection
-        ))
+        .task {
+            updateWorkspaceFileWatcher()
+        }
         .modifier(TabCloseConfirmationObserver(
             lastTab: appState.pendingLastTabClose != nil,
             unsavedEditor: appState.pendingUnsavedEditorTabClose != nil,
@@ -539,10 +520,6 @@ struct MainWindow: View {
                                 NotificationCenter.default.post(name: .quickOpen, object: nil)
                             }
                             .help("Quick Open (\(KeyBindingStore.shared.combo(for: .quickOpen).displayString))")
-                            FileTreeIconButton {
-                                NotificationCenter.default.post(name: .toggleFileTree, object: nil)
-                            }
-                            .help("File Tree (\(KeyBindingStore.shared.combo(for: .toggleFileTree).displayString))")
                         }
                     }
                     .padding(.trailing, UIMetrics.spacing2)
@@ -925,7 +902,6 @@ struct MainWindow: View {
         projectStore.projects.filter { appState.workspaceRoot(for: $0.id) != nil }
     }
 
-    var fileTreePanelVisible: Bool { panelHost.isOpen(BuiltinPanel.fileTree) }
     var richInputPanelVisible: Bool { panelHost.isOpen(BuiltinPanel.richInput) }
     var showExtensionOutput: Bool { panelHost.isOpen(BuiltinPanel.extensionConsole) }
 
@@ -954,54 +930,12 @@ struct MainWindow: View {
     @ViewBuilder
     private func panelContent(for panelID: String, position: PanelPosition, mode: PanelMode) -> some View {
         switch panelID {
-        case BuiltinPanel.fileTree:
-            fileTreePanelBody(position: position)
         case BuiltinPanel.richInput:
             richInputPanelBody(position: position, mode: mode)
         case BuiltinPanel.extensionConsole:
             extensionConsolePanelBody(position: position, mode: mode)
         default:
             extensionPanelBody(panelID: panelID, position: position, mode: mode)
-        }
-    }
-
-    @ViewBuilder
-    private func fileTreePanelBody(position: PanelPosition) -> some View {
-        if let treeState = activeFileTreeState {
-            PanelContainer(
-                chrome: PanelChrome(hiddenControls: [.close, .pin, .position]),
-                mode: .pinned,
-                position: position,
-                onClose: nil,
-                onTogglePin: nil,
-                onTogglePosition: nil,
-                content: {
-                    FileTreeView(
-                        state: treeState,
-                        onOpenFile: { filePath in
-                            guard let projectID = appState.activeProjectID else { return }
-                            appState.openFile(filePath, projectID: projectID, preserveFocus: true)
-                        },
-                        onOpenTerminal: { directory in
-                            guard let projectID = appState.activeProjectID else { return }
-                            appState.dispatch(.createTabInDirectory(
-                                projectID: projectID,
-                                areaID: nil,
-                                directory: directory
-                            ))
-                        },
-                        onFileMoved: { oldPath, newPath in
-                            appState.handleFileMoved(from: oldPath, to: newPath)
-                        }
-                    )
-                    .id(activeFileTreeIdentity)
-                }
-            )
-            .modifier(PanelFrame(
-                position: position,
-                size: $fileTreePanelWidth,
-                range: PanelLayoutMetrics.fileTreeWidthRange
-            ))
         }
     }
 
@@ -1127,48 +1061,12 @@ struct MainWindow: View {
         )
     }
 
-    private var activeFileTreeState: FileTreeState? {
-        guard let project = activeProject,
-              let key = appState.activeWorktreeKey(for: project.id)
-        else { return nil }
-        return fileTreeStates[key]
-    }
-
-    private var activeFileTreeIdentity: WorktreeKey? {
-        guard let project = activeProject else { return nil }
-        return appState.activeWorktreeKey(for: project.id)
-    }
-
-    private func ensureFileTreeState(for project: Project) {
-        guard let key = appState.activeWorktreeKey(for: project.id) else { return }
-        let path = resolvedFileTreeRoot(for: project, key: key)
-        if let existing = fileTreeStates[key] {
-            existing.setRootPath(path)
+    private func updateWorkspaceFileWatcher() {
+        guard let project = activeProject else {
+            workspaceFileWatcher.setRoot(nil)
             return
         }
-        fileTreeStates[key] = FileTreeState(rootPath: path)
-    }
-
-    private var fileTreeSource: FileTreeSourcePreference {
-        FileTreeSourcePreference(rawValue: fileTreeSourceRaw) ?? .projectBase
-    }
-
-    private func resolvedFileTreeRoot(for project: Project, key: WorktreeKey) -> String {
-        let base = activeWorktreePath(for: project)
-        guard fileTreeSource == .activeTerminal else { return base }
-        if let cwd = appState.activeTab(for: project.id)?.content.pane?.currentWorkingDirectory {
-            fileTreeLastTerminalPaths[key] = cwd
-            return cwd
-        }
-        return fileTreeLastTerminalPaths[key] ?? base
-    }
-
-    private func refreshFileTreeRootForActiveTerminal() {
-        guard fileTreeSource == .activeTerminal,
-              fileTreePanelVisible,
-              let project = activeProject
-        else { return }
-        ensureFileTreeState(for: project)
+        workspaceFileWatcher.setRoot(activeWorktreePath(for: project))
     }
 
     private var activeEditorState: EditorTabState? {
@@ -1185,42 +1083,9 @@ struct MainWindow: View {
         return (state.cursorLine, state.cursorColumn)
     }
 
-    private func syncFileTreeSelection(filePath: String?) {
-        guard fileTreePanelVisible,
-              let project = activeProject,
-              let key = appState.activeWorktreeKey(for: project.id),
-              let state = fileTreeStates[key]
-        else { return }
-        if let filePath {
-            state.revealFile(at: filePath)
-        } else {
-            state.clearSelection()
-        }
-    }
-
-    private func pruneFileTreeStates() {
+    private func pruneWorktreeStates() {
         let validKeys = validWorktreeKeys()
-        fileTreeStates = fileTreeStates.filter { validKeys.contains($0.key) }
-        fileTreeLastTerminalPaths = fileTreeLastTerminalPaths.filter { validKeys.contains($0.key) }
         richInputStates = richInputStates.filter { validKeys.contains($0.key) }
-    }
-
-    private func toggleFileTreePanel() {
-        guard let project = activeProject else {
-            if fileTreePanelVisible {
-                panelHost.close(BuiltinPanel.fileTree)
-                NotificationCenter.default.post(name: .refocusActiveTerminal, object: nil)
-            }
-            return
-        }
-
-        if fileTreePanelVisible {
-            panelHost.close(BuiltinPanel.fileTree)
-            NotificationCenter.default.post(name: .refocusActiveTerminal, object: nil)
-            return
-        }
-        ensureFileTreeState(for: project)
-        panelHost.open(BuiltinPanel.fileTree, at: .right, mode: .pinned)
     }
 
     private var activeRichInputState: RichInputState? {
@@ -1466,23 +1331,6 @@ private struct WindowTitleUpdater: NSViewRepresentable {
     }
 }
 
-private struct FileTreeSelectionSync: ViewModifier {
-    let filePath: String?
-    let panelVisible: Bool
-    let sync: (String?) -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: filePath) { _, newValue in
-                sync(newValue)
-            }
-            .onChange(of: panelVisible) { _, visible in
-                guard visible else { return }
-                sync(filePath)
-            }
-    }
-}
-
 private struct TabCloseConfirmationObserver: ViewModifier {
     let lastTab: Bool
     let unsavedEditor: Bool
@@ -1505,21 +1353,6 @@ private struct TabCloseConfirmationObserver: ViewModifier {
                 guard isPresented else { return }
                 onRunningProcess()
             }
-    }
-}
-
-private struct FileTreeSourceObserver: ViewModifier {
-    let activeTerminalCWD: String?
-    let activeTerminalID: UUID?
-    let sourceRaw: String
-    let onTerminalChange: () -> Void
-    let onSourceChange: () -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: activeTerminalCWD) { _, _ in onTerminalChange() }
-            .onChange(of: activeTerminalID) { _, _ in onTerminalChange() }
-            .onChange(of: sourceRaw) { _, _ in onSourceChange() }
     }
 }
 
@@ -1680,15 +1513,11 @@ private final class ShortcutInterceptingView: NSView {
 }
 
 private struct SidePanelNotificationListeners: ViewModifier {
-    let onToggleFileTree: () -> Void
     let onToggleRichInput: () -> Void
     let onToggleVoiceRecording: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(for: .toggleFileTree)) { _ in
-                onToggleFileTree()
-            }
             .onReceive(NotificationCenter.default.publisher(for: .toggleRichInput)) { _ in
                 onToggleRichInput()
             }
