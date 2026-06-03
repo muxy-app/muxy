@@ -307,6 +307,59 @@ enum MuxyAPIDispatcher {
                 context: git
             ))
             return NSNull()
+        case "git.worktree.switch":
+            guard let projectStore = context.projectStore,
+                  let worktreeStore = context.worktreeStore
+            else { throw APIError.worktreeStoreUnavailable }
+            try unwrap(MuxyAPI.Worktrees.switchTo(
+                identifier: stringArg(args, "identifier"),
+                projectIdentifier: project,
+                appState: context.appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            ))
+            return NSNull()
+        case "git.remoteBranches":
+            return try await unwrap(MuxyAPI.Git.remoteBranches(projectIdentifier: project, context: git))
+        case "git.branch.deleteRemote":
+            try await unwrap(MuxyAPI.Git.deleteRemoteBranch(
+                projectIdentifier: project,
+                branch: stringArg(args, "branch"),
+                context: git
+            ))
+            return NSNull()
+        case "git.checkout":
+            try await unwrap(MuxyAPI.Git.checkout(projectIdentifier: project, hash: stringArg(args, "hash"), context: git))
+            return NSNull()
+        case "git.cherryPick":
+            try await unwrap(MuxyAPI.Git.cherryPick(projectIdentifier: project, hash: stringArg(args, "hash"), context: git))
+            return NSNull()
+        case "git.revert":
+            try await unwrap(MuxyAPI.Git.revert(projectIdentifier: project, hash: stringArg(args, "hash"), context: git))
+            return NSNull()
+        case "git.tag.create":
+            try await unwrap(MuxyAPI.Git.createTag(
+                projectIdentifier: project,
+                name: stringArg(args, "name"),
+                hash: stringArg(args, "hash"),
+                context: git
+            ))
+            return NSNull()
+        case "git.pr.checkout":
+            try await unwrap(MuxyAPI.Git.checkoutPullRequest(
+                projectIdentifier: project,
+                number: intArgRequired(args, "number"),
+                context: git
+            ))
+            return NSNull()
+        case "git.pr.checkoutWorktree":
+            let branch = try await unwrap(MuxyAPI.Git.checkoutPullRequestWorktree(
+                projectIdentifier: project,
+                path: stringArg(args, "path"),
+                number: intArgRequired(args, "number"),
+                context: git
+            ))
+            return ["branch": branch]
         default:
             throw APIError.invalidArguments("unknown verb \(verb)")
         }

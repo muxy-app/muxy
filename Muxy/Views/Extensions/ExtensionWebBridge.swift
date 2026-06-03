@@ -191,9 +191,13 @@ enum ExtensionWebBridge {
                         skip: (o || {}).skip == null ? null : Number(o.skip),
                     }); },
                     branches(o) { return send('git.branches', { project: gitProject(o) }); },
+                    remoteBranches(o) { return send('git.remoteBranches', { project: gitProject(o) }); },
                     currentBranch(o) { return send('git.currentBranch', { project: gitProject(o) }); },
                     aheadBehind(o) { return send('git.aheadBehind', { project: gitProject(o) }); },
                     worktrees(o) { return send('git.worktrees', { project: gitProject(o) }); },
+                    checkout(o) { return send('git.checkout', { project: gitProject(o), hash: String((o || {}).hash || '') }); },
+                    cherryPick(o) { return send('git.cherryPick', { project: gitProject(o), hash: String((o || {}).hash || '') }); },
+                    revert(o) { return send('git.revert', { project: gitProject(o), hash: String((o || {}).hash || '') }); },
                     stage(o) { return send('git.stage', { project: gitProject(o), paths: ((o || {}).paths || []).map(String) }); },
                     unstage(o) { return send('git.unstage', { project: gitProject(o), paths: ((o || {}).paths || []).map(String) }); },
                     discard(o) { return send('git.discard', {
@@ -215,9 +219,25 @@ enum ExtensionWebBridge {
                         switchTo(o) {
                             return send('git.branch.switch', { project: gitProject(o), branch: String((o || {}).branch || '') });
                         },
+                        deleteRemote(o) {
+                            return send('git.branch.deleteRemote', { project: gitProject(o), branch: String((o || {}).branch || '') });
+                        },
+                    },
+                    tag: {
+                        create(o) { return send('git.tag.create', {
+                            project: gitProject(o),
+                            name: String((o || {}).name || ''),
+                            hash: String((o || {}).hash || ''),
+                        }); },
                     },
                     pr: {
                         info(o) { return send('git.pr.info', { project: gitProject(o) }); },
+                        checkout(o) { return send('git.pr.checkout', { project: gitProject(o), number: Number((o || {}).number) }); },
+                        checkoutWorktree(o) { return send('git.pr.checkoutWorktree', {
+                            project: gitProject(o),
+                            path: String((o || {}).path || ''),
+                            number: Number((o || {}).number),
+                        }); },
                         list(o) { return send('git.pr.list', {
                             project: gitProject(o),
                             filter: (o || {}).filter == null ? null : String(o.filter),
@@ -251,6 +271,9 @@ enum ExtensionWebBridge {
                             path: String((o || {}).path || ''),
                             force: Boolean((o || {}).force),
                         }); },
+                        switchTo(o) {
+                            return send('git.worktree.switch', { project: gitProject(o), identifier: String((o || {}).identifier || '') });
+                        },
                     },
                 },
                 events: {
@@ -292,6 +315,7 @@ enum ExtensionWebBridge {
             Object.freeze(muxy.git);
             Object.freeze(muxy.git.pr);
             Object.freeze(muxy.git.branch);
+            Object.freeze(muxy.git.tag);
             Object.freeze(muxy.git.worktree);
             Object.freeze(muxy.events);
             Object.freeze(muxy);

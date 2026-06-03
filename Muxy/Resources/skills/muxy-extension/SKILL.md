@@ -83,7 +83,7 @@ Declare the scale once at the top of your stylesheet and reference it everywhere
 ## Behavior
 
 - **Least privilege.** Declare a permission only when you add the call that needs it.
-- **Use `muxy.git` for repository work** (status, diff, log, branches, PRs, worktrees) instead of shelling out via `muxy.exec` — it's the app's own git core and returns structured data. Reads need `git:read`; writes need `git:write` and prompt for consent. See [Git](https://github.com/muxy-app/muxy/tree/main/docs/extensions/git.md).
+- **Use `muxy.git` for repository work** (status, diff, log, branches, PRs, tags, checkout/cherryPick/revert, worktrees incl. `worktree.switchTo` and `pr.checkoutWorktree`) instead of shelling out via `muxy.exec` — it's the app's own git core and returns structured data. Reads need `git:read`; writes need `git:write` and prompt for consent. Available to tabs/panels/popovers, not background scripts. See [Git](https://github.com/muxy-app/muxy/tree/main/docs/extensions/git.md).
 - **Make hover and active states visible** in both light and dark — `background: var(--muxy-hover); border-color: var(--muxy-accent);` is the standard pattern.
 - **Respect `prefers-reduced-motion`** — Muxy users opt into Reduce Motion at the OS level; avoid long transitions, large translations, autoplay.
 - **No hardcoded `~/.config/muxy` paths** from inside the extension — rely on the working directory Muxy sets, or pass `cwd` to `exec`.
