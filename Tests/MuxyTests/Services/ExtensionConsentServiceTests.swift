@@ -88,6 +88,44 @@ struct ExtensionConsentServiceTests {
         #expect(grantStore.rules.isEmpty)
     }
 
+    @Test("blockKind overrides existing allow rules and silences future prompts")
+    func blockKindBlocksWholeVerb() async {
+        let grantStore = makeGrantStore()
+        let service = ExtensionConsentService(grantStore: grantStore, auditLog: makeAuditLog())
+        grantStore.add(ExtensionGrantRule(
+            extensionID: "ext",
+            verb: .exec,
+            match: .argvPrefix(["git"]),
+            decision: .allow
+        ))
+        let request = ExtensionConsentRequestBuilder.make(
+            extensionID: "ext",
+            verb: .exec,
+            payload: .exec(argv: ["npm", "install"], shell: nil),
+            source: "test"
+        )
+
+        async let decision = service.gate(request)
+        await waitUntil { service.pendingPrompt?.id == request.id }
+        service.respond(requestID: request.id, choice: .blockKind)
+
+        let resolved = await decision
+        #expect(resolved == .deny)
+        #expect(grantStore.rules.count == 1)
+        #expect(grantStore.rules.first?.match == .any)
+        #expect(grantStore.rules.first?.decision == .deny)
+
+        let previouslyAllowed = ExtensionConsentRequestBuilder.make(
+            extensionID: "ext",
+            verb: .exec,
+            payload: .exec(argv: ["git", "status"], shell: nil),
+            source: "test"
+        )
+        let allowedDecision = await service.gate(previouslyAllowed)
+        #expect(allowedDecision == .deny)
+        #expect(service.pendingPrompt == nil)
+    }
+
     @Test("queue flood for one extension auto-denies excess")
     func queueFloodAutoDenies() async {
         let grantStore = makeGrantStore()

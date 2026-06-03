@@ -20,6 +20,7 @@ enum ExtensionConsentChoice {
     case allowAndRemember
     case denyOnce
     case denyAndRemember
+    case blockKind
 }
 
 @MainActor
@@ -97,7 +98,8 @@ final class ExtensionConsentService {
         case .allowOnce,
              .allowAndRemember: return .allow
         case .denyOnce,
-             .denyAndRemember: return .deny
+             .denyAndRemember,
+             .blockKind: return .deny
         }
     }
 
@@ -130,6 +132,9 @@ final class ExtensionConsentService {
             )
             grantStore.add(rule)
             recordAudit(request: request, decision: .deny, ruleID: rule.id)
+        case .blockKind:
+            let ruleID = grantStore.blockKind(extensionID: request.extensionID, verb: request.verb)
+            recordAudit(request: request, decision: .deny, ruleID: ruleID)
         }
     }
 

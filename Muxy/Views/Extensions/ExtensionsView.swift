@@ -956,7 +956,7 @@ private struct ExtensionGrantRuleRow: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(MuxyTheme.fg)
                 .frame(width: 130, alignment: .leading)
-            Text(rule.match.displayString)
+            Text(isBlocked ? "blocks all \(rule.verb.kindDisplayName)" : rule.match.displayString)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .lineLimit(1)
@@ -975,9 +975,13 @@ private struct ExtensionGrantRuleRow: View {
         .background(MuxyTheme.bg.opacity(0.5), in: RoundedRectangle(cornerRadius: 5))
     }
 
+    private var isBlocked: Bool {
+        rule.decision == .deny && rule.match == .any
+    }
+
     private var decisionBadge: some View {
         let isAllow = rule.decision == .allow
-        let label = isAllow ? "allow" : "deny"
+        let label = isAllow ? "allow" : (isBlocked ? "blocked" : "deny")
         let color = isAllow ? MuxyTheme.diffAddFg : MuxyTheme.diffRemoveFg
         return Text(label)
             .font(.system(size: 10, weight: .semibold))
