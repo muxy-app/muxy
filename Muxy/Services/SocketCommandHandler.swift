@@ -241,6 +241,10 @@ enum SocketCommandHandler {
         case "modal.open":
             guard parts.count >= 2 else { return "error:usage modal.open|<base64-json>" }
             return await handleModalOpen(base64Payload: parts[1], extensionID: clientContext.extensionID)
+        case "topbar.set",
+             "statusbar.set":
+            guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
+            return handleBarItemSet(verb: cmd, base64Payload: parts[1], extensionID: clientContext.extensionID)
         default:
             return "error:unknown command \(cmd)"
         }
@@ -323,6 +327,30 @@ enum SocketCommandHandler {
         } catch {
             return "error:\((error as? APIError)?.message ?? error.localizedDescription)"
         }
+    }
+
+    private static func handleBarItemSet(verb: String, base64Payload: String, extensionID: String?) -> String {
+        guard let extensionID else { return "error:identify required" }
+        guard ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: .panelsWrite) else {
+            return "error:permission denied (panels:write)"
+        }
+        guard let args = decodeJSONObject(base64Payload), let itemID = args["id"] as? String else {
+            return "error:invalid \(verb) payload"
+        }
+        let icon = ExtensionIcon.parse(args["icon"])
+        if verb == "topbar.set" {
+            let updated = ExtensionStore.shared.setTopbarItem(extensionID: extensionID, itemID: itemID, icon: icon)
+            return updated ? encodeJSONFragment(NSNull()) : "error:unknown topbar item '\(itemID)'"
+        }
+        let rawText = args["text"] as? String
+        let updated = ExtensionStore.shared.setStatusBarItem(
+            extensionID: extensionID,
+            itemID: itemID,
+            icon: icon,
+            text: (rawText?.isEmpty == true) ? nil : rawText,
+            clearText: args.keys.contains("text")
+        )
+        return updated ? encodeJSONFragment(NSNull()) : "error:unknown status bar item '\(itemID)'"
     }
 
     private static func modalItemDict(_ item: ExtensionModalService.Item) -> [String: Any] {

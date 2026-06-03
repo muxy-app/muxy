@@ -263,6 +263,20 @@ enum ExtensionIcon: Codable, Equatable {
         case let .svg(value): try container.encode(value, forKey: .svg)
         }
     }
+
+    static func parse(_ value: Any?) -> ExtensionIcon? {
+        if let raw = value as? String {
+            return raw.isEmpty ? nil : .symbol(raw)
+        }
+        guard let dict = value as? [String: Any] else { return nil }
+        if let symbol = dict["symbol"] as? String, !symbol.isEmpty {
+            return .symbol(symbol)
+        }
+        if let svg = dict["svg"] as? String, !svg.isEmpty {
+            return .svg(svg)
+        }
+        return nil
+    }
 }
 
 struct ExtensionTopbarItem: Codable, Equatable, Identifiable {
@@ -558,6 +572,10 @@ struct ExtensionManifest: Codable, Equatable {
 
     func statusBarItem(id: String) -> ExtensionStatusBarItem? {
         statusBarItems.first { $0.id == id }
+    }
+
+    func topbarItem(id: String) -> ExtensionTopbarItem? {
+        topbarItems.first { $0.id == id }
     }
 
     func remoteMethod(id: String) -> ExtensionRemoteMethod? {

@@ -9,7 +9,7 @@ Extensions are npm + [Vite](https://vitejs.dev) projects that Muxy loads on laun
 Muxy's main process (`ExtensionStore`) scans the extensions directory, loads the enabled ones, and gives each two surfaces:
 
 - **Declared UI** — panels, tabs, popovers, topbar/status-bar items render in-process as WKWebViews. Their pages talk to Muxy through the injected `window.muxy` bridge, which exposes the full API (`tabs`, `panes`, `projects`, `worktrees`, `events`, `exec`, `toast`, `panels`, `popover`). No subprocess.
-- **Background script** — if the manifest declares a `muxy.background` script, Muxy runs it in a small bundled host process (`MuxyExtensionHost`). This is where event listeners (`muxy.events.subscribe`) and `muxy.exec` live. Most extensions don't need one.
+- **Background script** — if the manifest declares a `muxy.background` script, Muxy runs it in a small bundled host process (`MuxyExtensionHost`). This is where event listeners (`muxy.events.subscribe`) and `muxy.exec` live. `setTimeout`/`setInterval` (and their `clear*` counterparts) are available for polling or scheduled work. Most extensions don't need one.
 
 Events originate in the main process (`ExtensionEventEmitter` diffs workspace state) and are delivered to the host. `muxy.exec` is gated by a permission check and a runtime consent prompt before it runs.
 

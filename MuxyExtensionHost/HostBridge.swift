@@ -6,6 +6,8 @@ final class HostBridge: @unchecked Sendable {
     private let client: HostSocketClient
     private let extensionID: String
     private let context: JSContext
+    private var timers: [Int: DispatchSourceTimer] = [:]
+    private var nextTimerID = 1
 
     init(client: HostSocketClient, extensionID: String, context: JSContext) {
         self.client = client
@@ -14,6 +16,7 @@ final class HostBridge: @unchecked Sendable {
     }
 
     func install() {
+        installTimers()
         let dispatch: @convention(block) (String, JSValue?) -> Any = { [weak self] verb, args in
             guard let self else { return ["ok": false, "error": "host released"] }
             return self.dispatch(verb: verb, args: args)
@@ -43,6 +46,49 @@ final class HostBridge: @unchecked Sendable {
         context.evaluateScript(ExtensionBridgeJS.script(extensionID: extensionID, surface: .background))
     }
 
+    private func installTimers() {
+        let setTimer: @convention(block) (JSValue, Double, Bool) -> Int = { [weak self] callback, delayMs, repeats in
+            self?.scheduleTimer(callback: callback, delayMs: delayMs, repeats: repeats) ?? 0
+        }
+        context.setObject(setTimer, forKeyedSubscript: "__muxySetTimer" as NSString)
+
+        let clearTimer: @convention(block) (Int) -> Void = { [weak self] id in
+            self?.cancelTimer(id: id)
+        }
+        context.setObject(clearTimer, forKeyedSubscript: "__muxyClearTimer" as NSString)
+
+        context.evaluateScript("""
+        globalThis.setTimeout = (fn, delay) => __muxySetTimer(fn, Number(delay) || 0, false);
+        globalThis.setInterval = (fn, delay) => __muxySetTimer(fn, Number(delay) || 0, true);
+        globalThis.clearTimeout = (id) => __muxyClearTimer(Number(id) || 0);
+        globalThis.clearInterval = (id) => __muxyClearTimer(Number(id) || 0);
+        """)
+    }
+
+    private func scheduleTimer(callback: JSValue, delayMs: Double, repeats: Bool) -> Int {
+        let id = nextTimerID
+        nextTimerID += 1
+        let interval = max(0, delayMs) / 1000
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        if repeats {
+            timer.schedule(deadline: .now() + interval, repeating: interval)
+        } else {
+            timer.schedule(deadline: .now() + interval)
+        }
+        timer.setEventHandler { [weak self] in
+            callback.call(withArguments: [])
+            if !repeats { self?.cancelTimer(id: id) }
+        }
+        timers[id] = timer
+        timer.resume()
+        return id
+    }
+
+    private func cancelTimer(id: Int) {
+        guard let timer = timers.removeValue(forKey: id) else { return }
+        timer.cancel()
+    }
+
     private func dispatch(verb: String, args: JSValue?) -> Any {
         let dict = (args?.toDictionary() as? [String: Any]) ?? [:]
         switch verb {
@@ -52,7 +98,9 @@ final class HostBridge: @unchecked Sendable {
             return dispatchNotify(dict)
         case "dialog.confirm",
              "dialog.alert",
-             "modal.open":
+             "modal.open",
+             "topbar.set",
+             "statusbar.set":
             return dispatchValueReturning(verb: verb, dict: dict)
         default:
             return ["ok": false, "error": "verb '\(verb)' is not available in background context"]

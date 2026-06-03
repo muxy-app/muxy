@@ -33,6 +33,22 @@ A click dispatches the referenced command through the same path as the command p
 
 Disabled extensions contribute no topbar items.
 
+## Updating the icon at runtime
+
+The icon can be swapped while the extension runs — from `background.js` or any tab/panel/popover page — with `muxy.topbar.set`:
+
+```js
+muxy.topbar.set({ id: "pr", icon: { symbol: "checkmark.circle.fill" } });
+muxy.topbar.set({ id: "pr", icon: "arrow.triangle.pull" }); // bare string == symbol
+```
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `id` | string | Must reference a declared `topbarItems[].id`. |
+| `icon` | string \| object | New icon: `"<sf-symbol>"`, `{ symbol }`, or `{ svg }` (the SVG must be a file bundled with the extension). Omit to leave the icon unchanged. |
+
+Needs `panels:write`. The override is in-memory for the session; disabling or reloading the extension restores the manifest icon. Throws on an unknown `id`.
+
 ## Placement and order
 
 Items sit in the right-hand cluster, just before the built-in **Split / New Tab** group. Among themselves they are ordered by extension directory name, then by their order in the `topbarItems` array.

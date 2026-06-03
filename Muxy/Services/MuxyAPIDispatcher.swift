@@ -51,6 +51,31 @@ enum MuxyAPIDispatcher {
                 height: doubleArg(args, "height")
             ))
             return NSNull()
+        case "topbar.set":
+            let topbarItemID = try stringArg(args, "id")
+            guard ExtensionStore.shared.setTopbarItem(
+                extensionID: context.extensionID,
+                itemID: topbarItemID,
+                icon: ExtensionIcon.parse(args["icon"])
+            )
+            else {
+                throw APIError.invalidArguments("unknown topbar item '\(topbarItemID)'")
+            }
+            return NSNull()
+        case "statusbar.set":
+            let statusItemID = try stringArg(args, "id")
+            let rawText = args["text"] as? String
+            guard ExtensionStore.shared.setStatusBarItem(
+                extensionID: context.extensionID,
+                itemID: statusItemID,
+                icon: ExtensionIcon.parse(args["icon"]),
+                text: (rawText?.isEmpty == true) ? nil : rawText,
+                clearText: args.keys.contains("text")
+            )
+            else {
+                throw APIError.invalidArguments("unknown status bar item '\(statusItemID)'")
+            }
+            return NSNull()
         case "exec":
             return try await handleExec(args: args, context: context)
         case "dialog.confirm":

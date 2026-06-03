@@ -31,16 +31,30 @@ A status bar item is an icon (with optional text) Muxy adds to either side of th
 | `side` | string | yes | `left` or `right`. Groups with the built-in entries on that side. |
 | `command` | string | yes | Must reference a declared `commands[].id`. |
 
-## Updating text at runtime
+## Updating the icon and text at runtime
 
-Item text can be changed at runtime over the **socket** — this is the `extension.statusbar.set` verb, used by the `muxy` CLI and advanced integrations. It is **not** currently exposed as a method on the background `muxy` global, so a `background.js` script cannot set it directly today.
+The icon and text can be changed while the extension runs — from `background.js` or any tab/panel/popover page — with `muxy.statusbar.set`:
 
-The socket contract is `extension.statusbar.set|<itemID>[|<text>]`. Muxy handles the identity handshake; callers do not write it themselves. Omitting the text argument clears the override back to the manifest value.
+```js
+muxy.statusbar.set({ id: "build", text: "42" });
+muxy.statusbar.set({ id: "build", icon: { symbol: "checkmark.circle.fill" }, text: "✓" });
+muxy.statusbar.set({ id: "build", text: null }); // clear text back to the manifest value
+```
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `id` | string | Must reference a declared `statusBarItems[].id`. |
+| `icon` | string \| object | New icon: `"<sf-symbol>"`, `{ symbol }`, or `{ svg }` (the SVG must be a file bundled with the extension). Omit to leave the icon unchanged. |
+| `text` | string \| null | New text. `null` or `""` clears the override back to the manifest value. Omit to leave the text unchanged. |
+
+Needs `panels:write`. Overrides are in-memory for the session; disabling or reloading the extension restores the manifest values. Throws on an unknown `id`.
+
+### Socket alternative (CLI)
+
+The text can also be set over the **socket** with `extension.statusbar.set|<itemID>[|<text>]`, used by the `muxy` CLI and advanced integrations. Muxy handles the identity handshake; omitting the text clears the override.
 
 | Response | Meaning |
 | --- | --- |
 | `ok` | Text updated (or cleared, when no text is given). |
 | `error:identify required` | The connection has not been identified yet. |
 | `error:unknown status bar item '<id>'` | The id is not declared in `statusBarItems`. |
-
-The override is in-memory for the session; disabling or reloading the extension clears it.

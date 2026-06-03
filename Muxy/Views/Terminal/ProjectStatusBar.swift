@@ -194,7 +194,7 @@ struct ProjectStatusBar: View {
         } label: {
             HStack(spacing: 4) {
                 ExtensionIconView(
-                    icon: binding.item.icon,
+                    icon: binding.displayIcon,
                     muxyExtension: binding.muxyExtension,
                     size: 10
                 )
@@ -205,8 +205,12 @@ struct ProjectStatusBar: View {
                 }
             }
             .foregroundStyle(MuxyTheme.fgMuted)
+            .padding(.horizontal, 4)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, -4)
         .help(binding.item.tooltip ?? binding.item.id)
         .accessibilityLabel(binding.item.tooltip ?? binding.item.id)
         .extensionPopover(anchorID: binding.id, host: popoverHost)

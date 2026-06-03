@@ -169,6 +169,8 @@ enum MuxyAPI {
             "panel.toggle",
             "popover.close",
             "popover.resize",
+            "topbar.set",
+            "statusbar.set",
         ]).union(gitVerbs).union(filesVerbs)
 
         static let filesVerbs: Set<String> = [
@@ -305,6 +307,8 @@ enum MuxyAPI {
             "panel.toggle": .panelsWrite,
             "popover.close": .panelsWrite,
             "popover.resize": .panelsWrite,
+            "topbar.set": .panelsWrite,
+            "statusbar.set": .panelsWrite,
             "exec": .commandsExec,
         ]
     }

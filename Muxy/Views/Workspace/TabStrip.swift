@@ -103,7 +103,7 @@ struct PaneTabStrip: View {
                 }
                 ForEach(extensionStore.topbarItems) { binding in
                     ExtensionIconButton(
-                        icon: binding.item.icon,
+                        icon: binding.displayIcon,
                         muxyExtension: binding.muxyExtension,
                         accessibilityLabel: binding.item.tooltip ?? binding.item.id,
                         action: { triggerExtensionCommand(binding: binding) }
