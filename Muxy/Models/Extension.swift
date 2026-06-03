@@ -126,6 +126,7 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
     let position: PanelPosition
     let mode: PanelMode
     let hiddenControls: [PanelHeaderControl]
+    let headerButtons: [ExtensionPanelHeaderButton]
     let hideTopbar: Bool
     let defaultData: ExtensionJSON?
 
@@ -137,6 +138,7 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
         case position
         case mode
         case hiddenControls
+        case headerButtons
         case hideTopbar
         case defaultData
     }
@@ -149,6 +151,7 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
         position: PanelPosition = .right,
         mode: PanelMode = .floating,
         hiddenControls: [PanelHeaderControl] = [],
+        headerButtons: [ExtensionPanelHeaderButton] = [],
         hideTopbar: Bool = false,
         defaultData: ExtensionJSON? = nil
     ) {
@@ -159,6 +162,7 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
         self.position = position
         self.mode = mode
         self.hiddenControls = hiddenControls
+        self.headerButtons = headerButtons
         self.hideTopbar = hideTopbar
         self.defaultData = defaultData
     }
@@ -172,6 +176,7 @@ struct ExtensionPanel: Codable, Equatable, Identifiable {
         position = try container.decodeIfPresent(PanelPosition.self, forKey: .position) ?? .right
         mode = try container.decodeIfPresent(PanelMode.self, forKey: .mode) ?? .floating
         hiddenControls = try container.decodeIfPresent([PanelHeaderControl].self, forKey: .hiddenControls) ?? []
+        headerButtons = try container.decodeIfPresent([ExtensionPanelHeaderButton].self, forKey: .headerButtons) ?? []
         hideTopbar = try container.decodeIfPresent(Bool.self, forKey: .hideTopbar) ?? false
         defaultData = try container.decodeIfPresent(ExtensionJSON.self, forKey: .defaultData)
     }
@@ -297,6 +302,13 @@ struct ExtensionStatusBarItem: Codable, Equatable, Identifiable {
     let text: String?
     let tooltip: String?
     let side: Side
+    let command: String
+}
+
+struct ExtensionPanelHeaderButton: Codable, Equatable, Identifiable {
+    let id: String
+    let icon: ExtensionIcon
+    let tooltip: String?
     let command: String
 }
 
@@ -657,6 +669,11 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case duplicatePanel(String)
     case panelSVGMissing(panelID: String, url: URL)
     case panelSVGOutsideDirectory(panelID: String, url: URL)
+    case panelHeaderButtonEmptyID(panelID: String)
+    case duplicatePanelHeaderButton(panelID: String, buttonID: String)
+    case panelHeaderButtonReferencesUnknownCommand(panelID: String, buttonID: String, command: String)
+    case panelHeaderButtonSVGMissing(panelID: String, buttonID: String, url: URL)
+    case panelHeaderButtonSVGOutsideDirectory(panelID: String, buttonID: String, url: URL)
     case popoverEntryMissing(popoverID: String, url: URL)
     case popoverEntryOutsideDirectory(popoverID: String, url: URL)
     case duplicatePopover(String)
@@ -713,6 +730,16 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Panel '\(panelID)' icon SVG not found at \(url.path)"
         case let .panelSVGOutsideDirectory(panelID, url):
             "Panel '\(panelID)' icon SVG at \(url.path) escapes the extension directory"
+        case let .panelHeaderButtonEmptyID(panelID):
+            "Panel '\(panelID)' has a header button with an empty id"
+        case let .duplicatePanelHeaderButton(panelID, buttonID):
+            "Panel '\(panelID)' has a duplicate header button '\(buttonID)'"
+        case let .panelHeaderButtonReferencesUnknownCommand(panelID, buttonID, command):
+            "Panel '\(panelID)' header button '\(buttonID)' references unknown command '\(command)'"
+        case let .panelHeaderButtonSVGMissing(panelID, buttonID, url):
+            "Panel '\(panelID)' header button '\(buttonID)' icon SVG not found at \(url.path)"
+        case let .panelHeaderButtonSVGOutsideDirectory(panelID, buttonID, url):
+            "Panel '\(panelID)' header button '\(buttonID)' icon SVG at \(url.path) escapes the extension directory"
         case let .popoverEntryMissing(popoverID, url):
             "Popover '\(popoverID)' entry not found at \(url.path)"
         case let .popoverEntryOutsideDirectory(popoverID, url):
@@ -903,6 +930,7 @@ enum ExtensionManifestLoader {
     }
 
     private static func validatePanels(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
+        let commandIDs = Set(manifest.commands.map(\.id))
         var seen = Set<String>()
         for panel in manifest.panels {
             guard seen.insert(panel.id).inserted else {
@@ -923,6 +951,28 @@ enum ExtensionManifestLoader {
                     in: muxyExtension,
                     missing: { ExtensionLoadError.panelSVGMissing(panelID: panel.id, url: $0) },
                     outside: { ExtensionLoadError.panelSVGOutsideDirectory(panelID: panel.id, url: $0) }
+                )
+            }
+            var seenButtons = Set<String>()
+            for button in panel.headerButtons {
+                guard !button.id.isEmpty else {
+                    throw ExtensionLoadError.panelHeaderButtonEmptyID(panelID: panel.id)
+                }
+                guard seenButtons.insert(button.id).inserted else {
+                    throw ExtensionLoadError.duplicatePanelHeaderButton(panelID: panel.id, buttonID: button.id)
+                }
+                guard commandIDs.contains(button.command) else {
+                    throw ExtensionLoadError.panelHeaderButtonReferencesUnknownCommand(
+                        panelID: panel.id,
+                        buttonID: button.id,
+                        command: button.command
+                    )
+                }
+                try validateIcon(
+                    button.icon,
+                    in: muxyExtension,
+                    missing: { ExtensionLoadError.panelHeaderButtonSVGMissing(panelID: panel.id, buttonID: button.id, url: $0) },
+                    outside: { ExtensionLoadError.panelHeaderButtonSVGOutsideDirectory(panelID: panel.id, buttonID: button.id, url: $0) }
                 )
             }
         }

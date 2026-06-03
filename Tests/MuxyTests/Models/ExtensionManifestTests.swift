@@ -386,6 +386,61 @@ struct ExtensionManifestTests {
         }
     }
 
+    @Test("rejects panel header button referencing unknown command")
+    func rejectsPanelHeaderButtonUnknownCommand() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "panel-hb-bad",
+                "version": "1.0.0",
+                "panels": [
+                    {
+                        "id": "side",
+                        "entry": "panels/side.html",
+                        "headerButtons": [
+                            { "id": "prs", "icon": "arrow.triangle.pull", "command": "missing" }
+                        ]
+                    }
+                ]
+            }
+            """,
+            files: ["panels/side.html": "<html></html>"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("loads a panel with a valid header button")
+    func loadsPanelHeaderButton() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "panel-hb-ok",
+                "version": "1.0.0",
+                "commands": [ { "id": "show-prs", "title": "PRs" } ],
+                "panels": [
+                    {
+                        "id": "side",
+                        "entry": "panels/side.html",
+                        "headerButtons": [
+                            { "id": "prs", "icon": "arrow.triangle.pull", "command": "show-prs" }
+                        ]
+                    }
+                ]
+            }
+            """,
+            files: ["panels/side.html": "<html></html>"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let ext = try ExtensionManifestLoader.load(from: directory)
+        let panel = try #require(ext.manifest.panel(id: "side"))
+        #expect(panel.headerButtons.map(\.id) == ["prs"])
+    }
+
     @Test("rejects topbar item with missing SVG")
     func rejectsTopbarMissingSVG() throws {
         let directory = try makeTemporaryExtension(
@@ -535,6 +590,9 @@ struct ExtensionManifestTests {
                     "position": "bottom",
                     "mode": "pinned",
                     "hiddenControls": ["pin", "position"],
+                    "headerButtons": [
+                        { "id": "prs", "icon": { "symbol": "arrow.triangle.pull" }, "tooltip": "PRs", "command": "show-prs" }
+                    ],
                     "hideTopbar": true
                 }
             ]
@@ -546,12 +604,16 @@ struct ExtensionManifestTests {
         #expect(minimal.position == .right)
         #expect(minimal.mode == .floating)
         #expect(minimal.hiddenControls.isEmpty)
+        #expect(minimal.headerButtons.isEmpty)
         #expect(!minimal.hideTopbar)
         let full = try #require(manifest.panel(id: "full"))
         #expect(full.title == "Sidebar")
         #expect(full.position == .bottom)
         #expect(full.mode == .pinned)
         #expect(full.hiddenControls == [.pin, .position])
+        #expect(full.headerButtons == [
+            ExtensionPanelHeaderButton(id: "prs", icon: .symbol("arrow.triangle.pull"), tooltip: "PRs", command: "show-prs")
+        ])
         #expect(full.hideTopbar)
     }
 

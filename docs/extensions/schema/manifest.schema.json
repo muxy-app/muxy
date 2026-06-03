@@ -194,7 +194,22 @@
           "items": { "enum": ["close", "pin", "position"] },
           "uniqueItems": true
         },
+        "headerButtons": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/panelHeaderButton" }
+        },
         "defaultData": {}
+      }
+    },
+    "panelHeaderButton": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "icon", "command"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "icon": { "$ref": "#/$defs/icon" },
+        "tooltip": { "type": "string" },
+        "command": { "type": "string", "minLength": 1 }
       }
     },
     "popover": {

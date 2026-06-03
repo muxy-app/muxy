@@ -41,7 +41,32 @@ struct ExtensionPanelView: View {
             iconSymbol: panel.icon.flatMap(symbol(from:)),
             title: panel.title,
             hiddenControls: Set(panel.hiddenControls),
+            trailingButtons: headerButtons(for: panel),
             hidesHeader: panel.hideTopbar
+        )
+    }
+
+    private func headerButtons(for panel: ExtensionPanel) -> [PanelHeaderButton] {
+        panel.headerButtons.compactMap { button in
+            guard let symbol = symbol(from: button.icon) else { return nil }
+            return PanelHeaderButton(
+                id: button.id,
+                symbol: symbol,
+                label: button.tooltip ?? button.id,
+                action: { trigger(command: button.command) }
+            )
+        }
+    }
+
+    private func trigger(command commandID: String) {
+        ExtensionStore.shared.triggerCommand(
+            ExtensionStore.CommandInvocation(
+                extensionID: state.extensionID,
+                commandID: commandID,
+                appState: appState,
+                projectStore: projectStore,
+                worktreeStore: worktreeStore
+            )
         )
     }
 
