@@ -56,6 +56,25 @@ struct MuxyAPIFilesTests {
         #expect(MuxyAPI.Files.resolve(root: root, relativePath: "link/secret.txt") == nil)
     }
 
+    @Test("resolve rejects dangling symlinks that point outside the root")
+    func resolveRejectsDanglingSymlinkEscape() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let danglingTarget = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MuxyAPIFilesTests-missing-\(UUID().uuidString)").path
+        try FileManager.default.createSymbolicLink(atPath: root + "/evil", withDestinationPath: danglingTarget)
+        #expect(MuxyAPI.Files.resolve(root: root, relativePath: "evil/secret.txt") == nil)
+    }
+
+    @Test("resolve follows in-root symlinks transparently")
+    func resolveFollowsInRootSymlink() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try FileManager.default.createDirectory(atPath: root + "/real", withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(atPath: root + "/alias", withDestinationPath: root + "/real")
+        #expect(MuxyAPI.Files.resolve(root: root, relativePath: "alias/note.txt") == root + "/real/note.txt")
+    }
+
     @Test("writeFile overwrites and round-trips contents")
     func writeFileRoundTrips() async throws {
         let root = try makeTempDir()

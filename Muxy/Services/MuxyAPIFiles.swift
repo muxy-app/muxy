@@ -166,25 +166,37 @@ extension MuxyAPI {
         nonisolated static func resolve(root: String, relativePath: String) -> String? {
             let base = URL(fileURLWithPath: root).resolvingSymlinksInPath()
             let trimmed = relativePath.hasPrefix("/") ? String(relativePath.dropFirst()) : relativePath
-            let target = base.appendingPathComponent(trimmed).standardizedFileURL
-            guard isInside(target, base: base) else { return nil }
-            guard isInside(resolvingExistingAncestor(of: target), base: base) else { return nil }
-            return target.path
+            let resolved = canonicalize(base: base, relativePath: trimmed)
+            guard isInside(resolved, base: base) else { return nil }
+            return resolved.path
         }
 
         nonisolated private static func isInside(_ url: URL, base: URL) -> Bool {
             url.path == base.path || url.path.hasPrefix(base.path + "/")
         }
 
-        nonisolated private static func resolvingExistingAncestor(of url: URL) -> URL {
-            var existing = url
-            while !FileManager.default.fileExists(atPath: existing.path), existing.pathComponents.count > 1 {
-                existing = existing.deletingLastPathComponent()
+        nonisolated private static func canonicalize(base: URL, relativePath: String) -> URL {
+            var current = base
+            for component in relativePath.split(separator: "/", omittingEmptySubsequences: true).map(String.init) {
+                if component == "." { continue }
+                if component == ".." {
+                    current = current.deletingLastPathComponent()
+                    continue
+                }
+                current = follow(current.appendingPathComponent(component), from: current)
             }
-            let resolvedExisting = existing.resolvingSymlinksInPath()
-            let remainder = url.path.dropFirst(existing.path.count)
-            guard !remainder.isEmpty else { return resolvedExisting }
-            return resolvedExisting.appendingPathComponent(String(remainder)).standardizedFileURL
+            return current.standardizedFileURL
+        }
+
+        nonisolated private static func follow(_ candidate: URL, from parent: URL) -> URL {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: candidate.path)
+            guard (attributes?[.type] as? FileAttributeType) == .typeSymbolicLink,
+                  let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: candidate.path)
+            else { return candidate.standardizedFileURL }
+            let resolved = destination.hasPrefix("/")
+                ? URL(fileURLWithPath: destination)
+                : parent.appendingPathComponent(destination)
+            return resolved.standardizedFileURL
         }
 
         nonisolated private static func relative(_ absolute: String, root: String) -> String {
