@@ -157,6 +157,23 @@ enum ExtensionWebBridge {
                         return send('modal.open', payload);
                     },
                 },
+                topbar: {
+                    set(opts) {
+                        const o = opts || {};
+                        const payload = { id: String(o.id == null ? '' : o.id) };
+                        if (o.icon != null) payload.icon = o.icon;
+                        return send('topbar.set', payload);
+                    },
+                },
+                statusbar: {
+                    set(opts) {
+                        const o = opts || {};
+                        const payload = { id: String(o.id == null ? '' : o.id) };
+                        if (o.icon != null) payload.icon = o.icon;
+                        if ('text' in o) payload.text = o.text == null ? null : String(o.text);
+                        return send('statusbar.set', payload);
+                    },
+                },
                 exec(argvOrOptions, maybeOptions) {
                     let payload;
                     if (Array.isArray(argvOrOptions)) {
@@ -353,6 +370,8 @@ enum ExtensionWebBridge {
             Object.freeze(muxy.popover);
             Object.freeze(muxy.dialog);
             Object.freeze(muxy.modal);
+            Object.freeze(muxy.topbar);
+            Object.freeze(muxy.statusbar);
             Object.freeze(muxy.worktrees);
             Object.freeze(muxy.git);
             Object.freeze(muxy.git.pr);
