@@ -134,7 +134,7 @@ final class ExtensionConsentService {
             recordAudit(request: request, decision: .deny, ruleID: rule.id)
         case .blockKind:
             let ruleID = grantStore.blockKind(extensionID: request.extensionID, verb: request.verb)
-            recordAudit(request: request, decision: .deny, ruleID: ruleID)
+            recordAudit(request: request, decision: .blocked, ruleID: ruleID)
         }
     }
 

@@ -113,7 +113,7 @@ struct ExtensionConsentServiceTests {
         #expect(resolved == .deny)
         #expect(grantStore.rules.count == 1)
         #expect(grantStore.rules.first?.match == .any)
-        #expect(grantStore.rules.first?.decision == .deny)
+        #expect(grantStore.rules.first?.decision == .blocked)
 
         let previouslyAllowed = ExtensionConsentRequestBuilder.make(
             extensionID: "ext",

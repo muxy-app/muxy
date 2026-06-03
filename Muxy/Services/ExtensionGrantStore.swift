@@ -6,6 +6,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "ExtensionGrantStor
 enum ExtensionGrantDecision: String, Codable, Equatable {
     case allow
     case deny
+    case blocked
 }
 
 enum ExtensionGatedVerb: String, Codable, CaseIterable {
@@ -261,7 +262,7 @@ final class ExtensionGrantStore {
                 return lhs.match.specificity > rhs.match.specificity
             }
             if lhs.decision != rhs.decision {
-                return lhs.decision == .deny
+                return rhs.decision == .allow
             }
             return lhs.createdAt < rhs.createdAt
         }
@@ -293,7 +294,7 @@ final class ExtensionGrantStore {
     @discardableResult
     func blockKind(extensionID: String, verb: ExtensionGatedVerb) -> UUID {
         rules.removeAll { $0.extensionID == extensionID && $0.verb == verb }
-        let rule = ExtensionGrantRule(extensionID: extensionID, verb: verb, match: .any, decision: .deny)
+        let rule = ExtensionGrantRule(extensionID: extensionID, verb: verb, match: .any, decision: .blocked)
         rules.append(rule)
         save()
         return rule.id

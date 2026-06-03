@@ -339,6 +339,40 @@ struct ExtensionGrantStoreTests {
         #expect(match == .gitOperationEquals("push"))
     }
 
+    @Test("blockKind replaces every rule for the verb with a blocked any-deny")
+    func blockKindReplacesRules() {
+        let store = makeStore()
+        store.add(ExtensionGrantRule(
+            extensionID: "ext",
+            verb: .exec,
+            match: .argvExact(["git", "status"]),
+            decision: .allow
+        ))
+        store.blockKind(extensionID: "ext", verb: .exec)
+
+        #expect(store.rules.count == 1)
+        let rule = store.rules.first
+        #expect(rule?.match == .any)
+        #expect(rule?.decision == .blocked)
+        #expect(store.evaluate(
+            extensionID: "ext",
+            verb: .exec,
+            payload: .exec(argv: ["git", "status"], shell: nil)
+        ) == .deny(ruleID: rule!.id))
+    }
+
+    @Test("deny-remember on an any-default verb stays deny, not blocked")
+    func denyRememberStaysDeny() {
+        let store = makeStore()
+        store.add(ExtensionGrantRule(
+            extensionID: "ext",
+            verb: .panesSend,
+            match: .any,
+            decision: .deny
+        ))
+        #expect(store.rules.first?.decision == .deny)
+    }
+
     private func makeStore() -> ExtensionGrantStore {
         ExtensionGrantStore(fileURL: tempURL())
     }

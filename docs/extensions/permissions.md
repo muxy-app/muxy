@@ -50,7 +50,7 @@ The prompt shows the extension, the verb, and the literal payload (full argv, th
 - **Cancel** — denies this one call, asks again next time.
 - **Deny & remember** — denies and writes a deny rule for that payload pattern.
 
-Ticking **Block all … from this extension** before choosing **Deny & remember** widens the rule to an `any` deny for the whole verb, so the extension can never prompt for that kind again (e.g. blocking `exec` once stops all future command prompts, regardless of the command). It replaces any earlier rules for that verb.
+Ticking **Block all … from this extension** before choosing **Deny & remember** writes a `blocked` rule for the whole verb, so the extension can never prompt for that kind again (e.g. blocking `exec` once stops all future command prompts, regardless of the command). It replaces any earlier rules for that verb, including allow rules.
 
 A prompt left unanswered for 60 seconds is denied automatically.
 

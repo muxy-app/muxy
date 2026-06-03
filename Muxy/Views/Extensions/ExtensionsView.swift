@@ -976,7 +976,7 @@ private struct ExtensionGrantRuleRow: View {
     }
 
     private var isBlocked: Bool {
-        rule.decision == .deny && rule.match == .any
+        rule.decision == .blocked
     }
 
     private var decisionBadge: some View {
