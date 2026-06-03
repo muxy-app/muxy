@@ -41,20 +41,26 @@ struct ExtensionModalServiceTests {
         #expect(service.active == nil)
     }
 
-    @Test("present rejects a second modal for the same extension")
-    func rejectsConcurrentSameExtension() async throws {
+    @Test("a second modal replaces the first and resolves it with nil")
+    func secondModalReplacesFirst() async throws {
         let service = ExtensionModalService()
 
-        async let result = service.present(extensionID: "ext", args: ["items": [["id": "a", "title": "Alpha"]]])
+        async let first = service.present(extensionID: "a", args: ["items": [["id": "1", "title": "First"]]])
         try await waitForActive(service)
 
-        let secondError = await captureError {
-            _ = try await service.present(extensionID: "ext", args: ["items": [["id": "b", "title": "Beta"]]])
-        }
-        #expect(secondError is APIError)
+        async let second = service.present(extensionID: "b", args: ["items": [["id": "2", "title": "Second"]]])
 
-        service.dismiss()
-        _ = try await result
+        let firstResult = try await first
+        #expect(firstResult == nil)
+
+        try await waitForActive(service)
+        #expect(service.active?.extensionID == "b")
+
+        let target = try #require(service.active?.items.first)
+        service.select(target)
+        let secondResult = try await second
+        #expect(secondResult?.id == "2")
+        #expect(service.active == nil)
     }
 
     @Test("present requires at least one valid item")

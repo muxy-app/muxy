@@ -32,9 +32,6 @@ final class ExtensionModalService {
     private var sequence = 0
 
     func present(extensionID: String, args: [String: Any]) async throws -> Item? {
-        guard active?.extensionID != extensionID else {
-            throw APIError.invalidArguments("a modal is already open for this extension")
-        }
         let items = try parseItems(args)
         sequence += 1
         let request = Request(
@@ -45,6 +42,7 @@ final class ExtensionModalService {
             noMatchLabel: text(args, "noMatchLabel") ?? "No matches",
             items: items
         )
+        resolve(with: nil)
         return await withCheckedContinuation { continuation in
             self.continuation = continuation
             active = request
@@ -56,6 +54,11 @@ final class ExtensionModalService {
     }
 
     func dismiss() {
+        resolve(with: nil)
+    }
+
+    func dismiss(requestID: String) {
+        guard active?.id == requestID else { return }
         resolve(with: nil)
     }
 

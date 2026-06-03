@@ -19,6 +19,9 @@ struct ExtensionModalOverlay: View {
                 AnyView(ExtensionModalRow(item: item, isHighlighted: isHighlighted))
             }
         )
+        .onDisappear {
+            ExtensionModalService.shared.dismiss(requestID: request.id)
+        }
     }
 }
 

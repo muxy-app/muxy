@@ -180,6 +180,7 @@ struct PaletteSearchField: NSViewRepresentable {
                 return
             }
             window.makeFirstResponder(field)
+            guard field.currentEditor() == nil else { return }
             claimFocus(for: field, attemptsRemaining: attemptsRemaining - 1)
         }
     }

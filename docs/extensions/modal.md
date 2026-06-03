@@ -73,6 +73,6 @@ muxy.events.subscribe('command.pick', async () => {
 ## Notes
 
 - The call blocks the caller until the user responds. From a background script this pauses that script's event loop the same way `exec` does, so don't open a modal from a hot event path.
-- Only **one modal per extension** can be open at a time; a second call while one is showing rejects rather than stacking.
+- Only one modal is shown at a time. Opening a new one while another is showing closes the existing modal — its pending call resolves with `null` — and presents the new picker.
 - `placeholder` and the labels are capped at 200 characters; `id`, `title`, and `subtitle` per item at 200; the list at the first 1000 items. Items missing `id` or `title` are dropped.
 - The modal presents on the main Muxy window; if no item survives validation the call rejects.
