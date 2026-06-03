@@ -225,19 +225,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     private func applyPTYSize(paneID: UUID, cols: UInt32, rows: UInt32) {
-        guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
-              let surface = view.surface
-        else { return }
-
-        let size = ghostty_surface_size(surface)
-        guard size.cell_width_px > 0, size.cell_height_px > 0 else {
-            logger.warning("Cannot resize pane \(paneID): cell metrics not yet available")
-            return
-        }
-
-        let w = cols * size.cell_width_px
-        let h = rows * size.cell_height_px
-        ghostty_surface_set_size(surface, w, h)
+        TerminalViewRegistry.shared.existingView(for: paneID)?.setRemoteGrid(cols: cols, rows: rows)
     }
 
     func registerDevice(clientID: UUID, name: String) {

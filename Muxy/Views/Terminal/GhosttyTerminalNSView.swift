@@ -36,6 +36,7 @@ final class GhosttyTerminalNSView: NSView {
 
     private var isPaneVisible = true
     private var isWindowVisible = true
+    private var remoteGrid: (cols: UInt32, rows: UInt32)?
     nonisolated(unsafe) private var occlusionObserver: NSObjectProtocol?
 
     var closesOnCommandExit: Bool {
@@ -184,6 +185,7 @@ final class GhosttyTerminalNSView: NSView {
         }
 
         applyOcclusionState()
+        applyRemoteGrid()
     }
 
     func destroySurface() {
@@ -368,12 +370,31 @@ final class GhosttyTerminalNSView: NSView {
         updateMetalLayerSize(deferred: false)
     }
 
+    private static let headlessDefaultSize = NSSize(width: 800, height: 480)
+
     func materializeHeadless() {
         guard surface == nil else { return }
         if frame.size.width <= 0 || frame.size.height <= 0 {
-            setFrameSize(NSSize(width: 1, height: 1))
+            setFrameSize(Self.headlessDefaultSize)
         }
         createSurface()
+    }
+
+    func setRemoteGrid(cols: UInt32, rows: UInt32) {
+        guard cols > 0, rows > 0 else { return }
+        remoteGrid = (cols, rows)
+        applyRemoteGrid()
+    }
+
+    private func applyRemoteGrid() {
+        guard let surface, let remoteGrid else { return }
+        let size = ghostty_surface_size(surface)
+        guard size.cell_width_px > 0, size.cell_height_px > 0 else { return }
+        ghostty_surface_set_size(
+            surface,
+            remoteGrid.cols * size.cell_width_px,
+            remoteGrid.rows * size.cell_height_px
+        )
     }
 
     private func backingPixelSize() -> (width: UInt32, height: UInt32)? {
