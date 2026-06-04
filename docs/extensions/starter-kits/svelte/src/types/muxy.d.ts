@@ -23,9 +23,10 @@ declare global {
 
   interface MuxyBridge {
     extensionID: string;
-    data?: Record<string, unknown>;
+    data: Record<string, unknown> | null;
     theme?: MuxyTheme;
-    onThemeChange?(handler: (theme: MuxyTheme) => void): void;
+    onThemeChange(handler: (theme: MuxyTheme) => void): () => void;
+    onDataChange(handler: (data: Record<string, unknown> | null) => void): () => void;
     panels: {
       open(panelID: string, data?: Record<string, unknown>): Promise<void>;
       toggle(panelID: string, data?: Record<string, unknown>): Promise<void>;
@@ -40,7 +41,6 @@ declare global {
     toast(opts: MuxyToastOptions): Promise<void>;
     events: {
       subscribe(name: string, handler: (payload: unknown) => void): () => void;
-      unsubscribe(name: string, handler: (payload: unknown) => void): void;
     };
   }
 
