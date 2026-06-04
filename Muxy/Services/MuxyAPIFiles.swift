@@ -120,12 +120,10 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<String, APIError> {
             await write(projectIdentifier, operation: "rename", path: path, context: context) { root in
-                let (source, moved) = try await GitProcessRunner.offMainThrowing {
+                let moved = try await GitProcessRunner.offMainThrowing {
                     let absolute = try contained(root: root, relativePath: path)
-                    let moved = try FileSystemOperations.renameSync(at: absolute, to: newName)
-                    return (absolute, moved)
+                    return try FileSystemOperations.renameSync(at: absolute, to: newName)
                 }
-                context.appState.handleFileMoved(from: source, to: moved)
                 return relative(moved, root: root)
             }
         }
@@ -137,17 +135,13 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<[String], APIError> {
             await write(projectIdentifier, operation: "move", path: destination, context: context) { root in
-                let (sources, moved) = try await GitProcessRunner.offMainThrowing {
+                let moved = try await GitProcessRunner.offMainThrowing {
                     let destinationAbsolute = try contained(root: root, relativePath: destination)
                     let sources = try paths.map { try contained(root: root, relativePath: $0) }
-                    let moved = try FileSystemOperations.transferSync(
+                    return try FileSystemOperations.transferSync(
                         sources: sources,
                         destinationDirectory: destinationAbsolute
                     )
-                    return (sources, moved)
-                }
-                for (source, target) in zip(sources, moved) {
-                    context.appState.handleFileMoved(from: source, to: target)
                 }
                 return moved.map { relative($0, root: root) }
             }

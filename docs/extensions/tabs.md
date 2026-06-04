@@ -36,7 +36,7 @@ The page loads at `muxy-ext://<extensionID>/<entry>` and references its own file
 
 ## Topbar (recommended)
 
-A tab fills its whole region with one webview, so the page renders all of its own chrome. Muxy's own tabs (editor, source control, diff viewer) open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**
+A tab fills its whole region with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**
 
 The bar's height tracks the user's interface scale (Settings → Interface), so don't hardcode it — Muxy injects it as the `--muxy-topbar-height` CSS variable, updated live when the scale or theme changes. Use it together with the theme variables so the bar matches the app exactly:
 
@@ -130,11 +130,10 @@ interface ExecResult {
 
 ### Opening another tab
 
-`tabs.open` accepts three kinds: `editor` (with a `filePath`), `vcs`, and `extensionWebView` (with a target `extension`).
+`tabs.open` accepts two kinds: `terminal` and `extensionWebView` (with a target `extension`).
 
 ```js
-await muxy.tabs.open({ kind: 'editor', filePath: '/path/to/foo.swift' });
-await muxy.tabs.open({ kind: 'vcs' });
+await muxy.tabs.open({ kind: 'terminal' });
 await muxy.tabs.open({
   kind: 'extensionWebView',
   extension: { id: 'pr-tools', tabType: 'pr-viewer', data: { prNumber: 42 } },

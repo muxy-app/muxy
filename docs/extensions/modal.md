@@ -1,6 +1,6 @@
 # Extension Modal
 
-A native, searchable picker — the same overlay as Muxy's own Quick Open (`Cmd+P`). The extension supplies a list; Muxy owns the UI, the search field, keyboard navigation, and open/close. Selecting an item (click or Return) closes the modal and resolves the call with that item; dismissing (Esc, click outside) resolves with `null`.
+A native, searchable picker overlay. The extension supplies a list; Muxy owns the UI, the search field, keyboard navigation, and open/close. Selecting an item (click or Return) closes the modal and resolves the call with that item; dismissing (Esc, click outside) resolves with `null`.
 
 `modal` is available on both surfaces: the in-process [`window.muxy`](tabs.md#windowmuxy) bridge (tabs, panels, popovers) and the [background script](manifest.md) `muxy` global. It needs **no permission** — the user drives every selection themselves, so there is nothing to gate ([what permissions don't gate](permissions.md#what-permissions-dont-gate)).
 

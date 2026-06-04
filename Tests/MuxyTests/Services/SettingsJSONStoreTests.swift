@@ -148,26 +148,26 @@ struct SettingsJSONStoreTests {
     @Test
     func saveAppliesEditorSettings() throws {
         let settings = EditorSettings.shared
-        let originalDefaultEditor = settings.defaultEditor
-        let originalFontSize = settings.fontSize
-        let originalLineWrapping = settings.lineWrapping
+        let originalStrategy = settings.richInputImageStrategy
+        let originalFontFamily = settings.richInputFontFamily
+        let originalMultiplier = settings.richInputLineHeightMultiplier
         defer {
-            settings.defaultEditor = originalDefaultEditor
-            settings.fontSize = originalFontSize
-            settings.lineWrapping = originalLineWrapping
+            settings.richInputImageStrategy = originalStrategy
+            settings.richInputFontFamily = originalFontFamily
+            settings.richInputLineHeightMultiplier = originalMultiplier
         }
 
         try SettingsJSONStore.saveUserSettingsText("""
         {
-          "editor.defaultEditor": "terminalCommand",
-          "editor.fontSize": 18,
-          "editor.lineWrapping": true
+          "editor.richInputImageStrategy": "inlinePath",
+          "editor.richInputFontFamily": "Menlo",
+          "editor.richInputLineHeightMultiplier": 1.5
         }
         """)
 
-        #expect(settings.defaultEditor == .terminalCommand)
-        #expect(settings.fontSize == 18)
-        #expect(settings.lineWrapping)
+        #expect(settings.richInputImageStrategy == .inlinePath)
+        #expect(settings.richInputFontFamily == "Menlo")
+        #expect(settings.richInputLineHeightMultiplier == 1.5)
     }
 
     @Test

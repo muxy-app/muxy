@@ -2,7 +2,7 @@
 
 > **Reading this as an LLM?** Start from <https://muxy.app/llms.txt> — an index of every page that links to its raw Markdown source. Append `/plain` to any docs URL (e.g. <https://muxy.app/docs/extensions/manifest/plain>) for that page's raw Markdown.
 
-Muxy is a native macOS terminal multiplexer organized around projects, worktrees, tabs, and split panes. It also ships a built-in editor, source-control UI, file tree, and a WebSocket API for companion apps.
+Muxy is a native macOS terminal multiplexer organized around projects, worktrees, tabs, and split panes. It also ships a source-control UI and a WebSocket API for companion apps.
 
 ```mermaid
 flowchart TB
@@ -11,9 +11,7 @@ flowchart TB
   Splits --> TabArea[Tab Area]
   TabArea --> Tab
   Tab --> Terminal
-  Tab --> Editor
   Tab --> VCS[Source Control]
-  Tab --> Diff[Diff Viewer]
 ```
 
 ## User Guide
@@ -37,9 +35,7 @@ flowchart TB
 | [Rich Input](features/rich-input.md) | Multiline prompts, files, images, broadcast send |
 | [Voice Recording](features/voice-recording.md) | Dictate text into Muxy from the status bar |
 | [Session Restore](features/session-restore.md) | Restore terminal tabs after restart |
-| [Editor](features/editor.md) | Built-in editor, quick open, markdown preview |
 | [Source Control](features/source-control.md) | Git status, diff, branches, pull requests |
-| [File Tree](features/file-tree.md) | Gitignore-aware tree, file ops, drag & drop |
 | [Notification Setup](features/notifications.md) | OSC sequences, hooks, socket API |
 | [AI Assistant](features/ai-assistant.md) | Draft commit messages and PR text from diffs |
 | [Themes](features/themes.md) | Theme picker and Ghostty config |
@@ -69,7 +65,7 @@ flowchart TB
 | [Extension Popovers](extensions/popovers.md) | Transient webview anchored to a topbar or status bar item |
 | [Topbar Items](extensions/topbar.md) | Add an icon to the tab-strip button cluster |
 | [Status Bar Items](extensions/statusbar.md) | Add an icon (with text) to the footer status bar |
-| [Extension Modal](extensions/modal.md) | Native searchable picker, the Quick Open overlay |
+| [Extension Modal](extensions/modal.md) | Native searchable picker overlay |
 | [Extension Dialogs](extensions/dialogs.md) | Native confirm and alert sheets on the main window |
 | [Settings](extensions/settings.md) | Typed settings with their own Settings sidebar row |
 | [Inline Scripts (`runScript` Commands)](extensions/scripts.md) | `runScript` commands in an in-process JS context |

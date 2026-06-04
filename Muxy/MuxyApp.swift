@@ -67,9 +67,6 @@ struct MuxyApp: App {
                         appState.saveTerminalSessions()
                         appState.saveWorkspaces()
                     }
-                    appDelegate.hasUnsavedEditorTabs = { [appState] in
-                        appState.unsavedEditorTabs()
-                    }
                     appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore, projectGroupStore] path in
                         CLIAccessor.openProjectFromPath(
                             path,
@@ -160,7 +157,6 @@ struct MuxyApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var onTerminate: (() -> Void)?
-    var hasUnsavedEditorTabs: (() -> [EditorTabState])?
     var openProjectFromPath: ((String) -> Void)?
 
     private var pendingOpenPaths: [String] = []
@@ -374,47 +370,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let unsaved = hasUnsavedEditorTabs?() ?? []
-        guard !unsaved.isEmpty else { return confirmQuitIfNeeded() }
-
-        let alert = NSAlert()
-        alert.messageText = unsaved.count == 1
-            ? "You have unsaved changes in 1 file."
-            : "You have unsaved changes in \(unsaved.count) files."
-        alert.informativeText = "If you quit without saving, your changes will be lost."
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Save All")
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Discard")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.buttons[1].keyEquivalent = "\u{1b}"
-
-        let response = alert.runModal()
-        switch response {
-        case .alertFirstButtonReturn:
-            Task { @MainActor in
-                var failures: [String] = []
-                for state in unsaved {
-                    do {
-                        try await state.saveFileAsync()
-                    } catch {
-                        failures.append("\(state.fileName): \(error.localizedDescription)")
-                    }
-                }
-                if failures.isEmpty {
-                    NSApp.reply(toApplicationShouldTerminate: true)
-                    return
-                }
-                Self.presentSaveFailureAlert(failures: failures)
-                NSApp.reply(toApplicationShouldTerminate: false)
-            }
-            return .terminateLater
-        case .alertThirdButtonReturn:
-            return .terminateNow
-        default:
-            return .terminateCancel
-        }
+        confirmQuitIfNeeded()
     }
 
     @MainActor
@@ -439,20 +395,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             QuitConfirmationPreferences.confirmQuit = false
         }
         return .terminateNow
-    }
-
-    @MainActor
-    private static func presentSaveFailureAlert(failures: [String]) {
-        let alert = NSAlert()
-        alert.messageText = failures.count == 1
-            ? "Could Not Save File"
-            : "Could Not Save \(failures.count) Files"
-        alert.informativeText = failures.joined(separator: "\n")
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "OK")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.runModal()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

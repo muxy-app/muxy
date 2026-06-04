@@ -155,9 +155,6 @@ struct ShortcutActionDispatcher {
         case .submitRichInput,
              .submitRichInputWithoutReturn:
             return false
-        case .quickOpen:
-            notificationCenter.post(name: .quickOpen, object: nil)
-            return true
         case .terminalOmnibox:
             postTerminalOmnibox(scope: .openTabs)
             return true
@@ -172,9 +169,6 @@ struct ShortcutActionDispatcher {
             return true
         case .terminalOmniboxHistory:
             postTerminalOmnibox(scope: .history)
-            return true
-        case .saveFile:
-            notificationCenter.post(name: .saveActiveEditor, object: nil)
             return true
         case .toggleSidebar:
             notificationCenter.post(name: .toggleSidebar, object: nil)

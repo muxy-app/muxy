@@ -20,8 +20,6 @@ struct PaneTabStrip: View {
     var isWindowTitleBar: Bool = false
     var showDevelopmentBadge = false
     var openInIDEProjectPath: String?
-    var openInIDEFilePath: String?
-    var openInIDECursorProvider: () -> (line: Int?, column: Int?) = { (nil, nil) }
     let projectID: UUID
     var shortcutIndexOffset: Int = 0
     let onSelectTab: (UUID) -> Void
@@ -81,11 +79,7 @@ struct PaneTabStrip: View {
                         .padding(.trailing, UIMetrics.spacing3)
                 }
                 if isWindowTitleBar {
-                    OpenInIDEControl(
-                        projectPath: openInIDEProjectPath,
-                        filePath: openInIDEFilePath,
-                        cursorProvider: openInIDECursorProvider
-                    )
+                    OpenInIDEControl(projectPath: openInIDEProjectPath)
                     LayoutPickerMenu(projectID: projectID)
                     ExtensionTopbarItems()
                 }
@@ -616,8 +610,6 @@ private struct TabCell: View {
         var label = tab.title
         switch tab.kind {
         case .terminal: label += ", Terminal"
-        case .editor: label += ", Editor"
-        case .imageViewer: label += ", Image Viewer"
         case .extensionWebView: label += ", Extension"
         }
         if tab.isPinned { label += ", Pinned" }
@@ -638,12 +630,6 @@ private struct TabCell: View {
             switch tab.kind {
             case .terminal:
                 Image(systemName: "terminal")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-            case .editor:
-                Image(systemName: "pencil.line")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-            case .imageViewer:
-                Image(systemName: "photo")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             case .extensionWebView:
                 Image(systemName: "puzzlepiece.extension")

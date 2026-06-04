@@ -112,31 +112,6 @@ final class TabArea: Identifiable {
         insertTab(tab)
     }
 
-    func createEditorTab(filePath: String, suppressInitialFocus: Bool = false) {
-        if let existing = tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
-            selectTab(existing.id)
-            return
-        }
-        let editorState = EditorTabState(
-            projectPath: projectPath,
-            filePath: filePath,
-            defaultHTMLViewMode: EditorSettings.shared.htmlDefaultViewMode
-        )
-        editorState.suppressInitialFocus = suppressInitialFocus
-        insertTab(TerminalTab(editorState: editorState))
-    }
-
-    func createImageViewerTab(filePath: String) {
-        if let existing = tabs.first(where: { $0.content.imageViewerState?.filePath == filePath }) {
-            selectTab(existing.id)
-            return
-        }
-        insertTab(TerminalTab(imageViewerState: ImageViewerTabState(
-            projectPath: projectPath,
-            filePath: filePath
-        )))
-    }
-
     func findExtensionTab(extensionID: String, tabTypeID: String) -> TerminalTab? {
         tabs.first { tab in
             guard let state = tab.content.extensionState else { return false }
@@ -155,41 +130,10 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(extensionState: state))
     }
 
-    func createExternalEditorTab(filePath: String, command: String) {
-        if let existing = tabs.first(where: { $0.content.pane?.externalEditorFilePath == filePath }) {
-            selectTab(existing.id)
-            return
-        }
-        let title = "\(Self.commandTitle(command)) \(URL(fileURLWithPath: filePath).lastPathComponent)"
-        let pane = TerminalPaneState(
-            projectPath: projectPath,
-            title: title,
-            startupCommand: Self.editorLaunchCommand(command: command, filePath: filePath),
-            startupCommandInteractive: true,
-            externalEditorFilePath: filePath
-        )
-        insertTab(TerminalTab(pane: pane))
-    }
-
-    static func editorLaunchCommand(command: String, filePath: String) -> String {
-        if command.contains("{file}") {
-            return command.replacingOccurrences(of: "{file}", with: filePath)
-        }
-        return command + " " + shellEscapedPath(filePath)
-    }
-
     private static func commandTitle(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = trimmed.split(separator: " ").first else { return "Editor" }
         return String(first)
-    }
-
-    private static func shellEscapedPath(_ path: String) -> String {
-        let needsQuoting = path.contains { character in
-            character.isWhitespace || "'\"\\&|;$`!()[]{}<>*?".contains(character)
-        }
-        guard needsQuoting else { return path }
-        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func insertTab(_ tab: TerminalTab) {

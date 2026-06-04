@@ -6,7 +6,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case projects
     case appearance
     case terminal
-    case editor
+    case richInput
     case shortcuts
     case voice
     case notifications
@@ -21,7 +21,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .projects: "Projects"
         case .appearance: "Interface"
         case .terminal: "Terminal"
-        case .editor: "Editor"
+        case .richInput: "Rich Input"
         case .shortcuts: "Shortcuts"
         case .voice: "Voice"
         case .notifications: "Notifications"
@@ -36,7 +36,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .projects: "folder"
         case .appearance: "macwindow"
         case .terminal: "terminal"
-        case .editor: "pencil.line"
+        case .richInput: "text.cursor"
         case .shortcuts: "keyboard"
         case .voice: "mic"
         case .notifications: "bell"
@@ -266,58 +266,10 @@ enum SettingsCatalog {
             defaultValue: SidebarExpandedStyle.defaultValue.rawValue
         ),
         SettingsCatalogItem(
-            key: "editor.defaultEditor",
-            title: "Default Editor",
-            description: "Chooses between Muxy's editor and a terminal editor command.",
-            category: .editor,
-            section: "Editor",
-            defaultValue: EditorSettings.DefaultEditor.builtIn.rawValue
-        ),
-        SettingsCatalogItem(
-            key: "editor.externalEditorCommand",
-            title: "Editor Command",
-            description: "Runs this command when the terminal editor is selected.",
-            category: .editor,
-            section: "Editor",
-            defaultValue: "vim"
-        ),
-        SettingsCatalogItem(
-            key: MarkdownPreviewPreferences.allowRemoteImagesKey,
-            title: "Allow Remote Images",
-            description: "Allows HTTPS images in Markdown preview.",
-            category: .editor,
-            section: "Markdown Preview",
-            defaultValue: true
-        ),
-        SettingsCatalogItem(
-            key: "editor.markdownPreviewFontFamily",
-            title: "Markdown Preview Font Family",
-            description: "Controls the Markdown preview font.",
-            category: .editor,
-            section: "Markdown Preview",
-            defaultValue: EditorSettings.defaultMarkdownPreviewFontFamily
-        ),
-        SettingsCatalogItem(
-            key: "editor.markdownPreviewFontScale",
-            title: "Markdown Preview Zoom",
-            description: "Controls Markdown preview zoom.",
-            category: .editor,
-            section: "Markdown Preview",
-            defaultValue: Double(EditorSettings.defaultMarkdownPreviewFontScale)
-        ),
-        SettingsCatalogItem(
-            key: "editor.htmlDefaultViewMode",
-            title: "HTML Default View",
-            description: "Chooses the default view mode for HTML files.",
-            category: .editor,
-            section: "HTML",
-            defaultValue: EditorSettings.defaultHTMLViewMode.rawValue
-        ),
-        SettingsCatalogItem(
             key: "editor.richInputImageStrategy",
             title: "Rich Input Image Submission",
             description: "Chooses how rich input submits images.",
-            category: .editor,
+            category: .richInput,
             section: "Rich Input",
             defaultValue: RichInputImageStrategy.clipboard.rawValue
         ),
@@ -325,7 +277,7 @@ enum SettingsCatalog {
             key: RichInputPreferences.positionKey,
             title: "Rich Input Position",
             description: "Controls where the rich input panel appears.",
-            category: .editor,
+            category: .richInput,
             section: "Rich Input",
             defaultValue: RichInputPreferences.defaultPosition.rawValue
         ),
@@ -333,7 +285,7 @@ enum SettingsCatalog {
             key: RichInputPreferences.floatingKey,
             title: "Floating Rich Input",
             description: "Shows rich input as a floating panel.",
-            category: .editor,
+            category: .richInput,
             section: "Rich Input",
             defaultValue: RichInputPreferences.defaultFloating
         ),
@@ -341,7 +293,7 @@ enum SettingsCatalog {
             key: "editor.richInputFontFamily",
             title: "Rich Input Font Family",
             description: "Controls the rich input editor font family.",
-            category: .editor,
+            category: .richInput,
             section: "Rich Input",
             defaultValue: EditorSettings.defaultRichInputFontFamily
         ),
@@ -349,57 +301,9 @@ enum SettingsCatalog {
             key: "editor.richInputLineHeightMultiplier",
             title: "Rich Input Line Height",
             description: "Controls line height in rich input.",
-            category: .editor,
+            category: .richInput,
             section: "Rich Input",
             defaultValue: Double(EditorSettings.defaultRichInputLineHeightMultiplier)
-        ),
-        SettingsCatalogItem(
-            key: "editor.highlightCurrentLine",
-            title: "Highlight Current Line",
-            description: "Highlights the active line in the built-in editor.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: true
-        ),
-        SettingsCatalogItem(
-            key: "editor.showLineNumbers",
-            title: "Show Line Numbers",
-            description: "Shows line numbers in the built-in editor.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: true
-        ),
-        SettingsCatalogItem(
-            key: "editor.lineWrapping",
-            title: "Wrap Lines",
-            description: "Wraps long lines in the built-in editor.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: false
-        ),
-        SettingsCatalogItem(
-            key: "editor.fontFamily",
-            title: "Editor Font Family",
-            description: "Controls the built-in editor font family.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: "SF Mono"
-        ),
-        SettingsCatalogItem(
-            key: "editor.fontSize",
-            title: "Editor Font Size",
-            description: "Controls the built-in editor font size.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: 13
-        ),
-        SettingsCatalogItem(
-            key: "editor.lineHeightMultiplier",
-            title: "Editor Line Height",
-            description: "Controls line height in the built-in editor.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: Double(EditorSettings.defaultLineHeightMultiplier)
         ),
 
         SettingsCatalogItem(
