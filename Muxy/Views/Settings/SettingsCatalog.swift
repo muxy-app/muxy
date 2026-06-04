@@ -226,6 +226,15 @@ enum SettingsCatalog {
             aliases: ["zoom", "density"]
         ),
         SettingsCatalogItem(
+            key: TabWidthPreferences.maxWidthKey,
+            title: "Tab header size",
+            description: "Controls whether tab headers are small, medium, or full-width.",
+            category: .appearance,
+            section: "Interface",
+            defaultValue: TabWidthPreferences.defaultMaxWidth,
+            aliases: ["tabs", "tab width", "small", "medium", "full-width"]
+        ),
+        SettingsCatalogItem(
             key: "muxy.showStatusBar",
             title: "Show Status Bar",
             description: "Shows or hides the status bar.",

@@ -22,6 +22,8 @@ struct InterfaceSettingsView: View {
                     .frame(width: SettingsMetrics.controlWidth)
                 }
 
+                TabHeaderSizeSettingRow()
+
                 SettingsToggleRow(label: "Show Status Bar", isOn: $showStatusBar)
             }
 
@@ -60,6 +62,35 @@ struct InterfaceSettingsView: View {
                     }
                     .frame(width: SettingsMetrics.controlWidth)
                 }
+            }
+        }
+    }
+}
+
+private struct TabHeaderSizeSettingRow: View {
+    @State private var selectedSize = TabWidthPreferences.currentHeaderSize()
+
+    var body: some View {
+        SettingsRow("Tab header size") {
+            Picker("", selection: $selectedSize) {
+                ForEach(TabWidthPreferences.HeaderSize.allCases) { size in
+                    Text(size.title).tag(size)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(width: SettingsMetrics.controlWidth)
+        }
+        .onAppear {
+            selectedSize = TabWidthPreferences.currentHeaderSize()
+        }
+        .onChange(of: selectedSize) { _, newValue in
+            TabWidthPreferences.store(newValue)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            let currentSize = TabWidthPreferences.currentHeaderSize()
+            if currentSize != selectedSize {
+                selectedSize = currentSize
             }
         }
     }
