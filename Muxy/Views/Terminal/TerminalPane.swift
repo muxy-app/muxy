@@ -246,8 +246,15 @@ struct TerminalBridge: NSViewRepresentable {
         view.resolveCmdHoverFile = { token in
             Self.resolveFilePath(token, projectPath: projectPath) != nil
         }
+        view.onCmdClickFile = { token in
+            guard let resolved = Self.resolveFilePath(token, projectPath: projectPath) else { return }
+            _ = IDEIntegrationService.shared.openProject(at: projectPath, highlightingFileAt: resolved)
+        }
         view.onOpenURL = { url in
-            NSWorkspace.shared.open(url)
+            guard let resolved = Self.resolveLocalFilePath(from: url, projectPath: projectPath) else {
+                return NSWorkspace.shared.open(url)
+            }
+            return IDEIntegrationService.shared.openProject(at: projectPath, highlightingFileAt: resolved)
         }
     }
 

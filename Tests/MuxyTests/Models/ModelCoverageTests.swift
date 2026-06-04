@@ -333,7 +333,7 @@ struct ModelCoverageTests {
     @Test("Workspace DTO split trees encode and decode")
     func workspaceDTOSplitTreesRoundTrip() throws {
         let firstTab = TabDTO(id: UUID(), kind: .terminal, title: "Shell", isPinned: false, paneID: UUID())
-        let secondTab = TabDTO(id: UUID(), kind: .editor, title: "File", isPinned: true)
+        let secondTab = TabDTO(id: UUID(), kind: .vcs, title: "File", isPinned: true)
         let firstArea = TabAreaDTO(id: UUID(), projectPath: "/tmp/a", tabs: [firstTab], activeTabID: firstTab.id)
         let secondArea = TabAreaDTO(id: UUID(), projectPath: "/tmp/b", tabs: [secondTab], activeTabID: secondTab.id)
         let branch = SplitBranchDTO(

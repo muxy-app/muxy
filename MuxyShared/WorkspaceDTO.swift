@@ -129,8 +129,5 @@ public struct TabDTO: Identifiable, Codable, Sendable {
 public enum TabKindDTO: String, Codable, Sendable {
     case terminal
     case vcs
-    case editor
-    case diffViewer
-    case imageViewer
     case extensionWebView
 }
