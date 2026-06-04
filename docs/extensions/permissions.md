@@ -44,8 +44,7 @@ These verbs prompt the user at runtime even when the manifest permission is gran
 | `remote.invoke` | Running an extension's [remote method](remote-methods.md) handler in response to a mobile request. Remembered per action. |
 | `git.*` (writes) | Mutating the repository (stage, commit, push, pull, branch, PR, worktree). Remembered per operation (allowing `push` does not allow `discard`). |
 | `files.*` (writes) | Modifying workspace files (write, mkdir, rename, move, delete). Remembered per operation (allowing `write` does not allow `delete`). |
-| `http.fetch` | Calling an external host via [`muxy.http`](http.md). Remembered per host. Private/loopback hosts are blocked before prompting. |
-| `http.fetch` | Calling an external host via [`muxy.http`](http.md). Remembered per host (allowing `api.github.com` does not allow `example.com`). |
+| `http.fetch` | Calling an external host via [`muxy.http`](http.md). Remembered per host (allowing `api.github.com` does not allow `example.com`). Private/loopback hosts are blocked before prompting. |
 
 The prompt shows the extension, the verb, and the literal payload (full argv, the keystroke, or the pane id). The user picks:
 

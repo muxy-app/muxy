@@ -3,7 +3,7 @@ import Testing
 
 @testable import Muxy
 
-@Suite("ExtensionHTTPClient")
+@Suite("ExtensionHTTPClient", .serialized)
 @MainActor
 struct ExtensionHTTPClientTests {
     @Test("blocks localhost without prompting")
@@ -41,6 +41,33 @@ struct ExtensionHTTPClientTests {
         await expectBlocked(url: "http://printer.local/status")
     }
 
+    @Test("blocks hosts that fail to resolve (fail closed)")
+    func blocksUnresolvableHost() async {
+        await expectBlocked(url: "https://muxy-nonexistent-host.invalid/x")
+    }
+
+    @Test("truncates responses larger than the byte cap")
+    func truncatesLargeResponse() async throws {
+        let oversized = Data(repeating: UInt8(ascii: "a"), count: ExtensionHTTPClient.maxResponseBytes + 1024)
+        StubURLProtocol.handler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, oversized)
+        }
+        defer { StubURLProtocol.handler = nil }
+
+        let grantStore = preallowedStore(host: "93.184.216.34")
+        let consent = ExtensionConsentService(grantStore: grantStore, auditLog: makeAuditLog())
+        let request = HTTPRequest(url: "https://93.184.216.34/big", method: "GET", headers: nil, body: nil, timeoutMs: nil)
+        let result = try await ExtensionHTTPClient.fetch(
+            request: request,
+            extensionID: "ext",
+            session: stubSession(),
+            consentService: consent
+        )
+        #expect(result.truncated == true)
+        #expect(result.body.utf8.count <= ExtensionHTTPClient.maxResponseBytes)
+    }
+
     @Test("rejects non-http schemes")
     func rejectsFileScheme() async {
         await expectInvalid(url: "file:///etc/passwd")
@@ -69,11 +96,11 @@ struct ExtensionHTTPClientTests {
         }
         defer { StubURLProtocol.handler = nil }
 
-        let grantStore = preallowedStore(host: "example.com")
+        let grantStore = preallowedStore(host: "93.184.216.34")
         let consent = ExtensionConsentService(grantStore: grantStore, auditLog: makeAuditLog())
 
         let request = HTTPRequest(
-            url: "https://example.com/api",
+            url: "https://93.184.216.34/api",
             method: "POST",
             headers: ["X-Test": "1"],
             body: #"{"a":1}"#,
@@ -104,7 +131,7 @@ struct ExtensionHTTPClientTests {
         grantStore.add(ExtensionGrantRule(extensionID: "ext", verb: .httpFetch, match: .any, decision: .deny))
         let consent = ExtensionConsentService(grantStore: grantStore, auditLog: makeAuditLog())
 
-        let request = HTTPRequest(url: "https://example.com", method: "GET", headers: nil, body: nil, timeoutMs: nil)
+        let request = HTTPRequest(url: "https://93.184.216.34", method: "GET", headers: nil, body: nil, timeoutMs: nil)
         await #expect(throws: HTTPError.self) {
             _ = try await ExtensionHTTPClient.fetch(
                 request: request,

@@ -31,6 +31,7 @@ enum HTTPError: Error, LocalizedError {
 
 enum ExtensionHTTPClient {
     static let defaultTimeoutMs = 30000
+    static let maxResourceTimeoutMs = 120_000
     static let maxResponseBytes = 10 * 1024 * 1024
     static let allowedMethods: Set<String> = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]
     private static let forbiddenHeaders: Set<String> = ["host", "content-length", "connection"]
@@ -46,7 +47,7 @@ enum ExtensionHTTPClient {
         guard let host = urlRequest.url?.host else {
             throw HTTPError.invalidArguments("URL has no host")
         }
-        guard !HostSecurityPolicy.isBlocked(host) else {
+        guard let pinnedAddress = HostSecurityPolicy.resolveAllowed(host) else {
             throw HTTPError.blockedHost(host)
         }
 
@@ -61,7 +62,7 @@ enum ExtensionHTTPClient {
             throw HTTPError.requestFailed("user denied consent for \(host)")
         }
 
-        return try await perform(urlRequest, session: session)
+        return try await perform(urlRequest, pinnedAddress: pinnedAddress, session: session)
     }
 
     private static func buildRequest(_ request: HTTPRequest) throws -> URLRequest {
@@ -95,19 +96,28 @@ enum ExtensionHTTPClient {
         return urlRequest
     }
 
-    private static func perform(_ request: URLRequest, session: URLSession) async throws -> HTTPResult {
-        let delegate = HTTPRedirectGuard()
+    private static func perform(
+        _ request: URLRequest,
+        pinnedAddress: String,
+        session: URLSession
+    ) async throws -> HTTPResult {
+        guard let originalHost = request.url?.host else {
+            throw HTTPError.invalidArguments("URL has no host")
+        }
+        let delegate = HTTPSecurityDelegate(pinnedHost: originalHost)
+        let pinnedSession = pinnedSession(from: session, delegate: delegate)
+        defer { pinnedSession.invalidateAndCancel() }
+
         do {
-            let (data, response) = try await session.data(for: request, delegate: delegate)
+            let (stream, response) = try await pinnedSession.bytes(for: pinned(request, to: pinnedAddress, host: originalHost))
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw HTTPError.requestFailed("unexpected response")
             }
-            let truncated = data.count > maxResponseBytes
-            let limited = truncated ? data.prefix(maxResponseBytes) : data
+            let (data, truncated) = try await collect(stream)
             return HTTPResult(
                 status: httpResponse.statusCode,
                 headers: stringHeaders(httpResponse.allHeaderFields),
-                body: String(bytes: limited, encoding: .utf8) ?? "",
+                body: String(bytes: data, encoding: .utf8) ?? "",
                 truncated: truncated
             )
         } catch let error as HTTPError {
@@ -115,6 +125,42 @@ enum ExtensionHTTPClient {
         } catch {
             throw HTTPError.requestFailed(error.localizedDescription)
         }
+    }
+
+    private static func pinnedSession(from session: URLSession, delegate: HTTPSecurityDelegate) -> URLSession {
+        let configuration = session.configuration
+        configuration.timeoutIntervalForResource = TimeInterval(maxResourceTimeoutMs) / 1000
+        return URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+    }
+
+    static func pinned(_ request: URLRequest, to address: String, host: String) -> URLRequest {
+        guard var components = request.url.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else {
+            return request
+        }
+        components.host = bracketedHost(address)
+        guard let pinnedURL = components.url else { return request }
+        var pinned = request
+        pinned.url = pinnedURL
+        if request.value(forHTTPHeaderField: "Host") == nil {
+            pinned.setValue(host, forHTTPHeaderField: "Host")
+        }
+        return pinned
+    }
+
+    private static func bracketedHost(_ address: String) -> String {
+        address.contains(":") && !address.hasPrefix("[") ? "[\(address)]" : address
+    }
+
+    private static func collect(_ stream: URLSession.AsyncBytes) async throws -> (Data, truncated: Bool) {
+        var data = Data()
+        data.reserveCapacity(min(maxResponseBytes, 1 << 16))
+        for try await byte in stream {
+            if data.count >= maxResponseBytes {
+                return (data, true)
+            }
+            data.append(byte)
+        }
+        return (data, false)
     }
 
     private static func stringHeaders(_ raw: [AnyHashable: Any]) -> [String: String] {
@@ -127,7 +173,13 @@ enum ExtensionHTTPClient {
     }
 }
 
-private final class HTTPRedirectGuard: NSObject, URLSessionTaskDelegate {
+private final class HTTPSecurityDelegate: NSObject, URLSessionTaskDelegate {
+    private var pinnedHost: String
+
+    init(pinnedHost: String) {
+        self.pinnedHost = pinnedHost
+    }
+
     func urlSession(
         _: URLSession,
         task _: URLSessionTask,
@@ -135,25 +187,52 @@ private final class HTTPRedirectGuard: NSObject, URLSessionTaskDelegate {
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        guard let host = request.url?.host, !HostSecurityPolicy.isBlocked(host) else {
+        guard let host = request.url?.host else {
             completionHandler(nil)
             return
         }
-        completionHandler(request)
+        guard let pinnedAddress = HostSecurityPolicy.resolveAllowed(host) else {
+            completionHandler(nil)
+            return
+        }
+        pinnedHost = host
+        completionHandler(ExtensionHTTPClient.pinned(request, to: pinnedAddress, host: host))
+    }
+
+    func urlSession(
+        _: URLSession,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+              let trust = challenge.protectionSpace.serverTrust
+        else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, pinnedHost as CFString))
+        guard SecTrustEvaluateWithError(trust, nil) else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        completionHandler(.useCredential, URLCredential(trust: trust))
     }
 }
 
 enum HostSecurityPolicy {
-    static func isBlocked(_ host: String) -> Bool {
+    static func resolveAllowed(_ host: String) -> String? {
         let normalized = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        if normalized.isEmpty { return true }
-        if normalized == "localhost" || normalized.hasSuffix(".localhost") { return true }
-        if normalized.hasSuffix(".local") { return true }
+        if normalized.isEmpty { return nil }
+        if normalized == "localhost" || normalized.hasSuffix(".localhost") { return nil }
+        if normalized.hasSuffix(".local") { return nil }
 
-        if let addresses = resolvedAddresses(for: normalized) {
-            return addresses.contains(where: isPrivateAddress)
-        }
-        return isPrivateAddress(normalized)
+        guard let addresses = resolvedAddresses(for: normalized) else { return nil }
+        guard !addresses.contains(where: isPrivateAddress) else { return nil }
+        return addresses.first
+    }
+
+    static func isBlocked(_ host: String) -> Bool {
+        resolveAllowed(host) == nil
     }
 
     private static func resolvedAddresses(for host: String) -> [String]? {
