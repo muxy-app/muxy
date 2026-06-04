@@ -43,12 +43,17 @@ final class ExtensionStore {
     private var processes: [String: Process] = [:]
     private var tokens: [String: String] = [:]
     private var intentionalStops: Set<String> = []
+    private var crashRestartAttempts: [String: Int] = [:]
+    private var crashRestartTasks: [String: Task<Void, Never>] = [:]
     private let rootDirectoryURL: URL
     private let snapshotSink: ExtensionSnapshotSink
     private let resolveHostURL: @MainActor () -> URL?
     private let marketplace: ExtensionMarketplaceService
 
     nonisolated private static let processTerminationGracePeriod: TimeInterval = 2
+    nonisolated private static let maxCrashRestartAttempts = 5
+    nonisolated private static let crashRestartBackoff: TimeInterval = 1
+    nonisolated private static let crashStabilityWindow: TimeInterval = 30
 
     private init(
         rootDirectory: URL = ExtensionStore.defaultRootDirectory,
@@ -271,6 +276,7 @@ final class ExtensionStore {
         statuses[index].isEnabled = enabled
 
         if enabled, !statuses[index].isRunning {
+            crashRestartAttempts.removeValue(forKey: extensionID)
             startExtension(at: index)
         } else if !enabled, statuses[index].isRunning {
             stopProcess(extensionID: extensionID)
@@ -744,6 +750,7 @@ final class ExtensionStore {
             processes[ext.id] = process
             statuses[index].isRunning = true
             statuses[index].lastError = nil
+            scheduleCrashCounterReset(extensionID: ext.id, process: process)
             ExtensionLogStore.shared.append(
                 extensionID: ext.id,
                 line: "[muxy] started \(ext.id) v\(ext.manifest.version)"
@@ -774,6 +781,8 @@ final class ExtensionStore {
     }
 
     private func stopProcess(extensionID: String) {
+        crashRestartTasks.removeValue(forKey: extensionID)?.cancel()
+        crashRestartAttempts.removeValue(forKey: extensionID)
         ExtensionScriptRunner.shared.evict(extensionID: extensionID)
         tokens.removeValue(forKey: extensionID)
         guard let process = processes.removeValue(forKey: extensionID) else { return }
@@ -828,6 +837,47 @@ final class ExtensionStore {
             let message = "Process exited with status \(status)"
             statuses[index].lastError = message
             ExtensionLogStore.shared.append(extensionID: extensionID, line: "[muxy] \(message)")
+            scheduleCrashRestart(extensionID: extensionID)
+        }
+    }
+
+    nonisolated static func shouldRestartAfterCrash(isEnabled: Bool, attempts: Int) -> Bool {
+        isEnabled && attempts < maxCrashRestartAttempts
+    }
+
+    private func scheduleCrashRestart(extensionID: String) {
+        guard let index = statuses.firstIndex(where: { $0.id == extensionID }) else { return }
+        let attempts = crashRestartAttempts[extensionID, default: 0]
+        guard Self.shouldRestartAfterCrash(isEnabled: statuses[index].isEnabled, attempts: attempts) else {
+            guard statuses[index].isEnabled else { return }
+            let message = "Stopped after \(Self.maxCrashRestartAttempts) crash restarts"
+            statuses[index].lastError = message
+            ExtensionLogStore.shared.append(extensionID: extensionID, line: "[muxy] \(message)")
+            return
+        }
+        let nextAttempt = attempts + 1
+        crashRestartAttempts[extensionID] = nextAttempt
+        ExtensionLogStore.shared.append(
+            extensionID: extensionID,
+            line: "[muxy] restarting after crash (attempt \(nextAttempt)/\(Self.maxCrashRestartAttempts))"
+        )
+        crashRestartTasks[extensionID] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.crashRestartBackoff))
+            guard !Task.isCancelled, let self else { return }
+            self.crashRestartTasks.removeValue(forKey: extensionID)
+            guard let index = self.statuses.firstIndex(where: { $0.id == extensionID }),
+                  self.statuses[index].isEnabled, !self.statuses[index].isRunning
+            else { return }
+            self.startExtension(at: index)
+        }
+    }
+
+    private func scheduleCrashCounterReset(extensionID: String, process: Process) {
+        guard crashRestartAttempts[extensionID] != nil else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.crashStabilityWindow))
+            guard let self, self.processes[extensionID] === process else { return }
+            self.crashRestartAttempts.removeValue(forKey: extensionID)
         }
     }
 
