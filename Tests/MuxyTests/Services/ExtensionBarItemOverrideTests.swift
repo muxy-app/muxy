@@ -51,6 +51,40 @@ struct ExtensionBarItemOverrideTests {
             .isVisible)
     }
 
+    @Test("status bar binding visibility prefers the live override over the manifest default")
+    func statusBarVisibilityFallback() {
+        let visible = ExtensionStatusBarItem(id: "i", icon: .symbol("a"), text: nil, tooltip: nil, side: .right, command: "c")
+        let hidden = ExtensionStatusBarItem(
+            id: "i",
+            icon: .symbol("a"),
+            text: nil,
+            tooltip: nil,
+            side: .right,
+            command: "c",
+            visible: false
+        )
+        #expect(binding(visible, liveVisible: nil).isVisible)
+        #expect(!binding(hidden, liveVisible: nil).isVisible)
+        #expect(binding(hidden, liveVisible: true).isVisible)
+        #expect(!binding(visible, liveVisible: false).isVisible)
+    }
+
+    @Test("topbar item defaults visible to true and decodes an explicit false")
+    func topbarVisibilityDecodes() throws {
+        let shown = try decodeTopbarItem(#"{ "id": "i", "icon": "a", "command": "c" }"#)
+        let hidden = try decodeTopbarItem(#"{ "id": "i", "icon": "a", "command": "c", "visible": false }"#)
+        #expect(shown.visible)
+        #expect(!hidden.visible)
+    }
+
+    @Test("status bar item defaults visible to true and decodes an explicit false")
+    func statusBarVisibilityDecodes() throws {
+        let shown = try decodeStatusBarItem(#"{ "id": "i", "icon": "a", "side": "right", "command": "c" }"#)
+        let hidden = try decodeStatusBarItem(#"{ "id": "i", "icon": "a", "side": "right", "command": "c", "visible": false }"#)
+        #expect(shown.visible)
+        #expect(!hidden.visible)
+    }
+
     @Test("status bar binding prefers live icon and text over the manifest values")
     func statusBarDisplayFallback() {
         let item = ExtensionStatusBarItem(id: "i", icon: .symbol("a"), text: "1", tooltip: nil, side: .right, command: "c")
@@ -72,6 +106,24 @@ struct ExtensionBarItemOverrideTests {
         #expect(base.displayText == "1")
         #expect(overridden.displayIcon == .symbol("b"))
         #expect(overridden.displayText == "9")
+    }
+
+    private func binding(_ item: ExtensionStatusBarItem, liveVisible: Bool?) -> ExtensionStore.StatusBarItemBinding {
+        ExtensionStore.StatusBarItemBinding(
+            muxyExtension: ext,
+            item: item,
+            liveIcon: nil,
+            liveText: nil,
+            liveVisible: liveVisible
+        )
+    }
+
+    private func decodeTopbarItem(_ json: String) throws -> ExtensionTopbarItem {
+        try JSONDecoder().decode(ExtensionTopbarItem.self, from: Data(json.utf8))
+    }
+
+    private func decodeStatusBarItem(_ json: String) throws -> ExtensionStatusBarItem {
+        try JSONDecoder().decode(ExtensionStatusBarItem.self, from: Data(json.utf8))
     }
 
     private var ext: MuxyExtension {
