@@ -43,7 +43,6 @@ struct ProjectStatusBarTests {
 
         #expect(context?.path == "/Projects/muxy-worktrees/feature")
         #expect(context?.worktreeName == "feature")
-        #expect(context?.branch == "feature/status-bar")
     }
 
     @Test("terminal tabs prefer pane path")
@@ -64,6 +63,5 @@ struct ProjectStatusBarTests {
 
         #expect(context?.path == "/Projects/muxy/Muxy")
         #expect(context?.worktreeName == "feature")
-        #expect(context?.branch == "feature/status-bar")
     }
 }

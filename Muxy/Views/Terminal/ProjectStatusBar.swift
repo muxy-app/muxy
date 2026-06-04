@@ -5,7 +5,6 @@ struct ProjectStatusBar: View {
     struct StatusContext: Equatable {
         let path: String
         let worktreeName: String?
-        let branch: String?
     }
 
     let activePane: TerminalPaneState?
@@ -51,10 +50,6 @@ struct ProjectStatusBar: View {
                 separator
                 if let worktreeName = statusContext.worktreeName {
                     worktreeLabel(worktreeName)
-                    separator
-                }
-                if let branch = statusContext.branch {
-                    branchLabel(branch)
                     separator
                 }
             }
@@ -108,16 +103,8 @@ struct ProjectStatusBar: View {
         else { return nil }
         return StatusContext(
             path: path,
-            worktreeName: activeWorktree?.name,
-            branch: nonEmpty(activePane?.branchObserver.branch) ?? nonEmpty(activeWorktree?.branch)
+            worktreeName: activeWorktree?.name
         )
-    }
-
-    private static func nonEmpty(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty
-        else { return nil }
-        return trimmed
     }
 
     private func pathButton(_ fullPath: String) -> some View {
@@ -155,19 +142,6 @@ struct ProjectStatusBar: View {
         }
         .foregroundStyle(MuxyTheme.fgMuted)
         .help("Worktree: \(worktreeName)")
-    }
-
-    private func branchLabel(_ branch: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 10, weight: .semibold))
-            Text(branch)
-                .font(.system(size: 11, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .foregroundStyle(MuxyTheme.fgMuted)
-        .help("Branch: \(branch)")
     }
 
     private var separator: some View {

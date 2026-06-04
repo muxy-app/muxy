@@ -19,8 +19,6 @@ struct TerminalPane: View {
 
     var body: some View {
         terminalLayer
-            .onAppear { state.branchObserver.start() }
-            .onDisappear { state.branchObserver.stop() }
             .onReceive(NotificationCenter.default.publisher(for: .refocusActiveTerminal)) { _ in
                 guard focused, visible else { return }
                 let view = TerminalViewRegistry.shared.existingView(for: state.id)
