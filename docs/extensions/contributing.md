@@ -18,15 +18,18 @@ ship an extension to everyone.
 - [Node.js](https://nodejs.org) 18 or newer (npm comes with it).
 - A Muxy installation to test against.
 
-## 1. Start from the example
+## 1. Start from a starter kit
 
-Copy the example as your starting point. An extension is an npm + [Vite](https://vitejs.dev)
-project — the directory name must match the package `name`:
+Copy a starter kit as your starting point. Each is a minimal npm + [Vite](https://vitejs.dev)
+project (one panel, a topbar item, a command) in your framework of choice — pick one and
+rename the directory to match the package `name`:
 
-```bash
-git clone https://github.com/muxy-app/extensions
-cp -r extensions/extensions/git my-extension
-```
+- [`starter-kits/vanilla`](starter-kits/vanilla) — plain TypeScript
+- [`starter-kits/react`](starter-kits/react) — React
+- [`starter-kits/vue`](starter-kits/vue) — Vue 3
+- [`starter-kits/svelte`](starter-kits/svelte) — Svelte 5
+
+For a full-featured reference, see the [`git`](https://github.com/muxy-app/extensions/tree/main/extensions/git) extension.
 
 ## 2. Edit `package.json`
 
