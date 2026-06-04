@@ -1,9 +1,28 @@
 import Foundation
 
+enum ExtensionStarterKit: String, CaseIterable, Identifiable, Equatable {
+    case vanilla
+    case react
+    case vue
+    case svelte
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .vanilla: "Vanilla"
+        case .react: "React"
+        case .vue: "Vue"
+        case .svelte: "Svelte"
+        }
+    }
+}
+
 struct ExtensionScaffoldRequest: Equatable {
     let name: String
     let version: String
     let description: String
+    let kit: ExtensionStarterKit
 
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     var trimmedVersion: String { version.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -14,6 +33,8 @@ enum ExtensionScaffoldError: LocalizedError, Equatable {
     case invalidVersion(String)
     case directoryAlreadyExists(URL)
     case skillResourceMissing
+    case kitResourceMissing(ExtensionStarterKit)
+    case invalidKitManifest
     case fileSystem(String)
 
     var errorDescription: String? {
@@ -24,6 +45,10 @@ enum ExtensionScaffoldError: LocalizedError, Equatable {
             "An extension already exists at \(url.path)"
         case .skillResourceMissing:
             "Could not locate the bundled muxy-extension skill resource"
+        case let .kitResourceMissing(kit):
+            "Could not locate the bundled \(kit.title) starter kit"
+        case .invalidKitManifest:
+            "The starter kit package.json could not be read"
         case let .fileSystem(message):
             message
         }
@@ -31,10 +56,13 @@ enum ExtensionScaffoldError: LocalizedError, Equatable {
 }
 
 enum ExtensionScaffoldService {
+    private static let excludedKitEntries: Set<String> = ["node_modules", "dist", "package-lock.json"]
+
     static func create(
         _ request: ExtensionScaffoldRequest,
         in rootDirectory: URL,
-        skillSourceURL: URL? = bundledSkillSourceURL()
+        skillSourceURL: URL? = bundledSkillSourceURL(),
+        kitSourceURL: URL? = nil
     ) throws -> URL {
         let name = request.trimmedName
         let version = request.trimmedVersion
@@ -42,6 +70,14 @@ enum ExtensionScaffoldService {
 
         try ExtensionManifestLoader.validate(name: name)
         guard !version.isEmpty else { throw ExtensionScaffoldError.invalidVersion(version) }
+
+        let kitSource = kitSourceURL ?? bundledKitSourceURL(for: request.kit)
+        guard let kitSource, FileManager.default.fileExists(atPath: kitSource.path) else {
+            throw ExtensionScaffoldError.kitResourceMissing(request.kit)
+        }
+        guard let skillSourceURL, FileManager.default.fileExists(atPath: skillSourceURL.path) else {
+            throw ExtensionScaffoldError.skillResourceMissing
+        }
 
         try FileManager.default.createDirectory(
             at: rootDirectory,
@@ -54,19 +90,11 @@ enum ExtensionScaffoldService {
             throw ExtensionScaffoldError.directoryAlreadyExists(extensionDirectory)
         }
 
-        guard let skillSourceURL else { throw ExtensionScaffoldError.skillResourceMissing }
-        guard FileManager.default.fileExists(atPath: skillSourceURL.path) else {
-            throw ExtensionScaffoldError.skillResourceMissing
-        }
-
         do {
-            try FileManager.default.createDirectory(at: extensionDirectory, withIntermediateDirectories: false)
-            try writePackageJSON(name: name, version: version, description: description, in: extensionDirectory)
-            try writeViteConfig(in: extensionDirectory)
-            try writeIndexHTML(name: name, in: extensionDirectory)
+            try copyKit(from: kitSource, into: extensionDirectory)
+            try rewritePackageManifest(name: name, version: version, description: description, in: extensionDirectory)
             try writeClaudeMarkdown(name: name, description: description, in: extensionDirectory)
             try writeAgentsSymlink(in: extensionDirectory)
-            try writeGitignore(in: extensionDirectory)
             try copySkill(from: skillSourceURL, into: extensionDirectory)
         } catch let error as ExtensionScaffoldError {
             try? FileManager.default.removeItem(at: extensionDirectory)
@@ -87,81 +115,53 @@ enum ExtensionScaffoldService {
             .appendingPathComponent("skills/muxy-extension/SKILL.md")
     }
 
-    private static func writePackageJSON(
+    static func bundledKitSourceURL(for kit: ExtensionStarterKit) -> URL? {
+        if let url = Bundle.appResources.url(forResource: kit.rawValue, withExtension: nil, subdirectory: "starter-kits") {
+            return url
+        }
+        return Bundle.appResources.resourceURL?
+            .appendingPathComponent("starter-kits/\(kit.rawValue)", isDirectory: true)
+    }
+
+    private static func copyKit(from source: URL, into destination: URL) throws {
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+        let entries = try FileManager.default.contentsOfDirectory(atPath: source.path)
+        for entry in entries where !excludedKitEntries.contains(entry) {
+            try FileManager.default.copyItem(
+                at: source.appendingPathComponent(entry),
+                to: destination.appendingPathComponent(entry)
+            )
+        }
+    }
+
+    private static func rewritePackageManifest(
         name: String,
         version: String,
         description: String,
         in directory: URL
     ) throws {
-        var muxy: [String: Any] = [
-            "events": [],
-            "commands": [],
-            "permissions": [],
-        ]
-        if !description.isEmpty {
+        let packageURL = directory.appendingPathComponent("package.json")
+        let data = try Data(contentsOf: packageURL)
+        guard var package = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ExtensionScaffoldError.invalidKitManifest
+        }
+
+        package["name"] = name
+        package["version"] = version
+
+        var muxy = package["muxy"] as? [String: Any] ?? [:]
+        if description.isEmpty {
+            muxy["description"] = nil
+        } else {
             muxy["description"] = description
         }
-        let packageJSON: [String: Any] = [
-            "name": name,
-            "version": version,
-            "private": true,
-            "type": "module",
-            "scripts": [
-                "dev": "vite",
-                "build": "vite build",
-            ],
-            "devDependencies": [
-                "vite": "^5.0.0",
-            ],
-            "muxy": muxy,
-        ]
-        let data = try JSONSerialization.data(
-            withJSONObject: packageJSON,
+        package["muxy"] = muxy
+
+        let updated = try JSONSerialization.data(
+            withJSONObject: package,
             options: [.prettyPrinted, .sortedKeys]
         )
-        try data.write(to: directory.appendingPathComponent("package.json"))
-    }
-
-    private static func writeViteConfig(in directory: URL) throws {
-        let contents = """
-        import { defineConfig } from "vite";
-
-        export default defineConfig({
-          build: {
-            outDir: "dist",
-            emptyOutDir: true,
-            minify: false,
-          },
-        });
-        """
-        try Data(contents.utf8).write(to: directory.appendingPathComponent("vite.config.js"))
-    }
-
-    private static func writeIndexHTML(name: String, in directory: URL) throws {
-        let contents = """
-        <!doctype html>
-        <html lang="en">
-          <head>
-            <meta charset="utf-8" />
-            <title>\(name)</title>
-          </head>
-          <body>
-            <div id="app"></div>
-            <script type="module" src="/src/main.js"></script>
-          </body>
-        </html>
-        """
-        try Data(contents.utf8).write(to: directory.appendingPathComponent("index.html"))
-
-        let srcDirectory = directory.appendingPathComponent("src", isDirectory: true)
-        try FileManager.default.createDirectory(at: srcDirectory, withIntermediateDirectories: true)
-        let main = """
-        // Entry point. Use any npm packages or framework you like (React, Vue,
-        // Svelte, …); Vite bundles them into dist/. Talk to the host via the
-        // injected `window.muxy` API.
-        document.querySelector("#app").textContent = "Hello from \(name)";
-        """
-        try Data(main.utf8).write(to: srcDirectory.appendingPathComponent("main.js"))
+        try updated.write(to: packageURL)
     }
 
     private static func writeClaudeMarkdown(
@@ -173,16 +173,16 @@ enum ExtensionScaffoldService {
         let contents = """
         # \(name)\(header)
 
-        Muxy extension scaffolded by Muxy. This is an npm + Vite project.
+        Muxy extension scaffolded from a starter kit. This is an npm + Vite project.
 
         ## Layout
 
         - `package.json` — npm manifest. Identity (`name`, `version`) is at the
           top level; all Muxy fields live under the `muxy` key. A `build` script
           (Vite) is required.
-        - `vite.config.js` — builds to `dist/`, the directory Muxy installs.
-        - `index.html` + `src/` — your source. Use any npm packages or framework
-          (React, Vue, Svelte, …); Vite bundles them into `dist/`.
+        - `vite.config.ts` — builds to `dist/`, the directory Muxy installs.
+        - `panel/` + `src/` — your source. The kit ships a working panel, a topbar
+          item, and a command; edit them or add your own.
 
         Add a `"background"` script (e.g. `background.js`) under the `muxy` key
         only if the extension needs to receive pushed workspace events or run
@@ -213,17 +213,6 @@ enum ExtensionScaffoldService {
             atPath: symlinkURL.path,
             withDestinationPath: "CLAUDE.md"
         )
-    }
-
-    private static func writeGitignore(in directory: URL) throws {
-        let contents = """
-        .DS_Store
-        node_modules/
-        dist/
-        build/
-        *.log
-        """
-        try Data(contents.utf8).write(to: directory.appendingPathComponent(".gitignore"))
     }
 
     private static func copySkill(from source: URL, into directory: URL) throws {

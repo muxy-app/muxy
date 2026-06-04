@@ -20,14 +20,17 @@ ship an extension to everyone.
 
 ## 1. Start from a starter kit
 
-Copy a starter kit as your starting point. Each is a minimal npm + [Vite](https://vitejs.dev)
-project (one panel, a topbar item, a command) in your framework of choice — pick one and
-rename the directory to match the package `name`:
+The fastest path is the Muxy **Extensions** modal → **Create**: pick a framework and Muxy
+scaffolds the kit into `~/.config/muxy/extensions/<name>` for you.
 
-- [`starter-kits/vanilla`](starter-kits/vanilla) — plain TypeScript
-- [`starter-kits/react`](starter-kits/react) — React
-- [`starter-kits/vue`](starter-kits/vue) — Vue 3
-- [`starter-kits/svelte`](starter-kits/svelte) — Svelte 5
+To start by hand, copy a starter kit and rename the directory to match the package `name`.
+Each is a minimal npm + [Vite](https://vitejs.dev) project (one panel, a topbar item, a
+command) in your framework of choice:
+
+- [`vanilla`](https://github.com/muxy-app/muxy/tree/main/Muxy/Resources/starter-kits/vanilla) — plain TypeScript
+- [`react`](https://github.com/muxy-app/muxy/tree/main/Muxy/Resources/starter-kits/react) — React
+- [`vue`](https://github.com/muxy-app/muxy/tree/main/Muxy/Resources/starter-kits/vue) — Vue 3
+- [`svelte`](https://github.com/muxy-app/muxy/tree/main/Muxy/Resources/starter-kits/svelte) — Svelte 5
 
 For a full-featured reference, see the [`git`](https://github.com/muxy-app/extensions/tree/main/extensions/git) extension.
 

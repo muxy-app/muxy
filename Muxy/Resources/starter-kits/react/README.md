@@ -7,4 +7,4 @@ npm install
 npm run build
 ```
 
-Copy the folder to `~/.config/muxy/extensions/muxy-starter-react/` and rebuild to pick up changes. Theme colors use `var(--muxy-*)` and spacing follows a fixed scale; see the [extension docs](../../README.md).
+Copy the folder to `~/.config/muxy/extensions/muxy-starter-react/` and rebuild to pick up changes. Theme colors use `var(--muxy-*)` and spacing follows a fixed scale; see the [extension docs](https://github.com/muxy-app/muxy/tree/main/docs/extensions).
