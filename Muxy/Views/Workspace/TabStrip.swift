@@ -11,6 +11,8 @@ struct PaneTabStrip: View {
         let isPinned: Bool
         let hasCustomTitle: Bool
         let colorID: String?
+        let extensionID: String?
+        let customIcon: ExtensionIcon?
     }
 
     let areaID: UUID
@@ -52,7 +54,9 @@ struct PaneTabStrip: View {
                 kind: tab.kind,
                 isPinned: tab.isPinned,
                 hasCustomTitle: tab.customTitle != nil,
-                colorID: tab.colorID
+                colorID: tab.colorID,
+                extensionID: tab.content.extensionState?.extensionID,
+                customIcon: tab.content.extensionState?.customIcon
             )
         }
     }
@@ -646,9 +650,21 @@ private struct TabCell: View {
                 Image(systemName: "photo")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             case .extensionWebView:
-                Image(systemName: "puzzlepiece.extension")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                extensionIconView
             }
+        }
+    }
+
+    @ViewBuilder
+    private var extensionIconView: some View {
+        if let icon = tab.customIcon,
+           let extensionID = tab.extensionID,
+           let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID)
+        {
+            ExtensionIconView(icon: icon, muxyExtension: muxyExtension, size: 12)
+        } else {
+            Image(systemName: "puzzlepiece.extension")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
         }
     }
 }

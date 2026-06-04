@@ -102,6 +102,12 @@ enum ExtensionWebBridge {
                     new() { return send('tabs.new', {}); },
                     next() { return send('tabs.next', {}); },
                     previous() { return send('tabs.previous', {}); },
+                    setTitle(title) {
+                        return send('tabs.setTitle', { tabInstanceID: muxy.tabInstanceID, title: String(title == null ? '' : title) });
+                    },
+                    setIcon(icon) {
+                        return send('tabs.setIcon', { tabInstanceID: muxy.tabInstanceID, icon: icon ?? null });
+                    },
                 },
                 panes: {
                     list() { return send('panes.list', {}); },

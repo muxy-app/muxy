@@ -102,6 +102,8 @@ window.muxy = {
     new(): Promise<string | null>,
     next(): Promise<void>,
     previous(): Promise<void>,
+    setTitle(title): Promise<void>,     // retitle this tab; "" resets to the manifest default
+    setIcon(icon): Promise<void>,       // set this tab's icon; null resets to the default
   },
 
   panes: {
@@ -153,6 +155,23 @@ await muxy.tabs.open({
 
 muxy.onDataChange((data) => render(data));
 ```
+
+### Setting the tab title and icon at runtime
+
+A tab can rename itself and change its tab-bar icon live — useful when the page reflects changing state (a file editor showing the open file, a build tool showing pass/fail). Both apply to the calling page's own tab and take effect immediately, no reopen.
+
+```js
+await muxy.tabs.setTitle('App.swift');
+await muxy.tabs.setIcon({ symbol: 'swift' });   // SF Symbol
+await muxy.tabs.setIcon({ svg: 'icons/file.svg' }); // bundled SVG, template-rendered
+```
+
+| Call | Notes |
+| --- | --- |
+| `setTitle(title)` | New tab-bar title. An empty/whitespace string resets to the manifest `tabType.title`. |
+| `setIcon(icon)` | `"<sf-symbol>"`, `{ symbol }`, or `{ svg }` (path inside the extension). `null` resets to the default extension icon. |
+
+Both need `tabs:write`. Overrides are **runtime-only** — they live while the tab is open and reset to the manifest defaults on app restart, so set them again from your page on load. A page can only customize its own tab.
 
 ### Running shell commands
 

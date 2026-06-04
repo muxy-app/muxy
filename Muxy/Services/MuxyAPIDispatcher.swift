@@ -115,6 +115,22 @@ enum MuxyAPIDispatcher {
                 callingExtensionID: context.extensionID
             ))
             return NSNull()
+        case "tabs.setTitle":
+            try unwrap(MuxyAPI.Tabs.setTitle(
+                instanceID: stringArg(args, "tabInstanceID"),
+                title: stringArg(args, "title"),
+                appState: context.appState,
+                callingExtensionID: context.extensionID
+            ))
+            return NSNull()
+        case "tabs.setIcon":
+            try unwrap(MuxyAPI.Tabs.setIcon(
+                instanceID: stringArg(args, "tabInstanceID"),
+                icon: ExtensionIcon.parse(args["icon"]),
+                appState: context.appState,
+                callingExtensionID: context.extensionID
+            ))
+            return NSNull()
         case "panes.list":
             return MuxyAPI.Panes.list(appState: context.appState).map(paneDict)
         case "panes.send":

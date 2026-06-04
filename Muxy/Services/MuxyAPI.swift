@@ -260,6 +260,8 @@ enum MuxyAPI {
             "tabs.next": .tabsWrite,
             "tabs.previous": .tabsWrite,
             "tabs.open": .tabsWrite,
+            "tabs.setTitle": .tabsWrite,
+            "tabs.setIcon": .tabsWrite,
             "projects.list": .projectsRead,
             "projects.switch": .projectsWrite,
             "worktrees.list": .worktreesRead,
@@ -770,6 +772,51 @@ enum MuxyAPI {
             guard let projectID = appState.activeProjectID else { return .failure(.noActiveProject) }
             appState.selectPreviousTab(projectID: projectID)
             return .success(())
+        }
+
+        static func setTitle(
+            instanceID: String,
+            title: String,
+            appState: AppState,
+            callingExtensionID: String
+        ) -> Result<Void, APIError> {
+            locateExtensionTab(instanceID: instanceID, callingExtensionID: callingExtensionID, appState: appState)
+                .map { state in
+                    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    state.customTitle = trimmed.isEmpty ? nil : title
+                }
+        }
+
+        static func setIcon(
+            instanceID: String,
+            icon: ExtensionIcon?,
+            appState: AppState,
+            callingExtensionID: String
+        ) -> Result<Void, APIError> {
+            locateExtensionTab(instanceID: instanceID, callingExtensionID: callingExtensionID, appState: appState)
+                .map { state in state.customIcon = icon }
+        }
+
+        private static func locateExtensionTab(
+            instanceID: String,
+            callingExtensionID: String,
+            appState: AppState
+        ) -> Result<ExtensionTabState, APIError> {
+            guard let id = UUID(uuidString: instanceID) else {
+                return .failure(.invalidArguments("invalid tab instance id"))
+            }
+            for (_, root) in appState.workspaceRoots {
+                for area in root.allAreas() {
+                    for tab in area.tabs {
+                        guard let state = tab.content.extensionState, state.id == id else { continue }
+                        guard state.extensionID == callingExtensionID else {
+                            return .failure(.tabNotFound(instanceID))
+                        }
+                        return .success(state)
+                    }
+                }
+            }
+            return .failure(.tabNotFound(instanceID))
         }
 
         static func open(

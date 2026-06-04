@@ -11,6 +11,7 @@ final class ExtensionTabState: Identifiable {
 
     var customTitle: String?
     var defaultTitle: String
+    var customIcon: ExtensionIcon?
 
     var displayTitle: String {
         customTitle ?? defaultTitle
