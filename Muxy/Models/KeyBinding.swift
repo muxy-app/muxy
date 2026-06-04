@@ -53,13 +53,11 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case toggleRichInput
     case submitRichInput
     case submitRichInputWithoutReturn
-    case quickOpen
     case terminalOmnibox
     case terminalOmniboxProjects
     case terminalOmniboxWorktrees
     case terminalOmniboxCommands
     case terminalOmniboxHistory
-    case saveFile
     case toggleSidebar
     case navigateBack
     case navigateForward
@@ -112,13 +110,11 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .toggleRichInput,
         .submitRichInput,
         .submitRichInputWithoutReturn,
-        .quickOpen,
         .terminalOmnibox,
         .terminalOmniboxProjects,
         .terminalOmniboxWorktrees,
         .terminalOmniboxCommands,
         .terminalOmniboxHistory,
-        .saveFile,
         .toggleSidebar,
         .navigateBack,
         .navigateForward,
@@ -187,7 +183,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
                 category: "Rich Input",
                 scope: .richInput
             )
-        case .quickOpen: ShortcutMetadata(displayName: "Quick Open", category: "App", scope: .mainWindow)
         case .terminalOmnibox: ShortcutMetadata(displayName: "Terminal Omnibox Open Tabs", category: "Terminal", scope: .mainWindow)
         case .terminalOmniboxProjects: ShortcutMetadata(
                 displayName: "Terminal Omnibox Projects",
@@ -209,7 +204,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
                 category: "Terminal",
                 scope: .mainWindow
             )
-        case .saveFile: ShortcutMetadata(displayName: "Save File", category: "Editor", scope: .mainWindow)
         case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
         case .navigateBack: ShortcutMetadata(displayName: "Navigate Back", category: "Navigation", scope: .mainWindow)
         case .navigateForward: ShortcutMetadata(displayName: "Navigate Forward", category: "Navigation", scope: .mainWindow)
@@ -233,7 +227,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "Editor", "App"]
+        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "App"]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -336,13 +330,11 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .toggleRichInput, combo: KeyCombo(key: "i", command: true)),
         Self(action: .submitRichInput, combo: KeyCombo(key: KeyCombo.returnKey, command: true)),
         Self(action: .submitRichInputWithoutReturn, combo: KeyCombo(key: KeyCombo.returnKey, command: true, shift: true)),
-        Self(action: .quickOpen, combo: KeyCombo(key: "p", command: true)),
         Self(action: .terminalOmnibox, combo: KeyCombo(key: "o", command: true, option: true)),
         Self(action: .terminalOmniboxProjects, combo: KeyCombo(key: "p", command: true, option: true)),
         Self(action: .terminalOmniboxWorktrees, combo: KeyCombo(key: "w", command: true, option: true)),
         Self(action: .terminalOmniboxCommands, combo: KeyCombo(key: "p", command: true, shift: true)),
         Self(action: .terminalOmniboxHistory, combo: KeyCombo(key: "h", command: true, option: true)),
-        Self(action: .saveFile, combo: KeyCombo(key: "s", command: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .navigateBack, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, control: true)),
         Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),

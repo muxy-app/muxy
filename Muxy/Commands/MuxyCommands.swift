@@ -29,23 +29,6 @@ struct MuxyCommands: Commands {
             ?? project.path
     }
 
-    private var activeEditorState: EditorTabState? {
-        guard let project = activeProject else { return nil }
-        return appState.activeTab(for: project.id)?.content.editorState
-    }
-
-    private var activeEditorFilePath: String? {
-        activeEditorState?.filePath
-    }
-
-    private var activeEditorCursorLine: Int? {
-        activeEditorState?.cursorLine
-    }
-
-    private var activeEditorCursorColumn: Int? {
-        activeEditorState?.cursorColumn
-    }
-
     private var shortcutDispatcher: ShortcutActionDispatcher {
         ShortcutActionDispatcher(
             appState: appState,
@@ -58,15 +41,6 @@ struct MuxyCommands: Commands {
 
     private func performShortcutAction(_ action: ShortcutAction) {
         _ = shortcutDispatcher.perform(action, activeProject: activeProject)
-    }
-
-    private var isMarkdownPreviewActive: Bool {
-        guard let state = activeEditorState, state.isMarkdownFile else { return false }
-        return state.markdownViewMode == .preview || state.markdownViewMode == .split
-    }
-
-    private func adjustMarkdownPreviewZoom(by delta: CGFloat) {
-        EditorSettings.shared.adjustMarkdownPreviewFontScale(by: delta)
     }
 
     private func performCommandShortcut(_ shortcut: CommandShortcut) {
@@ -183,13 +157,7 @@ struct MuxyCommands: Commands {
                     ForEach(ideService.installedApps) { ide in
                         Button {
                             guard let activeProjectPath else { return }
-                            _ = ideService.openProject(
-                                at: activeProjectPath,
-                                highlightingFileAt: activeEditorFilePath,
-                                line: activeEditorCursorLine,
-                                column: activeEditorCursorColumn,
-                                in: ide
-                            )
+                            _ = ideService.openProject(at: activeProjectPath, in: ide)
                         } label: {
                             HStack(spacing: 8) {
                                 AppBundleIconView(appURL: ide.appURL, fallbackSystemName: ide.symbolName, size: 20)
@@ -220,18 +188,6 @@ struct MuxyCommands: Commands {
                     }
                 }
             }
-
-            Button("Quick Open") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.quickOpen)
-            }
-            .shortcut(for: .quickOpen, store: keyBindings)
-
-            Button("Save") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.saveFile)
-            }
-            .shortcut(for: .saveFile, store: keyBindings)
 
             Divider()
 
@@ -313,29 +269,6 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.cyclePreviousTabAcrossPanes)
             }
             .shortcut(for: .cyclePreviousTabAcrossPanes, store: keyBindings)
-        }
-
-        CommandGroup(after: .toolbar) {
-            Button("Zoom In Markdown Preview") {
-                guard isMainWindowFocused, isMarkdownPreviewActive else { return }
-                adjustMarkdownPreviewZoom(by: EditorSettings.markdownPreviewZoomStep)
-            }
-            .keyboardShortcut("=", modifiers: .command)
-            .disabled(!isMarkdownPreviewActive)
-
-            Button("Zoom Out Markdown Preview") {
-                guard isMainWindowFocused, isMarkdownPreviewActive else { return }
-                adjustMarkdownPreviewZoom(by: -EditorSettings.markdownPreviewZoomStep)
-            }
-            .keyboardShortcut("-", modifiers: .command)
-            .disabled(!isMarkdownPreviewActive)
-
-            Button("Reset Markdown Preview Zoom") {
-                guard isMainWindowFocused, isMarkdownPreviewActive else { return }
-                EditorSettings.shared.markdownPreviewFontScale = EditorSettings.defaultMarkdownPreviewFontScale
-            }
-            .keyboardShortcut("0", modifiers: .command)
-            .disabled(!isMarkdownPreviewActive)
         }
 
         CommandGroup(after: .windowList) {

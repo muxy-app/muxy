@@ -147,13 +147,12 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     func createTab(projectID: UUID, areaID: UUID?, kind: TabKindDTO) -> TabDTO? {
         switch kind {
         case .terminal,
-             .vcs,
-             .editor,
-             .diffViewer:
+             .vcs:
             appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
-        case .imageViewer:
-            return nil
-        case .extensionWebView:
+        case .editor,
+             .imageViewer,
+             .diffViewer,
+             .extensionWebView:
             return nil
         }
 

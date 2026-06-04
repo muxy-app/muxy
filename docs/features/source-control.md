@@ -33,8 +33,6 @@ Click a file to see its diff inline. Supports:
 - Collapsible context lines.
 - Hover blame (toggle on) showing author and date for each line.
 
-For deeper inspection, **Open in Diff Viewer** opens the file as a standalone diff tab.
-
 ## Commit, push, pull
 
 - Type a message in the commit box; **Commit** with `⌘↵`. Auto-stage toggle picks up unstaged changes when enabled.

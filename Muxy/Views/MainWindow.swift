@@ -34,15 +34,12 @@ struct MainWindow: View {
     @State private var dragCoordinator = TabDragCoordinator()
     private enum CloseConfirmationKind {
         case lastTab
-        case unsavedEditor
         case runningProcess
 
         var title: String {
             switch self {
             case .lastTab:
                 "Close Project?"
-            case .unsavedEditor:
-                "Save Changes Before Closing?"
             case .runningProcess:
                 "Close Tab?"
             }
@@ -52,8 +49,6 @@ struct MainWindow: View {
             switch self {
             case .lastTab:
                 "This is the last tab. Closing it will remove the project from the sidebar."
-            case .unsavedEditor:
-                "This file has unsaved changes. If you don't save, your changes will be lost."
             case .runningProcess:
                 "A process is still running in this tab. Are you sure you want to close it?"
             }
@@ -72,7 +67,6 @@ struct MainWindow: View {
         .defaultPosition
     @AppStorage(RichInputPreferences.broadcastKey) private var richInputBroadcast = RichInputPreferences.defaultBroadcast
     @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
-    @State private var showQuickOpen = false
     @State private var showTerminalOmnibox = false
     @State private var terminalOmniboxLaunchScope = TerminalOmniboxLaunchScope.openTabs
     @State private var showProjectPicker = false
@@ -151,12 +145,10 @@ struct MainWindow: View {
         }
         .overlay { modalOverlayLayer }
         .overlay { ExtensionConsentOverlay() }
-        .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
         .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)
         .animation(.easeInOut(duration: 0.15), value: showProjectPicker)
         .animation(.easeInOut(duration: 0.15), value: ExtensionModalService.shared.active)
         .modifier(OverlayExitTracker(
-            showQuickOpen: showQuickOpen,
             showTerminalOmnibox: showTerminalOmnibox,
             showProjectPicker: showProjectPicker,
             onAnimatingOut: { overlayAnimatingOut = $0 }
@@ -174,9 +166,6 @@ struct MainWindow: View {
         .background(WindowConfigurator(configVersion: ghostty.configVersion, uiScalePreset: UIScale.shared.preset))
         .background(WindowTitleUpdater(title: windowTitle))
         .ignoresSafeArea(.container, edges: .top)
-        .onReceive(NotificationCenter.default.publisher(for: .quickOpen)) { _ in
-            showQuickOpen.toggle()
-        }
         .onReceive(NotificationCenter.default.publisher(for: .openProjectPicker)) { _ in
             showProjectPicker = true
         }
@@ -222,16 +211,10 @@ struct MainWindow: View {
         }
         .modifier(TabCloseConfirmationObserver(
             lastTab: appState.pendingLastTabClose != nil,
-            unsavedEditor: appState.pendingUnsavedEditorTabClose != nil,
             runningProcess: appState.pendingProcessTabClose != nil,
             onLastTab: { presentCloseConfirmation(.lastTab) },
-            onUnsavedEditor: { presentCloseConfirmation(.unsavedEditor) },
             onRunningProcess: { presentCloseConfirmation(.runningProcess) }
         ))
-        .onChange(of: appState.pendingSaveErrorMessage != nil) { _, isPresented in
-            guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
-            presentSaveErrorAlert(message: message)
-        }
         .onChange(of: appState.pendingLayoutApply != nil) { _, isPresented in
             guard isPresented, let pending = appState.pendingLayoutApply else { return }
             presentLayoutApplyConfirmation(pending: pending)
@@ -419,13 +402,6 @@ struct MainWindow: View {
                 isWindowTitleBar: true,
                 showDevelopmentBadge: AppEnvironment.isDevelopment,
                 openInIDEProjectPath: activeWorktreePath(for: project),
-                openInIDEFilePath: area.activeTab?.content.editorState?.filePath,
-                openInIDECursorProvider: {
-                    guard let editorState = appState.activeTab(for: project.id)?.content.editorState else {
-                        return (nil, nil)
-                    }
-                    return (editorState.cursorLine, editorState.cursorColumn)
-                },
                 projectID: project.id,
                 onSelectTab: { tabID in
                     appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
@@ -509,18 +485,8 @@ struct MainWindow: View {
                                 .padding(.trailing, UIMetrics.spacing3)
                         }
                         if let project = activeProject {
-                            OpenInIDEControl(
-                                projectPath: activeWorktreePath(for: project),
-                                filePath: activeEditorFilePath,
-                                cursorProvider: activeEditorCursor
-                            )
+                            OpenInIDEControl(projectPath: activeWorktreePath(for: project))
                             LayoutPickerMenu(projectID: project.id)
-                        }
-                        if activeProject != nil, activeProjectHasSplitWorkspace {
-                            IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
-                                NotificationCenter.default.post(name: .quickOpen, object: nil)
-                            }
-                            .help("Quick Open (\(KeyBindingStore.shared.combo(for: .quickOpen).displayString))")
                         }
                         ExtensionTopbarItems()
                     }
@@ -530,8 +496,7 @@ struct MainWindow: View {
     }
 
     private var overlayActive: Bool {
-        showQuickOpen
-            || showTerminalOmnibox
+        showTerminalOmnibox
             || showProjectPicker
             || ExtensionModalService.shared.active != nil
             || overlayAnimatingOut
@@ -539,7 +504,6 @@ struct MainWindow: View {
 
     @ViewBuilder
     private var modalOverlayLayer: some View {
-        quickOpenOverlay
         terminalOmniboxOverlay
         projectPickerOverlay
         extensionModalOverlay
@@ -552,21 +516,6 @@ struct MainWindow: View {
                 request: request,
                 onSelect: { item in ExtensionModalService.shared.select(item) },
                 onDismiss: { ExtensionModalService.shared.dismiss() }
-            )
-            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-        }
-    }
-
-    @ViewBuilder
-    private var quickOpenOverlay: some View {
-        if showQuickOpen, let project = activeProject {
-            QuickOpenOverlay(
-                projectPath: activeWorktreePath(for: project),
-                onSelect: { filePath in
-                    showQuickOpen = false
-                    appState.openFile(filePath, projectID: project.id)
-                },
-                onDismiss: { showQuickOpen = false }
             )
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
         }
@@ -906,14 +855,6 @@ struct MainWindow: View {
         return true
     }
 
-    private var activeProjectHasSplitWorkspace: Bool {
-        guard let project = activeProject,
-              let root = appState.workspaceRoot(for: project.id)
-        else { return false }
-        if case .split = root { return true }
-        return false
-    }
-
     private var projectsWithWorkspaces: [Project] {
         projectStore.projects.filter { appState.workspaceRoot(for: $0.id) != nil }
     }
@@ -1086,20 +1027,6 @@ struct MainWindow: View {
         workspaceFileWatcher.setRoot(activeWorktreePath(for: project))
     }
 
-    private var activeEditorState: EditorTabState? {
-        guard let project = activeProject else { return nil }
-        return appState.activeTab(for: project.id)?.content.editorState
-    }
-
-    private var activeEditorFilePath: String? {
-        activeEditorState?.filePath
-    }
-
-    private func activeEditorCursor() -> (line: Int?, column: Int?) {
-        guard let state = activeEditorState else { return (nil, nil) }
-        return (state.cursorLine, state.cursorColumn)
-    }
-
     private func pruneWorktreeStates() {
         let validKeys = validWorktreeKeys()
         richInputStates = richInputStates.filter { validKeys.contains($0.key) }
@@ -1134,11 +1061,7 @@ struct MainWindow: View {
             richInputState.focusVersion += 1
             return
         }
-        if NSApp.keyWindow?.firstResponder is MarkdownEditingTextView {
-            closeRichInputPanel()
-        } else {
-            richInputState.focusVersion += 1
-        }
+        closeRichInputPanel()
     }
 
     private var richInputMode: PanelMode {
@@ -1230,22 +1153,10 @@ struct MainWindow: View {
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage
 
-        switch kind {
-        case .unsavedEditor:
-            alert.addButton(withTitle: "Save")
-            alert.addButton(withTitle: "Cancel")
-            alert.addButton(withTitle: "Don't Save")
-            alert.buttons[0].keyEquivalent = "\r"
-            alert.buttons[1].keyEquivalent = "\u{1b}"
-            alert.buttons[2].keyEquivalent = "d"
-            alert.buttons[2].keyEquivalentModifierMask = [.command]
-        case .lastTab,
-             .runningProcess:
-            alert.addButton(withTitle: "Close")
-            alert.addButton(withTitle: "Cancel")
-            alert.buttons[0].keyEquivalent = "\r"
-            alert.buttons[1].keyEquivalent = "\u{1b}"
-        }
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
 
         if kind == .runningProcess {
             alert.showsSuppressionButton = true
@@ -1260,15 +1171,6 @@ struct MainWindow: View {
                 } else {
                     appState.cancelCloseLastTab()
                 }
-            case .unsavedEditor:
-                switch response {
-                case .alertFirstButtonReturn:
-                    appState.saveAndCloseUnsavedEditorTab()
-                case .alertThirdButtonReturn:
-                    appState.confirmCloseUnsavedEditorTab()
-                default:
-                    appState.cancelCloseUnsavedEditorTab()
-                }
             case .runningProcess:
                 if response == .alertFirstButtonReturn {
                     if alert.suppressionButton?.state == .on {
@@ -1279,27 +1181,6 @@ struct MainWindow: View {
                     appState.cancelCloseRunningTab()
                 }
             }
-        }
-    }
-
-    private func presentSaveErrorAlert(message: String) {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              window.attachedSheet == nil
-        else {
-            appState.pendingSaveErrorMessage = nil
-            return
-        }
-
-        let alert = NSAlert()
-        alert.messageText = "Could Not Save File"
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "OK")
-        alert.buttons[0].keyEquivalent = "\r"
-
-        alert.beginSheetModal(for: window) { _ in
-            appState.pendingSaveErrorMessage = nil
         }
     }
 
@@ -1350,10 +1231,8 @@ private struct WindowTitleUpdater: NSViewRepresentable {
 
 private struct TabCloseConfirmationObserver: ViewModifier {
     let lastTab: Bool
-    let unsavedEditor: Bool
     let runningProcess: Bool
     let onLastTab: () -> Void
-    let onUnsavedEditor: () -> Void
     let onRunningProcess: () -> Void
 
     func body(content: Content) -> some View {
@@ -1361,10 +1240,6 @@ private struct TabCloseConfirmationObserver: ViewModifier {
             .onChange(of: lastTab) { _, isPresented in
                 guard isPresented else { return }
                 onLastTab()
-            }
-            .onChange(of: unsavedEditor) { _, isPresented in
-                guard isPresented else { return }
-                onUnsavedEditor()
             }
             .onChange(of: runningProcess) { _, isPresented in
                 guard isPresented else { return }
@@ -1626,14 +1501,12 @@ private final class ObserverHolder {
 }
 
 private struct OverlayExitTracker: ViewModifier {
-    let showQuickOpen: Bool
     let showTerminalOmnibox: Bool
     let showProjectPicker: Bool
     let onAnimatingOut: (Bool) -> Void
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: showQuickOpen) { _, visible in trackExit(visible) }
             .onChange(of: showTerminalOmnibox) { _, visible in trackExit(visible) }
             .onChange(of: showProjectPicker) { _, visible in trackExit(visible) }
     }

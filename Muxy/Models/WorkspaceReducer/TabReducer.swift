@@ -35,47 +35,6 @@ enum TabReducer {
         )
     }
 
-    static func createEditorTab(
-        projectID: UUID,
-        areaID: UUID?,
-        filePath: String,
-        suppressInitialFocus: Bool,
-        state: inout WorkspaceState
-    ) {
-        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
-              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
-        else { return }
-        FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.createEditorTab(filePath: filePath, suppressInitialFocus: suppressInitialFocus)
-    }
-
-    static func createExternalEditorTab(
-        projectID: UUID,
-        areaID: UUID?,
-        filePath: String,
-        command: String,
-        state: inout WorkspaceState
-    ) {
-        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
-              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
-        else { return }
-        FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.createExternalEditorTab(filePath: filePath, command: command)
-    }
-
-    static func createImageViewerTab(
-        projectID: UUID,
-        areaID: UUID?,
-        filePath: String,
-        state: inout WorkspaceState
-    ) {
-        guard let key = WorkspaceReducerShared.activeKey(projectID: projectID, state: state),
-              let area = WorkspaceReducerShared.resolveArea(key: key, areaID: areaID, state: state)
-        else { return }
-        FocusReducer.focusArea(area.id, key: key, state: &state)
-        area.createImageViewerTab(filePath: filePath)
-    }
-
     static func createExtensionTab(
         projectID: UUID,
         areaID: UUID?,

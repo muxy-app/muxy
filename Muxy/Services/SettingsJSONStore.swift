@@ -198,8 +198,6 @@ enum SettingsJSONStore {
             SidebarCollapsedStyle.storageKey: Set(SidebarCollapsedStyle.allCases.map(\.rawValue)),
             SidebarExpandedStyle.storageKey: Set(SidebarExpandedStyle.allCases.map(\.rawValue)),
             RichInputPreferences.positionKey: Set(PanelPosition.allCases.map(\.rawValue)),
-            "editor.defaultEditor": Set(EditorSettings.DefaultEditor.allCases.map(\.rawValue)),
-            "editor.htmlDefaultViewMode": Set(EditorMarkdownViewMode.allCases.map(\.rawValue)),
             "editor.richInputImageStrategy": Set(RichInputImageStrategy.allCases.map(\.rawValue)),
             NotificationSettings.Key.sound: Set(NotificationSound.allCases.map(\.rawValue)),
             NotificationSettings.Key.toastPosition: Set(ToastPosition.allCases.map(\.rawValue)),
@@ -219,14 +217,7 @@ enum SettingsJSONStore {
 
     private static func validateAllowedDouble(_ value: Double, key: String) throws {
         switch key {
-        case "editor.fontSize":
-            guard (8 ... 36).contains(value) else { throw SettingsJSONError.invalidValue(key) }
-        case "editor.markdownPreviewFontScale":
-            guard (Double(EditorSettings.minMarkdownPreviewFontScale) ... Double(EditorSettings.maxMarkdownPreviewFontScale))
-                .contains(value)
-            else { throw SettingsJSONError.invalidValue(key) }
-        case "editor.lineHeightMultiplier",
-             "editor.richInputLineHeightMultiplier":
+        case "editor.richInputLineHeightMultiplier":
             guard (Double(EditorSettings.minLineHeightMultiplier) ... Double(EditorSettings.maxLineHeightMultiplier))
                 .contains(value)
             else { throw SettingsJSONError.invalidValue(key) }
@@ -243,20 +234,9 @@ enum SettingsJSONStore {
         case "muxy.theme.light": ThemeService.shared.currentLightThemeName() ?? ThemeService.defaultThemeName
         case "muxy.theme.dark": ThemeService.shared.currentDarkThemeName() ?? ThemeService.defaultThemeName
         case ProjectPickerDefaultLocation.storageKey: UserDefaults.standard.string(forKey: item.key) ?? ""
-        case "editor.defaultEditor": settings.defaultEditor.rawValue
-        case "editor.externalEditorCommand": settings.externalEditorCommand
-        case "editor.markdownPreviewFontFamily": settings.markdownPreviewFontFamily
-        case "editor.markdownPreviewFontScale": Double(settings.markdownPreviewFontScale)
-        case "editor.htmlDefaultViewMode": settings.htmlDefaultViewMode.rawValue
         case "editor.richInputImageStrategy": settings.richInputImageStrategy.rawValue
         case "editor.richInputFontFamily": settings.richInputFontFamily
         case "editor.richInputLineHeightMultiplier": Double(settings.richInputLineHeightMultiplier)
-        case "editor.highlightCurrentLine": settings.highlightCurrentLine
-        case "editor.showLineNumbers": settings.showLineNumbers
-        case "editor.lineWrapping": settings.lineWrapping
-        case "editor.fontFamily": settings.fontFamily
-        case "editor.fontSize": Double(settings.fontSize)
-        case "editor.lineHeightMultiplier": Double(settings.lineHeightMultiplier)
         default: UserDefaults.standard.object(forKey: item.key)
         }
     }
@@ -344,21 +324,6 @@ enum SettingsJSONStore {
         guard !(value is NSNull) else { return false }
         let settings = EditorSettings.shared
         switch key {
-        case "editor.defaultEditor":
-            guard let rawValue = value as? String, let editor = EditorSettings.DefaultEditor(rawValue: rawValue) else { return false }
-            settings.defaultEditor = editor
-        case "editor.externalEditorCommand":
-            guard let value = value as? String else { return false }
-            settings.externalEditorCommand = value
-        case "editor.markdownPreviewFontFamily":
-            guard let value = value as? String else { return false }
-            settings.markdownPreviewFontFamily = value
-        case "editor.markdownPreviewFontScale":
-            guard let value = doubleValue(value) else { return false }
-            settings.markdownPreviewFontScale = CGFloat(value)
-        case "editor.htmlDefaultViewMode":
-            guard let rawValue = value as? String, let mode = EditorMarkdownViewMode(rawValue: rawValue) else { return false }
-            settings.htmlDefaultViewMode = mode
         case "editor.richInputImageStrategy":
             guard let rawValue = value as? String, let strategy = RichInputImageStrategy(rawValue: rawValue) else { return false }
             settings.richInputImageStrategy = strategy
@@ -368,24 +333,6 @@ enum SettingsJSONStore {
         case "editor.richInputLineHeightMultiplier":
             guard let value = doubleValue(value) else { return false }
             settings.richInputLineHeightMultiplier = CGFloat(value)
-        case "editor.highlightCurrentLine":
-            guard let value = value as? Bool else { return false }
-            settings.highlightCurrentLine = value
-        case "editor.showLineNumbers":
-            guard let value = value as? Bool else { return false }
-            settings.showLineNumbers = value
-        case "editor.lineWrapping":
-            guard let value = value as? Bool else { return false }
-            settings.lineWrapping = value
-        case "editor.fontFamily":
-            guard let value = value as? String else { return false }
-            settings.fontFamily = value
-        case "editor.fontSize":
-            guard let value = doubleValue(value) else { return false }
-            settings.fontSize = CGFloat(value)
-        case "editor.lineHeightMultiplier":
-            guard let value = doubleValue(value) else { return false }
-            settings.lineHeightMultiplier = CGFloat(value)
         default:
             return false
         }

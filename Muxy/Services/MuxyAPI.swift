@@ -92,7 +92,6 @@ struct CreateWorktreeRequest {
 
 struct OpenTabRequest: Decodable {
     let kind: TerminalTab.Kind
-    let filePath: String?
     let extensionPayload: ExtensionPayload?
 
     struct ExtensionPayload: Decodable {
@@ -126,20 +125,17 @@ struct OpenTabRequest: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case kind
-        case filePath
         case `extension`
     }
 
-    init(kind: TerminalTab.Kind, filePath: String? = nil, extensionPayload: ExtensionPayload? = nil) {
+    init(kind: TerminalTab.Kind, extensionPayload: ExtensionPayload? = nil) {
         self.kind = kind
-        self.filePath = filePath
         self.extensionPayload = extensionPayload
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         kind = try container.decode(TerminalTab.Kind.self, forKey: .kind)
-        filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
         extensionPayload = try container.decodeIfPresent(ExtensionPayload.self, forKey: .extension)
     }
 }
@@ -783,27 +779,6 @@ enum MuxyAPI {
             switch request.kind {
             case .terminal:
                 appState.dispatch(.createTab(projectID: projectID, areaID: nil))
-                return .success(())
-            case .editor:
-                guard let filePath = request.filePath, !filePath.isEmpty else {
-                    return .failure(.invalidArguments("editor tabs require filePath"))
-                }
-                appState.dispatch(.createEditorTab(
-                    projectID: projectID,
-                    areaID: nil,
-                    filePath: filePath,
-                    suppressInitialFocus: false
-                ))
-                return .success(())
-            case .imageViewer:
-                guard let filePath = request.filePath, !filePath.isEmpty else {
-                    return .failure(.invalidArguments("imageViewer tabs require filePath"))
-                }
-                appState.dispatch(.createImageViewerTab(
-                    projectID: projectID,
-                    areaID: nil,
-                    filePath: filePath
-                ))
                 return .success(())
             case .extensionWebView:
                 guard let payload = request.extensionPayload else {

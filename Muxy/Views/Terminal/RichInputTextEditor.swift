@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct MarkdownTextEditor: NSViewRepresentable {
+struct RichInputTextEditor: NSViewRepresentable {
     struct Configuration {
         var font: NSFont = .systemFont(ofSize: 13)
         var insets: NSSize = .init(width: 8, height: 8)
@@ -50,7 +50,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
 
         let layoutManager = NSLayoutManager()
         layoutManager.usesFontLeading = false
-        let lineHeightDelegate = LineHeightLayoutDelegate(fallbackFont: configuration.font)
+        let lineHeightDelegate = RichInputLineHeightDelegate(fallbackFont: configuration.font)
         lineHeightDelegate.lineHeightMultiplier = configuration.lineHeightMultiplier
         layoutManager.delegate = lineHeightDelegate
         context.coordinator.lineHeightDelegate = lineHeightDelegate
@@ -59,7 +59,7 @@ struct MarkdownTextEditor: NSViewRepresentable {
         let textStorage = NSTextStorage()
         textStorage.addLayoutManager(layoutManager)
 
-        let textView = MarkdownEditingTextView(
+        let textView = RichInputTextView(
             frame: NSRect(origin: .zero, size: scrollView.contentSize),
             textContainer: textContainer
         )
@@ -78,45 +78,25 @@ struct MarkdownTextEditor: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.isAutomaticTextCompletionEnabled = false
-        textView.isAutomaticLinkDetectionEnabled = false
-        textView.smartInsertDeleteEnabled = false
-        textView.isGrammarCheckingEnabled = false
-        textView.isContinuousSpellCheckingEnabled = false
         textView.font = configuration.font
-        textView.textColor = MarkdownTextEditor.defaultForeground()
-        textView.insertionPointColor = MarkdownTextEditor.defaultForeground()
+        textView.textColor = Self.defaultForeground()
+        textView.insertionPointColor = Self.defaultForeground()
+        textView.string = text
         textView.delegate = context.coordinator
-        textView.onSubmit = { [weak coordinator = context.coordinator] in
-            guard let coordinator else { return }
-            coordinator.parent.callbacks.onSubmit?(coordinator.selectedText)
-        }
-        textView.onSubmitWithoutReturn = { [weak coordinator = context.coordinator] in
-            guard let coordinator else { return }
-            coordinator.parent.callbacks.onSubmitWithoutReturn?(coordinator.selectedText)
-        }
-        textView.onIncreaseFontSize = { [weak coordinator = context.coordinator] in
-            coordinator?.parent.callbacks.onIncreaseFontSize?()
-        }
-        textView.onDecreaseFontSize = { [weak coordinator = context.coordinator] in
-            coordinator?.parent.callbacks.onDecreaseFontSize?()
-        }
-        textView.onPasteImageData = { [weak coordinator = context.coordinator] data in
-            coordinator?.parent.callbacks.onPasteImageData?(data)
-        }
-        textView.onPasteFileURL = { [weak coordinator = context.coordinator] url in
-            coordinator?.parent.callbacks.onPasteFileURL?(url)
-        }
-
-        if textView.string != text {
-            textView.string = text
-        }
-
-        textView.pendingFocusGrab = configuration.grabsFirstResponderOnAppear
-        scrollView.documentView = textView
+        textView.onSubmit = { callbacks.onSubmit?(context.coordinator.selectedText) }
+        textView.onSubmitWithoutReturn = { callbacks.onSubmitWithoutReturn?(context.coordinator.selectedText) }
+        textView.onIncreaseFontSize = callbacks.onIncreaseFontSize
+        textView.onDecreaseFontSize = callbacks.onDecreaseFontSize
+        textView.onPasteImageData = callbacks.onPasteImageData
+        textView.onPasteFileURL = callbacks.onPasteFileURL
         context.coordinator.textView = textView
-        context.coordinator.lastFocusVersion = focusVersion
-        context.coordinator.applyHighlighting()
+
+        scrollView.documentView = textView
+
+        if configuration.grabsFirstResponderOnAppear {
+            textView.pendingFocusGrab = true
+        }
+
         DispatchQueue.main.async { [weak coordinator = context.coordinator] in
             coordinator?.reportContentHeight()
         }
@@ -124,16 +104,15 @@ struct MarkdownTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? MarkdownEditingTextView else { return }
+        guard let textView = scrollView.documentView as? RichInputTextView else { return }
         context.coordinator.parent = self
         if textView.string != text {
             textView.string = text
-            context.coordinator.applyHighlighting()
         }
         textView.font = configuration.font
         textView.textContainerInset = configuration.insets
-        textView.textColor = MarkdownTextEditor.defaultForeground()
-        textView.insertionPointColor = MarkdownTextEditor.defaultForeground()
+        textView.textColor = Self.defaultForeground()
+        textView.insertionPointColor = Self.defaultForeground()
         if let lineHeightDelegate = context.coordinator.lineHeightDelegate {
             lineHeightDelegate.fallbackFont = configuration.font
             if abs(lineHeightDelegate.lineHeightMultiplier - configuration.lineHeightMultiplier) > .ulpOfOne {
@@ -160,20 +139,19 @@ struct MarkdownTextEditor: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: MarkdownTextEditor
-        weak var textView: MarkdownEditingTextView?
+        var parent: RichInputTextEditor
+        weak var textView: RichInputTextView?
         var lastFocusVersion: Int = -1
-        var lineHeightDelegate: LineHeightLayoutDelegate?
+        var lineHeightDelegate: RichInputLineHeightDelegate?
         private var lastReportedHeight: CGFloat = -1
 
-        init(parent: MarkdownTextEditor) {
+        init(parent: RichInputTextEditor) {
             self.parent = parent
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             parent.text = textView.string
-            applyHighlighting()
             reportContentHeight()
         }
 
@@ -199,69 +177,56 @@ struct MarkdownTextEditor: NSViewRepresentable {
             guard NSMaxRange(range) <= text.length else { return nil }
             return text.substring(with: range)
         }
-
-        func applyHighlighting() {
-            guard let textView,
-                  let layoutManager = textView.layoutManager
-            else { return }
-            let fullText = textView.string as NSString
-            let fullRange = NSRange(location: 0, length: fullText.length)
-            layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: fullRange)
-            layoutManager.removeTemporaryAttribute(.strikethroughStyle, forCharacterRange: fullRange)
-            guard fullRange.length > 0 else { return }
-
-            var lineStart = 0
-            var insideFence = false
-            while lineStart < fullText.length {
-                var lineEnd = 0
-                var contentsEnd = 0
-                fullText.getLineStart(nil, end: &lineEnd, contentsEnd: &contentsEnd, for: NSRange(location: lineStart, length: 0))
-                let lineLength = contentsEnd - lineStart
-                if lineLength > 0 {
-                    let lineRange = NSRange(location: lineStart, length: lineLength)
-                    let lineText = fullText.substring(with: lineRange)
-                    if isFenceMarker(lineText) {
-                        insideFence.toggle()
-                    } else {
-                        let decorations = MarkdownInlineHighlighter.decorations(
-                            line: lineText,
-                            isInsideFencedCode: insideFence
-                        )
-                        for decoration in decorations {
-                            let location = lineStart + decoration.range.location
-                            let length = decoration.range.length
-                            guard location >= 0, length > 0, location + length <= fullText.length else { continue }
-                            let nsRange = NSRange(location: location, length: length)
-                            if let color = MarkdownInlineStyle.foregroundColor(for: decoration.kind) {
-                                layoutManager.addTemporaryAttribute(
-                                    .foregroundColor,
-                                    value: color,
-                                    forCharacterRange: nsRange
-                                )
-                            }
-                            if let strike = MarkdownInlineStyle.strikethroughStyle(for: decoration.kind) {
-                                layoutManager.addTemporaryAttribute(
-                                    .strikethroughStyle,
-                                    value: strike.rawValue,
-                                    forCharacterRange: nsRange
-                                )
-                            }
-                        }
-                    }
-                }
-                if lineEnd <= lineStart { break }
-                lineStart = lineEnd
-            }
-        }
-
-        private func isFenceMarker(_ line: String) -> Bool {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            return trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")
-        }
     }
 }
 
-final class MarkdownEditingTextView: NSTextView {
+final class RichInputLineHeightDelegate: NSObject, NSLayoutManagerDelegate {
+    var lineHeightMultiplier: CGFloat = 1.0
+    var fallbackFont: NSFont
+
+    init(fallbackFont: NSFont) {
+        self.fallbackFont = fallbackFont
+        super.init()
+    }
+
+    // swiftlint:disable:next function_parameter_count
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<NSRect>,
+        lineFragmentUsedRect: UnsafeMutablePointer<NSRect>,
+        baselineOffset: UnsafeMutablePointer<CGFloat>,
+        in textContainer: NSTextContainer,
+        forGlyphRange glyphRange: NSRange
+    ) -> Bool {
+        guard lineHeightMultiplier > 1.0 + .ulpOfOne else { return false }
+
+        let font = referenceFont(layoutManager: layoutManager, glyphRange: glyphRange)
+        let ascent = font.ascender
+        let descent = -font.descender
+        let typographicHeight = ascent + descent
+        let targetHeight = ceil(typographicHeight * lineHeightMultiplier)
+        let paddingTop = (targetHeight - typographicHeight) / 2
+
+        lineFragmentRect.pointee.size.height = targetHeight
+        lineFragmentUsedRect.pointee.size.height = targetHeight
+        baselineOffset.pointee = paddingTop + ascent
+        return true
+    }
+
+    private func referenceFont(layoutManager: NSLayoutManager, glyphRange: NSRange) -> NSFont {
+        if let storage = layoutManager.textStorage, glyphRange.length > 0 {
+            let charIndex = layoutManager.characterIndexForGlyph(at: glyphRange.location)
+            if charIndex < storage.length,
+               let font = storage.attribute(.font, at: charIndex, effectiveRange: nil) as? NSFont
+            {
+                return font
+            }
+        }
+        return fallbackFont
+    }
+}
+
+final class RichInputTextView: NSTextView {
     var onSubmit: (() -> Void)?
     var onSubmitWithoutReturn: (() -> Void)?
     var onIncreaseFontSize: (() -> Void)?

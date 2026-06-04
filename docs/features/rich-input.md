@@ -24,7 +24,7 @@ flowchart LR
 
 ## Images
 
-Choose image handling in **Settings -> Editor -> Rich Input**:
+Choose image handling in **Settings -> Rich Input**:
 
 | Mode | Result |
 | --- | --- |

@@ -242,27 +242,12 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     private func configureFileOpenCallback(_ view: GhosttyTerminalNSView) {
-        let projectID = worktreeKey?.projectID
         let projectPath = state.projectPath
-        view.onCmdClickFile = { token in
-            guard let projectID else { return }
-            guard let resolved = Self.resolveFilePath(token, projectPath: projectPath) else { return }
-            Task { @MainActor in
-                NotificationStore.shared.appState?.openFile(resolved, projectID: projectID, preserveFocus: true)
-            }
-        }
         view.resolveCmdHoverFile = { token in
             Self.resolveFilePath(token, projectPath: projectPath) != nil
         }
         view.onOpenURL = { url in
-            if let path = Self.resolveLocalFilePath(from: url, projectPath: projectPath) {
-                guard let projectID else { return false }
-                Task { @MainActor in
-                    NotificationStore.shared.appState?.openFile(path, projectID: projectID, preserveFocus: true)
-                }
-                return true
-            }
-            return NSWorkspace.shared.open(url)
+            NSWorkspace.shared.open(url)
         }
     }
 

@@ -6,7 +6,6 @@ Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to f
 
 - **Update channel** — *Stable* (tagged releases) or *Beta* (auto‑built per commit). Switching channels updates Sparkle's appcast immediately.
 - **Auto‑expand worktrees on project switch** — automatically opens the worktree list when you switch to a project that has more than one.
-- **File tree root directory** — follow the project root or the active terminal directory.
 - **Project picker** — use Muxy's picker or the Finder picker.
 - **Project picker default path** — default folder for Muxy's picker.
 - **Default worktree path** — parent folder for new worktrees.
@@ -21,20 +20,14 @@ Open settings with `Cmd+,` (**Muxy -> Settings...**). Use search at the top to f
 - **Interface size** — changes app density.
 - **Show status bar** — shows or hides the bottom status bar.
 - **Theme** — paired light / dark terminal theme picker.
-- **Syntax highlighting theme** — applied to the built‑in editor.
 - **Sidebar style** — controls collapsed and expanded sidebar layout.
 - **Source Control display mode** — tab, attached panel, or separate window.
 
 See [Themes](../features/themes.md).
 
-## Editor
+## Rich Input
 
-- **Default editor** — built‑in Muxy editor, or an external command.
-- **External editor command** — used when default is set to "external". `{file}`, `{line}`, `{column}` placeholders are substituted. Terminal Command runs through your login interactive shell.
-- **Markdown preview** — remote images, font, and zoom.
-- **HTML default view** — default mode for HTML files.
 - **Rich Input** — image submission mode, position, floating mode, font, and line height.
-- **Appearance** — current-line highlight, line numbers, wrapping, font, size, and line height.
 
 ## Sessions
 

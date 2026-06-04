@@ -391,17 +391,7 @@ struct OpenTabRequestTests {
         { "kind": "terminal" }
         """)
         #expect(request.kind == .terminal)
-        #expect(request.filePath == nil)
         #expect(request.extensionPayload == nil)
-    }
-
-    @Test("decodes editor kind with filePath")
-    func editorRequest() throws {
-        let request = try decode("""
-        { "kind": "editor", "filePath": "/tmp/foo.swift" }
-        """)
-        #expect(request.kind == .editor)
-        #expect(request.filePath == "/tmp/foo.swift")
     }
 
     @Test("decodes extensionWebView kind with extension payload")
