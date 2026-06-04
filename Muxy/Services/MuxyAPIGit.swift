@@ -113,20 +113,18 @@ extension MuxyAPI {
 
         static func branches(
             projectIdentifier: String?,
-            fresh: Bool,
             context: Context
         ) async -> Result<[String], APIError> {
-            await cachedRead(projectIdentifier, context, endpoint: "branches", fresh: fresh) { repoPath in
+            await read(projectIdentifier, context) { repoPath in
                 try await service.listBranches(repoPath: repoPath)
             }
         }
 
         static func currentBranch(
             projectIdentifier: String?,
-            fresh: Bool,
             context: Context
         ) async -> Result<String, APIError> {
-            await cachedRead(projectIdentifier, context, endpoint: "currentBranch", fresh: fresh) { repoPath in
+            await read(projectIdentifier, context) { repoPath in
                 try await service.currentBranch(repoPath: repoPath)
             }
         }
@@ -144,10 +142,9 @@ extension MuxyAPI {
 
         static func repoInfo(
             projectIdentifier: String?,
-            fresh: Bool,
             context: Context
         ) async -> Result<GitRepositoryService.RepoInfo, APIError> {
-            await cachedRead(projectIdentifier, context, endpoint: "repoInfo", fresh: fresh) { repoPath in
+            await read(projectIdentifier, context) { repoPath in
                 try await service.repoInfo(repoPath: repoPath)
             }
         }
@@ -347,10 +344,9 @@ extension MuxyAPI {
 
         static func remoteBranches(
             projectIdentifier: String?,
-            fresh: Bool,
             context: Context
         ) async -> Result<[String], APIError> {
-            await cachedRead(projectIdentifier, context, endpoint: "remoteBranches", fresh: fresh) { repoPath in
+            await read(projectIdentifier, context) { repoPath in
                 try await service.listRemoteBranches(repoPath: repoPath)
             }
         }

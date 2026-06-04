@@ -45,6 +45,23 @@ struct GitReadCacheTests {
         #expect(b == nil)
     }
 
+    @Test("evicts the oldest entries once the capacity is exceeded")
+    func capacityEviction() {
+        let cache = GitMetadataCache.shared
+        cache.invalidateReads(repoPath: "/repo/cap")
+        let keys = (0 ..< 200).map {
+            GitMetadataCache.ReadKey(repoPath: "/repo/cap", endpoint: "diff", params: "file=\($0)")
+        }
+        for key in keys {
+            cache.storeRead([key.params], key: key, signature: "sig")
+        }
+
+        let oldest: [String]? = cache.cachedRead(keys[0], signature: "sig")
+        let newest: [String]? = cache.cachedRead(keys[199], signature: "sig")
+        #expect(oldest == nil)
+        #expect(newest == ["file=199"])
+    }
+
     private func key(_ repoPath: String) -> GitMetadataCache.ReadKey {
         GitMetadataCache.ReadKey(repoPath: repoPath, endpoint: "branches", params: "")
     }

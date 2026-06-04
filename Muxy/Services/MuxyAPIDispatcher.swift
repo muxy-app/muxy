@@ -320,7 +320,7 @@ enum MuxyAPIDispatcher {
             }
             return try await GitDTO.diff(unwrap(MuxyAPI.Git.diff(diffRequest, context: git)))
         case "git.repoInfo":
-            return try await GitDTO.repoInfo(unwrap(MuxyAPI.Git.repoInfo(projectIdentifier: project, fresh: fresh, context: git)))
+            return try await GitDTO.repoInfo(unwrap(MuxyAPI.Git.repoInfo(projectIdentifier: project, context: git)))
         case "git.log":
             return try await unwrap(MuxyAPI.Git.log(
                 projectIdentifier: project,
@@ -330,9 +330,9 @@ enum MuxyAPIDispatcher {
                 context: git
             )).map(GitDTO.commit)
         case "git.branches":
-            return try await unwrap(MuxyAPI.Git.branches(projectIdentifier: project, fresh: fresh, context: git))
+            return try await unwrap(MuxyAPI.Git.branches(projectIdentifier: project, context: git))
         case "git.currentBranch":
-            return try await unwrap(MuxyAPI.Git.currentBranch(projectIdentifier: project, fresh: fresh, context: git))
+            return try await unwrap(MuxyAPI.Git.currentBranch(projectIdentifier: project, context: git))
         case "git.aheadBehind":
             return try await GitDTO.aheadBehind(unwrap(MuxyAPI.Git.aheadBehind(projectIdentifier: project, fresh: fresh, context: git)))
         case "git.pr.info":
@@ -468,7 +468,7 @@ enum MuxyAPIDispatcher {
             ))
             return NSNull()
         case "git.remoteBranches":
-            return try await unwrap(MuxyAPI.Git.remoteBranches(projectIdentifier: project, fresh: fresh, context: git))
+            return try await unwrap(MuxyAPI.Git.remoteBranches(projectIdentifier: project, context: git))
         case "git.branch.deleteRemote":
             try await unwrap(MuxyAPI.Git.deleteRemoteBranch(
                 projectIdentifier: project,
