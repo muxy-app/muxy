@@ -111,6 +111,12 @@ struct KeyBindingTests {
         #expect(combos[.terminalOmniboxHistory] == KeyCombo(key: "h", command: true, option: true))
     }
 
+    @Test("Toggle Full Screen uses Cmd+Ctrl+F by default")
+    func defaultsIncludesToggleFullScreenShortcut() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.toggleFullScreen] == KeyCombo(key: "f", command: true, control: true))
+    }
+
     @Test("Refresh Worktrees uses Cmd+Opt+R by default")
     func refreshWorktreesUsesCommandOptionRByDefault() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })

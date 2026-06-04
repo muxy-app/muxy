@@ -377,6 +377,12 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .toggleRichInput, store: keyBindings)
 
+            Button("Toggle Full Screen") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.toggleFullScreen)
+            }
+            .shortcut(for: .toggleFullScreen, store: keyBindings)
+
             Divider()
 
             Button("Next Project") {
