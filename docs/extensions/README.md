@@ -74,6 +74,7 @@ flowchart TD
 | [Panels](panels.md) | Register dockable/floating webview panels and the placement rules |
 | [Git](git.md) | Repository access: status, diff, log, branches, PRs, worktrees |
 | [Files](files.md) | Workspace filesystem access: list, read, stat, write, mkdir, rename, move, delete |
+| [HTTP](http.md) | Call external HTTP(S) APIs from native code without CORS; host-keyed consent |
 | [Popovers](popovers.md) | Anchor a transient webview popover to a topbar/status bar item |
 | [Dialogs](dialogs.md) | Present native confirm/alert sheets on the main window |
 | [Modal](modal.md) | Present a native searchable picker; resolves with the selected item |

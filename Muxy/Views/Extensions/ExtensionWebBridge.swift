@@ -201,6 +201,17 @@ enum ExtensionWebBridge {
                     }
                     return send('exec', payload);
                 },
+                http: {
+                    fetch(url, options) {
+                        const opts = options || {};
+                        const payload = { url: String(url) };
+                        if (opts.method != null) payload.method = String(opts.method);
+                        if (opts.headers) payload.headers = opts.headers;
+                        if (opts.body != null) payload.body = String(opts.body);
+                        if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
+                        return send('http.fetch', payload);
+                    },
+                },
                 worktrees: {
                     list(project) { return send('worktrees.list', { project: project == null ? null : String(project) }); },
                     switchTo(identifier, project) {

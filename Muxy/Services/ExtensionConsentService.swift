@@ -234,6 +234,8 @@ enum ExtensionConsentRequestBuilder {
             return ("git \(operation)", ["operation: \(operation)", "repo: \(repoPath)"])
         case let (.filesWrite, .file(operation, path)):
             return ("file \(operation)", ["operation: \(operation)", "path: \(path)"])
+        case let (.httpFetch, .http(hostname, method, url)):
+            return ("fetch from \(hostname)", ["host: \(hostname)", "method: \(method)", "url: \(url)"])
         default:
             return ("(unknown)", [])
         }

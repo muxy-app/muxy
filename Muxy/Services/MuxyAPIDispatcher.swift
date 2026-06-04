@@ -82,6 +82,8 @@ enum MuxyAPIDispatcher {
             return NSNull()
         case "exec":
             return try await handleExec(args: args, context: context)
+        case "http.fetch":
+            return try await handleHTTPFetch(args: args, context: context)
         case "dialog.confirm":
             let request = try ExtensionDialogService.makeConfirmRequest(extensionID: context.extensionID, args: args)
             return try await ExtensionDialogService.confirm(request) ?? NSNull()
@@ -525,6 +527,12 @@ enum MuxyAPIDispatcher {
             defaultCwd: defaultCwd
         )
         return ExtensionBridgeShared.encodeExecResult(result)
+    }
+
+    private static func handleHTTPFetch(args: [String: Any], context: Context) async throws -> Any {
+        let request = try ExtensionBridgeShared.decodeHTTPRequest(args)
+        let result = try await ExtensionHTTPClient.fetch(request: request, extensionID: context.extensionID)
+        return ExtensionBridgeShared.encodeHTTPResult(result)
     }
 
     private static func handleNotify(args: [String: Any], context: Context) async throws -> Any {
