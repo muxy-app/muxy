@@ -245,8 +245,42 @@ enum SocketCommandHandler {
              "statusbar.set":
             guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
             return handleBarItemSet(verb: cmd, base64Payload: parts[1], extensionID: clientContext.extensionID)
+        case let verb where verb.hasPrefix("git."):
+            guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
+            guard let extensionID = clientContext.extensionID else { return "error:identify required" }
+            return await handleGit(
+                verb: verb,
+                base64Payload: parts[1],
+                context: MuxyAPIDispatcher.Context(
+                    extensionID: extensionID,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore
+                )
+            )
         default:
             return "error:unknown command \(cmd)"
+        }
+    }
+
+    private static func handleGit(
+        verb: String,
+        base64Payload: String,
+        context: MuxyAPIDispatcher.Context
+    ) async -> String {
+        guard let data = Data(base64Encoded: base64Payload),
+              let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return "error:invalid \(verb) payload" }
+        do {
+            let result = try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: context)
+            guard let encoded = try? JSONSerialization.data(withJSONObject: result, options: [.fragmentsAllowed]) else {
+                return "error:\(verb) result encoding failed"
+            }
+            return encoded.base64EncodedString()
+        } catch let error as APIError {
+            return "error:\(error.message)"
+        } catch {
+            return "error:\(error.localizedDescription)"
         }
     }
 

@@ -14,16 +14,53 @@ final class GitMetadataCache: @unchecked Sendable {
         let storedAt: Date
     }
 
+    struct ReadKey: Hashable {
+        let repoPath: String
+        let endpoint: String
+        let params: String
+    }
+
+    private struct ReadEntry {
+        let value: Any
+        let signature: String
+        let storedAt: Date
+    }
+
     private let lock = NSLock()
     private var prInfo: [PRKey: PREntry] = [:]
     private var defaultBranch: [String: String?] = [:]
     private var ghInstalled: Bool?
     private var remoteWebURL: [String: URL?] = [:]
     private var verifiedGitRepo: Set<String> = []
+    private var reads: [ReadKey: ReadEntry] = [:]
 
     private let prTTL: TimeInterval = 300
+    private let readTTL: TimeInterval = 5
 
     private init() {}
+
+    func cachedRead<T>(_ key: ReadKey, signature: String) -> T? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = reads[key] else { return nil }
+        if entry.signature != signature || Date().timeIntervalSince(entry.storedAt) > readTTL {
+            reads.removeValue(forKey: key)
+            return nil
+        }
+        return entry.value as? T
+    }
+
+    func storeRead(_ value: Any, key: ReadKey, signature: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        reads[key] = ReadEntry(value: value, signature: signature, storedAt: Date())
+    }
+
+    func invalidateReads(repoPath: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        reads = reads.filter { $0.key.repoPath != repoPath }
+    }
 
     func cachedPRInfo(repoPath: String, branch: String, headSha: String) -> GitRepositoryService.PRInfo?? {
         lock.lock()

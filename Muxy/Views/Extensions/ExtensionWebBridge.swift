@@ -212,22 +212,31 @@ enum ExtensionWebBridge {
                     refresh(project) { return send('worktrees.refresh', { project: project == null ? null : String(project) }); },
                 },
                 git: {
-                    status(o) { return send('git.status', { project: gitProject(o) }); },
+                    status(o) { return send('git.status', {
+                        project: gitProject(o),
+                        local: Boolean((o || {}).local),
+                        fresh: Boolean((o || {}).fresh),
+                    }); },
                     diff(o) { return send('git.diff', {
                         project: gitProject(o),
                         filePath: String((o || {}).filePath || ''),
+                        raw: Boolean((o || {}).raw),
                         staged: (o || {}).staged == null ? null : Boolean(o.staged),
                         lineLimit: (o || {}).lineLimit == null ? null : Number(o.lineLimit),
+                        fresh: Boolean((o || {}).fresh),
                     }); },
+                    repoInfo(o) { return send('git.repoInfo', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }); },
                     log(o) { return send('git.log', {
                         project: gitProject(o),
                         maxCount: (o || {}).maxCount == null ? null : Number(o.maxCount),
                         skip: (o || {}).skip == null ? null : Number(o.skip),
+                        fresh: Boolean((o || {}).fresh),
                     }); },
-                    branches(o) { return send('git.branches', { project: gitProject(o) }); },
-                    remoteBranches(o) { return send('git.remoteBranches', { project: gitProject(o) }); },
-                    currentBranch(o) { return send('git.currentBranch', { project: gitProject(o) }); },
-                    aheadBehind(o) { return send('git.aheadBehind', { project: gitProject(o) }); },
+                    branches(o) { return send('git.branches', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }); },
+                    remoteBranches(o) { return send('git.remoteBranches', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }); },
+                    currentBranch(o) { return send('git.currentBranch', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }); },
+                    aheadBehind(o) { return send('git.aheadBehind', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }); },
+                    init(o) { return send('git.init', { project: gitProject(o) }); },
                     worktrees(o) { return send('git.worktrees', { project: gitProject(o) }); },
                     checkout(o) { return send('git.checkout', { project: gitProject(o), hash: String((o || {}).hash || '') }); },
                     cherryPick(o) { return send('git.cherryPick', { project: gitProject(o), hash: String((o || {}).hash || '') }); },
@@ -244,7 +253,7 @@ enum ExtensionWebBridge {
                         message: String((o || {}).message || ''),
                         stageAll: Boolean((o || {}).stageAll),
                     }); },
-                    push(o) { return send('git.push', { project: gitProject(o) }); },
+                    push(o) { return send('git.push', { project: gitProject(o), setUpstream: Boolean((o || {}).setUpstream) }); },
                     pull(o) { return send('git.pull', { project: gitProject(o) }); },
                     branch: {
                         create(o) {
@@ -252,6 +261,13 @@ enum ExtensionWebBridge {
                         },
                         switchTo(o) {
                             return send('git.branch.switch', { project: gitProject(o), branch: String((o || {}).branch || '') });
+                        },
+                        delete(o) {
+                            return send('git.branch.delete', {
+                                project: gitProject(o),
+                                name: String((o || {}).name || ''),
+                                force: Boolean((o || {}).force),
+                            });
                         },
                         deleteRemote(o) {
                             return send('git.branch.deleteRemote', { project: gitProject(o), branch: String((o || {}).branch || '') });
@@ -265,7 +281,14 @@ enum ExtensionWebBridge {
                         }); },
                     },
                     pr: {
-                        info(o) { return send('git.pr.info', { project: gitProject(o) }); },
+                        info(o) { return send('git.pr.info', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }); },
+                        number(o) { return send('git.pr.number', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }); },
+                        diff(o) { return send('git.pr.diff', {
+                            project: gitProject(o),
+                            number: Number((o || {}).number),
+                            lineLimit: (o || {}).lineLimit == null ? null : Number(o.lineLimit),
+                            fresh: Boolean((o || {}).fresh),
+                        }); },
                         checkout(o) { return send('git.pr.checkout', { project: gitProject(o), number: Number((o || {}).number) }); },
                         checkoutWorktree(o) { return send('git.pr.checkoutWorktree', {
                             project: gitProject(o),

@@ -296,34 +296,59 @@ enum MuxyAPIDispatcher {
             worktreeStore: worktreeStore
         )
         let project = args["project"] as? String
+        let fresh = args["fresh"] as? Bool ?? false
 
         switch verb {
         case "git.status":
-            return try await GitDTO.status(unwrap(MuxyAPI.Git.status(projectIdentifier: project, context: git)))
-        case "git.diff":
-            return try await GitDTO.diff(unwrap(MuxyAPI.Git.diff(
+            return try await GitDTO.status(unwrap(MuxyAPI.Git.status(
                 projectIdentifier: project,
-                filePath: stringArg(args, "filePath"),
-                staged: args["staged"] as? Bool,
-                lineLimit: intArg(args, "lineLimit"),
+                local: args["local"] as? Bool ?? false,
+                fresh: fresh,
                 context: git
             )))
+        case "git.diff":
+            let rawMode = args["raw"] as? Bool ?? false
+            let diffRequest = MuxyAPI.Git.DiffRequest(
+                projectIdentifier: project,
+                filePath: (args["filePath"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                staged: args["staged"] as? Bool,
+                lineLimit: intArg(args, "lineLimit"),
+                fresh: fresh
+            )
+            if rawMode {
+                return try await GitDTO.rawDiff(unwrap(MuxyAPI.Git.rawDiff(diffRequest, context: git)))
+            }
+            return try await GitDTO.diff(unwrap(MuxyAPI.Git.diff(diffRequest, context: git)))
+        case "git.repoInfo":
+            return try await GitDTO.repoInfo(unwrap(MuxyAPI.Git.repoInfo(projectIdentifier: project, fresh: fresh, context: git)))
         case "git.log":
             return try await unwrap(MuxyAPI.Git.log(
                 projectIdentifier: project,
                 maxCount: intArg(args, "maxCount") ?? 100,
                 skip: intArg(args, "skip") ?? 0,
+                fresh: fresh,
                 context: git
             )).map(GitDTO.commit)
         case "git.branches":
-            return try await unwrap(MuxyAPI.Git.branches(projectIdentifier: project, context: git))
+            return try await unwrap(MuxyAPI.Git.branches(projectIdentifier: project, fresh: fresh, context: git))
         case "git.currentBranch":
-            return try await unwrap(MuxyAPI.Git.currentBranch(projectIdentifier: project, context: git))
+            return try await unwrap(MuxyAPI.Git.currentBranch(projectIdentifier: project, fresh: fresh, context: git))
         case "git.aheadBehind":
-            return try await GitDTO.aheadBehind(unwrap(MuxyAPI.Git.aheadBehind(projectIdentifier: project, context: git)))
+            return try await GitDTO.aheadBehind(unwrap(MuxyAPI.Git.aheadBehind(projectIdentifier: project, fresh: fresh, context: git)))
         case "git.pr.info":
-            let info = try await unwrap(MuxyAPI.Git.pullRequestInfo(projectIdentifier: project, context: git))
+            let info = try await unwrap(MuxyAPI.Git.pullRequestInfo(projectIdentifier: project, fresh: fresh, context: git))
             return info.map(GitDTO.prInfo) ?? NSNull()
+        case "git.pr.number":
+            let number = try await unwrap(MuxyAPI.Git.pullRequestNumber(projectIdentifier: project, fresh: fresh, context: git))
+            return number ?? NSNull()
+        case "git.pr.diff":
+            return try await GitDTO.rawDiff(unwrap(MuxyAPI.Git.pullRequestDiff(
+                projectIdentifier: project,
+                number: intArgRequired(args, "number"),
+                lineLimit: intArg(args, "lineLimit"),
+                fresh: fresh,
+                context: git
+            )))
         case "git.pr.list":
             return try await unwrap(MuxyAPI.Git.pullRequestList(
                 projectIdentifier: project,
@@ -357,7 +382,22 @@ enum MuxyAPIDispatcher {
             ))
             return ["hash": hash]
         case "git.push":
-            try await unwrap(MuxyAPI.Git.push(projectIdentifier: project, context: git))
+            try await unwrap(MuxyAPI.Git.push(
+                projectIdentifier: project,
+                setUpstream: args["setUpstream"] as? Bool ?? false,
+                context: git
+            ))
+            return NSNull()
+        case "git.init":
+            try await unwrap(MuxyAPI.Git.initRepository(projectIdentifier: project, context: git))
+            return NSNull()
+        case "git.branch.delete":
+            try await unwrap(MuxyAPI.Git.deleteLocalBranch(
+                projectIdentifier: project,
+                name: stringArg(args, "name"),
+                force: args["force"] as? Bool ?? false,
+                context: git
+            ))
             return NSNull()
         case "git.pull":
             try await unwrap(MuxyAPI.Git.pull(projectIdentifier: project, context: git))
@@ -428,7 +468,7 @@ enum MuxyAPIDispatcher {
             ))
             return NSNull()
         case "git.remoteBranches":
-            return try await unwrap(MuxyAPI.Git.remoteBranches(projectIdentifier: project, context: git))
+            return try await unwrap(MuxyAPI.Git.remoteBranches(projectIdentifier: project, fresh: fresh, context: git))
         case "git.branch.deleteRemote":
             try await unwrap(MuxyAPI.Git.deleteRemoteBranch(
                 projectIdentifier: project,
