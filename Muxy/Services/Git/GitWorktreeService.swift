@@ -125,11 +125,32 @@ actor GitWorktreeService: GitWorktreeListing {
         if force { args.append("--force") }
         args += ["--", path]
         let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args)
+        guard result.status != 0 else { return }
+
+        try await pruneWorktrees(repoPath: repoPath)
+        let stillRegistered = try await listWorktrees(repoPath: repoPath)
+            .contains { Self.canonicalPath($0.path) == Self.canonicalPath(path) }
+        guard stillRegistered else { return }
+
+        throw GitWorktreeError.commandFailed(
+            result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
+        )
+    }
+
+    func pruneWorktrees(repoPath: String) async throws {
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["worktree", "prune"]
+        )
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
-                result.stderr.isEmpty ? "Failed to remove worktree." : result.stderr
+                result.stderr.isEmpty ? "Failed to prune worktrees." : result.stderr
             )
         }
+    }
+
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     func deleteBranch(repoPath: String, branch: String, force: Bool = true) async throws {

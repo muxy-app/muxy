@@ -39,6 +39,7 @@ enum WorktreeTeardownRunner {
         executor: Executor = execute
     ) async throws {
         guard !worktree.isExternallyManaged,
+              FileManager.default.fileExists(atPath: worktree.path),
               let config = WorktreeConfig.load(fromProjectPath: sourceProjectPath)
         else { return }
 
