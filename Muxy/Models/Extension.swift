@@ -289,6 +289,24 @@ struct ExtensionTopbarItem: Codable, Equatable, Identifiable {
     let icon: ExtensionIcon
     let tooltip: String?
     let command: String
+    let visible: Bool
+
+    init(id: String, icon: ExtensionIcon, tooltip: String?, command: String, visible: Bool = true) {
+        self.id = id
+        self.icon = icon
+        self.tooltip = tooltip
+        self.command = command
+        self.visible = visible
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        icon = try container.decode(ExtensionIcon.self, forKey: .icon)
+        tooltip = try container.decodeIfPresent(String.self, forKey: .tooltip)
+        command = try container.decode(String.self, forKey: .command)
+        visible = try container.decodeIfPresent(Bool.self, forKey: .visible) ?? true
+    }
 }
 
 struct ExtensionStatusBarItem: Codable, Equatable, Identifiable {
@@ -303,6 +321,36 @@ struct ExtensionStatusBarItem: Codable, Equatable, Identifiable {
     let tooltip: String?
     let side: Side
     let command: String
+    let visible: Bool
+
+    init(
+        id: String,
+        icon: ExtensionIcon,
+        text: String?,
+        tooltip: String?,
+        side: Side,
+        command: String,
+        visible: Bool = true
+    ) {
+        self.id = id
+        self.icon = icon
+        self.text = text
+        self.tooltip = tooltip
+        self.side = side
+        self.command = command
+        self.visible = visible
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        icon = try container.decode(ExtensionIcon.self, forKey: .icon)
+        text = try container.decodeIfPresent(String.self, forKey: .text)
+        tooltip = try container.decodeIfPresent(String.self, forKey: .tooltip)
+        side = try container.decode(Side.self, forKey: .side)
+        command = try container.decode(String.self, forKey: .command)
+        visible = try container.decodeIfPresent(Bool.self, forKey: .visible) ?? true
+    }
 }
 
 struct ExtensionPanelHeaderButton: Codable, Equatable, Identifiable {

@@ -28,21 +28,45 @@ struct ExtensionBarItemOverrideTests {
     @Test("topbar binding prefers the live icon over the manifest icon")
     func topbarDisplayIconFallback() {
         let item = ExtensionTopbarItem(id: "i", icon: .symbol("a"), tooltip: nil, command: "c")
-        let base = ExtensionStore.TopbarItemBinding(muxyExtension: ext, item: item, liveIcon: nil)
-        let overridden = ExtensionStore.TopbarItemBinding(muxyExtension: ext, item: item, liveIcon: .symbol("b"))
+        let base = ExtensionStore.TopbarItemBinding(muxyExtension: ext, item: item, liveIcon: nil, liveVisible: nil)
+        let overridden = ExtensionStore.TopbarItemBinding(
+            muxyExtension: ext,
+            item: item,
+            liveIcon: .symbol("b"),
+            liveVisible: nil
+        )
         #expect(base.displayIcon == .symbol("a"))
         #expect(overridden.displayIcon == .symbol("b"))
+    }
+
+    @Test("topbar binding visibility prefers the live override over the manifest default")
+    func topbarVisibilityFallback() {
+        let visible = ExtensionTopbarItem(id: "i", icon: .symbol("a"), tooltip: nil, command: "c")
+        let hidden = ExtensionTopbarItem(id: "i", icon: .symbol("a"), tooltip: nil, command: "c", visible: false)
+        #expect(ExtensionStore.TopbarItemBinding(muxyExtension: ext, item: visible, liveIcon: nil, liveVisible: nil)
+            .isVisible)
+        #expect(!ExtensionStore.TopbarItemBinding(muxyExtension: ext, item: hidden, liveIcon: nil, liveVisible: nil)
+            .isVisible)
+        #expect(ExtensionStore.TopbarItemBinding(muxyExtension: ext, item: hidden, liveIcon: nil, liveVisible: true)
+            .isVisible)
     }
 
     @Test("status bar binding prefers live icon and text over the manifest values")
     func statusBarDisplayFallback() {
         let item = ExtensionStatusBarItem(id: "i", icon: .symbol("a"), text: "1", tooltip: nil, side: .right, command: "c")
-        let base = ExtensionStore.StatusBarItemBinding(muxyExtension: ext, item: item, liveIcon: nil, liveText: nil)
+        let base = ExtensionStore.StatusBarItemBinding(
+            muxyExtension: ext,
+            item: item,
+            liveIcon: nil,
+            liveText: nil,
+            liveVisible: nil
+        )
         let overridden = ExtensionStore.StatusBarItemBinding(
             muxyExtension: ext,
             item: item,
             liveIcon: .symbol("b"),
-            liveText: "9"
+            liveText: "9",
+            liveVisible: nil
         )
         #expect(base.displayIcon == .symbol("a"))
         #expect(base.displayText == "1")

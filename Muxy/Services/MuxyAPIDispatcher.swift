@@ -56,7 +56,8 @@ enum MuxyAPIDispatcher {
             guard ExtensionStore.shared.setTopbarItem(
                 extensionID: context.extensionID,
                 itemID: topbarItemID,
-                icon: ExtensionIcon.parse(args["icon"])
+                icon: ExtensionIcon.parse(args["icon"]),
+                visible: args["visible"] as? Bool
             )
             else {
                 throw APIError.invalidArguments("unknown topbar item '\(topbarItemID)'")
@@ -68,9 +69,12 @@ enum MuxyAPIDispatcher {
             guard ExtensionStore.shared.setStatusBarItem(
                 extensionID: context.extensionID,
                 itemID: statusItemID,
-                icon: ExtensionIcon.parse(args["icon"]),
-                text: (rawText?.isEmpty == true) ? nil : rawText,
-                clearText: args.keys.contains("text")
+                update: ExtensionStore.StatusBarUpdate(
+                    icon: ExtensionIcon.parse(args["icon"]),
+                    text: (rawText?.isEmpty == true) ? nil : rawText,
+                    clearText: args.keys.contains("text"),
+                    visible: args["visible"] as? Bool
+                )
             )
             else {
                 throw APIError.invalidArguments("unknown status bar item '\(statusItemID)'")

@@ -338,17 +338,26 @@ enum SocketCommandHandler {
             return "error:invalid \(verb) payload"
         }
         let icon = ExtensionIcon.parse(args["icon"])
+        let visible = args["visible"] as? Bool
         if verb == "topbar.set" {
-            let updated = ExtensionStore.shared.setTopbarItem(extensionID: extensionID, itemID: itemID, icon: icon)
+            let updated = ExtensionStore.shared.setTopbarItem(
+                extensionID: extensionID,
+                itemID: itemID,
+                icon: icon,
+                visible: visible
+            )
             return updated ? encodeJSONFragment(NSNull()) : "error:unknown topbar item '\(itemID)'"
         }
         let rawText = args["text"] as? String
         let updated = ExtensionStore.shared.setStatusBarItem(
             extensionID: extensionID,
             itemID: itemID,
-            icon: icon,
-            text: (rawText?.isEmpty == true) ? nil : rawText,
-            clearText: args.keys.contains("text")
+            update: ExtensionStore.StatusBarUpdate(
+                icon: icon,
+                text: (rawText?.isEmpty == true) ? nil : rawText,
+                clearText: args.keys.contains("text"),
+                visible: visible
+            )
         )
         return updated ? encodeJSONFragment(NSNull()) : "error:unknown status bar item '\(itemID)'"
     }

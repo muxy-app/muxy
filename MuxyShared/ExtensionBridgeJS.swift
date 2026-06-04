@@ -76,8 +76,11 @@ public enum ExtensionBridgeJS {
                         const o = opts || {};
                         const payload = { id: String(o.id == null ? '' : o.id) };
                         if (o.icon != null) payload.icon = o.icon;
+                        if ('visible' in o) payload.visible = !!o.visible;
                         return dispatch('topbar.set', payload);
                     },
+                    show(id) { return dispatch('topbar.set', { id: String(id == null ? '' : id), visible: true }); },
+                    hide(id) { return dispatch('topbar.set', { id: String(id == null ? '' : id), visible: false }); },
                 },
                 statusbar: {
                     set(opts) {
@@ -85,8 +88,11 @@ public enum ExtensionBridgeJS {
                         const payload = { id: String(o.id == null ? '' : o.id) };
                         if (o.icon != null) payload.icon = o.icon;
                         if ('text' in o) payload.text = o.text == null ? null : String(o.text);
+                        if ('visible' in o) payload.visible = !!o.visible;
                         return dispatch('statusbar.set', payload);
                     },
+                    show(id) { return dispatch('statusbar.set', { id: String(id == null ? '' : id), visible: true }); },
+                    hide(id) { return dispatch('statusbar.set', { id: String(id == null ? '' : id), visible: false }); },
                 },
             };
         \(surface == .inProcess ? workspaceBlock : "")

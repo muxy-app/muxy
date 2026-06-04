@@ -340,15 +340,18 @@ final class ExtensionStore {
     struct ItemOverride: Equatable {
         var icon: ExtensionIcon?
         var text: String?
+        var visible: Bool?
     }
 
     struct TopbarItemBinding: Equatable, Identifiable {
         let muxyExtension: MuxyExtension
         let item: ExtensionTopbarItem
         let liveIcon: ExtensionIcon?
+        let liveVisible: Bool?
 
         var id: String { "\(muxyExtension.id):\(item.id)" }
         var displayIcon: ExtensionIcon { liveIcon ?? item.icon }
+        var isVisible: Bool { liveVisible ?? item.visible }
     }
 
     struct StatusBarItemBinding: Equatable, Identifiable {
@@ -356,10 +359,12 @@ final class ExtensionStore {
         let item: ExtensionStatusBarItem
         let liveIcon: ExtensionIcon?
         let liveText: String?
+        let liveVisible: Bool?
 
         var id: String { "\(muxyExtension.id):\(item.id)" }
         var displayIcon: ExtensionIcon { liveIcon ?? item.icon }
         var displayText: String? { liveText ?? item.text }
+        var isVisible: Bool { liveVisible ?? item.visible }
     }
 
     private var topbarOverrides: [String: [String: ItemOverride]] = [:]
@@ -399,11 +404,15 @@ final class ExtensionStore {
             let topbarItemOverrides = topbarOverrides[status.id]
             let statusBarItemOverrides = statusBarOverrides[status.id]
             for item in ext.manifest.topbarItems {
-                topbar.append(TopbarItemBinding(
+                let override = topbarItemOverrides?[item.id]
+                let binding = TopbarItemBinding(
                     muxyExtension: ext,
                     item: item,
-                    liveIcon: topbarItemOverrides?[item.id]?.icon
-                ))
+                    liveIcon: override?.icon,
+                    liveVisible: override?.visible
+                )
+                guard binding.isVisible else { continue }
+                topbar.append(binding)
             }
             for item in ext.manifest.statusBarItems {
                 let override = statusBarItemOverrides?[item.id]
@@ -411,8 +420,10 @@ final class ExtensionStore {
                     muxyExtension: ext,
                     item: item,
                     liveIcon: override?.icon,
-                    liveText: override?.text
+                    liveText: override?.text,
+                    liveVisible: override?.visible
                 )
+                guard binding.isVisible else { continue }
                 switch item.side {
                 case .left: left.append(binding)
                 case .right: right.append(binding)
@@ -429,33 +440,36 @@ final class ExtensionStore {
         ExtensionShortcutStore.shared.syncBindings(for: enabled)
     }
 
-    func setStatusBarText(extensionID: String, itemID: String, text: String?) -> Bool {
-        setStatusBarItem(extensionID: extensionID, itemID: itemID, icon: nil, text: text, clearText: true)
+    struct StatusBarUpdate {
+        var icon: ExtensionIcon?
+        var text: String?
+        var clearText: Bool = false
+        var visible: Bool?
     }
 
-    func setStatusBarItem(
-        extensionID: String,
-        itemID: String,
-        icon: ExtensionIcon?,
-        text: String?,
-        clearText: Bool
-    ) -> Bool {
+    func setStatusBarText(extensionID: String, itemID: String, text: String?) -> Bool {
+        setStatusBarItem(extensionID: extensionID, itemID: itemID, update: StatusBarUpdate(text: text, clearText: true))
+    }
+
+    func setStatusBarItem(extensionID: String, itemID: String, update: StatusBarUpdate) -> Bool {
         guard loadedExtension(id: extensionID)?.manifest.statusBarItem(id: itemID) != nil
         else { return false }
 
         applyOverride(to: \.statusBarOverrides, extensionID: extensionID, itemID: itemID) {
-            if let icon { $0.icon = icon }
-            if clearText { $0.text = text }
+            if let icon = update.icon { $0.icon = icon }
+            if update.clearText { $0.text = update.text }
+            if let visible = update.visible { $0.visible = visible }
         }
         return true
     }
 
-    func setTopbarItem(extensionID: String, itemID: String, icon: ExtensionIcon?) -> Bool {
+    func setTopbarItem(extensionID: String, itemID: String, icon: ExtensionIcon?, visible: Bool?) -> Bool {
         guard loadedExtension(id: extensionID)?.manifest.topbarItem(id: itemID) != nil
         else { return false }
 
         applyOverride(to: \.topbarOverrides, extensionID: extensionID, itemID: itemID) {
             if let icon { $0.icon = icon }
+            if let visible { $0.visible = visible }
         }
         return true
     }
@@ -469,7 +483,7 @@ final class ExtensionStore {
         var overrides = self[keyPath: keyPath][extensionID] ?? [:]
         var override = overrides[itemID] ?? ItemOverride()
         mutate(&override)
-        if override.icon == nil, override.text == nil {
+        if override.icon == nil, override.text == nil, override.visible == nil {
             overrides.removeValue(forKey: itemID)
         } else {
             overrides[itemID] = override

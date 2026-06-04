@@ -162,8 +162,11 @@ enum ExtensionWebBridge {
                         const o = opts || {};
                         const payload = { id: String(o.id == null ? '' : o.id) };
                         if (o.icon != null) payload.icon = o.icon;
+                        if ('visible' in o) payload.visible = !!o.visible;
                         return send('topbar.set', payload);
                     },
+                    show(id) { return send('topbar.set', { id: String(id == null ? '' : id), visible: true }); },
+                    hide(id) { return send('topbar.set', { id: String(id == null ? '' : id), visible: false }); },
                 },
                 statusbar: {
                     set(opts) {
@@ -171,8 +174,11 @@ enum ExtensionWebBridge {
                         const payload = { id: String(o.id == null ? '' : o.id) };
                         if (o.icon != null) payload.icon = o.icon;
                         if ('text' in o) payload.text = o.text == null ? null : String(o.text);
+                        if ('visible' in o) payload.visible = !!o.visible;
                         return send('statusbar.set', payload);
                     },
+                    show(id) { return send('statusbar.set', { id: String(id == null ? '' : id), visible: true }); },
+                    hide(id) { return send('statusbar.set', { id: String(id == null ? '' : id), visible: false }); },
                 },
                 exec(argvOrOptions, maybeOptions) {
                     let payload;

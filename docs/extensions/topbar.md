@@ -26,6 +26,7 @@ A topbar item is an icon Muxy adds to the right-hand cluster of the tab strip �
 | `icon` | object | yes | `{ "symbol": "<sf-symbol>" }` or `{ "svg": "<path>" }`. A bare string is treated as a symbol. See [Icons](manifest.md#icons). |
 | `tooltip` | string | no | Hover tooltip and accessibility label. Defaults to the `id`. |
 | `command` | string | yes | Must reference a declared `commands[].id`. |
+| `visible` | boolean | no | Whether the item shows on load. Defaults to `true`. Set `false` to start hidden and reveal it later with `muxy.topbar.show`. |
 
 ## Behavior
 
@@ -33,21 +34,27 @@ A click dispatches the referenced command through the same path as the command p
 
 Disabled extensions contribute no topbar items.
 
-## Updating the icon at runtime
+## Updating an item at runtime
 
-The icon can be swapped while the extension runs — from `background.js` or any tab/panel/popover page — with `muxy.topbar.set`:
+The icon and visibility can change while the extension runs — from `background.js` or any tab/panel/popover page — with `muxy.topbar.set`:
 
 ```js
 muxy.topbar.set({ id: "pr", icon: { symbol: "checkmark.circle.fill" } });
 muxy.topbar.set({ id: "pr", icon: "arrow.triangle.pull" }); // bare string == symbol
+muxy.topbar.set({ id: "pr", visible: false });               // hide
+muxy.topbar.show("pr");                                       // sugar for { visible: true }
+muxy.topbar.hide("pr");                                       // sugar for { visible: false }
 ```
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `id` | string | Must reference a declared `topbarItems[].id`. |
 | `icon` | string \| object | New icon: `"<sf-symbol>"`, `{ symbol }`, or `{ svg }` (the SVG must be a file bundled with the extension). Omit to leave the icon unchanged. |
+| `visible` | boolean | Show or hide the item. Omit to leave visibility unchanged. |
 
-Needs `panels:write`. The override is in-memory for the session; disabling or reloading the extension restores the manifest icon. Throws on an unknown `id`.
+Decide visibility at runtime: declare the item with `"visible": false` so it stays hidden until your `background.js` calls `muxy.topbar.show(id)` (e.g. once a repo is detected), then `muxy.topbar.hide(id)` when it no longer applies.
+
+Needs `panels:write`. The override is in-memory for the session; disabling or reloading the extension restores the manifest icon and visibility. Throws on an unknown `id`.
 
 ## Placement and order
 
