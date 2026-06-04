@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 struct HTTPRequest {
     let url: String
@@ -174,10 +175,10 @@ enum ExtensionHTTPClient {
 }
 
 private final class HTTPSecurityDelegate: NSObject, URLSessionTaskDelegate {
-    private var pinnedHost: String
+    private let pinnedHost: OSAllocatedUnfairLock<String>
 
     init(pinnedHost: String) {
-        self.pinnedHost = pinnedHost
+        self.pinnedHost = OSAllocatedUnfairLock(initialState: pinnedHost)
     }
 
     func urlSession(
@@ -195,7 +196,7 @@ private final class HTTPSecurityDelegate: NSObject, URLSessionTaskDelegate {
             completionHandler(nil)
             return
         }
-        pinnedHost = host
+        pinnedHost.withLock { $0 = host }
         completionHandler(ExtensionHTTPClient.pinned(request, to: pinnedAddress, host: host))
     }
 
@@ -210,7 +211,7 @@ private final class HTTPSecurityDelegate: NSObject, URLSessionTaskDelegate {
             completionHandler(.performDefaultHandling, nil)
             return
         }
-        SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, pinnedHost as CFString))
+        SecTrustSetPolicies(trust, SecPolicyCreateSSL(true, pinnedHost.withLock { $0 } as CFString))
         guard SecTrustEvaluateWithError(trust, nil) else {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
