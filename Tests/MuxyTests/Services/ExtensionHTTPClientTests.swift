@@ -46,6 +46,15 @@ struct ExtensionHTTPClientTests {
         await expectBlocked(url: "https://muxy-nonexistent-host.invalid/x")
     }
 
+    @Test("redirect guard rejects private redirect targets")
+    func redirectGuardBlocksPrivateTargets() {
+        #expect(HostSecurityPolicy.isBlocked("127.0.0.1"))
+        #expect(HostSecurityPolicy.isBlocked("169.254.169.254"))
+        #expect(HostSecurityPolicy.isBlocked("localhost"))
+        #expect(HostSecurityPolicy.isBlocked("192.168.1.1"))
+        #expect(HostSecurityPolicy.isBlocked("93.184.216.34") == false)
+    }
+
     @Test("truncates responses larger than the byte cap")
     func truncatesLargeResponse() async throws {
         let oversized = Data(repeating: UInt8(ascii: "a"), count: ExtensionHTTPClient.maxResponseBytes + 1024)
