@@ -41,11 +41,6 @@ struct PaneTabStrip: View {
     let onSetColorID: (UUID, String?) -> Void
     let onReorderTab: (IndexSet, Int) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
-    @Environment(AppState.self) private var appState
-    @Environment(ProjectStore.self) private var projectStore
-    @Environment(WorktreeStore.self) private var worktreeStore
-    @Environment(ExtensionStore.self) private var extensionStore
-    @State private var popoverHost = PopoverHost.shared
     @State private var dragState = TabDragState()
 
     static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
@@ -92,6 +87,7 @@ struct PaneTabStrip: View {
                         cursorProvider: openInIDECursorProvider
                     )
                     LayoutPickerMenu(projectID: projectID)
+                    ExtensionTopbarItems()
                 }
                 if showMaximizeButton || isMaximized, let onToggleMaximize {
                     let symbol = isMaximized
@@ -100,16 +96,6 @@ struct PaneTabStrip: View {
                     let label = isMaximized ? "Restore Pane" : "Maximize Pane"
                     IconButton(symbol: symbol, accessibilityLabel: label, action: onToggleMaximize)
                         .help(shortcutTooltip("Toggle Maximize Pane", for: .toggleMaximizePane))
-                }
-                ForEach(extensionStore.topbarItems) { binding in
-                    ExtensionIconButton(
-                        icon: binding.displayIcon,
-                        muxyExtension: binding.muxyExtension,
-                        accessibilityLabel: binding.item.tooltip ?? binding.item.id,
-                        action: { triggerExtensionCommand(binding: binding) }
-                    )
-                    .help(binding.item.tooltip ?? binding.item.id)
-                    .extensionPopover(anchorID: binding.id, host: popoverHost)
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))
@@ -207,27 +193,6 @@ struct PaneTabStrip: View {
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
         "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
-    }
-
-    private func triggerExtensionCommand(binding: ExtensionStore.TopbarItemBinding) {
-        if let popover = extensionStore.popover(for: binding.muxyExtension, command: binding.item.command) {
-            popoverHost.toggle(
-                anchorID: binding.id,
-                extensionID: binding.muxyExtension.id,
-                popover: popover,
-                data: nil
-            )
-            return
-        }
-        extensionStore.triggerCommand(
-            ExtensionStore.CommandInvocation(
-                extensionID: binding.muxyExtension.id,
-                commandID: binding.item.command,
-                appState: appState,
-                projectStore: projectStore,
-                worktreeStore: worktreeStore
-            )
-        )
     }
 
     private var developmentBadge: some View {

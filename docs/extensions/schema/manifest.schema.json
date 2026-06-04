@@ -191,7 +191,7 @@
         "mode": { "enum": ["pinned", "floating"] },
         "hiddenControls": {
           "type": "array",
-          "items": { "enum": ["close", "pin", "position"] },
+          "items": { "enum": ["icon", "title", "close", "pin", "position"] },
           "uniqueItems": true
         },
         "headerButtons": {

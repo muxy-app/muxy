@@ -522,6 +522,7 @@ struct MainWindow: View {
                             }
                             .help("Quick Open (\(KeyBindingStore.shared.combo(for: .quickOpen).displayString))")
                         }
+                        ExtensionTopbarItems()
                     }
                     .padding(.trailing, UIMetrics.spacing2)
                 }
@@ -1026,6 +1027,7 @@ struct MainWindow: View {
                 state: state,
                 placement: PanelPlacement(panelID: panelID, position: position, mode: mode)
             )
+            .id(panelID)
             .modifier(PanelFrame(
                 position: position,
                 size: position == .bottom ? $extensionPanelHeight : $extensionPanelWidth,

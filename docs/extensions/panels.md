@@ -41,14 +41,14 @@ Every panel, built-in or extension, follows the same placement rules per positio
 | `icon` | string \| object | no | SF Symbol name, or `{ "svg": "assets/icon.svg" }`. Shown in the header. |
 | `position` | string | no | `right` or `bottom`. Defaults to `right`. |
 | `mode` | string | no | `floating` or `pinned`. Defaults to `floating`. |
-| `hiddenControls` | string[] | no | Header controls to hide: any of `close`, `pin`, `position`. Defaults to none hidden. |
+| `hiddenControls` | string[] | no | Header elements to hide individually: any of `icon`, `title`, `close`, `pin`, `position`. Defaults to none hidden. |
 | `headerButtons` | object[] | no | Custom action icons in the panel header, left of the built-in controls. See [Header buttons](#header-buttons). |
 | `hideTopbar` | boolean | no | Hide the entire panel header, including icon, title, and all controls. Your webview fills the whole panel. Defaults to `false`. |
 | `defaultData` | object | no | JSON merged into `window.muxy.data` when no explicit data is passed. |
 
 ## Header controls
 
-The host owns the panel header: optional icon and title on the left; on the right (unless hidden via `hiddenControls`) any custom `headerButtons`, then a position toggle (right ⇄ bottom), a pin toggle (float ⇄ dock), and a close button. Your webview fills the rest.
+The host owns the panel header: optional icon and title on the left; on the right, any custom `headerButtons`, then a position toggle (right ⇄ bottom), a pin toggle (float ⇄ dock), and a close button. Hide any element individually via `hiddenControls` (`icon`, `title`, `close`, `pin`, `position`) — or drop the whole header with `hideTopbar`. Your webview fills the rest.
 
 ## Header buttons
 
