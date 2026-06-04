@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor
@@ -191,6 +192,10 @@ struct ShortcutActionDispatcher {
                   let areaID = appState.focusedAreaID(for: projectID)
             else { return false }
             appState.toggleMaximize(areaID: areaID, for: projectID)
+            return true
+        case .toggleFullScreen:
+            guard let window = AppDelegate.mainAppWindow() else { return false }
+            window.toggleFullScreen(nil)
             return true
         case .toggleVoiceRecording,
              .selectTab1,

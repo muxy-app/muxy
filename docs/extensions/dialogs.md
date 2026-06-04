@@ -56,3 +56,4 @@ await muxy.dialog.alert({
 - Only **one dialog per extension** can be open at a time; a second call while one is showing rejects rather than stacking sheets.
 - `title`, `message`, and each button label are capped at 2000 characters, and `buttons` is limited to the first 3.
 - Dialogs present as a sheet on the main Muxy window; if no window is available the call rejects rather than presenting a blocking dialog.
+- A [popover](popovers.md) stays open while its dialog is showing, so the resolved result reaches the popover page.

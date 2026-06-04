@@ -61,6 +61,7 @@ let package = Package(
                 .copy("Resources/markdown-assets"),
                 .copy("Resources/scripts"),
                 .copy("Resources/skills"),
+                .copy("Resources/starter-kits"),
                 .copy("Resources/terminfo"),
             ],
             linkerSettings: [

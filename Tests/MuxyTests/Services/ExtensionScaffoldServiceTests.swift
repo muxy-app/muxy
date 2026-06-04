@@ -11,9 +11,10 @@ struct ExtensionScaffoldServiceTests {
         defer { fixture.cleanup() }
 
         let extensionURL = try ExtensionScaffoldService.create(
-            ExtensionScaffoldRequest(name: "demo", version: "0.1.0", description: "A demo extension"),
+            ExtensionScaffoldRequest(name: "demo", version: "0.1.0", description: "A demo extension", kit: .vanilla),
             in: fixture.rootURL,
-            skillSourceURL: fixture.skillSourceURL
+            skillSourceURL: fixture.skillSourceURL,
+            kitSourceURL: fixture.kitSourceURL
         )
 
         #expect(extensionURL.lastPathComponent == "demo")
@@ -25,15 +26,34 @@ struct ExtensionScaffoldServiceTests {
         try assertSkillCopied(at: extensionURL)
     }
 
+    @Test("copies kit source and excludes node_modules, dist, and the lockfile")
+    func copiesKitSourceAndExcludesArtifacts() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanup() }
+
+        let extensionURL = try ExtensionScaffoldService.create(
+            ExtensionScaffoldRequest(name: "kitted", version: "0.1.0", description: "", kit: .vanilla),
+            in: fixture.rootURL,
+            skillSourceURL: fixture.skillSourceURL,
+            kitSourceURL: fixture.kitSourceURL
+        )
+
+        let manager = FileManager.default
+        #expect(manager.fileExists(atPath: extensionURL.appendingPathComponent("src/main.ts").path))
+        #expect(!manager.fileExists(atPath: extensionURL.appendingPathComponent("node_modules").path))
+        #expect(!manager.fileExists(atPath: extensionURL.appendingPathComponent("package-lock.json").path))
+    }
+
     @Test("omits description from manifest when blank")
     func omitsDescriptionWhenBlank() throws {
         let fixture = try Fixture()
         defer { fixture.cleanup() }
 
         let extensionURL = try ExtensionScaffoldService.create(
-            ExtensionScaffoldRequest(name: "tidy", version: "1.0.0", description: "  "),
+            ExtensionScaffoldRequest(name: "tidy", version: "1.0.0", description: "  ", kit: .vanilla),
             in: fixture.rootURL,
-            skillSourceURL: fixture.skillSourceURL
+            skillSourceURL: fixture.skillSourceURL,
+            kitSourceURL: fixture.kitSourceURL
         )
 
         let manifest = try loadManifest(at: extensionURL)
@@ -47,9 +67,10 @@ struct ExtensionScaffoldServiceTests {
 
         #expect(throws: ExtensionLoadError.self) {
             try ExtensionScaffoldService.create(
-                ExtensionScaffoldRequest(name: "bad name!", version: "0.1.0", description: ""),
+                ExtensionScaffoldRequest(name: "bad name!", version: "0.1.0", description: "", kit: .vanilla),
                 in: fixture.rootURL,
-                skillSourceURL: fixture.skillSourceURL
+                skillSourceURL: fixture.skillSourceURL,
+            kitSourceURL: fixture.kitSourceURL
             )
         }
     }
@@ -62,9 +83,10 @@ struct ExtensionScaffoldServiceTests {
         for name in ["..", ".", ".hidden"] {
             #expect(throws: ExtensionLoadError.self) {
                 try ExtensionScaffoldService.create(
-                    ExtensionScaffoldRequest(name: name, version: "0.1.0", description: ""),
+                    ExtensionScaffoldRequest(name: name, version: "0.1.0", description: "", kit: .vanilla),
                     in: fixture.rootURL,
-                    skillSourceURL: fixture.skillSourceURL
+                    skillSourceURL: fixture.skillSourceURL,
+            kitSourceURL: fixture.kitSourceURL
                 )
             }
         }
@@ -77,9 +99,10 @@ struct ExtensionScaffoldServiceTests {
 
         #expect(throws: ExtensionScaffoldError.self) {
             try ExtensionScaffoldService.create(
-                ExtensionScaffoldRequest(name: "no-version", version: "  ", description: ""),
+                ExtensionScaffoldRequest(name: "no-version", version: "  ", description: "", kit: .vanilla),
                 in: fixture.rootURL,
-                skillSourceURL: fixture.skillSourceURL
+                skillSourceURL: fixture.skillSourceURL,
+            kitSourceURL: fixture.kitSourceURL
             )
         }
     }
@@ -90,16 +113,18 @@ struct ExtensionScaffoldServiceTests {
         defer { fixture.cleanup() }
 
         _ = try ExtensionScaffoldService.create(
-            ExtensionScaffoldRequest(name: "dup", version: "0.1.0", description: ""),
+            ExtensionScaffoldRequest(name: "dup", version: "0.1.0", description: "", kit: .vanilla),
             in: fixture.rootURL,
-            skillSourceURL: fixture.skillSourceURL
+            skillSourceURL: fixture.skillSourceURL,
+            kitSourceURL: fixture.kitSourceURL
         )
 
         #expect(throws: ExtensionScaffoldError.self) {
             try ExtensionScaffoldService.create(
-                ExtensionScaffoldRequest(name: "dup", version: "0.1.0", description: ""),
+                ExtensionScaffoldRequest(name: "dup", version: "0.1.0", description: "", kit: .vanilla),
                 in: fixture.rootURL,
-                skillSourceURL: fixture.skillSourceURL
+                skillSourceURL: fixture.skillSourceURL,
+            kitSourceURL: fixture.kitSourceURL
             )
         }
     }
@@ -110,9 +135,10 @@ struct ExtensionScaffoldServiceTests {
         defer { fixture.cleanup() }
 
         let extensionURL = try ExtensionScaffoldService.create(
-            ExtensionScaffoldRequest(name: "loadable", version: "0.2.0", description: "Round-trip"),
+            ExtensionScaffoldRequest(name: "loadable", version: "0.2.0", description: "Round-trip", kit: .vanilla),
             in: fixture.rootURL,
-            skillSourceURL: fixture.skillSourceURL
+            skillSourceURL: fixture.skillSourceURL,
+            kitSourceURL: fixture.kitSourceURL
         )
 
         let loaded = try ExtensionManifestLoader.load(from: extensionURL)
@@ -125,6 +151,7 @@ struct ExtensionScaffoldServiceTests {
     private struct Fixture {
         let rootURL: URL
         let skillSourceURL: URL
+        let kitSourceURL: URL
 
         init() throws {
             let base = FileManager.default.temporaryDirectory
@@ -135,10 +162,39 @@ struct ExtensionScaffoldServiceTests {
 
             skillSourceURL = base.appendingPathComponent("SKILL.md")
             try Data("# Test Skill\n".utf8).write(to: skillSourceURL)
+
+            kitSourceURL = base.appendingPathComponent("kit", isDirectory: true)
+            try Fixture.writeKit(at: kitSourceURL)
         }
 
         func cleanup() {
             try? FileManager.default.removeItem(at: rootURL.deletingLastPathComponent())
+        }
+
+        private static func writeKit(at kitURL: URL) throws {
+            let manager = FileManager.default
+            try manager.createDirectory(at: kitURL.appendingPathComponent("src"), withIntermediateDirectories: true)
+            let packageJSON = """
+            {
+              "name": "muxy-starter-kit",
+              "version": "9.9.9",
+              "private": true,
+              "type": "module",
+              "scripts": { "dev": "vite", "build": "vite build" },
+              "devDependencies": { "vite": "^7.0.0" },
+              "muxy": {
+                "description": "Kit description",
+                "permissions": ["panels:write"]
+              }
+            }
+            """
+            try Data(packageJSON.utf8).write(to: kitURL.appendingPathComponent("package.json"))
+            try Data("export {};\n".utf8).write(to: kitURL.appendingPathComponent("src/main.ts"))
+            try Data(".DS_Store\nnode_modules/\ndist/\n".utf8).write(to: kitURL.appendingPathComponent(".gitignore"))
+
+            try manager.createDirectory(at: kitURL.appendingPathComponent("node_modules"), withIntermediateDirectories: true)
+            try Data("ignored\n".utf8).write(to: kitURL.appendingPathComponent("node_modules/marker"))
+            try Data("{}\n".utf8).write(to: kitURL.appendingPathComponent("package-lock.json"))
         }
     }
 

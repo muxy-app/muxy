@@ -8,6 +8,7 @@ struct CreateExtensionSheet: View {
     @State private var name = ""
     @State private var version = "0.1.0"
     @State private var description = ""
+    @State private var kit: ExtensionStarterKit = .vanilla
     @State private var errorMessage: String?
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -50,6 +51,19 @@ struct CreateExtensionSheet: View {
                     .lineLimit(2 ... 4)
             }
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Starter kit")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                Picker("Starter kit", selection: $kit) {
+                    ForEach(ExtensionStarterKit.allCases) { kit in
+                        Text(kit.title).tag(kit)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+
             if let errorMessage {
                 Text(errorMessage)
                     .font(.system(size: 11))
@@ -76,6 +90,10 @@ struct CreateExtensionSheet: View {
             guideRow(
                 symbol: "folder",
                 text: "Creates the extension in \(store.rootDirectory.path)/<name>"
+            )
+            guideRow(
+                symbol: "shippingbox",
+                text: "Copies the chosen starter kit (a working panel, topbar item, and command)"
             )
             guideRow(
                 symbol: "doc.text",
@@ -139,7 +157,7 @@ struct CreateExtensionSheet: View {
 
     private func create() {
         errorMessage = nil
-        let request = ExtensionScaffoldRequest(name: name, version: version, description: description)
+        let request = ExtensionScaffoldRequest(name: name, version: version, description: description, kit: kit)
         do {
             let directory = try ExtensionScaffoldService.create(request, in: store.rootDirectory)
             store.reload()
