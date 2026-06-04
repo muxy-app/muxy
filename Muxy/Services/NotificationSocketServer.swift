@@ -51,7 +51,7 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     var openProjectHandler: (@Sendable (String) -> Void)?
     var installExtensionHandler: (@Sendable (String) -> Void)?
-    var commandHandler: (@Sendable (String, ClientContext) async -> String)?
+    var commandHandler: (@MainActor @Sendable (String, ClientContext) async -> String)?
 
     struct ClientContext {
         let extensionID: String?
