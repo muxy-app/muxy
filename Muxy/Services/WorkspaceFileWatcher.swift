@@ -12,7 +12,12 @@ final class WorkspaceFileWatcher {
         watcher = nil
         guard let path else { return }
         watcher = FileSystemWatcher(directoryPath: path) { changedPaths in
-            ExtensionFileEventEmitter.emit(paths: changedPaths, projectPath: path)
+            let gitPaths = changedPaths.filter { $0.contains("/.git/") }
+            let filePaths = changedPaths.filter { !$0.contains("/.git/") }
+            if !gitPaths.isEmpty {
+                ExtensionGitEventEmitter.emit(projectPath: path)
+            }
+            ExtensionFileEventEmitter.emit(paths: filePaths, projectPath: path)
         }
     }
 }
