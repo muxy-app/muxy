@@ -87,6 +87,7 @@ flowchart TD
 
 ## Quick links
 
+- LLM-friendly docs index: [muxy.app/llms.txt](https://muxy.app/llms.txt) (append `/plain` to any docs URL for raw Markdown)
 - Example extension: [`extensions/git`](https://github.com/muxy-app/extensions/tree/main/extensions/git)
 - Manifest schema: [`schema/manifest.schema.json`](schema/manifest.schema.json)
 - Community extensions: [muxy-extensions repo](https://github.com/muxy-app/extensions)
