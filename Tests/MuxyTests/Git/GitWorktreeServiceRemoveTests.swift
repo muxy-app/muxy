@@ -48,6 +48,30 @@ struct GitWorktreeServiceRemoveTests {
         let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
         #expect(!records.contains { $0.path == worktreePath })
     }
+
+    @Test("heals an orphaned worktree referenced through a symlinked parent")
+    func healsOrphanThroughSymlinkedParent() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("symlink-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+        try FileManager.default.removeItem(atPath: worktreePath)
+        try repo.orphanWorktreeAdmin(named: "symlink-wt")
+
+        let aliasPath = try repo.symlinkedSiblingPath(for: "symlink-wt")
+        try await GitWorktreeService.shared.removeWorktree(repoPath: repo.path, path: aliasPath, force: true)
+
+        let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
+        #expect(!records.contains { GitWorktreeService.canonicalPath($0.path) == GitWorktreeService.canonicalPath(worktreePath) })
+    }
 }
 
 private struct TempGitRepo {
@@ -80,6 +104,13 @@ private struct TempGitRepo {
         try contents.write(to: fileURL, atomically: true, encoding: .utf8)
         try run("add", file)
         try run("commit", "-q", "-m", message)
+    }
+
+    func symlinkedSiblingPath(for name: String) throws -> String {
+        let realParent = URL(fileURLWithPath: parent)
+        let aliasParent = realParent.appendingPathComponent("alias-\(UUID().uuidString)")
+        try FileManager.default.createSymbolicLink(at: aliasParent, withDestinationURL: realParent)
+        return aliasParent.appendingPathComponent(name).path
     }
 
     func orphanWorktreeAdmin(named name: String) throws {

@@ -127,9 +127,10 @@ actor GitWorktreeService: GitWorktreeListing {
         let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args)
         guard result.status != 0 else { return }
 
-        try await pruneWorktrees(repoPath: repoPath)
+        try? await pruneWorktrees(repoPath: repoPath)
+        let target = Self.canonicalPath(path)
         let stillRegistered = try await listWorktrees(repoPath: repoPath)
-            .contains { Self.canonicalPath($0.path) == Self.canonicalPath(path) }
+            .contains { Self.canonicalPath($0.path) == target }
         guard stillRegistered else { return }
 
         throw GitWorktreeError.commandFailed(
@@ -137,7 +138,7 @@ actor GitWorktreeService: GitWorktreeListing {
         )
     }
 
-    func pruneWorktrees(repoPath: String) async throws {
+    private func pruneWorktrees(repoPath: String) async throws {
         let result = try await GitProcessRunner.runGit(
             repoPath: repoPath,
             arguments: ["worktree", "prune"]
@@ -149,8 +150,13 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
-    private static func canonicalPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+    static func canonicalPath(_ path: String) -> String {
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL
+        let resolved = standardized.resolvingSymlinksInPath()
+        guard resolved.path == standardized.path else { return resolved.path }
+
+        let parent = standardized.deletingLastPathComponent().resolvingSymlinksInPath()
+        return parent.appendingPathComponent(standardized.lastPathComponent).path
     }
 
     func deleteBranch(repoPath: String, branch: String, force: Bool = true) async throws {
