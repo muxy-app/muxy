@@ -9,7 +9,11 @@ struct ExtensionStoreStartOrderingTests {
     @Test("publishes the token snapshot before the host process is spawned")
     func publishesTokenBeforeSpawn() throws {
         let directory = try makeBackgroundExtension(name: "ordered-ext")
-        defer { try? FileManager.default.removeItem(at: directory.parent) }
+        ExtensionEnabledStore.setEnabled(true, extensionID: "ordered-ext")
+        defer {
+            ExtensionEnabledStore.clear(extensionID: "ordered-ext")
+            try? FileManager.default.removeItem(at: directory.parent)
+        }
 
         let recorder = SnapshotOrderRecorder()
         let store = ExtensionStore.makeForTesting(
@@ -34,7 +38,11 @@ struct ExtensionStoreStartOrderingTests {
     @Test("removes the token from the snapshot when the host fails to spawn")
     func removesTokenWhenSpawnFails() throws {
         let directory = try makeBackgroundExtension(name: "failing-ext")
-        defer { try? FileManager.default.removeItem(at: directory.parent) }
+        ExtensionEnabledStore.setEnabled(true, extensionID: "failing-ext")
+        defer {
+            ExtensionEnabledStore.clear(extensionID: "failing-ext")
+            try? FileManager.default.removeItem(at: directory.parent)
+        }
 
         let recorder = SnapshotOrderRecorder()
         let store = ExtensionStore.makeForTesting(

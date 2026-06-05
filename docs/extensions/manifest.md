@@ -59,7 +59,7 @@ All Muxy-specific manifest fields live under the `muxy` object.
 | `remoteMethods` | object[] | no | Named API methods served to the mobile app. Requires `remote:serve`. See [Remote Methods](remote-methods.md). |
 | `marketplace` | object | no | Listing metadata (icon, screenshots, author, categories) used by the marketplace. Ignored by the app loader. |
 
-Extensions are enabled by default after loading. The Settings → Extensions toggle is persisted in `UserDefaults` under `muxy.ext.enabled.<extension-id>` and survives launches. A legacy `enabled` manifest field is no longer part of the schema; if present with no user override, it is migrated into that UserDefaults entry on first load and otherwise ignored.
+Extensions are disabled by default after loading and must be enabled explicitly from Settings → Extensions. The toggle is persisted in `UserDefaults` under `muxy.ext.enabled.<extension-id>` and survives launches. A legacy `enabled` manifest field is no longer part of the schema; if present with no user override, it is migrated into that UserDefaults entry on first load and otherwise ignored.
 
 ## Icons
 
