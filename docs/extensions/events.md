@@ -18,10 +18,10 @@ Extension-local events use the reserved `extension.` prefix and stay inside one 
 
 ```js
 // panel.js
-await muxy.events.emit('extension.refresh.request', { source: muxy.tabInstanceID });
 muxy.events.subscribe('extension.refresh.result', (payload) => {
   render(payload);
 });
+await muxy.events.emit('extension.refresh.request', { source: muxy.tabInstanceID });
 ```
 
 ```js
@@ -46,7 +46,7 @@ muxy.events.subscribe('extension.refresh.request', async () => {
 
 When an extension is reloaded or disabled, its subscriptions are dropped and re-filtered against the new manifest.
 
-`muxy.events.subscribe(name, handler)` returns an unsubscribe function on webviews and background scripts. `muxy.events.emit(name, payload?)` accepts only `extension.*` names. Payloads must be JSON-serializable and are capped at 64 KiB.
+`muxy.events.subscribe(name, handler)` returns an unsubscribe function on webviews and background scripts. `muxy.events.emit(name, payload?)` accepts only `extension.*` names. Payloads must be JSON-serializable and are capped at 64 KiB. A webview emit is relayed through the extension's `background.js`, so it rejects when no background script is running.
 
 ## Available events
 
