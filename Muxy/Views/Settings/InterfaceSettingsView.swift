@@ -7,6 +7,7 @@ struct InterfaceSettingsView: View {
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyle = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyle = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
+    @AppStorage(ResourceUsagePreferences.visibleKey) private var showResourceUsage = ResourceUsagePreferences.defaultVisible
 
     var body: some View {
         SettingsContainer {
@@ -23,6 +24,8 @@ struct InterfaceSettingsView: View {
                 }
 
                 SettingsToggleRow(label: "Show Status Bar", isOn: $showStatusBar)
+
+                SettingsToggleRow(label: "Show Resource Usage in Status Bar", isOn: $showResourceUsage)
             }
 
             SettingsSection("Sidebar", showsDivider: false) {

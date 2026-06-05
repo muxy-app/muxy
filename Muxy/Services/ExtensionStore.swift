@@ -41,6 +41,7 @@ final class ExtensionStore {
     private(set) var availableUpdates: [String: String] = [:]
 
     private var processes: [String: Process] = [:]
+    private(set) var spawnedHostPGIDs: Set<pid_t> = []
     private var tokens: [String: String] = [:]
     private var intentionalStops: Set<String> = []
     private var crashRestartAttempts: [String: Int] = [:]
@@ -86,6 +87,10 @@ final class ExtensionStore {
 
     func hasSpawnedProcessForTesting(extensionID: String) -> Bool {
         processes[extensionID] != nil
+    }
+
+    func spawnedHostPIDs() -> Set<pid_t> {
+        Set(processes.values.map(\.processIdentifier))
     }
 
     static var defaultRootDirectory: URL {
@@ -748,6 +753,7 @@ final class ExtensionStore {
         do {
             try process.run()
             processes[ext.id] = process
+            spawnedHostPGIDs.insert(getpgid(process.processIdentifier))
             statuses[index].isRunning = true
             statuses[index].lastError = nil
             scheduleCrashCounterReset(extensionID: ext.id, process: process)
