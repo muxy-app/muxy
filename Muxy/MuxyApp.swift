@@ -148,6 +148,7 @@ struct MuxyApp: App {
             UpdateService.shared.start()
             AIProviderRegistry.shared.installAll()
             LoginShellPath.hydrateInBackground()
+            await NotificationSocketServer.shared.awaitReady()
             ExtensionStore.shared.startAll()
             await ExtensionStore.shared.checkForUpdates()
         }

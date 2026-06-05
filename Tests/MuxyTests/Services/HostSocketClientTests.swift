@@ -25,7 +25,7 @@ struct HostSocketClientTests {
 
         var thrown: HostSocketClient.ClientError?
         do {
-            _ = try HostSocketClient(socketPath: path)
+            _ = try HostSocketClient(socketPath: path, maxConnectAttempts: 3, connectRetryDelay: 0.01)
         } catch let error as HostSocketClient.ClientError {
             thrown = error
         } catch {}

@@ -18,19 +18,23 @@ final class HostSocketClient: @unchecked Sendable {
     private var eventHandler: ((String) -> Void)?
     private var invokeHandler: ((String) -> Void)?
 
-    static let maxConnectAttempts = 50
+    static let maxConnectAttempts = 15
     static let connectRetryDelay: TimeInterval = 0.1
 
-    init(socketPath: String) throws {
+    init(
+        socketPath: String,
+        maxConnectAttempts: Int = HostSocketClient.maxConnectAttempts,
+        connectRetryDelay: TimeInterval = HostSocketClient.connectRetryDelay
+    ) throws {
         var lastError = ""
-        for attempt in 1 ... Self.maxConnectAttempts {
+        for attempt in 1 ... maxConnectAttempts {
             do {
                 fd = try Self.connect(to: socketPath)
                 return
             } catch let ClientError.connectFailed(reason) {
                 lastError = reason
-                guard attempt < Self.maxConnectAttempts else { break }
-                Thread.sleep(forTimeInterval: Self.connectRetryDelay)
+                guard attempt < maxConnectAttempts else { break }
+                Thread.sleep(forTimeInterval: connectRetryDelay)
             }
         }
         throw ClientError.connectFailed(lastError)

@@ -40,6 +40,8 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     private var serverFD: Int32 = -1
     private var acceptSource: DispatchSourceRead?
+    private var didFinishListening = false
+    private var readyContinuations: [CheckedContinuation<Void, Never>] = []
     private let queue = DispatchQueue(label: "app.muxy.notificationSocket")
     private var subscribers: [ObjectIdentifier: ClientSession] = [:]
     private var liveSessionByExtension: [String: ClientSession] = [:]
@@ -68,6 +70,22 @@ final class NotificationSocketServer: @unchecked Sendable {
     func start() {
         queue.async { [weak self] in
             self?.startListening()
+        }
+    }
+
+    func awaitReady() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { [weak self] in
+                guard let self else {
+                    continuation.resume()
+                    return
+                }
+                guard !self.didFinishListening else {
+                    continuation.resume()
+                    return
+                }
+                self.readyContinuations.append(continuation)
+            }
         }
     }
 
@@ -213,6 +231,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     private func startListening() {
+        defer { markListeningFinished() }
         let path = Self.socketPath
         unlink(path)
 
@@ -615,6 +634,15 @@ final class NotificationSocketServer: @unchecked Sendable {
         session.writeSource = nil
         if session.fd >= 0, !session.pendingClose {
             close(session.fd)
+        }
+    }
+
+    private func markListeningFinished() {
+        didFinishListening = true
+        let waiters = readyContinuations
+        readyContinuations.removeAll()
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 
