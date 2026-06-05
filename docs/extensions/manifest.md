@@ -6,7 +6,7 @@ Identity (`name` and `version`) lives at the **top level** of `package.json` —
 
 `package.json` must also declare a `build` script. The publishing pipeline runs `npm run build` (Vite) and ships the build output directory, `dist/`. The app installs and reads from `dist/`, so every entry/asset path inside `muxy` (popover/tab `entry`, `background`, marketplace `icon`/`screenshots`) resolves against the build output, not your source tree.
 
-There is **no fixed folder layout**. Every `entry`/`background`/icon path is an arbitrary relative path inside the build output — point it wherever your build emits the file. The starter kits keep the entry HTML at the project root as `index.html` (Vite's default), but any layout works equally. The only two names Muxy fixes are `package.json` (the manifest) and `dist/` (the build output it ships and reads).
+There is **no fixed folder layout**. Every `entry`/`background`/icon path is an arbitrary relative path inside the build output — point it wherever your build emits the file. The vanilla starter kit emits its panel to `panel/index.html`, but any layout works equally. The only two names Muxy fixes are `package.json` (the manifest) and `dist/` (the build output it ships and reads).
 
 ```json
 {

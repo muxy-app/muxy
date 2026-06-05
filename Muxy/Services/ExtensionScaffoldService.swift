@@ -1,28 +1,9 @@
 import Foundation
 
-enum ExtensionStarterKit: String, CaseIterable, Identifiable, Equatable {
-    case vanilla
-    case react
-    case vue
-    case svelte
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .vanilla: "Vanilla"
-        case .react: "React"
-        case .vue: "Vue"
-        case .svelte: "Svelte"
-        }
-    }
-}
-
 struct ExtensionScaffoldRequest: Equatable {
     let name: String
     let version: String
     let description: String
-    let kit: ExtensionStarterKit
 
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     var trimmedVersion: String { version.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -33,7 +14,7 @@ enum ExtensionScaffoldError: LocalizedError, Equatable {
     case invalidVersion(String)
     case directoryAlreadyExists(URL)
     case skillResourceMissing
-    case kitResourceMissing(ExtensionStarterKit)
+    case kitResourceMissing
     case invalidKitManifest
     case fileSystem(String)
 
@@ -45,8 +26,8 @@ enum ExtensionScaffoldError: LocalizedError, Equatable {
             "An extension already exists at \(url.path)"
         case .skillResourceMissing:
             "Could not locate the bundled muxy-extension skill resource"
-        case let .kitResourceMissing(kit):
-            "Could not locate the bundled \(kit.title) starter kit"
+        case .kitResourceMissing:
+            "Could not locate the bundled starter kit"
         case .invalidKitManifest:
             "The starter kit package.json could not be read"
         case let .fileSystem(message):
@@ -56,6 +37,7 @@ enum ExtensionScaffoldError: LocalizedError, Equatable {
 }
 
 enum ExtensionScaffoldService {
+    private static let kitName = "vanilla"
     private static let excludedKitEntries: Set<String> = ["node_modules", "dist", "package-lock.json"]
 
     static func create(
@@ -71,9 +53,9 @@ enum ExtensionScaffoldService {
         try ExtensionManifestLoader.validate(name: name)
         guard !version.isEmpty else { throw ExtensionScaffoldError.invalidVersion(version) }
 
-        let kitSource = kitSourceURL ?? bundledKitSourceURL(for: request.kit)
+        let kitSource = kitSourceURL ?? bundledKitSourceURL()
         guard let kitSource, FileManager.default.fileExists(atPath: kitSource.path) else {
-            throw ExtensionScaffoldError.kitResourceMissing(request.kit)
+            throw ExtensionScaffoldError.kitResourceMissing
         }
         guard let skillSourceURL, FileManager.default.fileExists(atPath: skillSourceURL.path) else {
             throw ExtensionScaffoldError.skillResourceMissing
@@ -115,12 +97,12 @@ enum ExtensionScaffoldService {
             .appendingPathComponent("skills/muxy-extension/SKILL.md")
     }
 
-    static func bundledKitSourceURL(for kit: ExtensionStarterKit) -> URL? {
-        if let url = Bundle.appResources.url(forResource: kit.rawValue, withExtension: nil, subdirectory: "starter-kits") {
+    static func bundledKitSourceURL() -> URL? {
+        if let url = Bundle.appResources.url(forResource: kitName, withExtension: nil, subdirectory: "starter-kits") {
             return url
         }
         return Bundle.appResources.resourceURL?
-            .appendingPathComponent("starter-kits/\(kit.rawValue)", isDirectory: true)
+            .appendingPathComponent("starter-kits/\(kitName)", isDirectory: true)
     }
 
     private static func copyKit(from source: URL, into destination: URL) throws {
@@ -180,7 +162,7 @@ enum ExtensionScaffoldService {
         - `package.json` — npm manifest. Identity (`name`, `version`) is at the
           top level; all Muxy fields live under the `muxy` key. A `build` script
           (Vite) is required.
-        - `vite.config.ts` — builds to `dist/`, the directory Muxy installs.
+        - `vite.config.js` — builds to `dist/`, the directory Muxy installs.
         - `panel/` + `src/` — your source. The kit ships a working panel, a topbar
           item, and a command; edit them or add your own.
 

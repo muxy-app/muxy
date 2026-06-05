@@ -20,17 +20,14 @@ ship an extension to everyone.
 
 ## 1. Start from a starter kit
 
-The fastest path is the Muxy **Extensions** modal → **Create**: pick a framework and Muxy
-scaffolds the kit into `~/.config/muxy/extensions/<name>` for you.
+The fastest path is the Muxy **Extensions** modal → **Create**: Muxy scaffolds the
+[`vanilla`](https://github.com/muxy-app/muxy/tree/main/Muxy/Resources/starter-kits/vanilla)
+starter kit into `~/.config/muxy/extensions/<name>` for you.
 
-To start by hand, copy a starter kit and rename the directory to match the package `name`.
-Each is a minimal npm + [Vite](https://vitejs.dev) project (one panel, a topbar item, a
-command) in your framework of choice:
-
-- [`vanilla`](https://github.com/muxy-app/muxy/tree/main/Muxy/Resources/starter-kits/vanilla) — plain TypeScript
-- [`react`](https://github.com/muxy-app/muxy/tree/main/Muxy/Resources/starter-kits/react) — React
-- [`vue`](https://github.com/muxy-app/muxy/tree/main/Muxy/Resources/starter-kits/vue) — Vue 3
-- [`svelte`](https://github.com/muxy-app/muxy/tree/main/Muxy/Resources/starter-kits/svelte) — Svelte 5
+To start by hand, copy that kit and rename the directory to match the package `name`. It is
+a minimal npm + [Vite](https://vitejs.dev) project (one panel, a topbar item, a command) in
+vanilla JavaScript with [Tailwind CSS](https://tailwindcss.com), themed against the app's
+`--muxy-*` tokens.
 
 For a full-featured reference, see the [`git`](https://github.com/muxy-app/extensions/tree/main/extensions/git) extension.
 
