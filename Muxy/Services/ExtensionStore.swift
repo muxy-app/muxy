@@ -184,21 +184,21 @@ final class ExtensionStore {
     }
 
     func checkForUpdates() async {
-        let installed = statuses.map(\.id)
+        let installed = statuses.filter { !$0.isDev }
         guard !installed.isEmpty else {
             availableUpdates = [:]
             return
         }
         let remote: [String: String]
         do {
-            remote = try await marketplace.resolveVersions(names: installed)
+            remote = try await marketplace.resolveVersions(names: installed.map(\.id))
         } catch {
             logger.error("Failed to check for extension updates: \(error.localizedDescription)")
             return
         }
 
         var updates: [String: String] = [:]
-        for status in statuses {
+        for status in installed {
             guard let remoteVersion = remote[status.id] else { continue }
             let installedVersion = status.muxyExtension.manifest.version
             if SemanticVersion.isUpdate(installed: installedVersion, available: remoteVersion) {
@@ -209,6 +209,7 @@ final class ExtensionStore {
     }
 
     func update(extensionID: String) async throws {
+        guard let status = statuses.first(where: { $0.id == extensionID }), !status.isDev else { return }
         let ext = try await marketplace.fetch(name: extensionID)
         let zip = try await marketplace.download(ext)
         try await install(expectedName: ext.name, zip: zip)
