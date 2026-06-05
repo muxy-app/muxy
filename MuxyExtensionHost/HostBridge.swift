@@ -92,6 +92,8 @@ final class HostBridge: @unchecked Sendable {
     private func dispatch(verb: String, args: JSValue?) -> Any {
         let dict = (args?.toDictionary() as? [String: Any]) ?? [:]
         switch verb {
+        case "events.emit":
+            return dispatchExtensionEvent(dict)
         case "exec":
             return dispatchExec(dict)
         case "notifications.notify":
@@ -106,6 +108,34 @@ final class HostBridge: @unchecked Sendable {
             return dispatchValueReturning(verb: verb, dict: dict)
         default:
             return ["ok": false, "error": "verb '\(verb)' is not available in background context"]
+        }
+    }
+
+    private func dispatchExtensionEvent(_ dict: [String: Any]) -> Any {
+        guard let name = dict["event"] as? String, ExtensionLocalEvent.isValidName(name) else {
+            return ["ok": false, "error": "extension events must start with extension."]
+        }
+        let payload: Data
+        do {
+            payload = try ExtensionLocalEvent.encodePayload(dict["payload"])
+        } catch {
+            return [
+                "ok": false,
+                "error": "event payload must be JSON-serializable and at most \(ExtensionLocalEvent.maxPayloadBytes) bytes",
+            ]
+        }
+        guard let line = ExtensionLocalEvent.serialize(name: name, payload: payload) else {
+            return ["ok": false, "error": "invalid extension event"]
+        }
+        do {
+            let reply = try client.sendAndWaitReply(line)
+            if reply == "ok" { return ["ok": true, "value": NSNull()] }
+            if reply.hasPrefix("error:") {
+                return ["ok": false, "error": String(reply.dropFirst("error:".count))]
+            }
+            return ["ok": false, "error": "invalid events.emit reply"]
+        } catch {
+            return ["ok": false, "error": "\(error)"]
         }
     }
 
@@ -222,6 +252,17 @@ final class HostBridge: @unchecked Sendable {
         let parsed = Self.parseEvent(line)
         guard let parsed else { return }
         let payloadJSON = Self.payloadJSON(parsed.payload)
+        let dispatchScript = ExtensionBridgeJS.dispatchEvent(name: parsed.name, payloadJSON: payloadJSON)
+        let box = ContextBox(context)
+        DispatchQueue.main.async {
+            box.context.evaluateScript(dispatchScript)
+        }
+    }
+
+    func handleExtensionEventLine(_ line: String) {
+        guard let parsed = ExtensionLocalEvent.parse(line),
+              let payloadJSON = String(data: parsed.payload, encoding: .utf8)
+        else { return }
         let dispatchScript = ExtensionBridgeJS.dispatchEvent(name: parsed.name, payloadJSON: payloadJSON)
         let box = ContextBox(context)
         DispatchQueue.main.async {

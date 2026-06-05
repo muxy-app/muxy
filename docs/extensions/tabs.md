@@ -117,7 +117,10 @@ window.muxy = {
 
   projects:  { list(), switchTo(identifier) },
   worktrees: { list(project?), switchTo(identifier, project?), refresh(project?) },
-  events:    { subscribe(name, callback): unsubscribe },
+  events:    {
+    subscribe(name, callback): unsubscribe,
+    emit(name: `extension.${string}`, payload?): Promise<void>,
+  },
   exec(argv: string[], options?): Promise<ExecResult>,
   exec(options: { shell: string, ... }): Promise<ExecResult>,
 }
@@ -196,6 +199,14 @@ unsubscribe();
 
 The event must be listed in the manifest `events` array (a `command.<id>` event of the same extension is auto-allowed); otherwise the subscribe rejects. Subscriptions drop automatically on page reload, tab close, and extension disable/reload.
 
+For webview-to-background coordination, use extension-local events. Names must start with `extension.`, do not go in the manifest, and are scoped to the same extension:
+
+```js
+await muxy.events.emit('extension.editor.saved', { path: 'Sources/App.swift' });
+```
+
+An extension-local emit requires the extension's `background.js` to be running. The background script can subscribe to the same name and can emit `extension.*` events back to open tabs, panels, and popovers.
+
 ## Persistence
 
 Workspace restore persists each tab's `extensionID`, `tabTypeID`, and `data`, so it reopens with the same payload. If the extension isn't loaded when restore runs, the tab shows a placeholder until it returns.
@@ -206,7 +217,7 @@ Workspace restore persists each tab's `extensionID`, `tabTypeID`, and `data`, so
 
 ## Limits
 
-- One `WKWebView` per tab instance; tabs do not share state. Coordinate shared state through your background script.
+- One `WKWebView` per tab instance; tabs do not share state. Coordinate shared state through your background script with `extension.*` events.
 - Pages can only navigate within `muxy-ext://` and `about:` — no `http`/`https`/`file`. Open external content via `muxy.tabs.open()`.
 - Opening a tab is a page capability (`window.muxy`). The background script has no tabs API.
 - For command logic with no UI, use a [`runScript`](scripts.md) command action instead of a hidden tab.

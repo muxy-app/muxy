@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MuxyShared
 
 final class HostSocketClient: @unchecked Sendable {
     enum ClientError: Error {
@@ -16,6 +17,7 @@ final class HostSocketClient: @unchecked Sendable {
     private var closed = false
     private var readBuffer = Data()
     private var eventHandler: ((String) -> Void)?
+    private var extensionEventHandler: ((String) -> Void)?
     private var invokeHandler: ((String) -> Void)?
 
     static let maxConnectAttempts = 15
@@ -72,6 +74,10 @@ final class HostSocketClient: @unchecked Sendable {
 
     func onEvent(_ handler: @escaping (String) -> Void) {
         eventHandler = handler
+    }
+
+    func onExtensionEvent(_ handler: @escaping (String) -> Void) {
+        extensionEventHandler = handler
     }
 
     func onInvoke(_ handler: @escaping (String) -> Void) {
@@ -149,6 +155,10 @@ final class HostSocketClient: @unchecked Sendable {
     private func deliver(_ line: String) {
         if line.hasPrefix("event|") {
             eventHandler?(line)
+            return
+        }
+        if line.hasPrefix("\(ExtensionLocalEvent.messageHead)|") {
+            extensionEventHandler?(line)
             return
         }
         if line.hasPrefix("invoke|") {

@@ -10,15 +10,24 @@ struct ExtensionRemoteBridgeJSTests {
         var resolvedJSON: String?
         var rejectedCallID: String?
         var rejectedMessage: String?
+        var dispatchedVerb: String?
+        var dispatchedArgs: [String: Any]?
+        var subscriptions: [String] = []
     }
 
     private func makeContext() -> (JSContext, Capture) {
         let context = JSContext()!
         let capture = Capture()
 
-        let dispatch: @convention(block) (String, [String: Any]) -> [String: Any] = { _, _ in ["ok": true, "value": NSNull()] }
+        let dispatch: @convention(block) (String, [String: Any]) -> [String: Any] = { verb, args in
+            capture.dispatchedVerb = verb
+            capture.dispatchedArgs = args
+            return ["ok": true, "value": NSNull()]
+        }
         context.setObject(dispatch, forKeyedSubscript: "__muxyDispatch" as NSString)
-        let subscribe: @convention(block) (String) -> Void = { _ in }
+        let subscribe: @convention(block) (String) -> Void = { name in
+            capture.subscriptions.append(name)
+        }
         context.setObject(subscribe, forKeyedSubscript: "__muxySubscribe" as NSString)
 
         let resolve: @convention(block) (String, String) -> Void = { callID, json in
@@ -77,5 +86,29 @@ struct ExtensionRemoteBridgeJSTests {
         context.evaluateScript("muxy.remote.handle('ping', () => 1); muxy.remote.unhandle('ping');")
         dispatchInvoke(context, callID: "c4", action: "ping", argument: NSNull())
         #expect(capture.rejectedMessage == "no handler registered for 'ping'")
+    }
+
+    @Test("extension-local event subscriptions stay in the background context")
+    func localEventSubscribeDoesNotSubscribeOverSocket() {
+        let (context, capture) = makeContext()
+        context.evaluateScript("muxy.events.subscribe('extension.panel.request', () => {});")
+        #expect(capture.subscriptions.isEmpty)
+    }
+
+    @Test("workspace event subscriptions still subscribe over the socket")
+    func workspaceEventSubscribeUsesSocket() {
+        let (context, capture) = makeContext()
+        context.evaluateScript("muxy.events.subscribe('pane.created', () => {});")
+        #expect(capture.subscriptions == ["pane.created"])
+    }
+
+    @Test("events.emit dispatches extension-local JSON payloads")
+    func eventsEmitDispatchesPayload() {
+        let (context, capture) = makeContext()
+        context.evaluateScript("muxy.events.emit('extension.panel.response', { count: 2 });")
+        #expect(capture.dispatchedVerb == "events.emit")
+        #expect(capture.dispatchedArgs?["event"] as? String == "extension.panel.response")
+        let payload = capture.dispatchedArgs?["payload"] as? [String: Any]
+        #expect((payload?["count"] as? NSNumber)?.intValue == 2)
     }
 }

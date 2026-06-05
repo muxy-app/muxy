@@ -48,6 +48,7 @@ final class NotificationSocketServer: @unchecked Sendable {
     private var readSources: [ObjectIdentifier: DispatchSourceRead] = [:]
     private var extensionSnapshot = ExtensionSnapshot(entries: [:])
     private var inProcessObservers: [UUID: @Sendable (ExtensionEvent) -> Void] = [:]
+    private var extensionEventObservers: [UUID: @Sendable (String, ExtensionLocalEvent.Message) -> Void] = [:]
     private var pendingInvokes: [String: CheckedContinuation<Data, Error>] = [:]
     private var invokeOwner: [String: ObjectIdentifier] = [:]
 
@@ -146,6 +147,48 @@ final class NotificationSocketServer: @unchecked Sendable {
     func removeInProcessObserver(_ token: UUID) {
         queue.async { [weak self] in
             self?.inProcessObservers.removeValue(forKey: token)
+        }
+    }
+
+    @discardableResult
+    func addExtensionEventObserver(
+        extensionID: String,
+        _ callback: @escaping @Sendable (ExtensionLocalEvent.Message) -> Void
+    ) -> UUID {
+        let token = UUID()
+        queue.async { [weak self] in
+            self?.extensionEventObservers[token] = { incomingExtensionID, event in
+                guard Self.canDeliverExtensionEvent(
+                    observerExtensionID: extensionID,
+                    incomingExtensionID: incomingExtensionID
+                )
+                else { return }
+                callback(event)
+            }
+        }
+        return token
+    }
+
+    func removeExtensionEventObserver(_ token: UUID) {
+        queue.async { [weak self] in
+            self?.extensionEventObservers.removeValue(forKey: token)
+        }
+    }
+
+    func emitExtensionEventToBackground(extensionID: String, event: ExtensionLocalEvent.Message) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            queue.async { [weak self] in
+                guard let self,
+                      self.extensionSnapshot.entries[extensionID] != nil,
+                      let session = self.session(forExtension: extensionID),
+                      let line = ExtensionLocalEvent.serialize(name: event.name, payload: event.payload)
+                else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                self.enqueueWrite(session: session, text: line + "\n")
+                continuation.resume(returning: true)
+            }
         }
     }
 
@@ -298,7 +341,7 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
     }
 
-    private static let maxMessageSize = 65536
+    private static let maxMessageSize = 128 * 1024
 
     private static let stickyCommandNames: Set<String> = [
         "subscribe", "identify",
@@ -393,6 +436,12 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
 
+        if head == ExtensionLocalEvent.messageHead {
+            let response = processExtensionEvent(trimmed, session: session)
+            enqueueWrite(session: session, text: response + "\n")
+            return
+        }
+
         processNotificationMessage(data, session: session)
     }
 
@@ -429,6 +478,37 @@ final class NotificationSocketServer: @unchecked Sendable {
         default:
             return "error:unknown sticky command \(head)"
         }
+    }
+
+    private func processExtensionEvent(_ message: String, session: ClientSession) -> String {
+        guard let extensionID = session.extensionID else { return "error:identify required" }
+        guard extensionSnapshot.entries[extensionID] != nil else {
+            return "error:extension \(extensionID) is no longer loaded"
+        }
+        guard let event = ExtensionLocalEvent.parse(message) else {
+            return "error:invalid extension event"
+        }
+        for callback in extensionEventObservers.values {
+            callback(extensionID, event)
+        }
+        return "ok"
+    }
+
+    private static func canDeliverExtensionEvent(
+        observerExtensionID: String,
+        incomingExtensionID: String
+    ) -> Bool {
+        observerExtensionID == incomingExtensionID
+    }
+
+    static func canDeliverExtensionEventForTesting(
+        observerExtensionID: String,
+        incomingExtensionID: String
+    ) -> Bool {
+        canDeliverExtensionEvent(
+            observerExtensionID: observerExtensionID,
+            incomingExtensionID: incomingExtensionID
+        )
     }
 
     private func processCommand(_ message: String, session: ClientSession) {

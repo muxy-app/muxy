@@ -2,16 +2,16 @@
 
 > **Status:** under active development. Marked **DEV** in **Settings → Extensions**. The manifest format, permission set, and wire format may change without notice.
 
-User-installed directories that Muxy loads and runs. Each extension is an npm + [Vite](https://vitejs.dev) project: authors use any framework (React, Vue, Svelte, vanilla), `npm run build` bundles it into a `dist/` directory, and that build output is what gets published and installed. Extensions can react to workspace events, register palette commands, post notifications, and (with permission) drive the same verbs the `muxy` CLI exposes. Most need no background script; Muxy keeps a long-lived background process only for extensions that declare one to receive pushed events or run background shell commands.
+User-installed directories that Muxy loads and runs. Each extension is an npm + [Vite](https://vitejs.dev) project: authors use any framework (React, Vue, Svelte, vanilla), `npm run build` bundles it into a `dist/` directory, and that build output is what gets published and installed. Extensions can react to workspace events, coordinate webviews with a background script, register palette commands, post notifications, and (with permission) drive the same verbs the `muxy` CLI exposes. Most need no background script; Muxy keeps a long-lived background process only for extensions that declare one to receive pushed events, handle extension-local messages, or run background shell commands.
 
 ## Architecture
 
 On launch, the main process (`ExtensionStore`) scans `~/.config/muxy/extensions/` (each entry the installed `dist/` of an extension, with its `package.json`), loads the enabled ones, and splits each into two independent surfaces:
 
 - **Hooks API (main process).** Declared UI — panels, tabs, popovers, topbar/status-bar items — is registered in-process and rendered in the main window as `WKWebView`s. Their JS talks to Muxy through the injected `window.muxy` bridge (`ExtensionBridgeHandler` → `MuxyAPIDispatcher`); **no subprocess and no socket are involved**.
-- **Background script (subprocess).** If the extension declares a `muxy.background` script, `ExtensionStore.startExtension` spawns `MuxyExtensionHost` — a tiny bundled Swift + JavaScriptCore binary — to run `background.js`. It is where **`muxy.events.subscribe` listeners live** and where `muxy.exec` is called. The host connects back to the main process over the Unix socket (`NotificationSocketServer`).
+- **Background script (subprocess).** If the extension declares a `muxy.background` script, `ExtensionStore.startExtension` spawns `MuxyExtensionHost` — a tiny bundled Swift + JavaScriptCore binary — to run `background.js`. It is where durable **`muxy.events.subscribe` listeners live**, where webviews can send `extension.*` events, and where `muxy.exec` is called. The host connects back to the main process over the Unix socket (`NotificationSocketServer`).
 
-Events are produced in the main process by `ExtensionEventEmitter` (it diffs workspace state on each change) and broadcast to subscribed host sessions over the socket; the host dispatches them to the `muxy.events` listeners in `background.js`. A `muxy.exec` call travels the socket to `SocketCommandHandler`, which gates it: `ExtensionGrantStore.evaluate` checks for a remembered (whitelisted) rule; if none, `ExtensionConsentService.gate` prompts in the main window; on approval `ExtensionCommandExecutor` runs the command and the result is returned to `background.js`.
+Workspace events are produced in the main process by `ExtensionEventEmitter` (it diffs workspace state on each change) and broadcast to subscribed host sessions over the socket; the host dispatches them to the `muxy.events` listeners in `background.js`. Extension-local `extension.*` events are scoped to one extension and move between its webviews and its background script through the same main-process broker. A `muxy.exec` call travels the socket to `SocketCommandHandler`, which gates it: `ExtensionGrantStore.evaluate` checks for a remembered (whitelisted) rule; if none, `ExtensionConsentService.gate` prompts in the main window; on approval `ExtensionCommandExecutor` runs the command and the result is returned to `background.js`.
 
 ```mermaid
 flowchart TD
@@ -44,7 +44,7 @@ flowchart TD
 
     hooks --> open
 
-    hasBg -->|Yes| host["spawn a process running background.js<br/>(MuxyExtensionHost — Swift + JavaScriptCore)<br/><br/>muxy.events.subscribe listeners + muxy.exec live here"]
+    hasBg -->|Yes| host["spawn a process running background.js<br/>(MuxyExtensionHost — Swift + JavaScriptCore)<br/><br/>durable muxy.events listeners + extension.* messages + muxy.exec live here"]
 
     host -->|"calls muxy.exec<br/>(over socket → SocketCommandHandler)"| exec{"calls<br/>muxy.exec"}
     exec -->|Yes| whitelisted{"whitelisted?<br/>(ExtensionGrantStore.evaluate)"}
@@ -53,13 +53,15 @@ flowchart TD
     approved -->|No| denied["response not allowed"]
     denied --> host
 
-    events["ExtensionEventEmitter<br/>(diffs workspace state)"] -.->|broadcast over socket| host
+    events["ExtensionEventEmitter<br/>(diffs workspace state)"] -.->|broadcast workspace events over socket| host
+    open -.->|"emit extension.*"| host
+    host -.->|"emit extension.*"| open
 
     classDef sticky fill:#fde68a,stroke:#d97706,color:#000;
     class host,events sticky;
 ```
 
-> **Socket scope:** the Unix socket carries traffic between the main window and the **background.js** host (events out, `muxy.exec` in). The Hooks API UIs do **not** use the socket — they run in-process over the WebKit bridge.
+> **Socket scope:** the Unix socket carries traffic between the main window and the **background.js** host (workspace events and `extension.*` events out, `muxy.exec` in). The Hooks API UIs talk to the main process over the WebKit bridge; when they emit `extension.*`, the main process forwards only to that extension's authenticated background host.
 
 ## Pages
 
@@ -99,7 +101,7 @@ flowchart TD
 - Manifest: the `muxy` object in `package.json` (`name`/`version` stay top-level)
 - Install path: `~/.config/muxy/extensions/<name>/` (the installed `dist/`)
 - Background script: optional `muxy.background` JS, run in a host process that injects the `muxy` global
-- Background API: `muxy.extensionID`, `muxy.events.subscribe`, `muxy.exec`, `muxy.dialog`, `muxy.modal`, `console.*`
+- Background API: `muxy.extensionID`, `muxy.events.subscribe`, `muxy.events.emit`, `muxy.exec`, `muxy.dialog`, `muxy.modal`, `console.*`
 - See [the muxy CLI feature page](../features/muxy-cli.md) for the verb vocabulary
 
 ## Minimal example
@@ -132,7 +134,7 @@ hello/
 
 ## Example with a background script
 
-Add a `muxy.background` script **only** to receive pushed events or run background shell commands. Muxy then runs it in a long-lived host process that stays alive for the lifetime of the extension. The path resolves against the build output, so make sure `vite build` emits it into `dist/`:
+Add a `muxy.background` script **only** to receive pushed events, coordinate webviews through `extension.*` events, or run background shell commands. Muxy then runs it in a long-lived host process that stays alive for the lifetime of the extension. The path resolves against the build output, so make sure `vite build` emits it into `dist/`:
 
 ```
 hello/

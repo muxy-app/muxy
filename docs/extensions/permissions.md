@@ -72,7 +72,8 @@ Rules can be reviewed, refined, or removed in `Settings → Extensions → Permi
 
 ## What permissions don't gate
 
-- **Subscribing to events** is gated separately by the manifest `events` array — see [Events](events.md). The caller's identity, not a `permissions` entry, decides what it can subscribe to.
+- **Subscribing to workspace events** is gated separately by the manifest `events` array — see [Events](events.md). The caller's identity, not a `permissions` entry, decides what it can subscribe to.
+- **Extension-local events.** `muxy.events.subscribe('extension.*', ...)` and `muxy.events.emit('extension.*', payload)` stay inside the same extension, need no permission, and are not listed in the manifest.
 - **Receiving palette command triggers.** Once an extension declares a command in `commands`, it can subscribe to its own `command.<id>` event without listing it under `events`.
 - **Native dialogs.** `muxy.dialog.confirm` / `muxy.dialog.alert` present a sheet the user must dismiss — see [Dialogs](dialogs.md). Being user-driven and UI-only, they need no permission.
 - **The modal picker.** `muxy.modal.open` presents a searchable picker the user drives to a selection or dismisses — see [Modal](modal.md). Being user-driven and UI-only, it needs no permission.

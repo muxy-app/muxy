@@ -58,7 +58,7 @@ flowchart TB
 | [Extensions Overview](extensions/overview.md) | Architecture, lifecycle, security model |
 | [Manifest](extensions/manifest.md) | `package.json` `muxy` fields, subprocess environment |
 | [Permissions](extensions/permissions.md) | What each permission grants |
-| [Events](extensions/events.md) | Identify/subscribe handshake, event list |
+| [Events](extensions/events.md) | Workspace events plus extension-local emit/subscribe |
 | [Palette Commands](extensions/palette-commands.md) | Register palette commands, react to triggers |
 | [Extension Tabs](extensions/tabs.md) | Render a full tab as a webview, `window.muxy` bridge |
 | [Extension Panels](extensions/panels.md) | Docked or floating webview beside the workspace |

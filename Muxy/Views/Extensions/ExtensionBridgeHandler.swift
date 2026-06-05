@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 import os
 import WebKit
 
@@ -12,6 +13,7 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
     private weak var worktreeStore: WorktreeStore?
     private weak var webView: WKWebView?
     private var eventObservers: [String: UUID] = [:]
+    private var extensionEventObservers: [String: UUID] = [:]
 
     init(
         extensionID: String,
@@ -34,6 +36,10 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
             NotificationSocketServer.shared.removeInProcessObserver(token)
         }
         eventObservers.removeAll()
+        for token in extensionEventObservers.values {
+            NotificationSocketServer.shared.removeExtensionEventObserver(token)
+        }
+        extensionEventObservers.removeAll()
     }
 
     func userContentController(
@@ -77,6 +83,8 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
             try handleSubscribe(args: args)
         case "events.unsubscribe":
             try handleUnsubscribe(args: args)
+        case "events.emit":
+            try await handleEmit(args: args)
         default:
             try await MuxyAPIDispatcher.dispatch(
                 verb: verb,
@@ -93,6 +101,9 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
 
     private func handleSubscribe(args: [String: Any]) throws -> Any {
         let event = try stringArg(args, "event")
+        if ExtensionLocalEvent.isLocalName(event) {
+            return try handleLocalSubscribe(event: event)
+        }
         guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID) else {
             throw APIError.invalidArguments("extension \(extensionID) not loaded")
         }
@@ -114,6 +125,13 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
 
     private func handleUnsubscribe(args: [String: Any]) throws -> Any {
         let event = try stringArg(args, "event")
+        if ExtensionLocalEvent.isLocalName(event) {
+            guard let token = extensionEventObservers.removeValue(forKey: event) else {
+                return NSNull()
+            }
+            NotificationSocketServer.shared.removeExtensionEventObserver(token)
+            return NSNull()
+        }
         guard let token = eventObservers.removeValue(forKey: event) else {
             return NSNull()
         }
@@ -121,10 +139,56 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
         return NSNull()
     }
 
+    private func handleLocalSubscribe(event: String) throws -> Any {
+        guard ExtensionLocalEvent.isValidName(event) else {
+            throw APIError.invalidArguments("extension events must start with extension.")
+        }
+        guard ExtensionStore.shared.loadedExtension(id: extensionID) != nil else {
+            throw APIError.invalidArguments("extension \(extensionID) not loaded")
+        }
+        guard extensionEventObservers[event] == nil else { return event }
+        let token = NotificationSocketServer.shared.addExtensionEventObserver(extensionID: extensionID) { [weak self] incoming in
+            guard incoming.name == event else { return }
+            Task { @MainActor [weak self] in
+                self?.deliverExtensionEvent(incoming)
+            }
+        }
+        extensionEventObservers[event] = token
+        return event
+    }
+
+    private func handleEmit(args: [String: Any]) async throws -> Any {
+        guard ExtensionStore.shared.loadedExtension(id: extensionID) != nil else {
+            throw APIError.invalidArguments("extension \(extensionID) not loaded")
+        }
+        let event = try ExtensionBridgeShared.decodeExtensionLocalEvent(args: args)
+        let delivered = await NotificationSocketServer.shared.emitExtensionEventToBackground(
+            extensionID: extensionID,
+            event: event
+        )
+        guard delivered else {
+            throw APIError.invalidArguments("background script unavailable")
+        }
+        return NSNull()
+    }
+
     private func deliverEvent(_ event: ExtensionEvent) {
         guard let webView else { return }
         let nameLiteral = jsLiteral(event.name)
         let payloadLiteral = jsLiteral(payloadJSON: event.payload)
+        let script = """
+        if (typeof window.__muxyEventDispatch === 'function') {
+            window.__muxyEventDispatch(\(nameLiteral), \(payloadLiteral));
+        }
+        """
+        webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
+    private func deliverExtensionEvent(_ event: ExtensionLocalEvent.Message) {
+        guard let webView,
+              let payloadLiteral = String(data: event.payload, encoding: .utf8)
+        else { return }
+        let nameLiteral = jsLiteral(event.name)
         let script = """
         if (typeof window.__muxyEventDispatch === 'function') {
             window.__muxyEventDispatch(\(nameLiteral), \(payloadLiteral));

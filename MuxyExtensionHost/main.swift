@@ -48,6 +48,10 @@ client.onEvent { [weak bridge] line in
     bridge?.handleEventLine(line)
 }
 
+client.onExtensionEvent { [weak bridge] line in
+    bridge?.handleExtensionEventLine(line)
+}
+
 client.onInvoke { [weak bridge] line in
     bridge?.handleInvokeLine(line)
 }

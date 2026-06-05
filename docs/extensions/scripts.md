@@ -1,6 +1,6 @@
 # Inline Scripts (`runScript` Commands)
 
-A palette command with `action.kind = "runScript"` runs a JavaScript file in an in-process JavaScriptCore context when the user picks it. The script has the same `muxy.*` API as webview tabs, minus DOM, theme, and events. Requires the `commands:run-script` permission.
+A palette command with `action.kind = "runScript"` runs a JavaScript file in an in-process JavaScriptCore context when the user picks it. The script has the same `muxy.*` API as webview tabs, minus DOM, theme, data, and events. Requires the `commands:run-script` permission.
 
 ```json
 {
@@ -52,7 +52,7 @@ Differences from the webview API:
 
 - All calls are **synchronous** — they return values directly, not Promises. Muxy blocks the script's own dispatch queue while the work runs on the main actor, so the UI stays responsive.
 - No `muxy.theme`, `muxy.data`, or `muxy.tabInstanceID` — scripts have no tab or rendering surface.
-- No `muxy.events.subscribe` — scripts are one-shot.
+- No `muxy.events.subscribe` or `muxy.events.emit` — scripts are one-shot.
 
 ## Permissions
 

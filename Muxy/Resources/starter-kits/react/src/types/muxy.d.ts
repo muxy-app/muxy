@@ -20,6 +20,7 @@ declare global {
   }
 
   type MuxyIcon = string | { symbol: string } | { svg: string };
+  type MuxyExtensionEventName = `extension.${string}`;
 
   interface MuxyBridge {
     extensionID: string;
@@ -41,6 +42,7 @@ declare global {
     toast(opts: MuxyToastOptions): Promise<void>;
     events: {
       subscribe(name: string, handler: (payload: unknown) => void): () => void;
+      emit(name: MuxyExtensionEventName, payload?: unknown): Promise<void>;
     };
   }
 

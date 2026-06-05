@@ -44,9 +44,9 @@ All Muxy-specific manifest fields live under the `muxy` object.
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `description` | string | no | One-line description shown in Settings. |
-| `background` | string | no | Path (relative to the build output) to a JavaScript file that must resolve inside `dist/`. Declare it only to receive pushed [events](events.md) or run background shell commands; Muxy runs it in a long-lived host process. Command, topbar, status-bar, tab, and `runScript` extensions need none. |
+| `background` | string | no | Path (relative to the build output) to a JavaScript file that must resolve inside `dist/`. Declare it only to receive pushed [events](events.md), coordinate webviews with `extension.*` events, or run background shell commands; Muxy runs it in a long-lived host process. Command, topbar, status-bar, tab, and `runScript` extensions need none. |
 | `permissions` | string[] | no | See [Permissions](permissions.md). Verbs not listed are rejected. Defaults to empty. |
-| `events` | string[] | no | Events the extension may subscribe to. See [Events](events.md). Defaults to empty. |
+| `events` | string[] | no | Workspace events the extension may subscribe to. Local `extension.*` events are not declared here. See [Events](events.md). Defaults to empty. |
 | `commands` | object[] | no | Palette commands to register. See [Palette Commands](palette-commands.md). |
 | `tabTypes` | object[] | no | Webview tab types the extension exposes. See [Tabs](tabs.md). |
 | `panels` | object[] | no | Dockable/floating webview panels. See [Panels](panels.md). |
@@ -82,7 +82,8 @@ The publishing pipeline runs `npm run build` and ships the build output (`dist/`
 A `background` script never speaks a wire protocol. Muxy handles the socket, identity token, and handshake; authors only use the `muxy` global it injects:
 
 - `muxy.extensionID` — the extension's `name`.
-- `muxy.events.subscribe(name, handler)` / `unsubscribe` — receive declared [events](events.md).
+- `muxy.events.subscribe(name, handler)` / `unsubscribe` — receive declared workspace [events](events.md) and same-extension `extension.*` events.
+- `muxy.events.emit(name, payload?)` — send a same-extension `extension.*` event to open tabs, panels, and popovers.
 - `muxy.exec(argv[, options])` — run a shell command (needs `commands:exec`).
 - `console.log` / `console.warn` / `console.error` — written to the extension log.
 
