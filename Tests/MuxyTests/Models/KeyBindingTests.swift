@@ -117,6 +117,12 @@ struct KeyBindingTests {
         #expect(combos[.toggleFullScreen] == KeyCombo(key: "f", command: true, control: true))
     }
 
+    @Test("Toggle Extension Debug Bar uses Cmd+Backtick by default")
+    func defaultsIncludesToggleExtensionConsoleShortcut() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.toggleExtensionConsole] == KeyCombo(key: "`", command: true))
+    }
+
     @Test("Refresh Worktrees uses Cmd+Opt+R by default")
     func refreshWorktreesUsesCommandOptionRByDefault() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })

@@ -38,6 +38,19 @@ struct KeyBindingStoreTests {
         #expect(store.action(for: event, scopes: [.mainWindow]) == nil)
     }
 
+    @Test("action resolves Cmd+Backtick to toggle extension console")
+    func actionResolvesToggleExtensionConsole() throws {
+        let store = KeyBindingStore(persistence: StubKeyBindingPersistence(bindings: KeyBinding.defaults))
+        let event = try keyEvent(
+            characters: "`",
+            charactersIgnoringModifiers: "`",
+            keyCode: 50,
+            modifiers: [.command]
+        )
+
+        #expect(store.action(for: event, scopes: [.mainWindow]) == .toggleExtensionConsole)
+    }
+
     @Test("action can be assigned and reset")
     func actionCanBeAssignedAndReset() {
         let persistence = StubKeyBindingPersistence(bindings: KeyBinding.defaults)

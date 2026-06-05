@@ -79,6 +79,12 @@ Mouse side buttons (3 / 4) and three‑finger horizontal trackpad swipes also na
 | --- | --- |
 | Find in Terminal | `Cmd+F` |
 
+## Extensions
+
+| Action | Shortcut |
+| --- | --- |
+| Toggle Extension Debug Bar | `Cmd+\`` |
+
 ## Custom command shortcuts
 
 Define your own command shortcuts in **Settings → Keyboard Shortcuts → Custom Commands**. Each entry has a display name, a shell command, an optional icon, and an optional keybinding. Triggering one creates a tab and runs the command.

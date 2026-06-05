@@ -64,6 +64,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case toggleMaximizePane
     case toggleVoiceRecording
     case toggleFullScreen
+    case toggleExtensionConsole
 
     static let allCases: [Self] = [
         .newTab,
@@ -121,6 +122,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .toggleMaximizePane,
         .toggleVoiceRecording,
         .toggleFullScreen,
+        .toggleExtensionConsole,
     ]
 
     var id: String { rawValue }
@@ -219,6 +221,11 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .refreshWorktrees: ShortcutMetadata(displayName: "Refresh Worktrees", category: "App", scope: .mainWindow)
         case .toggleMaximizePane: ShortcutMetadata(displayName: "Toggle Maximize Pane", category: "Panes", scope: .mainWindow)
         case .toggleFullScreen: ShortcutMetadata(displayName: "Toggle Full Screen", category: "App", scope: .mainWindow)
+        case .toggleExtensionConsole: ShortcutMetadata(
+                displayName: "Toggle Extension Debug Bar",
+                category: "Extensions",
+                scope: .mainWindow
+            )
         }
     }
 
@@ -227,7 +234,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "App"]
+        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "App", "Extensions"]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -341,5 +348,6 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .toggleMaximizePane, combo: KeyCombo(key: KeyCombo.returnKey, command: true, option: true)),
         Self(action: .toggleVoiceRecording, combo: KeyCombo(key: "i", command: true, shift: true)),
         Self(action: .toggleFullScreen, combo: KeyCombo(key: "f", command: true, control: true)),
+        Self(action: .toggleExtensionConsole, combo: KeyCombo(key: "`", command: true)),
     ]
 }
