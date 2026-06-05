@@ -6,6 +6,13 @@ private let logger = Logger(subsystem: "app.muxy", category: "ExtensionStore")
 
 protocol ExtensionSnapshotSink: Sendable {
     func applyExtensionSnapshot(_ snapshot: NotificationSocketServer.ExtensionSnapshot)
+    func applyExtensionSnapshotSync(_ snapshot: NotificationSocketServer.ExtensionSnapshot)
+}
+
+extension ExtensionSnapshotSink {
+    func applyExtensionSnapshotSync(_ snapshot: NotificationSocketServer.ExtensionSnapshot) {
+        applyExtensionSnapshot(snapshot)
+    }
 }
 
 extension NotificationSocketServer: ExtensionSnapshotSink {}
@@ -319,6 +326,10 @@ final class ExtensionStore {
 
     private func publishSnapshot() {
         snapshotSink.applyExtensionSnapshot(snapshotForSocketServer())
+    }
+
+    private func publishSnapshotSync() {
+        snapshotSink.applyExtensionSnapshotSync(snapshotForSocketServer())
     }
 
     static func buildSnapshotForTesting(
@@ -724,7 +735,7 @@ final class ExtensionStore {
 
         let token = Self.generateToken()
         tokens[ext.id] = token
-        publishSnapshot()
+        publishSnapshotSync()
 
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_SOCKET_PATH"] = NotificationSocketServer.socketPath

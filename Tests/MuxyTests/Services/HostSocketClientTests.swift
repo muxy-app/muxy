@@ -36,6 +36,16 @@ struct HostSocketClientTests {
         }
     }
 
+    @Test("unknown-extension rejection is treated as transient and retried")
+    func unknownExtensionIsTransient() {
+        #expect(HostSocketClient.isTransientIdentifyRejection("error:unknown extension git"))
+    }
+
+    @Test("invalid-token rejection is permanent and not retried")
+    func invalidTokenIsPermanent() {
+        #expect(!HostSocketClient.isTransientIdentifyRejection("error:invalid extension token"))
+    }
+
     private static func temporarySocketPath() -> String {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-host-test-\(UUID().uuidString).sock")

@@ -20,6 +20,12 @@ final class HostSocketClient: @unchecked Sendable {
 
     static let maxConnectAttempts = 15
     static let connectRetryDelay: TimeInterval = 0.1
+    static let maxIdentifyAttempts = 15
+    static let identifyRetryDelay: TimeInterval = 0.1
+
+    static func isTransientIdentifyRejection(_ reply: String) -> Bool {
+        reply.hasPrefix("error:unknown extension")
+    }
 
     init(
         socketPath: String,

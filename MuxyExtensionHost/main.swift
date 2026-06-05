@@ -54,14 +54,26 @@ client.onInvoke { [weak bridge] line in
 
 client.startReading()
 
-do {
-    let reply = try client.sendAndWaitReply("identify|\(extensionID)|\(token)")
-    guard reply == "ok" else {
-        fail("identify rejected: \(reply)")
+func identify() -> Never? {
+    let maxAttempts = HostSocketClient.maxIdentifyAttempts
+    var lastReply = ""
+    for attempt in 1 ... maxAttempts {
+        do {
+            let reply = try client.sendAndWaitReply("identify|\(extensionID)|\(token)")
+            if reply == "ok" { return nil }
+            lastReply = reply
+            guard HostSocketClient.isTransientIdentifyRejection(reply), attempt < maxAttempts else {
+                return fail("identify rejected: \(reply)")
+            }
+            Thread.sleep(forTimeInterval: HostSocketClient.identifyRetryDelay)
+        } catch {
+            return fail("identify failed: \(error)")
+        }
     }
-} catch {
-    fail("identify failed: \(error)")
+    return fail("identify rejected: \(lastReply)")
 }
+
+if let failure = identify() { failure }
 
 context.exceptionHandler = { _, exception in
     let message = exception?.toString() ?? "unknown error"

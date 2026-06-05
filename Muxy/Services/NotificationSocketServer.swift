@@ -97,18 +97,27 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     func applyExtensionSnapshot(_ snapshot: ExtensionSnapshot) {
         queue.async { [weak self] in
-            guard let self else { return }
-            self.extensionSnapshot = snapshot
-            for session in self.subscribers.values {
-                guard let extensionID = session.extensionID else { continue }
-                guard let entry = snapshot.entries[extensionID] else {
-                    session.extensionID = nil
-                    session.subscriptions.removeAll()
-                    continue
-                }
-                session.subscriptions = session.subscriptions.filter { event in
-                    Self.canSubscribe(entry: entry, to: event)
-                }
+            self?.commitSnapshot(snapshot)
+        }
+    }
+
+    func applyExtensionSnapshotSync(_ snapshot: ExtensionSnapshot) {
+        queue.sync {
+            commitSnapshot(snapshot)
+        }
+    }
+
+    private func commitSnapshot(_ snapshot: ExtensionSnapshot) {
+        extensionSnapshot = snapshot
+        for session in subscribers.values {
+            guard let extensionID = session.extensionID else { continue }
+            guard let entry = snapshot.entries[extensionID] else {
+                session.extensionID = nil
+                session.subscriptions.removeAll()
+                continue
+            }
+            session.subscriptions = session.subscriptions.filter { event in
+                Self.canSubscribe(entry: entry, to: event)
             }
         }
     }
