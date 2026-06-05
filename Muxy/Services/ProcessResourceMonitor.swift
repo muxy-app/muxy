@@ -13,7 +13,7 @@ final class ProcessResourceMonitor {
     }
 
     private static let samplingInterval: TimeInterval = 2
-    private static let rootPID = getpid()
+    nonisolated private static let rootPID = getpid()
 
     private(set) var snapshot: ProcessUsageSnapshot = .empty
 
