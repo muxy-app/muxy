@@ -12,7 +12,7 @@ struct RichInputSidePanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MarkdownTextEditor(
+            RichInputTextEditor(
                 text: $state.text,
                 focusVersion: state.focusVersion,
                 configuration: editorConfiguration,
@@ -51,8 +51,8 @@ struct RichInputSidePanel: View {
         RichInputDraftStore.shared.scheduleSave(state.draft, for: worktreeKey)
     }
 
-    private var editorConfiguration: MarkdownTextEditor.Configuration {
-        MarkdownTextEditor.Configuration(
+    private var editorConfiguration: RichInputTextEditor.Configuration {
+        RichInputTextEditor.Configuration(
             font: resolvedFont,
             insets: NSSize(width: 12, height: 10),
             lineWrapping: true,
@@ -66,8 +66,8 @@ struct RichInputSidePanel: View {
             ?? .monospacedSystemFont(ofSize: clampedFontSize, weight: .regular)
     }
 
-    private var editorCallbacks: MarkdownTextEditor.Callbacks {
-        MarkdownTextEditor.Callbacks(
+    private var editorCallbacks: RichInputTextEditor.Callbacks {
+        RichInputTextEditor.Callbacks(
             onSubmit: { selectedText in onSubmit(true, selectedText) },
             onSubmitWithoutReturn: { selectedText in onSubmit(false, selectedText) },
             onIncreaseFontSize: increaseFontSize,

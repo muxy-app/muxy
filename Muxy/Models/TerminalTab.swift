@@ -5,22 +5,16 @@ import Foundation
 final class TerminalTab: Identifiable {
     enum Kind: String, Codable {
         case terminal
-        case editor
-        case imageViewer
         case extensionWebView
     }
 
     enum Content {
         case terminal(TerminalPaneState)
-        case editor(EditorTabState)
-        case imageViewer(ImageViewerTabState)
         case extensionWebView(ExtensionTabState)
 
         var kind: Kind {
             switch self {
             case .terminal: .terminal
-            case .editor: .editor
-            case .imageViewer: .imageViewer
             case .extensionWebView: .extensionWebView
             }
         }
@@ -28,16 +22,6 @@ final class TerminalTab: Identifiable {
         var pane: TerminalPaneState? {
             guard case let .terminal(pane) = self else { return nil }
             return pane
-        }
-
-        var editorState: EditorTabState? {
-            guard case let .editor(state) = self else { return nil }
-            return state
-        }
-
-        var imageViewerState: ImageViewerTabState? {
-            guard case let .imageViewer(state) = self else { return nil }
-            return state
         }
 
         var extensionState: ExtensionTabState? {
@@ -48,8 +32,6 @@ final class TerminalTab: Identifiable {
         var projectPath: String {
             switch self {
             case let .terminal(pane): pane.projectPath
-            case let .editor(state): state.projectPath
-            case let .imageViewer(state): state.projectPath
             case let .extensionWebView(state): state.projectPath
             }
         }
@@ -70,10 +52,6 @@ final class TerminalTab: Identifiable {
         switch content {
         case let .terminal(pane):
             return pane.title
-        case let .editor(state):
-            return state.displayTitle
-        case let .imageViewer(state):
-            return state.displayTitle
         case let .extensionWebView(state):
             return state.displayTitle
         }
@@ -82,16 +60,6 @@ final class TerminalTab: Identifiable {
     init(pane: TerminalPaneState) {
         id = UUID()
         content = .terminal(pane)
-    }
-
-    init(editorState: EditorTabState) {
-        id = UUID()
-        content = .editor(editorState)
-    }
-
-    init(imageViewerState: ImageViewerTabState) {
-        id = UUID()
-        content = .imageViewer(imageViewerState)
     }
 
     init(extensionState: ExtensionTabState) {
@@ -117,26 +85,6 @@ final class TerminalTab: Identifiable {
                 initialWorkingDirectory: restoredWorkingDirectory,
                 restoredSession: restoredSession
             ))
-        case .editor:
-            if let filePath = snapshot.filePath {
-                content = .editor(EditorTabState(
-                    projectPath: snapshot.projectPath,
-                    filePath: filePath,
-                    defaultHTMLViewMode: EditorSettings.shared.htmlDefaultViewMode
-                ))
-            } else {
-                content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
-            }
-        case .imageViewer:
-            if let filePath = snapshot.filePath {
-                if EditorTabState.usesHTMLPreview(filePath: filePath) {
-                    content = .editor(EditorTabState(projectPath: snapshot.projectPath, filePath: filePath))
-                } else {
-                    content = .imageViewer(ImageViewerTabState(projectPath: snapshot.projectPath, filePath: filePath))
-                }
-            } else {
-                content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
-            }
         case .extensionWebView:
             if let extensionID = snapshot.extensionID,
                let tabTypeID = snapshot.extensionTabTypeID
@@ -164,7 +112,6 @@ final class TerminalTab: Identifiable {
             projectPath: content.projectPath,
             paneTitle: extensionTabDefaultTitle ?? content.pane?.title,
             paneID: content.pane?.id,
-            filePath: content.editorState?.filePath ?? content.imageViewerState?.filePath,
             currentWorkingDirectory: content.pane?.currentWorkingDirectory,
             extensionID: content.extensionState?.extensionID,
             extensionTabTypeID: content.extensionState?.tabTypeID,

@@ -55,7 +55,7 @@ const fit = () => muxy.popover.resize(
 window.addEventListener('load', fit);
 ```
 
-The popover also dismisses on outside click, and closes automatically when the extension is disabled or stopped.
+The popover also dismisses on outside click, and closes automatically when the extension is disabled or stopped. Opening a [dialog](dialogs.md) keeps the popover open so the dialog's result reaches the page.
 
 ## Theming
 

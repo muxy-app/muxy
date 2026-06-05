@@ -262,6 +262,7 @@ struct ExtensionConsentDialog: View {
         case .remoteInvoke: "antenna.radiowaves.left.and.right"
         case .gitWrite: "arrow.triangle.branch"
         case .filesWrite: "doc.fill"
+        case .httpFetch: "globe"
         }
     }
 
@@ -275,6 +276,7 @@ struct ExtensionConsentDialog: View {
         case .remoteInvoke: "wants to serve a mobile request"
         case .gitWrite: "wants to modify the git repository"
         case .filesWrite: "wants to modify workspace files"
+        case .httpFetch: "wants to make a network request"
         }
     }
 }

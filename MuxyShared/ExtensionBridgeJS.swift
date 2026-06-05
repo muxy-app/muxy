@@ -76,8 +76,11 @@ public enum ExtensionBridgeJS {
                         const o = opts || {};
                         const payload = { id: String(o.id == null ? '' : o.id) };
                         if (o.icon != null) payload.icon = o.icon;
+                        if ('visible' in o) payload.visible = !!o.visible;
                         return dispatch('topbar.set', payload);
                     },
+                    show(id) { return dispatch('topbar.set', { id: String(id == null ? '' : id), visible: true }); },
+                    hide(id) { return dispatch('topbar.set', { id: String(id == null ? '' : id), visible: false }); },
                 },
                 statusbar: {
                     set(opts) {
@@ -85,8 +88,11 @@ public enum ExtensionBridgeJS {
                         const payload = { id: String(o.id == null ? '' : o.id) };
                         if (o.icon != null) payload.icon = o.icon;
                         if ('text' in o) payload.text = o.text == null ? null : String(o.text);
+                        if ('visible' in o) payload.visible = !!o.visible;
                         return dispatch('statusbar.set', payload);
                     },
+                    show(id) { return dispatch('statusbar.set', { id: String(id == null ? '' : id), visible: true }); },
+                    hide(id) { return dispatch('statusbar.set', { id: String(id == null ? '' : id), visible: false }); },
                 },
             };
         \(surface == .inProcess ? workspaceBlock : "")
@@ -174,21 +180,31 @@ public enum ExtensionBridgeJS {
     private static let gitBlock = """
             const gitProject = (o) => (o && o.project != null ? String(o.project) : null);
             muxy.git = {
-                status:        (o) => dispatch('git.status', { project: gitProject(o) }),
+                status:        (o) => dispatch('git.status', {
+                    project: gitProject(o),
+                    local: Boolean((o || {}).local),
+                    fresh: Boolean((o || {}).fresh),
+                }),
                 diff:          (o) => dispatch('git.diff', {
                     project: gitProject(o),
                     filePath: String((o || {}).filePath || ''),
+                    raw: Boolean((o || {}).raw),
                     staged: (o || {}).staged == null ? null : Boolean(o.staged),
                     lineLimit: (o || {}).lineLimit == null ? null : Number(o.lineLimit),
+                    fresh: Boolean((o || {}).fresh),
                 }),
+                repoInfo:      (o) => dispatch('git.repoInfo', { project: gitProject(o) }),
                 log:           (o) => dispatch('git.log', {
                     project: gitProject(o),
                     maxCount: (o || {}).maxCount == null ? null : Number(o.maxCount),
                     skip: (o || {}).skip == null ? null : Number(o.skip),
+                    fresh: Boolean((o || {}).fresh),
                 }),
                 branches:      (o) => dispatch('git.branches', { project: gitProject(o) }),
+                remoteBranches:(o) => dispatch('git.remoteBranches', { project: gitProject(o) }),
                 currentBranch: (o) => dispatch('git.currentBranch', { project: gitProject(o) }),
-                aheadBehind:   (o) => dispatch('git.aheadBehind', { project: gitProject(o) }),
+                aheadBehind:   (o) => dispatch('git.aheadBehind', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }),
+                init:          (o) => dispatch('git.init', { project: gitProject(o) }),
                 worktrees:     (o) => dispatch('git.worktrees', { project: gitProject(o) }),
                 stage:         (o) => dispatch('git.stage', { project: gitProject(o), paths: ((o || {}).paths || []).map(String) }),
                 unstage:       (o) => dispatch('git.unstage', { project: gitProject(o), paths: ((o || {}).paths || []).map(String) }),
@@ -202,14 +218,43 @@ public enum ExtensionBridgeJS {
                     message: String((o || {}).message || ''),
                     stageAll: Boolean((o || {}).stageAll),
                 }),
-                push:          (o) => dispatch('git.push', { project: gitProject(o) }),
+                push:          (o) => dispatch('git.push', { project: gitProject(o), setUpstream: Boolean((o || {}).setUpstream) }),
                 pull:          (o) => dispatch('git.pull', { project: gitProject(o) }),
+                checkout:      (o) => dispatch('git.checkout', { project: gitProject(o), hash: String((o || {}).hash || '') }),
+                cherryPick:    (o) => dispatch('git.cherryPick', { project: gitProject(o), hash: String((o || {}).hash || '') }),
+                revert:        (o) => dispatch('git.revert', { project: gitProject(o), hash: String((o || {}).hash || '') }),
                 branch: {
                     create: (o) => dispatch('git.branch.create', { project: gitProject(o), name: String((o || {}).name || '') }),
                     switchTo: (o) => dispatch('git.branch.switch', { project: gitProject(o), branch: String((o || {}).branch || '') }),
+                    delete: (o) => dispatch('git.branch.delete', {
+                        project: gitProject(o),
+                        name: String((o || {}).name || ''),
+                        force: Boolean((o || {}).force),
+                    }),
+                    deleteRemote: (o) => dispatch('git.branch.deleteRemote', { project: gitProject(o), branch: String((o || {}).branch || '') }),
+                },
+                tag: {
+                    create: (o) => dispatch('git.tag.create', {
+                        project: gitProject(o),
+                        name: String((o || {}).name || ''),
+                        hash: String((o || {}).hash || ''),
+                    }),
                 },
                 pr: {
-                    info:   (o) => dispatch('git.pr.info', { project: gitProject(o) }),
+                    info:   (o) => dispatch('git.pr.info', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }),
+                    number: (o) => dispatch('git.pr.number', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }),
+                    diff:   (o) => dispatch('git.pr.diff', {
+                        project: gitProject(o),
+                        number: Number((o || {}).number),
+                        lineLimit: (o || {}).lineLimit == null ? null : Number(o.lineLimit),
+                        fresh: Boolean((o || {}).fresh),
+                    }),
+                    checkout: (o) => dispatch('git.pr.checkout', { project: gitProject(o), number: Number((o || {}).number) }),
+                    checkoutWorktree: (o) => dispatch('git.pr.checkoutWorktree', {
+                        project: gitProject(o),
+                        path: String((o || {}).path || ''),
+                        number: Number((o || {}).number),
+                    }),
                     list:   (o) => dispatch('git.pr.list', {
                         project: gitProject(o),
                         filter: (o || {}).filter == null ? null : String(o.filter),
@@ -243,6 +288,7 @@ public enum ExtensionBridgeJS {
                         path: String((o || {}).path || ''),
                         force: Boolean((o || {}).force),
                     }),
+                    switchTo: (o) => dispatch('git.worktree.switch', { project: gitProject(o), identifier: String((o || {}).identifier || '') }),
                 },
             };
     """

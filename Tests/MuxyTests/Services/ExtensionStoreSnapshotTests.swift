@@ -103,3 +103,23 @@ struct ExtensionStoreTerminationClassificationTests {
         #expect(ExtensionStore.classifyTermination(wasIntentional: false, terminationStatus: 1) == .exitedWithStatus(1))
     }
 }
+
+@Suite("ExtensionStore crash restart policy")
+struct ExtensionStoreCrashRestartTests {
+    @Test("a crash restarts while attempts remain")
+    func restartsWhileAttemptsRemain() {
+        #expect(ExtensionStore.shouldRestartAfterCrash(isEnabled: true, attempts: 0))
+        #expect(ExtensionStore.shouldRestartAfterCrash(isEnabled: true, attempts: 4))
+    }
+
+    @Test("a crash stops restarting once the attempt budget is exhausted")
+    func stopsAfterBudgetExhausted() {
+        #expect(!ExtensionStore.shouldRestartAfterCrash(isEnabled: true, attempts: 5))
+        #expect(!ExtensionStore.shouldRestartAfterCrash(isEnabled: true, attempts: 6))
+    }
+
+    @Test("a disabled extension never restarts")
+    func disabledNeverRestarts() {
+        #expect(!ExtensionStore.shouldRestartAfterCrash(isEnabled: false, attempts: 0))
+    }
+}

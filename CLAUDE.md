@@ -48,6 +48,7 @@ Run `scripts/checks.sh --fix` after every task.
 
 - When providing API or hook or features to extensions, Make sure we update the extension SKILL and docs.
 - Extension features usually need testing, offer a demo extension at ~/.config/muxy/extensions to the user.
+- Prefix the demo extensions with `demo-*`
 
 ## Code Review
 

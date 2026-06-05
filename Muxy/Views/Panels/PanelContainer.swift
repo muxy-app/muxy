@@ -23,12 +23,12 @@ struct PanelContainer<Content: View>: View {
 
     private var header: some View {
         HStack(spacing: UIMetrics.spacing2) {
-            if let symbol = chrome.iconSymbol {
+            if chrome.showsIcon, let symbol = chrome.iconSymbol {
                 Image(systemName: symbol)
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
-            if let title = chrome.title {
+            if chrome.showsTitle, let title = chrome.title {
                 Text(title)
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)

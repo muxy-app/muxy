@@ -58,6 +58,33 @@ enum ExtensionBridgeShared {
         ]
     }
 
+    static func decodeHTTPRequest(_ args: [String: Any]) throws -> HTTPRequest {
+        guard let url = args["url"] as? String, !url.isEmpty else {
+            throw HTTPError.invalidArguments("http requires a url")
+        }
+        let headers: [String: String]? = (args["headers"] as? [String: Any]).map { raw in
+            raw.compactMapValues { $0 as? String }
+        }
+        let timeoutMs = (args["timeoutMs"] as? Int)
+            ?? (args["timeoutMs"] as? Double).map { Int($0) }
+        return HTTPRequest(
+            url: url,
+            method: (args["method"] as? String) ?? "GET",
+            headers: headers,
+            body: args["body"] as? String,
+            timeoutMs: timeoutMs
+        )
+    }
+
+    static func encodeHTTPResult(_ result: HTTPResult) -> [String: Any] {
+        [
+            "status": result.status,
+            "headers": result.headers,
+            "body": result.body,
+            "truncated": result.truncated,
+        ]
+    }
+
     static func activeWorktreePath(appState: AppState?, worktreeStore: WorktreeStore?) -> String? {
         guard let appState,
               let projectID = appState.activeProjectID,

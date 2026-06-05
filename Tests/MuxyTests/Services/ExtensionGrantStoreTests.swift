@@ -339,6 +339,57 @@ struct ExtensionGrantStoreTests {
         #expect(match == .gitOperationEquals("push"))
     }
 
+    @Test("hostEquals rule matches only the same host")
+    func hostEqualsMatch() {
+        let store = makeStore()
+        let rule = ExtensionGrantRule(
+            extensionID: "ext",
+            verb: .httpFetch,
+            match: .hostEquals("api.github.com"),
+            decision: .allow
+        )
+        store.add(rule)
+        #expect(store.evaluate(
+            extensionID: "ext",
+            verb: .httpFetch,
+            payload: .http(hostname: "api.github.com", method: "GET", url: "https://api.github.com/x")
+        ) == .allow(ruleID: rule.id))
+        #expect(store.evaluate(
+            extensionID: "ext",
+            verb: .httpFetch,
+            payload: .http(hostname: "evil.com", method: "GET", url: "https://evil.com/x")
+        ) == .ask)
+    }
+
+    @Test("http fetch default remember match scopes to the host")
+    func httpFetchDefaultRemember() {
+        let match = ExtensionGrantSuggestion.defaultRememberMatch(
+            verb: .httpFetch,
+            payload: .http(hostname: "api.github.com", method: "POST", url: "https://api.github.com/x")
+        )
+        #expect(match == .hostEquals("api.github.com"))
+    }
+
+    @Test("hostEquals rule survives a persistence round-trip")
+    func hostEqualsPersists() {
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let first = ExtensionGrantStore(fileURL: url)
+        let rule = ExtensionGrantRule(
+            extensionID: "ext",
+            verb: .httpFetch,
+            match: .hostEquals("api.github.com"),
+            decision: .allow
+        )
+        first.add(rule)
+        let second = ExtensionGrantStore(fileURL: url)
+        #expect(second.evaluate(
+            extensionID: "ext",
+            verb: .httpFetch,
+            payload: .http(hostname: "api.github.com", method: "GET", url: "https://api.github.com/x")
+        ) == .allow(ruleID: rule.id))
+    }
+
     @Test("blockKind replaces every rule for the verb with a blocked any-deny")
     func blockKindReplacesRules() {
         let store = makeStore()

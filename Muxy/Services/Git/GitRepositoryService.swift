@@ -15,6 +15,18 @@ struct GitRepositoryService {
         var spec: String { "\(baseRef)...\(headRef)" }
     }
 
+    struct RepoInfo: Equatable {
+        let root: String
+        let gitDir: String
+        let isWorktree: Bool
+        let currentBranch: String
+    }
+
+    struct RawDiffResult: Equatable {
+        let diff: String
+        let truncated: Bool
+    }
+
     enum GitError: LocalizedError {
         case notGitRepository
         case noUpstreamBranch
@@ -179,6 +191,22 @@ struct GitRepositoryService {
         guard let result, result.status == 0 else { return nil }
         let trimmed = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func repoSignature(repoPath: String) async -> String {
+        let result = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["rev-parse", "HEAD", "--absolute-git-dir"]
+        )
+        let lines = (result?.status == 0 ? result?.stdout : nil)?
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? []
+        let head = lines.first ?? "no-head"
+        let gitDir = lines.count >= 2 ? lines[1] : (repoPath as NSString).appendingPathComponent(".git")
+        let indexPath = (gitDir as NSString).appendingPathComponent("index")
+        let mtime = (try? FileManager.default.attributesOfItem(atPath: indexPath)[.modificationDate] as? Date)??
+            .timeIntervalSince1970 ?? 0
+        return "\(head):\(mtime)"
     }
 
     func isGhInstalled() async -> Bool {
@@ -1714,5 +1742,122 @@ struct GitRepositoryService {
         guard resolvedFull.hasPrefix(resolvedRepo + "/") else {
             throw GitError.commandFailed("File path is outside the repository.")
         }
+    }
+
+    func repoInfo(repoPath: String) async throws -> RepoInfo {
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["rev-parse", "--show-toplevel", "--absolute-git-dir", "--git-common-dir", "--abbrev-ref", "HEAD"]
+        )
+        guard result.status == 0 else {
+            throw GitError.notGitRepository
+        }
+        let lines = result.stdout
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        guard lines.count >= 4 else {
+            throw GitError.commandFailed("Failed to read repository info.")
+        }
+        let gitDir = lines[1]
+        let commonDir = absolutePath(lines[2], relativeTo: lines[0])
+        return RepoInfo(
+            root: lines[0],
+            gitDir: gitDir,
+            isWorktree: (gitDir as NSString).standardizingPath != commonDir,
+            currentBranch: lines[3]
+        )
+    }
+
+    private func absolutePath(_ path: String, relativeTo base: String) -> String {
+        guard !path.hasPrefix("/") else { return (path as NSString).standardizingPath }
+        return ((base as NSString).appendingPathComponent(path) as NSString).standardizingPath
+    }
+
+    func pullRequestNumber(repoPath: String, branch: String) async -> Int? {
+        if let number = await configuredPullRequestNumber(repoPath: repoPath, branch: branch) {
+            return number
+        }
+        guard let ghPath = GitProcessRunner.resolveExecutable("gh") else { return nil }
+        let result = try? await GitProcessRunner.runCommand(
+            executable: ghPath,
+            arguments: ["pr", "view", "--json", "number", "--jq", ".number"],
+            workingDirectory: repoPath
+        )
+        guard let result, result.status == 0 else { return nil }
+        return Int(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    func rawDiff(
+        repoPath: String,
+        filePath: String?,
+        range: DiffRange?,
+        staged: Bool,
+        lineLimit: Int?
+    ) async throws -> RawDiffResult {
+        if let filePath, !filePath.isEmpty {
+            try validatePath(repoPath: repoPath, relativePath: filePath)
+        }
+        var arguments = ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff"]
+        if let range {
+            try validateRef(range.baseRef)
+            try validateRef(range.headRef)
+            arguments.append(range.spec)
+        } else if staged {
+            arguments.append("--cached")
+        }
+        if let filePath, !filePath.isEmpty {
+            arguments.append(contentsOf: ["--", filePath])
+        }
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: arguments, lineLimit: lineLimit)
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load diff." : result.stderr)
+        }
+        return RawDiffResult(diff: result.stdout, truncated: result.truncated)
+    }
+
+    func pullRequestDiff(repoPath: String, number: Int, remote: String, lineLimit: Int?) async throws -> RawDiffResult {
+        let localRef = try await fetchPullRequestDiffHead(repoPath: repoPath, number: number, remote: remote)
+        let mergeBaseResult = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["merge-base", "HEAD", localRef]
+        )
+        let base = mergeBaseResult.status == 0
+            ? mergeBaseResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            : "HEAD"
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", "\(base)...\(localRef)"],
+            lineLimit: lineLimit
+        )
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to load pull request diff." : result.stderr)
+        }
+        return RawDiffResult(diff: result.stdout, truncated: result.truncated)
+    }
+
+    func deleteLocalBranch(repoPath: String, branch: String, force: Bool) async throws {
+        guard !branch.isEmpty,
+              !branch.hasPrefix("-"),
+              branch.unicodeScalars.allSatisfy({ Self.allowedBranchCharacters.contains($0) })
+        else {
+            throw GitError.commandFailed("Invalid branch name.")
+        }
+        let result = try await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["branch", force ? "-D" : "-d", branch]
+        )
+        guard result.status == 0 else {
+            throw GitError.commandFailed(
+                result.stderr.isEmpty ? "Failed to delete branch \(branch)." : result.stderr
+            )
+        }
+    }
+
+    func initRepository(repoPath: String) async throws {
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: ["init"])
+        guard result.status == 0 else {
+            throw GitError.commandFailed(result.stderr.isEmpty ? "Failed to initialize repository." : result.stderr)
+        }
+        GitMetadataCache.shared.markVerifiedGitRepo(repoPath: repoPath)
     }
 }

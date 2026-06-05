@@ -18,27 +18,73 @@ extension MuxyAPI {
 
         static func status(
             projectIdentifier: String?,
+            local: Bool,
+            fresh: Bool,
             context: Context
         ) async -> Result<GitStatusSnapshot, APIError> {
-            await read(projectIdentifier, context) { repoPath in
-                try await GitStatusAggregator.snapshot(repoPath: repoPath, git: service)
+            await cachedRead(projectIdentifier, context, endpoint: "status", params: "local=\(local)", fresh: fresh) { repoPath in
+                try await GitStatusAggregator.snapshot(
+                    repoPath: repoPath,
+                    includePullRequest: !local,
+                    forceFreshPullRequest: fresh,
+                    git: service
+                )
             }
         }
 
+        struct DiffRequest {
+            let projectIdentifier: String?
+            let filePath: String?
+            let staged: Bool?
+            let lineLimit: Int?
+            let fresh: Bool
+        }
+
         static func diff(
-            projectIdentifier: String?,
-            filePath: String,
-            staged: Bool?,
-            lineLimit: Int?,
+            _ request: DiffRequest,
             context: Context
         ) async -> Result<GitRepositoryService.PatchAndCompareResult, APIError> {
-            guard !filePath.isEmpty else { return .failure(.invalidArguments("filePath is required")) }
-            return await read(projectIdentifier, context) { repoPath in
+            guard let filePath = request.filePath, !filePath.isEmpty else {
+                return .failure(.invalidArguments("filePath is required"))
+            }
+            let limit = request.lineLimit
+            let params = "file=\(filePath);staged=\(request.staged.map(String.init) ?? "nil");limit=\(limit.map(String.init) ?? "nil")"
+            return await cachedRead(
+                request.projectIdentifier,
+                context,
+                endpoint: "diff",
+                params: params,
+                fresh: request.fresh
+            ) { repoPath in
                 try await service.patchAndCompare(
                     repoPath: repoPath,
                     filePath: filePath,
-                    lineLimit: lineLimit.map { min($0, maxDiffLineLimit) },
-                    hints: diffHints(staged: staged)
+                    lineLimit: limit.map { min($0, maxDiffLineLimit) },
+                    hints: diffHints(staged: request.staged)
+                )
+            }
+        }
+
+        static func rawDiff(
+            _ request: DiffRequest,
+            context: Context
+        ) async -> Result<GitRepositoryService.RawDiffResult, APIError> {
+            let staged = request.staged ?? false
+            let limit = request.lineLimit
+            let params = "file=\(request.filePath ?? "nil");staged=\(staged);limit=\(limit.map(String.init) ?? "nil")"
+            return await cachedRead(
+                request.projectIdentifier,
+                context,
+                endpoint: "rawDiff",
+                params: params,
+                fresh: request.fresh
+            ) { repoPath in
+                try await service.rawDiff(
+                    repoPath: repoPath,
+                    filePath: request.filePath,
+                    range: nil,
+                    staged: staged,
+                    lineLimit: limit.map { min($0, maxDiffLineLimit) }
                 )
             }
         }
@@ -47,9 +93,16 @@ extension MuxyAPI {
             projectIdentifier: String?,
             maxCount: Int,
             skip: Int,
+            fresh: Bool,
             context: Context
         ) async -> Result<[GitCommit], APIError> {
-            await read(projectIdentifier, context) { repoPath in
+            await cachedRead(
+                projectIdentifier,
+                context,
+                endpoint: "log",
+                params: "max=\(maxCount);skip=\(skip)",
+                fresh: fresh
+            ) { repoPath in
                 try await service.commitLog(
                     repoPath: repoPath,
                     maxCount: min(max(maxCount, 0), maxLogCount),
@@ -78,21 +131,73 @@ extension MuxyAPI {
 
         static func aheadBehind(
             projectIdentifier: String?,
+            fresh: Bool,
             context: Context
         ) async -> Result<GitRepositoryService.AheadBehind, APIError> {
-            await read(projectIdentifier, context) { repoPath in
+            await cachedRead(projectIdentifier, context, endpoint: "aheadBehind", fresh: fresh) { repoPath in
                 let branch = try await service.currentBranch(repoPath: repoPath)
                 return await service.aheadBehind(repoPath: repoPath, branch: branch)
             }
         }
 
-        static func pullRequestInfo(
+        static func repoInfo(
             projectIdentifier: String?,
             context: Context
-        ) async -> Result<GitRepositoryService.PRInfo?, APIError> {
+        ) async -> Result<GitRepositoryService.RepoInfo, APIError> {
             await read(projectIdentifier, context) { repoPath in
+                try await service.repoInfo(repoPath: repoPath)
+            }
+        }
+
+        static func pullRequestInfo(
+            projectIdentifier: String?,
+            fresh: Bool,
+            context: Context
+        ) async -> Result<GitRepositoryService.PRInfo?, APIError> {
+            await cachedRead(projectIdentifier, context, endpoint: "pr.info", fresh: fresh) { repoPath in
                 let branch = try await service.currentBranch(repoPath: repoPath)
-                return await service.pullRequestInfo(repoPath: repoPath, branch: branch)
+                let headSha = await service.headSha(repoPath: repoPath) ?? branch
+                let result = await service.cachedPullRequestInfo(
+                    repoPath: repoPath,
+                    branch: branch,
+                    headSha: headSha,
+                    forceFresh: fresh
+                )
+                guard case let .found(info) = result else { return nil }
+                return info
+            }
+        }
+
+        static func pullRequestNumber(
+            projectIdentifier: String?,
+            fresh: Bool,
+            context: Context
+        ) async -> Result<Int?, APIError> {
+            await cachedRead(projectIdentifier, context, endpoint: "pr.number", fresh: fresh) { repoPath in
+                let branch = try await service.currentBranch(repoPath: repoPath)
+                return await service.pullRequestNumber(repoPath: repoPath, branch: branch)
+            }
+        }
+
+        static func pullRequestDiff(
+            projectIdentifier: String?,
+            number: Int,
+            lineLimit: Int?,
+            fresh: Bool,
+            context: Context
+        ) async -> Result<GitRepositoryService.RawDiffResult, APIError> {
+            guard number > 0 else { return .failure(.invalidArguments("number is required")) }
+            return await cachedRead(
+                projectIdentifier, context, endpoint: "pr.diff",
+                params: "n=\(number);limit=\(lineLimit.map(String.init) ?? "nil")", fresh: fresh
+            ) { repoPath in
+                let remote = await service.githubRemoteName(repoPath: repoPath) ?? "origin"
+                return try await service.pullRequestDiff(
+                    repoPath: repoPath,
+                    number: number,
+                    remote: remote,
+                    lineLimit: lineLimit.map { min($0, maxDiffLineLimit) }
+                )
             }
         }
 
@@ -177,15 +282,30 @@ extension MuxyAPI {
 
         static func push(
             projectIdentifier: String?,
+            setUpstream: Bool,
             context: Context
         ) async -> Result<Void, APIError> {
             await write(projectIdentifier, operation: "push", context: context) { repoPath in
+                if setUpstream {
+                    let branch = try await service.currentBranch(repoPath: repoPath)
+                    try await service.pushSetUpstream(repoPath: repoPath, branch: branch)
+                    return
+                }
                 do {
                     try await service.push(repoPath: repoPath)
                 } catch GitRepositoryService.GitError.noUpstreamBranch {
                     let branch = try await service.currentBranch(repoPath: repoPath)
                     try await service.pushSetUpstream(repoPath: repoPath, branch: branch)
                 }
+            }
+        }
+
+        static func initRepository(
+            projectIdentifier: String?,
+            context: Context
+        ) async -> Result<Void, APIError> {
+            await write(projectIdentifier, operation: "init", context: context) { repoPath in
+                try await service.initRepository(repoPath: repoPath)
             }
         }
 
@@ -240,6 +360,19 @@ extension MuxyAPI {
             guard !trimmed.isEmpty else { return .failure(.invalidArguments("branch is required")) }
             return await write(projectIdentifier, operation: "branch.deleteRemote", context: context) { repoPath in
                 try await service.deleteRemoteBranch(repoPath: repoPath, branch: trimmed)
+            }
+        }
+
+        static func deleteLocalBranch(
+            projectIdentifier: String?,
+            name: String,
+            force: Bool,
+            context: Context
+        ) async -> Result<Void, APIError> {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return .failure(.invalidArguments("name is required")) }
+            return await write(projectIdentifier, operation: "branch.delete", context: context) { repoPath in
+                try await service.deleteLocalBranch(repoPath: repoPath, branch: trimmed, force: force)
             }
         }
 
@@ -454,6 +587,31 @@ extension MuxyAPI {
             }
         }
 
+        private static func cachedRead<T: Sendable>(
+            _ projectIdentifier: String?,
+            _ context: Context,
+            endpoint: String,
+            params: String = "",
+            fresh: Bool,
+            _ work: (String) async throws -> T
+        ) async -> Result<T, APIError> {
+            guard let repoPath = repoPath(projectIdentifier, context: context) else {
+                return .failure(.projectNotFound(projectIdentifier ?? ""))
+            }
+            let key = GitMetadataCache.ReadKey(repoPath: repoPath, endpoint: endpoint, params: params)
+            let signature = await service.repoSignature(repoPath: repoPath)
+            if !fresh, let cached: T = GitMetadataCache.shared.cachedRead(key, signature: signature) {
+                return .success(cached)
+            }
+            do {
+                let value = try await work(repoPath)
+                GitMetadataCache.shared.storeRead(value, key: key, signature: signature)
+                return .success(value)
+            } catch {
+                return .failure(.underlying(error.localizedDescription))
+            }
+        }
+
         private static func write<T: Sendable>(
             _ projectIdentifier: String?,
             operation: String,
@@ -473,7 +631,9 @@ extension MuxyAPI {
                 return .failure(.consentDenied(verb: "git.\(operation)"))
             }
             do {
-                return try await .success(work(repoPath))
+                let value = try await work(repoPath)
+                GitMetadataCache.shared.invalidateReads(repoPath: repoPath)
+                return .success(value)
             } catch {
                 return .failure(.underlying(error.localizedDescription))
             }

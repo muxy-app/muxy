@@ -36,7 +36,7 @@ The page loads at `muxy-ext://<extensionID>/<entry>` and references its own file
 
 ## Topbar (recommended)
 
-A tab fills its whole region with one webview, so the page renders all of its own chrome. Muxy's own tabs (editor, source control, diff viewer) open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**
+A tab fills its whole region with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**
 
 The bar's height tracks the user's interface scale (Settings → Interface), so don't hardcode it — Muxy injects it as the `--muxy-topbar-height` CSS variable, updated live when the scale or theme changes. Use it together with the theme variables so the bar matches the app exactly:
 
@@ -102,6 +102,8 @@ window.muxy = {
     new(): Promise<string | null>,
     next(): Promise<void>,
     previous(): Promise<void>,
+    setTitle(title): Promise<void>,     // retitle this tab; "" resets to the manifest default
+    setIcon(icon): Promise<void>,       // set this tab's icon; null resets to the default
   },
 
   panes: {
@@ -130,11 +132,10 @@ interface ExecResult {
 
 ### Opening another tab
 
-`tabs.open` accepts three kinds: `editor` (with a `filePath`), `vcs`, and `extensionWebView` (with a target `extension`).
+`tabs.open` accepts two kinds: `terminal` and `extensionWebView` (with a target `extension`).
 
 ```js
-await muxy.tabs.open({ kind: 'editor', filePath: '/path/to/foo.swift' });
-await muxy.tabs.open({ kind: 'vcs' });
+await muxy.tabs.open({ kind: 'terminal' });
 await muxy.tabs.open({
   kind: 'extensionWebView',
   extension: { id: 'pr-tools', tabType: 'pr-viewer', data: { prNumber: 42 } },
@@ -153,6 +154,23 @@ await muxy.tabs.open({
 
 muxy.onDataChange((data) => render(data));
 ```
+
+### Setting the tab title and icon at runtime
+
+A tab can rename itself and change its tab-bar icon live — useful when the page reflects changing state (a file editor showing the open file, a build tool showing pass/fail). Both apply to the calling page's own tab and take effect immediately, no reopen.
+
+```js
+await muxy.tabs.setTitle('App.swift');
+await muxy.tabs.setIcon({ symbol: 'swift' });   // SF Symbol
+await muxy.tabs.setIcon({ svg: 'icons/file.svg' }); // bundled SVG, template-rendered
+```
+
+| Call | Notes |
+| --- | --- |
+| `setTitle(title)` | New tab-bar title. An empty/whitespace string resets to the manifest `tabType.title`. |
+| `setIcon(icon)` | `"<sf-symbol>"`, `{ symbol }`, or `{ svg }` (path inside the extension). `null` resets to the default extension icon. |
+
+Both need `tabs:write`. Overrides are **runtime-only** — they live while the tab is open and reset to the manifest defaults on app restart, so set them again from your page on load. A page can only customize its own tab.
 
 ### Running shell commands
 

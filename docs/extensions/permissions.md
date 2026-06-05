@@ -29,6 +29,8 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `commands:exec` | Run shell commands via `muxy.exec` (subprocess execution with stdout/stderr capture). |
 | `remote:serve` | Serve [remote methods](remote-methods.md) declared in `remoteMethods` to the mobile app over the remote server. Each call also prompts for runtime consent. |
 
+`muxy.http.fetch` ([HTTP](http.md)) needs **no manifest permission** — it is gated by host consent at runtime only.
+
 ## Runtime consent
 
 These verbs prompt the user at runtime even when the manifest permission is granted:
@@ -42,6 +44,7 @@ These verbs prompt the user at runtime even when the manifest permission is gran
 | `remote.invoke` | Running an extension's [remote method](remote-methods.md) handler in response to a mobile request. Remembered per action. |
 | `git.*` (writes) | Mutating the repository (stage, commit, push, pull, branch, PR, worktree). Remembered per operation (allowing `push` does not allow `discard`). |
 | `files.*` (writes) | Modifying workspace files (write, mkdir, rename, move, delete). Remembered per operation (allowing `write` does not allow `delete`). |
+| `http.fetch` | Calling an external host via [`muxy.http`](http.md). Remembered per host (allowing `api.github.com` does not allow `example.com`). Private/loopback hosts are blocked before prompting. |
 
 The prompt shows the extension, the verb, and the literal payload (full argv, the keystroke, or the pane id). The user picks:
 
@@ -63,6 +66,7 @@ Rules live in `~/Library/Application Support/Muxy/extension-grants.json` (Muxy-o
 | `exec` (argv) | `argvPrefix` of the base command only. Allowing `git status` also allows other `git` subcommands. |
 | `exec` (shell form) | `shellExact` of the full shell string. |
 | `panes.*` / `tabs.openForeign` | `any` for that verb. Pane and tab targets are per-session, so the grant covers any future target. |
+| `http.fetch` | `hostEquals` of the request host. Allowing `api.github.com` covers any path/method on that host but no other host. |
 
 Rules can be reviewed, refined, or removed in `Settings → Extensions → Permissions`. Deny rules win over allow rules; more specific patterns win over less specific ones.
 

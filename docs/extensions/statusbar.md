@@ -30,15 +30,19 @@ A status bar item is an icon (with optional text) Muxy adds to either side of th
 | `tooltip` | string | no | Hover tooltip / accessibility label. Defaults to the `id`. |
 | `side` | string | yes | `left` or `right`. Groups with the built-in entries on that side. |
 | `command` | string | yes | Must reference a declared `commands[].id`. |
+| `visible` | boolean | no | Whether the item shows on load. Defaults to `true`. Set `false` to start hidden and reveal it later with `muxy.statusbar.show`. |
 
-## Updating the icon and text at runtime
+## Updating an item at runtime
 
-The icon and text can be changed while the extension runs — from `background.js` or any tab/panel/popover page — with `muxy.statusbar.set`:
+The icon, text, and visibility can change while the extension runs — from `background.js` or any tab/panel/popover page — with `muxy.statusbar.set`:
 
 ```js
 muxy.statusbar.set({ id: "build", text: "42" });
 muxy.statusbar.set({ id: "build", icon: { symbol: "checkmark.circle.fill" }, text: "✓" });
 muxy.statusbar.set({ id: "build", text: null }); // clear text back to the manifest value
+muxy.statusbar.set({ id: "build", visible: false });
+muxy.statusbar.show("build"); // sugar for { visible: true }
+muxy.statusbar.hide("build"); // sugar for { visible: false }
 ```
 
 | Field | Type | Notes |
@@ -46,6 +50,9 @@ muxy.statusbar.set({ id: "build", text: null }); // clear text back to the manif
 | `id` | string | Must reference a declared `statusBarItems[].id`. |
 | `icon` | string \| object | New icon: `"<sf-symbol>"`, `{ symbol }`, or `{ svg }` (the SVG must be a file bundled with the extension). Omit to leave the icon unchanged. |
 | `text` | string \| null | New text. `null` or `""` clears the override back to the manifest value. Omit to leave the text unchanged. |
+| `visible` | boolean | Show or hide the item. Omit to leave visibility unchanged. |
+
+Decide visibility at runtime: declare the item with `"visible": false` so it stays hidden until your `background.js` calls `muxy.statusbar.show(id)`, then `muxy.statusbar.hide(id)` when it no longer applies.
 
 Needs `panels:write`. Overrides are in-memory for the session; disabling or reloading the extension restores the manifest values. Throws on an unknown `id`.
 

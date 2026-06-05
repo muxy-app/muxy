@@ -102,6 +102,12 @@ enum ExtensionWebBridge {
                     new() { return send('tabs.new', {}); },
                     next() { return send('tabs.next', {}); },
                     previous() { return send('tabs.previous', {}); },
+                    setTitle(title) {
+                        return send('tabs.setTitle', { tabInstanceID: muxy.tabInstanceID, title: String(title == null ? '' : title) });
+                    },
+                    setIcon(icon) {
+                        return send('tabs.setIcon', { tabInstanceID: muxy.tabInstanceID, icon: icon ?? null });
+                    },
                 },
                 panes: {
                     list() { return send('panes.list', {}); },
@@ -162,8 +168,11 @@ enum ExtensionWebBridge {
                         const o = opts || {};
                         const payload = { id: String(o.id == null ? '' : o.id) };
                         if (o.icon != null) payload.icon = o.icon;
+                        if ('visible' in o) payload.visible = !!o.visible;
                         return send('topbar.set', payload);
                     },
+                    show(id) { return send('topbar.set', { id: String(id == null ? '' : id), visible: true }); },
+                    hide(id) { return send('topbar.set', { id: String(id == null ? '' : id), visible: false }); },
                 },
                 statusbar: {
                     set(opts) {
@@ -171,8 +180,11 @@ enum ExtensionWebBridge {
                         const payload = { id: String(o.id == null ? '' : o.id) };
                         if (o.icon != null) payload.icon = o.icon;
                         if ('text' in o) payload.text = o.text == null ? null : String(o.text);
+                        if ('visible' in o) payload.visible = !!o.visible;
                         return send('statusbar.set', payload);
                     },
+                    show(id) { return send('statusbar.set', { id: String(id == null ? '' : id), visible: true }); },
+                    hide(id) { return send('statusbar.set', { id: String(id == null ? '' : id), visible: false }); },
                 },
                 exec(argvOrOptions, maybeOptions) {
                     let payload;
@@ -195,6 +207,17 @@ enum ExtensionWebBridge {
                     }
                     return send('exec', payload);
                 },
+                http: {
+                    fetch(url, options) {
+                        const opts = options || {};
+                        const payload = { url: String(url) };
+                        if (opts.method != null) payload.method = String(opts.method);
+                        if (opts.headers) payload.headers = opts.headers;
+                        if (opts.body != null) payload.body = String(opts.body);
+                        if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
+                        return send('http.fetch', payload);
+                    },
+                },
                 worktrees: {
                     list(project) { return send('worktrees.list', { project: project == null ? null : String(project) }); },
                     switchTo(identifier, project) {
@@ -206,22 +229,31 @@ enum ExtensionWebBridge {
                     refresh(project) { return send('worktrees.refresh', { project: project == null ? null : String(project) }); },
                 },
                 git: {
-                    status(o) { return send('git.status', { project: gitProject(o) }); },
+                    status(o) { return send('git.status', {
+                        project: gitProject(o),
+                        local: Boolean((o || {}).local),
+                        fresh: Boolean((o || {}).fresh),
+                    }); },
                     diff(o) { return send('git.diff', {
                         project: gitProject(o),
                         filePath: String((o || {}).filePath || ''),
+                        raw: Boolean((o || {}).raw),
                         staged: (o || {}).staged == null ? null : Boolean(o.staged),
                         lineLimit: (o || {}).lineLimit == null ? null : Number(o.lineLimit),
+                        fresh: Boolean((o || {}).fresh),
                     }); },
+                    repoInfo(o) { return send('git.repoInfo', { project: gitProject(o) }); },
                     log(o) { return send('git.log', {
                         project: gitProject(o),
                         maxCount: (o || {}).maxCount == null ? null : Number(o.maxCount),
                         skip: (o || {}).skip == null ? null : Number(o.skip),
+                        fresh: Boolean((o || {}).fresh),
                     }); },
                     branches(o) { return send('git.branches', { project: gitProject(o) }); },
                     remoteBranches(o) { return send('git.remoteBranches', { project: gitProject(o) }); },
                     currentBranch(o) { return send('git.currentBranch', { project: gitProject(o) }); },
-                    aheadBehind(o) { return send('git.aheadBehind', { project: gitProject(o) }); },
+                    aheadBehind(o) { return send('git.aheadBehind', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }); },
+                    init(o) { return send('git.init', { project: gitProject(o) }); },
                     worktrees(o) { return send('git.worktrees', { project: gitProject(o) }); },
                     checkout(o) { return send('git.checkout', { project: gitProject(o), hash: String((o || {}).hash || '') }); },
                     cherryPick(o) { return send('git.cherryPick', { project: gitProject(o), hash: String((o || {}).hash || '') }); },
@@ -238,7 +270,7 @@ enum ExtensionWebBridge {
                         message: String((o || {}).message || ''),
                         stageAll: Boolean((o || {}).stageAll),
                     }); },
-                    push(o) { return send('git.push', { project: gitProject(o) }); },
+                    push(o) { return send('git.push', { project: gitProject(o), setUpstream: Boolean((o || {}).setUpstream) }); },
                     pull(o) { return send('git.pull', { project: gitProject(o) }); },
                     branch: {
                         create(o) {
@@ -246,6 +278,13 @@ enum ExtensionWebBridge {
                         },
                         switchTo(o) {
                             return send('git.branch.switch', { project: gitProject(o), branch: String((o || {}).branch || '') });
+                        },
+                        delete(o) {
+                            return send('git.branch.delete', {
+                                project: gitProject(o),
+                                name: String((o || {}).name || ''),
+                                force: Boolean((o || {}).force),
+                            });
                         },
                         deleteRemote(o) {
                             return send('git.branch.deleteRemote', { project: gitProject(o), branch: String((o || {}).branch || '') });
@@ -259,7 +298,14 @@ enum ExtensionWebBridge {
                         }); },
                     },
                     pr: {
-                        info(o) { return send('git.pr.info', { project: gitProject(o) }); },
+                        info(o) { return send('git.pr.info', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }); },
+                        number(o) { return send('git.pr.number', { project: gitProject(o), fresh: Boolean((o || {}).fresh) }); },
+                        diff(o) { return send('git.pr.diff', {
+                            project: gitProject(o),
+                            number: Number((o || {}).number),
+                            lineLimit: (o || {}).lineLimit == null ? null : Number(o.lineLimit),
+                            fresh: Boolean((o || {}).fresh),
+                        }); },
                         checkout(o) { return send('git.pr.checkout', { project: gitProject(o), number: Number((o || {}).number) }); },
                         checkoutWorktree(o) { return send('git.pr.checkoutWorktree', {
                             project: gitProject(o),

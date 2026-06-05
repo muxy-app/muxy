@@ -18,6 +18,7 @@ enum ExtensionGatedVerb: String, Codable, CaseIterable {
     case remoteInvoke = "remote.invoke"
     case gitWrite = "git.write"
     case filesWrite = "files.write"
+    case httpFetch = "http.fetch"
 
     var kindDisplayName: String {
         switch self {
@@ -29,6 +30,7 @@ enum ExtensionGatedVerb: String, Codable, CaseIterable {
         case .remoteInvoke: "mobile requests"
         case .gitWrite: "git changes"
         case .filesWrite: "file changes"
+        case .httpFetch: "network requests"
         }
     }
 }
@@ -43,6 +45,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
     case remoteActionEquals(String)
     case gitOperationEquals(String)
     case fileOperationEquals(String)
+    case hostEquals(String)
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -61,6 +64,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case remoteActionEquals
         case gitOperationEquals
         case fileOperationEquals
+        case hostEquals
     }
 
     init(from decoder: Decoder) throws {
@@ -88,6 +92,8 @@ enum ExtensionGrantMatch: Codable, Equatable {
             self = try .gitOperationEquals(container.decode(String.self, forKey: .string))
         case .fileOperationEquals:
             self = try .fileOperationEquals(container.decode(String.self, forKey: .string))
+        case .hostEquals:
+            self = try .hostEquals(container.decode(String.self, forKey: .string))
         }
     }
 
@@ -121,6 +127,9 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .fileOperationEquals(operation):
             try container.encode(Kind.fileOperationEquals, forKey: .kind)
             try container.encode(operation, forKey: .string)
+        case let .hostEquals(host):
+            try container.encode(Kind.hostEquals, forKey: .kind)
+            try container.encode(host, forKey: .string)
         }
     }
 
@@ -129,6 +138,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case .any: 0
         case .paneEquals,
              .shellExact: 100
+        case .hostEquals: 110
         case .remoteActionEquals: 120
         case .gitOperationEquals: 130
         case .fileOperationEquals: 135
@@ -149,6 +159,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .remoteActionEquals(action): "action: \(action)"
         case let .gitOperationEquals(operation): "git: \(operation)"
         case let .fileOperationEquals(operation): "file: \(operation)"
+        case let .hostEquals(host): "host: \(host)"
         }
     }
 }
@@ -160,6 +171,7 @@ enum ExtensionGatedPayload {
     case remote(action: String, deviceName: String)
     case git(operation: String, repoPath: String)
     case file(operation: String, path: String)
+    case http(hostname: String, method: String, url: String)
 
     func matches(_ match: ExtensionGrantMatch) -> Bool {
         switch (self, match) {
@@ -183,6 +195,8 @@ enum ExtensionGatedPayload {
             return operation == expected
         case let (.file(operation, _), .fileOperationEquals(expected)):
             return operation == expected
+        case let (.http(hostname, _, _), .hostEquals(expected)):
+            return hostname == expected
         default:
             return false
         }
@@ -343,6 +357,8 @@ enum ExtensionGrantSuggestion {
             return .gitOperationEquals(operation)
         case let (.filesWrite, .file(operation, _)):
             return .fileOperationEquals(operation)
+        case let (.httpFetch, .http(hostname, _, _)):
+            return .hostEquals(hostname)
         case (.panesSend, _),
              (.panesSendKeys, _),
              (.panesReadScreen, _),

@@ -92,7 +92,7 @@ struct MuxyProtocolVariantTests {
             ProtocolSample(.listWorktrees(ListWorktreesParams(projectID: ids.projectID)), caseName: ".listWorktrees"),
             ProtocolSample(.selectWorktree(SelectWorktreeParams(projectID: ids.projectID, worktreeID: ids.worktreeID)), caseName: ".selectWorktree"),
             ProtocolSample(.getWorkspace(GetWorkspaceParams(projectID: ids.projectID)), caseName: ".getWorkspace"),
-            ProtocolSample(.createTab(CreateTabParams(projectID: ids.projectID, areaID: ids.areaID, kind: .editor)), caseName: ".createTab"),
+            ProtocolSample(.createTab(CreateTabParams(projectID: ids.projectID, areaID: ids.areaID, kind: .terminal)), caseName: ".createTab"),
             ProtocolSample(.closeTab(CloseTabParams(projectID: ids.projectID, areaID: ids.areaID, tabID: ids.tabID)), caseName: ".closeTab"),
             ProtocolSample(.selectTab(SelectTabParams(projectID: ids.projectID, areaID: ids.areaID, tabID: ids.tabID)), caseName: ".selectTab"),
             ProtocolSample(.splitArea(SplitAreaParams(projectID: ids.projectID, areaID: ids.areaID, direction: .horizontal, position: .second)), caseName: ".splitArea"),

@@ -23,8 +23,8 @@ struct SettingsCatalogTests {
 
     @Test
     func categoryMatchingUsesCatalogItems() {
-        #expect(SettingsCatalog.categoryMatches(.editor, query: "line numbers"))
-        #expect(!SettingsCatalog.categoryMatches(.mobile, query: "line numbers"))
+        #expect(SettingsCatalog.categoryMatches(.richInput, query: "rich input"))
+        #expect(!SettingsCatalog.categoryMatches(.mobile, query: "rich input"))
     }
 
     @Test
@@ -51,9 +51,9 @@ struct SettingsCatalogTests {
     }
 
     @Test
-    func jsonEditableItemsIncludeEditorSettings() {
+    func jsonEditableItemsIncludeRichInputSettings() {
         #expect(SettingsCatalog.items.contains { $0.key.hasPrefix("editor.") })
-        #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.defaultEditor" })
+        #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputImageStrategy" })
         #expect(SettingsCatalog.jsonEditableItems.contains { $0.key == "editor.richInputLineHeightMultiplier" })
     }
 
@@ -71,9 +71,9 @@ struct SettingsCatalogTests {
 
         #expect(SettingsRouteSelectionStore.load(defaults: defaults) == .builtin(.general))
 
-        SettingsRouteSelectionStore.save(.builtin(.editor), defaults: defaults)
-        #expect(defaults.string(forKey: SettingsRouteSelectionStore.storageKey) == "builtin.editor")
-        #expect(SettingsRouteSelectionStore.load(defaults: defaults) == .builtin(.editor))
+        SettingsRouteSelectionStore.save(.builtin(.richInput), defaults: defaults)
+        #expect(defaults.string(forKey: SettingsRouteSelectionStore.storageKey) == "builtin.richInput")
+        #expect(SettingsRouteSelectionStore.load(defaults: defaults) == .builtin(.richInput))
 
         defaults.set("invalid", forKey: SettingsRouteSelectionStore.storageKey)
         #expect(SettingsRouteSelectionStore.load(defaults: defaults) == .builtin(.general))

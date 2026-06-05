@@ -4,8 +4,6 @@ import SwiftUI
 struct ProjectStatusBar: View {
     struct StatusContext: Equatable {
         let path: String
-        let worktreeName: String?
-        let branch: String?
     }
 
     let activePane: TerminalPaneState?
@@ -49,14 +47,6 @@ struct ProjectStatusBar: View {
             if let statusContext {
                 pathButton(statusContext.path)
                 separator
-                if let worktreeName = statusContext.worktreeName {
-                    worktreeLabel(worktreeName)
-                    separator
-                }
-                if let branch = statusContext.branch {
-                    branchLabel(branch)
-                    separator
-                }
             }
             ForEach(extensionStore.statusBarItems(side: .left)) { binding in
                 extensionItem(binding: binding)
@@ -106,18 +96,7 @@ struct ProjectStatusBar: View {
             ?? activeWorktree?.path
             ?? fallbackProjectPath
         else { return nil }
-        return StatusContext(
-            path: path,
-            worktreeName: activeWorktree?.name,
-            branch: nonEmpty(activePane?.branchObserver.branch) ?? nonEmpty(activeWorktree?.branch)
-        )
-    }
-
-    private static func nonEmpty(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty
-        else { return nil }
-        return trimmed
+        return StatusContext(path: path)
     }
 
     private func pathButton(_ fullPath: String) -> some View {
@@ -142,32 +121,6 @@ struct ProjectStatusBar: View {
             Button("Copy Path") { copyToPasteboard(fullPath) }
             Button("Reveal in Finder") { revealInFinder(fullPath) }
         }
-    }
-
-    private func worktreeLabel(_ worktreeName: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "square.stack.3d.up")
-                .font(.system(size: 10, weight: .semibold))
-            Text(worktreeName)
-                .font(.system(size: 11, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-        .foregroundStyle(MuxyTheme.fgMuted)
-        .help("Worktree: \(worktreeName)")
-    }
-
-    private func branchLabel(_ branch: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 10, weight: .semibold))
-            Text(branch)
-                .font(.system(size: 11, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .foregroundStyle(MuxyTheme.fgMuted)
-        .help("Branch: \(branch)")
     }
 
     private var separator: some View {

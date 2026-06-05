@@ -142,20 +142,6 @@ struct TabAreaView: View {
             guard let pane = tab.content.pane else { return }
             TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .saveActiveEditor)) { _ in
-            guard isFocused, isActiveProject else { return }
-            guard let tabID = area.activeTabID,
-                  let tab = area.tabs.first(where: { $0.id == tabID })
-            else { return }
-            guard let editorState = tab.content.editorState else { return }
-            Task { @MainActor in
-                do {
-                    try await editorState.saveFileAsync()
-                } catch {
-                    appState.pendingSaveErrorMessage = error.localizedDescription
-                }
-            }
-        }
     }
 
     private func handleExternalDragHover(note: Notification) {
@@ -210,10 +196,6 @@ private struct TabContentView: View {
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
             )
-        case let .editor(editorState):
-            EditorPane(state: editorState, focused: focused, onFocus: onFocus)
-        case let .imageViewer(imageState):
-            ImageViewerPane(state: imageState, focused: focused, onFocus: onFocus)
         case let .extensionWebView(extensionState):
             ExtensionWebViewPane(state: extensionState, focused: focused, onFocus: onFocus)
         }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor
@@ -154,9 +155,6 @@ struct ShortcutActionDispatcher {
         case .submitRichInput,
              .submitRichInputWithoutReturn:
             return false
-        case .quickOpen:
-            notificationCenter.post(name: .quickOpen, object: nil)
-            return true
         case .terminalOmnibox:
             postTerminalOmnibox(scope: .openTabs)
             return true
@@ -171,9 +169,6 @@ struct ShortcutActionDispatcher {
             return true
         case .terminalOmniboxHistory:
             postTerminalOmnibox(scope: .history)
-            return true
-        case .saveFile:
-            notificationCenter.post(name: .saveActiveEditor, object: nil)
             return true
         case .toggleSidebar:
             notificationCenter.post(name: .toggleSidebar, object: nil)
@@ -191,6 +186,10 @@ struct ShortcutActionDispatcher {
                   let areaID = appState.focusedAreaID(for: projectID)
             else { return false }
             appState.toggleMaximize(areaID: areaID, for: projectID)
+            return true
+        case .toggleFullScreen:
+            guard let window = AppDelegate.mainAppWindow() else { return false }
+            window.toggleFullScreen(nil)
             return true
         case .toggleVoiceRecording,
              .selectTab1,

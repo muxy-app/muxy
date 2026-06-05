@@ -92,7 +92,6 @@ struct CreateWorktreeRequest {
 
 struct OpenTabRequest: Decodable {
     let kind: TerminalTab.Kind
-    let filePath: String?
     let extensionPayload: ExtensionPayload?
 
     struct ExtensionPayload: Decodable {
@@ -126,20 +125,17 @@ struct OpenTabRequest: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case kind
-        case filePath
         case `extension`
     }
 
-    init(kind: TerminalTab.Kind, filePath: String? = nil, extensionPayload: ExtensionPayload? = nil) {
+    init(kind: TerminalTab.Kind, extensionPayload: ExtensionPayload? = nil) {
         self.kind = kind
-        self.filePath = filePath
         self.extensionPayload = extensionPayload
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         kind = try container.decode(TerminalTab.Kind.self, forKey: .kind)
-        filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
         extensionPayload = try container.decodeIfPresent(ExtensionPayload.self, forKey: .extension)
     }
 }
@@ -158,6 +154,7 @@ enum MuxyAPI {
 
         private static let extensionVerbs: Set<String> = Set([
             "exec",
+            "http.fetch",
             "dialog.confirm",
             "dialog.alert",
             "modal.open",
@@ -187,13 +184,17 @@ enum MuxyAPI {
         static let gitVerbs: Set<String> = [
             "git.status",
             "git.diff",
+            "git.repoInfo",
             "git.log",
             "git.branches",
             "git.currentBranch",
             "git.aheadBehind",
             "git.pr.info",
+            "git.pr.number",
+            "git.pr.diff",
             "git.pr.list",
             "git.worktrees",
+            "git.init",
             "git.stage",
             "git.unstage",
             "git.discard",
@@ -209,6 +210,7 @@ enum MuxyAPI {
             "git.worktree.remove",
             "git.worktree.switch",
             "git.remoteBranches",
+            "git.branch.delete",
             "git.branch.deleteRemote",
             "git.checkout",
             "git.cherryPick",
@@ -255,6 +257,8 @@ enum MuxyAPI {
             "tabs.next": .tabsWrite,
             "tabs.previous": .tabsWrite,
             "tabs.open": .tabsWrite,
+            "tabs.setTitle": .tabsWrite,
+            "tabs.setIcon": .tabsWrite,
             "projects.list": .projectsRead,
             "projects.switch": .projectsWrite,
             "worktrees.list": .worktreesRead,
@@ -263,13 +267,17 @@ enum MuxyAPI {
             "worktrees.refresh": .worktreesWrite,
             "git.status": .gitRead,
             "git.diff": .gitRead,
+            "git.repoInfo": .gitRead,
             "git.log": .gitRead,
             "git.branches": .gitRead,
             "git.currentBranch": .gitRead,
             "git.aheadBehind": .gitRead,
             "git.pr.info": .gitRead,
+            "git.pr.number": .gitRead,
+            "git.pr.diff": .gitRead,
             "git.pr.list": .gitRead,
             "git.worktrees": .gitRead,
+            "git.init": .gitWrite,
             "git.stage": .gitWrite,
             "git.unstage": .gitWrite,
             "git.discard": .gitWrite,
@@ -285,6 +293,7 @@ enum MuxyAPI {
             "git.worktree.remove": .gitWrite,
             "git.worktree.switch": .gitWrite,
             "git.remoteBranches": .gitRead,
+            "git.branch.delete": .gitWrite,
             "git.branch.deleteRemote": .gitWrite,
             "git.checkout": .gitWrite,
             "git.cherryPick": .gitWrite,
@@ -762,6 +771,51 @@ enum MuxyAPI {
             return .success(())
         }
 
+        static func setTitle(
+            instanceID: String,
+            title: String,
+            appState: AppState,
+            callingExtensionID: String
+        ) -> Result<Void, APIError> {
+            locateExtensionTab(instanceID: instanceID, callingExtensionID: callingExtensionID, appState: appState)
+                .map { state in
+                    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    state.customTitle = trimmed.isEmpty ? nil : title
+                }
+        }
+
+        static func setIcon(
+            instanceID: String,
+            icon: ExtensionIcon?,
+            appState: AppState,
+            callingExtensionID: String
+        ) -> Result<Void, APIError> {
+            locateExtensionTab(instanceID: instanceID, callingExtensionID: callingExtensionID, appState: appState)
+                .map { state in state.customIcon = icon }
+        }
+
+        private static func locateExtensionTab(
+            instanceID: String,
+            callingExtensionID: String,
+            appState: AppState
+        ) -> Result<ExtensionTabState, APIError> {
+            guard let id = UUID(uuidString: instanceID) else {
+                return .failure(.invalidArguments("invalid tab instance id"))
+            }
+            for (_, root) in appState.workspaceRoots {
+                for area in root.allAreas() {
+                    for tab in area.tabs {
+                        guard let state = tab.content.extensionState, state.id == id else { continue }
+                        guard state.extensionID == callingExtensionID else {
+                            return .failure(.tabNotFound(instanceID))
+                        }
+                        return .success(state)
+                    }
+                }
+            }
+            return .failure(.tabNotFound(instanceID))
+        }
+
         static func open(
             _ request: OpenTabRequest,
             appState: AppState,
@@ -773,27 +827,6 @@ enum MuxyAPI {
             switch request.kind {
             case .terminal:
                 appState.dispatch(.createTab(projectID: projectID, areaID: nil))
-                return .success(())
-            case .editor:
-                guard let filePath = request.filePath, !filePath.isEmpty else {
-                    return .failure(.invalidArguments("editor tabs require filePath"))
-                }
-                appState.dispatch(.createEditorTab(
-                    projectID: projectID,
-                    areaID: nil,
-                    filePath: filePath,
-                    suppressInitialFocus: false
-                ))
-                return .success(())
-            case .imageViewer:
-                guard let filePath = request.filePath, !filePath.isEmpty else {
-                    return .failure(.invalidArguments("imageViewer tabs require filePath"))
-                }
-                appState.dispatch(.createImageViewerTab(
-                    projectID: projectID,
-                    areaID: nil,
-                    filePath: filePath
-                ))
                 return .success(())
             case .extensionWebView:
                 guard let payload = request.extensionPayload else {

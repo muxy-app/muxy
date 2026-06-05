@@ -29,6 +29,8 @@ enum PanelMode: String, CaseIterable, Identifiable, Codable {
 }
 
 enum PanelHeaderControl: String, CaseIterable, Codable {
+    case icon
+    case title
     case close
     case pin
     case position
@@ -104,11 +106,21 @@ struct PanelChrome {
         !hiddenControls.contains(control)
     }
 
+    var showsIcon: Bool {
+        iconSymbol != nil && shows(.icon)
+    }
+
+    var showsTitle: Bool {
+        title != nil && shows(.title)
+    }
+
     var hasHeaderContent: Bool {
         guard !hidesHeader else { return false }
-        return iconSymbol != nil
-            || title != nil
+        return showsIcon
+            || showsTitle
             || !trailingButtons.isEmpty
-            || !hiddenControls.isSuperset(of: PanelHeaderControl.allCases)
+            || shows(.close)
+            || shows(.pin)
+            || shows(.position)
     }
 }

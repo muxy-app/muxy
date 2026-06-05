@@ -11,6 +11,8 @@ struct PaneTabStrip: View {
         let isPinned: Bool
         let hasCustomTitle: Bool
         let colorID: String?
+        let extensionID: String?
+        let customIcon: ExtensionIcon?
     }
 
     let areaID: UUID
@@ -20,8 +22,6 @@ struct PaneTabStrip: View {
     var isWindowTitleBar: Bool = false
     var showDevelopmentBadge = false
     var openInIDEProjectPath: String?
-    var openInIDEFilePath: String?
-    var openInIDECursorProvider: () -> (line: Int?, column: Int?) = { (nil, nil) }
     let projectID: UUID
     var shortcutIndexOffset: Int = 0
     let onSelectTab: (UUID) -> Void
@@ -42,11 +42,6 @@ struct PaneTabStrip: View {
     let onReorderTab: (IndexSet, Int) -> Void
     @AppStorage(TabWidthPreferences.maxWidthKey) private var maxTabWidth = TabWidthPreferences.defaultMaxWidth
     @Environment(TabDragCoordinator.self) private var dragCoordinator
-    @Environment(AppState.self) private var appState
-    @Environment(ProjectStore.self) private var projectStore
-    @Environment(WorktreeStore.self) private var worktreeStore
-    @Environment(ExtensionStore.self) private var extensionStore
-    @State private var popoverHost = PopoverHost.shared
     @State private var dragState = TabDragState()
 
     static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
@@ -58,7 +53,9 @@ struct PaneTabStrip: View {
                 kind: tab.kind,
                 isPinned: tab.isPinned,
                 hasCustomTitle: tab.customTitle != nil,
-                colorID: tab.colorID
+                colorID: tab.colorID,
+                extensionID: tab.content.extensionState?.extensionID,
+                customIcon: tab.content.extensionState?.customIcon
             )
         }
     }
@@ -88,12 +85,9 @@ struct PaneTabStrip: View {
                         .padding(.trailing, UIMetrics.spacing3)
                 }
                 if isWindowTitleBar {
-                    OpenInIDEControl(
-                        projectPath: openInIDEProjectPath,
-                        filePath: openInIDEFilePath,
-                        cursorProvider: openInIDECursorProvider
-                    )
+                    OpenInIDEControl(projectPath: openInIDEProjectPath)
                     LayoutPickerMenu(projectID: projectID)
+                    ExtensionTopbarItems()
                 }
                 if showMaximizeButton || isMaximized, let onToggleMaximize {
                     let symbol = isMaximized
@@ -102,16 +96,6 @@ struct PaneTabStrip: View {
                     let label = isMaximized ? "Restore Pane" : "Maximize Pane"
                     IconButton(symbol: symbol, accessibilityLabel: label, action: onToggleMaximize)
                         .help(shortcutTooltip("Toggle Maximize Pane", for: .toggleMaximizePane))
-                }
-                ForEach(extensionStore.topbarItems) { binding in
-                    ExtensionIconButton(
-                        icon: binding.displayIcon,
-                        muxyExtension: binding.muxyExtension,
-                        accessibilityLabel: binding.item.tooltip ?? binding.item.id,
-                        action: { triggerExtensionCommand(binding: binding) }
-                    )
-                    .help(binding.item.tooltip ?? binding.item.id)
-                    .extensionPopover(anchorID: binding.id, host: popoverHost)
                 }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))
@@ -212,27 +196,6 @@ struct PaneTabStrip: View {
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
         "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
-    }
-
-    private func triggerExtensionCommand(binding: ExtensionStore.TopbarItemBinding) {
-        if let popover = extensionStore.popover(for: binding.muxyExtension, command: binding.item.command) {
-            popoverHost.toggle(
-                anchorID: binding.id,
-                extensionID: binding.muxyExtension.id,
-                popover: popover,
-                data: nil
-            )
-            return
-        }
-        extensionStore.triggerCommand(
-            ExtensionStore.CommandInvocation(
-                extensionID: binding.muxyExtension.id,
-                commandID: binding.item.command,
-                appState: appState,
-                projectStore: projectStore,
-                worktreeStore: worktreeStore
-            )
-        )
     }
 
     private var developmentBadge: some View {
@@ -656,8 +619,6 @@ private struct TabCell: View {
         var label = tab.title
         switch tab.kind {
         case .terminal: label += ", Terminal"
-        case .editor: label += ", Editor"
-        case .imageViewer: label += ", Image Viewer"
         case .extensionWebView: label += ", Extension"
         }
         if tab.isPinned { label += ", Pinned" }
@@ -679,16 +640,22 @@ private struct TabCell: View {
             case .terminal:
                 Image(systemName: "terminal")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-            case .editor:
-                Image(systemName: "pencil.line")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-            case .imageViewer:
-                Image(systemName: "photo")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             case .extensionWebView:
-                Image(systemName: "puzzlepiece.extension")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                extensionIconView
             }
+        }
+    }
+
+    @ViewBuilder
+    private var extensionIconView: some View {
+        if let icon = tab.customIcon,
+           let extensionID = tab.extensionID,
+           let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID)
+        {
+            ExtensionIconView(icon: icon, muxyExtension: muxyExtension, size: 12)
+        } else {
+            Image(systemName: "puzzlepiece.extension")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
         }
     }
 }

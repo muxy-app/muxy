@@ -133,8 +133,8 @@ final class WorktreeStore {
         ensurePrimary(for: project)
         let records = try await listGitWorktrees(project.path).filter { !$0.isBare && !$0.isPrunable }
         var list = worktrees[project.id] ?? []
-        let projectKey = Self.canonicalPath(project.path)
-        let recordKeys = Set(records.map { Self.canonicalPath($0.path) })
+        let projectKey = GitWorktreeService.canonicalPath(project.path)
+        let recordKeys = Set(records.map { GitWorktreeService.canonicalPath($0.path) })
 
         if let primaryIndex = list.firstIndex(where: \.isPrimary) {
             list[primaryIndex].path = project.path
@@ -145,7 +145,7 @@ final class WorktreeStore {
 
         var existingByKey: [String: Worktree] = [:]
         for worktree in list {
-            let key = Self.canonicalPath(worktree.path)
+            let key = GitWorktreeService.canonicalPath(worktree.path)
             if let existing = existingByKey[key] {
                 if worktree.isPrimary, !existing.isPrimary {
                     existingByKey[key] = worktree
@@ -156,7 +156,7 @@ final class WorktreeStore {
         }
 
         for record in records {
-            let recordKey = Self.canonicalPath(record.path)
+            let recordKey = GitWorktreeService.canonicalPath(record.path)
             if recordKey == projectKey {
                 if let primaryIndex = list.firstIndex(where: \.isPrimary) {
                     list[primaryIndex].branch = record.branch
@@ -185,15 +185,11 @@ final class WorktreeStore {
         }
 
         let sorted = sortPrimaryFirst(list.filter {
-            !$0.isExternallyManaged || recordKeys.contains(Self.canonicalPath($0.path))
+            !$0.isExternallyManaged || recordKeys.contains(GitWorktreeService.canonicalPath($0.path))
         })
         setWorktrees(sorted, for: project.id)
         save(projectID: project.id)
         return sorted
-    }
-
-    private static func canonicalPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     static func cleanupOnDisk(

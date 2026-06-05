@@ -45,7 +45,7 @@ Projects persist in `~/Library/Application Support/Muxy/projects.json`.
 | Close pane / tab | `⌘⇧W` / `⌘W` |
 | Switch tabs | `⌘1…9`, `⌘]` / `⌘[` |
 
-Tabs can also hold a Source Control view, an editor, or a diff. See [Tabs & Splits](../features/tabs-and-splits.md).
+Tabs can also hold a Source Control view. See [Tabs & Splits](../features/tabs-and-splits.md).
 
 ## Switching projects & worktrees
 

@@ -188,37 +188,6 @@ struct ModelCoverageTests {
         #expect(LayoutConfig.parse(["tabs": [["name": "  ", "command": []]]]) == .init(root: .leaf(tabs: [.init(name: nil, command: nil)])))
     }
 
-    @Test("Image viewer exposes supported image behavior")
-    func imageViewerExposesSupportedImageBehavior() {
-        #expect(ImageViewerTabState.canOpen(filePath: "/tmp/image.png"))
-        #expect(ImageViewerTabState.canOpen(filePath: "/tmp/image.JPEG"))
-        #expect(!ImageViewerTabState.canOpen(filePath: "/tmp/vector.svg"))
-        #expect(!ImageViewerTabState.canOpen(filePath: "/tmp/file.unknown-extension"))
-        #expect(!ImageViewerTabState.canOpen(filePath: "/tmp/no-extension"))
-
-        let state = ImageViewerTabState(projectPath: "/tmp", filePath: "/tmp/image.png")
-        #expect(state.displayTitle == "image.png")
-        #expect(!state.isLoaded)
-        #expect(state.canZoomIn)
-        #expect(state.canZoomOut)
-
-        state.requestFitToWindow()
-        #expect(state.fitTrigger == 1)
-        state.scale = ImageViewerTabState.maxScale
-        state.zoomIn()
-        #expect(state.scale == ImageViewerTabState.maxScale)
-        state.scale = ImageViewerTabState.minScale
-        state.zoomOut()
-        #expect(state.scale == ImageViewerTabState.minScale)
-        state.scale = 2
-        state.requestActualSize()
-        #expect(state.scale == 1)
-        state.updateFilePath("/tmp/other.jpg")
-        #expect(state.displayTitle == "other.jpg")
-        state.updateFilePath("/tmp/other.jpg")
-        #expect(state.displayTitle == "other.jpg")
-    }
-
     @Test("Terminal search display text and publishing follow query length rules")
     func terminalSearchPublishesNeedles() async throws {
         let state = TerminalSearchState()
@@ -364,7 +333,7 @@ struct ModelCoverageTests {
     @Test("Workspace DTO split trees encode and decode")
     func workspaceDTOSplitTreesRoundTrip() throws {
         let firstTab = TabDTO(id: UUID(), kind: .terminal, title: "Shell", isPinned: false, paneID: UUID())
-        let secondTab = TabDTO(id: UUID(), kind: .editor, title: "File", isPinned: true)
+        let secondTab = TabDTO(id: UUID(), kind: .vcs, title: "File", isPinned: true)
         let firstArea = TabAreaDTO(id: UUID(), projectPath: "/tmp/a", tabs: [firstTab], activeTabID: firstTab.id)
         let secondArea = TabAreaDTO(id: UUID(), projectPath: "/tmp/b", tabs: [secondTab], activeTabID: secondTab.id)
         let branch = SplitBranchDTO(
@@ -405,74 +374,27 @@ struct ModelCoverageTests {
         #expect(state.message == "Second")
     }
 
-    @Test("Syntax theme resolves colors for every scope")
-    func syntaxThemeResolvesColorsForEveryScope() {
-        let scopes: [SyntaxScope] = [
-            .keyword,
-            .storage,
-            .type,
-            .builtin,
-            .constant,
-            .string,
-            .stringEscape,
-            .number,
-            .comment,
-            .docComment,
-            .function,
-            .variable,
-            .attribute,
-            .preprocessor,
-            .op,
-            .punctuation,
-            .tag,
-            .attributeName,
-            .attributeValue,
-            .regex,
-            .heading,
-            .link,
-            .emphasis,
-        ]
-
-        let colors = scopes.map { SyntaxTheme.color(for: $0) }
-        #expect(colors.count == scopes.count)
-        #expect(SyntaxTheme.defaultForeground.alphaComponent == 1)
-        #expect(SyntaxTheme.color(for: .keyword) == SyntaxTheme.color(for: .keyword))
-    }
-
-    @Test("Editor settings enum and derived font helpers expose defaults")
+    @Test("Editor settings expose rich input defaults")
     func editorSettingsExposeDefaults() {
-        #expect(EditorSettings.DefaultEditor.allCases.map(\.id) == ["builtIn", "terminalCommand"])
-        #expect(EditorSettings.DefaultEditor.allCases.map(\.displayName) == ["Built-in Editor", "Terminal Command"])
-        #expect(EditorSettings.systemFontFamilyToken == "System Default")
-        #expect(EditorSettings.defaultMarkdownPreviewFontScale == 1)
-        #expect(EditorSettings.minMarkdownPreviewFontScale < EditorSettings.maxMarkdownPreviewFontScale)
+        #expect(EditorSettings.minLineHeightMultiplier < EditorSettings.maxLineHeightMultiplier)
+        #expect(EditorSettings.defaultRichInputFontFamily == "SF Mono")
 
         let settings = EditorSettings.shared
-        let originalScale = settings.markdownPreviewFontScale
-        let originalFamily = settings.markdownPreviewFontFamily
+        let originalFamily = settings.richInputFontFamily
+        let originalMultiplier = settings.richInputLineHeightMultiplier
+        let originalStrategy = settings.richInputImageStrategy
         defer {
-            settings.markdownPreviewFontScale = originalScale
-            settings.markdownPreviewFontFamily = originalFamily
+            settings.richInputFontFamily = originalFamily
+            settings.richInputLineHeightMultiplier = originalMultiplier
+            settings.richInputImageStrategy = originalStrategy
         }
 
-        settings.markdownPreviewFontFamily = EditorSettings.systemFontFamilyToken
-        #expect(settings.resolvedMarkdownPreviewFontFamilyCSS == EditorSettings.systemFontFamilyCSSStack)
+        settings.resetToDefaults()
+        #expect(settings.richInputFontFamily == EditorSettings.defaultRichInputFontFamily)
+        #expect(settings.richInputLineHeightMultiplier == EditorSettings.defaultRichInputLineHeightMultiplier)
+        #expect(settings.richInputImageStrategy == .clipboard)
 
-        settings.markdownPreviewFontFamily = #"A "Quoted" Font"#
-        #expect(settings.resolvedMarkdownPreviewFontFamilyCSS == #""A \"Quoted\" Font", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif"#)
-
-        settings.markdownPreviewFontScale = EditorSettings.maxMarkdownPreviewFontScale
-        settings.adjustMarkdownPreviewFontScale(by: 1)
-        #expect(settings.markdownPreviewFontScale == EditorSettings.maxMarkdownPreviewFontScale)
-
-        settings.markdownPreviewFontScale = EditorSettings.minMarkdownPreviewFontScale
-        settings.adjustMarkdownPreviewFontScale(by: -1)
-        #expect(settings.markdownPreviewFontScale == EditorSettings.minMarkdownPreviewFontScale)
-
-        #expect(!EditorSettings.availableMarkdownPreviewFonts.isEmpty)
-        #expect(EditorSettings.availableMarkdownPreviewFonts.first == EditorSettings.systemFontFamilyToken)
         #expect(EditorSettings.availableMonospacedFonts.allSatisfy { !$0.isEmpty })
-        #expect(settings.resolvedFont.pointSize > 0)
     }
 
     @Test("Muxy theme exposes cached color facade values")
@@ -540,56 +462,5 @@ struct ModelCoverageTests {
 
         let data = try JSONEncoder().encode(draft)
         #expect(try JSONDecoder().decode(RichInputDraft.self, from: data) == draft)
-    }
-
-    @Test("Editor markdown view modes and markdown helpers expose state")
-    func editorMarkdownViewModesAndHelpersExposeState() {
-        #expect(EditorMarkdownViewMode.allCases.map(\.id) == ["code", "preview", "split"])
-        #expect(EditorMarkdownViewMode.allCases.map(\.title) == ["Code", "Preview", "Split"])
-        #expect(EditorMarkdownViewMode.allCases.map(\.symbol) == ["curlybraces", "doc.richtext", "rectangle.split.2x1"])
-
-        let state = EditorTabState(
-            projectPath: "/tmp",
-            filePath: "/tmp/README.md",
-            readOnlyText: "# Title\n\n## Section",
-            diffLineKinds: []
-        )
-        #expect(state.fileName == "README.md")
-        #expect(state.fileExtension == "md")
-        #expect(state.displayTitle == "README.md")
-        state.isModified = true
-        #expect(state.displayTitle == "README.md \u{2022}")
-        #expect(state.isMarkdownFile)
-        #expect(!state.usesHTMLPreview)
-        #expect(!EditorTabState.usesHTMLPreview(filePath: "/tmp/README.md"))
-        #expect(EditorTabState.usesHTMLPreview(filePath: "/tmp/index.html"))
-        #expect(EditorTabState.usesHTMLPreview(filePath: "/tmp/icon.svg"))
-
-        let anchors = state.markdownSyncAnchors()
-        #expect(anchors.count == 2)
-        #expect(state.markdownSyncAnchors() == anchors)
-
-        state.applyMarkdownSyncOutput(.init(requestPreviewScrollTop: 120))
-        #expect(state.markdownScrollDriver == .editor)
-        #expect(state.markdownPreviewScrollRequest == 120)
-        #expect(state.markdownPreviewScrollRequestVersion == 1)
-
-        state.applyMarkdownSyncOutput(.init(requestEditorScrollY: 42))
-        #expect(state.markdownScrollDriver == .preview)
-        #expect(state.markdownEditorScrollRequestY == 42)
-        #expect(state.markdownEditorScrollRequestVersion == 1)
-
-        state.requestMarkdownFragment("  section  ")
-        #expect(state.markdownFragmentTarget == "section")
-        #expect(state.markdownFragmentRequestVersion == 1)
-        state.requestMarkdownFragment("   ")
-        #expect(state.markdownFragmentRequestVersion == 1)
-
-        _ = state.currentMarkdownSyncMap()
-
-        state.updateFilePath("/tmp/index.html")
-        #expect(state.fileName == "index.html")
-        #expect(state.fileExtension == "html")
-        #expect(state.usesHTMLPreview)
     }
 }

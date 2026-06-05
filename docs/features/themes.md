@@ -7,7 +7,6 @@ flowchart TB
   System[macOS appearance] -->|when set to Sync| Picker
   Picker[Theme picker ⌘⇧K] --> Chrome[Sidebar / tabs / panels]
   Picker --> Terminal[Ghostty palette]
-  Settings[Settings → Appearance] --> Syntax[Editor syntax theme]
 ```
 
 ## Theme picker
@@ -19,10 +18,6 @@ Open with `⌘⇧K` (or click the theme button in the topbar). You can pick:
 - **Sync to system** (default) — switches automatically with macOS appearance.
 
 Selection is saved per-appearance, so your dark choice and light choice are remembered independently.
-
-## Syntax highlighting
-
-The editor's syntax theme is chosen separately in **Settings → Appearance**. Several built-in syntax themes are available; pick whichever pairs well with your chrome theme.
 
 ## Ghostty colors
 

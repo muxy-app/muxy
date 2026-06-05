@@ -119,8 +119,8 @@ struct SettingsView: View {
             InterfaceSettingsView()
         case .terminal:
             TerminalSettingsView()
-        case .editor:
-            EditorSettingsView()
+        case .richInput:
+            RichInputSettingsView()
         case .shortcuts:
             KeyboardShortcutsSettingsView()
         case .voice:

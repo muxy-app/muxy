@@ -36,6 +36,22 @@ enum GitDTO {
         ]
     }
 
+    static func repoInfo(_ info: GitRepositoryService.RepoInfo) -> [String: Any] {
+        [
+            "root": info.root,
+            "gitDir": info.gitDir,
+            "isWorktree": info.isWorktree,
+            "currentBranch": info.currentBranch,
+        ]
+    }
+
+    static func rawDiff(_ result: GitRepositoryService.RawDiffResult) -> [String: Any] {
+        [
+            "diff": result.diff,
+            "truncated": result.truncated,
+        ]
+    }
+
     static func diff(_ result: GitRepositoryService.PatchAndCompareResult) -> [String: Any] {
         [
             "additions": result.additions,

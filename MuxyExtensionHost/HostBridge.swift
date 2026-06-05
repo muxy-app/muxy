@@ -102,6 +102,8 @@ final class HostBridge: @unchecked Sendable {
              "topbar.set",
              "statusbar.set":
             return dispatchValueReturning(verb: verb, dict: dict)
+        case let verb where verb.hasPrefix("git."):
+            return dispatchValueReturning(verb: verb, dict: dict)
         default:
             return ["ok": false, "error": "verb '\(verb)' is not available in background context"]
         }

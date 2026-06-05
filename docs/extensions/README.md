@@ -74,6 +74,7 @@ flowchart TD
 | [Panels](panels.md) | Register dockable/floating webview panels and the placement rules |
 | [Git](git.md) | Repository access: status, diff, log, branches, PRs, worktrees |
 | [Files](files.md) | Workspace filesystem access: list, read, stat, write, mkdir, rename, move, delete |
+| [HTTP](http.md) | Call external HTTP(S) APIs from native code without CORS; host-keyed consent |
 | [Popovers](popovers.md) | Anchor a transient webview popover to a topbar/status bar item |
 | [Dialogs](dialogs.md) | Present native confirm/alert sheets on the main window |
 | [Modal](modal.md) | Present a native searchable picker; resolves with the selected item |
@@ -87,7 +88,8 @@ flowchart TD
 
 ## Quick links
 
-- Example extension: [`examples/hello-world`](examples/hello-world)
+- LLM-friendly docs index: [muxy.app/llms.txt](https://muxy.app/llms.txt) (append `/plain` to any docs URL for raw Markdown)
+- Example extension: [`extensions/git`](https://github.com/muxy-app/extensions/tree/main/extensions/git)
 - Manifest schema: [`schema/manifest.schema.json`](schema/manifest.schema.json)
 - Community extensions: [muxy-extensions repo](https://github.com/muxy-app/extensions)
 

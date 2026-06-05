@@ -65,23 +65,20 @@ struct WorkspaceSnapshotTests {
         #expect(decoded.projectPath == testPath)
     }
 
-    @Test("TerminalTabSnapshot Codable round-trip for editor")
-    func editorTabSnapshotRoundTrip() throws {
-        let snapshot = TerminalTabSnapshot(
-            kind: .editor,
-            customTitle: nil,
-            colorID: nil,
-            isPinned: false,
-            projectPath: testPath,
-            paneTitle: nil,
-            filePath: "/tmp/test/file.swift"
-        )
-        let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(TerminalTabSnapshot.self, from: data)
+    @Test("TerminalTabSnapshot decoding with removed editor kind falls back to terminal")
+    func terminalTabSnapshotRemovedEditorKind() throws {
+        let json = """
+        {
+            "kind": "editor",
+            "isPinned": false,
+            "projectPath": "\(testPath)",
+            "paneTitle": "Editor",
+            "filePath": "/tmp/test/file.swift"
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(TerminalTabSnapshot.self, from: json)
 
-        #expect(decoded.kind == .editor)
-        #expect(decoded.filePath == "/tmp/test/file.swift")
-        #expect(decoded.paneTitle == "Terminal")
+        #expect(decoded.kind == .terminal)
     }
 
     @Test("TerminalTabSnapshot decoding with missing kind defaults to terminal")
@@ -107,7 +104,7 @@ struct WorkspaceSnapshotTests {
             projectPath: testPath,
             tabs: [
                 TerminalTabSnapshot(kind: .terminal, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Shell"),
-                TerminalTabSnapshot(kind: .editor, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Editor"),
+                TerminalTabSnapshot(kind: .terminal, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Second"),
             ],
             activeTabIndex: 1
         )
@@ -148,7 +145,7 @@ struct WorkspaceSnapshotTests {
         )
         let area2 = TabAreaSnapshot(
             id: UUID(), projectPath: testPath,
-            tabs: [TerminalTabSnapshot(kind: .editor, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Editor")],
+            tabs: [TerminalTabSnapshot(kind: .terminal, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Second")],
             activeTabIndex: 0
         )
         let branchSnapshot = SplitBranchSnapshot(

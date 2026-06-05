@@ -33,12 +33,25 @@ struct ExtensionPopoverView: View {
 
 extension View {
     func extensionPopover(anchorID: String, host: PopoverHost) -> some View {
-        let item = Binding<ExtensionPopoverState?>(
-            get: { host.isOpen(anchorID: anchorID) ? host.open?.state : nil },
-            set: { newValue in if newValue == nil { host.close(anchorID: anchorID) } }
+        modifier(ExtensionPopoverModifier(anchorID: anchorID, host: host))
+    }
+}
+
+private struct ExtensionPopoverModifier: ViewModifier {
+    let anchorID: String
+    let host: PopoverHost
+
+    func body(content: Content) -> some View {
+        let state = host.isOpen(anchorID: anchorID) ? host.open?.state : nil
+        return content.background(
+            ExtensionPopoverAnchor(
+                anchorID: anchorID,
+                host: host,
+                state: state,
+                width: state?.width,
+                height: state?.height
+            )
+            .allowsHitTesting(false)
         )
-        return popover(item: item, arrowEdge: .bottom) { state in
-            ExtensionPopoverView(state: state)
-        }
     }
 }

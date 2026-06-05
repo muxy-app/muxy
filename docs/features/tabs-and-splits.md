@@ -5,7 +5,7 @@ Every Muxy worktree owns a tree of split panes; each leaf pane holds a stack of 
 ```mermaid
 flowchart TB
   Worktree --> Root[SplitNode]
-  Root --> Left[TabArea<br/>tabs: editor, shell]
+  Root --> Left[TabArea<br/>tabs: shell]
   Root --> Right[Split: vertical]
   Right --> RT[TabArea<br/>tabs: logs]
   Right --> RB[TabArea<br/>tabs: btop, top]
@@ -19,17 +19,13 @@ Splits nest arbitrarily — the layout is a binary tree of horizontal and vertic
 | --- | --- |
 | Terminal | A libghostty-powered terminal (the default) |
 | Source Control | The git status / diff / branches / PRs view (`⌘K`) |
-| Editor | Built-in syntax-highlighted file editor |
-| Diff Viewer | Standalone single-file diff |
+| Extension | A tab rendered by an installed extension |
 
 ## Creating tabs
 
 | How | Result |
 | --- | --- |
 | `⌘T` | New terminal tab |
-| `⌘P` (Quick Open) | Editor tab for a file |
-| File tree → right-click → Open | Editor tab |
-| Source Control → click a changed file | Diff viewer tab |
 | File menu → New Tab | New tab in the active pane |
 
 ## Renaming, pinning, coloring
