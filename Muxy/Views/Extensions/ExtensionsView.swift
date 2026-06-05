@@ -18,6 +18,11 @@ struct ExtensionsView: View {
 
     private var isShowingInstallPage: Bool { activeInstallName != nil }
 
+    private var isShowingDetailPage: Bool {
+        guard let id = selectedExtensionID else { return false }
+        return store.statuses.contains { $0.id == id }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -72,7 +77,7 @@ struct ExtensionsView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            if selectedExtensionID != nil || isShowingInstallPage {
+            if isShowingDetailPage || isShowingInstallPage {
                 Button {
                     selectedExtensionID = nil
                     activeInstallName = nil
@@ -102,7 +107,7 @@ struct ExtensionsView: View {
                 }
             }
             Spacer()
-            if selectedExtensionID == nil, !isShowingInstallPage {
+            if !isShowingDetailPage, !isShowingInstallPage {
                 if store.hasUpdates {
                     Button {
                         Task { await updateAll() }
@@ -124,32 +129,15 @@ struct ExtensionsView: View {
                     .disabled(isUpdatingAll)
                     .help("Update all extensions with available updates")
                 }
-                Button {
-                    showCreateSheet = true
-                } label: {
-                    Text("Create")
-                        .font(.system(size: 12))
-                        .foregroundStyle(MuxyTheme.accent)
-                }
-                .buttonStyle(.plain)
-                .help("Create a new extension")
-                Button {
-                    store.reload()
-                } label: {
-                    Text("Reload")
-                        .font(.system(size: 12))
-                        .foregroundStyle(MuxyTheme.accent)
-                }
-                .buttonStyle(.plain)
-                .help("Reload Extensions")
-                Button {
+                ExtensionPrimaryButton(title: "Create") { showCreateSheet = true }
+                    .help("Create a new extension")
+                ExtensionSecondaryButton(title: "Load Unpacked") { loadUnpacked() }
+                    .help("Load an extension from any folder for development")
+                ExtensionSecondaryButton(title: "Reload") { store.reload() }
+                    .help("Reload Extensions")
+                ExtensionSecondaryButton(title: "Reveal Folder") {
                     NSWorkspace.shared.activateFileViewerSelecting([store.rootDirectory])
-                } label: {
-                    Text("Reveal Folder")
-                        .font(.system(size: 12))
-                        .foregroundStyle(MuxyTheme.accent)
                 }
-                .buttonStyle(.plain)
                 .help("Open extensions folder in Finder")
             }
             Button {
@@ -169,6 +157,15 @@ struct ExtensionsView: View {
         .background(MuxyTheme.bg)
     }
 
+    private func loadUnpacked() {
+        guard let directory = ExtensionFolderPicker.pick(
+            title: "Load Unpacked Extension",
+            message: "Choose the extension's project folder."
+        )
+        else { return }
+        store.addDevPath(directory.path)
+    }
+
     private func updateAll() async {
         isUpdatingAll = true
         defer { isUpdatingAll = false }
@@ -182,6 +179,46 @@ struct ExtensionsView: View {
                 body: names
             )
         }
+    }
+}
+
+private struct ExtensionPrimaryButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(MuxyTheme.accent, in: RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ExtensionSecondaryButton: View {
+    let title: String
+    let action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(hovered ? MuxyTheme.hover : Color.clear, in: RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(MuxyTheme.border, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
     }
 }
 
@@ -357,6 +394,9 @@ private struct ExtensionRow: View {
                         .font(.system(size: 11))
                         .foregroundStyle(MuxyTheme.fgMuted)
                     ExtensionStatusBadge(status: status)
+                    if status.isDev {
+                        SettingsDevelopmentBadge(text: "DEV")
+                    }
                 }
                 if let description = ext.manifest.description, !description.isEmpty {
                     Text(description)
@@ -652,6 +692,9 @@ private struct ExtensionDetailPage: View {
                     .font(.system(size: 12))
                     .foregroundStyle(MuxyTheme.fgMuted)
                 ExtensionStatusBadge(status: status)
+                if status.isDev {
+                    SettingsDevelopmentBadge(text: "DEV")
+                }
                 Spacer()
                 if let availableVersion {
                     ExtensionUpdateButton(
@@ -685,6 +728,18 @@ private struct ExtensionDetailPage: View {
                     .foregroundStyle(MuxyTheme.fgDim)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if status.isDev {
+                    Spacer(minLength: 12)
+                    Button {
+                        store.removeDevPath(status.devSourcePath ?? ext.directory.path)
+                    } label: {
+                        Text("Remove from Muxy")
+                            .font(.system(size: 11))
+                            .foregroundStyle(MuxyTheme.diffRemoveFg)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop loading this dev extension. Your folder is left untouched.")
+                }
             }
         }
         .padding(16)

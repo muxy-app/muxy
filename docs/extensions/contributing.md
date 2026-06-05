@@ -83,11 +83,24 @@ npm install
 npm run build
 ```
 
-## 4. Test in Muxy
+## 4. Develop in place (Load Unpacked)
 
-Put your project in `~/.config/muxy/extensions/<name>/` (the directory name must match the
-package `name`) and run `npm run build`. Muxy loads from the `dist/` build output when it
-exists, so you can keep your source alongside it and just rebuild to pick up changes.
+You don't need to copy your project into Muxy's config folder. In the **Extensions** modal,
+click **Load Unpacked** and pick your project folder — your git checkout works directly.
+Edit, then click **Reload** to pick up changes. (The **Create** modal can also scaffold a
+new extension straight into a folder you choose; pick a location outside the config folder
+and it's loaded as a dev extension automatically.)
+
+Muxy reads from the `dist/` build output when it exists, otherwise from the folder you
+picked. So:
+
+- **Plain HTML/JS** (no build) — Muxy reads your source directly; just **Reload** after edits.
+- **npm / framework** (React, Vue, Svelte) — run `npm run dev` (or `npm run build`) yourself
+  to produce `dist/`; Muxy reads that. Muxy never runs npm for you.
+
+Dev extensions show a **DEV** badge. Use **Remove from Muxy** on the detail page to stop
+loading one — your folder on disk is left untouched. Because the checkout *is* the install,
+publishing is just pushing that same folder to your fork (next step).
 
 ## 5. Validate and publish
 
