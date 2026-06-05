@@ -11,8 +11,5 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    rollupOptions: {
-      input: { hello: resolve(__dirname, "panel/index.html") },
-    },
   },
 });

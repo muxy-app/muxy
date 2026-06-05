@@ -13,7 +13,7 @@ A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Mux
     {
       "id": "pr-viewer",
       "title": "PR Viewer",
-      "entry": "tabs/pr.html",
+      "entry": "index.html",
       "defaultData": { "mode": "compact" }
     }
   ],
@@ -29,7 +29,7 @@ A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Mux
 | --- | --- | --- | --- |
 | `id` | string | yes | Stable per extension. Referenced from `openTab` commands and from `muxy.tabs.open()`. |
 | `title` | string | yes | Default tab title, until the page sets its own. |
-| `entry` | string | yes | HTML path relative to the extension directory. Must resolve inside it (no `..` traversal). |
+| `entry` | string | yes | HTML path relative to the build output — any layout works (e.g. root `index.html`); not a fixed `tabs/` folder. Must resolve inside the extension directory (no `..` traversal). |
 | `defaultData` | object | no | JSON merged into `window.muxy.data` when no explicit data is passed at open time. |
 
 The page loads at `muxy-ext://<extensionID>/<entry>` and references its own files with relative paths; the scheme is scoped to that one extension's directory.

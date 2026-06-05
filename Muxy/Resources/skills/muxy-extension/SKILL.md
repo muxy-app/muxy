@@ -5,7 +5,7 @@ description: Best-practice guide for authoring a Muxy extension — how it shoul
 
 # Muxy Extension Guide
 
-A Muxy extension is an npm + [Vite](https://vitejs.dev) project in `~/.config/muxy/extensions/<name>/`: source under `src/`, `vite build` emits `dist/`, and Muxy installs and reads `dist/`. The manifest is the `"muxy"` object in `package.json`.
+A Muxy extension is an npm + [Vite](https://vitejs.dev) project in `~/.config/muxy/extensions/<name>/`: source under `src/`, the entry `index.html` at the project root, `vite build` emits `dist/`, and Muxy installs and reads `dist/`. The manifest is the `"muxy"` object in `package.json`. There is no fixed folder layout — every `entry`/`background`/icon path is an arbitrary relative path inside the build output (the starter kits use the root `index.html` Vite picks up by default); `package.json` and `dist/` are the only names Muxy fixes.
 
 **This skill is the guidance layer — how an extension should look and behave.** For the API and manifest mechanics (every field, the permission strings, the full `window.muxy` surface, events, scripts), read the reference docs. Start from the LLM-friendly index, which lists every page and links to its raw Markdown source:
 

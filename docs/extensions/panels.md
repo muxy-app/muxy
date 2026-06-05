@@ -19,7 +19,7 @@ Every panel, built-in or extension, follows the same placement rules per positio
       "id": "review",
       "title": "Review",
       "icon": "checklist",
-      "entry": "panels/review.html",
+      "entry": "index.html",
       "position": "right",
       "mode": "floating",
       "hiddenControls": ["position"]
@@ -36,7 +36,7 @@ Every panel, built-in or extension, follows the same placement rules per positio
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | string | yes | Stable per extension. Referenced from `togglePanel` commands and from `muxy.panels.*`. |
-| `entry` | string | yes | HTML path relative to the extension directory. Must resolve inside it (no `..` traversal). |
+| `entry` | string | yes | HTML path relative to the build output — any layout works (e.g. root `index.html`); not a fixed `panels/` folder. Must resolve inside the extension directory (no `..` traversal). |
 | `title` | string | no | Shown in the panel header. Omit to hide the title. |
 | `icon` | string \| object | no | SF Symbol name, or `{ "svg": "assets/icon.svg" }`. Shown in the header. |
 | `position` | string | no | `right` or `bottom`. Defaults to `right`. |
@@ -60,7 +60,7 @@ A panel may declare custom icon buttons that sit in its native header, just left
     {
       "id": "scm",
       "title": "Source Control",
-      "entry": "panel/index.html",
+      "entry": "index.html",
       "position": "right",
       "mode": "pinned",
       "headerButtons": [

@@ -12,7 +12,7 @@ At most **one extension popover is open at a time** — opening another anchor's
   "version": "0.1.0",
   "permissions": ["panels:write"],
   "popovers": [
-    { "id": "usage", "title": "AI Usage", "entry": "popovers/usage.html", "width": 320, "height": 360 }
+    { "id": "usage", "title": "AI Usage", "entry": "index.html", "width": 320, "height": 360 }
   ],
   "commands": [
     { "id": "open-usage", "title": "Open AI Usage", "action": { "kind": "openPopover", "popover": "usage" } }
@@ -30,7 +30,7 @@ A popover is always reached through a topbar/status bar item whose `command` res
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | string | yes | Stable per extension. Referenced from an `openPopover` command. |
-| `entry` | string | yes | HTML path relative to the extension directory. Must resolve inside it (no `..` traversal). |
+| `entry` | string | yes | HTML path relative to the build output — any layout works (e.g. root `index.html`); not a fixed `popovers/` folder. Must resolve inside the extension directory (no `..` traversal). |
 | `title` | string | no | Available to the page; the popover is frameless (no host chrome). |
 | `width` | number | no | Initial width in points. Defaults to `320`. |
 | `height` | number | no | Initial height in points. Defaults to `360`. |
