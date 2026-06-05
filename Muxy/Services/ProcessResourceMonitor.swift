@@ -20,6 +20,7 @@ final class ProcessResourceMonitor {
     private let queue = DispatchQueue(label: "app.muxy.resource-monitor", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var observerCount = 0
+    private var isSampling = false
     private var previous: [pid_t: Baseline] = [:]
 
     private init() {}
@@ -36,18 +37,31 @@ final class ProcessResourceMonitor {
         observerCount -= 1
         guard observerCount == 0 else { return }
         stopTimer()
+        isSampling = false
         previous = [:]
         snapshot = .empty
     }
 
     func refreshNow() {
+        guard !isSampling else { return }
+        isSampling = true
         let hostPIDs = ExtensionStore.shared.spawnedHostPIDs()
         let hostPGIDs = ExtensionStore.shared.spawnedHostPGIDs
         queue.async { [weak self] in
-            let procs = ProcSampling.snapshotAll()
+            let topology = ProcSampling.topology()
+            let groups = ProcessTree.classify(
+                rootPID: Self.rootPID,
+                procs: topology,
+                knownHostPIDs: hostPIDs,
+                knownHostPGIDs: hostPGIDs,
+                hostBinaryName: ExtensionHostLocator.binaryName
+            )
+            let procs = topology
+                .filter { groups[$0.pid] != nil }
+                .compactMap(ProcSampling.enrich)
             let wallNanos = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             Task { @MainActor [weak self] in
-                self?.apply(procs: procs, wallNanos: wallNanos, hostPIDs: hostPIDs, hostPGIDs: hostPGIDs)
+                self?.apply(procs: procs, groups: groups, wallNanos: wallNanos)
             }
         }
     }
@@ -69,13 +83,8 @@ final class ProcessResourceMonitor {
         timer = nil
     }
 
-    private func apply(procs: [ProcSnapshot], wallNanos: UInt64, hostPIDs: Set<pid_t>, hostPGIDs: Set<pid_t>) {
-        let groups = ProcessTree.classify(
-            rootPID: Self.rootPID,
-            procs: procs,
-            knownHostPIDs: hostPIDs,
-            knownHostPGIDs: hostPGIDs
-        )
+    private func apply(procs: [ProcSnapshot], groups: [pid_t: ProcessGroup], wallNanos: UInt64) {
+        defer { isSampling = false }
 
         var rows: [ProcessUsageRow] = []
         var nextPrevious: [pid_t: Baseline] = [:]

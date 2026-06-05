@@ -41,7 +41,8 @@ final class ExtensionStore {
     private(set) var availableUpdates: [String: String] = [:]
 
     private var processes: [String: Process] = [:]
-    private(set) var spawnedHostPGIDs: Set<pid_t> = []
+    private var hostPGIDs: [String: pid_t] = [:]
+    var spawnedHostPGIDs: Set<pid_t> { Set(hostPGIDs.values) }
     private var tokens: [String: String] = [:]
     private var intentionalStops: Set<String> = []
     private var crashRestartAttempts: [String: Int] = [:]
@@ -753,7 +754,10 @@ final class ExtensionStore {
         do {
             try process.run()
             processes[ext.id] = process
-            spawnedHostPGIDs.insert(getpgid(process.processIdentifier))
+            let processGroupID = getpgid(process.processIdentifier)
+            if processGroupID > 0 {
+                hostPGIDs[ext.id] = processGroupID
+            }
             statuses[index].isRunning = true
             statuses[index].lastError = nil
             scheduleCrashCounterReset(extensionID: ext.id, process: process)
@@ -791,6 +795,7 @@ final class ExtensionStore {
         crashRestartAttempts.removeValue(forKey: extensionID)
         ExtensionScriptRunner.shared.evict(extensionID: extensionID)
         tokens.removeValue(forKey: extensionID)
+        hostPGIDs.removeValue(forKey: extensionID)
         guard let process = processes.removeValue(forKey: extensionID) else { return }
         if process.isRunning {
             intentionalStops.insert(extensionID)

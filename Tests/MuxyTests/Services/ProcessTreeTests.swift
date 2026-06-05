@@ -5,8 +5,10 @@ import Testing
 
 @Suite("ProcessTree")
 struct ProcessTreeTests {
-    private func proc(_ pid: pid_t, ppid: pid_t, pgid: pid_t = 0) -> ProcSnapshot {
-        ProcSnapshot(pid: pid, ppid: ppid, pgid: pgid, name: "proc\(pid)", memoryBytes: 0, cpuTimeNanos: 0)
+    private let hostName = "MuxyExtensionHost"
+
+    private func proc(_ pid: pid_t, ppid: pid_t, pgid: pid_t = 0, comm: String = "") -> ProcTopology {
+        ProcTopology(pid: pid, ppid: ppid, pgid: pgid, comm: comm)
     }
 
     @Test("descendants walks a linear chain")
@@ -35,38 +37,57 @@ struct ProcessTreeTests {
     @Test("classify marks the root subtree as app when no hosts")
     func classifyAppOnly() {
         let procs = [proc(100, ppid: 1), proc(101, ppid: 100), proc(102, ppid: 101)]
-        let groups = ProcessTree.classify(rootPID: 100, procs: procs, knownHostPIDs: [], knownHostPGIDs: [])
+        let groups = ProcessTree.classify(
+            rootPID: 100, procs: procs, knownHostPIDs: [], knownHostPGIDs: [], hostBinaryName: hostName
+        )
         #expect(groups == [100: .app, 101: .app, 102: .app])
     }
 
     @Test("classify marks a host and its descendants as extensionHost")
     func classifyExtensionSubtree() {
         let procs = [proc(100, ppid: 1), proc(200, ppid: 100), proc(201, ppid: 200), proc(300, ppid: 100)]
-        let groups = ProcessTree.classify(rootPID: 100, procs: procs, knownHostPIDs: [200], knownHostPGIDs: [])
+        let groups = ProcessTree.classify(
+            rootPID: 100, procs: procs, knownHostPIDs: [200], knownHostPGIDs: [], hostBinaryName: hostName
+        )
         #expect(groups[200] == .extensionHost)
         #expect(groups[201] == .extensionHost)
         #expect(groups[100] == .app)
         #expect(groups[300] == .app)
     }
 
-    @Test("classify marks a reparented child with a known pgid as orphan")
+    @Test("classify marks a reparented host with a known pgid as orphan")
     func classifyOrphanByPGID() {
-        let procs = [proc(100, ppid: 1), proc(500, ppid: 1, pgid: 200)]
-        let groups = ProcessTree.classify(rootPID: 100, procs: procs, knownHostPIDs: [], knownHostPGIDs: [200])
+        let procs = [proc(100, ppid: 1), proc(500, ppid: 1, pgid: 200, comm: "MuxyExtensionHos")]
+        let groups = ProcessTree.classify(
+            rootPID: 100, procs: procs, knownHostPIDs: [], knownHostPGIDs: [200], hostBinaryName: hostName
+        )
         #expect(groups[500] == .orphan)
+    }
+
+    @Test("classify ignores a known-pgid process whose name is not the host binary")
+    func classifyNotOrphanWhenNameMismatch() {
+        let procs = [proc(100, ppid: 1), proc(500, ppid: 1, pgid: 200, comm: "someoneElse")]
+        let groups = ProcessTree.classify(
+            rootPID: 100, procs: procs, knownHostPIDs: [], knownHostPGIDs: [200], hostBinaryName: hostName
+        )
+        #expect(groups[500] == nil)
     }
 
     @Test("classify ignores a reparented child that changed its process group")
     func classifyNotOrphanWhenGroupChanged() {
-        let procs = [proc(100, ppid: 1), proc(500, ppid: 1, pgid: 999)]
-        let groups = ProcessTree.classify(rootPID: 100, procs: procs, knownHostPIDs: [], knownHostPGIDs: [200])
+        let procs = [proc(100, ppid: 1), proc(500, ppid: 1, pgid: 999, comm: "MuxyExtensionHos")]
+        let groups = ProcessTree.classify(
+            rootPID: 100, procs: procs, knownHostPIDs: [], knownHostPGIDs: [200], hostBinaryName: hostName
+        )
         #expect(groups[500] == nil)
     }
 
     @Test("classify keeps subtree classification over orphan for live pids")
     func classifySubtreeWins() {
-        let procs = [proc(100, ppid: 1, pgid: 200), proc(101, ppid: 100, pgid: 200)]
-        let groups = ProcessTree.classify(rootPID: 100, procs: procs, knownHostPIDs: [], knownHostPGIDs: [200])
+        let procs = [proc(100, ppid: 1, pgid: 200), proc(101, ppid: 100, pgid: 200, comm: "MuxyExtensionHos")]
+        let groups = ProcessTree.classify(
+            rootPID: 100, procs: procs, knownHostPIDs: [], knownHostPGIDs: [200], hostBinaryName: hostName
+        )
         #expect(groups[101] == .app)
     }
 }

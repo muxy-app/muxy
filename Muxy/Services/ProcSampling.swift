@@ -13,20 +13,25 @@ enum ProcSampling {
         let cpuNanos: UInt64
     }
 
-    static func snapshotAll() -> [ProcSnapshot] {
-        listAllPIDs().compactMap(snapshot(for:))
+    static func topology() -> [ProcTopology] {
+        listAllPIDs().compactMap(topology(for:))
     }
 
-    private static func snapshot(for pid: pid_t) -> ProcSnapshot? {
-        guard pid > 0, let bsd = bsdInfo(pid), let usage = usage(for: pid) else { return nil }
+    static func enrich(_ topology: ProcTopology) -> ProcSnapshot? {
+        guard let usage = usage(for: topology.pid) else { return nil }
         return ProcSnapshot(
-            pid: pid,
-            ppid: bsd.ppid,
-            pgid: bsd.pgid,
-            name: name(pid, fallback: bsd.comm),
+            pid: topology.pid,
+            ppid: topology.ppid,
+            pgid: topology.pgid,
+            name: name(topology.pid, fallback: topology.comm),
             memoryBytes: usage.footprintBytes,
             cpuTimeNanos: usage.cpuNanos
         )
+    }
+
+    private static func topology(for pid: pid_t) -> ProcTopology? {
+        guard pid > 0, let bsd = bsdInfo(pid) else { return nil }
+        return ProcTopology(pid: pid, ppid: bsd.ppid, pgid: bsd.pgid, comm: bsd.comm)
     }
 
     static func listAllPIDs() -> [pid_t] {
