@@ -18,7 +18,25 @@ final class HostSocketClient: @unchecked Sendable {
     private var eventHandler: ((String) -> Void)?
     private var invokeHandler: ((String) -> Void)?
 
+    static let maxConnectAttempts = 50
+    static let connectRetryDelay: TimeInterval = 0.1
+
     init(socketPath: String) throws {
+        var lastError = ""
+        for attempt in 1 ... Self.maxConnectAttempts {
+            do {
+                fd = try Self.connect(to: socketPath)
+                return
+            } catch let ClientError.connectFailed(reason) {
+                lastError = reason
+                guard attempt < Self.maxConnectAttempts else { break }
+                Thread.sleep(forTimeInterval: Self.connectRetryDelay)
+            }
+        }
+        throw ClientError.connectFailed(lastError)
+    }
+
+    private static func connect(to socketPath: String) throws -> Int32 {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else {
             throw ClientError.connectFailed(String(cString: strerror(errno)))
@@ -33,7 +51,7 @@ final class HostSocketClient: @unchecked Sendable {
 
         let result = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
         guard result == 0 else {
@@ -41,7 +59,7 @@ final class HostSocketClient: @unchecked Sendable {
             throw ClientError.connectFailed(String(cString: strerror(errno)))
         }
 
-        fd = descriptor
+        return descriptor
     }
 
     init(fileDescriptor: Int32) {
