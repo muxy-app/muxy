@@ -16,11 +16,26 @@ final class ExtensionModalService {
         let hasMore: Bool
     }
 
-    typealias Provider = @MainActor (_ query: String, _ offset: Int, _ limit: Int) async throws -> Page
+    @MainActor
+    @Observable
+    final class Dataset {
+        private(set) var items: [Item] = []
+        private(set) var loading = true
+        private(set) var revision = 0
 
-    enum Source {
-        case eager([Item])
-        case provider(Provider)
+        func append(_ batch: [Item]) {
+            guard !batch.isEmpty else { return }
+            let room = ExtensionModalService.maxItems - items.count
+            guard room > 0 else { return }
+            items.append(contentsOf: batch.prefix(room))
+            revision += 1
+        }
+
+        func finish() {
+            guard loading else { return }
+            loading = false
+            revision += 1
+        }
     }
 
     struct Request: Identifiable, Equatable {
@@ -29,72 +44,92 @@ final class ExtensionModalService {
         let placeholder: String
         let emptyLabel: String
         let noMatchLabel: String
-        let source: Source
+        let dataset: Dataset
 
         static func == (lhs: Request, rhs: Request) -> Bool {
             lhs.id == rhs.id
         }
     }
 
-    static let maxItems = 1000
+    static let maxItems = 100_000
     static let maxTextLength = 200
     static let pageSize = 100
-    static let providerAction = "__muxiModalProvider"
 
     private(set) var active: Request?
-    private var continuation: CheckedContinuation<Item?, Never>?
     private var sequence = 0
+    private var session: Dataset?
+    private var onResolve: ((Item?) -> Void)?
+    private var pendingRequestID: String?
+    private var bufferedResults: [String: Item?] = [:]
 
-    func present(extensionID: String, source: Source, args: [String: Any]) async -> Item? {
+    @discardableResult
+    func openSession(extensionID: String, args: [String: Any]) -> String {
         sequence += 1
+        let dataset = Dataset()
         let request = Request(
             id: "\(extensionID):\(sequence)",
             extensionID: extensionID,
             placeholder: text(args, "placeholder") ?? "Search...",
             emptyLabel: text(args, "emptyLabel") ?? "No items",
             noMatchLabel: text(args, "noMatchLabel") ?? "No matches",
-            source: source
+            dataset: dataset
         )
         resolve(with: nil)
-        return await withCheckedContinuation { continuation in
-            self.continuation = continuation
-            active = request
+        bufferedResults.removeAll()
+        session = dataset
+        active = request
+        pendingRequestID = request.id
+        return request.id
+    }
+
+    func feedSession(_ items: [Item]) {
+        session?.append(items)
+    }
+
+    func finishSession() {
+        session?.finish()
+    }
+
+    func onResult(requestID: String, _ handler: @escaping (Item?) -> Void) {
+        if let buffered = bufferedResults.removeValue(forKey: requestID) {
+            handler(buffered)
+            return
+        }
+        guard active?.id == requestID else {
+            handler(nil)
+            return
+        }
+        onResolve = handler
+    }
+
+    func awaitSelection(requestID: String) async -> Item? {
+        await withCheckedContinuation { continuation in
+            onResult(requestID: requestID) { continuation.resume(returning: $0) }
         }
     }
 
     func present(extensionID: String, args: [String: Any]) async throws -> Item? {
         let items = try parseItems(args)
-        return await present(extensionID: extensionID, source: .eager(items), args: args)
+        let requestID = openSession(extensionID: extensionID, args: args)
+        feedSession(items)
+        finishSession()
+        return await awaitSelection(requestID: requestID)
     }
 
-    func loadPage(for request: Request, query: String, offset: Int, limit: Int) async throws -> Page {
-        switch request.source {
-        case let .eager(items):
-            return await Self.windowed(items: items, query: query, offset: offset, limit: limit)
-        case let .provider(provider):
-            try Task.checkCancellation()
-            let page = try await provider(query, offset, limit)
-            try Task.checkCancellation()
-            let clamped = page.items.prefix(Self.maxItems).compactMap(clamp)
-            return Page(items: Array(clamped), hasMore: page.hasMore)
-        }
+    func page(for request: Request, query: String, offset: Int, limit: Int) -> Page {
+        Self.window(request.dataset.items, query: query, offset: offset, limit: limit)
     }
 
-    private static func windowed(items: [Item], query: String, offset: Int, limit: Int) async -> Page {
-        let task = Task.detached(priority: .userInitiated) {
-            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let filtered = trimmed.isEmpty ? items : items.filter { item in
-                item.title.lowercased().contains(trimmed)
-                    || (item.subtitle?.lowercased().contains(trimmed) ?? false)
-            }
-            let window = filtered.dropFirst(offset).prefix(limit)
-            return Page(items: Array(window), hasMore: offset + window.count < filtered.count)
-        }
-        return await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
+    private static func window(_ items: [Item], query: String, offset: Int, limit: Int) -> Page {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filtered = trimmed.isEmpty ? items : items.filter { matches($0, trimmed) }
+        let window = filtered.dropFirst(offset).prefix(limit)
+        return Page(items: Array(window), hasMore: offset + window.count < filtered.count)
+    }
+
+    private static func matches(_ item: Item, _ needle: String) -> Bool {
+        item.title.lowercased().contains(needle)
+            || (item.subtitle?.lowercased().contains(needle) ?? false)
     }
 
     func select(_ item: Item) {
@@ -113,17 +148,21 @@ final class ExtensionModalService {
     func filter(_ query: String, in items: [Item]) -> [Item] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else { return items }
-        return items.filter { item in
-            item.title.lowercased().contains(trimmed)
-                || (item.subtitle?.lowercased().contains(trimmed) ?? false)
-        }
+        return items.filter { Self.matches($0, trimmed) }
     }
 
     private func resolve(with item: Item?) {
-        guard let continuation else { return }
-        self.continuation = nil
+        let requestID = pendingRequestID
         active = nil
-        continuation.resume(returning: item)
+        session = nil
+        pendingRequestID = nil
+        if let handler = onResolve {
+            onResolve = nil
+            handler(item)
+            return
+        }
+        guard let requestID else { return }
+        bufferedResults[requestID] = item
     }
 
     private func parseItems(_ args: [String: Any]) throws -> [Item] {
@@ -148,12 +187,6 @@ final class ExtensionModalService {
         return Item(id: id, title: title, subtitle: clamped(dict["subtitle"] as? String))
     }
 
-    private func clamp(_ item: Item) -> Item? {
-        guard let id = clamped(item.id), !id.isEmpty else { return nil }
-        guard let title = clamped(item.title), !title.isEmpty else { return nil }
-        return Item(id: id, title: title, subtitle: clamped(item.subtitle))
-    }
-
     private func text(_ args: [String: Any], _ key: String) -> String? {
         clamped(args[key] as? String)
     }
@@ -164,25 +197,18 @@ final class ExtensionModalService {
     }
 }
 
-extension ExtensionModalService.Page {
-    static func from(_ raw: Any?) -> ExtensionModalService.Page {
-        if let array = raw as? [Any] {
-            return ExtensionModalService.Page(items: parseItems(array), hasMore: false)
-        }
-        guard let dict = raw as? [String: Any] else {
-            return ExtensionModalService.Page(items: [], hasMore: false)
-        }
-        let items = parseItems(dict["items"] as? [Any] ?? [])
-        return ExtensionModalService.Page(items: items, hasMore: dict["hasMore"] as? Bool ?? false)
-    }
-
-    private static func parseItems(_ raw: [Any]) -> [ExtensionModalService.Item] {
+extension ExtensionModalService {
+    static func parseItems(_ raw: [Any]) -> [Item] {
         raw.compactMap { entry in
             guard let dict = entry as? [String: Any],
                   let id = dict["id"] as? String, !id.isEmpty,
                   let title = dict["title"] as? String, !title.isEmpty
             else { return nil }
-            return ExtensionModalService.Item(id: id, title: title, subtitle: dict["subtitle"] as? String)
+            return Item(
+                id: String(id.prefix(maxTextLength)),
+                title: String(title.prefix(maxTextLength)),
+                subtitle: (dict["subtitle"] as? String).map { String($0.prefix(maxTextLength)) }
+            )
         }
     }
 }

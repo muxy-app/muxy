@@ -14,7 +14,6 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
     private weak var webView: WKWebView?
     private var eventObservers: [String: UUID] = [:]
     private var extensionEventObservers: [String: UUID] = [:]
-    private let modalProviderBridge = ModalProviderBridge()
 
     init(
         extensionID: String,
@@ -41,7 +40,6 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
             NotificationSocketServer.shared.removeExtensionEventObserver(token)
         }
         extensionEventObservers.removeAll()
-        modalProviderBridge.cancelAll()
     }
 
     func userContentController(
@@ -82,67 +80,23 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
     private func handle(verb: String, args: [String: Any], appState: AppState) async throws -> Any {
         switch verb {
         case "events.subscribe":
-            return try handleSubscribe(args: args)
+            try handleSubscribe(args: args)
         case "events.unsubscribe":
-            return try handleUnsubscribe(args: args)
+            try handleUnsubscribe(args: args)
         case "events.emit":
-            return try await handleEmit(args: args)
-        case "modal.provide":
-            modalProviderBridge.resolve(args: args)
-            return NSNull()
+            try await handleEmit(args: args)
         default:
-            return try await MuxyAPIDispatcher.dispatch(
+            try await MuxyAPIDispatcher.dispatch(
                 verb: verb,
                 args: args,
                 context: MuxyAPIDispatcher.Context(
                     extensionID: extensionID,
                     appState: appState,
                     projectStore: projectStore,
-                    worktreeStore: worktreeStore,
-                    modalProvider: { [weak self] providerID in
-                        self?.makeModalProvider(providerID: providerID) ?? Self.emptyProvider
-                    }
+                    worktreeStore: worktreeStore
                 )
             )
         }
-    }
-
-    private static let emptyProvider: ExtensionModalService.Provider = { _, _, _ in
-        ExtensionModalService.Page(items: [], hasMore: false)
-    }
-
-    private func makeModalProvider(providerID: String) -> ExtensionModalService.Provider {
-        let bridge = modalProviderBridge
-        return { [weak self] query, offset, limit in
-            guard let self else { return ExtensionModalService.Page(items: [], hasMore: false) }
-            let token = bridge.nextToken()
-            self.deliverModalProviderRequest(providerID: providerID, token: token, query: query, offset: offset, limit: limit)
-            return await bridge.awaitPage(token: token)
-        }
-    }
-
-    private func deliverModalProviderRequest(
-        providerID: String,
-        token: Int,
-        query: String,
-        offset: Int,
-        limit: Int
-    ) {
-        guard let webView else { return }
-        let payload: [String: Any] = [
-            "providerID": providerID,
-            "requestToken": token,
-            "query": query,
-            "offset": offset,
-            "limit": limit,
-        ]
-        let payloadLiteral = jsLiteral(payloadJSON: payload)
-        let script = """
-        if (typeof window.__muxyEventDispatch === 'function') {
-            window.__muxyEventDispatch("__muxiModalProvider", \(payloadLiteral));
-        }
-        """
-        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     private func handleSubscribe(args: [String: Any]) throws -> Any {
@@ -252,14 +206,6 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
 
     private func jsLiteral(payloadJSON: [String: String]) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: payloadJSON),
-              let literal = String(data: data, encoding: .utf8)
-        else { return "{}" }
-        return literal
-    }
-
-    private func jsLiteral(payloadJSON: [String: Any]) -> String {
-        guard JSONSerialization.isValidJSONObject(payloadJSON),
-              let data = try? JSONSerialization.data(withJSONObject: payloadJSON),
               let literal = String(data: data, encoding: .utf8)
         else { return "{}" }
         return literal

@@ -15,33 +15,34 @@ public enum ExtensionBridgeJS {
                 if (reply && reply.ok) return reply.value;
                 throw new Error((reply && reply.error) || 'extension api error');
             };
-            const modalProviders = new Map();
-            let nextProviderID = 1;
-            const registerModalProvider = (search) => {
-                const providerID = 'p' + nextProviderID++;
-                modalProviders.set(providerID, search);
-                return providerID;
+            const normalizeModalItems = (raw) => (Array.isArray(raw) ? raw : (raw && raw.items) || [])
+                .map((it) => (it && it.id != null && it.title != null
+                    ? { id: String(it.id), title: String(it.title), subtitle: it.subtitle == null ? null : String(it.subtitle) }
+                    : null))
+                .filter(Boolean);
+            const modalLabels = (o) => {
+                const labels = {};
+                if (o.placeholder != null) labels.placeholder = String(o.placeholder);
+                if (o.emptyLabel != null) labels.emptyLabel = String(o.emptyLabel);
+                if (o.noMatchLabel != null) labels.noMatchLabel = String(o.noMatchLabel);
+                return labels;
             };
-            const normalizeModalPage = (result) => {
-                const raw = Array.isArray(result) ? result : (result && result.items) || [];
-                const items = raw
-                    .map((it) => (it && it.id != null && it.title != null
-                        ? { id: String(it.id), title: String(it.title), subtitle: it.subtitle == null ? null : String(it.subtitle) }
-                        : null))
-                    .filter(Boolean);
-                const hasMore = Array.isArray(result) ? false : Boolean(result && result.hasMore);
-                return { items, hasMore };
+            const feedModalItems = (o) => {
+                const emit = (batch) => dispatch('modal.feed', { items: normalizeModalItems(batch) });
+                if (typeof o.items === 'function') {
+                    const produced = o.items(emit);
+                    if (produced != null) emit(produced);
+                } else {
+                    emit(o.items);
+                }
+                dispatch('modal.finish', {});
             };
-            this.__muxiRunModalProvider = (providerID, query, offset, limit) => {
-                const search = modalProviders.get(providerID);
-                if (typeof search !== 'function') return { items: [], hasMore: false };
-                try {
-                    return normalizeModalPage(search(String(query || ''), {
-                        offset: Number(offset) || 0,
-                        limit: Number(limit) || 0,
-                    }));
-                } catch (error) {
-                    return { items: [], hasMore: false, error: String((error && error.message) || error) };
+            const modalResultHandlers = {};
+            this.__muxiDeliverModalResult = (requestID, item) => {
+                const handler = modalResultHandlers[requestID];
+                delete modalResultHandlers[requestID];
+                if (typeof handler === 'function') {
+                    try { handler(item == null ? null : item); } catch (error) { console.error(error); }
                 }
             };
             const muxy = {
@@ -93,21 +94,12 @@ public enum ExtensionBridgeJS {
                 modal: {
                     open(opts) {
                         const o = opts || {};
-                        const payload = {};
-                        if (o.placeholder != null) payload.placeholder = String(o.placeholder);
-                        if (o.emptyLabel != null) payload.emptyLabel = String(o.emptyLabel);
-                        if (o.noMatchLabel != null) payload.noMatchLabel = String(o.noMatchLabel);
-                        if (typeof o.search === 'function') {
-                            const providerID = registerModalProvider(o.search);
-                            payload.providerID = providerID;
-                            try {
-                                return dispatch('modal.open', payload);
-                            } finally {
-                                modalProviders.delete(providerID);
-                            }
-                        }
-                        payload.items = Array.isArray(o.items) ? o.items : [];
-                        return dispatch('modal.open', payload);
+                        const opened = dispatch('modal.open', modalLabels(o));
+                        const requestID = opened && opened.requestID;
+                        feedModalItems(o);
+                        \(surface == .inProcess ?
+            "if (typeof o.onSelect === 'function' && requestID != null) modalResultHandlers[requestID] = o.onSelect; return requestID;" :
+            "const choice = dispatch('modal.await', { requestID }); if (typeof o.onSelect === 'function') o.onSelect(choice); return choice;")
                     },
                 },
                 topbar: {

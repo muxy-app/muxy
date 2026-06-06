@@ -238,9 +238,22 @@ enum SocketCommandHandler {
         case "dialog.alert":
             guard parts.count >= 2 else { return "error:usage dialog.alert|<base64-json>" }
             return await handleDialogAlert(base64Payload: parts[1], extensionID: clientContext.extensionID)
-        case "modal.open":
-            guard parts.count >= 2 else { return "error:usage modal.open|<base64-json>" }
-            return await handleModalOpen(base64Payload: parts[1], extensionID: clientContext.extensionID)
+        case "modal.open",
+             "modal.feed",
+             "modal.finish",
+             "modal.await":
+            guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
+            guard let extensionID = clientContext.extensionID else { return "error:identify required" }
+            return await handleModalVerb(
+                verb: cmd,
+                base64Payload: parts[1],
+                context: MuxyAPIDispatcher.Context(
+                    extensionID: extensionID,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore
+                )
+            )
         case "topbar.set",
              "statusbar.set":
             guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
@@ -350,53 +363,19 @@ enum SocketCommandHandler {
         }
     }
 
-    private static func handleModalOpen(base64Payload: String, extensionID: String?) async -> String {
-        guard let extensionID else { return "error:identify required" }
+    private static func handleModalVerb(
+        verb: String,
+        base64Payload: String,
+        context: MuxyAPIDispatcher.Context
+    ) async -> String {
         guard let args = decodeJSONObject(base64Payload) else {
-            return "error:invalid modal payload"
+            return "error:invalid \(verb) payload"
         }
         do {
-            let selected: ExtensionModalService.Item?
-            if let providerID = args["providerID"] as? String, !providerID.isEmpty {
-                let provider = makeBackgroundModalProvider(extensionID: extensionID, providerID: providerID)
-                selected = await ExtensionModalService.shared.present(
-                    extensionID: extensionID,
-                    source: .provider(provider),
-                    args: args
-                )
-            } else {
-                selected = try await ExtensionModalService.shared.present(extensionID: extensionID, args: args)
-            }
-            return encodeJSONFragment(selected.map(modalItemDict) ?? NSNull())
+            let result = try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: context)
+            return encodeJSONFragment(result)
         } catch {
             return "error:\((error as? APIError)?.message ?? error.localizedDescription)"
-        }
-    }
-
-    private static func makeBackgroundModalProvider(
-        extensionID: String,
-        providerID: String
-    ) -> ExtensionModalService.Provider {
-        { query, offset, limit in
-            let request: [String: Any] = [
-                "providerID": providerID,
-                "query": query,
-                "offset": offset,
-                "limit": limit,
-            ]
-            guard let payload = try? JSONSerialization.data(withJSONObject: request) else {
-                return ExtensionModalService.Page(items: [], hasMore: false)
-            }
-            guard let reply = try? await NotificationSocketServer.shared.invokeRemote(
-                extensionID: extensionID,
-                action: ExtensionModalService.providerAction,
-                payload: payload
-            )
-            else {
-                return ExtensionModalService.Page(items: [], hasMore: false)
-            }
-            let raw = try? JSONSerialization.jsonObject(with: reply, options: [.fragmentsAllowed])
-            return ExtensionModalService.Page.from(raw)
         }
     }
 
@@ -431,14 +410,6 @@ enum SocketCommandHandler {
             )
         )
         return updated ? encodeJSONFragment(NSNull()) : "error:unknown status bar item '\(itemID)'"
-    }
-
-    private static func modalItemDict(_ item: ExtensionModalService.Item) -> [String: Any] {
-        [
-            "id": item.id,
-            "title": item.title,
-            "subtitle": item.subtitle ?? NSNull(),
-        ]
     }
 
     private static func decodeJSONObject(_ base64Payload: String) -> [String: Any]? {

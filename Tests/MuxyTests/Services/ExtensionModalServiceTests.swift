@@ -19,7 +19,7 @@ struct ExtensionModalServiceTests {
         async let result = service.present(extensionID: "ext", args: args)
         try await waitForActive(service)
         let active = try #require(service.active)
-        let page = try await service.loadPage(for: active, query: "", offset: 0, limit: 100)
+        let page = service.page(for: active, query: "", offset: 0, limit: 100)
         let target = try #require(page.items.last)
         service.select(target)
 
@@ -32,7 +32,7 @@ struct ExtensionModalServiceTests {
     @Test("dismiss resolves with nil")
     func dismissResolvesNil() async throws {
         let service = ExtensionModalService()
-        let args: [String: Any] = [["items": [["id": "a", "title": "Alpha"]]]].first!
+        let args: [String: Any] = ["items": [["id": "a", "title": "Alpha"]]]
 
         async let result = service.present(extensionID: "ext", args: args)
         try await waitForActive(service)
@@ -59,7 +59,7 @@ struct ExtensionModalServiceTests {
         #expect(service.active?.extensionID == "b")
 
         let active = try #require(service.active)
-        let page = try await service.loadPage(for: active, query: "", offset: 0, limit: 100)
+        let page = service.page(for: active, query: "", offset: 0, limit: 100)
         let target = try #require(page.items.first)
         service.select(target)
         let secondResult = try await second
@@ -104,102 +104,109 @@ struct ExtensionModalServiceTests {
         #expect(service.filter("  ", in: items).count == 2)
     }
 
-    @Test("eager loadPage windows results and reports hasMore")
-    func eagerLoadPagePages() async throws {
+    @Test("page windows the dataset and reports hasMore")
+    func pageWindowsDataset() {
         let service = ExtensionModalService()
-        let items = (0 ..< 5).map { ExtensionModalService.Item(id: "\($0)", title: "Item \($0)", subtitle: nil) }
-        let request = ExtensionModalService.Request(
-            id: "ext:1",
-            extensionID: "ext",
-            placeholder: "",
-            emptyLabel: "",
-            noMatchLabel: "",
-            source: .eager(items)
-        )
+        let request = makeStreamingRequest(service)
+        request.dataset.append((0 ..< 5).map { ExtensionModalService.Item(id: "\($0)", title: "Item \($0)", subtitle: nil) })
 
-        let first = try await service.loadPage(for: request, query: "", offset: 0, limit: 2)
+        let first = service.page(for: request, query: "", offset: 0, limit: 2)
         #expect(first.items.map(\.id) == ["0", "1"])
         #expect(first.hasMore)
 
-        let last = try await service.loadPage(for: request, query: "", offset: 4, limit: 2)
+        let last = service.page(for: request, query: "", offset: 4, limit: 2)
         #expect(last.items.map(\.id) == ["4"])
         #expect(!last.hasMore)
     }
 
-    @Test("provider loadPage forwards the query window and clamps items")
-    func providerLoadPageForwards() async throws {
+    @Test("page filters the dataset natively by query")
+    func pageFiltersByQuery() {
         let service = ExtensionModalService()
-        let captured = CapturedQuery()
-        let request = ExtensionModalService.Request(
-            id: "ext:1",
-            extensionID: "ext",
-            placeholder: "",
-            emptyLabel: "",
-            noMatchLabel: "",
-            source: .provider { query, offset, limit in
-                captured.query = query
-                captured.offset = offset
-                captured.limit = limit
-                return ExtensionModalService.Page(
-                    items: [ExtensionModalService.Item(id: "x", title: "X", subtitle: nil)],
-                    hasMore: true
-                )
-            }
-        )
+        let request = makeStreamingRequest(service)
+        request.dataset.append([
+            ExtensionModalService.Item(id: "1", title: "Login.swift", subtitle: "auth/Login.swift"),
+            ExtensionModalService.Item(id: "2", title: "Logout.swift", subtitle: "auth/Logout.swift"),
+            ExtensionModalService.Item(id: "3", title: "Main.swift", subtitle: "Main.swift"),
+        ])
 
-        let page = try await service.loadPage(for: request, query: "fo", offset: 10, limit: 20)
-        #expect(captured.query == "fo")
-        #expect(captured.offset == 10)
-        #expect(captured.limit == 20)
-        #expect(page.items.map(\.id) == ["x"])
-        #expect(page.hasMore)
+        let page = service.page(for: request, query: "auth", offset: 0, limit: 100)
+        #expect(page.items.map(\.id) == ["1", "2"])
+        #expect(!page.hasMore)
     }
 
-    @Test("provider present resolves with the selected item")
-    func providerPresentResolves() async throws {
+    @Test("streaming session feeds the active dataset and resolves on select")
+    func streamingSessionFlow() async throws {
         let service = ExtensionModalService()
-        let source = ExtensionModalService.Source.provider { _, _, _ in
-            ExtensionModalService.Page(
-                items: [ExtensionModalService.Item(id: "p", title: "Picked", subtitle: nil)],
-                hasMore: false
-            )
-        }
 
-        async let result = service.present(extensionID: "ext", source: source, args: ["placeholder": "Pick"])
-        try await waitForActive(service)
+        let requestID = service.openSession(extensionID: "ext", args: ["placeholder": "Pick"])
         let active = try #require(service.active)
-        let page = try await service.loadPage(for: active, query: "", offset: 0, limit: 100)
-        let target = try #require(page.items.first)
-        service.select(target)
+        #expect(active.dataset.loading)
 
+        service.feedSession([ExtensionModalService.Item(id: "x", title: "X", subtitle: nil)])
+        service.feedSession([ExtensionModalService.Item(id: "y", title: "Y", subtitle: nil)])
+        service.finishSession()
+        #expect(!active.dataset.loading)
+        #expect(active.dataset.items.map(\.id) == ["x", "y"])
+
+        async let result = service.awaitSelection(requestID: requestID)
+        service.select(ExtensionModalService.Item(id: "y", title: "Y", subtitle: nil))
         let selected = await result
-        #expect(selected?.id == "p")
+        #expect(selected?.id == "y")
         #expect(service.active == nil)
     }
 
-    @Test("Page.from parses items array and hasMore")
-    func pageFromParses() {
-        let dict: [String: Any] = [
-            "items": [
-                ["id": "a", "title": "Alpha"],
-                ["id": "", "title": "skip"],
-                ["title": "no id"],
-            ],
-            "hasMore": true,
-        ]
-        let page = ExtensionModalService.Page.from(dict)
-        #expect(page.items.map(\.id) == ["a"])
-        #expect(page.hasMore)
+    @Test("onResult callback fires on select")
+    func onResultCallbackFires() {
+        let service = ExtensionModalService()
+        let requestID = service.openSession(extensionID: "ext", args: [:])
+        service.finishSession()
 
-        let bare = ExtensionModalService.Page.from([["id": "b", "title": "Beta"]])
-        #expect(bare.items.map(\.id) == ["b"])
-        #expect(!bare.hasMore)
+        let captured = ResultBox()
+        service.onResult(requestID: requestID) { captured.value = $0?.id ?? "nil" }
+        service.select(ExtensionModalService.Item(id: "z", title: "Z", subtitle: nil))
+        #expect(captured.value == "z")
+        #expect(service.active == nil)
     }
 
-    private final class CapturedQuery: @unchecked Sendable {
-        var query = ""
-        var offset = -1
-        var limit = -1
+    @Test("dismiss delivers nil to the result callback")
+    func dismissDeliversNil() {
+        let service = ExtensionModalService()
+        let requestID = service.openSession(extensionID: "ext", args: [:])
+        service.finishSession()
+
+        let captured = ResultBox()
+        captured.value = "unset"
+        service.onResult(requestID: requestID) { captured.value = $0?.id ?? "nil" }
+        service.dismiss()
+        #expect(captured.value == "nil")
+    }
+
+    @Test("dataset caps at maxItems")
+    func datasetCapsAtMax() {
+        let dataset = ExtensionModalService.Dataset()
+        let huge = (0 ..< (ExtensionModalService.maxItems + 10))
+            .map { ExtensionModalService.Item(id: "\($0)", title: "t", subtitle: nil) }
+        dataset.append(huge)
+        #expect(dataset.items.count == ExtensionModalService.maxItems)
+    }
+
+    @Test("parseItems drops invalid entries and clamps text")
+    func parseItemsValidates() {
+        let parsed = ExtensionModalService.parseItems([
+            ["id": "a", "title": "Alpha"],
+            ["id": "", "title": "skip"],
+            ["title": "no id"],
+        ])
+        #expect(parsed.map(\.id) == ["a"])
+    }
+
+    private final class ResultBox {
+        var value = ""
+    }
+
+    private func makeStreamingRequest(_ service: ExtensionModalService) -> ExtensionModalService.Request {
+        service.openSession(extensionID: "ext", args: [:])
+        return service.active!
     }
 
     private func waitForActive(_ service: ExtensionModalService) async throws {

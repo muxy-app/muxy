@@ -21,10 +21,21 @@ final class ExtensionScriptRunner {
         }
     }
 
-    private struct ContextHandle {
+    private final class ContextHandle {
         let context: JSContext
         let queue: DispatchQueue
         let cancelFlag: ScriptCancelFlag
+        var bridge: AnyObject?
+        var pendingModals = 0
+        var scriptFinished = false
+
+        init(context: JSContext, queue: DispatchQueue, cancelFlag: ScriptCancelFlag) {
+            self.context = context
+            self.queue = queue
+            self.cancelFlag = cancelFlag
+        }
+
+        var canEvict: Bool { scriptFinished && pendingModals <= 0 }
     }
 
     private var contexts: [String: ContextHandle] = [:]
@@ -49,11 +60,6 @@ final class ExtensionScriptRunner {
         }
 
         let handle = try makeContextHandle(for: extensionID)
-        defer {
-            if contexts[extensionID]?.cancelFlag === handle.cancelFlag {
-                contexts.removeValue(forKey: extensionID)
-            }
-        }
         let bridge = ScriptBridge(
             extensionID: extensionID,
             appState: appState,
@@ -61,7 +67,19 @@ final class ExtensionScriptRunner {
             worktreeStore: worktreeStore,
             cancelFlag: handle.cancelFlag
         )
+        handle.bridge = bridge
+        bridge.deliveryQueue = handle.queue
+        bridge.modalPendingChanged = { [weak self, weak handle] delta in
+            guard let self, let handle else { return }
+            handle.pendingModals += delta
+            self.evictIfIdle(extensionID: extensionID, handle: handle)
+        }
         bridge.install(into: handle.context)
+
+        defer {
+            handle.scriptFinished = true
+            evictIfIdle(extensionID: extensionID, handle: handle)
+        }
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             handle.queue.async {
@@ -79,6 +97,11 @@ final class ExtensionScriptRunner {
                 }
             }
         }
+    }
+
+    private func evictIfIdle(extensionID: String, handle: ContextHandle) {
+        guard handle.canEvict, contexts[extensionID] === handle else { return }
+        contexts.removeValue(forKey: extensionID)
     }
 
     private final class ExceptionCapture {
@@ -159,14 +182,14 @@ private final class ScriptBridge: @unchecked Sendable {
         if cancelFlag.isCancelled {
             return Self.errorObject("extension stopped")
         }
-        if verb == "modal.open", let providerID = args["providerID"] as? String, !providerID.isEmpty {
-            return dispatchProviderModal(providerID: providerID, args: args)
-        }
         let bridge = self
         let argsBox = AnyBox(args)
         do {
             let encoded = try syncAwait { @MainActor in
                 let raw = try await bridge.handle(verb: verb, args: argsBox.value)
+                if verb == "modal.open", let dict = raw as? [String: Any], let requestID = dict["requestID"] as? String {
+                    bridge.registerModalDelivery(requestID: requestID)
+                }
                 return try BridgeValue(from: raw)
             }
             return ["ok": true, "value": encoded.unwrap()]
@@ -177,60 +200,35 @@ private final class ScriptBridge: @unchecked Sendable {
         }
     }
 
-    private func dispatchProviderModal(providerID: String, args: [String: Any]) -> Any {
-        let pump = ScriptRunLoopPump()
-        let provider = ScriptModalProvider(bridge: self, pump: pump, providerID: providerID)
-        let argsBox = AnyBox(args)
-        let result = ResultBox<Any>()
-
-        Task { @MainActor [weak self] in
-            defer { pump.finish() }
-            guard let self, let appState = self.appState else {
-                result.value = .failure(APIError.underlying("app state unavailable"))
-                return
-            }
-            do {
-                let selected = try await MuxyAPIDispatcher.dispatch(
-                    verb: "modal.open",
-                    args: argsBox.value,
-                    context: MuxyAPIDispatcher.Context(
-                        extensionID: self.extensionID,
-                        appState: appState,
-                        projectStore: self.projectStore,
-                        worktreeStore: self.worktreeStore,
-                        modalProvider: { _ in provider.callback() }
-                    )
-                )
-                result.value = .success(selected)
-            } catch {
-                result.value = .failure(error)
-            }
-        }
-
-        pump.waitUntilFinished()
-        provider.invalidate()
-        pump.invalidate()
-
-        switch result.value {
-        case let .success(value):
-            return ["ok": true, "value": value]
-        case let .failure(error as APIError):
-            return Self.errorObject(error.message)
-        case let .failure(error):
-            return Self.errorObject(error.localizedDescription)
-        case .none:
-            return Self.errorObject("modal cancelled")
+    @MainActor
+    private func registerModalDelivery(requestID: String) {
+        let onPending = modalPendingChanged
+        onPending?(1)
+        ExtensionModalService.shared.onResult(requestID: requestID) { [weak self] item in
+            self?.deliverModalResult(requestID: requestID, item: item)
+            onPending?(-1)
         }
     }
 
-    func evaluateProviderPage(providerID: String, query: String, offset: Int, limit: Int) -> Any? {
-        guard let context else { return nil }
-        guard let runner = context.objectForKeyedSubscript("__muxiRunModalProvider"),
-              !runner.isUndefined
-        else { return nil }
-        let page = runner.call(withArguments: [providerID, query, offset, limit])
-        return page?.toDictionary()
+    private func deliverModalResult(requestID: String, item: ExtensionModalService.Item?) {
+        guard let queue = deliveryQueue else { return }
+        let payload: Any
+        if let item {
+            var dict: [String: Any] = ["id": item.id, "title": item.title]
+            dict["subtitle"] = item.subtitle ?? NSNull()
+            payload = dict
+        } else {
+            payload = NSNull()
+        }
+        queue.async { [weak self] in
+            guard let context = self?.context else { return }
+            let deliver = context.objectForKeyedSubscript("__muxiDeliverModalResult")
+            deliver?.call(withArguments: [requestID, payload])
+        }
     }
+
+    var deliveryQueue: DispatchQueue?
+    var modalPendingChanged: ((Int) -> Void)?
 
     private static func errorObject(_ message: String) -> [String: Any] {
         ["ok": false, "error": message]
@@ -254,144 +252,6 @@ private final class ScriptBridge: @unchecked Sendable {
 
 private final class ResultBox<T>: @unchecked Sendable {
     var value: Result<T, Error>?
-}
-
-private final class ScriptRunLoopPump: @unchecked Sendable {
-    private let mailbox = DispatchSemaphore(value: 0)
-    private let lock = NSLock()
-    private var pendingBlocks: [() -> Void] = []
-    private var finished = false
-    private var invalidated = false
-
-    func waitUntilFinished() {
-        while true {
-            mailbox.wait()
-            drain()
-            lock.lock()
-            let done = finished
-            lock.unlock()
-            if done {
-                drain()
-                return
-            }
-        }
-    }
-
-    func finish() {
-        lock.lock()
-        finished = true
-        lock.unlock()
-        mailbox.signal()
-    }
-
-    func enqueue(_ block: @escaping () -> Void) {
-        lock.lock()
-        if invalidated {
-            lock.unlock()
-            block()
-            return
-        }
-        pendingBlocks.append(block)
-        lock.unlock()
-        mailbox.signal()
-    }
-
-    func invalidate() {
-        lock.lock()
-        invalidated = true
-        let leftover = pendingBlocks
-        pendingBlocks.removeAll()
-        lock.unlock()
-        for block in leftover {
-            block()
-        }
-    }
-
-    private func drain() {
-        while true {
-            lock.lock()
-            guard !pendingBlocks.isEmpty else {
-                lock.unlock()
-                return
-            }
-            let block = pendingBlocks.removeFirst()
-            lock.unlock()
-            block()
-        }
-    }
-}
-
-private final class ScriptModalProvider: @unchecked Sendable {
-    private weak var bridge: ScriptBridge?
-    private let pump: ScriptRunLoopPump
-    private let providerID: String
-    private let lock = NSLock()
-    private var invalidated = false
-
-    init(bridge: ScriptBridge, pump: ScriptRunLoopPump, providerID: String) {
-        self.bridge = bridge
-        self.pump = pump
-        self.providerID = providerID
-    }
-
-    func invalidate() {
-        lock.lock()
-        invalidated = true
-        lock.unlock()
-    }
-
-    func callback() -> ExtensionModalService.Provider {
-        { [self] query, offset, limit in
-            let raw = await page(query: query, offset: offset, limit: limit)
-            return ExtensionModalService.Page.from(raw)
-        }
-    }
-
-    private func page(query: String, offset: Int, limit: Int) async -> Any? {
-        if Task.isCancelled { return nil }
-        let parentTask = TaskHandleBox()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Any?, Never>) in
-                pump.enqueue { [self] in
-                    lock.lock()
-                    let stopped = invalidated
-                    lock.unlock()
-                    guard !stopped, !parentTask.isCancelled, let bridge else {
-                        continuation.resume(returning: nil)
-                        return
-                    }
-                    logger.debug("modal provider eval start q=\(query, privacy: .public) off=\(offset)")
-                    let value = bridge.evaluateProviderPage(
-                        providerID: providerID,
-                        query: query,
-                        offset: offset,
-                        limit: limit
-                    )
-                    logger.debug("modal provider eval done q=\(query, privacy: .public)")
-                    continuation.resume(returning: value)
-                }
-            }
-        } onCancel: {
-            parentTask.cancel()
-        }
-    }
-}
-
-private final class TaskHandleBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var cancelled = false
-
-    var isCancelled: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return cancelled
-    }
-
-    func cancel() {
-        lock.lock()
-        cancelled = true
-        lock.unlock()
-    }
 }
 
 private struct AnyBox<T>: @unchecked Sendable {

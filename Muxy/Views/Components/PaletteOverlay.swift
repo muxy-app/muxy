@@ -7,11 +7,15 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
         let hasMore: Bool
     }
 
+    static var searchDebounce: Duration { .milliseconds(120) }
+
     let placeholder: String
     let emptyLabel: String
     let noMatchLabel: String
     let pageSize: Int
-    let loadPage: (String, Int, Int) async -> Page
+    let revision: Int
+    let isLoading: Bool
+    let page: (String, Int, Int) -> Page
     let onSelect: (Item) -> Void
     let onDismiss: () -> Void
     let row: (Item, Bool) -> AnyView
@@ -21,9 +25,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     @State private var hasMore = false
     @State private var highlightedIndex: Int? = 0
     @State private var isSearching = false
-    @State private var isLoadingMore = false
     @State private var searchTask: Task<Void, Never>?
-    @State private var loadMoreTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -40,10 +42,12 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             }
         }
         .onAppear {
-            performSearch(debounce: false)
+            refilter()
+        }
+        .onChange(of: revision) {
+            refilter()
         }
         .onDisappear {
-            loadMoreTask?.cancel()
             searchTask?.cancel()
         }
     }
@@ -64,7 +68,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                 onPageUp: { moveHighlight(-PaletteSearchField.pageJump) },
                 onPageDown: { moveHighlight(PaletteSearchField.pageJump) }
             )
-            if isSearching {
+            if isLoading || isSearching {
                 ProgressView()
                     .controlSize(.small)
                     .accessibilityLabel("Searching")
@@ -79,7 +83,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 
     private var resultsList: some View {
         Group {
-            if results.isEmpty, !isSearching {
+            if results.isEmpty, !isLoading, !isSearching {
                 VStack {
                     Spacer()
                     Text(query.isEmpty ? emptyLabel : noMatchLabel)
@@ -100,12 +104,6 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                                         if index >= results.count - 1 { loadMore() }
                                     }
                             }
-                            if isLoadingMore {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, UIMetrics.spacing4)
-                            }
                         }
                     }
                     .onChange(of: highlightedIndex) { _, newIndex in
@@ -118,45 +116,42 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
         .frame(maxHeight: .infinity)
     }
 
-    private func performSearch(debounce: Bool = true) {
+    private func performSearch() {
         searchTask?.cancel()
-        loadMoreTask?.cancel()
-
         let currentQuery = query
         isSearching = true
-        isLoadingMore = false
 
         searchTask = Task {
-            if debounce {
-                try? await Task.sleep(for: .milliseconds(120))
-                guard !Task.isCancelled else { return }
-            }
-
-            let page = await loadPage(currentQuery, 0, pageSize)
-            guard !Task.isCancelled, currentQuery == query else { return }
-
-            results = page.items
-            hasMore = page.hasMore
-            highlightedIndex = page.items.isEmpty ? nil : 0
+            try? await Task.sleep(for: Self.searchDebounce)
+            guard !Task.isCancelled else { return }
+            apply(page(currentQuery, 0, pageSize), resetHighlight: true)
             isSearching = false
         }
     }
 
-    private func loadMore() {
-        guard hasMore, !isSearching, !isLoadingMore else { return }
-        let currentQuery = query
-        let offset = results.count
-        isLoadingMore = true
+    private func refilter() {
+        searchTask?.cancel()
+        searchTask = nil
+        isSearching = false
+        let limit = max(pageSize, results.count)
+        apply(page(query, 0, limit), resetHighlight: results.isEmpty)
+    }
 
-        let task = Task {
-            let page = await loadPage(currentQuery, offset, pageSize)
-            guard !Task.isCancelled, currentQuery == query else { return }
-
-            results.append(contentsOf: page.items)
-            hasMore = page.hasMore
-            isLoadingMore = false
+    private func apply(_ result: Page, resetHighlight: Bool) {
+        results = result.items
+        hasMore = result.hasMore
+        if resetHighlight || highlightedIndex == nil {
+            highlightedIndex = result.items.isEmpty ? nil : 0
+        } else if let index = highlightedIndex {
+            highlightedIndex = min(index, max(0, result.items.count - 1))
         }
-        loadMoreTask = task
+    }
+
+    private func loadMore() {
+        guard hasMore, !isSearching else { return }
+        let next = page(query, results.count, pageSize)
+        results.append(contentsOf: next.items)
+        hasMore = next.hasMore
     }
 
     private func moveHighlight(_ delta: Int) {

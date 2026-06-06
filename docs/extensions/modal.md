@@ -1,17 +1,17 @@
 # Extension Modal
 
-A native, searchable picker overlay. The extension supplies a list; Muxy owns the UI, the search field, keyboard navigation, and open/close. Selecting an item (click or Return) closes the modal and resolves the call with that item; dismissing (Esc, click outside) resolves with `null`.
+A native, searchable picker overlay. The extension supplies a list; Muxy owns the UI, the search field, keyboard navigation, and open/close. Selecting an item (click or Return) delivers that item; dismissing (Esc, click outside) delivers `null`.
 
 `modal` is available on all three surfaces: webview pages (tabs, panels, popovers) via [`window.muxy`](tabs.md#windowmuxy), [`runScript`](scripts.md) palette-command scripts via `muxy`, and the [background script](manifest.md) `muxy` global. It needs **no permission** — the user drives every selection themselves, so there is nothing to gate ([what permissions don't gate](permissions.md#what-permissions-dont-gate)).
 
-On webview pages `modal.open` returns a `Promise` — use `await`. In `runScript` and background scripts it is **synchronous** and returns the selected item (or `null`) directly; `await` is harmless but not required. In every case the call blocks until the user responds.
+**Delivery of the choice is via an `onSelect(choice)` callback**, which fires when the user picks or dismisses. On `runScript` and background scripts `modal.open` returns immediately (it does **not** block); `onSelect` is the only way to read the result. On webview pages `modal.open` also returns a `Promise` of the choice, so you may `await` it instead of using `onSelect`.
 
 ## open
 
-Opens the picker with your items and resolves with the **selected item**, or `null` if dismissed.
+Opens the picker with your items; `onSelect` receives the **selected item**, or `null` if dismissed.
 
 ```js
-const choice = await muxy.modal.open({
+muxy.modal.open({
   placeholder: 'Pick a fruit...',   // search field placeholder
   emptyLabel: 'No items',           // shown when the list is empty
   noMatchLabel: 'No matches',       // shown when the query matches nothing
@@ -19,14 +19,16 @@ const choice = await muxy.modal.open({
     { id: 'apple', title: 'Apple', subtitle: 'Crisp and red' },
     { id: 'banana', title: 'Banana' },
   ],
+  onSelect(choice) {
+    if (choice) { /* choice = { id, title, subtitle } */ }
+  },
 });
-
-if (choice) { /* choice = { id, title, subtitle } */ }
 ```
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `items` | object[] | yes | The rows to show. Each needs an `id` and `title`; `subtitle` is optional. |
+| `items` | object[] or function | yes | The rows to show — an array, or an `items(emit)` producer (see [Streaming](#streaming-large-lists-items-producer)). |
+| `onSelect` | function | no* | `onSelect(choice)` fires with the chosen item or `null`. Required on `runScript`/background (which don't return the choice); optional on webview where you can `await` the result instead. |
 | `placeholder` | string | no | Search field placeholder. Defaults to `"Search..."`. |
 | `emptyLabel` | string | no | Message when there are no items. Defaults to `"No items"`. |
 | `noMatchLabel` | string | no | Message when the query matches nothing. Defaults to `"No matches"`. |
@@ -39,48 +41,45 @@ Each item:
 | `title` | string | yes | The bold primary line. |
 | `subtitle` | string | no | The dimmed secondary line. |
 
-Muxy filters the list as the user types (case-insensitive substring match on `title` and `subtitle`), highlights with the arrow keys, and selects on Return or click.
+Muxy filters the list as the user types (case-insensitive substring match on `title` and `subtitle`), highlights with the arrow keys, and selects on Return or click. **Filtering is native** — once your items are supplied, typing never calls back into your code, so search stays instant and the UI can never hang no matter how large the list or how fast the user types.
 
-## Lazy provider (`search`)
+## Streaming large lists (`items` producer)
 
-Passing `items` enumerates everything upfront — fine for small, bounded lists, but it stalls on
-large sets (e.g. every file in a big repo). Instead pass a **`search` function** and Muxy pulls
-results on demand: it calls `search` on each keystroke (debounced) with the query and a paging
-window, shows a spinner while it awaits, streams the rows in, and asks for the next page as the
-user scrolls. You only ever compute the page Muxy asks for — nothing is loaded until it's needed.
+A static `items` array enumerates everything upfront — fine for small lists, but for a big repo you
+don't want to block the open while you gather every file. Instead pass **`items` as a function**.
+Muxy opens the picker immediately (with a spinner) and calls your producer **once**, off the UI
+thread; you push rows in via `emit(batch)` and the list fills as they arrive. The user can type
+against whatever has loaded so far, and Muxy filters it natively.
 
 ```js
-const choice = await muxy.modal.open({
+muxy.modal.open({
   placeholder: 'Open file…',
-  async search(query, { offset, limit }) {
-    const files = await findFiles(query, offset, limit);   // you own the search
-    return {
-      items: files.map(f => ({ id: f.path, title: f.name, subtitle: f.path })),
-      hasMore: files.length === limit,   // tell Muxy a next page may exist
-    };
+  items(emit) {
+    const files = listAllFiles();             // you own the enumeration
+    for (const chunk of batches(files, 5000)) {
+      emit(chunk.map(f => ({ id: f.path, title: f.name, subtitle: f.path })));
+    }
+  },
+  onSelect(choice) {
+    if (choice) { /* { id, title, subtitle } */ }
   },
 });
-if (choice) { /* { id, title, subtitle } */ }
 ```
 
-| `search` arg | Type | Notes |
-| --- | --- | --- |
-| `query` | string | The current search text (empty on first open). |
-| `offset` | number | Index of the first row Muxy wants (0 on a fresh query, grows as you scroll). |
-| `limit` | number | How many rows to return for this page. |
+| `items` form | Behavior |
+| --- | --- |
+| array | The full list, supplied at once. Best for small, bounded sets. |
+| `items(emit)` function | Called once. Call `emit(batchArray)` any number of times to stream rows; you may also just **return** the full array instead of emitting. The picker opens before this finishes. |
 
-`search` returns `{ items, hasMore }` (or a bare `items` array). `items` is the same
-`{ id, title, subtitle? }` shape; `hasMore: true` lets Muxy request the next page when the user
-scrolls to the bottom. Provide **either** `items` **or** `search`, not both — if `search` is
-present it wins.
-
-- On webview pages and the background script, `search` may be `async` (return a `Promise`).
-- In `runScript` the whole surface is synchronous, so `search` runs **synchronously** — call
-  `muxy.exec`, `muxy.files.*`, etc. directly and return the page. `modal.open` still blocks and
-  returns the selection inline, exactly like the eager form.
-- Each page is capped at 1000 items / 200 chars per field; the **total** set is unbounded because
-  it is never materialized at once. A page that throws (or returns nothing) just shows no rows for
-  that query.
+- `emit` takes an array of `{ id, title, subtitle? }` (entries missing `id`/`title` are dropped).
+  Returning an array from the producer is equivalent to emitting it once.
+- On webview pages and the background script the producer may be `async` (do `await emit(...)`); in
+  `runScript` it runs synchronously — call `muxy.exec`, `muxy.files.*`, etc. directly and emit. In
+  every case `modal.open` blocks only on the user's selection, never on filtering.
+- The dataset is capped at 100,000 rows; `id`, `title`, and `subtitle` are capped at 200 chars
+  each. Producing nothing just shows the empty label.
+- Because filtering is native, you never debounce or handle the query yourself — Muxy owns search,
+  paging, and cancellation. There is no per-keystroke callback into your extension.
 
 ## Opening from a shortcut
 
@@ -101,21 +100,23 @@ The modal has no shortcut of its own — wire one through a [palette command](pa
 
 ```js
 // background.js
-muxy.events.subscribe('command.pick', async () => {
-  const choice = await muxy.modal.open({
+muxy.events.subscribe('command.pick', () => {
+  muxy.modal.open({
     placeholder: 'Pick a fruit...',
     items: [
       { id: 'apple', title: 'Apple', subtitle: 'Crisp and red' },
       { id: 'banana', title: 'Banana', subtitle: 'Soft and yellow' },
     ],
+    onSelect(choice) {
+      if (choice) muxy.notifications.notify({ title: 'Picked', body: choice.title });
+    },
   });
-  if (choice) muxy.notifications.notify({ title: 'Picked', body: choice.title });
 });
 ```
 
 ## Notes
 
-- The call blocks the caller until the user responds. From a background script this pauses that script's event loop the same way `exec` does, so don't open a modal from a hot event path.
-- Only one modal is shown at a time. Opening a new one while another is showing closes the existing modal — its pending call resolves with `null` — and presents the new picker.
-- `placeholder` and the labels are capped at 200 characters; `id`, `title`, and `subtitle` per item at 200. The eager `items` list is capped at the first 1000; a `search` page is capped at 1000 rows per call but the overall result set is unbounded. Items missing `id` or `title` are dropped.
-- The modal presents on the main Muxy window; if no item survives validation the call rejects.
+- On `runScript`/background, `modal.open` returns immediately and the choice arrives via `onSelect`; the script does not block waiting for the user. On webview pages `modal.open` also returns a `Promise` you can `await`.
+- Only one modal is shown at a time. Opening a new one while another is showing closes the existing modal — its `onSelect` fires with `null` — and presents the new picker.
+- `placeholder` and the labels are capped at 200 characters; `id`, `title`, and `subtitle` per item at 200. The dataset (array or streamed via the producer) is capped at 100,000 rows; items missing `id` or `title` are dropped.
+- The modal presents on the main Muxy window.

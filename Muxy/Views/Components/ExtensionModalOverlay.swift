@@ -6,18 +6,21 @@ struct ExtensionModalOverlay: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        PaletteOverlay<ExtensionModalService.Item>(
+        let dataset = request.dataset
+        return PaletteOverlay<ExtensionModalService.Item>(
             placeholder: request.placeholder,
             emptyLabel: request.emptyLabel,
             noMatchLabel: request.noMatchLabel,
             pageSize: ExtensionModalService.pageSize,
-            loadPage: { query, offset, limit in
-                let page = await (try? ExtensionModalService.shared.loadPage(
+            revision: dataset.revision,
+            isLoading: dataset.loading,
+            page: { query, offset, limit in
+                let page = ExtensionModalService.shared.page(
                     for: request,
                     query: query,
                     offset: offset,
                     limit: limit
-                )) ?? ExtensionModalService.Page(items: [], hasMore: false)
+                )
                 return PaletteOverlay.Page(items: page.items, hasMore: page.hasMore)
             },
             onSelect: onSelect,
