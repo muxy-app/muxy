@@ -220,12 +220,15 @@ struct ExtensionInstallPage: View {
     }
 
     private func load() async {
+        let requested = name
         phase = .loading
         installError = nil
         do {
-            let ext = try await ExtensionMarketplaceService.shared.fetch(name: name)
+            let ext = try await ExtensionMarketplaceService.shared.fetch(name: requested)
+            guard requested == name, !Task.isCancelled else { return }
             phase = .loaded(ext)
         } catch {
+            guard requested == name, !Task.isCancelled else { return }
             phase = .failed(message(for: error))
         }
     }

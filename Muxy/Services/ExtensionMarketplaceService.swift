@@ -66,6 +66,18 @@ struct ExtensionListing: Decodable, Equatable, Identifiable {
         case version
         case iconURL = "icon_url"
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        author = try container.decodeIfPresent(MarketplaceExtensionAuthor.self, forKey: .author)
+        categories = try container.decodeIfPresent([String].self, forKey: .categories) ?? []
+        official = try container.decodeIfPresent(Bool.self, forKey: .official) ?? false
+        downloads = try container.decodeIfPresent(Int.self, forKey: .downloads) ?? 0
+        version = try container.decodeIfPresent(String.self, forKey: .version) ?? "0.0.0"
+        iconURL = try container.decodeIfPresent(String.self, forKey: .iconURL)
+    }
 }
 
 struct ExtensionCategory: Decodable, Equatable, Identifiable {
@@ -150,15 +162,25 @@ actor ExtensionMarketplaceService {
     private static let versionsBatchLimit = 100
     private static let catalogPageSizeRange = 1 ... 50
 
+    private static let requestTimeout: TimeInterval = 30
+    private static let resourceTimeout: TimeInterval = 120
+
     private let baseURL: URL
     private let session: URLSession
 
     init(
         baseURL: URL = ExtensionMarketplaceService.productionBaseURL,
-        session: URLSession = .shared
+        session: URLSession = ExtensionMarketplaceService.defaultSession
     ) {
         self.baseURL = baseURL
         self.session = session
+    }
+
+    private static var defaultSession: URLSession {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = resourceTimeout
+        return URLSession(configuration: configuration)
     }
 
     private static var productionBaseURL: URL {
@@ -262,6 +284,9 @@ actor ExtensionMarketplaceService {
     }
 
     func fetch(name: String) async throws -> MarketplaceExtension {
+        guard (try? ExtensionManifestLoader.validate(name: name)) != nil else {
+            throw MarketplaceError.notFound
+        }
         let url = baseURL
             .appendingPathComponent("api")
             .appendingPathComponent("extensions")
@@ -287,7 +312,7 @@ actor ExtensionMarketplaceService {
         guard ext.size > 0, ext.size <= Self.maximumDownloadBytes else {
             throw MarketplaceError.sizeMismatch
         }
-        guard let url = URL(string: ext.downloadURL) else {
+        guard let url = URL(string: ext.downloadURL), isTrustedDownload(url) else {
             throw MarketplaceError.invalidArchive
         }
 
@@ -344,6 +369,12 @@ actor ExtensionMarketplaceService {
 
     private func clampedPageSize(_ value: Int) -> Int {
         min(max(value, Self.catalogPageSizeRange.lowerBound), Self.catalogPageSizeRange.upperBound)
+    }
+
+    private func isTrustedDownload(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https" else { return false }
+        guard let host = url.host?.lowercased() else { return false }
+        return host == baseURL.host?.lowercased()
     }
 
     private static func sha256Hex(_ data: Data) -> String {

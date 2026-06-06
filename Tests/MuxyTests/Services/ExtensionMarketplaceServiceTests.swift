@@ -191,6 +191,67 @@ struct ExtensionMarketplaceServiceTests {
         }
     }
 
+    @Test("fetch rejects a traversal name without issuing a request")
+    func fetchRejectsTraversalName() async throws {
+        let service = makeService { _ in (200, Data(#"{"data":{}}"#.utf8)) }
+
+        await #expect(throws: MarketplaceError.notFound) {
+            _ = try await service.fetch(name: "../../admin")
+        }
+    }
+
+    @Test("list keeps decodable rows and applies defaults for missing fields")
+    func listDefaultsMissingListingFields() async throws {
+        let json = """
+        {
+            "data": [
+                { "name": "minimal" },
+                { "name": "full", "official": true, "downloads": 9, "version": "2.0.0", "categories": ["git"] }
+            ],
+            "links": { "next": null }
+        }
+        """
+        let service = makeService { _ in (200, Data(json.utf8)) }
+
+        let page = try await service.list(query: ExtensionCatalogQuery())
+
+        #expect(page.items.count == 2)
+        #expect(page.items.first?.official == false)
+        #expect(page.items.first?.downloads == 0)
+        #expect(page.items.first?.version == "0.0.0")
+        #expect(page.items.first?.categories.isEmpty == true)
+    }
+
+    @Test("download rejects a download URL on a foreign host")
+    func downloadRejectsForeignHost() async throws {
+        let payload = Data("zip-bytes".utf8)
+        let service = makeService { _ in (200, payload) }
+        let ext = makeExtension(
+            sha256: sha256Hex(payload),
+            size: payload.count,
+            downloadURL: "https://evil.example/download"
+        )
+
+        await #expect(throws: MarketplaceError.invalidArchive) {
+            _ = try await service.download(ext)
+        }
+    }
+
+    @Test("download rejects a non-https download URL")
+    func downloadRejectsNonHTTPS() async throws {
+        let payload = Data("zip-bytes".utf8)
+        let service = makeService { _ in (200, payload) }
+        let ext = makeExtension(
+            sha256: sha256Hex(payload),
+            size: payload.count,
+            downloadURL: "file:///etc/passwd"
+        )
+
+        await #expect(throws: MarketplaceError.invalidArchive) {
+            _ = try await service.download(ext)
+        }
+    }
+
     @Test("download rejects a hash mismatch")
     func downloadRejectsHashMismatch() async throws {
         let payload = Data("zip-bytes".utf8)
@@ -234,7 +295,11 @@ struct ExtensionMarketplaceServiceTests {
         )
     }
 
-    private func makeExtension(sha256: String, size: Int) -> MarketplaceExtension {
+    private func makeExtension(
+        sha256: String,
+        size: Int,
+        downloadURL: String = "https://muxy.test/download"
+    ) -> MarketplaceExtension {
         let json = """
         {
             "name": "demo",
@@ -250,7 +315,7 @@ struct ExtensionMarketplaceServiceTests {
             "current_version": "1.0.0",
             "sha256": "\(sha256)",
             "size": \(size),
-            "download_url": "https://muxy.test/download"
+            "download_url": "\(downloadURL)"
         }
         """
         return try! JSONDecoder().decode(MarketplaceExtension.self, from: Data(json.utf8))

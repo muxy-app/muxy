@@ -16,6 +16,7 @@ struct ExtensionStorePage: View {
     @State private var phase: Phase = .loading
     @State private var isLoadingMore = false
     @State private var loadMoreTask: Task<Void, Never>?
+    @State private var generation = 0
 
     private enum Phase: Equatable {
         case loading
@@ -168,13 +169,18 @@ struct ExtensionStorePage: View {
         }
     }
 
+    private var installedIDs: Set<String> {
+        Set(store.statuses.map(\.id))
+    }
+
     private var grid: some View {
-        ScrollView {
+        let installed = installedIDs
+        return ScrollView {
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(items) { listing in
                     ExtensionStoreCard(
                         listing: listing,
-                        isInstalled: store.statuses.contains { $0.id == listing.name },
+                        isInstalled: installed.contains(listing.name),
                         onSelect: { onSelect(listing.name) }
                     )
                     .onAppear {
@@ -244,18 +250,20 @@ struct ExtensionStorePage: View {
     private func reload() async {
         loadMoreTask?.cancel()
         isLoadingMore = false
+        generation += 1
+        let token = generation
         page = 1
         if items.isEmpty {
             phase = .loading
         }
         do {
             let result = try await ExtensionMarketplaceService.shared.list(query: makeQuery(page: 1))
-            guard !Task.isCancelled else { return }
+            guard token == generation, !Task.isCancelled else { return }
             items = result.items
             hasNextPage = result.hasNextPage
             phase = result.items.isEmpty ? .empty : .loaded
         } catch {
-            guard !Task.isCancelled else { return }
+            guard token == generation, !Task.isCancelled else { return }
             items = []
             phase = .failed(message(for: error))
         }
@@ -264,18 +272,20 @@ struct ExtensionStorePage: View {
     private func loadMoreIfNeeded() {
         guard hasNextPage, !isLoadingMore, phase == .loaded else { return }
         isLoadingMore = true
+        let token = generation
         let next = page + 1
         let request = makeQuery(page: next)
+        loadMoreTask?.cancel()
         loadMoreTask = Task {
             defer { isLoadingMore = false }
             do {
                 let result = try await ExtensionMarketplaceService.shared.list(query: request)
-                guard !Task.isCancelled else { return }
+                guard token == generation, !Task.isCancelled else { return }
                 items.append(contentsOf: result.items)
                 hasNextPage = result.hasNextPage
                 page = next
             } catch {
-                guard !Task.isCancelled else { return }
+                guard token == generation, !Task.isCancelled else { return }
                 hasNextPage = false
             }
         }

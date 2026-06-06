@@ -5,6 +5,7 @@ import Testing
 @testable import Muxy
 
 @Suite("ExtensionRemoteIconCache", .serialized)
+@MainActor
 struct ExtensionRemoteIconCacheTests {
     @Test("decodes an SVG icon that AsyncImage cannot render")
     func decodesSVG() async {
@@ -28,6 +29,23 @@ struct ExtensionRemoteIconCacheTests {
         let image = await cache.image(for: URL(string: "https://muxy.test/missing")!)
 
         #expect(image == nil)
+    }
+
+    @Test("does not refetch a URL that previously failed")
+    func cachesFailureNegatively() async {
+        let counter = HitCounter()
+        let cache = makeCache { _ in
+            counter.increment()
+            return (500, "text/plain", Data("boom".utf8))
+        }
+        let url = URL(string: "https://muxy.test/broken.png")!
+
+        let first = await cache.image(for: url)
+        let second = await cache.image(for: url)
+
+        #expect(first == nil)
+        #expect(second == nil)
+        #expect(counter.value == 1)
     }
 
     @Test("fetches a URL only once and serves the cached image")

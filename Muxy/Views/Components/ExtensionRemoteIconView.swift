@@ -29,21 +29,31 @@ struct ExtensionRemoteIconView: View {
     }
 
     private func load() async {
-        image = nil
-        guard let urlString, let url = URL(string: urlString) else { return }
+        guard let urlString, let url = URL(string: urlString) else {
+            image = nil
+            return
+        }
         let loaded = await ExtensionRemoteIconCache.shared.image(for: url)
         guard !Task.isCancelled else { return }
         image = loaded
     }
 }
 
-actor ExtensionRemoteIconCache {
+@MainActor
+final class ExtensionRemoteIconCache {
     static let shared = ExtensionRemoteIconCache()
 
-    private static let maximumIconBytes = 2 * 1024 * 1024
+    nonisolated private static let maximumIconBytes = 2 * 1024 * 1024
+    nonisolated private static let totalCostLimit = 32 * 1024 * 1024
 
-    private let cache = NSCache<NSURL, NSImage>()
-    private var inFlight: [URL: Task<NSImage?, Never>] = [:]
+    private let cache: NSCache<NSURL, NSImage> = {
+        let cache = NSCache<NSURL, NSImage>()
+        cache.totalCostLimit = ExtensionRemoteIconCache.totalCostLimit
+        return cache
+    }()
+
+    private var failed: Set<URL> = []
+    private var inFlight: [URL: Task<Data?, Never>] = [:]
     private let session: URLSession
 
     init(session: URLSession = .shared) {
@@ -54,23 +64,36 @@ actor ExtensionRemoteIconCache {
         if let cached = cache.object(forKey: url as NSURL) {
             return cached
         }
-        if let existing = inFlight[url] {
-            return await existing.value
+        if failed.contains(url) {
+            return nil
         }
 
-        let task = Task<NSImage?, Never> { [session] in
-            await Self.fetch(url: url, session: session)
+        let data = await fetchData(for: url)
+        if let cached = cache.object(forKey: url as NSURL) {
+            return cached
         }
-        inFlight[url] = task
-        let image = await task.value
-        inFlight[url] = nil
-        if let image {
-            cache.setObject(image, forKey: url as NSURL)
+        guard let data, let image = NSImage(data: data) else {
+            failed.insert(url)
+            return nil
         }
+        cache.setObject(image, forKey: url as NSURL, cost: data.count)
         return image
     }
 
-    private static func fetch(url: URL, session: URLSession) async -> NSImage? {
+    private func fetchData(for url: URL) async -> Data? {
+        if let existing = inFlight[url] {
+            return await existing.value
+        }
+        let task = Task { [session] in
+            await Self.download(url: url, session: session)
+        }
+        inFlight[url] = task
+        let data = await task.value
+        inFlight[url] = nil
+        return data
+    }
+
+    nonisolated private static func download(url: URL, session: URLSession) async -> Data? {
         var request = URLRequest(url: url)
         request.setValue("image/*", forHTTPHeaderField: "Accept")
         guard let (data, response) = try? await session.data(for: request) else { return nil }
@@ -78,6 +101,6 @@ actor ExtensionRemoteIconCache {
             return nil
         }
         guard data.count <= maximumIconBytes else { return nil }
-        return NSImage(data: data)
+        return data
     }
 }

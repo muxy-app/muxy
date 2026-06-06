@@ -252,6 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let segments = url.pathComponents.filter { $0 != "/" }
         guard segments.first == "install" else { return nil }
         guard let raw = segments.dropFirst().first?.removingPercentEncoding, !raw.isEmpty else { return nil }
+        guard (try? ExtensionManifestLoader.validate(name: raw)) != nil else { return nil }
         return raw
     }
 
