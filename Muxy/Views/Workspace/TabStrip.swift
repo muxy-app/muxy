@@ -13,6 +13,7 @@ struct PaneTabStrip: View {
         let colorID: String?
         let extensionID: String?
         let customIcon: ExtensionIcon?
+        let isOffline: Bool
     }
 
     let areaID: UUID
@@ -54,7 +55,8 @@ struct PaneTabStrip: View {
                 hasCustomTitle: tab.customTitle != nil,
                 colorID: tab.colorID,
                 extensionID: tab.content.extensionState?.extensionID,
-                customIcon: tab.content.extensionState?.customIcon
+                customIcon: tab.content.extensionState?.customIcon,
+                isOffline: tab.content.pane?.isOffline ?? false
             )
         }
     }
@@ -617,6 +619,7 @@ private struct TabCell: View {
         case .extensionWebView: label += ", Extension"
         }
         if tab.isPinned { label += ", Pinned" }
+        if tab.isOffline, !active { label += ", Idle" }
         if hasUnread { label += ", Unread" }
         return label
     }
@@ -630,6 +633,10 @@ private struct TabCell: View {
         } else if tab.isPinned {
             Image(systemName: "pin.fill")
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+        } else if tab.isOffline, !active {
+            Image(systemName: "moon.zzz")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                .help("Idle — terminal freed to save memory. Reopens when selected.")
         } else {
             switch tab.kind {
             case .terminal:

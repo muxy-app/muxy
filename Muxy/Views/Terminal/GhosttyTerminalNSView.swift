@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     private var surfaceFocused: Bool?
-    private let workingDirectory: String
+    private var workingDirectory: String
     private let command: String?
     private let commandInteractive: Bool
     private let commandClosesOnExit: Bool
@@ -33,6 +33,14 @@ final class GhosttyTerminalNSView: NSView {
     var overlayActive: Bool = false
 
     var processExitHandled = false
+
+    var onOfflineChange: ((Bool) -> Void)?
+    private var hasMaterializedOnce = false
+    private var isOfflinedState = false
+    private var offlineInvisibleAt: Date?
+
+    var isTakenOffline: Bool { isOfflinedState }
+    var offlineInvisibleSince: Date? { offlineInvisibleAt }
 
     private var isPaneVisible = true
     private var isWindowVisible = true
@@ -111,6 +119,8 @@ final class GhosttyTerminalNSView: NSView {
         }
         pendingSurfaceCreation = false
 
+        let launchCommand = hasMaterializedOnce ? nil : command
+
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
         config.platform = ghostty_platform_u(
@@ -127,7 +137,7 @@ final class GhosttyTerminalNSView: NSView {
         surfaceCStringPointers.append(workingDirectoryPointer)
         config.working_directory = UnsafePointer(workingDirectoryPointer)
 
-        if let command,
+        if let command = launchCommand,
            let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
                interactive: commandInteractive,
                keepsShellOpen: !commandClosesOnExit
@@ -163,6 +173,14 @@ final class GhosttyTerminalNSView: NSView {
         }
 
         guard let surface else { return }
+
+        hasMaterializedOnce = true
+        if isOfflinedState {
+            isOfflinedState = false
+            processExitHandled = false
+            onOfflineChange?(false)
+        }
+        resetOfflineVisibilityClock()
 
         let scale = Double(window?.backingScaleFactor ?? 2.0)
         ghostty_surface_set_content_scale(surface, scale, scale)
@@ -259,9 +277,11 @@ final class GhosttyTerminalNSView: NSView {
         delayedResizeWorkItem?.cancel()
         delayedResizeWorkItem = nil
 
+        updateOfflineVisibilityClock()
+
         guard let window else { return }
 
-        if surface == nil {
+        if surface == nil, !isOfflinedState || isPaneVisible {
             createSurface()
         }
 
@@ -305,6 +325,7 @@ final class GhosttyTerminalNSView: NSView {
     func setVisible(_ visible: Bool) {
         guard isPaneVisible != visible else { return }
         isPaneVisible = visible
+        updateOfflineVisibilityClock()
         applyOcclusionState()
     }
 
@@ -317,7 +338,43 @@ final class GhosttyTerminalNSView: NSView {
         let visible = window?.occlusionState.contains(.visible) ?? true
         guard isWindowVisible != visible else { return }
         isWindowVisible = visible
+        updateOfflineVisibilityClock()
         applyOcclusionState()
+    }
+
+    private func updateOfflineVisibilityClock() {
+        if window != nil, isPaneVisible, isWindowVisible {
+            offlineInvisibleAt = nil
+        } else if offlineInvisibleAt == nil {
+            offlineInvisibleAt = Date()
+        }
+    }
+
+    private func resetOfflineVisibilityClock() {
+        offlineInvisibleAt = window != nil && isPaneVisible && isWindowVisible ? nil : Date()
+    }
+
+    func updateResumeWorkingDirectory(_ directory: String) {
+        workingDirectory = directory
+    }
+
+    func isTerminalIdle() -> Bool {
+        guard let surface else { return true }
+        if ghostty_surface_needs_confirm_quit(surface) { return false }
+        return !isAlternateScreenActive(surface: surface)
+    }
+
+    var isOfflineBlockedByRemote: Bool {
+        guard let paneID = TerminalViewRegistry.shared.paneID(for: self) else { return false }
+        return TerminalViewRegistry.shared.isOwnedByRemote(paneID)
+    }
+
+    func takeOffline() {
+        guard surface != nil, offlineInvisibleAt != nil, !isOfflineBlockedByRemote, isTerminalIdle() else { return }
+        processExitHandled = true
+        destroySurface()
+        isOfflinedState = true
+        onOfflineChange?(true)
     }
 
     func applyColorScheme(isDark: Bool) {

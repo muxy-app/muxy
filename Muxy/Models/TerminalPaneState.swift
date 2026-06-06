@@ -21,6 +21,7 @@ final class TerminalPaneState: Identifiable {
     var activeRestoredCommand: String?
     var restoreDecision: TerminalSessionRestoreDecision = .none
     var restoreConsumed = false
+    var isOffline = false
     let searchState = TerminalSearchState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
 

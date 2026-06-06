@@ -331,6 +331,22 @@ enum SettingsCatalog {
             defaultValue: SessionRestorePreferences.defaultExcludedCommands
         ),
         SettingsCatalogItem(
+            key: TerminalOfflinePreferences.enabledKey,
+            title: "Free Idle Background Terminals",
+            description: "Frees a background tab's terminal after it stays idle, reclaiming memory.",
+            category: .terminal,
+            section: "Memory",
+            defaultValue: TerminalOfflinePreferences.defaultIsEnabled
+        ),
+        SettingsCatalogItem(
+            key: TerminalOfflinePreferences.idleThresholdKey,
+            title: "Idle Timeout (seconds)",
+            description: "How long a background tab stays idle before its terminal is freed.",
+            category: .terminal,
+            section: "Memory",
+            defaultValue: TerminalOfflinePreferences.defaultIdleThreshold
+        ),
+        SettingsCatalogItem(
             key: "shortcuts.app",
             title: "App Shortcuts",
             description: "Configures Muxy keyboard shortcuts.",

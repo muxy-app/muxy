@@ -63,6 +63,10 @@ final class TerminalViewRegistry {
         }
     }
 
+    var liveViews: [GhosttyTerminalNSView] {
+        Array(views.values)
+    }
+
     var liveViewCount: Int {
         views.count
     }

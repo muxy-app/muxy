@@ -12,7 +12,22 @@ struct TerminalSettingsView: View {
     private var confirmRunningProcess = true
     @AppStorage(SessionRestorePreferences.enabledKey)
     private var restoreSessionsEnabled = SessionRestorePreferences.defaultIsEnabled
+    @AppStorage(TerminalOfflinePreferences.enabledKey)
+    private var freeIdleTerminalsEnabled = TerminalOfflinePreferences.defaultIsEnabled
+    @AppStorage(TerminalOfflinePreferences.idleThresholdKey)
+    private var idleThresholdSeconds = TerminalOfflinePreferences.defaultIdleThreshold
     @State private var excludedCommands = SessionRestorePreferences.excludedCommandsText
+
+    private var idleTimeoutSelection: Binding<String> {
+        Binding(
+            get: { TerminalOfflineTimeout.closest(to: idleThresholdSeconds).rawValue },
+            set: { rawValue in
+                guard let option = TerminalOfflineTimeout(rawValue: rawValue) else { return }
+                idleThresholdSeconds = option.seconds
+                TerminalOfflineService.shared.reload()
+            }
+        )
+    }
 
     var body: some View {
         SettingsContainer {
@@ -48,6 +63,26 @@ struct TerminalSettingsView: View {
                     label: "Confirm before closing a tab with a running process",
                     isOn: $confirmRunningProcess
                 )
+            }
+
+            SettingsSection(
+                "Memory",
+                footer: "Frees an idle background tab's terminal to reclaim memory. It reopens in the same "
+                    + "folder when you return. Tabs running a process or a full-screen app are never touched."
+            ) {
+                SettingsToggleRow(
+                    label: "Free idle background terminals",
+                    isOn: $freeIdleTerminalsEnabled
+                )
+                .onChange(of: freeIdleTerminalsEnabled) { _, _ in
+                    TerminalOfflineService.shared.reload()
+                }
+                SettingsPickerRow<TerminalOfflineTimeout>(
+                    label: "Free after idle for",
+                    selection: idleTimeoutSelection,
+                    width: 140
+                )
+                .disabled(!freeIdleTerminalsEnabled)
             }
 
             SettingsSection(

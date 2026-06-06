@@ -164,6 +164,10 @@ struct TerminalBridge: NSViewRepresentable {
                 state?.setWorkingDirectory(path)
             }
         }
+        view.onOfflineChange = { [weak state] offline in
+            state?.isOffline = offline
+        }
+        view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         configureSearchCallbacks(view)
         configureFileOpenCallback(view)
         configureProgressCallback(view)
@@ -187,6 +191,10 @@ struct TerminalBridge: NSViewRepresentable {
             nsView.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
         }
         nsView.overlayActive = overlayActive
+        nsView.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
+        if visible, nsView.isTakenOffline, nsView.surface == nil {
+            nsView.createSurface()
+        }
         nsView.setVisible(visible)
         nsView.onFocus = onFocus
         nsView.onProcessExit = onProcessExit
@@ -201,6 +209,9 @@ struct TerminalBridge: NSViewRepresentable {
             DispatchQueue.main.async {
                 state?.setWorkingDirectory(path)
             }
+        }
+        nsView.onOfflineChange = { [weak state] offline in
+            state?.isOffline = offline
         }
         configureSearchCallbacks(nsView)
         configureFileOpenCallback(nsView)

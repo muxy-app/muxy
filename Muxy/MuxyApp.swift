@@ -146,6 +146,7 @@ struct MuxyApp: App {
             SettingsJSONStore.beginAutomaticUserSettingsSync()
             try? await Task.sleep(for: .seconds(2))
             UpdateService.shared.start()
+            TerminalOfflineService.shared.start()
             AIProviderRegistry.shared.installAll()
             LoginShellPath.hydrateInBackground()
             await NotificationSocketServer.shared.awaitReady()
