@@ -568,6 +568,10 @@ extension MuxyAPI {
                 }
             }
 
+            if !force, await GitWorktreeService.shared.hasUncommittedChanges(worktreePath: tracked.worktree.path) {
+                return .failure(.invalidArguments("worktree has uncommitted changes; pass force to remove it"))
+            }
+
             let result = await write(projectIdentifier, operation: "worktree.remove", context: context) { _ in
                 try await WorktreeStore.cleanupOnDisk(worktree: tracked.worktree, repoPath: tracked.project.path)
             }

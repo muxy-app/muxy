@@ -177,4 +177,5 @@ try {
 
 - `muxy.git` is available to extension **tabs**, **panels**, **popovers**, **`runScript` commands**, and **background scripts** — the same API and permissions everywhere. Calls return a `Promise` on webview pages and are synchronous in `runScript` and background scripts.
 - The app continues to own the worktree lifecycle it shows in the sidebar; `git.worktree.*` operates on the same underlying git worktrees, so changes are reflected after a refresh.
+- `worktree.remove` runs the app's full teardown (hooks, branch, directory) and updates the sidebar. With `force: false` it rejects a worktree that has uncommitted changes; pass `force: true` to discard them.
 - There are no AI helpers here — generate commit messages or PR bodies with your own model via `muxy.exec` if you need them.
