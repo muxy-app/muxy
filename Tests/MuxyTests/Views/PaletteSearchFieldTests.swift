@@ -29,7 +29,7 @@ struct PaletteSearchFieldTests {
         let field = try #require(textField(in: hostingView))
         #expect(field.window == nil)
 
-        try await Task.sleep(for: .milliseconds(120))
+        try await Task.sleep(for: .milliseconds(50))
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),

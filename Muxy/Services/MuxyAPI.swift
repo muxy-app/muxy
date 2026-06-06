@@ -827,12 +827,6 @@ enum MuxyAPI {
             appState: AppState,
             callingExtensionID: String? = nil
         ) async -> Result<Void, APIError> {
-            let payloadID = request.extensionPayload?.id ?? "-"
-            let payloadTabType = request.extensionPayload?.tabType ?? "-"
-            NSLog(
-                "[muxy-tabs] open kind=\(request.kind) caller=\(callingExtensionID ?? "nil") "
-                    + "payloadID=\(payloadID) tabType=\(payloadTabType)"
-            )
             let target: OpenTabTarget
             switch resolveOpenTarget(appState: appState) {
             case let .success(resolved):
@@ -850,11 +844,9 @@ enum MuxyAPI {
                     return .failure(.invalidArguments("extensionWebView tabs require extension payload"))
                 }
                 guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: payload.id) else {
-                    NSLog("[muxy-tabs] FAIL extension not loaded id=\(payload.id)")
                     return .failure(.invalidArguments("extension '\(payload.id)' is not loaded"))
                 }
                 guard let tabType = muxyExtension.manifest.tabType(id: payload.tabType) else {
-                    NSLog("[muxy-tabs] FAIL no tabType '\(payload.tabType)' on ext=\(payload.id)")
                     return .failure(.invalidArguments(
                         "extension '\(payload.id)' has no tab type '\(payload.tabType)'"
                     ))
@@ -869,11 +861,6 @@ enum MuxyAPI {
                         return .failure(.consentDenied(verb: ExtensionGatedVerb.tabsOpenForeign.rawValue))
                     }
                 }
-                let targetProjectID = String(describing: target.key.projectID)
-                NSLog(
-                    "[muxy-tabs] dispatch createExtensionTab project=\(targetProjectID) area=\(target.areaID) "
-                        + "ext=\(payload.id) tabType=\(payload.tabType) singleton=\(payload.singleton)"
-                )
                 activateOpenTarget(target, appState: appState)
                 appState.dispatch(.createExtensionTab(
                     projectID: target.key.projectID,
@@ -895,44 +882,34 @@ enum MuxyAPI {
                 projectID: target.key.projectID,
                 worktreeID: target.key.worktreeID,
                 areaID: target.areaID,
-                tabID: target.tabID
+                tabID: nil
             ))
         }
 
         private struct OpenTabTarget {
             let key: WorktreeKey
             let areaID: UUID
-            let tabID: UUID?
         }
 
         private static func resolveOpenTarget(appState: AppState) -> Result<OpenTabTarget, APIError> {
-            let activeProjectID = String(describing: appState.activeProjectID)
-            NSLog(
-                "[muxy-tabs] resolve activeProject=\(activeProjectID) "
-                    + "nav=\(appState.navigation.current != nil) roots=\(appState.workspaceRoots.count)"
-            )
+            if let entry = appState.navigation.current {
+                let key = WorktreeKey(projectID: entry.projectID, worktreeID: entry.worktreeID)
+                if let target = openTarget(key: key, preferredAreaID: entry.areaID, appState: appState) {
+                    return .success(target)
+                }
+            }
             if let projectID = appState.activeProjectID,
                let key = appState.activeWorktreeKey(for: projectID),
                let target = openTarget(key: key, preferredAreaID: appState.focusedAreaID[key], appState: appState)
             {
-                NSLog("[muxy-tabs] resolve via activeProject -> project=\(String(describing: target.key.projectID)) area=\(target.areaID)")
                 return .success(target)
-            }
-            if let entry = appState.navigation.current {
-                let key = WorktreeKey(projectID: entry.projectID, worktreeID: entry.worktreeID)
-                if let target = openTarget(key: key, preferredAreaID: entry.areaID, appState: appState) {
-                    NSLog("[muxy-tabs] resolve via navigation -> project=\(String(describing: target.key.projectID)) area=\(target.areaID)")
-                    return .success(target)
-                }
             }
             if appState.workspaceRoots.count == 1,
                let key = appState.workspaceRoots.keys.first,
                let target = openTarget(key: key, preferredAreaID: appState.focusedAreaID[key], appState: appState)
             {
-                NSLog("[muxy-tabs] resolve via soleWorkspace -> project=\(String(describing: target.key.projectID)) area=\(target.areaID)")
                 return .success(target)
             }
-            NSLog("[muxy-tabs] resolve FAILED roots=\(appState.workspaceRoots.count)")
             return .failure(appState.workspaceRoots.isEmpty ? .noActiveProject : .noActiveWorkspace)
         }
 
@@ -945,10 +922,10 @@ enum MuxyAPI {
             if let preferredAreaID,
                let area = root.findArea(id: preferredAreaID)
             {
-                return OpenTabTarget(key: key, areaID: area.id, tabID: area.activeTabID)
+                return OpenTabTarget(key: key, areaID: area.id)
             }
             guard let area = root.allAreas().first else { return nil }
-            return OpenTabTarget(key: key, areaID: area.id, tabID: area.activeTabID)
+            return OpenTabTarget(key: key, areaID: area.id)
         }
     }
 }
