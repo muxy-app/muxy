@@ -1,5 +1,4 @@
 import Foundation
-import Sentry
 import Testing
 
 @testable import Muxy
@@ -98,79 +97,6 @@ struct SentryServiceTests {
         #expect(!service.needsPrompt)
     }
 
-    @Test("shouldDropAppHang ignores non-hang events")
-    func shouldDropAppHangIgnoresNonHang() {
-        let event = makeEvent(type: "NSException", frames: [("runModal", false)])
-        #expect(!SentryService.shouldDropAppHang(event))
-    }
-
-    @Test("shouldDropAppHang drops hangs with no in-app frames")
-    func shouldDropAppHangDropsSystemOnlyHang() {
-        let event = makeEvent(
-            type: "App Hanging",
-            frames: [("mach_msg2_trap", false), ("CA::Transaction::commit", false)]
-        )
-        #expect(SentryService.shouldDropAppHang(event))
-    }
-
-    @Test("shouldDropAppHang keeps hangs that include an in-app frame")
-    func shouldDropAppHangKeepsInAppHang() {
-        let event = makeEvent(
-            type: "App Hanging",
-            frames: [("mach_msg2_trap", false), ("Muxy.someWorkload", true)]
-        )
-        #expect(!SentryService.shouldDropAppHang(event))
-    }
-
-    @Test("shouldDropAppHang drops NSAlert runModal frames even with in-app frames")
-    func shouldDropAppHangDropsAlertRunModal() {
-        let event = makeEvent(
-            type: "App Hanging",
-            frames: [
-                ("Muxy.presentAlert", true),
-                ("-[NSApplication runModalForWindow:]", false),
-                ("-[NSAlert runModal]", false),
-            ]
-        )
-        #expect(SentryService.shouldDropAppHang(event))
-    }
-
-    @Test("shouldDropAppHang drops NSOpenPanel modal frames")
-    func shouldDropAppHangDropsOpenPanel() {
-        let event = makeEvent(
-            type: "App Hanging",
-            frames: [("Muxy.pickFile", true), ("-[NSOpenPanel runModal]", false)]
-        )
-        #expect(SentryService.shouldDropAppHang(event))
-    }
-
-    @Test("shouldDropAppHang drops NSSavePanel modal frames")
-    func shouldDropAppHangDropsSavePanel() {
-        let event = makeEvent(
-            type: "App Hanging",
-            frames: [("ProjectOpenService.openProject", true), ("-[NSSavePanel runModal]", false)]
-        )
-        #expect(SentryService.shouldDropAppHang(event))
-    }
-
-    @Test("shouldDropAppHang drops NSAlert frames without runModal")
-    func shouldDropAppHangDropsAlertFrameWithoutRunModal() {
-        let event = makeEvent(
-            type: "App Hanging",
-            frames: [("CLIAccessor.alert", true), ("-[NSAlert layout]", false)]
-        )
-        #expect(SentryService.shouldDropAppHang(event))
-    }
-
-    @Test("shouldDropAppHang drops modal loop frames")
-    func shouldDropAppHangDropsDoModalLoop() {
-        let event = makeEvent(
-            type: "App Hanging",
-            frames: [("Muxy.something", true), ("-[NSApplication _doModalLoop:peek:]", false)]
-        )
-        #expect(SentryService.shouldDropAppHang(event))
-    }
-
     @Test("environment is derived from the injected defaults' update channel")
     func startContextEnvironmentReflectsChannel() {
         var capturedEnvironments: [String] = []
@@ -184,21 +110,6 @@ struct SentryServiceTests {
         service.setConsent(.allowed)
 
         #expect(capturedEnvironments == ["beta"])
-    }
-
-    private func makeEvent(type: String, frames functionFrames: [(name: String, inApp: Bool)]) -> Event {
-        let frames: [Frame] = functionFrames.map { entry in
-            let frame = Frame()
-            frame.function = entry.name
-            frame.inApp = NSNumber(value: entry.inApp)
-            return frame
-        }
-        let stacktrace = SentryStacktrace(frames: frames, registers: [:])
-        let exception = Exception(value: "App hanging for at least 2000 ms.", type: type)
-        exception.stacktrace = stacktrace
-        let event = Event()
-        event.exceptions = [exception]
-        return event
     }
 
     private func makeService(
