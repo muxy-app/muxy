@@ -1326,12 +1326,14 @@ private final class ShortcutInterceptingView: NSView {
     }
 
     private func handleShortcutEvent(_ event: NSEvent) -> Bool {
-        guard !event.modifierFlags.isDisjoint(with: [.command, .control, .option]) else {
+        let scopes = ShortcutContext.activeScopes(for: window)
+        let layerWasActive = CommandShortcutStore.shared.isLayerActive
+        guard layerWasActive
+            || !event.modifierFlags.isDisjoint(with: [.command, .control, .option])
+        else {
             return false
         }
 
-        let scopes = ShortcutContext.activeScopes(for: window)
-        let layerWasActive = CommandShortcutStore.shared.isLayerActive
         if let shortcut = CommandShortcutStore.shared.shortcut(for: event, scopes: scopes) {
             CommandShortcutStore.shared.deactivateLayer()
             _ = onCommandShortcut?(shortcut)

@@ -7,6 +7,7 @@ struct ExtensionOutputPanel: View {
     @State private var store = ExtensionStore.shared
     @State private var lines: [String] = []
     @State private var tailer: ExtensionLogTailer?
+    @State private var coalescer: ExtensionLogCoalescer?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,7 +18,10 @@ struct ExtensionOutputPanel: View {
         .frame(maxWidth: .infinity)
         .background(MuxyTheme.bg)
         .onAppear { restartTailer() }
-        .onDisappear { tailer?.stop() }
+        .onDisappear {
+            tailer?.stop()
+            coalescer?.cancel()
+        }
         .onChange(of: effectiveExtensionID) { _, _ in
             restartTailer()
         }
@@ -92,7 +96,7 @@ struct ExtensionOutputPanel: View {
                     .frame(height: 1)
                     .id(scrollAnchorID)
             }
-            .onChange(of: lines.count) { _, _ in
+            .onChange(of: lines.last) { _, _ in
                 proxy.scrollTo(scrollAnchorID, anchor: .bottom)
             }
         }
@@ -100,8 +104,11 @@ struct ExtensionOutputPanel: View {
     }
 
     private var logText: Text {
-        lines.reduce(Text("")) { result, line in
-            result + Text(line + "\n").foregroundStyle(color(for: line))
+        let lastIndex = lines.count - 1
+        return lines.enumerated().reduce(Text("")) { result, entry in
+            let (index, line) = entry
+            let suffix = index < lastIndex ? "\n" : ""
+            return result + Text(line + suffix).foregroundStyle(color(for: line))
         }
     }
 
@@ -129,11 +136,16 @@ struct ExtensionOutputPanel: View {
     private func restartTailer() {
         tailer?.stop()
         tailer = nil
+        coalescer?.cancel()
         lines = []
         guard let url = activeLogURL else { return }
-        let newTailer = ExtensionLogTailer(url: url) { update in
+        let newCoalescer = ExtensionLogCoalescer { update in
             applyUpdate(update)
         }
+        let newTailer = ExtensionLogTailer(url: url) { update in
+            newCoalescer.ingest(update)
+        }
+        coalescer = newCoalescer
         tailer = newTailer
         newTailer.start()
     }
