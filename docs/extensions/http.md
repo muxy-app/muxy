@@ -58,5 +58,5 @@ A rejected promise carries a message string:
 
 ## Notes
 
-- `muxy.http` is available to extension **tabs**, **panels**, and **popovers**. Background scripts (JavaScriptCore) have no `fetch`; they can still shell out via `muxy.exec(['curl', …])`.
+- `muxy.http` is available only to extension **tabs**, **panels**, and **popovers** (the WKWebView surfaces). Neither background scripts nor [`runScript`](scripts.md) commands have it (JavaScriptCore has no `fetch`); they can still shell out via `muxy.exec(['curl', …])`.
 - Use this instead of the webview's `fetch()` whenever the target API is cross-origin and does not send permissive CORS headers.

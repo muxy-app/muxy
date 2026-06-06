@@ -38,7 +38,7 @@ A popover is always reached through a topbar/status bar item whose `command` res
 
 ## Sizing and closing
 
-From the popover page, with `panels:write`, you can resize the popover to fit its content and close it. Both act on the popover currently open for the calling extension; the host clamps the reported size to a sane range.
+From the popover page, with `panels:write`, you can resize the popover to fit its content and close it. Both act on the popover currently open for the calling extension; the host clamps the reported size to a sane range. The `popover` API exists only on webview pages — it is not available to the background script or [`runScript`](scripts.md) commands.
 
 ```ts
 window.muxy.popover.resize(width, height): Promise<void>;

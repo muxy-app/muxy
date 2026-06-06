@@ -12,6 +12,8 @@ muxy.events.subscribe('pane.created', (payload) => {
 
 In a tab/panel/popover page, the same API is on the bridge as `window.muxy.events.subscribe(...)`. The handler receives the payload as a plain object; Muxy handles the host process, identity, and transport for you.
 
+`muxy.events` exists only in `background.js` and in webview pages. It is **not** available inside [`runScript`](scripts.md) palette-command scripts — those run in a short-lived in-process context with no event channel.
+
 Workspace events originate in the main process from `ExtensionEventEmitter`, which diffs workspace state and fans matching events out to subscribed extensions.
 
 Extension-local events use the reserved `extension.` prefix and stay inside one extension. They are not listed in the manifest, need no permission, and are only delivered between the extension's own webviews and its own background script.

@@ -99,4 +99,4 @@ window.muxy.panels.toggle(panelID, data?): Promise<void>;
 window.muxy.panels.close(panelID): Promise<void>;
 ```
 
-`data` overrides the panel's `defaultData` for that instance and is exposed to the page as `window.muxy.data`. Opening a panel is a page capability — the background script has no panels API. Panels close automatically when the extension is disabled or stopped.
+`data` overrides the panel's `defaultData` for that instance and is exposed to the page as `window.muxy.data`. Opening a panel is a page capability — neither the background script nor [`runScript`](scripts.md) commands have a panels API. Panels close automatically when the extension is disabled or stopped.

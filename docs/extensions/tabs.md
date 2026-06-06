@@ -76,7 +76,7 @@ See [theming](README.md) and the SKILL for the full `--muxy-*` variable list and
 
 ## window.muxy
 
-Muxy injects `window.muxy` before the page's scripts run. Every method returns a `Promise` and requires its matching manifest permission — an unauthorized call rejects with `permission denied (<permission>)`.
+Muxy injects `window.muxy` before the page's scripts run. Most methods return a `Promise` and require their matching manifest permission — an unauthorized call rejects with `permission denied (<permission>)`. The subscription helpers (`onDataChange`, `onThemeChange`, `events.subscribe`) instead return a synchronous unsubscribe function.
 
 ```ts
 window.muxy = {
@@ -84,6 +84,8 @@ window.muxy = {
   tabInstanceID: string,
   data: object | null,                 // payload the tab was opened with (or defaultData)
   onDataChange(callback): unsubscribe, // fires when a singleton tab is reopened with new data
+  theme: object,                       // current --muxy-* theme values
+  onThemeChange(callback): unsubscribe,
 
   notifications: {
     notify({ title, body?, paneID? }): Promise<void>,   // requires notifications:write
@@ -94,6 +96,7 @@ window.muxy = {
     confirm(opts): Promise<string | null>,                // resolves the chosen button label, null on cancel
     alert(opts): Promise<void>,
   },
+  modal: { open(opts): Promise<Item | null> },            // searchable picker — see modal.md
 
   tabs: {
     open(request): Promise<void>,       // see "Opening another tab"
@@ -117,6 +120,13 @@ window.muxy = {
 
   projects:  { list(), switchTo(identifier) },
   worktrees: { list(project?), switchTo(identifier, project?), refresh(project?) },
+  panels:    { open(id, data?), toggle(id, data?), close(id) },  // panels:write — see panels.md
+  popover:   { close(), resize(width, height) },                // panels:write — see popovers.md
+  topbar:    { set(opts), show(id), hide(id) },                 // panels:write — see topbar.md
+  statusbar: { set(opts), show(id), hide(id) },                 // panels:write — see statusbar.md
+  git:       { status, diff, log, branches, commit, push, /* … */ pr: {}, branch: {}, worktree: {}, tag: {} }, // see git.md
+  files:     { list, read, stat, write, mkdir, rename, move, delete },  // see files.md
+  http:      { fetch(url, options?): Promise<HTTPResult> },     // no CORS — see http.md
   events:    {
     subscribe(name, callback): unsubscribe,
     emit(name: `extension.${string}`, payload?): Promise<void>,

@@ -3,7 +3,7 @@
 Muxy enforces two layers on every extension call:
 
 1. **Manifest permissions** — declared in `permissions`. Calling a verb without its permission returns `error:permission denied (<perm>)`.
-2. **Runtime consent** — verbs that run code or touch terminal contents (`exec`, `panes.send`, `panes.sendKeys`, `panes.readScreen`) prompt the user even when the manifest permission is granted. The decision can be remembered as a rule.
+2. **Runtime consent** — verbs that run code or touch terminal contents (`exec`, `panes.send`, `panes.sendKeys`, `panes.readScreen`), Git and file writes, `http.fetch`, and remote-method invocations prompt the user even when the manifest permission is granted (see the [table below](#runtime-consent)). The decision can be remembered as a rule.
 
 Permissions apply only to identified callers. The host identifies itself on behalf of an extension; CLI clients (e.g. the `muxy` CLI) are unidentified and are not gated.
 
@@ -19,12 +19,12 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `projects:write` | `switch-project` |
 | `worktrees:read` | `list-worktrees` |
 | `worktrees:write` | `create-worktree`, `switch-worktree`, `refresh-worktrees` |
-| `git:read` | `git.status`, `git.diff`, `git.log`, `git.branches`, `git.currentBranch`, `git.aheadBehind`, `git.pr.info`, `git.pr.list`, `git.worktrees` — see [Git](git.md). |
-| `git:write` | `git.stage`, `git.unstage`, `git.discard`, `git.commit`, `git.push`, `git.pull`, `git.branch.*`, `git.pr.*` (create/merge/close), `git.worktree.*`. Each call also prompts for runtime consent. |
+| `git:read` | `git.status`, `git.diff`, `git.repoInfo`, `git.log`, `git.branches`, `git.remoteBranches`, `git.currentBranch`, `git.aheadBehind`, `git.pr.info`, `git.pr.number`, `git.pr.diff`, `git.pr.list`, `git.worktrees` — see [Git](git.md). |
+| `git:write` | `git.init`, `git.stage`, `git.unstage`, `git.discard`, `git.commit`, `git.push`, `git.pull`, `git.checkout`, `git.cherryPick`, `git.revert`, `git.tag.create`, `git.branch.*` (create/switch/delete/deleteRemote), `git.pr.*` writes (create/merge/close/checkout/checkoutWorktree), `git.worktree.*` (add/remove/switch). Each call also prompts for runtime consent. |
 | `files:read` | `files.list`, `files.read`, `files.stat` — see [Files](files.md). |
 | `files:write` | `files.write`, `files.mkdir`, `files.rename`, `files.move`, `files.delete`. Each call also prompts for runtime consent. |
-| `notifications:write` | `notifications.notify` (or its `toast` alias) to post a notification |
-| `panels:write` | `panel.open`, `panel.toggle`, `panel.close` for declared [panels](panels.md); `popover.resize`, `popover.close` for the extension's open [popover](popovers.md). |
+| `notifications:write` | `notifications.notify` (all surfaces) and `toast` (webview pages and `runScript` only — not in `background.js`) to post a notification |
+| `panels:write` | `panel.open`, `panel.toggle`, `panel.close` for declared [panels](panels.md); `popover.resize`, `popover.close` for the extension's open [popover](popovers.md); `topbar.set` for [topbar](topbar.md) items; `statusbar.set` for [status bar](statusbar.md) items. |
 | `commands:run-script` | Execute `runScript` palette command actions in the per-extension JavaScriptCore context. |
 | `commands:exec` | Run shell commands via `muxy.exec` (subprocess execution with stdout/stderr capture). |
 | `remote:serve` | Serve [remote methods](remote-methods.md) declared in `remoteMethods` to the mobile app over the remote server. Each call also prompts for runtime consent. |
@@ -41,7 +41,7 @@ These verbs prompt the user at runtime even when the manifest permission is gran
 | `panes.send` | Typing arbitrary text into an active terminal. |
 | `panes.sendKeys` | Pressing keys (including Ctrl+C, Enter) in an active terminal. |
 | `panes.readScreen` | Reading the visible contents of a terminal. |
-| `remote.invoke` | Running an extension's [remote method](remote-methods.md) handler in response to a mobile request. Remembered per action. |
+| remote method (device request) | Running an extension's [remote method](remote-methods.md) handler in response to a mobile request, gated under `remote:serve`. Remembered per action. |
 | `git.*` (writes) | Mutating the repository (stage, commit, push, pull, branch, PR, worktree). Remembered per operation (allowing `push` does not allow `discard`). |
 | `files.*` (writes) | Modifying workspace files (write, mkdir, rename, move, delete). Remembered per operation (allowing `write` does not allow `delete`). |
 | `http.fetch` | Calling an external host via [`muxy.http`](http.md). Remembered per host (allowing `api.github.com` does not allow `example.com`). Private/loopback hosts are blocked before prompting. |

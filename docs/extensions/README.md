@@ -101,7 +101,7 @@ flowchart TD
 - Manifest: the `muxy` object in `package.json` (`name`/`version` stay top-level)
 - Install path: `~/.config/muxy/extensions/<name>/` (the installed `dist/`)
 - Background script: optional `muxy.background` JS, run in a host process that injects the `muxy` global
-- Background API: `muxy.extensionID`, `muxy.events.subscribe`, `muxy.events.emit`, `muxy.exec`, `muxy.dialog`, `muxy.modal`, `console.*`
+- Background API: `muxy.extensionID`, `muxy.events.*`, `muxy.remote.*`, `muxy.exec`, `muxy.git`, `muxy.dialog`, `muxy.modal`, `muxy.notifications`, `muxy.topbar`/`muxy.statusbar`, `console.*` (no `tabs`/`panes`/`projects`/`worktrees`/`files`/`http`/`toast` — those are page or `runScript` surfaces)
 - See [the muxy CLI feature page](../features/muxy-cli.md) for the verb vocabulary
 
 ## Minimal example

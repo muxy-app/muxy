@@ -2,7 +2,7 @@
 
 `muxy.files` gives extensions read/write access to the **active project workspace** — list a directory, read a file, stat, and create, write, rename, move, or delete entries. This is the API surface that replaces the old built-in file tree: build your own tree, picker, or editor on top of it.
 
-All methods are async (return a `Promise`). Every `path` is **relative to the active worktree root** (the same root the app shows for the active project). Pass `{ project }` (a project id, name, or path) as the last argument to target a specific project; omit it to use the active one.
+On tabs/panels/popovers these methods return a `Promise` (use `await`); in [`runScript`](scripts.md) commands the same calls are **synchronous** and return the value directly. Every `path` is **relative to the active worktree root** (the same root the app shows for the active project). Pass `{ project }` (a project id, name, or path) as the last argument to target a specific project; omit it to use the active one.
 
 Paths are sandboxed to the workspace root. Any path that escapes it — via `..` or a symlink pointing outside — is rejected.
 
@@ -88,5 +88,5 @@ A rejected promise carries a message string:
 
 ## Notes
 
-- `muxy.files` is available to extension **tabs**, **panels**, and **popovers**. Background scripts get `file.changed` events but not the `files.*` calls.
+- `muxy.files` is available to extension **tabs**, **panels**, **popovers**, and **`runScript` commands** (all in-process). Background scripts get `file.changed` events but not the `files.*` calls.
 - The sandbox is the active worktree root; switching the active project/worktree changes what `muxy.files` sees.

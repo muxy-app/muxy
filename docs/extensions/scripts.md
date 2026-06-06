@@ -1,6 +1,6 @@
 # Inline Scripts (`runScript` Commands)
 
-A palette command with `action.kind = "runScript"` runs a JavaScript file in an in-process JavaScriptCore context when the user picks it. The script has the same `muxy.*` API as webview tabs, minus DOM, theme, data, and events. Requires the `commands:run-script` permission.
+A palette command with `action.kind = "runScript"` runs a JavaScript file in an in-process JavaScriptCore context when the user picks it. The script gets a **synchronous** `muxy.*` API: it can read and act on workspace state (tabs, panes, projects, worktrees, files, git), run shell commands, and present native UI (dialogs, modals, toasts, notifications, topbar/status-bar items) — all without a rendering surface. Requires the `commands:run-script` permission.
 
 ```json
 {
@@ -23,6 +23,18 @@ muxy.notifications.notify({
 });
 ```
 
+A script can also present native UI and act on the choice inline — no background listener, tab, or panel needed:
+
+```js
+const choice = muxy.modal.open({
+  placeholder: 'Switch to worktree…',
+  items: muxy.worktrees.list().map(w => ({ id: w.id, title: w.name, subtitle: w.branch })),
+});
+if (choice) muxy.worktrees.switchTo(choice.id);
+```
+
+Note there is **no `await`** — see [API surface](#api-surface).
+
 ## Lifecycle
 
 - The `JSContext` is created on first run and **cached for the extension's lifetime**, so `var`/`function` defined in one run remain visible to the next.
@@ -31,17 +43,22 @@ muxy.notifications.notify({
 
 ## API surface
 
-`muxy.extensionID` plus the same synchronous methods as webview tabs:
+`muxy.extensionID` plus the following methods. They are **synchronous** — they return values directly, no `await` (unlike the Promise-based webview bridge):
 
 ```
 muxy.notifications.notify(opts)      // alias: muxy.toast(opts)
+muxy.dialog.{confirm, alert}
+muxy.modal.open(opts)
+muxy.topbar.{set, show, hide}        // requires panels:write
+muxy.statusbar.{set, show, hide}     // requires panels:write
 muxy.tabs.{list, switchTo, new, next, previous, open}
 muxy.panes.{list, send, sendKeys, readScreen, close, rename}
 muxy.projects.{list, switchTo}
 muxy.worktrees.{list, switchTo, refresh}
+muxy.files.{list, read, stat, write, mkdir, rename, move, delete}
+muxy.git.{status, diff, log, branches, commit, push, pull, …}   // full git surface, incl. git.pr.*, git.branch.*, git.worktree.*, git.tag.*
+muxy.exec(argv, options?) / muxy.exec({ shell, ... })           // requires commands:exec
 ```
-
-Plus `muxy.exec(argv, options?)` / `muxy.exec({ shell, ... })` to run shell commands (requires `commands:exec`):
 
 ```js
 const status = muxy.exec(['git', 'status', '--short']);
@@ -51,8 +68,9 @@ console.log(status.stdout);
 Differences from the webview API:
 
 - All calls are **synchronous** — they return values directly, not Promises. Muxy blocks the script's own dispatch queue while the work runs on the main actor, so the UI stays responsive.
-- No `muxy.theme`, `muxy.data`, or `muxy.tabInstanceID` — scripts have no tab or rendering surface.
-- No `muxy.events.subscribe` or `muxy.events.emit` — scripts are one-shot.
+- No rendering/tab surface: no `muxy.data`, `muxy.theme`, `muxy.onDataChange`, `muxy.onThemeChange`, or `muxy.tabInstanceID`.
+- No page-only APIs: no `muxy.panels`, `muxy.popover`, `muxy.http`, or `muxy.tabs.setTitle`/`setIcon` (those need a tab instance).
+- No `muxy.events` and no `muxy.remote` — those are background-script APIs ([events](events.md), [remote methods](remote-methods.md)).
 
 ## Permissions
 
