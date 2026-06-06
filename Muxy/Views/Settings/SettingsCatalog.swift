@@ -234,6 +234,14 @@ enum SettingsCatalog {
             defaultValue: true
         ),
         SettingsCatalogItem(
+            key: ResourceUsagePreferences.visibleKey,
+            title: "Show Resource Usage in Status Bar",
+            description: "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling.",
+            category: .appearance,
+            section: "Interface",
+            defaultValue: ResourceUsagePreferences.defaultVisible
+        ),
+        SettingsCatalogItem(
             key: "muxy.theme.light",
             title: "Light Terminal Theme",
             description: "Chooses the terminal theme for light appearance.",

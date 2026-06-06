@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MuxyShared
 import Testing
 
 @testable import MuxyExtensionHost
@@ -138,6 +139,32 @@ struct ExtensionHostSocketClientTests {
         let reply = try client.sendAndWaitReply("exec|payload")
         #expect(reply == "ok")
         #expect(received.lines.contains("invoke|call-1|forecast|cGF5bG9hZA=="))
+    }
+
+    @Test("an interleaved extension-event line is routed to onExtensionEvent and does not satisfy a reply")
+    func extensionEventDoesNotSatisfyReply() throws {
+        let (client, server) = makePair()
+        defer { close(server) }
+
+        let received = EventBox()
+        client.onExtensionEvent { received.append($0) }
+        client.startReading()
+
+        let eventLine = try #require(ExtensionLocalEvent.serialize(
+            name: "extension.panel.update",
+            payload: Data(#"{"count":1}"#.utf8)
+        ))
+
+        Thread.detachNewThread { [server] in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            _ = read(server, &buffer, buffer.count)
+            self.writeLine(eventLine, to: server)
+            self.writeLine("ok", to: server)
+        }
+
+        let reply = try client.sendAndWaitReply("exec|payload")
+        #expect(reply == "ok")
+        #expect(received.lines.contains(eventLine))
     }
 
     @Test("EOF wakes a blocked sendAndWaitReply")

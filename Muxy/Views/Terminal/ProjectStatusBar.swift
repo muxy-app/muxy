@@ -16,6 +16,7 @@ struct ProjectStatusBar: View {
     var onTriggerExtensionCommand: ((ExtensionStore.StatusBarItemBinding) -> Void)?
     @Environment(ExtensionStore.self) private var extensionStore
     @State private var popoverHost = PopoverHost.shared
+    @AppStorage(ResourceUsagePreferences.visibleKey) private var showResourceUsage = ResourceUsagePreferences.defaultVisible
 
     private var richInputShortcutLabel: String {
         KeyBindingStore.shared.combo(for: .toggleRichInput).displayString
@@ -74,6 +75,10 @@ struct ProjectStatusBar: View {
                 richInputToggleButton
                 separator
                 voiceRecordingButton
+            }
+            if showResourceUsage {
+                separator
+                ResourceUsageButton()
             }
         }
     }

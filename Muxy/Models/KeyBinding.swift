@@ -177,7 +177,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .selectProject7: ShortcutMetadata(displayName: "Project 7", category: "Project Navigation", scope: .mainWindow)
         case .selectProject8: ShortcutMetadata(displayName: "Project 8", category: "Project Navigation", scope: .mainWindow)
         case .selectProject9: ShortcutMetadata(displayName: "Project 9", category: "Project Navigation", scope: .mainWindow)
-        case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .mainWindow)
+        case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .terminal)
         case .toggleRichInput: ShortcutMetadata(displayName: "Toggle Rich Input", category: "Rich Input", scope: .mainWindow)
         case .submitRichInput: ShortcutMetadata(displayName: "Send", category: "Rich Input", scope: .richInput)
         case .submitRichInputWithoutReturn: ShortcutMetadata(

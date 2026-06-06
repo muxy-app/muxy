@@ -105,6 +105,7 @@ struct ExtensionStoreCommandPermissionTests {
             )
             try Data(contents.utf8).write(to: url)
         }
+        ExtensionEnabledStore.setEnabled(true, extensionID: name)
         let store = ExtensionStore.makeForTesting(
             rootDirectory: root,
             snapshotSink: NoopExtensionSnapshotSink(),

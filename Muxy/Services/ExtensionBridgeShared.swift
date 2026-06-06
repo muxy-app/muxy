@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 
 @MainActor
 enum ExtensionBridgeShared {
@@ -92,5 +93,21 @@ enum ExtensionBridgeShared {
               let worktreeStore
         else { return nil }
         return worktreeStore.worktree(projectID: projectID, worktreeID: worktreeID)?.path
+    }
+
+    static func decodeExtensionLocalEvent(args: [String: Any]) throws -> ExtensionLocalEvent.Message {
+        guard let name = args["event"] as? String, ExtensionLocalEvent.isValidName(name) else {
+            throw APIError.invalidArguments("extension events must start with extension.")
+        }
+        do {
+            return try ExtensionLocalEvent.Message(
+                name: name,
+                payload: ExtensionLocalEvent.encodePayload(args["payload"])
+            )
+        } catch {
+            throw APIError.invalidArguments(
+                "event payload must be JSON-serializable and at most \(ExtensionLocalEvent.maxPayloadBytes) bytes"
+            )
+        }
     }
 }

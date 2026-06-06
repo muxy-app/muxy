@@ -34,7 +34,7 @@ A status bar item is an icon (with optional text) Muxy adds to either side of th
 
 ## Updating an item at runtime
 
-The icon, text, and visibility can change while the extension runs — from `background.js` or any tab/panel/popover page — with `muxy.statusbar.set`:
+The icon, text, and visibility can change while the extension runs — from `background.js`, any tab/panel/popover page, or a [`runScript`](scripts.md) command — with `muxy.statusbar.set`:
 
 ```js
 muxy.statusbar.set({ id: "build", text: "42" });

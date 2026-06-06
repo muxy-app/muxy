@@ -84,11 +84,42 @@ struct ExtensionStoreUpdateTests {
         #expect(store.availableUpdateVersion(for: "fail-ext") == "2.0.0")
     }
 
+    @Test("does not flag dev extensions for updates")
+    func ignoresDevExtensions() async throws {
+        let root = makeRoot()
+        let devParent = makeRoot()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: devParent)
+        }
+        let devDir = try makeDevExtension(name: "demo-ext", version: "1.0.0", in: devParent)
+        let store = makeStore(root: root, versions: ["demo-ext": "2.0.0"], devPaths: [devDir.path])
+
+        store.startAll()
+        await store.checkForUpdates()
+
+        #expect(store.statuses.first(where: { $0.id == "demo-ext" })?.isDev == true)
+        #expect(!store.hasUpdates)
+    }
+
     private func makeRoot() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("update-root-\(UUID().uuidString)")
     }
 
-    private func makeStore(root: URL, versions: [String: String]) -> ExtensionStore {
+    private func makeDevExtension(name: String, version: String, in parent: URL) throws -> URL {
+        let directory = parent.appendingPathComponent("\(name)-dev")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let manifest = """
+        {
+            "name": "\(name)",
+            "version": "\(version)"
+        }
+        """
+        try ExtensionManifestFixture.write(flatManifest: manifest, to: directory)
+        return directory
+    }
+
+    private func makeStore(root: URL, versions: [String: String], devPaths: [String] = []) -> ExtensionStore {
         StubMarketplaceURLProtocol.reset()
         StubMarketplaceURLProtocol.versions = versions
         let configuration = URLSessionConfiguration.ephemeral
@@ -101,7 +132,8 @@ struct ExtensionStoreUpdateTests {
             rootDirectory: root,
             snapshotSink: NoopUpdateSnapshotSink(),
             resolveHostURL: { URL(fileURLWithPath: "/usr/bin/true") },
-            marketplace: marketplace
+            marketplace: marketplace,
+            devPathsProvider: { devPaths }
         )
     }
 

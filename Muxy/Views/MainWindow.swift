@@ -157,6 +157,7 @@ struct MainWindow: View {
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
         .background(MainWindowShortcutInterceptor(
+            isTerminalFocused: { isTerminalPaneFocused },
             onShortcut: { action in handleShortcutAction(action) },
             onCommandShortcut: { shortcut in handleCommandShortcut(shortcut) },
             onExtensionShortcut: { shortcut in handleExtensionShortcut(shortcut) },
@@ -311,13 +312,13 @@ struct MainWindow: View {
                 ZStack {
                     MuxyTheme.bg
                     if let project = activeProject,
-                       appState.workspaceRoot(for: project.id) == nil,
+                       !appState.hasTabs(for: project.id),
                        let worktree = resolvedActiveWorktree(for: project)
                     {
                         EmptyProjectPlaceholder(project: project) {
-                            appState.selectWorktree(projectID: project.id, worktree: worktree)
+                            appState.openInitialTab(projectID: project.id, worktree: worktree)
                         }
-                    } else if projectsWithWorkspaces.isEmpty {
+                    } else if projectsWithTabs.isEmpty {
                         WelcomeView()
                     } else if let project = activeProjectWithWorkspace,
                               let activeKey = appState.activeWorktreeKey(for: project.id)
@@ -822,6 +823,11 @@ struct MainWindow: View {
         return [activeKey]
     }
 
+    private var isTerminalPaneFocused: Bool {
+        guard let projectID = appState.activeProjectID else { return false }
+        return appState.activeTab(for: projectID)?.content.pane != nil
+    }
+
     private func handleShortcutAction(_ action: ShortcutAction) -> Bool {
         if action == .toggleVoiceRecording {
             return openVoiceRecorder()
@@ -858,8 +864,8 @@ struct MainWindow: View {
         return true
     }
 
-    private var projectsWithWorkspaces: [Project] {
-        projectStore.projects.filter { appState.workspaceRoot(for: $0.id) != nil }
+    private var projectsWithTabs: [Project] {
+        projectStore.projects.filter { appState.hasTabs(for: $0.id) }
     }
 
     var richInputPanelVisible: Bool { panelHost.isOpen(BuiltinPanel.richInput) }
@@ -1280,6 +1286,7 @@ private struct NavigationArrowButton: View {
 }
 
 private struct MainWindowShortcutInterceptor: NSViewRepresentable {
+    let isTerminalFocused: () -> Bool
     let onShortcut: (ShortcutAction) -> Bool
     let onCommandShortcut: (CommandShortcut) -> Bool
     let onExtensionShortcut: (ExtensionShortcut) -> Bool
@@ -1288,6 +1295,7 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> ShortcutInterceptingView {
         let view = ShortcutInterceptingView()
+        view.isTerminalFocused = isTerminalFocused
         view.onShortcut = onShortcut
         view.onCommandShortcut = onCommandShortcut
         view.onExtensionShortcut = onExtensionShortcut
@@ -1297,6 +1305,7 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: ShortcutInterceptingView, context: Context) {
+        nsView.isTerminalFocused = isTerminalFocused
         nsView.onShortcut = onShortcut
         nsView.onCommandShortcut = onCommandShortcut
         nsView.onExtensionShortcut = onExtensionShortcut
@@ -1306,6 +1315,7 @@ private struct MainWindowShortcutInterceptor: NSViewRepresentable {
 }
 
 private final class ShortcutInterceptingView: NSView {
+    var isTerminalFocused: (() -> Bool)?
     var onShortcut: ((ShortcutAction) -> Bool)?
     var onCommandShortcut: ((CommandShortcut) -> Bool)?
     var onExtensionShortcut: ((ExtensionShortcut) -> Bool)?
@@ -1326,7 +1336,7 @@ private final class ShortcutInterceptingView: NSView {
     }
 
     private func handleShortcutEvent(_ event: NSEvent) -> Bool {
-        let scopes = ShortcutContext.activeScopes(for: window)
+        let scopes = ShortcutContext.activeScopes(for: window, isTerminalFocused: isTerminalFocused?() ?? false)
         let layerWasActive = CommandShortcutStore.shared.isLayerActive
         guard layerWasActive
             || !event.modifierFlags.isDisjoint(with: [.command, .control, .option])

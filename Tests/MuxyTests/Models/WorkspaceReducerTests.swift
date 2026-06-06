@@ -304,6 +304,49 @@ struct WorkspaceReducerTests {
         #expect(effects.projectIDsToRemove.contains(projectID))
     }
 
+    @Test("closeTab last tab keeps empty workspace when keepProjectOpenWhenEmpty is on")
+    func closeTabLastTabKeepsEmptyWorkspace() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        state.keepProjectOpenWhenEmpty = true
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let area = state.workspaceRoots[key]!.findArea(id: areaID)!
+        let tabID = area.tabs[0].id
+
+        let effects = WorkspaceReducer.reduce(
+            action: .closeTab(projectID: projectID, areaID: areaID, tabID: tabID),
+            state: &state
+        )
+
+        #expect(state.workspaceRoots[key] != nil)
+        #expect(state.workspaceRoots[key]?.findArea(id: areaID)?.tabs.isEmpty == true)
+        #expect(!effects.projectIDsToRemove.contains(projectID))
+    }
+
+    @Test("selectProject does not create a tab for an emptied workspace")
+    func selectProjectKeepsEmptyWorkspace() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        state.keepProjectOpenWhenEmpty = true
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let tabID = state.workspaceRoots[key]!.findArea(id: areaID)!.tabs[0].id
+
+        _ = WorkspaceReducer.reduce(
+            action: .closeTab(projectID: projectID, areaID: areaID, tabID: tabID),
+            state: &state
+        )
+        _ = WorkspaceReducer.reduce(
+            action: .selectProject(projectID: projectID, worktreeID: worktreeID, worktreePath: testPath),
+            state: &state
+        )
+
+        #expect(state.workspaceRoots[key]?.findArea(id: areaID)?.tabs.isEmpty == true)
+    }
+
     @Test("selectTab changes activeTabID")
     func selectTab() {
         let projectID = UUID()

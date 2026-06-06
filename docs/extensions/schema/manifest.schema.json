@@ -45,10 +45,11 @@
         },
         "background": {
           "type": "string",
-          "description": "Relative path to a background JS file inside the build output."
+          "description": "Relative path to a background JS file inside the build output. Use for pushed workspace events, extension-local events, remote methods, or background shell commands."
         },
         "events": {
           "type": "array",
+          "description": "Workspace events this extension may subscribe to. Same-extension `extension.*` events are local and are not declared here.",
           "items": { "type": "string" },
           "uniqueItems": true
         },

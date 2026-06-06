@@ -13,7 +13,7 @@ A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Mux
     {
       "id": "pr-viewer",
       "title": "PR Viewer",
-      "entry": "tabs/pr.html",
+      "entry": "index.html",
       "defaultData": { "mode": "compact" }
     }
   ],
@@ -29,7 +29,7 @@ A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Mux
 | --- | --- | --- | --- |
 | `id` | string | yes | Stable per extension. Referenced from `openTab` commands and from `muxy.tabs.open()`. |
 | `title` | string | yes | Default tab title, until the page sets its own. |
-| `entry` | string | yes | HTML path relative to the extension directory. Must resolve inside it (no `..` traversal). |
+| `entry` | string | yes | HTML path relative to the build output — any layout works (e.g. root `index.html`); not a fixed `tabs/` folder. Must resolve inside the extension directory (no `..` traversal). |
 | `defaultData` | object | no | JSON merged into `window.muxy.data` when no explicit data is passed at open time. |
 
 The page loads at `muxy-ext://<extensionID>/<entry>` and references its own files with relative paths; the scheme is scoped to that one extension's directory.
@@ -76,7 +76,7 @@ See [theming](README.md) and the SKILL for the full `--muxy-*` variable list and
 
 ## window.muxy
 
-Muxy injects `window.muxy` before the page's scripts run. Every method returns a `Promise` and requires its matching manifest permission — an unauthorized call rejects with `permission denied (<permission>)`.
+Muxy injects `window.muxy` before the page's scripts run. Most methods return a `Promise` and require their matching manifest permission — an unauthorized call rejects with `permission denied (<permission>)`. The subscription helpers (`onDataChange`, `onThemeChange`, `events.subscribe`) instead return a synchronous unsubscribe function.
 
 ```ts
 window.muxy = {
@@ -84,6 +84,8 @@ window.muxy = {
   tabInstanceID: string,
   data: object | null,                 // payload the tab was opened with (or defaultData)
   onDataChange(callback): unsubscribe, // fires when a singleton tab is reopened with new data
+  theme: object,                       // current --muxy-* theme values
+  onThemeChange(callback): unsubscribe,
 
   notifications: {
     notify({ title, body?, paneID? }): Promise<void>,   // requires notifications:write
@@ -94,6 +96,7 @@ window.muxy = {
     confirm(opts): Promise<string | null>,                // resolves the chosen button label, null on cancel
     alert(opts): Promise<void>,
   },
+  modal: { open(opts): Promise<Item | null> },            // searchable picker — see modal.md
 
   tabs: {
     open(request): Promise<void>,       // see "Opening another tab"
@@ -117,7 +120,17 @@ window.muxy = {
 
   projects:  { list(), switchTo(identifier) },
   worktrees: { list(project?), switchTo(identifier, project?), refresh(project?) },
-  events:    { subscribe(name, callback): unsubscribe },
+  panels:    { open(id, data?), toggle(id, data?), close(id) },  // panels:write — see panels.md
+  popover:   { close(), resize(width, height) },                // panels:write — see popovers.md
+  topbar:    { set(opts), show(id), hide(id) },                 // panels:write — see topbar.md
+  statusbar: { set(opts), show(id), hide(id) },                 // panels:write — see statusbar.md
+  git:       { status, diff, log, branches, commit, push, /* … */ pr: {}, branch: {}, worktree: {}, tag: {} }, // see git.md
+  files:     { list, read, stat, write, mkdir, rename, move, delete },  // see files.md
+  http:      { fetch(url, options?): Promise<HTTPResult> },     // no CORS — see http.md
+  events:    {
+    subscribe(name, callback): unsubscribe,
+    emit(name: `extension.${string}`, payload?): Promise<void>,
+  },
   exec(argv: string[], options?): Promise<ExecResult>,
   exec(options: { shell: string, ... }): Promise<ExecResult>,
 }
@@ -196,6 +209,14 @@ unsubscribe();
 
 The event must be listed in the manifest `events` array (a `command.<id>` event of the same extension is auto-allowed); otherwise the subscribe rejects. Subscriptions drop automatically on page reload, tab close, and extension disable/reload.
 
+For webview-to-background coordination, use extension-local events. Names must start with `extension.`, do not go in the manifest, and are scoped to the same extension:
+
+```js
+await muxy.events.emit('extension.editor.saved', { path: 'Sources/App.swift' });
+```
+
+An extension-local emit requires the extension's `background.js` to be running. The background script can subscribe to the same name and can emit `extension.*` events back to open tabs, panels, and popovers.
+
 ## Persistence
 
 Workspace restore persists each tab's `extensionID`, `tabTypeID`, and `data`, so it reopens with the same payload. If the extension isn't loaded when restore runs, the tab shows a placeholder until it returns.
@@ -206,7 +227,7 @@ Workspace restore persists each tab's `extensionID`, `tabTypeID`, and `data`, so
 
 ## Limits
 
-- One `WKWebView` per tab instance; tabs do not share state. Coordinate shared state through your background script.
+- One `WKWebView` per tab instance; tabs do not share state. Coordinate shared state through your background script with `extension.*` events.
 - Pages can only navigate within `muxy-ext://` and `about:` — no `http`/`https`/`file`. Open external content via `muxy.tabs.open()`.
 - Opening a tab is a page capability (`window.muxy`). The background script has no tabs API.
 - For command logic with no UI, use a [`runScript`](scripts.md) command action instead of a hidden tab.

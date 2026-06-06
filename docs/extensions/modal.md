@@ -2,7 +2,9 @@
 
 A native, searchable picker overlay. The extension supplies a list; Muxy owns the UI, the search field, keyboard navigation, and open/close. Selecting an item (click or Return) closes the modal and resolves the call with that item; dismissing (Esc, click outside) resolves with `null`.
 
-`modal` is available on both surfaces: the in-process [`window.muxy`](tabs.md#windowmuxy) bridge (tabs, panels, popovers) and the [background script](manifest.md) `muxy` global. It needs **no permission** — the user drives every selection themselves, so there is nothing to gate ([what permissions don't gate](permissions.md#what-permissions-dont-gate)).
+`modal` is available on all three surfaces: webview pages (tabs, panels, popovers) via [`window.muxy`](tabs.md#windowmuxy), [`runScript`](scripts.md) palette-command scripts via `muxy`, and the [background script](manifest.md) `muxy` global. It needs **no permission** — the user drives every selection themselves, so there is nothing to gate ([what permissions don't gate](permissions.md#what-permissions-dont-gate)).
+
+On webview pages `modal.open` returns a `Promise` — use `await`. In `runScript` and background scripts it is **synchronous** and returns the selected item (or `null`) directly; `await` is harmless but not required. In every case the call blocks until the user responds.
 
 ## open
 

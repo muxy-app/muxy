@@ -36,7 +36,7 @@ Disabled extensions contribute no topbar items.
 
 ## Updating an item at runtime
 
-The icon and visibility can change while the extension runs — from `background.js` or any tab/panel/popover page — with `muxy.topbar.set`:
+The icon and visibility can change while the extension runs — from `background.js`, any tab/panel/popover page, or a [`runScript`](scripts.md) command — with `muxy.topbar.set`:
 
 ```js
 muxy.topbar.set({ id: "pr", icon: { symbol: "checkmark.circle.fill" } });

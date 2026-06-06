@@ -320,16 +320,22 @@ public enum ExtensionBridgeJS {
     """
 
     private static let eventsBlock = """
+            const isExtensionLocalEvent = (name) => {
+                const key = String(name);
+                return key.startsWith('extension.') && key.length > 'extension.'.length;
+            };
             const handlerStore = {};
             this.__muxyEventHandlers = handlerStore;
             muxy.events = {
                 subscribe(name, handler) {
+                    if (typeof handler !== 'function') return () => {};
                     const key = String(name);
                     if (!handlerStore[key]) {
                         handlerStore[key] = [];
-                        __muxySubscribe(key);
+                        if (!isExtensionLocalEvent(key)) __muxySubscribe(key);
                     }
                     handlerStore[key].push(handler);
+                    return () => muxy.events.unsubscribe(key, handler);
                 },
                 unsubscribe(name, handler) {
                     const key = String(name);
@@ -337,6 +343,11 @@ public enum ExtensionBridgeJS {
                     if (!list) return;
                     const index = list.indexOf(handler);
                     if (index >= 0) list.splice(index, 1);
+                },
+                emit(name, payload) {
+                    const key = String(name);
+                    if (!isExtensionLocalEvent(key)) throw new Error('extension events must start with extension.');
+                    return dispatch('events.emit', { event: key, payload: payload === undefined ? null : payload });
                 },
             };
     """

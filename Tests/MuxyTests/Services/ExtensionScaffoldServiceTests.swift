@@ -11,7 +11,7 @@ struct ExtensionScaffoldServiceTests {
         defer { fixture.cleanup() }
 
         let extensionURL = try ExtensionScaffoldService.create(
-            ExtensionScaffoldRequest(name: "demo", version: "0.1.0", description: "A demo extension", kit: .vanilla),
+            ExtensionScaffoldRequest(name: "demo", version: "0.1.0", description: "A demo extension"),
             in: fixture.rootURL,
             skillSourceURL: fixture.skillSourceURL,
             kitSourceURL: fixture.kitSourceURL
@@ -32,7 +32,7 @@ struct ExtensionScaffoldServiceTests {
         defer { fixture.cleanup() }
 
         let extensionURL = try ExtensionScaffoldService.create(
-            ExtensionScaffoldRequest(name: "kitted", version: "0.1.0", description: "", kit: .vanilla),
+            ExtensionScaffoldRequest(name: "kitted", version: "0.1.0", description: ""),
             in: fixture.rootURL,
             skillSourceURL: fixture.skillSourceURL,
             kitSourceURL: fixture.kitSourceURL
@@ -50,7 +50,7 @@ struct ExtensionScaffoldServiceTests {
         defer { fixture.cleanup() }
 
         let extensionURL = try ExtensionScaffoldService.create(
-            ExtensionScaffoldRequest(name: "tidy", version: "1.0.0", description: "  ", kit: .vanilla),
+            ExtensionScaffoldRequest(name: "tidy", version: "1.0.0", description: "  "),
             in: fixture.rootURL,
             skillSourceURL: fixture.skillSourceURL,
             kitSourceURL: fixture.kitSourceURL
@@ -67,7 +67,7 @@ struct ExtensionScaffoldServiceTests {
 
         #expect(throws: ExtensionLoadError.self) {
             try ExtensionScaffoldService.create(
-                ExtensionScaffoldRequest(name: "bad name!", version: "0.1.0", description: "", kit: .vanilla),
+                ExtensionScaffoldRequest(name: "bad name!", version: "0.1.0", description: ""),
                 in: fixture.rootURL,
                 skillSourceURL: fixture.skillSourceURL,
             kitSourceURL: fixture.kitSourceURL
@@ -83,7 +83,7 @@ struct ExtensionScaffoldServiceTests {
         for name in ["..", ".", ".hidden"] {
             #expect(throws: ExtensionLoadError.self) {
                 try ExtensionScaffoldService.create(
-                    ExtensionScaffoldRequest(name: name, version: "0.1.0", description: "", kit: .vanilla),
+                    ExtensionScaffoldRequest(name: name, version: "0.1.0", description: ""),
                     in: fixture.rootURL,
                     skillSourceURL: fixture.skillSourceURL,
             kitSourceURL: fixture.kitSourceURL
@@ -99,7 +99,7 @@ struct ExtensionScaffoldServiceTests {
 
         #expect(throws: ExtensionScaffoldError.self) {
             try ExtensionScaffoldService.create(
-                ExtensionScaffoldRequest(name: "no-version", version: "  ", description: "", kit: .vanilla),
+                ExtensionScaffoldRequest(name: "no-version", version: "  ", description: ""),
                 in: fixture.rootURL,
                 skillSourceURL: fixture.skillSourceURL,
             kitSourceURL: fixture.kitSourceURL
@@ -113,7 +113,7 @@ struct ExtensionScaffoldServiceTests {
         defer { fixture.cleanup() }
 
         _ = try ExtensionScaffoldService.create(
-            ExtensionScaffoldRequest(name: "dup", version: "0.1.0", description: "", kit: .vanilla),
+            ExtensionScaffoldRequest(name: "dup", version: "0.1.0", description: ""),
             in: fixture.rootURL,
             skillSourceURL: fixture.skillSourceURL,
             kitSourceURL: fixture.kitSourceURL
@@ -121,7 +121,7 @@ struct ExtensionScaffoldServiceTests {
 
         #expect(throws: ExtensionScaffoldError.self) {
             try ExtensionScaffoldService.create(
-                ExtensionScaffoldRequest(name: "dup", version: "0.1.0", description: "", kit: .vanilla),
+                ExtensionScaffoldRequest(name: "dup", version: "0.1.0", description: ""),
                 in: fixture.rootURL,
                 skillSourceURL: fixture.skillSourceURL,
             kitSourceURL: fixture.kitSourceURL
@@ -135,7 +135,7 @@ struct ExtensionScaffoldServiceTests {
         defer { fixture.cleanup() }
 
         let extensionURL = try ExtensionScaffoldService.create(
-            ExtensionScaffoldRequest(name: "loadable", version: "0.2.0", description: "Round-trip", kit: .vanilla),
+            ExtensionScaffoldRequest(name: "loadable", version: "0.2.0", description: "Round-trip"),
             in: fixture.rootURL,
             skillSourceURL: fixture.skillSourceURL,
             kitSourceURL: fixture.kitSourceURL

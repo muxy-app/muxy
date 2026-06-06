@@ -2,7 +2,7 @@
 
 `muxy.git` gives extensions full programmatic access to the repository behind the active project — status, diffs, history, branches, pull requests, and worktrees. It is the same git core the app and the mobile remote use, so there is one source of truth for everything git.
 
-All methods are async (return a `Promise`) and operate on the **active worktree of a project**. Pass `{ project }` (a project id, name, or path) to target a specific project; omit it to use the active one.
+On tabs/panels/popovers these methods return a `Promise` (use `await`); in [`runScript`](scripts.md) commands and background scripts the same calls are **synchronous** and return the value directly. They operate on the **active worktree of a project**. Pass `{ project }` (a project id, name, or path) to target a specific project; omit it to use the active one.
 
 > Use `muxy.git` instead of shelling out with `muxy.exec` — it returns structured data, is cached, and avoids spawning a `git`/`gh` process per call.
 
@@ -175,6 +175,6 @@ try {
 
 ## Notes
 
-- `muxy.git` is available to extension **tabs**, **panels**, **popovers**, and **background scripts** — the same API and permissions everywhere.
+- `muxy.git` is available to extension **tabs**, **panels**, **popovers**, **`runScript` commands**, and **background scripts** — the same API and permissions everywhere. Calls return a `Promise` on webview pages and are synchronous in `runScript` and background scripts.
 - The app continues to own the worktree lifecycle it shows in the sidebar; `git.worktree.*` operates on the same underlying git worktrees, so changes are reflected after a refresh.
 - There are no AI helpers here — generate commit messages or PR bodies with your own model via `muxy.exec` if you need them.

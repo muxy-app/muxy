@@ -6,6 +6,7 @@ enum ShortcutScope: String, Codable, CaseIterable {
     case global
     case mainWindow
     case richInput
+    case terminal
 }
 
 struct KeyCombo: Codable, Equatable, Hashable {

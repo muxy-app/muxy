@@ -5,7 +5,7 @@ enum ExtensionEnabledStore {
 
     static func isEnabled(extensionID: String, defaults: UserDefaults = .standard) -> Bool {
         let key = storageKey(extensionID: extensionID)
-        guard defaults.object(forKey: key) != nil else { return true }
+        guard defaults.object(forKey: key) != nil else { return false }
         return defaults.bool(forKey: key)
     }
 

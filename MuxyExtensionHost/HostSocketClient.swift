@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import MuxyShared
 
 final class HostSocketClient: @unchecked Sendable {
     enum ClientError: Error {
@@ -16,9 +17,38 @@ final class HostSocketClient: @unchecked Sendable {
     private var closed = false
     private var readBuffer = Data()
     private var eventHandler: ((String) -> Void)?
+    private var extensionEventHandler: ((String) -> Void)?
     private var invokeHandler: ((String) -> Void)?
 
-    init(socketPath: String) throws {
+    static let maxConnectAttempts = 15
+    static let connectRetryDelay: TimeInterval = 0.1
+    static let maxIdentifyAttempts = 15
+    static let identifyRetryDelay: TimeInterval = 0.1
+
+    static func isTransientIdentifyRejection(_ reply: String) -> Bool {
+        reply.hasPrefix("error:unknown extension")
+    }
+
+    init(
+        socketPath: String,
+        maxConnectAttempts: Int = HostSocketClient.maxConnectAttempts,
+        connectRetryDelay: TimeInterval = HostSocketClient.connectRetryDelay
+    ) throws {
+        var lastError = ""
+        for attempt in 1 ... maxConnectAttempts {
+            do {
+                fd = try Self.connect(to: socketPath)
+                return
+            } catch let ClientError.connectFailed(reason) {
+                lastError = reason
+                guard attempt < maxConnectAttempts else { break }
+                Thread.sleep(forTimeInterval: connectRetryDelay)
+            }
+        }
+        throw ClientError.connectFailed(lastError)
+    }
+
+    private static func connect(to socketPath: String) throws -> Int32 {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else {
             throw ClientError.connectFailed(String(cString: strerror(errno)))
@@ -33,7 +63,7 @@ final class HostSocketClient: @unchecked Sendable {
 
         let result = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+                Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
         guard result == 0 else {
@@ -41,7 +71,7 @@ final class HostSocketClient: @unchecked Sendable {
             throw ClientError.connectFailed(String(cString: strerror(errno)))
         }
 
-        fd = descriptor
+        return descriptor
     }
 
     init(fileDescriptor: Int32) {
@@ -50,6 +80,10 @@ final class HostSocketClient: @unchecked Sendable {
 
     func onEvent(_ handler: @escaping (String) -> Void) {
         eventHandler = handler
+    }
+
+    func onExtensionEvent(_ handler: @escaping (String) -> Void) {
+        extensionEventHandler = handler
     }
 
     func onInvoke(_ handler: @escaping (String) -> Void) {
@@ -127,6 +161,10 @@ final class HostSocketClient: @unchecked Sendable {
     private func deliver(_ line: String) {
         if line.hasPrefix("event|") {
             eventHandler?(line)
+            return
+        }
+        if line.hasPrefix("\(ExtensionLocalEvent.messageHead)|") {
+            extensionEventHandler?(line)
             return
         }
         if line.hasPrefix("invoke|") {

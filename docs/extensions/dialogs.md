@@ -2,7 +2,9 @@
 
 Native macOS sheets an extension can present on the main window: a multi-button **confirm** dialog and a single-button **alert**. Both render as a real `NSAlert` sheet attached to the Muxy window — they look identical to the app's own prompts and block until the user responds.
 
-`dialog` is available on both surfaces: the in-process [`window.muxy`](tabs.md#windowmuxy) bridge (tabs, panels, popovers) and the [background script](manifest.md) `muxy` global. It needs **no permission** — the user has to dismiss every dialog themselves, so there is nothing to gate ([what permissions don't gate](permissions.md#what-permissions-dont-gate)).
+`dialog` is available on all three surfaces: webview pages (tabs, panels, popovers) via [`window.muxy`](tabs.md#windowmuxy), [`runScript`](scripts.md) palette-command scripts via `muxy`, and the [background script](manifest.md) `muxy` global. It needs **no permission** — the user has to dismiss every dialog themselves, so there is nothing to gate ([what permissions don't gate](permissions.md#what-permissions-dont-gate)).
+
+On webview pages `confirm`/`alert` return a `Promise` — use `await`. In `runScript` and background scripts they are **synchronous** and return the result directly; `await` is harmless but not required. In every case the call blocks until the user responds.
 
 ## confirm
 

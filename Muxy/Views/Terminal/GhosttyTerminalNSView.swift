@@ -390,7 +390,7 @@ final class GhosttyTerminalNSView: NSView {
         if modifiers == .command, Self.systemShortcutKeys.contains(key) {
             return true
         }
-        let scopes = ShortcutContext.activeScopes(for: window)
+        let scopes = ShortcutContext.activeScopes(for: window, isTerminalFocused: true)
         return KeyBindingStore.shared.isRegisteredShortcut(event: event, scopes: scopes)
             || CommandShortcutStore.shared.isRegisteredShortcut(event: event, scopes: scopes)
             || ExtensionShortcutStore.shared.isRegisteredShortcut(event: event, scopes: scopes)

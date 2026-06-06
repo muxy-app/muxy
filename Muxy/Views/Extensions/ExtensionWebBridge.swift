@@ -66,6 +66,10 @@ enum ExtensionWebBridge {
             else document.addEventListener('DOMContentLoaded', () => writeThemeToDocument(currentTheme), { once: true });
 
             const eventListeners = new Map();
+            const isExtensionLocalEvent = (name) => {
+                const key = String(name);
+                return key.startsWith('extension.') && key.length > 'extension.'.length;
+            };
             window.__muxyEventDispatch = (name, payload) => {
                 const listeners = eventListeners.get(name);
                 if (!listeners) return;
@@ -404,6 +408,13 @@ enum ExtensionWebBridge {
                                 send('events.unsubscribe', { event: name }).catch(() => {});
                             }
                         };
+                    },
+                    emit(name, payload) {
+                        const key = String(name);
+                        if (!isExtensionLocalEvent(key)) {
+                            return Promise.reject(new Error('extension events must start with extension.'));
+                        }
+                        return send('events.emit', { event: key, payload: payload === undefined ? null : payload });
                     },
                 },
             };

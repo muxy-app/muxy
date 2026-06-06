@@ -194,6 +194,12 @@ final class AppState {
         ))
     }
 
+    func openInitialTab(projectID: UUID, worktree: Worktree) {
+        selectWorktree(projectID: projectID, worktree: worktree)
+        guard !hasTabs(for: projectID) else { return }
+        createTab(projectID: projectID)
+    }
+
     func focusedArea(for projectID: UUID) -> TabArea? {
         guard let key = activeWorktreeKey(for: projectID),
               let root = workspaceRoots[key],
@@ -205,6 +211,10 @@ final class AppState {
     func allAreas(for projectID: UUID) -> [TabArea] {
         guard let key = activeWorktreeKey(for: projectID) else { return [] }
         return workspaceRoots[key]?.allAreas() ?? []
+    }
+
+    func hasTabs(for projectID: UUID) -> Bool {
+        allAreas(for: projectID).contains { !$0.tabs.isEmpty }
     }
 
     func locatePane(paneID: UUID) -> (worktreeKey: WorktreeKey, pane: TerminalPaneState)? {
