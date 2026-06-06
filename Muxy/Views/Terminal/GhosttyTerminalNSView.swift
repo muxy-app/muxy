@@ -210,10 +210,16 @@ final class GhosttyTerminalNSView: NSView {
                 RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: surface)
             }
             ghostty_surface_free(surface)
+            detachRendererLayer()
         }
         surface = nil
         surfaceFocused = nil
         cleanupSurfaceConfigPointers()
+    }
+
+    private func detachRendererLayer() {
+        layer = nil
+        wantsLayer = true
     }
 
     func tearDown() {
@@ -342,8 +348,12 @@ final class GhosttyTerminalNSView: NSView {
         applyOcclusionState()
     }
 
+    private var isCurrentlyVisible: Bool {
+        window != nil && isPaneVisible && isWindowVisible
+    }
+
     private func updateOfflineVisibilityClock() {
-        if window != nil, isPaneVisible, isWindowVisible {
+        if isCurrentlyVisible {
             offlineInvisibleAt = nil
         } else if offlineInvisibleAt == nil {
             offlineInvisibleAt = Date()
@@ -351,7 +361,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func resetOfflineVisibilityClock() {
-        offlineInvisibleAt = window != nil && isPaneVisible && isWindowVisible ? nil : Date()
+        offlineInvisibleAt = isCurrentlyVisible ? nil : Date()
     }
 
     func updateResumeWorkingDirectory(_ directory: String) {
@@ -370,7 +380,23 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func takeOffline() {
-        guard surface != nil, offlineInvisibleAt != nil, !isOfflineBlockedByRemote, isTerminalIdle() else { return }
+        guard isEligibleForOffline else { return }
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            MainActor.assumeIsolated {
+                self?.performOfflineTeardown()
+            }
+        }
+        CATransaction.commit()
+    }
+
+    private var isEligibleForOffline: Bool {
+        surface != nil && !isCurrentlyVisible && offlineInvisibleAt != nil
+            && !isOfflineBlockedByRemote && isTerminalIdle()
+    }
+
+    private func performOfflineTeardown() {
+        guard isEligibleForOffline else { return }
         processExitHandled = true
         destroySurface()
         isOfflinedState = true
