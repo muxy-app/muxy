@@ -433,6 +433,9 @@ enum MuxyAPI {
             guard let view = await waitForView(paneID: paneID, appState: appState) else {
                 return .failure(.paneNotFound(paneIDString))
             }
+            guard view.ensureLiveSurfaceForExternalIO() else {
+                return .failure(.underlying("terminal surface unavailable"))
+            }
             view.sendText(text)
             return .success(())
         }
@@ -453,6 +456,9 @@ enum MuxyAPI {
             }
             guard let view = await waitForView(paneID: paneID, appState: appState) else {
                 return .failure(.paneNotFound(paneIDString))
+            }
+            guard view.ensureLiveSurfaceForExternalIO() else {
+                return .failure(.underlying("terminal surface unavailable"))
             }
 
             let bytes: Data
@@ -501,6 +507,9 @@ enum MuxyAPI {
             let clamped = min(max(lines, 1), 500)
             guard let view = await waitForView(paneID: paneID, appState: appState) else {
                 return .failure(.paneNotFound(paneIDString))
+            }
+            guard view.ensureLiveSurfaceForExternalIO() else {
+                return .failure(.underlying("terminal surface unavailable"))
             }
             return .success(view.readScreenText(lastLines: clamped))
         }

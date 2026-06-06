@@ -188,12 +188,11 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func sendTerminalInput(paneID: UUID, bytes: Data, clientID: UUID) {
-        guard let view = TerminalViewRegistry.shared.existingView(for: paneID) else {
-            logger.warning("No terminal view for pane \(paneID)")
+        guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
             return
         }
-
-        guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
+        guard let view = ensureTerminalView(paneID: paneID), view.ensureLiveSurfaceForExternalIO() else {
+            logger.warning("No terminal surface for pane \(paneID)")
             return
         }
 
@@ -201,13 +200,13 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool, clientID: UUID) {
-        guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
-              let surface = view.surface
-        else { return }
-
         guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
             return
         }
+        guard let view = ensureTerminalView(paneID: paneID),
+              view.ensureLiveSurfaceForExternalIO(),
+              let surface = view.surface
+        else { return }
 
         let mods: ghostty_input_scroll_mods_t = precise ? 1 : 0
         ghostty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
@@ -221,7 +220,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     private func applyPTYSize(paneID: UUID, cols: UInt32, rows: UInt32) {
-        guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
+        guard let view = ensureTerminalView(paneID: paneID),
+              view.ensureLiveSurfaceForExternalIO(),
               let surface = view.surface
         else { return }
 
@@ -272,7 +272,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32) {
-        ensureTerminalView(paneID: paneID)
+        guard ensureTerminalView(paneID: paneID) != nil else { return }
         let snapshotBytes = buildTerminalSnapshot(paneID: paneID)
         PaneOwnershipStore.shared.assign(paneID: paneID, to: clientID)
         if let bytes = snapshotBytes, !bytes.isEmpty {
@@ -283,11 +283,14 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         applyPTYSize(paneID: paneID, cols: cols, rows: rows)
     }
 
-    private func ensureTerminalView(paneID: UUID) {
-        if TerminalViewRegistry.shared.existingView(for: paneID) != nil { return }
+    private func ensureTerminalView(paneID: UUID) -> GhosttyTerminalNSView? {
+        if let view = TerminalViewRegistry.shared.existingView(for: paneID) {
+            _ = view.ensureLiveSurfaceForExternalIO()
+            return view
+        }
         guard let location = appState.locatePane(paneID: paneID) else {
             logger.warning("Cannot materialize pane \(paneID): no matching tab in workspace")
-            return
+            return nil
         }
         let pane = location.pane
         let view = TerminalViewRegistry.shared.view(
@@ -304,6 +307,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         if view.surface == nil {
             logger.warning("Headless materialization left pane \(paneID) without a surface")
         }
+        return view
     }
 
     private func buildTerminalSnapshot(paneID: UUID) -> Data? {
@@ -327,7 +331,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func getTerminalContent(paneID: UUID) -> TerminalCellsDTO? {
-        guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
+        guard let view = ensureTerminalView(paneID: paneID),
+              view.ensureLiveSurfaceForExternalIO(),
               let surface = view.surface
         else { return nil }
 

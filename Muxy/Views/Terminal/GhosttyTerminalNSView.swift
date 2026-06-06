@@ -1124,6 +1124,12 @@ final class GhosttyTerminalNSView: NSView {
         }
     }
 
+    func ensureLiveSurfaceForExternalIO() -> Bool {
+        guard surface == nil else { return true }
+        materializeHeadless()
+        return surface != nil
+    }
+
     func readScreenText(lastLines: Int = 50) -> String {
         guard let surface else { return "" }
         var out = ghostty_cells_s()
