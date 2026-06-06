@@ -174,6 +174,8 @@ enum MuxyAPI {
             "topbar.set",
             "statusbar.set",
             "tabs.open",
+            "lifecycle.resolveBeforeClose",
+            "lifecycle.closeSelf",
         ]).union(gitVerbs).union(filesVerbs)
 
         static let filesVerbs: Set<String> = [
@@ -359,7 +361,7 @@ enum MuxyAPI {
     @MainActor
     enum Popovers {
         static func close(extensionID: String) -> Result<Void, APIError> {
-            PopoverHost.shared.close(extensionID: extensionID)
+            PopoverHost.shared.requestClose(extensionID: extensionID)
             return .success(())
         }
 

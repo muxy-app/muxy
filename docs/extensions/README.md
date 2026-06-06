@@ -71,6 +71,7 @@ flowchart TD
 | [Manifest](manifest.md) | `package.json` `muxy` fields, validation, background script environment |
 | [Permissions](permissions.md) | What each permission grants, what isn't gated |
 | [Events](events.md) | Identify/subscribe handshake, event list, wire format |
+| [Lifecycle](lifecycle.md) | Intercept and prevent tab/panel/popover closes (e.g. unsaved changes) |
 | [Palette Commands](palette-commands.md) | Register commands and react to triggers |
 | [Tabs](tabs.md) | Register webview tab types and the injected `window.muxy` JS API |
 | [Panels](panels.md) | Register dockable/floating webview panels and the placement rules |

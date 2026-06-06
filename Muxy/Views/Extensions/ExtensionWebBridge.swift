@@ -92,6 +92,28 @@ enum ExtensionWebBridge {
                 }
             };
 
+            let beforeCloseHandler = null;
+            window.__muxyResolveBeforeClose = (callID, prevent) => {
+                send('lifecycle.resolveBeforeClose', { callID: String(callID), prevent: !!prevent }).catch(() => {});
+            };
+            window.__muxyBeforeClose = (callID, reason, instanceID) => {
+                if (typeof beforeCloseHandler !== 'function') {
+                    window.__muxyResolveBeforeClose(callID, false);
+                    return;
+                }
+                let outcome;
+                try {
+                    outcome = beforeCloseHandler({ surface: String(reason), instanceID: String(instanceID) });
+                } catch (_) {
+                    window.__muxyResolveBeforeClose(callID, false);
+                    return;
+                }
+                Promise.resolve(outcome).then(
+                    (value) => window.__muxyResolveBeforeClose(callID, value === true || (value && value.prevent === true)),
+                    () => window.__muxyResolveBeforeClose(callID, false),
+                );
+            };
+
             const muxy = {
                 extensionID: \(extensionLiteral),
                 tabInstanceID: \(instanceLiteral),
@@ -439,6 +461,13 @@ enum ExtensionWebBridge {
                         return send('events.emit', { event: key, payload: payload === undefined ? null : payload });
                     },
                 },
+                lifecycle: {
+                    onBeforeClose(handler) {
+                        beforeCloseHandler = typeof handler === 'function' ? handler : null;
+                        return () => { if (beforeCloseHandler === handler) beforeCloseHandler = null; };
+                    },
+                    close() { return send('lifecycle.closeSelf', {}); },
+                },
             };
 
             Object.freeze(muxy.notifications);
@@ -459,6 +488,7 @@ enum ExtensionWebBridge {
             Object.freeze(muxy.git.worktree);
             Object.freeze(muxy.files);
             Object.freeze(muxy.events);
+            Object.freeze(muxy.lifecycle);
             Object.freeze(muxy);
             window.muxy = muxy;
 

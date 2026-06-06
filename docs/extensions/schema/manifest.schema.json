@@ -49,7 +49,7 @@
         },
         "events": {
           "type": "array",
-          "description": "Workspace events this extension may subscribe to. Same-extension `extension.*` events are local and are not declared here.",
+          "description": "Workspace events this extension may subscribe to (e.g. pane.created, pane.closed, tab.created, tab.closed, tab.focused, panel.opened, panel.closed, popover.opened, popover.closed, project.switched, worktree.switched, notification.posted, file.changed). Same-extension `extension.*` events are local and are not declared here. Intercepting closes (muxy.lifecycle) needs no declaration.",
           "items": { "type": "string" },
           "uniqueItems": true
         },

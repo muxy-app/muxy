@@ -6,7 +6,7 @@ import WebKit
 private let logger = Logger(subsystem: "app.muxy", category: "ExtensionBridge")
 
 @MainActor
-final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
+final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, BeforeCloseAsking {
     private let extensionID: String
     private weak var appState: AppState?
     private weak var projectStore: ProjectStore?
@@ -14,6 +14,9 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
     private weak var webView: WKWebView?
     private var eventObservers: [String: UUID] = [:]
     private var extensionEventObservers: [String: UUID] = [:]
+    private var surfaceKey: LifecycleSurfaceKey?
+    private var pendingLifecycle: [String: CheckedContinuation<LifecycleVerdict, Never>] = [:]
+    private var nextLifecycleCallID = 1
 
     init(
         extensionID: String,
@@ -31,6 +34,10 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
         self.webView = webView
     }
 
+    func bind(surfaceKey: LifecycleSurfaceKey) {
+        self.surfaceKey = surfaceKey
+    }
+
     func dropAllEventSubscriptions() {
         for token in eventObservers.values {
             NotificationSocketServer.shared.removeInProcessObserver(token)
@@ -40,6 +47,65 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
             NotificationSocketServer.shared.removeExtensionEventObserver(token)
         }
         extensionEventObservers.removeAll()
+    }
+
+    func requestBeforeClose(reason: LifecycleSurfaceKind, instanceID: String) async -> LifecycleVerdict {
+        guard let webView else { return .allow }
+        let callID = String(nextLifecycleCallID)
+        nextLifecycleCallID += 1
+
+        let timeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: ExtensionLifecycle.beforeCloseTimeout)
+            guard !Task.isCancelled else { return }
+            self?.resolveLifecycle(callID: callID, verdict: .allow)
+        }
+        defer { timeoutTask.cancel() }
+
+        return await withCheckedContinuation { continuation in
+            pendingLifecycle[callID] = continuation
+            let script = """
+            if (typeof window.__muxyBeforeClose === 'function') {
+                window.__muxyBeforeClose(\(jsLiteral(callID)), \(jsLiteral(reason.rawValue)), \(jsLiteral(instanceID)));
+            } else if (typeof window.__muxyResolveBeforeClose === 'function') {
+                window.__muxyResolveBeforeClose(\(jsLiteral(callID)), false);
+            }
+            """
+            webView.evaluateJavaScript(script) { [weak self] _, error in
+                guard error != nil else { return }
+                self?.resolveLifecycle(callID: callID, verdict: .allow)
+            }
+        }
+    }
+
+    func failPendingLifecycle() {
+        let pending = pendingLifecycle
+        pendingLifecycle.removeAll()
+        for continuation in pending.values {
+            continuation.resume(returning: .allow)
+        }
+    }
+
+    private func resolveLifecycle(callID: String, verdict: LifecycleVerdict) {
+        guard let continuation = pendingLifecycle.removeValue(forKey: callID) else { return }
+        continuation.resume(returning: verdict)
+    }
+
+    private func handleResolveBeforeClose(args: [String: Any]) {
+        guard let callID = args["callID"] as? String else { return }
+        let prevent = (args["prevent"] as? Bool) ?? false
+        resolveLifecycle(callID: callID, verdict: prevent ? .prevent : .allow)
+    }
+
+    private func handleCloseSelf(appState: AppState) {
+        guard let surfaceKey else { return }
+        switch surfaceKey.kind {
+        case .tab:
+            appState.forceCloseTab(instanceID: surfaceKey.instanceID)
+        case .panel:
+            ExtensionPanelRegistry.shared.forceClose(instanceID: surfaceKey.instanceID)
+        case .popover:
+            PopoverHost.shared.forceClose(instanceID: surfaceKey.instanceID)
+        }
     }
 
     func userContentController(
@@ -80,13 +146,19 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
     private func handle(verb: String, args: [String: Any], appState: AppState) async throws -> Any {
         switch verb {
         case "events.subscribe":
-            try handleSubscribe(args: args)
+            return try handleSubscribe(args: args)
         case "events.unsubscribe":
-            try handleUnsubscribe(args: args)
+            return try handleUnsubscribe(args: args)
         case "events.emit":
-            try await handleEmit(args: args)
+            return try await handleEmit(args: args)
+        case "lifecycle.resolveBeforeClose":
+            handleResolveBeforeClose(args: args)
+            return NSNull()
+        case "lifecycle.closeSelf":
+            handleCloseSelf(appState: appState)
+            return NSNull()
         default:
-            try await MuxyAPIDispatcher.dispatch(
+            return try await MuxyAPIDispatcher.dispatch(
                 verb: verb,
                 args: args,
                 context: MuxyAPIDispatcher.Context(

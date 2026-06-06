@@ -30,13 +30,14 @@ final class ExtensionPanelRegistry {
         )
         openStates.append(state)
         PanelHost.shared.open(hostPanelID, at: panel.position, mode: panel.mode)
+        ExtensionLifecycleEvents.panelOpened(extensionID: extensionID, panelID: panel.id)
         return state
     }
 
     func toggle(extensionID: String, panel: ExtensionPanel, data: ExtensionJSON?) {
         let hostPanelID = ExtensionPanelState.hostPanelID(extensionID: extensionID, panelID: panel.id)
         if PanelHost.shared.isOpen(hostPanelID) {
-            close(hostPanelID: hostPanelID)
+            forceClose(hostPanelID: hostPanelID)
             return
         }
         open(extensionID: extensionID, panel: panel, data: data)
@@ -51,15 +52,41 @@ final class ExtensionPanelRegistry {
     }
 
     func close(hostPanelID: String) {
+        guard let state = state(forHostPanelID: hostPanelID) else {
+            PanelHost.shared.close(hostPanelID)
+            return
+        }
+        let surfaceKey = LifecycleSurfaceKey(kind: .panel, instanceID: state.id.uuidString)
+        Task { @MainActor in
+            let verdict = await ExtensionSurfaceBridgeRegistry.shared.requestBeforeClose(surfaceKey)
+            guard verdict == .allow else { return }
+            forceClose(hostPanelID: hostPanelID)
+        }
+    }
+
+    func forceClose(hostPanelID: String) {
+        let closed = openStates.filter { $0.hostPanelID == hostPanelID }
         PanelHost.shared.close(hostPanelID)
         openStates.removeAll { $0.hostPanelID == hostPanelID }
+        for state in closed {
+            ExtensionLifecycleEvents.panelClosed(extensionID: state.extensionID, panelID: state.panelID)
+        }
+    }
+
+    func forceClose(instanceID: String) {
+        guard let state = openStates.first(where: { $0.id.uuidString == instanceID }) else { return }
+        forceClose(hostPanelID: state.hostPanelID)
     }
 
     func closeAll(extensionID: String) {
-        for state in openStates where state.extensionID == extensionID {
+        let closed = openStates.filter { $0.extensionID == extensionID }
+        for state in closed {
             PanelHost.shared.close(state.hostPanelID)
         }
         openStates.removeAll { $0.extensionID == extensionID }
+        for state in closed {
+            ExtensionLifecycleEvents.panelClosed(extensionID: state.extensionID, panelID: state.panelID)
+        }
     }
 
     private func pruneClosed() {

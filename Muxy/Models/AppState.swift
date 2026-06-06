@@ -308,6 +308,24 @@ final class AppState {
     }
 
     func closeTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
+        guard let surfaceKey = lifecycleSurfaceKey(tabID: tabID, areaID: areaID, projectID: projectID) else {
+            proceedCloseAfterVeto(tabID, areaID: areaID, projectID: projectID)
+            return
+        }
+        Task { @MainActor in
+            let verdict = await ExtensionSurfaceBridgeRegistry.shared.requestBeforeClose(surfaceKey)
+            guard verdict == .allow else { return }
+            proceedCloseAfterVeto(tabID, areaID: areaID, projectID: projectID)
+        }
+    }
+
+    func closeTabs(_ tabIDs: [UUID], areaID: UUID, projectID: UUID) {
+        for tabID in tabIDs {
+            closeTab(tabID, areaID: areaID, projectID: projectID)
+        }
+    }
+
+    private func proceedCloseAfterVeto(_ tabID: UUID, areaID: UUID, projectID: UUID) {
         if needsProcessConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
             pendingProcessTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
@@ -319,6 +337,27 @@ final class AppState {
         clearPendingProcessCloseIfMatching(tabID: tabID, areaID: areaID, projectID: projectID)
         unpinTabIfNeeded(tabID, areaID: areaID, projectID: projectID)
         closeAndRecordTerminalTab(tabID, areaID: areaID, projectID: projectID)
+    }
+
+    func forceCloseTab(instanceID: String) {
+        for (key, root) in workspaceRoots {
+            for area in root.allAreas() {
+                for tab in area.tabs where tab.content.extensionState?.id.uuidString == instanceID {
+                    forceCloseTab(tab.id, areaID: area.id, projectID: key.projectID)
+                    return
+                }
+            }
+        }
+    }
+
+    private func lifecycleSurfaceKey(tabID: UUID, areaID: UUID, projectID: UUID) -> LifecycleSurfaceKey? {
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID }),
+              let state = tab.content.extensionState
+        else { return nil }
+        return LifecycleSurfaceKey(kind: .tab, instanceID: state.id.uuidString)
     }
 
     func confirmCloseRunningTab() {

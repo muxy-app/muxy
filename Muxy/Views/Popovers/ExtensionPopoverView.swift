@@ -16,6 +16,7 @@ struct ExtensionPopoverView: View {
                 ExtensionWebView(
                     extensionID: muxyExtension.id,
                     instanceID: state.id.uuidString,
+                    surfaceKind: .popover,
                     entryURL: entryURL,
                     initialData: state.initialData,
                     appState: appState,

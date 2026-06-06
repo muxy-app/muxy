@@ -4,6 +4,7 @@ import WebKit
 struct ExtensionWebView: NSViewRepresentable {
     let extensionID: String
     let instanceID: String
+    let surfaceKind: LifecycleSurfaceKind
     let entryURL: URL
     let initialData: ExtensionJSON?
     let appState: AppState
@@ -57,6 +58,10 @@ struct ExtensionWebView: NSViewRepresentable {
         webView.setValue(false, forKey: "drawsBackground")
         webView.load(URLRequest(url: entryURL))
         bridge.attach(to: webView)
+        let surfaceKey = LifecycleSurfaceKey(kind: surfaceKind, instanceID: instanceID)
+        bridge.bind(surfaceKey: surfaceKey)
+        ExtensionSurfaceBridgeRegistry.shared.register(bridge, for: surfaceKey)
+        context.coordinator.surfaceKey = surfaceKey
         context.coordinator.observeThemeChanges(for: webView)
         return webView
     }
@@ -68,6 +73,9 @@ struct ExtensionWebView: NSViewRepresentable {
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.stopObservingThemeChanges()
         coordinator.bridge?.dropAllEventSubscriptions()
+        if let surfaceKey = coordinator.surfaceKey {
+            ExtensionSurfaceBridgeRegistry.shared.unregister(surfaceKey)
+        }
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
@@ -78,6 +86,7 @@ struct ExtensionWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var bridge: ExtensionBridgeHandler?
         var consoleHandler: ExtensionConsoleHandler?
+        var surfaceKey: LifecycleSurfaceKey?
         let onFocus: () -> Void
         private weak var webView: WKWebView?
         private var themeObserver: NSObjectProtocol?
@@ -178,6 +187,7 @@ struct ExtensionWebView: NSViewRepresentable {
 
         func webView(_: WKWebView, didCommit _: WKNavigation!) {
             bridge?.dropAllEventSubscriptions()
+            bridge?.failPendingLifecycle()
             pushThemeUpdate()
         }
     }

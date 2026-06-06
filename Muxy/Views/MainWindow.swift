@@ -417,21 +417,18 @@ struct MainWindow: View {
                     appState.closeTab(tabID, areaID: area.id, projectID: project.id)
                 },
                 onCloseOtherTabs: { tabID in
-                    for id in area.tabs.filter({ $0.id != tabID && !$0.isPinned }).map(\.id) {
-                        appState.closeTab(id, areaID: area.id, projectID: project.id)
-                    }
+                    let ids = area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id)
+                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
                 },
                 onCloseTabsToLeft: { tabID in
                     guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                    for id in area.tabs.prefix(index).filter({ !$0.isPinned }).map(\.id) {
-                        appState.closeTab(id, areaID: area.id, projectID: project.id)
-                    }
+                    let ids = area.tabs.prefix(index).filter { !$0.isPinned }.map(\.id)
+                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
                 },
                 onCloseTabsToRight: { tabID in
                     guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                    for id in area.tabs.suffix(from: index + 1).filter({ !$0.isPinned }).map(\.id) {
-                        appState.closeTab(id, areaID: area.id, projectID: project.id)
-                    }
+                    let ids = area.tabs.suffix(from: index + 1).filter { !$0.isPinned }.map(\.id)
+                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
                 },
                 onSplit: { dir in
                     appState.dispatch(.splitArea(.init(

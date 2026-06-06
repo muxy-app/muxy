@@ -18,6 +18,7 @@ struct ExtensionWebViewPane: View {
                 ExtensionWebView(
                     extensionID: muxyExtension.id,
                     instanceID: state.id.uuidString,
+                    surfaceKind: .tab,
                     entryURL: entryURL,
                     initialData: state.data,
                     appState: appState,

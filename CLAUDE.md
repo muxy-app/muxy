@@ -43,6 +43,7 @@ Run `scripts/checks.sh --fix` after every task.
 - Plan properly before executing to not double work
 - Low memory and CPU usage is one of the key factors
 - Simpler, flexible and scalable approaches are key factors
+- Never run the app. User will run and test visually
 
 ## Extensions
 

@@ -36,7 +36,7 @@ muxy.events.subscribe('extension.refresh.request', async () => {
 
 ## Subscribing
 
-- **Workspace events** (`pane.*`, `tab.*`, `project.*`, `worktree.*`, `notification.posted`, `file.changed`) must be listed in your manifest `events` array before you can subscribe. Subscribing to anything not declared is rejected.
+- **Workspace events** (`pane.*`, `tab.*`, `panel.*`, `popover.*`, `project.*`, `worktree.*`, `notification.posted`, `file.changed`) must be listed in your manifest `events` array before you can subscribe. Subscribing to anything not declared is rejected.
 - **Command events** (`command.<id>`) are auto-allowed: declaring a command in `manifest.commands` is implicit consent to receive its trigger, so you do not add it to `events`.
 - **Extension-local events** (`extension.*`) are auto-allowed for the same extension. They are not workspace events, do not appear in `events`, and cannot cross extension boundaries.
 
@@ -58,7 +58,12 @@ When an extension is reloaded or disabled, its subscriptions are dropped and re-
 | `pane.closed` | `paneID` | `events: ["pane.closed"]` |
 | `pane.focused` | `projectID`, `worktreeID`, `areaID`, `tabID` | `events: ["pane.focused"]` |
 | `tab.created` | `tabID` | `events: ["tab.created"]` |
+| `tab.closed` | `tabID` | `events: ["tab.closed"]` |
 | `tab.focused` | `areaID`, `tabID` | `events: ["tab.focused"]` |
+| `panel.opened` | `extensionID`, `panelID` | `events: ["panel.opened"]` |
+| `panel.closed` | `extensionID`, `panelID` | `events: ["panel.closed"]` |
+| `popover.opened` | `extensionID`, `popoverID` | `events: ["popover.opened"]` |
+| `popover.closed` | `extensionID`, `popoverID` | `events: ["popover.closed"]` |
 | `project.switched` | `projectID` | `events: ["project.switched"]` |
 | `worktree.switched` | `projectID`, `worktreeID` | `events: ["worktree.switched"]` |
 | `notification.posted` | `paneID`, `projectID`, `tabID`, `title` | `events: ["notification.posted"]` |
@@ -68,4 +73,6 @@ When an extension is reloaded or disabled, its subscriptions are dropped and re-
 
 `file.changed` fires for files under the active project/worktree root. It is debounced (~0.3s) and skips Git-internal noise (`.git/` lock files and directories); one event is delivered per changed `path`, with `projectPath` set to the watched root. Pair it with [`muxy.files`](files.md) to build a reactive file tree.
 
-See [Permissions](permissions.md) for how `events` fits the manifest, and [Palette Commands](palette-commands.md) for `command.<id>`.
+`tab.closed`, `panel.closed`, and `popover.closed` fire **after** the surface is actually removed. To *prevent* a close (e.g. an unsaved editor), don't use these observation events — use [Lifecycle](lifecycle.md), which asks your surface for an allow/prevent verdict *before* it closes.
+
+See [Permissions](permissions.md) for how `events` fits the manifest, [Lifecycle](lifecycle.md) for intercepting closes, and [Palette Commands](palette-commands.md) for `command.<id>`.

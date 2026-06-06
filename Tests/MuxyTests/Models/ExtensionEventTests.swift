@@ -28,4 +28,21 @@ struct ExtensionEventTests {
         let event = ExtensionEvent(name: "test")
         #expect(event.serialize() == "event|test")
     }
+
+    @Test("defines lifecycle event names")
+    func lifecycleEventNames() {
+        #expect(ExtensionEventName.tabClosed == "tab.closed")
+        #expect(ExtensionEventName.panelOpened == "panel.opened")
+        #expect(ExtensionEventName.panelClosed == "panel.closed")
+        #expect(ExtensionEventName.popoverOpened == "popover.opened")
+        #expect(ExtensionEventName.popoverClosed == "popover.closed")
+    }
+
+    @Test("registers lifecycle verbs without a required permission")
+    func lifecycleVerbsAreUngated() {
+        #expect(MuxyAPI.Permissions.verbNames.contains("lifecycle.resolveBeforeClose"))
+        #expect(MuxyAPI.Permissions.verbNames.contains("lifecycle.closeSelf"))
+        #expect(MuxyAPI.Permissions.required(for: "lifecycle.resolveBeforeClose") == nil)
+        #expect(MuxyAPI.Permissions.required(for: "lifecycle.closeSelf") == nil)
+    }
 }

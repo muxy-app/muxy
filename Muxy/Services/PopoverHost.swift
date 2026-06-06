@@ -43,15 +43,33 @@ final class PopoverHost {
             initialData: data ?? popover.defaultData
         )
         open = Open(anchorID: anchorID, state: state)
+        ExtensionLifecycleEvents.popoverOpened(extensionID: extensionID, popoverID: popover.id)
     }
 
     func close() {
+        guard let closed = open else { return }
         open = nil
+        ExtensionLifecycleEvents.popoverClosed(extensionID: closed.state.extensionID, popoverID: closed.state.popoverID)
+    }
+
+    func forceClose(instanceID: String) {
+        guard open?.state.id.uuidString == instanceID else { return }
+        close()
     }
 
     func close(anchorID: String) {
         guard isOpen(anchorID: anchorID) else { return }
         close()
+    }
+
+    func requestClose(extensionID: String) {
+        guard let open, open.state.extensionID == extensionID else { return }
+        let surfaceKey = LifecycleSurfaceKey(kind: .popover, instanceID: open.state.id.uuidString)
+        Task { @MainActor in
+            let verdict = await ExtensionSurfaceBridgeRegistry.shared.requestBeforeClose(surfaceKey)
+            guard verdict == .allow else { return }
+            close(extensionID: extensionID)
+        }
     }
 
     func close(extensionID: String) {
