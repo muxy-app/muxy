@@ -70,13 +70,30 @@ final class ExtensionModalService {
     func loadPage(for request: Request, query: String, offset: Int, limit: Int) async throws -> Page {
         switch request.source {
         case let .eager(items):
-            let filtered = filter(query, in: items)
-            let window = filtered.dropFirst(offset).prefix(limit)
-            return Page(items: Array(window), hasMore: offset + window.count < filtered.count)
+            return await Self.windowed(items: items, query: query, offset: offset, limit: limit)
         case let .provider(provider):
+            try Task.checkCancellation()
             let page = try await provider(query, offset, limit)
+            try Task.checkCancellation()
             let clamped = page.items.prefix(Self.maxItems).compactMap(clamp)
             return Page(items: Array(clamped), hasMore: page.hasMore)
+        }
+    }
+
+    private static func windowed(items: [Item], query: String, offset: Int, limit: Int) async -> Page {
+        let task = Task.detached(priority: .userInitiated) {
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let filtered = trimmed.isEmpty ? items : items.filter { item in
+                item.title.lowercased().contains(trimmed)
+                    || (item.subtitle?.lowercased().contains(trimmed) ?? false)
+            }
+            let window = filtered.dropFirst(offset).prefix(limit)
+            return Page(items: Array(window), hasMore: offset + window.count < filtered.count)
+        }
+        return await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
         }
     }
 

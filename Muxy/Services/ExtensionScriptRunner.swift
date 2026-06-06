@@ -181,7 +181,8 @@ private final class ScriptBridge: @unchecked Sendable {
         guard let jsRunLoop = CFRunLoopGetCurrent() else {
             return Self.errorObject("run loop unavailable")
         }
-        let provider = ScriptModalProvider(bridge: self, providerID: providerID, jsRunLoop: jsRunLoop)
+        let pump = ScriptRunLoopPump(runLoop: jsRunLoop)
+        let provider = ScriptModalProvider(bridge: self, pump: pump, providerID: providerID)
         let argsBox = AnyBox(args)
         let result = ResultBox<Any>()
         let done = ScriptCancelFlag()
@@ -189,7 +190,7 @@ private final class ScriptBridge: @unchecked Sendable {
         Task { @MainActor [weak self] in
             defer {
                 done.cancel()
-                CFRunLoopWakeUp(jsRunLoop)
+                pump.wake()
             }
             guard let self, let appState = self.appState else {
                 result.value = .failure(APIError.underlying("app state unavailable"))
@@ -214,9 +215,10 @@ private final class ScriptBridge: @unchecked Sendable {
         }
 
         while !done.isCancelled, !cancelFlag.isCancelled {
-            CFRunLoopRunInMode(.defaultMode, 0.1, true)
+            pump.runOnce()
         }
         provider.invalidate()
+        pump.invalidate()
 
         switch result.value {
         case let .success(value):
@@ -263,17 +265,80 @@ private final class ResultBox<T>: @unchecked Sendable {
     var value: Result<T, Error>?
 }
 
+private final class ScriptRunLoopPump: @unchecked Sendable {
+    private let runLoop: CFRunLoop
+    private let source: CFRunLoopSource
+    private let lock = NSLock()
+    private var pendingBlocks: [() -> Void] = []
+    private var invalidated = false
+
+    init(runLoop: CFRunLoop) {
+        self.runLoop = runLoop
+        var context = CFRunLoopSourceContext()
+        source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context)
+        CFRunLoopAddSource(runLoop, source, .defaultMode)
+    }
+
+    func runOnce() {
+        drain()
+        CFRunLoopRunInMode(.defaultMode, 0.25, true)
+        drain()
+    }
+
+    func enqueue(_ block: @escaping () -> Void) {
+        lock.lock()
+        if invalidated {
+            lock.unlock()
+            block()
+            return
+        }
+        pendingBlocks.append(block)
+        lock.unlock()
+        CFRunLoopSourceSignal(source)
+        wake()
+    }
+
+    func wake() {
+        CFRunLoopWakeUp(runLoop)
+    }
+
+    func invalidate() {
+        lock.lock()
+        invalidated = true
+        let leftover = pendingBlocks
+        pendingBlocks.removeAll()
+        lock.unlock()
+        for block in leftover {
+            block()
+        }
+        CFRunLoopSourceInvalidate(source)
+    }
+
+    private func drain() {
+        while true {
+            lock.lock()
+            guard !pendingBlocks.isEmpty else {
+                lock.unlock()
+                return
+            }
+            let block = pendingBlocks.removeFirst()
+            lock.unlock()
+            block()
+        }
+    }
+}
+
 private final class ScriptModalProvider: @unchecked Sendable {
     private weak var bridge: ScriptBridge?
+    private let pump: ScriptRunLoopPump
     private let providerID: String
-    private let jsRunLoop: CFRunLoop
     private let lock = NSLock()
     private var invalidated = false
 
-    init(bridge: ScriptBridge, providerID: String, jsRunLoop: CFRunLoop) {
+    init(bridge: ScriptBridge, pump: ScriptRunLoopPump, providerID: String) {
         self.bridge = bridge
+        self.pump = pump
         self.providerID = providerID
-        self.jsRunLoop = jsRunLoop
     }
 
     func invalidate() {
@@ -290,26 +355,47 @@ private final class ScriptModalProvider: @unchecked Sendable {
     }
 
     private func page(query: String, offset: Int, limit: Int) async -> Any? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Any?, Never>) in
-            let box = ResultBox<Any?>()
-            CFRunLoopPerformBlock(jsRunLoop, CFRunLoopMode.defaultMode.rawValue) { [self] in
-                lock.lock()
-                let stopped = invalidated
-                lock.unlock()
-                guard !stopped, let bridge else {
-                    continuation.resume(returning: nil)
-                    return
+        if Task.isCancelled { return nil }
+        let parentTask = TaskHandleBox()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Any?, Never>) in
+                pump.enqueue { [self] in
+                    lock.lock()
+                    let stopped = invalidated
+                    lock.unlock()
+                    guard !stopped, !parentTask.isCancelled, let bridge else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+                    let value = bridge.evaluateProviderPage(
+                        providerID: providerID,
+                        query: query,
+                        offset: offset,
+                        limit: limit
+                    )
+                    continuation.resume(returning: value)
                 }
-                box.value = .success(bridge.evaluateProviderPage(
-                    providerID: providerID,
-                    query: query,
-                    offset: offset,
-                    limit: limit
-                ))
-                continuation.resume(returning: (try? box.value?.get()))
             }
-            CFRunLoopWakeUp(jsRunLoop)
+        } onCancel: {
+            parentTask.cancel()
         }
+    }
+}
+
+private final class TaskHandleBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
     }
 }
 

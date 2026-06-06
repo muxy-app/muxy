@@ -23,6 +23,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     @State private var isSearching = false
     @State private var isLoadingMore = false
     @State private var searchTask: Task<Void, Never>?
+    @State private var loadMoreTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -42,6 +43,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             performSearch(debounce: false)
         }
         .onDisappear {
+            loadMoreTask?.cancel()
             searchTask?.cancel()
         }
     }
@@ -118,6 +120,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 
     private func performSearch(debounce: Bool = true) {
         searchTask?.cancel()
+        loadMoreTask?.cancel()
 
         let currentQuery = query
         isSearching = true
@@ -125,12 +128,12 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 
         searchTask = Task {
             if debounce {
-                try? await Task.sleep(for: .milliseconds(50))
+                try? await Task.sleep(for: .milliseconds(120))
                 guard !Task.isCancelled else { return }
             }
 
             let page = await loadPage(currentQuery, 0, pageSize)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, currentQuery == query else { return }
 
             results = page.items
             hasMore = page.hasMore
@@ -145,7 +148,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
         let offset = results.count
         isLoadingMore = true
 
-        searchTask = Task {
+        let task = Task {
             let page = await loadPage(currentQuery, offset, pageSize)
             guard !Task.isCancelled, currentQuery == query else { return }
 
@@ -153,6 +156,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             hasMore = page.hasMore
             isLoadingMore = false
         }
+        loadMoreTask = task
     }
 
     private func moveHighlight(_ delta: Int) {
