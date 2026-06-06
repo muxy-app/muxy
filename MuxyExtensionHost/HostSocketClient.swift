@@ -19,6 +19,7 @@ final class HostSocketClient: @unchecked Sendable {
     private var eventHandler: ((String) -> Void)?
     private var extensionEventHandler: ((String) -> Void)?
     private var invokeHandler: ((String) -> Void)?
+    private var modalResultHandler: ((String) -> Void)?
 
     static let maxConnectAttempts = 15
     static let connectRetryDelay: TimeInterval = 0.1
@@ -90,6 +91,10 @@ final class HostSocketClient: @unchecked Sendable {
         invokeHandler = handler
     }
 
+    func onModalResult(_ handler: @escaping (String) -> Void) {
+        modalResultHandler = handler
+    }
+
     func startReading() {
         Thread.detachNewThread { [weak self] in
             self?.readLoop()
@@ -124,21 +129,14 @@ final class HostSocketClient: @unchecked Sendable {
 
         try send(line)
 
-        while true {
-            replyLock.lock()
-            if hasReply {
-                let reply = pendingReply
-                replyLock.unlock()
-                guard let reply else { throw ClientError.closed }
-                return reply
-            }
-            if closed {
-                replyLock.unlock()
-                throw ClientError.closed
-            }
-            replyLock.unlock()
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        replyLock.lock()
+        defer { replyLock.unlock() }
+        while !hasReply {
+            if closed { throw ClientError.closed }
+            replyLock.wait()
         }
+        guard let reply = pendingReply else { throw ClientError.closed }
+        return reply
     }
 
     private func readLoop() {
@@ -176,6 +174,10 @@ final class HostSocketClient: @unchecked Sendable {
         }
         if line.hasPrefix("invoke|") {
             invokeHandler?(line)
+            return
+        }
+        if line.hasPrefix("\(ExtensionModalResult.messageHead)|") {
+            modalResultHandler?(line)
             return
         }
         replyLock.lock()

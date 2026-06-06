@@ -26,6 +26,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
     @State private var highlightedIndex: Int? = 0
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
+    @State private var refilterTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -45,10 +46,11 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             refilter()
         }
         .onChange(of: revision) {
-            refilter()
+            scheduleRefilter()
         }
         .onDisappear {
             searchTask?.cancel()
+            refilterTask?.cancel()
         }
     }
 
@@ -126,6 +128,16 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             guard !Task.isCancelled else { return }
             apply(page(currentQuery, 0, pageSize), resetHighlight: true)
             isSearching = false
+        }
+    }
+
+    private func scheduleRefilter() {
+        guard refilterTask == nil else { return }
+        refilterTask = Task {
+            try? await Task.sleep(for: Self.searchDebounce)
+            refilterTask = nil
+            guard !Task.isCancelled else { return }
+            refilter()
         }
     }
 

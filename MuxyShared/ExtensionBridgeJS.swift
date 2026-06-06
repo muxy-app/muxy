@@ -96,10 +96,9 @@ public enum ExtensionBridgeJS {
                         const o = opts || {};
                         const opened = dispatch('modal.open', modalLabels(o));
                         const requestID = opened && opened.requestID;
+                        if (typeof o.onSelect === 'function' && requestID != null) modalResultHandlers[requestID] = o.onSelect;
                         feedModalItems(o);
-                        \(surface == .inProcess ?
-            "if (typeof o.onSelect === 'function' && requestID != null) modalResultHandlers[requestID] = o.onSelect; return requestID;" :
-            "const choice = dispatch('modal.await', { requestID }); if (typeof o.onSelect === 'function') o.onSelect(choice); return choice;")
+                        return requestID;
                     },
                 },
                 topbar: {

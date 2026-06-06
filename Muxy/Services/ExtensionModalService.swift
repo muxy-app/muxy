@@ -9,6 +9,14 @@ final class ExtensionModalService {
         let id: String
         let title: String
         let subtitle: String?
+        let haystack: String
+
+        init(id: String, title: String, subtitle: String?) {
+            self.id = id
+            self.title = title
+            self.subtitle = subtitle
+            haystack = (subtitle.map { "\(title)\n\($0)" } ?? title).lowercased()
+        }
     }
 
     struct Page: Equatable {
@@ -22,12 +30,19 @@ final class ExtensionModalService {
         private(set) var items: [Item] = []
         private(set) var loading = true
         private(set) var revision = 0
+        private var seenIDs: Set<String> = []
 
         func append(_ batch: [Item]) {
             guard !batch.isEmpty else { return }
-            let room = ExtensionModalService.maxItems - items.count
+            var room = ExtensionModalService.maxItems - items.count
             guard room > 0 else { return }
-            items.append(contentsOf: batch.prefix(room))
+            var added = false
+            for item in batch where room > 0 && seenIDs.insert(item.id).inserted {
+                items.append(item)
+                room -= 1
+                added = true
+            }
+            guard added else { return }
             revision += 1
         }
 
@@ -128,8 +143,7 @@ final class ExtensionModalService {
     }
 
     private static func matches(_ item: Item, _ needle: String) -> Bool {
-        item.title.lowercased().contains(needle)
-            || (item.subtitle?.lowercased().contains(needle) ?? false)
+        item.haystack.contains(needle)
     }
 
     func select(_ item: Item) {
@@ -142,6 +156,11 @@ final class ExtensionModalService {
 
     func dismiss(requestID: String) {
         guard active?.id == requestID else { return }
+        resolve(with: nil)
+    }
+
+    func dismiss(extensionID: String) {
+        guard active?.extensionID == extensionID else { return }
         resolve(with: nil)
     }
 
@@ -198,6 +217,12 @@ final class ExtensionModalService {
 }
 
 extension ExtensionModalService {
+    static func modalResultPayload(_ item: Item?) -> Any {
+        guard let item else { return NSNull() }
+        let payload: [String: Any] = ["id": item.id, "title": item.title, "subtitle": item.subtitle ?? NSNull()]
+        return payload
+    }
+
     static func parseItems(_ raw: [Any]) -> [Item] {
         raw.compactMap { entry in
             guard let dict = entry as? [String: Any],

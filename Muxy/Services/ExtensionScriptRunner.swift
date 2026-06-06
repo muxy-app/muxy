@@ -46,6 +46,7 @@ final class ExtensionScriptRunner {
         if let handle = contexts.removeValue(forKey: extensionID) {
             handle.cancelFlag.cancel()
         }
+        ExtensionModalService.shared.dismiss(extensionID: extensionID)
     }
 
     func runScript(
@@ -81,14 +82,16 @@ final class ExtensionScriptRunner {
             evictIfIdle(extensionID: extensionID, handle: handle)
         }
 
+        let contextBox = JSContextBox(handle.context)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             handle.queue.async {
+                let context = contextBox.context
                 let capture = ExceptionCapture()
-                handle.context.exceptionHandler = { _, exception in
+                context.exceptionHandler = { _, exception in
                     capture.message = exception?.toString() ?? "unknown error"
                 }
-                _ = handle.context.evaluateScript(source, withSourceURL: scriptURL)
-                handle.context.exceptionHandler = nil
+                _ = context.evaluateScript(source, withSourceURL: scriptURL)
+                context.exceptionHandler = nil
                 if let message = capture.message {
                     logger.error("Extension \(extensionID) script error: \(message)")
                     continuation.resume(throwing: RunError.evaluationFailed(message))
@@ -210,8 +213,9 @@ private final class ScriptBridge: @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func deliverModalResult(requestID: String, item: ExtensionModalService.Item?) {
-        guard let queue = deliveryQueue else { return }
+        guard let queue = deliveryQueue, let context else { return }
         let payload: Any
         if let item {
             var dict: [String: Any] = ["id": item.id, "title": item.title]
@@ -220,10 +224,10 @@ private final class ScriptBridge: @unchecked Sendable {
         } else {
             payload = NSNull()
         }
-        queue.async { [weak self] in
-            guard let context = self?.context else { return }
-            let deliver = context.objectForKeyedSubscript("__muxiDeliverModalResult")
-            deliver?.call(withArguments: [requestID, payload])
+        let delivery = ModalDeliveryBox(context: context, requestID: requestID, payload: payload)
+        queue.async {
+            let deliver = delivery.context.objectForKeyedSubscript("__muxiDeliverModalResult")
+            deliver?.call(withArguments: [delivery.requestID, delivery.payload])
         }
     }
 
@@ -259,6 +263,19 @@ private struct AnyBox<T>: @unchecked Sendable {
     init(_ value: T) {
         self.value = value
     }
+}
+
+private struct JSContextBox: @unchecked Sendable {
+    let context: JSContext
+    init(_ context: JSContext) {
+        self.context = context
+    }
+}
+
+private struct ModalDeliveryBox: @unchecked Sendable {
+    let context: JSContext
+    let requestID: String
+    let payload: Any
 }
 
 private struct BridgeValue: @unchecked Sendable {

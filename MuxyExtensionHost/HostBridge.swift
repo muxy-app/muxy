@@ -235,6 +235,24 @@ final class HostBridge: @unchecked Sendable {
         }
     }
 
+    func handleModalResultLine(_ line: String) {
+        guard let parsed = ExtensionModalResult.parse(line) else { return }
+        let payloadValue: Any = if let object = try? JSONSerialization.jsonObject(
+            with: parsed.payload,
+            options: [.fragmentsAllowed]
+        ) {
+            object
+        } else {
+            NSNull()
+        }
+        let box = ContextBox(context)
+        DispatchQueue.main.async {
+            let argument = JSValue(object: payloadValue, in: box.context) ?? JSValue(nullIn: box.context)
+            let deliver = box.context.objectForKeyedSubscript("__muxiDeliverModalResult")
+            deliver?.call(withArguments: [parsed.requestID, argument as Any])
+        }
+    }
+
     private func sendInvokeResult(callID: String, ok: Bool, payload: Data) {
         let status = ok ? "ok" : "err"
         let line = "invoke-result|\(callID)|\(status)|\(payload.base64EncodedString())"

@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 import Testing
 
 @testable import Muxy
@@ -198,6 +199,46 @@ struct ExtensionModalServiceTests {
             ["title": "no id"],
         ])
         #expect(parsed.map(\.id) == ["a"])
+    }
+
+    @Test("append drops duplicate ids across batches")
+    func appendDedupesIDs() {
+        let dataset = ExtensionModalService.Dataset()
+        dataset.append([
+            ExtensionModalService.Item(id: "a", title: "Alpha", subtitle: nil),
+            ExtensionModalService.Item(id: "b", title: "Bravo", subtitle: nil),
+        ])
+        dataset.append([
+            ExtensionModalService.Item(id: "a", title: "Alpha dup", subtitle: nil),
+            ExtensionModalService.Item(id: "c", title: "Charlie", subtitle: nil),
+        ])
+        #expect(dataset.items.map(\.id) == ["a", "b", "c"])
+    }
+
+    @Test("dismiss by extensionID resolves the active modal with nil")
+    func dismissByExtensionDeliversNil() {
+        let service = ExtensionModalService()
+        let requestID = service.openSession(extensionID: "ext", args: [:])
+        service.finishSession()
+
+        let captured = ResultBox()
+        captured.value = "unset"
+        service.onResult(requestID: requestID) { captured.value = $0?.id ?? "nil" }
+        service.dismiss(extensionID: "other")
+        #expect(captured.value == "unset")
+        service.dismiss(extensionID: "ext")
+        #expect(captured.value == "nil")
+        #expect(service.active == nil)
+    }
+
+    @Test("modal result serialize/parse round-trips the payload")
+    func modalResultRoundTrips() throws {
+        let payload = Data("{\"id\":\"y\"}".utf8)
+        let line = try #require(ExtensionModalResult.serialize(requestID: "ext:1", payload: payload))
+        let parsed = try #require(ExtensionModalResult.parse(line))
+        #expect(parsed.requestID == "ext:1")
+        #expect(parsed.payload == payload)
+        #expect(ExtensionModalResult.serialize(requestID: "bad|id", payload: payload) == nil)
     }
 
     private final class ResultBox {

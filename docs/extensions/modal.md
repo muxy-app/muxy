@@ -73,9 +73,9 @@ muxy.modal.open({
 
 - `emit` takes an array of `{ id, title, subtitle? }` (entries missing `id`/`title` are dropped).
   Returning an array from the producer is equivalent to emitting it once.
-- On webview pages and the background script the producer may be `async` (do `await emit(...)`); in
-  `runScript` it runs synchronously — call `muxy.exec`, `muxy.files.*`, etc. directly and emit. In
-  every case `modal.open` blocks only on the user's selection, never on filtering.
+- On webview pages the producer may be `async` (do `await emit(...)`); in `runScript` and background
+  scripts it runs synchronously — call `muxy.exec`, `muxy.files.*`, etc. directly and emit. Filtering
+  is always native, so `modal.open` never blocks on it; the choice arrives via `onSelect`.
 - The dataset is capped at 100,000 rows; `id`, `title`, and `subtitle` are capped at 200 chars
   each. Producing nothing just shows the empty label.
 - Because filtering is native, you never debounce or handle the query yourself — Muxy owns search,

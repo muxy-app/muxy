@@ -373,9 +373,24 @@ enum SocketCommandHandler {
         }
         do {
             let result = try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: context)
+            if verb == "modal.open", let dict = result as? [String: Any], let requestID = dict["requestID"] as? String {
+                registerModalResultPush(requestID: requestID, extensionID: context.extensionID)
+            }
             return encodeJSONFragment(result)
         } catch {
             return "error:\((error as? APIError)?.message ?? error.localizedDescription)"
+        }
+    }
+
+    private static func registerModalResultPush(requestID: String, extensionID: String) {
+        ExtensionModalService.shared.onResult(requestID: requestID) { item in
+            let payload = ExtensionModalService.modalResultPayload(item)
+            let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.fragmentsAllowed])) ?? Data("null".utf8)
+            NotificationSocketServer.shared.pushModalResult(
+                extensionID: extensionID,
+                requestID: requestID,
+                payload: data
+            )
         }
     }
 

@@ -184,6 +184,16 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
     }
 
+    func pushModalResult(extensionID: String, requestID: String, payload: Data) {
+        queue.async { [weak self] in
+            guard let self,
+                  let session = self.session(forExtension: extensionID),
+                  let line = ExtensionModalResult.serialize(requestID: requestID, payload: payload)
+            else { return }
+            self.enqueueWrite(session: session, text: line + "\n")
+        }
+    }
+
     func emitExtensionEventToBackground(extensionID: String, event: ExtensionLocalEvent.Message) async -> Bool {
         await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             queue.async { [weak self] in

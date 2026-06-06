@@ -56,6 +56,10 @@ client.onInvoke { [weak bridge] line in
     bridge?.handleInvokeLine(line)
 }
 
+client.onModalResult { [weak bridge] line in
+    bridge?.handleModalResultLine(line)
+}
+
 client.startReading()
 
 func identify() -> Never? {
