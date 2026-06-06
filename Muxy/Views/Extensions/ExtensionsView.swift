@@ -6,10 +6,16 @@ struct ExtensionsView: View {
 
     @State private var store = ExtensionStore.shared
     @State private var grantStore = ExtensionGrantStore.shared
+    @State private var tab: Tab = .installed
     @State private var selectedExtensionID: String?
     @State private var activeInstallName: String?
     @State private var showCreateSheet = false
     @State private var isUpdatingAll = false
+
+    private enum Tab: Hashable {
+        case browse
+        case installed
+    }
 
     init(installName: String? = nil) {
         self.installName = installName
@@ -22,6 +28,8 @@ struct ExtensionsView: View {
         guard let id = selectedExtensionID else { return false }
         return store.statuses.contains { $0.id == id }
     }
+
+    private var isShowingSubPage: Bool { isShowingInstallPage || isShowingDetailPage }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -58,6 +66,7 @@ struct ExtensionsView: View {
                 store: store,
                 onInstalled: { installedID in
                     activeInstallName = nil
+                    tab = .installed
                     selectedExtensionID = installedID
                 }
             )
@@ -66,6 +75,14 @@ struct ExtensionsView: View {
                 status: status,
                 store: store,
                 grantStore: grantStore
+            )
+        } else if tab == .browse {
+            ExtensionStorePage(
+                store: store,
+                onSelect: { name in
+                    selectedExtensionID = nil
+                    activeInstallName = name
+                }
             )
         } else {
             ExtensionsListPage(
@@ -106,8 +123,16 @@ struct ExtensionsView: View {
                     SettingsDevelopmentBadge(text: "DEV")
                 }
             }
+            if !isShowingSubPage {
+                SegmentedPicker(
+                    selection: $tab,
+                    options: [(.installed, "Installed"), (.browse, "Browse")]
+                )
+                .frame(width: 200)
+                .padding(.leading, 6)
+            }
             Spacer()
-            if !isShowingDetailPage, !isShowingInstallPage {
+            if !isShowingSubPage, tab == .installed {
                 if store.hasUpdates {
                     Button {
                         Task { await updateAll() }

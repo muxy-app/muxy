@@ -37,6 +37,128 @@ struct ExtensionMarketplaceServiceTests {
         #expect(ext.resolvedPermissions == [.tabsRead, .tabsWrite])
     }
 
+    @Test("list decodes simplePaginate payload and derives hasNextPage from next link")
+    func listDecodesCatalogPage() async throws {
+        let json = """
+        {
+            "data": [
+                {
+                    "name": "git-status",
+                    "description": "Show branch info.",
+                    "author": { "name": "Saeed", "github": "saeedvaziry" },
+                    "categories": ["git"],
+                    "official": true,
+                    "downloads": 4213,
+                    "version": "1.4.2",
+                    "icon_url": "https://muxy.app/extensions/git-status/icon"
+                }
+            ],
+            "links": { "first": "…?page=1", "last": null, "prev": null, "next": "…?page=2" },
+            "meta": { "current_page": 1, "from": 1, "per_page": 24, "to": 24 }
+        }
+        """
+        let service = makeService { _ in (200, Data(json.utf8)) }
+
+        let page = try await service.list(query: ExtensionCatalogQuery())
+
+        #expect(page.items.count == 1)
+        #expect(page.items.first?.name == "git-status")
+        #expect(page.items.first?.official == true)
+        #expect(page.items.first?.version == "1.4.2")
+        #expect(page.hasNextPage)
+    }
+
+    @Test("list reports no next page when the next link is null")
+    func listDetectsLastPage() async throws {
+        let json = """
+        {
+            "data": [],
+            "links": { "first": "…?page=1", "last": null, "prev": "…?page=1", "next": null },
+            "meta": { "current_page": 2, "from": null, "per_page": 24, "to": null }
+        }
+        """
+        let service = makeService { _ in (200, Data(json.utf8)) }
+
+        let page = try await service.list(query: ExtensionCatalogQuery(page: 2))
+
+        #expect(page.items.isEmpty)
+        #expect(!page.hasNextPage)
+    }
+
+    @Test("list encodes search, sort, category, and pagination as query parameters")
+    func listEncodesQueryParameters() async throws {
+        let captured = RequestBox()
+        let service = makeService { request in
+            captured.url = request.url
+            return (200, Data(#"{"data":[],"links":{"next":null}}"#.utf8))
+        }
+
+        _ = try await service.list(query: ExtensionCatalogQuery(
+            search: "git",
+            sort: .popular,
+            category: "productivity",
+            official: true,
+            page: 3,
+            perPage: 24
+        ))
+
+        let items = queryItems(captured.url)
+        #expect(items["search"] == "git")
+        #expect(items["sort"] == "popular")
+        #expect(items["category"] == "productivity")
+        #expect(items["official"] == "true")
+        #expect(items["page"] == "3")
+        #expect(items["per_page"] == "24")
+    }
+
+    @Test("list clamps per_page to the supported range")
+    func listClampsPageSize() async throws {
+        let captured = RequestBox()
+        let service = makeService { request in
+            captured.url = request.url
+            return (200, Data(#"{"data":[],"links":{"next":null}}"#.utf8))
+        }
+
+        _ = try await service.list(query: ExtensionCatalogQuery(perPage: 500))
+
+        #expect(queryItems(captured.url)["per_page"] == "50")
+    }
+
+    @Test("list omits blank search and absent filters")
+    func listOmitsEmptyParameters() async throws {
+        let captured = RequestBox()
+        let service = makeService { request in
+            captured.url = request.url
+            return (200, Data(#"{"data":[],"links":{"next":null}}"#.utf8))
+        }
+
+        _ = try await service.list(query: ExtensionCatalogQuery(search: "   "))
+
+        let items = queryItems(captured.url)
+        #expect(items["search"] == nil)
+        #expect(items["category"] == nil)
+        #expect(items["official"] == nil)
+    }
+
+    @Test("categories decodes the data envelope")
+    func categoriesDecodesEnvelope() async throws {
+        let json = """
+        {
+            "data": [
+                { "slug": "productivity", "name": "productivity", "count": 12 },
+                { "slug": "git", "name": "git", "count": 5 }
+            ]
+        }
+        """
+        let service = makeService { _ in (200, Data(json.utf8)) }
+
+        let categories = try await service.categories()
+
+        #expect(categories.count == 2)
+        #expect(categories.first?.slug == "productivity")
+        #expect(categories.first?.count == 12)
+    }
+
     @Test("resolveVersions decodes the flat version map and drops nulls")
     func resolveVersionsDecodesMap() async throws {
         let json = """
@@ -137,6 +259,21 @@ struct ExtensionMarketplaceServiceTests {
     private func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
+
+    private func queryItems(_ url: URL?) -> [String: String] {
+        guard let url, let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return [:]
+        }
+        var result: [String: String] = [:]
+        for item in components.queryItems ?? [] {
+            result[item.name] = item.value
+        }
+        return result
+    }
+}
+
+private final class RequestBox: @unchecked Sendable {
+    var url: URL?
 }
 
 private final class StubURLProtocol: URLProtocol {

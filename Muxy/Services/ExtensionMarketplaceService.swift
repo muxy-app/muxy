@@ -44,6 +44,66 @@ struct MarketplaceExtension: Decodable, Equatable {
     }
 }
 
+struct ExtensionListing: Decodable, Equatable, Identifiable {
+    let name: String
+    let description: String?
+    let author: MarketplaceExtensionAuthor?
+    let categories: [String]
+    let official: Bool
+    let downloads: Int
+    let version: String
+    let iconURL: String?
+
+    var id: String { name }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case description
+        case author
+        case categories
+        case official
+        case downloads
+        case version
+        case iconURL = "icon_url"
+    }
+}
+
+struct ExtensionCategory: Decodable, Equatable, Identifiable {
+    let slug: String
+    let name: String
+    let count: Int
+
+    var id: String { slug }
+}
+
+enum ExtensionSort: String, CaseIterable {
+    case all
+    case recent
+    case popular
+
+    var displayName: String {
+        switch self {
+        case .all: "Name"
+        case .recent: "Recently Added"
+        case .popular: "Most Popular"
+        }
+    }
+}
+
+struct ExtensionCatalogQuery: Equatable {
+    var search: String?
+    var sort: ExtensionSort = .all
+    var category: String?
+    var official: Bool?
+    var page: Int = 1
+    var perPage: Int = 24
+}
+
+struct ExtensionCatalogPage: Equatable {
+    let items: [ExtensionListing]
+    let hasNextPage: Bool
+}
+
 enum MarketplaceError: LocalizedError, Equatable {
     case notFound
     case network(String)
@@ -77,8 +137,18 @@ actor ExtensionMarketplaceService {
         let data: T
     }
 
+    private struct CatalogEnvelope: Decodable {
+        let data: [ExtensionListing]
+        let links: Links
+
+        struct Links: Decodable {
+            let next: String?
+        }
+    }
+
     private static let maximumDownloadBytes = 100 * 1024 * 1024
     private static let versionsBatchLimit = 100
+    private static let catalogPageSizeRange = 1 ... 50
 
     private let baseURL: URL
     private let session: URLSession
@@ -129,6 +199,63 @@ actor ExtensionMarketplaceService {
         do {
             let map = try JSONDecoder().decode([String: String?].self, from: data)
             return map.compactMapValues { $0 }
+        } catch {
+            throw MarketplaceError.network(error.localizedDescription)
+        }
+    }
+
+    func list(query: ExtensionCatalogQuery) async throws -> ExtensionCatalogPage {
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("api").appendingPathComponent("extensions"),
+            resolvingAgainstBaseURL: false
+        )
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "sort", value: query.sort.rawValue),
+            URLQueryItem(name: "page", value: String(max(1, query.page))),
+            URLQueryItem(name: "per_page", value: String(clampedPageSize(query.perPage))),
+        ]
+        if let search = query.search?.trimmingCharacters(in: .whitespacesAndNewlines), !search.isEmpty {
+            items.append(URLQueryItem(name: "search", value: String(search.prefix(64))))
+        }
+        if let category = query.category, !category.isEmpty {
+            items.append(URLQueryItem(name: "category", value: category))
+        }
+        if let official = query.official {
+            items.append(URLQueryItem(name: "official", value: official ? "true" : "false"))
+        }
+        components?.queryItems = items
+
+        guard let url = components?.url else {
+            throw MarketplaceError.network("Invalid catalog URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await data(for: request)
+        try ensureSuccess(response)
+
+        do {
+            let envelope = try JSONDecoder().decode(CatalogEnvelope.self, from: data)
+            return ExtensionCatalogPage(items: envelope.data, hasNextPage: envelope.links.next != nil)
+        } catch {
+            throw MarketplaceError.network(error.localizedDescription)
+        }
+    }
+
+    func categories() async throws -> [ExtensionCategory] {
+        let url = baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("extension-categories")
+
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await data(for: request)
+        try ensureSuccess(response)
+
+        do {
+            return try JSONDecoder().decode(Envelope<[ExtensionCategory]>.self, from: data).data
         } catch {
             throw MarketplaceError.network(error.localizedDescription)
         }
@@ -213,6 +340,10 @@ actor ExtensionMarketplaceService {
         guard (200 ..< 300).contains(http.statusCode) else {
             throw MarketplaceError.network("HTTP \(http.statusCode)")
         }
+    }
+
+    private func clampedPageSize(_ value: Int) -> Int {
+        min(max(value, Self.catalogPageSizeRange.lowerBound), Self.catalogPageSizeRange.upperBound)
     }
 
     private static func sha256Hex(_ data: Data) -> String {
