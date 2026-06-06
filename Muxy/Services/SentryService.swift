@@ -111,11 +111,11 @@ final class SentryService {
             options.sendDefaultPii = false
             options.enableAutoBreadcrumbTracking = false
             options.enableNetworkBreadcrumbs = false
+            options.enableAppHangTracking = false
+            options.enableWatchdogTerminationTracking = false
             options.enableSwizzling = true
             options.enableUncaughtNSExceptionReporting = true
             options.attachStacktrace = true
-            options.enableAppHangTracking = false
-            options.enableWatchdogTerminationTracking = false
             options.beforeSend = { event in
                 event.user = nil
                 event.serverName = nil
