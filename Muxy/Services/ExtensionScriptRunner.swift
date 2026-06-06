@@ -178,20 +178,13 @@ private final class ScriptBridge: @unchecked Sendable {
     }
 
     private func dispatchProviderModal(providerID: String, args: [String: Any]) -> Any {
-        guard let jsRunLoop = CFRunLoopGetCurrent() else {
-            return Self.errorObject("run loop unavailable")
-        }
-        let pump = ScriptRunLoopPump(runLoop: jsRunLoop)
+        let pump = ScriptRunLoopPump()
         let provider = ScriptModalProvider(bridge: self, pump: pump, providerID: providerID)
         let argsBox = AnyBox(args)
         let result = ResultBox<Any>()
-        let done = ScriptCancelFlag()
 
         Task { @MainActor [weak self] in
-            defer {
-                done.cancel()
-                pump.wake()
-            }
+            defer { pump.finish() }
             guard let self, let appState = self.appState else {
                 result.value = .failure(APIError.underlying("app state unavailable"))
                 return
@@ -214,9 +207,7 @@ private final class ScriptBridge: @unchecked Sendable {
             }
         }
 
-        while !done.isCancelled, !cancelFlag.isCancelled {
-            pump.runOnce()
-        }
+        pump.waitUntilFinished()
         provider.invalidate()
         pump.invalidate()
 
@@ -266,23 +257,31 @@ private final class ResultBox<T>: @unchecked Sendable {
 }
 
 private final class ScriptRunLoopPump: @unchecked Sendable {
-    private let runLoop: CFRunLoop
-    private let source: CFRunLoopSource
+    private let mailbox = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var pendingBlocks: [() -> Void] = []
+    private var finished = false
     private var invalidated = false
 
-    init(runLoop: CFRunLoop) {
-        self.runLoop = runLoop
-        var context = CFRunLoopSourceContext()
-        source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context)
-        CFRunLoopAddSource(runLoop, source, .defaultMode)
+    func waitUntilFinished() {
+        while true {
+            mailbox.wait()
+            drain()
+            lock.lock()
+            let done = finished
+            lock.unlock()
+            if done {
+                drain()
+                return
+            }
+        }
     }
 
-    func runOnce() {
-        drain()
-        CFRunLoopRunInMode(.defaultMode, 0.25, true)
-        drain()
+    func finish() {
+        lock.lock()
+        finished = true
+        lock.unlock()
+        mailbox.signal()
     }
 
     func enqueue(_ block: @escaping () -> Void) {
@@ -294,12 +293,7 @@ private final class ScriptRunLoopPump: @unchecked Sendable {
         }
         pendingBlocks.append(block)
         lock.unlock()
-        CFRunLoopSourceSignal(source)
-        wake()
-    }
-
-    func wake() {
-        CFRunLoopWakeUp(runLoop)
+        mailbox.signal()
     }
 
     func invalidate() {
@@ -311,7 +305,6 @@ private final class ScriptRunLoopPump: @unchecked Sendable {
         for block in leftover {
             block()
         }
-        CFRunLoopSourceInvalidate(source)
     }
 
     private func drain() {
@@ -367,12 +360,14 @@ private final class ScriptModalProvider: @unchecked Sendable {
                         continuation.resume(returning: nil)
                         return
                     }
+                    logger.debug("modal provider eval start q=\(query, privacy: .public) off=\(offset)")
                     let value = bridge.evaluateProviderPage(
                         providerID: providerID,
                         query: query,
                         offset: offset,
                         limit: limit
                     )
+                    logger.debug("modal provider eval done q=\(query, privacy: .public)")
                     continuation.resume(returning: value)
                 }
             }
