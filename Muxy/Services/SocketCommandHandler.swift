@@ -356,10 +356,47 @@ enum SocketCommandHandler {
             return "error:invalid modal payload"
         }
         do {
-            let selected = try await ExtensionModalService.shared.present(extensionID: extensionID, args: args)
+            let selected: ExtensionModalService.Item?
+            if let providerID = args["providerID"] as? String, !providerID.isEmpty {
+                let provider = makeBackgroundModalProvider(extensionID: extensionID, providerID: providerID)
+                selected = await ExtensionModalService.shared.present(
+                    extensionID: extensionID,
+                    source: .provider(provider),
+                    args: args
+                )
+            } else {
+                selected = try await ExtensionModalService.shared.present(extensionID: extensionID, args: args)
+            }
             return encodeJSONFragment(selected.map(modalItemDict) ?? NSNull())
         } catch {
             return "error:\((error as? APIError)?.message ?? error.localizedDescription)"
+        }
+    }
+
+    private static func makeBackgroundModalProvider(
+        extensionID: String,
+        providerID: String
+    ) -> ExtensionModalService.Provider {
+        { query, offset, limit in
+            let request: [String: Any] = [
+                "providerID": providerID,
+                "query": query,
+                "offset": offset,
+                "limit": limit,
+            ]
+            guard let payload = try? JSONSerialization.data(withJSONObject: request) else {
+                return ExtensionModalService.Page(items: [], hasMore: false)
+            }
+            guard let reply = try? await NotificationSocketServer.shared.invokeRemote(
+                extensionID: extensionID,
+                action: ExtensionModalService.providerAction,
+                payload: payload
+            )
+            else {
+                return ExtensionModalService.Page(items: [], hasMore: false)
+            }
+            let raw = try? JSONSerialization.jsonObject(with: reply, options: [.fragmentsAllowed])
+            return ExtensionModalService.Page.from(raw)
         }
     }
 

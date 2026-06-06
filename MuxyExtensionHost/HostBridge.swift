@@ -215,6 +215,8 @@ final class HostBridge: @unchecked Sendable {
         }
     }
 
+    static let modalProviderAction = "__muxiModalProvider"
+
     func handleInvokeLine(_ line: String) {
         guard let parsed = Self.parseInvoke(line) else { return }
         let payloadValue: Any = if let data = Data(base64Encoded: parsed.payload),
@@ -226,10 +228,27 @@ final class HostBridge: @unchecked Sendable {
         }
         let box = ContextBox(context)
         DispatchQueue.main.async {
+            if parsed.action == Self.modalProviderAction {
+                self.runModalProvider(callID: parsed.callID, request: payloadValue, context: box.context)
+                return
+            }
             let argument = JSValue(object: payloadValue, in: box.context) ?? JSValue(nullIn: box.context)
             let dispatcher = box.context.objectForKeyedSubscript("__muxyDispatchInvoke")
             dispatcher?.call(withArguments: [parsed.callID, parsed.action, argument as Any])
         }
+    }
+
+    private func runModalProvider(callID: String, request: Any, context: JSContext) {
+        let dict = request as? [String: Any] ?? [:]
+        let providerID = dict["providerID"] as? String ?? ""
+        let query = dict["query"] as? String ?? ""
+        let offset = dict["offset"] as? Int ?? 0
+        let limit = dict["limit"] as? Int ?? 0
+        let runner = context.objectForKeyedSubscript("__muxiRunModalProvider")
+        let page = runner?.call(withArguments: [providerID, query, offset, limit])
+        let value = page?.toDictionary() ?? ["items": [], "hasMore": false]
+        let payload = (try? JSONSerialization.data(withJSONObject: value)) ?? Data("{}".utf8)
+        sendInvokeResult(callID: callID, ok: true, payload: payload)
     }
 
     private func sendInvokeResult(callID: String, ok: Bool, payload: Data) {

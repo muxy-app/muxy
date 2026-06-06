@@ -18,7 +18,9 @@ struct ExtensionModalServiceTests {
 
         async let result = service.present(extensionID: "ext", args: args)
         try await waitForActive(service)
-        let target = try #require(service.active?.items.last)
+        let active = try #require(service.active)
+        let page = try await service.loadPage(for: active, query: "", offset: 0, limit: 100)
+        let target = try #require(page.items.last)
         service.select(target)
 
         let selected = try await result
@@ -56,7 +58,9 @@ struct ExtensionModalServiceTests {
         try await waitForActive(service)
         #expect(service.active?.extensionID == "b")
 
-        let target = try #require(service.active?.items.first)
+        let active = try #require(service.active)
+        let page = try await service.loadPage(for: active, query: "", offset: 0, limit: 100)
+        let target = try #require(page.items.first)
         service.select(target)
         let secondResult = try await second
         #expect(secondResult?.id == "2")
@@ -98,6 +102,104 @@ struct ExtensionModalServiceTests {
         #expect(service.filter("open", in: items).map(\.id) == ["a"])
         #expect(service.filter("SHUT", in: items).map(\.id) == ["b"])
         #expect(service.filter("  ", in: items).count == 2)
+    }
+
+    @Test("eager loadPage windows results and reports hasMore")
+    func eagerLoadPagePages() async throws {
+        let service = ExtensionModalService()
+        let items = (0 ..< 5).map { ExtensionModalService.Item(id: "\($0)", title: "Item \($0)", subtitle: nil) }
+        let request = ExtensionModalService.Request(
+            id: "ext:1",
+            extensionID: "ext",
+            placeholder: "",
+            emptyLabel: "",
+            noMatchLabel: "",
+            source: .eager(items)
+        )
+
+        let first = try await service.loadPage(for: request, query: "", offset: 0, limit: 2)
+        #expect(first.items.map(\.id) == ["0", "1"])
+        #expect(first.hasMore)
+
+        let last = try await service.loadPage(for: request, query: "", offset: 4, limit: 2)
+        #expect(last.items.map(\.id) == ["4"])
+        #expect(!last.hasMore)
+    }
+
+    @Test("provider loadPage forwards the query window and clamps items")
+    func providerLoadPageForwards() async throws {
+        let service = ExtensionModalService()
+        let captured = CapturedQuery()
+        let request = ExtensionModalService.Request(
+            id: "ext:1",
+            extensionID: "ext",
+            placeholder: "",
+            emptyLabel: "",
+            noMatchLabel: "",
+            source: .provider { query, offset, limit in
+                captured.query = query
+                captured.offset = offset
+                captured.limit = limit
+                return ExtensionModalService.Page(
+                    items: [ExtensionModalService.Item(id: "x", title: "X", subtitle: nil)],
+                    hasMore: true
+                )
+            }
+        )
+
+        let page = try await service.loadPage(for: request, query: "fo", offset: 10, limit: 20)
+        #expect(captured.query == "fo")
+        #expect(captured.offset == 10)
+        #expect(captured.limit == 20)
+        #expect(page.items.map(\.id) == ["x"])
+        #expect(page.hasMore)
+    }
+
+    @Test("provider present resolves with the selected item")
+    func providerPresentResolves() async throws {
+        let service = ExtensionModalService()
+        let source = ExtensionModalService.Source.provider { _, _, _ in
+            ExtensionModalService.Page(
+                items: [ExtensionModalService.Item(id: "p", title: "Picked", subtitle: nil)],
+                hasMore: false
+            )
+        }
+
+        async let result = service.present(extensionID: "ext", source: source, args: ["placeholder": "Pick"])
+        try await waitForActive(service)
+        let active = try #require(service.active)
+        let page = try await service.loadPage(for: active, query: "", offset: 0, limit: 100)
+        let target = try #require(page.items.first)
+        service.select(target)
+
+        let selected = await result
+        #expect(selected?.id == "p")
+        #expect(service.active == nil)
+    }
+
+    @Test("Page.from parses items array and hasMore")
+    func pageFromParses() {
+        let dict: [String: Any] = [
+            "items": [
+                ["id": "a", "title": "Alpha"],
+                ["id": "", "title": "skip"],
+                ["title": "no id"],
+            ],
+            "hasMore": true,
+        ]
+        let page = ExtensionModalService.Page.from(dict)
+        #expect(page.items.map(\.id) == ["a"])
+        #expect(page.hasMore)
+
+        let bare = ExtensionModalService.Page.from([["id": "b", "title": "Beta"]])
+        #expect(bare.items.map(\.id) == ["b"])
+        #expect(!bare.hasMore)
+    }
+
+    private final class CapturedQuery: @unchecked Sendable {
+        var query = ""
+        var offset = -1
+        var limit = -1
     }
 
     private func waitForActive(_ service: ExtensionModalService) async throws {

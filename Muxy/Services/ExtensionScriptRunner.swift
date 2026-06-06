@@ -135,8 +135,11 @@ private final class ScriptBridge: @unchecked Sendable {
         self.cancelFlag = cancelFlag
     }
 
+    private weak var context: JSContext?
+
     @MainActor
     func install(into context: JSContext) {
+        self.context = context
         let dispatcher: @convention(block) (String, JSValue?) -> Any = { [weak self] verb, args in
             guard let self else { return Self.errorObject("bridge released") }
             let dict = (args?.toDictionary() as? [String: Any]) ?? [:]
@@ -156,6 +159,9 @@ private final class ScriptBridge: @unchecked Sendable {
         if cancelFlag.isCancelled {
             return Self.errorObject("extension stopped")
         }
+        if verb == "modal.open", let providerID = args["providerID"] as? String, !providerID.isEmpty {
+            return dispatchProviderModal(providerID: providerID, args: args)
+        }
         let bridge = self
         let argsBox = AnyBox(args)
         do {
@@ -169,6 +175,68 @@ private final class ScriptBridge: @unchecked Sendable {
         } catch {
             return Self.errorObject(error.localizedDescription)
         }
+    }
+
+    private func dispatchProviderModal(providerID: String, args: [String: Any]) -> Any {
+        guard let jsRunLoop = CFRunLoopGetCurrent() else {
+            return Self.errorObject("run loop unavailable")
+        }
+        let provider = ScriptModalProvider(bridge: self, providerID: providerID, jsRunLoop: jsRunLoop)
+        let argsBox = AnyBox(args)
+        let result = ResultBox<Any>()
+        let done = ScriptCancelFlag()
+
+        Task { @MainActor [weak self] in
+            defer {
+                done.cancel()
+                CFRunLoopWakeUp(jsRunLoop)
+            }
+            guard let self, let appState = self.appState else {
+                result.value = .failure(APIError.underlying("app state unavailable"))
+                return
+            }
+            do {
+                let selected = try await MuxyAPIDispatcher.dispatch(
+                    verb: "modal.open",
+                    args: argsBox.value,
+                    context: MuxyAPIDispatcher.Context(
+                        extensionID: self.extensionID,
+                        appState: appState,
+                        projectStore: self.projectStore,
+                        worktreeStore: self.worktreeStore,
+                        modalProvider: { _ in provider.callback() }
+                    )
+                )
+                result.value = .success(selected)
+            } catch {
+                result.value = .failure(error)
+            }
+        }
+
+        while !done.isCancelled, !cancelFlag.isCancelled {
+            CFRunLoopRunInMode(.defaultMode, 0.1, true)
+        }
+        provider.invalidate()
+
+        switch result.value {
+        case let .success(value):
+            return ["ok": true, "value": value]
+        case let .failure(error as APIError):
+            return Self.errorObject(error.message)
+        case let .failure(error):
+            return Self.errorObject(error.localizedDescription)
+        case .none:
+            return Self.errorObject("modal cancelled")
+        }
+    }
+
+    func evaluateProviderPage(providerID: String, query: String, offset: Int, limit: Int) -> Any? {
+        guard let context else { return nil }
+        guard let runner = context.objectForKeyedSubscript("__muxiRunModalProvider"),
+              !runner.isUndefined
+        else { return nil }
+        let page = runner.call(withArguments: [providerID, query, offset, limit])
+        return page?.toDictionary()
     }
 
     private static func errorObject(_ message: String) -> [String: Any] {
@@ -193,6 +261,56 @@ private final class ScriptBridge: @unchecked Sendable {
 
 private final class ResultBox<T>: @unchecked Sendable {
     var value: Result<T, Error>?
+}
+
+private final class ScriptModalProvider: @unchecked Sendable {
+    private weak var bridge: ScriptBridge?
+    private let providerID: String
+    private let jsRunLoop: CFRunLoop
+    private let lock = NSLock()
+    private var invalidated = false
+
+    init(bridge: ScriptBridge, providerID: String, jsRunLoop: CFRunLoop) {
+        self.bridge = bridge
+        self.providerID = providerID
+        self.jsRunLoop = jsRunLoop
+    }
+
+    func invalidate() {
+        lock.lock()
+        invalidated = true
+        lock.unlock()
+    }
+
+    func callback() -> ExtensionModalService.Provider {
+        { [self] query, offset, limit in
+            let raw = await page(query: query, offset: offset, limit: limit)
+            return ExtensionModalService.Page.from(raw)
+        }
+    }
+
+    private func page(query: String, offset: Int, limit: Int) async -> Any? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Any?, Never>) in
+            let box = ResultBox<Any?>()
+            CFRunLoopPerformBlock(jsRunLoop, CFRunLoopMode.defaultMode.rawValue) { [self] in
+                lock.lock()
+                let stopped = invalidated
+                lock.unlock()
+                guard !stopped, let bridge else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                box.value = .success(bridge.evaluateProviderPage(
+                    providerID: providerID,
+                    query: query,
+                    offset: offset,
+                    limit: limit
+                ))
+                continuation.resume(returning: (try? box.value?.get()))
+            }
+            CFRunLoopWakeUp(jsRunLoop)
+        }
+    }
 }
 
 private struct AnyBox<T>: @unchecked Sendable {

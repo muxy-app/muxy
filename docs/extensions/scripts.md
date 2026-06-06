@@ -33,6 +33,23 @@ const choice = muxy.modal.open({
 if (choice) muxy.worktrees.switchTo(choice.id);
 ```
 
+For large or unbounded lists (e.g. a file picker over a big repo), pass a synchronous `search`
+provider instead of `items` so Muxy pulls pages on demand as the user types and scrolls — see
+[Modal → Lazy provider](modal.md#lazy-provider-search):
+
+```js
+const choice = muxy.modal.open({
+  placeholder: 'Open file…',
+  search(query, { offset, limit }) {
+    const out = muxy.exec(['git', 'ls-files']).stdout.split('\n').filter(Boolean);
+    const matched = out.filter(p => p.toLowerCase().includes(query.toLowerCase()));
+    const page = matched.slice(offset, offset + limit);
+    return { items: page.map(p => ({ id: p, title: p.split('/').pop(), subtitle: p })), hasMore: offset + page.length < matched.length };
+  },
+});
+if (choice) muxy.tabs.open({ kind: 'editor', path: choice.id });
+```
+
 Note there is **no `await`** — see [API surface](#api-surface).
 
 ## Lifecycle

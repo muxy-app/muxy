@@ -10,8 +10,15 @@ struct ExtensionModalOverlay: View {
             placeholder: request.placeholder,
             emptyLabel: request.emptyLabel,
             noMatchLabel: request.noMatchLabel,
-            search: { query in
-                ExtensionModalService.shared.filter(query, in: request.items)
+            pageSize: ExtensionModalService.pageSize,
+            loadPage: { query, offset, limit in
+                let page = await (try? ExtensionModalService.shared.loadPage(
+                    for: request,
+                    query: query,
+                    offset: offset,
+                    limit: limit
+                )) ?? ExtensionModalService.Page(items: [], hasMore: false)
+                return PaletteOverlay.Page(items: page.items, hasMore: page.hasMore)
             },
             onSelect: onSelect,
             onDismiss: onDismiss,

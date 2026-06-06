@@ -7,6 +7,21 @@ enum MuxyAPIDispatcher {
         let appState: AppState
         let projectStore: ProjectStore?
         let worktreeStore: WorktreeStore?
+        var modalProvider: (@MainActor (String) -> ExtensionModalService.Provider)?
+
+        init(
+            extensionID: String,
+            appState: AppState,
+            projectStore: ProjectStore?,
+            worktreeStore: WorktreeStore?,
+            modalProvider: (@MainActor (String) -> ExtensionModalService.Provider)? = nil
+        ) {
+            self.extensionID = extensionID
+            self.appState = appState
+            self.projectStore = projectStore
+            self.worktreeStore = worktreeStore
+            self.modalProvider = modalProvider
+        }
     }
 
     static func dispatch(verb: String, args: [String: Any], context: Context) async throws -> Any {
@@ -92,7 +107,7 @@ enum MuxyAPIDispatcher {
             try await ExtensionDialogService.alert(request)
             return NSNull()
         case "modal.open":
-            let selected = try await ExtensionModalService.shared.present(extensionID: context.extensionID, args: args)
+            let selected = try await openModal(args: args, context: context)
             return selected.map(modalItemDict) ?? NSNull()
         case "tabs.list":
             return try unwrap(MuxyAPI.Tabs.list(appState: context.appState)).map(tabDict)
@@ -626,6 +641,20 @@ enum MuxyAPIDispatcher {
         } catch {
             throw APIError.invalidArguments("invalid open tab request: \(error.localizedDescription)")
         }
+    }
+
+    private static func openModal(args: [String: Any], context: Context) async throws -> ExtensionModalService.Item? {
+        if let providerID = args["providerID"] as? String, !providerID.isEmpty,
+           let resolve = context.modalProvider
+        {
+            let provider = resolve(providerID)
+            return await ExtensionModalService.shared.present(
+                extensionID: context.extensionID,
+                source: .provider(provider),
+                args: args
+            )
+        }
+        return try await ExtensionModalService.shared.present(extensionID: context.extensionID, args: args)
     }
 
     private static func modalItemDict(_ item: ExtensionModalService.Item) -> [String: Any] {

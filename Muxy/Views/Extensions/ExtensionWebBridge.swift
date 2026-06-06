@@ -70,7 +70,46 @@ enum ExtensionWebBridge {
                 const key = String(name);
                 return key.startsWith('extension.') && key.length > 'extension.'.length;
             };
+
+            const modalProviders = new Map();
+            let nextProviderID = 1;
+            const registerModalProvider = (search) => {
+                const providerID = 'p' + nextProviderID++;
+                modalProviders.set(providerID, search);
+                return providerID;
+            };
+            const normalizeModalPage = (result) => {
+                const raw = Array.isArray(result) ? result : (result && result.items) || [];
+                const items = raw
+                    .map((it) => (it && it.id != null && it.title != null
+                        ? { id: String(it.id), title: String(it.title), subtitle: it.subtitle == null ? null : String(it.subtitle) }
+                        : null))
+                    .filter(Boolean);
+                const hasMore = Array.isArray(result) ? false : Boolean(result && result.hasMore);
+                return { items, hasMore };
+            };
+            const runModalProvider = async (request) => {
+                const search = modalProviders.get(request.providerID);
+                const reply = { requestToken: request.requestToken, providerID: request.providerID };
+                if (typeof search !== 'function') {
+                    return send('modal.provide', { ...reply, items: [], hasMore: false });
+                }
+                try {
+                    const page = normalizeModalPage(await search(String(request.query || ''), {
+                        offset: Number(request.offset) || 0,
+                        limit: Number(request.limit) || 0,
+                    }));
+                    return send('modal.provide', { ...reply, items: page.items, hasMore: page.hasMore });
+                } catch (error) {
+                    return send('modal.provide', { ...reply, items: [], hasMore: false, error: String((error && error.message) || error) });
+                }
+            };
+
             window.__muxyEventDispatch = (name, payload) => {
+                if (name === '__muxiModalProvider') {
+                    runModalProvider(payload || {});
+                    return;
+                }
                 const listeners = eventListeners.get(name);
                 if (!listeners) return;
                 for (const callback of listeners) {
@@ -158,12 +197,22 @@ enum ExtensionWebBridge {
                     },
                 },
                 modal: {
-                    open(opts) {
+                    async open(opts) {
                         const o = opts || {};
-                        const payload = { items: Array.isArray(o.items) ? o.items : [] };
+                        const payload = {};
                         if (o.placeholder != null) payload.placeholder = String(o.placeholder);
                         if (o.emptyLabel != null) payload.emptyLabel = String(o.emptyLabel);
                         if (o.noMatchLabel != null) payload.noMatchLabel = String(o.noMatchLabel);
+                        if (typeof o.search === 'function') {
+                            const providerID = registerModalProvider(o.search);
+                            payload.providerID = providerID;
+                            try {
+                                return await send('modal.open', payload);
+                            } finally {
+                                modalProviders.delete(providerID);
+                            }
+                        }
+                        payload.items = Array.isArray(o.items) ? o.items : [];
                         return send('modal.open', payload);
                     },
                 },

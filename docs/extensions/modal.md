@@ -41,6 +41,47 @@ Each item:
 
 Muxy filters the list as the user types (case-insensitive substring match on `title` and `subtitle`), highlights with the arrow keys, and selects on Return or click.
 
+## Lazy provider (`search`)
+
+Passing `items` enumerates everything upfront — fine for small, bounded lists, but it stalls on
+large sets (e.g. every file in a big repo). Instead pass a **`search` function** and Muxy pulls
+results on demand: it calls `search` on each keystroke (debounced) with the query and a paging
+window, shows a spinner while it awaits, streams the rows in, and asks for the next page as the
+user scrolls. You only ever compute the page Muxy asks for — nothing is loaded until it's needed.
+
+```js
+const choice = await muxy.modal.open({
+  placeholder: 'Open file…',
+  async search(query, { offset, limit }) {
+    const files = await findFiles(query, offset, limit);   // you own the search
+    return {
+      items: files.map(f => ({ id: f.path, title: f.name, subtitle: f.path })),
+      hasMore: files.length === limit,   // tell Muxy a next page may exist
+    };
+  },
+});
+if (choice) { /* { id, title, subtitle } */ }
+```
+
+| `search` arg | Type | Notes |
+| --- | --- | --- |
+| `query` | string | The current search text (empty on first open). |
+| `offset` | number | Index of the first row Muxy wants (0 on a fresh query, grows as you scroll). |
+| `limit` | number | How many rows to return for this page. |
+
+`search` returns `{ items, hasMore }` (or a bare `items` array). `items` is the same
+`{ id, title, subtitle? }` shape; `hasMore: true` lets Muxy request the next page when the user
+scrolls to the bottom. Provide **either** `items` **or** `search`, not both — if `search` is
+present it wins.
+
+- On webview pages and the background script, `search` may be `async` (return a `Promise`).
+- In `runScript` the whole surface is synchronous, so `search` runs **synchronously** — call
+  `muxy.exec`, `muxy.files.*`, etc. directly and return the page. `modal.open` still blocks and
+  returns the selection inline, exactly like the eager form.
+- Each page is capped at 1000 items / 200 chars per field; the **total** set is unbounded because
+  it is never materialized at once. A page that throws (or returns nothing) just shows no rows for
+  that query.
+
 ## Opening from a shortcut
 
 The modal has no shortcut of its own — wire one through a [palette command](palette-commands.md). Declare a command with a `defaultShortcut`, listen for its event in `background.js`, then open the modal:
@@ -76,5 +117,5 @@ muxy.events.subscribe('command.pick', async () => {
 
 - The call blocks the caller until the user responds. From a background script this pauses that script's event loop the same way `exec` does, so don't open a modal from a hot event path.
 - Only one modal is shown at a time. Opening a new one while another is showing closes the existing modal — its pending call resolves with `null` — and presents the new picker.
-- `placeholder` and the labels are capped at 200 characters; `id`, `title`, and `subtitle` per item at 200; the list at the first 1000 items. Items missing `id` or `title` are dropped.
+- `placeholder` and the labels are capped at 200 characters; `id`, `title`, and `subtitle` per item at 200. The eager `items` list is capped at the first 1000; a `search` page is capped at 1000 rows per call but the overall result set is unbounded. Items missing `id` or `title` are dropped.
 - The modal presents on the main Muxy window; if no item survives validation the call rejects.

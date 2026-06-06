@@ -124,14 +124,21 @@ final class HostSocketClient: @unchecked Sendable {
 
         try send(line)
 
-        replyLock.lock()
-        defer { replyLock.unlock() }
-        while !hasReply {
-            if closed { throw ClientError.closed }
-            replyLock.wait()
+        while true {
+            replyLock.lock()
+            if hasReply {
+                let reply = pendingReply
+                replyLock.unlock()
+                guard let reply else { throw ClientError.closed }
+                return reply
+            }
+            if closed {
+                replyLock.unlock()
+                throw ClientError.closed
+            }
+            replyLock.unlock()
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
         }
-        guard let reply = pendingReply else { throw ClientError.closed }
-        return reply
     }
 
     private func readLoop() {

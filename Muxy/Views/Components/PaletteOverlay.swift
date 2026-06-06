@@ -2,18 +2,26 @@ import AppKit
 import SwiftUI
 
 struct PaletteOverlay<Item: Identifiable & Sendable>: View {
+    struct Page {
+        let items: [Item]
+        let hasMore: Bool
+    }
+
     let placeholder: String
     let emptyLabel: String
     let noMatchLabel: String
-    let search: (String) async -> [Item]
+    let pageSize: Int
+    let loadPage: (String, Int, Int) async -> Page
     let onSelect: (Item) -> Void
     let onDismiss: () -> Void
     let row: (Item, Bool) -> AnyView
 
     @State private var query = ""
     @State private var results: [Item] = []
+    @State private var hasMore = false
     @State private var highlightedIndex: Int? = 0
     @State private var isSearching = false
+    @State private var isLoadingMore = false
     @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
@@ -54,6 +62,11 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                 onPageUp: { moveHighlight(-PaletteSearchField.pageJump) },
                 onPageDown: { moveHighlight(PaletteSearchField.pageJump) }
             )
+            if isSearching {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Searching")
+            }
         }
         .padding(.horizontal, UIMetrics.spacing6)
         .padding(.vertical, UIMetrics.spacing5)
@@ -81,6 +94,15 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                                     .contentShape(Rectangle())
                                     .onTapGesture { onSelect(item) }
                                     .id(item.id)
+                                    .onAppear {
+                                        if index >= results.count - 1 { loadMore() }
+                                    }
+                            }
+                            if isLoadingMore {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, UIMetrics.spacing4)
                             }
                         }
                     }
@@ -99,6 +121,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 
         let currentQuery = query
         isSearching = true
+        isLoadingMore = false
 
         searchTask = Task {
             if debounce {
@@ -106,14 +129,29 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                 guard !Task.isCancelled else { return }
             }
 
-            let found = await search(currentQuery)
+            let page = await loadPage(currentQuery, 0, pageSize)
             guard !Task.isCancelled else { return }
 
-            await MainActor.run {
-                results = found
-                highlightedIndex = found.isEmpty ? nil : 0
-                isSearching = false
-            }
+            results = page.items
+            hasMore = page.hasMore
+            highlightedIndex = page.items.isEmpty ? nil : 0
+            isSearching = false
+        }
+    }
+
+    private func loadMore() {
+        guard hasMore, !isSearching, !isLoadingMore else { return }
+        let currentQuery = query
+        let offset = results.count
+        isLoadingMore = true
+
+        searchTask = Task {
+            let page = await loadPage(currentQuery, offset, pageSize)
+            guard !Task.isCancelled, currentQuery == query else { return }
+
+            results.append(contentsOf: page.items)
+            hasMore = page.hasMore
+            isLoadingMore = false
         }
     }
 
