@@ -142,6 +142,7 @@ enum TabReducer {
         }
 
         guard area.tabs.isEmpty else { return }
+        guard !state.keepProjectOpenWhenEmpty else { return }
         WorkspaceReducerShared.clearWorkspace(key: key, state: &state)
         WorkspaceReducerShared.handleProjectEmptiedIfNeeded(
             projectID: key.projectID,

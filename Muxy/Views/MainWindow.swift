@@ -309,13 +309,13 @@ struct MainWindow: View {
                 ZStack {
                     MuxyTheme.bg
                     if let project = activeProject,
-                       appState.workspaceRoot(for: project.id) == nil,
+                       !appState.hasTabs(for: project.id),
                        let worktree = resolvedActiveWorktree(for: project)
                     {
                         EmptyProjectPlaceholder(project: project) {
-                            appState.selectWorktree(projectID: project.id, worktree: worktree)
+                            appState.openInitialTab(projectID: project.id, worktree: worktree)
                         }
-                    } else if projectsWithWorkspaces.isEmpty {
+                    } else if projectsWithTabs.isEmpty {
                         WelcomeView()
                     } else if let project = activeProjectWithWorkspace,
                               let activeKey = appState.activeWorktreeKey(for: project.id)
@@ -861,8 +861,8 @@ struct MainWindow: View {
         return true
     }
 
-    private var projectsWithWorkspaces: [Project] {
-        projectStore.projects.filter { appState.workspaceRoot(for: $0.id) != nil }
+    private var projectsWithTabs: [Project] {
+        projectStore.projects.filter { appState.hasTabs(for: $0.id) }
     }
 
     var richInputPanelVisible: Bool { panelHost.isOpen(BuiltinPanel.richInput) }
