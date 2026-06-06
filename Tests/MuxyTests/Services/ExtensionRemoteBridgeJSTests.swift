@@ -111,4 +111,20 @@ struct ExtensionRemoteBridgeJSTests {
         let payload = capture.dispatchedArgs?["payload"] as? [String: Any]
         #expect((payload?["count"] as? NSNumber)?.intValue == 2)
     }
+
+    @Test("tabs.open is available in the background context")
+    func tabsOpenDispatchesFromBackground() {
+        let (context, capture) = makeContext()
+        context.evaluateScript("""
+        muxy.tabs.open({
+            kind: 'extensionWebView',
+            extension: { id: 'demo', tabType: 'viewer' },
+        });
+        """)
+        #expect(capture.dispatchedVerb == "tabs.open")
+        #expect(capture.dispatchedArgs?["kind"] as? String == "extensionWebView")
+        let payload = capture.dispatchedArgs?["extension"] as? [String: Any]
+        #expect(payload?["id"] as? String == "demo")
+        #expect(payload?["tabType"] as? String == "viewer")
+    }
 }

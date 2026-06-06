@@ -145,7 +145,7 @@ interface ExecResult {
 
 ### Opening another tab
 
-`tabs.open` accepts two kinds: `terminal` and `extensionWebView` (with a target `extension`).
+`tabs.open` accepts two kinds: `terminal` and `extensionWebView` (with a target `extension`). It is available from tabs, panels, popovers, `runScript` commands, and background scripts; non-webview callers open into the active workspace and reject when Muxy cannot identify one.
 
 ```js
 await muxy.tabs.open({ kind: 'terminal' });
@@ -229,5 +229,5 @@ Workspace restore persists each tab's `extensionID`, `tabTypeID`, and `data`, so
 
 - One `WKWebView` per tab instance; tabs do not share state. Coordinate shared state through your background script with `extension.*` events.
 - Pages can only navigate within `muxy-ext://` and `about:` — no `http`/`https`/`file`. Open external content via `muxy.tabs.open()`.
-- Opening a tab is a page capability (`window.muxy`). The background script has no tabs API.
+- Background scripts only expose `muxy.tabs.open`; tab listing, switching, and customization remain page and `runScript` capabilities.
 - For command logic with no UI, use a [`runScript`](scripts.md) command action instead of a hidden tab.

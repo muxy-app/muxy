@@ -9,7 +9,7 @@ User-installed directories that Muxy loads and runs. Each extension is an npm + 
 On launch, the main process (`ExtensionStore`) scans `~/.config/muxy/extensions/` (each entry the installed `dist/` of an extension, with its `package.json`), loads the enabled ones, and splits each into two independent surfaces:
 
 - **Hooks API (main process).** Declared UI — panels, tabs, popovers, topbar/status-bar items — is registered in-process and rendered in the main window as `WKWebView`s. Their JS talks to Muxy through the injected `window.muxy` bridge (`ExtensionBridgeHandler` → `MuxyAPIDispatcher`); **no subprocess and no socket are involved**.
-- **Background script (subprocess).** If the extension declares a `muxy.background` script, `ExtensionStore.startExtension` spawns `MuxyExtensionHost` — a tiny bundled Swift + JavaScriptCore binary — to run `background.js`. It is where durable **`muxy.events.subscribe` listeners live**, where webviews can send `extension.*` events, and where `muxy.exec` is called. The host connects back to the main process over the Unix socket (`NotificationSocketServer`).
+- **Background script (subprocess).** If the extension declares a `muxy.background` script, `ExtensionStore.startExtension` spawns `MuxyExtensionHost` — a tiny bundled Swift + JavaScriptCore binary — to run `background.js`. It is where durable **`muxy.events.subscribe` listeners live**, where webviews can send `extension.*` events, where `muxy.exec` is called, and where `muxy.tabs.open` can show results in the active workspace. The host connects back to the main process over the Unix socket (`NotificationSocketServer`).
 
 Workspace events are produced in the main process by `ExtensionEventEmitter` (it diffs workspace state on each change) and broadcast to subscribed host sessions over the socket; the host dispatches them to the `muxy.events` listeners in `background.js`. Extension-local `extension.*` events are scoped to one extension and move between its webviews and its background script through the same main-process broker. A `muxy.exec` call travels the socket to `SocketCommandHandler`, which gates it: `ExtensionGrantStore.evaluate` checks for a remembered (whitelisted) rule; if none, `ExtensionConsentService.gate` prompts in the main window; on approval `ExtensionCommandExecutor` runs the command and the result is returned to `background.js`.
 
@@ -101,7 +101,7 @@ flowchart TD
 - Manifest: the `muxy` object in `package.json` (`name`/`version` stay top-level)
 - Install path: `~/.config/muxy/extensions/<name>/` (the installed `dist/`)
 - Background script: optional `muxy.background` JS, run in a host process that injects the `muxy` global
-- Background API: `muxy.extensionID`, `muxy.events.*`, `muxy.remote.*`, `muxy.exec`, `muxy.git`, `muxy.dialog`, `muxy.modal`, `muxy.notifications`, `muxy.topbar`/`muxy.statusbar`, `console.*` (no `tabs`/`panes`/`projects`/`worktrees`/`files`/`http`/`toast` — those are page or `runScript` surfaces)
+- Background API: `muxy.extensionID`, `muxy.events.*`, `muxy.remote.*`, `muxy.exec`, `muxy.git`, `muxy.tabs.open`, `muxy.dialog`, `muxy.modal`, `muxy.notifications`, `muxy.topbar`/`muxy.statusbar`, `console.*` (no tab listing/switching/customization, `panes`/`projects`/`worktrees`/`files`/`http`/`toast` — those are page or `runScript` surfaces)
 - See [the muxy CLI feature page](../features/muxy-cli.md) for the verb vocabulary
 
 ## Minimal example

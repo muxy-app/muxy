@@ -183,6 +183,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 
 struct PaletteSearchField: NSViewRepresentable {
     static let pageJump = 10
+    private static let focusAttemptLimit = 12
 
     @Binding var text: String
     let placeholder: String
@@ -214,15 +215,16 @@ struct PaletteSearchField: NSViewRepresentable {
         field.cell?.sendsActionOnEndEditing = false
         field.onEscape = onEscape
         field.onControlKey = onControlKey
-        claimFocus(for: field, attemptsRemaining: 5)
+        claimFocus(for: field, attempt: 0)
         return field
     }
 
-    private func claimFocus(for field: NSTextField, attemptsRemaining: Int) {
-        guard attemptsRemaining > 0 else { return }
-        DispatchQueue.main.async {
+    private func claimFocus(for field: NSTextField, attempt: Int) {
+        guard attempt < Self.focusAttemptLimit else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + focusRetryDelay(for: attempt)) { [weak field] in
+            guard let field else { return }
             guard let window = field.window else {
-                claimFocus(for: field, attemptsRemaining: attemptsRemaining - 1)
+                claimFocus(for: field, attempt: attempt + 1)
                 return
             }
             if field.currentEditor() != nil {
@@ -230,8 +232,15 @@ struct PaletteSearchField: NSViewRepresentable {
             }
             window.makeFirstResponder(field)
             guard field.currentEditor() == nil else { return }
-            claimFocus(for: field, attemptsRemaining: attemptsRemaining - 1)
+            claimFocus(for: field, attempt: attempt + 1)
         }
+    }
+
+    private func focusRetryDelay(for attempt: Int) -> DispatchTimeInterval {
+        if attempt == 0 {
+            return .milliseconds(0)
+        }
+        return .milliseconds(min(120, attempt * 16))
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {

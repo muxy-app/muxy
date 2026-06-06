@@ -18,7 +18,7 @@ The goal of everything below: an extension should be indistinguishable from a na
 ## Pick the right surface
 
 - **Showing something to the user** → a **UI page** (tab, panel, or popover). Page scripts get the full `window.muxy` API.
-- **Reacting durably to events, coordinating multiple webviews, or running shell commands headlessly** → a **`background.js`** script. Most extensions don't need one.
+- **Reacting durably to events, coordinating multiple webviews, or running shell commands headlessly** → a **`background.js`** script. It can also call `muxy.tabs.open` to show a result in the active workspace. Most extensions don't need one.
 - **One-shot logic from the palette** → a **`runScript`** command, not a hidden tab. Its `muxy.*` calls are **synchronous** (return values directly — no `await`). It has `tabs`/`panes`/`projects`/`worktrees`/`files`/`git`/`exec`/`dialog`/`modal`/`topbar`/`statusbar`/`notifications`, but **not** `http`, `events`, `remote`, `panels`, or `popover`. It can open a modal and act on the choice inline — no page or background listener needed.
 
 Don't open a hidden tab to run logic, and don't put durable event-driven work in tab JS where closing the tab loses it. Use `muxy.events.emit('extension.<name>', payload)` plus a background listener when a webview needs to ask background.js for shared or long-lived work.

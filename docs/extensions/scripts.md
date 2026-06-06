@@ -52,7 +52,18 @@ muxy.modal.open({
     }
     if (batch.length) emit(batch);
   },
-  onSelect(choice) { if (choice) muxy.tabs.open({ kind: 'editor', path: choice.id }); },
+  onSelect(choice) {
+    if (!choice) return;
+    muxy.tabs.open({
+      kind: 'extensionWebView',
+      extension: {
+        id: muxy.extensionID,
+        tabType: 'editor',
+        singleton: true,
+        data: { path: choice.id },
+      },
+    });
+  },
 });
 ```
 

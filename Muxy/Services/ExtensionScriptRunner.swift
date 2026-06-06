@@ -207,15 +207,26 @@ private final class ScriptBridge: @unchecked Sendable {
     private func registerModalDelivery(requestID: String) {
         let onPending = modalPendingChanged
         onPending?(1)
+        let completion = ModalDeliveryCompletion(onPending)
         ExtensionModalService.shared.onResult(requestID: requestID) { [weak self] item in
-            self?.deliverModalResult(requestID: requestID, item: item)
-            onPending?(-1)
+            guard let self else {
+                completion.finish()
+                return
+            }
+            self.deliverModalResult(requestID: requestID, item: item, completion: completion)
         }
     }
 
     @MainActor
-    private func deliverModalResult(requestID: String, item: ExtensionModalService.Item?) {
-        guard let queue = deliveryQueue, let context else { return }
+    private func deliverModalResult(
+        requestID: String,
+        item: ExtensionModalService.Item?,
+        completion: ModalDeliveryCompletion
+    ) {
+        guard let queue = deliveryQueue, let context else {
+            completion.finish()
+            return
+        }
         let payload: Any
         if let item {
             var dict: [String: Any] = ["id": item.id, "title": item.title]
@@ -228,6 +239,7 @@ private final class ScriptBridge: @unchecked Sendable {
         queue.async {
             let deliver = delivery.context.objectForKeyedSubscript("__muxiDeliverModalResult")
             deliver?.call(withArguments: [delivery.requestID, delivery.payload])
+            completion.finish()
         }
     }
 
@@ -276,6 +288,20 @@ private struct ModalDeliveryBox: @unchecked Sendable {
     let context: JSContext
     let requestID: String
     let payload: Any
+}
+
+private final class ModalDeliveryCompletion: @unchecked Sendable {
+    private let onPending: ((Int) -> Void)?
+
+    init(_ onPending: ((Int) -> Void)?) {
+        self.onPending = onPending
+    }
+
+    func finish() {
+        DispatchQueue.main.async { [self] in
+            onPending?(-1)
+        }
+    }
 }
 
 private struct BridgeValue: @unchecked Sendable {

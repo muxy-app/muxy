@@ -191,6 +191,19 @@ enum SocketCommandHandler {
             } catch {
                 return "error:invalid open-tab payload: \(error.localizedDescription)"
             }
+        case "tabs.open":
+            guard parts.count >= 2 else { return "error:usage tabs.open|<base64-json>" }
+            guard let extensionID = clientContext.extensionID else { return "error:identify required" }
+            return await handleAPIVerb(
+                verb: cmd,
+                base64Payload: parts[1],
+                context: MuxyAPIDispatcher.Context(
+                    extensionID: extensionID,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore
+                )
+            )
         case "extension.settings.get":
             guard parts.count >= 2 else { return "error:usage extension.settings.get|key" }
             return handleSettingsGet(key: parts[1], extensionID: clientContext.extensionID)
@@ -277,6 +290,14 @@ enum SocketCommandHandler {
     }
 
     private static func handleGit(
+        verb: String,
+        base64Payload: String,
+        context: MuxyAPIDispatcher.Context
+    ) async -> String {
+        await handleAPIVerb(verb: verb, base64Payload: base64Payload, context: context)
+    }
+
+    private static func handleAPIVerb(
         verb: String,
         base64Payload: String,
         context: MuxyAPIDispatcher.Context

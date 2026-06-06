@@ -295,6 +295,16 @@ struct SocketCommandHandlerTests {
         #expect(appState.focusedArea(for: projectID)!.tabs.count == before + 1)
     }
 
+    @Test("direct tabs.open requires an identified extension")
+    func directTabsOpenRequiresIdentify() async {
+        let appState = makeAppState()
+        let payload = Data(#"{"kind":"terminal"}"#.utf8).base64EncodedString()
+
+        let result = await SocketCommandHandler.handleRequest("tabs.open|\(payload)", appState: appState)
+
+        #expect(result == "error:identify required")
+    }
+
     @Test("exec rejects an unidentified session")
     func execRejectsUnidentifiedSession() async {
         let appState = makeAppState()

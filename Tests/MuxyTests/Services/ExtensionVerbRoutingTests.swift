@@ -15,6 +15,7 @@ struct ExtensionVerbRoutingTests {
         #expect(verbs.contains("extension.statusbar.set"))
         #expect(verbs.contains("topbar.set"))
         #expect(verbs.contains("statusbar.set"))
+        #expect(verbs.contains("tabs.open"))
     }
 
     @Test("topbar.set and statusbar.set require panels:write")

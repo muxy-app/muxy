@@ -126,6 +126,7 @@ public enum ExtensionBridgeJS {
                 },
             };
         \(surface == .inProcess ? workspaceBlock : "")
+        \(surface == .background ? backgroundTabsBlock : "")
         \(surface == .inProcess ? filesBlock : "")
         \(surface == .background ? eventsBlock : "")
         \(surface == .background ? remoteBlock : "")
@@ -133,6 +134,7 @@ public enum ExtensionBridgeJS {
             \(surface == .inProcess ?
             "Object.freeze(muxy.tabs); Object.freeze(muxy.panes); Object.freeze(muxy.projects); Object.freeze(muxy.worktrees); Object.freeze(muxy.files);" :
             "")
+            \(surface == .background ? "Object.freeze(muxy.tabs);" : "")
             Object.freeze(muxy.git); Object.freeze(muxy.git.pr); Object.freeze(muxy.git.branch); Object.freeze(muxy.git.worktree);
             Object.freeze(muxy.notifications);
             Object.freeze(muxy.dialog);
@@ -204,6 +206,12 @@ public enum ExtensionBridgeJS {
                     project: project == null ? null : String(project),
                 }),
                 refresh:  (project)             => dispatch('worktrees.refresh', { project: project == null ? null : String(project) }),
+            };
+    """
+
+    private static let backgroundTabsBlock = """
+            muxy.tabs = {
+                open: (request) => dispatch('tabs.open', request || {}),
             };
     """
 

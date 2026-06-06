@@ -107,6 +107,49 @@ struct ExtensionScriptRunnerTests {
         ExtensionScriptRunner.shared.evict(extensionID: "test-ext-evict")
     }
 
+    @Test("modal onSelect keeps the script bridge alive through delivery")
+    func modalOnSelectKeepsBridgeAliveThroughDelivery() async throws {
+        let extensionID = "test-ext-modal-\(UUID().uuidString)"
+        let logDirectory = try makeExtensionDirectory()
+        ExtensionLogStore.shared.register(extensionID: extensionID, directory: logDirectory)
+        defer {
+            ExtensionScriptRunner.shared.evict(extensionID: extensionID)
+            ExtensionLogStore.shared.unregister(extensionID: extensionID)
+            ExtensionLogStore.shared.flush()
+            try? FileManager.default.removeItem(at: logDirectory)
+        }
+
+        let appState = makeAppState()
+        let scriptURL = try writeScript("""
+        muxy.modal.open({
+          items: [{ id: 'file', title: 'File' }],
+          onSelect(choice) {
+            try {
+              muxy.tabs.list();
+              console.log('modal-dispatch:ok');
+            } catch (error) {
+              console.log('modal-dispatch:' + error.message);
+            }
+          },
+        });
+        """)
+        defer { try? FileManager.default.removeItem(at: scriptURL.deletingLastPathComponent()) }
+
+        try await ExtensionScriptRunner.shared.runScript(
+            extensionID: extensionID,
+            scriptURL: scriptURL,
+            appState: appState,
+            projectStore: nil,
+            worktreeStore: nil
+        )
+
+        ExtensionModalService.shared.select(ExtensionModalService.Item(id: "file", title: "File", subtitle: nil))
+
+        let log = try await waitForLog(extensionID: extensionID, directory: logDirectory, contains: "modal-dispatch:")
+        #expect(log.contains("modal-dispatch:permission denied (tabs:read)"))
+        #expect(!log.contains("modal-dispatch:bridge released"))
+    }
+
     private func writeScript(_ source: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("script-\(UUID().uuidString)")
@@ -114,6 +157,25 @@ struct ExtensionScriptRunnerTests {
         let scriptURL = directory.appendingPathComponent("script.js")
         try Data(source.utf8).write(to: scriptURL)
         return scriptURL
+    }
+
+    private func makeExtensionDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("script-log-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func waitForLog(extensionID: String, directory: URL, contains needle: String) async throws -> String {
+        let logURL = ExtensionLogStore.shared.logURL(extensionID: extensionID, directory: directory)
+        for _ in 0..<50 {
+            ExtensionLogStore.shared.flush()
+            let text = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
+            if text.contains(needle) { return text }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        ExtensionLogStore.shared.flush()
+        return (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
     }
 
     private func makeAppState(

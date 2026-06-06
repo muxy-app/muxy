@@ -105,7 +105,8 @@ final class HostBridge: @unchecked Sendable {
              "modal.finish",
              "modal.await",
              "topbar.set",
-             "statusbar.set":
+             "statusbar.set",
+             "tabs.open":
             return dispatchValueReturning(verb: verb, dict: dict)
         case let verb where verb.hasPrefix("git."):
             return dispatchValueReturning(verb: verb, dict: dict)

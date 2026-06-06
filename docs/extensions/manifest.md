@@ -89,8 +89,9 @@ A `background` script never speaks a wire protocol. Muxy handles the socket, ide
 - `muxy.remote.handle(action, handler)` / `unhandle` — serve [remote methods](remote-methods.md) to the mobile app (needs `remote:serve`).
 - `muxy.exec(argv[, options])` — run a shell command (needs `commands:exec`).
 - `muxy.git.*` — repository reads and writes ([Git](git.md)).
+- `muxy.tabs.open(request)` — open a terminal or extension webview tab in the active workspace (needs `tabs:write`).
 - `muxy.dialog.confirm` / `alert` ([Dialogs](dialogs.md)), `muxy.modal.open` ([Modal](modal.md)) — native prompts.
 - `muxy.notifications.notify`, `muxy.topbar.*`, `muxy.statusbar.*` — notifications and chrome items. (No `toast` alias on background — use `notifications.notify`.)
 - `console.log` / `console.warn` / `console.error` — written to the extension log.
 
-The richer state/mutation API (`tabs`, `panes`, `projects`, `worktrees`, `files`) is available to tab/panel/popover pages via `window.muxy` **and** to [`runScript`](scripts.md) palette-command scripts via `muxy` — but **not** to the background script.
+The richer state/mutation API (`panes`, `projects`, `worktrees`, `files`, and tab listing/switching/customization) is available to tab/panel/popover pages via `window.muxy` **and** to [`runScript`](scripts.md) palette-command scripts via `muxy` — but **not** to the background script.
