@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "update-skill": "node -e \"const fs=require('fs'),p=require('path');const url='https://raw.githubusercontent.com/muxy-app/muxy/main/Muxy/Resources/skills/muxy-extension/SKILL.md';fetch(url).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text()}).then(t=>{for(const d of ['.claude/skills/muxy-extension','.agents/skills/muxy-extension']){fs.mkdirSync(d,{recursive:true});fs.writeFileSync(p.join(d,'SKILL.md'),t);console.log('Updated '+p.join(d,'SKILL.md'))}}).catch(e=>{console.error('Failed to update skill:',e.message);process.exit(1)})\""
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
