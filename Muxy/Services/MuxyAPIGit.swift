@@ -556,13 +556,49 @@ extension MuxyAPI {
         ) async -> Result<Void, APIError> {
             let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedPath.isEmpty else { return .failure(.invalidArguments("path is required")) }
-            return await write(projectIdentifier, operation: "worktree.remove", context: context) { repoPath in
-                try await GitWorktreeService.shared.removeWorktree(
-                    repoPath: repoPath,
-                    path: NSString(string: trimmedPath).expandingTildeInPath,
-                    force: force
-                )
+            let expandedPath = NSString(string: trimmedPath).expandingTildeInPath
+
+            guard let tracked = trackedWorktree(path: expandedPath, context: context) else {
+                return await write(projectIdentifier, operation: "worktree.remove", context: context) { repoPath in
+                    try await GitWorktreeService.shared.removeWorktree(
+                        repoPath: repoPath,
+                        path: expandedPath,
+                        force: force
+                    )
+                }
             }
+
+            let result = await write(projectIdentifier, operation: "worktree.remove", context: context) { _ in
+                try await WorktreeStore.cleanupOnDisk(worktree: tracked.worktree, repoPath: tracked.project.path)
+            }
+            if case .success = result {
+                forgetWorktree(project: tracked.project, worktree: tracked.worktree, context: context)
+            }
+            return result
+        }
+
+        static func trackedWorktree(
+            path: String,
+            context: Context
+        ) -> (project: Project, worktree: Worktree)? {
+            let target = GitWorktreeService.canonicalPath(path)
+            for project in context.projectStore.projects {
+                guard let worktree = context.worktreeStore.list(for: project.id).first(where: {
+                    GitWorktreeService.canonicalPath($0.path) == target
+                }), worktree.canBeRemoved
+                else { continue }
+                return (project, worktree)
+            }
+            return nil
+        }
+
+        static func forgetWorktree(project: Project, worktree: Worktree, context: Context) {
+            let remaining = context.worktreeStore.list(for: project.id).filter { $0.id != worktree.id }
+            let replacement = remaining.first { $0.id == context.appState.activeWorktreeID[project.id] }
+                ?? remaining.first { $0.isPrimary }
+                ?? remaining.first
+            context.appState.removeWorktree(projectID: project.id, worktree: worktree, replacement: replacement)
+            context.worktreeStore.remove(worktreeID: worktree.id, from: project.id)
         }
 
         private static func diffHints(staged: Bool?) -> GitRepositoryService.DiffHints {
