@@ -174,6 +174,7 @@ enum MuxyAPI {
             "topbar.set",
             "statusbar.set",
             "tabs.open",
+            "lifecycle.ackBeforeClose",
             "lifecycle.resolveBeforeClose",
             "lifecycle.closeSelf",
         ]).union(gitVerbs).union(filesVerbs)
@@ -529,7 +530,7 @@ enum MuxyAPI {
             guard let loc = locateTab(paneID: paneID, appState: appState) else {
                 return .failure(.paneNotFound(paneIDString))
             }
-            appState.dispatch(.closeTab(projectID: loc.key.projectID, areaID: loc.areaID, tabID: loc.tabID))
+            appState.closeTab(loc.tabID, areaID: loc.areaID, projectID: loc.key.projectID)
             return .success(())
         }
 

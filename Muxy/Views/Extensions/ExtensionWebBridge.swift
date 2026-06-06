@@ -101,6 +101,7 @@ enum ExtensionWebBridge {
                     window.__muxyResolveBeforeClose(callID, false);
                     return;
                 }
+                send('lifecycle.ackBeforeClose', { callID: String(callID) }).catch(() => {});
                 let outcome;
                 try {
                     outcome = beforeCloseHandler({ surface: String(reason), instanceID: String(instanceID) });

@@ -16,6 +16,8 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
     private var extensionEventObservers: [String: UUID] = [:]
     private var surfaceKey: LifecycleSurfaceKey?
     private var pendingLifecycle: [String: CheckedContinuation<LifecycleVerdict, Never>] = [:]
+    private var acknowledgedLifecycle: Set<String> = []
+    private var acknowledgementTimeouts: [String: Task<Void, Never>] = [:]
     private var nextLifecycleCallID = 1
 
     init(
@@ -53,13 +55,7 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
         guard let webView else { return .allow }
         let callID = String(nextLifecycleCallID)
         nextLifecycleCallID += 1
-
-        let timeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: ExtensionLifecycle.beforeCloseTimeout)
-            guard !Task.isCancelled else { return }
-            self?.resolveLifecycle(callID: callID, verdict: .allow)
-        }
-        defer { timeoutTask.cancel() }
+        armAcknowledgementTimeout(callID: callID)
 
         return await withCheckedContinuation { continuation in
             pendingLifecycle[callID] = continuation
@@ -80,14 +76,46 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
     func failPendingLifecycle() {
         let pending = pendingLifecycle
         pendingLifecycle.removeAll()
+        acknowledgedLifecycle.removeAll()
+        cancelAcknowledgementTimeouts()
         for continuation in pending.values {
             continuation.resume(returning: .allow)
         }
     }
 
+    private func armAcknowledgementTimeout(callID: String) {
+        acknowledgementTimeouts[callID] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: ExtensionLifecycle.acknowledgementTimeout)
+            guard !Task.isCancelled else { return }
+            self?.resolveLifecycle(callID: callID, verdict: .allow)
+        }
+    }
+
+    private func cancelAcknowledgementTimeout(callID: String) {
+        acknowledgementTimeouts.removeValue(forKey: callID)?.cancel()
+    }
+
+    private func cancelAcknowledgementTimeouts() {
+        for task in acknowledgementTimeouts.values {
+            task.cancel()
+        }
+        acknowledgementTimeouts.removeAll()
+    }
+
     private func resolveLifecycle(callID: String, verdict: LifecycleVerdict) {
+        cancelAcknowledgementTimeout(callID: callID)
+        acknowledgedLifecycle.remove(callID)
         guard let continuation = pendingLifecycle.removeValue(forKey: callID) else { return }
         continuation.resume(returning: verdict)
+    }
+
+    private func handleAckBeforeClose(args: [String: Any]) {
+        guard let callID = args["callID"] as? String,
+              pendingLifecycle[callID] != nil,
+              !acknowledgedLifecycle.contains(callID)
+        else { return }
+        acknowledgedLifecycle.insert(callID)
+        cancelAcknowledgementTimeout(callID: callID)
     }
 
     private func handleResolveBeforeClose(args: [String: Any]) {
@@ -151,6 +179,9 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
             return try handleUnsubscribe(args: args)
         case "events.emit":
             return try await handleEmit(args: args)
+        case "lifecycle.ackBeforeClose":
+            handleAckBeforeClose(args: args)
+            return NSNull()
         case "lifecycle.resolveBeforeClose":
             handleResolveBeforeClose(args: args)
             return NSNull()

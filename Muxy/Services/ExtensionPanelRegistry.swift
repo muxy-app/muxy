@@ -90,6 +90,10 @@ final class ExtensionPanelRegistry {
     }
 
     private func pruneClosed() {
+        let closed = openStates.filter { !PanelHost.shared.isOpen($0.hostPanelID) }
         openStates.removeAll { !PanelHost.shared.isOpen($0.hostPanelID) }
+        for state in closed {
+            ExtensionLifecycleEvents.panelClosed(extensionID: state.extensionID, panelID: state.panelID)
+        }
     }
 }

@@ -17,7 +17,7 @@ enum LifecycleVerdict {
 }
 
 enum ExtensionLifecycle {
-    static let beforeCloseTimeout: Duration = .seconds(5)
+    static let acknowledgementTimeout: Duration = .seconds(5)
 }
 
 @MainActor
