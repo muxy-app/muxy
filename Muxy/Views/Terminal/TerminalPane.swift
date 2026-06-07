@@ -26,12 +26,8 @@ struct TerminalPane: View {
     }
 
     private func wakePane() {
-        let view = TerminalViewRegistry.shared.existingView(for: state.id)
-        view?.wake()
+        TerminalViewRegistry.shared.existingView(for: state.id)?.wake()
         onFocus()
-        DispatchQueue.main.async { [weak view] in
-            view?.window?.makeFirstResponder(view)
-        }
     }
 
     var body: some View {
@@ -92,7 +88,7 @@ struct TerminalPane: View {
             }
 
             if showsSleepingPlaceholder {
-                SleepingTabPlaceholder(onWake: wakePane)
+                SleepingTabPlaceholder(isFocused: focused, onWake: wakePane)
                     .transition(.opacity)
             }
         }
@@ -100,6 +96,7 @@ struct TerminalPane: View {
 }
 
 struct SleepingTabPlaceholder: View {
+    let isFocused: Bool
     let onWake: () -> Void
 
     var body: some View {
@@ -119,12 +116,14 @@ struct SleepingTabPlaceholder: View {
             Button(action: onWake) {
                 HStack(spacing: UIMetrics.spacing4) {
                     Text("Wake")
-                    Text("⏎")
-                        .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .rounded))
-                        .opacity(0.72)
+                    if isFocused {
+                        Text("⏎")
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .rounded))
+                            .opacity(0.72)
+                    }
                 }
             }
-            .keyboardShortcut(.return, modifiers: [])
+            .keyboardShortcut(isFocused ? KeyboardShortcut(.return, modifiers: []) : nil)
             .buttonStyle(.borderedProminent)
             Spacer()
         }
