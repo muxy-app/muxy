@@ -13,6 +13,7 @@ struct MuxyApp: App {
     @State private var projectStore: ProjectStore
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
+    @State private var worktreeAutoRefresher: VCSWorktreeAutoRefresher?
     @State private var didStartDeferredServices = false
 
     init() {
@@ -57,6 +58,7 @@ struct MuxyApp: App {
                 .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
                     startDeferredServicesIfNeeded()
+                    startWorktreeAutoRefreshIfNeeded()
                     NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore
                     NotificationStore.shared.markAllAsRead()
@@ -153,6 +155,15 @@ struct MuxyApp: App {
             ExtensionStore.shared.startAll()
             await ExtensionStore.shared.checkForUpdates()
         }
+    }
+
+    private func startWorktreeAutoRefreshIfNeeded() {
+        guard worktreeAutoRefresher == nil else { return }
+        worktreeAutoRefresher = VCSWorktreeAutoRefresher(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
+        )
     }
 }
 

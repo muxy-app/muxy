@@ -167,11 +167,13 @@ final class WorktreeStore {
             if let existing = existingByKey[recordKey],
                let index = list.firstIndex(where: { $0.id == existing.id })
             {
-                list[index].branch = record.branch
                 if list[index].isPrimary {
                     list[index].name = project.name
                     list[index].path = project.path
+                } else if list[index].name == list[index].branch {
+                    list[index].name = defaultName(for: record)
                 }
+                list[index].branch = record.branch
                 continue
             }
 
