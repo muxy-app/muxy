@@ -13,6 +13,8 @@ struct ExtensionWebView: NSViewRepresentable {
     let focused: Bool
     let onFocus: () -> Void
 
+    @Environment(\.overlayActive) private var overlayActive
+
     func makeCoordinator() -> Coordinator {
         Coordinator(onFocus: onFocus)
     }
@@ -69,7 +71,7 @@ struct ExtensionWebView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.applyDataIfChanged(initialData, in: webView)
-        context.coordinator.applyFocusIfChanged(focused, in: webView)
+        context.coordinator.applyFocusIfChanged(focused, overlayActive: overlayActive, in: webView)
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -96,6 +98,7 @@ struct ExtensionWebView: NSViewRepresentable {
         private var tabInstanceID: String = ""
         private var initialData: ExtensionJSON?
         private var focused = false
+        private var overlayActive = false
 
         init(onFocus: @escaping () -> Void) {
             self.onFocus = onFocus
@@ -132,10 +135,13 @@ struct ExtensionWebView: NSViewRepresentable {
             webView.evaluateJavaScript(script, completionHandler: nil)
         }
 
-        func applyFocusIfChanged(_ focused: Bool, in webView: WKWebView) {
-            guard focused != self.focused else { return }
+        func applyFocusIfChanged(_ focused: Bool, overlayActive: Bool, in webView: WKWebView) {
+            let focusChanged = focused != self.focused
+            let overlayChanged = overlayActive != self.overlayActive
+            guard focusChanged || overlayChanged else { return }
             self.focused = focused
-            pushFocusUpdate(in: webView)
+            self.overlayActive = overlayActive
+            if focusChanged { pushFocusUpdate(in: webView) }
             updateFirstResponder(for: webView)
         }
 
@@ -145,10 +151,13 @@ struct ExtensionWebView: NSViewRepresentable {
         }
 
         private func updateFirstResponder(for webView: WKWebView) {
-            guard focused else { return }
             DispatchQueue.main.async { [weak webView] in
-                guard let webView else { return }
-                webView.window?.makeFirstResponder(webView)
+                guard let webView, let window = webView.window else { return }
+                if self.focused, !self.overlayActive {
+                    window.makeFirstResponder(webView)
+                } else if window.firstResponder === webView {
+                    window.makeFirstResponder(nil)
+                }
             }
         }
 
