@@ -27,6 +27,14 @@ struct TerminalOfflinePolicyTests {
         #expect(!TerminalOfflinePolicy.isIdle(hasRunningProcess: true, isAlternateScreen: true))
     }
 
+    @Test("a pane keeps awake only while on screen and focused")
+    func keepsAwakeOnlyWhenOnScreenAndFocused() {
+        #expect(TerminalOfflinePolicy.keepsAwake(isOnScreen: true, isFocused: true))
+        #expect(!TerminalOfflinePolicy.keepsAwake(isOnScreen: true, isFocused: false))
+        #expect(!TerminalOfflinePolicy.keepsAwake(isOnScreen: false, isFocused: true))
+        #expect(!TerminalOfflinePolicy.keepsAwake(isOnScreen: false, isFocused: false))
+    }
+
     @Test("takes an idle hidden surface offline once the idle threshold elapses")
     func takesIdleHiddenSurfaceOffline() {
         #expect(TerminalOfflinePolicy.shouldTakeOffline(

@@ -12,6 +12,10 @@ enum TerminalOfflinePolicy {
         !hasRunningProcess && !isAlternateScreen
     }
 
+    static func keepsAwake(isOnScreen: Bool, isFocused: Bool) -> Bool {
+        isOnScreen && isFocused
+    }
+
     static func shouldTakeOffline(
         _ candidate: Candidate,
         isEnabled: Bool,
@@ -22,5 +26,12 @@ enum TerminalOfflinePolicy {
             return false
         }
         return candidate.isIdle
+    }
+}
+
+enum SleepingTabPlaceholderPolicy {
+    static func shouldPresent(isVisible: Bool, isOffline: Bool, isRemotelyOwned: Bool) -> Bool {
+        guard isVisible, isOffline, !isRemotelyOwned else { return false }
+        return true
     }
 }

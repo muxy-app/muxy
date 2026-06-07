@@ -43,6 +43,7 @@ final class GhosttyTerminalNSView: NSView {
     var offlineInvisibleSince: Date? { offlineInvisibleAt }
 
     private var isPaneVisible = true
+    private var isPaneFocused = false
     private var isWindowVisible = true
     nonisolated(unsafe) private var occlusionObserver: NSObjectProtocol?
 
@@ -336,6 +337,13 @@ final class GhosttyTerminalNSView: NSView {
         applyOcclusionState()
     }
 
+    func setFocused(_ focused: Bool) {
+        guard isPaneFocused != focused else { return }
+        isPaneFocused = focused
+        updateOfflineVisibilityClock()
+        reviveSurfaceIfNeeded()
+    }
+
     private func applyOcclusionState() {
         guard let surface else { return }
         ghostty_surface_set_occlusion(surface, isPaneVisible && isWindowVisible)
@@ -351,16 +359,29 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func reviveSurfaceIfNeeded() {
-        guard isOfflinedState, surface == nil, isCurrentlyVisible else { return }
+        guard isOfflinedState, surface == nil, keepsAwake else { return }
         createSurface()
+    }
+
+    func wake() {
+        guard isOfflinedState, surface == nil else { return }
+        isPaneVisible = true
+        isPaneFocused = true
+        updateOfflineVisibilityClock()
+        createSurface()
+        applyOcclusionState()
     }
 
     private var isCurrentlyVisible: Bool {
         window != nil && isPaneVisible && isWindowVisible
     }
 
+    private var keepsAwake: Bool {
+        TerminalOfflinePolicy.keepsAwake(isOnScreen: isCurrentlyVisible, isFocused: isPaneFocused)
+    }
+
     private func updateOfflineVisibilityClock() {
-        if isCurrentlyVisible {
+        if keepsAwake {
             offlineInvisibleAt = nil
         } else if offlineInvisibleAt == nil {
             offlineInvisibleAt = Date()
@@ -368,7 +389,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func resetOfflineVisibilityClock() {
-        offlineInvisibleAt = isCurrentlyVisible ? nil : Date()
+        offlineInvisibleAt = keepsAwake ? nil : Date()
     }
 
     func updateResumeWorkingDirectory(_ directory: String) {
@@ -398,7 +419,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private var isEligibleForOffline: Bool {
-        surface != nil && !isCurrentlyVisible && offlineInvisibleAt != nil
+        surface != nil && !keepsAwake && offlineInvisibleAt != nil
             && !isOfflineBlockedByRemote && isTerminalIdle()
     }
 
