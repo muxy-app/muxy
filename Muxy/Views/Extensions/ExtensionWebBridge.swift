@@ -43,6 +43,18 @@ enum ExtensionWebBridge {
                 }
             };
 
+            const focusListeners = new Set();
+            let currentFocus = false;
+
+            window.__muxyApplyFocus = (focused) => {
+                const next = !!focused;
+                if (next === currentFocus) return;
+                currentFocus = next;
+                for (const listener of focusListeners) {
+                    try { listener(currentFocus); } catch (_) {}
+                }
+            };
+
             const writeThemeToDocument = (theme) => {
                 const root = document.documentElement;
                 if (!root) return;
@@ -129,6 +141,12 @@ enum ExtensionWebBridge {
                     if (typeof callback !== 'function') return () => {};
                     themeListeners.add(callback);
                     return () => themeListeners.delete(callback);
+                },
+                get focused() { return currentFocus; },
+                onFocus(callback) {
+                    if (typeof callback !== 'function') return () => {};
+                    focusListeners.add(callback);
+                    return () => focusListeners.delete(callback);
                 },
                 toast(opts) {
                     return send('toast', opts || {});
@@ -537,6 +555,16 @@ enum ExtensionWebBridge {
         (() => {
             if (typeof window.__muxyApplyTheme === 'function') {
                 window.__muxyApplyTheme(\(literal));
+            }
+        })();
+        """
+    }
+
+    static func focusUpdateScript(focused: Bool) -> String {
+        """
+        (() => {
+            if (typeof window.__muxyApplyFocus === 'function') {
+                window.__muxyApplyFocus(\(focused ? "true" : "false"));
             }
         })();
         """

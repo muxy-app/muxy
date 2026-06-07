@@ -76,7 +76,7 @@ See [theming](README.md) and the SKILL for the full `--muxy-*` variable list and
 
 ## window.muxy
 
-Muxy injects `window.muxy` before the page's scripts run. Most methods return a `Promise` and require their matching manifest permission — an unauthorized call rejects with `permission denied (<permission>)`. The subscription helpers (`onDataChange`, `onThemeChange`, `events.subscribe`) instead return a synchronous unsubscribe function.
+Muxy injects `window.muxy` before the page's scripts run. Most methods return a `Promise` and require their matching manifest permission — an unauthorized call rejects with `permission denied (<permission>)`. The subscription helpers (`onDataChange`, `onThemeChange`, `onFocus`, `events.subscribe`) instead return a synchronous unsubscribe function.
 
 ```ts
 window.muxy = {
@@ -86,6 +86,8 @@ window.muxy = {
   onDataChange(callback): unsubscribe, // fires when a singleton tab is reopened with new data
   theme: object,                       // current --muxy-* theme values
   onThemeChange(callback): unsubscribe,
+  focused: boolean,                    // whether this surface is the active, focused one
+  onFocus(callback): unsubscribe,      // fires when focus is gained or lost — autofocus your editor here
 
   notifications: {
     notify({ title, body?, paneID? }): Promise<void>,   // requires notifications:write
@@ -167,6 +169,19 @@ await muxy.tabs.open({
 
 muxy.onDataChange((data) => render(data));
 ```
+
+### Reacting to focus
+
+A page learns when its surface becomes the active, focused one through `muxy.onFocus`. Use it to move keyboard focus into your own UI — autofocus an editor or input the moment the tab is opened or switched back to:
+
+```js
+const editor = document.querySelector('textarea');
+muxy.onFocus((focused) => {
+  if (focused) editor.focus();
+});
+```
+
+`muxy.focused` reads the current state synchronously. The callback fires only on a change — gaining focus when its tab is opened or selected, losing it when another tab takes over. Panels and popovers count as focused while they are shown.
 
 ### Setting the tab title and icon at runtime
 

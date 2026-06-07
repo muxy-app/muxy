@@ -30,6 +30,7 @@ struct ExtensionPanelView: View {
                         appState: appState,
                         projectStore: projectStore,
                         worktreeStore: worktreeStore,
+                        focused: true,
                         onFocus: {}
                     )
                 }

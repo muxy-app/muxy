@@ -10,6 +10,7 @@ struct ExtensionWebView: NSViewRepresentable {
     let appState: AppState
     let projectStore: ProjectStore?
     let worktreeStore: WorktreeStore?
+    let focused: Bool
     let onFocus: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -68,6 +69,7 @@ struct ExtensionWebView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.applyDataIfChanged(initialData, in: webView)
+        context.coordinator.applyFocusIfChanged(focused, in: webView)
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -93,6 +95,7 @@ struct ExtensionWebView: NSViewRepresentable {
         private var extensionID: String = ""
         private var tabInstanceID: String = ""
         private var initialData: ExtensionJSON?
+        private var focused = false
 
         init(onFocus: @escaping () -> Void) {
             self.onFocus = onFocus
@@ -127,6 +130,26 @@ struct ExtensionWebView: NSViewRepresentable {
             initialData = data
             let script = ExtensionWebBridge.dataUpdateScript(data: data)
             webView.evaluateJavaScript(script, completionHandler: nil)
+        }
+
+        func applyFocusIfChanged(_ focused: Bool, in webView: WKWebView) {
+            guard focused != self.focused else { return }
+            self.focused = focused
+            pushFocusUpdate(in: webView)
+            updateFirstResponder(for: webView)
+        }
+
+        private func pushFocusUpdate(in webView: WKWebView) {
+            let script = ExtensionWebBridge.focusUpdateScript(focused: focused)
+            webView.evaluateJavaScript(script, completionHandler: nil)
+        }
+
+        private func updateFirstResponder(for webView: WKWebView) {
+            guard focused else { return }
+            DispatchQueue.main.async { [weak webView] in
+                guard let webView else { return }
+                webView.window?.makeFirstResponder(webView)
+            }
         }
 
         func observeThemeChanges(for webView: WKWebView) {
@@ -189,6 +212,12 @@ struct ExtensionWebView: NSViewRepresentable {
             bridge?.dropAllEventSubscriptions()
             bridge?.failPendingLifecycle()
             pushThemeUpdate()
+        }
+
+        func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
+            guard focused else { return }
+            pushFocusUpdate(in: webView)
+            updateFirstResponder(for: webView)
         }
     }
 }

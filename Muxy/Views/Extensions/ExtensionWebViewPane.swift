@@ -24,6 +24,7 @@ struct ExtensionWebViewPane: View {
                     appState: appState,
                     projectStore: projectStore,
                     worktreeStore: worktreeStore,
+                    focused: focused,
                     onFocus: onFocus
                 )
                 .contentShape(Rectangle())
