@@ -192,9 +192,6 @@ struct TerminalBridge: NSViewRepresentable {
         }
         nsView.overlayActive = overlayActive
         nsView.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
-        if visible, nsView.isTakenOffline, nsView.surface == nil {
-            nsView.createSurface()
-        }
         nsView.setVisible(visible)
         nsView.onFocus = onFocus
         nsView.onProcessExit = onProcessExit

@@ -332,6 +332,7 @@ final class GhosttyTerminalNSView: NSView {
         guard isPaneVisible != visible else { return }
         isPaneVisible = visible
         updateOfflineVisibilityClock()
+        reviveSurfaceIfNeeded()
         applyOcclusionState()
     }
 
@@ -345,7 +346,13 @@ final class GhosttyTerminalNSView: NSView {
         guard isWindowVisible != visible else { return }
         isWindowVisible = visible
         updateOfflineVisibilityClock()
+        reviveSurfaceIfNeeded()
         applyOcclusionState()
+    }
+
+    private func reviveSurfaceIfNeeded() {
+        guard isOfflinedState, surface == nil, isCurrentlyVisible else { return }
+        createSurface()
     }
 
     private var isCurrentlyVisible: Bool {
