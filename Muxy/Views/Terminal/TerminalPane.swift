@@ -322,11 +322,33 @@ struct TerminalBridge: NSViewRepresentable {
             _ = IDEIntegrationService.shared.openProject(at: projectPath, highlightingFileAt: resolved)
         }
         view.onOpenURL = { url in
-            guard let resolved = Self.resolveLocalFilePath(from: url, projectPath: projectPath) else {
-                return NSWorkspace.shared.open(url)
+            if let location = Self.resolveFileLocation(from: url, projectPath: projectPath) {
+                return IDEIntegrationService.shared.openProject(
+                    at: projectPath,
+                    highlightingFileAt: location.path,
+                    line: location.line,
+                    column: location.column
+                )
             }
-            return IDEIntegrationService.shared.openProject(at: projectPath, highlightingFileAt: resolved)
+            guard Self.isExternalLink(url) else {
+                ToastState.shared.show("File not found")
+                return false
+            }
+            return NSWorkspace.shared.open(url)
         }
+    }
+
+    struct ResolvedFileLocation: Equatable {
+        let path: String
+        let line: Int?
+        let column: Int?
+    }
+
+    static let externalLinkSchemes: Set<String> = ["http", "https", "mailto", "tel", "sms", "facetime", "facetime-audio"]
+
+    static func isExternalLink(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return url.host != nil || externalLinkSchemes.contains(scheme)
     }
 
     static func resolveFilePath(_ token: String, projectPath: String) -> String? {
@@ -356,6 +378,44 @@ struct TerminalBridge: NSViewRepresentable {
         guard url.scheme == nil else { return nil }
         let raw = url.absoluteString.removingPercentEncoding ?? url.absoluteString
         return resolveFilePath(raw, projectPath: projectPath)
+    }
+
+    static func resolveFileLocation(from url: URL, projectPath: String) -> ResolvedFileLocation? {
+        if let path = resolveLocalFilePath(from: url, projectPath: projectPath) {
+            return ResolvedFileLocation(path: path, line: nil, column: nil)
+        }
+        guard !url.isFileURL, url.scheme == nil else { return nil }
+        let raw = url.absoluteString.removingPercentEncoding ?? url.absoluteString
+        guard let stripped = stripLineColumnSuffix(from: raw) else { return nil }
+        guard let path = resolveFilePath(stripped.path, projectPath: projectPath) else { return nil }
+        return ResolvedFileLocation(path: path, line: stripped.line, column: stripped.column)
+    }
+
+    static func stripLineColumnSuffix(from token: String) -> ResolvedFileLocation? {
+        let components = token.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard components.count >= 2 else { return nil }
+
+        if components.count >= 3,
+           let line = numericComponent(components[components.count - 2]),
+           let column = numericComponent(components[components.count - 1])
+        {
+            let path = components.dropLast(2).joined(separator: ":")
+            guard !path.isEmpty else { return nil }
+            return ResolvedFileLocation(path: path, line: line, column: column)
+        }
+
+        if let line = numericComponent(components[components.count - 1]) {
+            let path = components.dropLast().joined(separator: ":")
+            guard !path.isEmpty else { return nil }
+            return ResolvedFileLocation(path: path, line: line, column: nil)
+        }
+
+        return nil
+    }
+
+    private static func numericComponent(_ component: String) -> Int? {
+        guard !component.isEmpty, component.allSatisfy(\.isNumber) else { return nil }
+        return Int(component)
     }
 
     private func configureProgressCallback(_ view: GhosttyTerminalNSView) {
