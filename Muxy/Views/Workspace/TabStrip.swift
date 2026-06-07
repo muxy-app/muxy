@@ -393,11 +393,11 @@ private struct TabCell: View {
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: UIMetrics.spacing3) {
-                tabIconView
+                tabIconOrBadge
                     .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     .opacity(titleHidden && hovered && !tab.isPinned ? 0 : 1)
                     .overlay(alignment: .topTrailing) {
-                        if hasUnread || hasCompletionPending, !active {
+                        if hasUnread || hasCompletionPending, !active, !showBadge {
                             Circle()
                                 .fill(MuxyTheme.accent)
                                 .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
@@ -437,13 +437,6 @@ private struct TabCell: View {
             .overlay(alignment: titleHidden ? .center : .trailing) {
                 trailingAccessory
                     .padding(.trailing, titleHidden ? 0 : UIMetrics.spacing5)
-            }
-            .overlay {
-                if showBadge, let shortcutIndex,
-                   let action = ShortcutAction.tabAction(for: shortcutIndex)
-                {
-                    ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
-                }
             }
             .overlay(alignment: .bottom) {
                 if let accentColor = bottomAccentColor {
@@ -622,6 +615,17 @@ private struct TabCell: View {
         if tab.isOffline, !active { label += ", Idle" }
         if hasUnread { label += ", Unread" }
         return label
+    }
+
+    @ViewBuilder
+    private var tabIconOrBadge: some View {
+        if showBadge, let shortcutIndex {
+            ShortcutIconBadge(number: shortcutIndex, size: UIMetrics.iconMD)
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
+        } else {
+            tabIconView
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
+        }
     }
 
     @ViewBuilder
