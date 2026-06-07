@@ -1,55 +1,97 @@
 # Manifest
 
-Every extension declares itself in a `manifest.json` next to its entrypoint.
+Every extension is an npm + [Vite](https://vitejs.dev) project. Its manifest is the `muxy` object inside the `package.json` at the root of its directory.
+
+Identity (`name` and `version`) lives at the **top level** of `package.json` — npm's single source of truth. **Every other manifest field** (`description`, `background`, `events`, `permissions`, `tabTypes`, `panels`, `popovers`, `commands`, `topbarItems`, `statusBarItems`, `settings`, `remoteMethods`, `marketplace`) lives under the `muxy` key.
+
+`package.json` must also declare a `build` script. The publishing pipeline runs `npm run build` (Vite) and ships the build output directory, `dist/`. The app installs and reads from `dist/`, so every entry/asset path inside `muxy` (popover/tab `entry`, `background`, marketplace `icon`/`screenshots`) resolves against the build output, not your source tree.
+
+There is **no fixed folder layout**. Every `entry`/`background`/icon path is an arbitrary relative path inside the build output — point it wherever your build emits the file. The vanilla starter kit emits its panel to `panel/index.html`, but any layout works equally. The only two names Muxy fixes are `package.json` (the manifest) and `dist/` (the build output it ships and reads).
 
 ```json
 {
   "name": "hello",
   "version": "0.1.0",
-  "description": "Demo extension that subscribes to events and exposes a palette command",
-  "entrypoint": "run.sh",
-  "permissions": ["panes:read", "tabs:read", "notifications:write"],
-  "events": ["pane.created", "tab.focused", "notification.posted"],
-  "commands": [
-    { "id": "ping", "title": "Hello: Ping", "subtitle": "Demo command" }
-  ],
-  "aiProvider": null,
-  "enabled": true
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build" },
+  "devDependencies": { "vite": "^5.0.0" },
+  "muxy": {
+    "$schema": "https://raw.githubusercontent.com/muxy-app/muxy/main/docs/extensions/schema/manifest.schema.json",
+    "description": "Subscribes to events and exposes a palette command",
+    "background": "background.js",
+    "permissions": ["panes:read", "tabs:read", "notifications:write"],
+    "events": ["pane.created", "tab.focused", "notification.posted"],
+    "commands": [
+      { "id": "ping", "title": "Hello: Ping", "subtitle": "Demo command" }
+    ]
+  }
 }
 ```
 
-## Fields
+## Top-level fields
+
+These are standard npm fields read directly from `package.json`. Only `name` and `version` carry Muxy meaning; the rest configure the build.
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `name` | string | yes | Letters, digits, `-`, `_`, `.` only. Must match the directory name in practice. Used as the extension ID. |
-| `version` | string | yes | Free-form. Shown in Settings → Extensions. |
+| `name` | string | yes | Letters, digits, `-`, `_`, `.` only (no leading dot). Must match the directory name. Used as the extension ID. |
+| `version` | string | yes | Semver. A published `name@version` is immutable; bump for any change. Shown in Settings. |
+| `scripts` | object | yes | npm scripts. Must include a `build` script — the publishing pipeline runs it and ships the resulting `dist/`. |
+
+## `muxy` fields
+
+All Muxy-specific manifest fields live under the `muxy` object.
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
 | `description` | string | no | One-line description shown in Settings. |
-| `entrypoint` | string | yes | Path (relative to manifest) to an executable file. Permission bit must be set. |
-| `permissions` | string[] | no | See [Permissions](permissions.md). Verbs not in the list are rejected. Defaults to empty. |
-| `events` | string[] | no | Events the extension is allowed to subscribe to. See [Events](events.md). Defaults to empty. |
+| `background` | string | no | Path (relative to the build output) to a JavaScript file that must resolve inside `dist/`. Declare it only to receive pushed [events](events.md), coordinate webviews with `extension.*` events, or run background shell commands; Muxy runs it in a long-lived host process. Command, topbar, status-bar, tab, and `runScript` extensions need none. |
+| `permissions` | string[] | no | See [Permissions](permissions.md). Verbs not listed are rejected. Defaults to empty. |
+| `events` | string[] | no | Workspace events the extension may subscribe to. Local `extension.*` events are not declared here. See [Events](events.md). Defaults to empty. |
 | `commands` | object[] | no | Palette commands to register. See [Palette Commands](palette-commands.md). |
-| `aiProvider` | object | no | Optional notification source mapping. See [AI Provider Hooks](ai-provider.md). |
-| `enabled` | bool | no | Defaults to `true`. Toggling in Settings persists across launches at runtime. |
+| `tabTypes` | object[] | no | Webview tab types the extension exposes. See [Tabs](tabs.md). |
+| `panels` | object[] | no | Dockable/floating webview panels. See [Panels](panels.md). |
+| `popovers` | object[] | no | Transient webview popovers anchored to a topbar/status-bar item. See [Popovers](popovers.md). |
+| `topbarItems` | object[] | no | Icons attached to the tab strip. See [Topbar](topbar.md). |
+| `statusBarItems` | object[] | no | Icons attached to the footer status bar. See [Status Bar](statusbar.md). |
+| `settings` | object[] | no | Typed settings shown in the Settings sidebar. See [Settings](settings.md). |
+| `remoteMethods` | object[] | no | Named API methods served to the mobile app. Requires `remote:serve`. See [Remote Methods](remote-methods.md). |
+| `marketplace` | object | no | Listing metadata (icon, screenshots, author, categories) used by the marketplace. Ignored by the app loader. |
+
+Extensions are disabled by default after loading and must be enabled explicitly from Settings → Extensions. The toggle is persisted in `UserDefaults` under `muxy.ext.enabled.<extension-id>` and survives launches. A legacy `enabled` manifest field is no longer part of the schema; if present with no user override, it is migrated into that UserDefaults entry on first load and otherwise ignored.
+
+## Icons
+
+Topbar and status-bar items accept an `icon` field in one of two forms:
+
+```json
+{ "icon": { "symbol": "puzzlepiece.extension" } }
+{ "icon": { "svg": "assets/badge.svg" } }
+```
+
+A bare string (`"icon": "puzzlepiece.extension"`) is shorthand for `{ "symbol": ... }`.
+
+- **`symbol`** — any SF Symbol name. Tinted with the chrome's foreground color.
+- **`svg`** — a path relative to the build output to a `.svg` file. The file must exist in `dist/` at load time, must not escape the extension directory, and must be at most 256 KiB. Rendered as a template image, so fills/strokes using `currentColor` (or a single solid color) pick up the chrome tint.
 
 ## Loader behaviour
 
-`ExtensionStore` walks `~/.config/muxy/extensions/*/manifest.json` at app start. For each one it:
+The publishing pipeline runs `npm run build` and ships the build output (`dist/`); the app installs that into `~/.config/muxy/extensions/<name>/`. `ExtensionStore` walks `~/.config/muxy/extensions/*/package.json` at app start. For each one it decodes the top-level `name`/`version` and the `muxy` object, validates `name` against the allowed character set and against the directory name, verifies the `background` file resolves inside the build output (if declared), and refuses duplicate names. Failures appear in **Settings → Extensions → Load Errors**; the app does not retry until you click **Reload Extensions** or restart.
 
-1. Decodes the manifest with JSON.
-2. Validates `name` against the allowed character set.
-3. Verifies `entrypoint` exists and is executable.
-4. Refuses duplicates (same `name`); surfaces the second one as a load error in Settings.
+## Background script environment
 
-Any failure is reported in **Settings → Extensions → Load Errors** with the directory name and reason. The app does not retry until you click **Reload Extensions** or restart Muxy.
+A `background` script never speaks a wire protocol. Muxy handles the socket, identity token, and handshake; authors only use the `muxy` global it injects:
 
-## Subprocess environment
+- `muxy.extensionID` — the extension's `name`.
+- `muxy.events.subscribe(name, handler)` / `unsubscribe` — receive declared workspace [events](events.md) and same-extension `extension.*` events.
+- `muxy.events.emit(name, payload?)` — send a same-extension `extension.*` event to open tabs, panels, and popovers.
+- `muxy.remote.handle(action, handler)` / `unhandle` — serve [remote methods](remote-methods.md) to the mobile app (needs `remote:serve`).
+- `muxy.exec(argv[, options])` — run a shell command (needs `commands:exec`).
+- `muxy.git.*` — repository reads and writes ([Git](git.md)).
+- `muxy.tabs.open(request)` — open a terminal or extension webview tab in the active workspace (needs `tabs:write`).
+- `muxy.dialog.confirm` / `alert` ([Dialogs](dialogs.md)), `muxy.modal.open` ([Modal](modal.md)) — native prompts.
+- `muxy.notifications.notify`, `muxy.topbar.*`, `muxy.statusbar.*` — notifications and chrome items. (No `toast` alias on background — use `notifications.notify`.)
+- `console.log` / `console.warn` / `console.error` — written to the extension log.
 
-Each enabled extension is spawned with these environment variables:
-
-| Variable | Value |
-| --- | --- |
-| `MUXY_SOCKET_PATH` | Absolute path to `muxy.sock` |
-| `MUXY_EXTENSION_ID` | The extension's `name` from the manifest |
-
-Both must be passed back when the extension connects — see [Events](events.md) for the handshake.
+The richer state/mutation API (`panes`, `projects`, `worktrees`, `files`, and tab listing/switching/customization) is available to tab/panel/popover pages via `window.muxy` **and** to [`runScript`](scripts.md) palette-command scripts via `muxy` — but **not** to the background script.

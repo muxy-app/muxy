@@ -209,18 +209,19 @@ struct TabAreaTests {
         #expect(roundTrip.isPinned)
     }
 
-    @Test("TerminalTab restore falls back for unsupported persisted tab kinds")
-    func terminalTabRestoreFallsBackForUnsupportedKinds() {
-        for kind in [TerminalTab.Kind.diffViewer, .editor, .imageViewer] {
-            let snapshot = TerminalTabSnapshot(
-                kind: kind,
-                customTitle: nil,
-                colorID: nil,
-                isPinned: false,
-                projectPath: testPath,
-                paneTitle: "Fallback"
-            )
-
+    @Test("TerminalTab restore decodes legacy kinds as terminal")
+    func terminalTabRestoreDecodesLegacyKindsAsTerminal() throws {
+        for legacy in ["vcs", "diffViewer", "unknownKind"] {
+            let json = """
+            {
+                "kind": "\(legacy)",
+                "id": "\(UUID().uuidString)",
+                "isPinned": false,
+                "projectPath": "\(testPath)",
+                "paneTitle": "Fallback"
+            }
+            """
+            let snapshot = try JSONDecoder().decode(TerminalTabSnapshot.self, from: Data(json.utf8))
             let tab = TerminalTab(restoring: snapshot)
 
             #expect(tab.kind == .terminal)
@@ -231,112 +232,9 @@ struct TabAreaTests {
     @Test("TerminalTab content accessors return only matching state")
     func terminalTabContentAccessorsReturnOnlyMatchingState() {
         let terminal = TerminalTab(pane: TerminalPaneState(projectPath: testPath))
-        let vcs = TerminalTab(vcsState: VCSTabState(projectPath: testPath))
-        let editor = TerminalTab(editorState: EditorTabState(projectPath: testPath, filePath: "/tmp/test/file.md"))
-        let diffViewer = TerminalTab(diffViewerState: DiffViewerTabState(vcs: VCSTabState(projectPath: testPath)))
-        let imageViewer = TerminalTab(imageViewerState: ImageViewerTabState(projectPath: testPath, filePath: "/tmp/test/icon.png"))
 
         #expect(terminal.content.pane != nil)
-        #expect(terminal.content.vcsState == nil)
-        #expect(vcs.content.vcsState != nil)
-        #expect(vcs.title == "Git Diff")
-        #expect(editor.content.editorState != nil)
-        #expect(editor.content.projectPath == testPath)
-        #expect(diffViewer.content.diffViewerState != nil)
-        #expect(diffViewer.kind == .diffViewer)
-        #expect(imageViewer.content.imageViewerState != nil)
-        #expect(imageViewer.kind == .imageViewer)
-    }
-
-    @Test("createVCSTab adds tab with VCS content")
-    func createVCSTab() {
-        let area = TabArea(projectPath: testPath)
-        area.createVCSTab()
-        #expect(area.tabs.count == 2)
-        #expect(area.activeTab?.kind == .vcs)
-    }
-
-    @Test("createEditorTab adds tab with editor content")
-    func createEditorTab() {
-        let area = TabArea(projectPath: testPath)
-        area.createEditorTab(filePath: "/tmp/test/file.swift")
-        #expect(area.tabs.count == 2)
-        #expect(area.activeTab?.kind == .editor)
-    }
-
-    @Test("createEditorTab reuses existing tab for same file path")
-    func createEditorTabReuse() {
-        let area = TabArea(projectPath: testPath)
-        let filePath = "/tmp/test/file.swift"
-        area.createEditorTab(filePath: filePath)
-        let editorTabID = area.activeTabID
-
-        area.createTab()
-        #expect(area.activeTabID != editorTabID)
-
-        area.createEditorTab(filePath: filePath)
-        #expect(area.tabs.count == 3)
-        #expect(area.activeTabID == editorTabID)
-    }
-
-    @Test("createExternalEditorTab adds terminal tab with launch command")
-    func createExternalEditorTab() {
-        let area = TabArea(projectPath: testPath)
-        let filePath = "/tmp/test/file name.swift"
-        area.createExternalEditorTab(filePath: filePath, command: "vim")
-
-        let pane = area.activeTab?.content.pane
-        #expect(area.activeTab?.kind == .terminal)
-        #expect(pane?.externalEditorFilePath == filePath)
-        #expect(pane?.startupCommand == "vim '/tmp/test/file name.swift'")
-        #expect(pane?.startupCommandInteractive == true)
-    }
-
-    @Test("createExternalEditorTab supports file placeholder")
-    func createExternalEditorTabPlaceholder() {
-        let area = TabArea(projectPath: testPath)
-        area.createExternalEditorTab(filePath: "/tmp/test/file.swift", command: "vim +10 {file}")
-
-        #expect(area.activeTab?.content.pane?.startupCommand == "vim +10 /tmp/test/file.swift")
-    }
-
-    @Test("shellEscapedPath does not escape simple paths")
-    func shellEscapedPathSimple() {
-        let command = TabArea.editorLaunchCommand(command: "vim", filePath: "/tmp/test/file.swift")
-        #expect(command == "vim /tmp/test/file.swift")
-    }
-
-    @Test("shellEscapedPath escapes paths with spaces")
-    func shellEscapedPathSpaces() {
-        let command = TabArea.editorLaunchCommand(command: "vim", filePath: "/tmp/test/my file.swift")
-        #expect(command == "vim '/tmp/test/my file.swift'")
-    }
-
-    @Test("shellEscapedPath escapes paths with single quotes")
-    func shellEscapedPathSingleQuotes() {
-        let command = TabArea.editorLaunchCommand(command: "vim", filePath: "/tmp/test/it's a file.swift")
-        #expect(command == "vim '/tmp/test/it'\\''s a file.swift'")
-    }
-
-    @Test("file placeholder uses raw path for user-controlled quoting")
-    func filePlaceholderRawPath() {
-        let command = TabArea.editorLaunchCommand(command: "vim \"{file}\"", filePath: "/tmp/test/my file.swift")
-        #expect(command == "vim \"/tmp/test/my file.swift\"")
-    }
-
-    @Test("createExternalEditorTab reuses matching external editor tab")
-    func createExternalEditorTabReuse() {
-        let area = TabArea(projectPath: testPath)
-        let filePath = "/tmp/test/file.swift"
-        area.createExternalEditorTab(filePath: filePath, command: "vim -n")
-        let editorTabID = area.activeTabID
-
-        area.createTab()
-        #expect(area.activeTabID != editorTabID)
-
-        area.createExternalEditorTab(filePath: filePath, command: "vim")
-        #expect(area.tabs.count == 3)
-        #expect(area.activeTabID == editorTabID)
+        #expect(terminal.content.projectPath == testPath)
     }
 
     @Test("closeTab removes tab and returns paneID for terminal")
@@ -361,11 +259,11 @@ struct TabAreaTests {
     }
 
     @Test("closeTab non-terminal returns nil paneID")
-    func closeTabVCS() {
+    func closeTabNonTerminal() {
         let area = TabArea(projectPath: testPath)
-        area.createVCSTab()
-        let vcsTabID = area.activeTabID!
-        let paneID = area.closeTab(vcsTabID)
+        area.createExtensionTab(extensionID: "demo", tabTypeID: "panel", title: "Demo", data: nil)
+        let extensionTabID = area.activeTabID!
+        let paneID = area.closeTab(extensionTabID)
         #expect(paneID == nil)
         #expect(area.tabs.count == 1)
     }

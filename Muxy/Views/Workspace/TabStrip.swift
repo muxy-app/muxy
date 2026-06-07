@@ -11,6 +11,9 @@ struct PaneTabStrip: View {
         let isPinned: Bool
         let hasCustomTitle: Bool
         let colorID: String?
+        let extensionID: String?
+        let customIcon: ExtensionIcon?
+        let isOffline: Bool
     }
 
     let areaID: UUID
@@ -18,17 +21,12 @@ struct PaneTabStrip: View {
     let activeTabID: UUID?
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
-    var showVCSButton = true
     var showDevelopmentBadge = false
     var openInIDEProjectPath: String?
-    var openInIDEFilePath: String?
-    var openInIDECursorProvider: () -> (line: Int?, column: Int?) = { (nil, nil) }
     let projectID: UUID
     var shortcutIndexOffset: Int = 0
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
-    let onCreateVCSTab: () -> Void
-    let onCreateDiffViewerTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onCloseOtherTabs: (UUID) -> Void
     let onCloseTabsToLeft: (UUID) -> Void
@@ -55,7 +53,10 @@ struct PaneTabStrip: View {
                 kind: tab.kind,
                 isPinned: tab.isPinned,
                 hasCustomTitle: tab.customTitle != nil,
-                colorID: tab.colorID
+                colorID: tab.colorID,
+                extensionID: tab.content.extensionState?.extensionID,
+                customIcon: tab.content.extensionState?.customIcon,
+                isOffline: tab.content.pane?.isOffline ?? false
             )
         }
     }
@@ -84,12 +85,9 @@ struct PaneTabStrip: View {
                         .padding(.trailing, UIMetrics.spacing3)
                 }
                 if isWindowTitleBar {
-                    OpenInIDEControl(
-                        projectPath: openInIDEProjectPath,
-                        filePath: openInIDEFilePath,
-                        cursorProvider: openInIDECursorProvider
-                    )
+                    OpenInIDEControl(projectPath: openInIDEProjectPath)
                     LayoutPickerMenu(projectID: projectID)
+                    ExtensionTopbarItems()
                 }
                 if showMaximizeButton || isMaximized, let onToggleMaximize {
                     let symbol = isMaximized
@@ -105,22 +103,6 @@ struct PaneTabStrip: View {
                     .help(shortcutTooltip("Split Down", for: .splitDown))
                 IconButton(symbol: "plus", accessibilityLabel: "New Tab") { onCreateTab() }
                     .help(shortcutTooltip("New Tab", for: .newTab))
-                if showVCSButton {
-                    IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
-                        NotificationCenter.default.post(name: .quickOpen, object: nil)
-                    }
-                    .help(shortcutTooltip("Quick Open", for: .quickOpen))
-                    FileDiffIconButton(action: onCreateDiffViewerTab)
-                        .help(shortcutTooltip("Diff Viewer", for: .openDiffViewerTab))
-                    IconButton(symbol: "arrow.triangle.branch", size: 12, accessibilityLabel: "Source Control") {
-                        onCreateVCSTab()
-                    }
-                    .help(shortcutTooltip("Source Control", for: .openVCSTab))
-                    FileTreeIconButton {
-                        NotificationCenter.default.post(name: .toggleFileTree, object: nil)
-                    }
-                    .help(shortcutTooltip("File Tree", for: .toggleFileTree))
-                }
             }
             .padding(.leading, UIMetrics.spacing4)
             .padding(.trailing, UIMetrics.spacing2)
@@ -634,12 +616,10 @@ private struct TabCell: View {
         var label = tab.title
         switch tab.kind {
         case .terminal: label += ", Terminal"
-        case .vcs: label += ", Source Control"
-        case .editor: label += ", Editor"
-        case .diffViewer: label += ", Diff Viewer"
-        case .imageViewer: label += ", Image Viewer"
+        case .extensionWebView: label += ", Extension"
         }
         if tab.isPinned { label += ", Pinned" }
+        if tab.isOffline, !active { label += ", Idle" }
         if hasUnread { label += ", Unread" }
         return label
     }
@@ -653,25 +633,31 @@ private struct TabCell: View {
         } else if tab.isPinned {
             Image(systemName: "pin.fill")
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+        } else if tab.isOffline, !active {
+            Image(systemName: "moon.zzz")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                .help("Idle — terminal freed to save memory. Reopens when selected.")
         } else {
             switch tab.kind {
             case .terminal:
                 Image(systemName: "terminal")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-            case .vcs:
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-            case .editor:
-                Image(systemName: "pencil.line")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-            case .diffViewer:
-                FileDiffIcon()
-                    .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
-            case .imageViewer:
-                Image(systemName: "photo")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+            case .extensionWebView:
+                extensionIconView
             }
+        }
+    }
+
+    @ViewBuilder
+    private var extensionIconView: some View {
+        if let icon = tab.customIcon,
+           let extensionID = tab.extensionID,
+           let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID)
+        {
+            ExtensionIconView(icon: icon, muxyExtension: muxyExtension, size: 12)
+        } else {
+            Image(systemName: "puzzlepiece.extension")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
         }
     }
 }

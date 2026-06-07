@@ -85,10 +85,7 @@ extension TerminalTab.Kind {
     func toDTO() -> TabKindDTO {
         switch self {
         case .terminal: .terminal
-        case .vcs: .vcs
-        case .editor: .editor
-        case .diffViewer: .diffViewer
-        case .imageViewer: .imageViewer
+        case .extensionWebView: .extensionWebView
         }
     }
 }

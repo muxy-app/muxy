@@ -8,10 +8,12 @@ enum ShortcutContext {
         window?.identifier == mainWindowIdentifier
     }
 
-    static func activeScopes(for window: NSWindow?) -> Set<ShortcutScope> {
-        if isMainWindow(window) {
-            return [.global, .mainWindow]
+    static func activeScopes(for window: NSWindow?, isTerminalFocused: Bool) -> Set<ShortcutScope> {
+        guard isMainWindow(window) else { return [.global] }
+        var scopes: Set<ShortcutScope> = [.global, .mainWindow]
+        if isTerminalFocused {
+            scopes.insert(.terminal)
         }
-        return [.global]
+        return scopes
     }
 }

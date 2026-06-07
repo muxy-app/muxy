@@ -7,6 +7,26 @@ public struct SelectProjectParams: Codable, Sendable {
     }
 }
 
+public struct ExtensionRequestParams: Codable, Sendable {
+    public let `extension`: String
+    public let action: String
+    public let payload: MuxyJSON
+
+    public init(extension: String, action: String, payload: MuxyJSON = .null) {
+        self.extension = `extension`
+        self.action = action
+        self.payload = payload
+    }
+}
+
+public struct ExtensionResultDTO: Codable, Sendable {
+    public let payload: MuxyJSON
+
+    public init(payload: MuxyJSON) {
+        self.payload = payload
+    }
+}
+
 public struct ListWorktreesParams: Codable, Sendable {
     public let projectID: UUID
     public init(projectID: UUID) {

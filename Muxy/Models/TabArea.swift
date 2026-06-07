@@ -55,7 +55,7 @@ final class TabArea: Identifiable {
     }
 
     func snapshot() -> TabAreaSnapshot {
-        let persistedTabs = tabs.filter { $0.kind != .diffViewer }
+        let persistedTabs = tabs
         let activeIndex = persistedTabs.firstIndex(where: { $0.id == activeTabID })
         return TabAreaSnapshot(
             id: id,
@@ -112,94 +112,28 @@ final class TabArea: Identifiable {
         insertTab(tab)
     }
 
-    func createVCSTab() {
-        insertTab(TerminalTab(vcsState: VCSStateStore.shared.state(for: projectPath)))
+    func findExtensionTab(extensionID: String, tabTypeID: String) -> TerminalTab? {
+        tabs.first { tab in
+            guard let state = tab.content.extensionState else { return false }
+            return state.extensionID == extensionID && state.tabTypeID == tabTypeID
+        }
     }
 
-    func createEditorTab(filePath: String, suppressInitialFocus: Bool = false) {
-        if let existing = tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
-            selectTab(existing.id)
-            return
-        }
-        let editorState = EditorTabState(
+    func createExtensionTab(extensionID: String, tabTypeID: String, title: String, data: ExtensionJSON?) {
+        let state = ExtensionTabState(
+            extensionID: extensionID,
+            tabTypeID: tabTypeID,
             projectPath: projectPath,
-            filePath: filePath,
-            defaultHTMLViewMode: EditorSettings.shared.htmlDefaultViewMode
+            defaultTitle: title,
+            data: data
         )
-        editorState.suppressInitialFocus = suppressInitialFocus
-        insertTab(TerminalTab(editorState: editorState))
-    }
-
-    func createDiffViewerTab(
-        vcs: VCSTabState,
-        filePath: String?,
-        isStaged: Bool,
-        source: DiffViewerTabState.Source = .workingTree
-    ) {
-        if let existing = tabs.first(where: { tab in
-            tab.content.diffViewerState != nil
-        }) {
-            existing.content.diffViewerState?.setSource(source, filePath: filePath, isStaged: isStaged)
-            if let filePath {
-                existing.content.diffViewerState?.select(filePath: filePath, isStaged: isStaged)
-            }
-            selectTab(existing.id)
-            return
-        }
-        insertTab(TerminalTab(diffViewerState: DiffViewerTabState(
-            vcs: vcs,
-            filePath: filePath,
-            isStaged: isStaged,
-            source: source
-        )))
-    }
-
-    func createImageViewerTab(filePath: String) {
-        if let existing = tabs.first(where: { $0.content.imageViewerState?.filePath == filePath }) {
-            selectTab(existing.id)
-            return
-        }
-        insertTab(TerminalTab(imageViewerState: ImageViewerTabState(
-            projectPath: projectPath,
-            filePath: filePath
-        )))
-    }
-
-    func createExternalEditorTab(filePath: String, command: String) {
-        if let existing = tabs.first(where: { $0.content.pane?.externalEditorFilePath == filePath }) {
-            selectTab(existing.id)
-            return
-        }
-        let title = "\(Self.commandTitle(command)) \(URL(fileURLWithPath: filePath).lastPathComponent)"
-        let pane = TerminalPaneState(
-            projectPath: projectPath,
-            title: title,
-            startupCommand: Self.editorLaunchCommand(command: command, filePath: filePath),
-            startupCommandInteractive: true,
-            externalEditorFilePath: filePath
-        )
-        insertTab(TerminalTab(pane: pane))
-    }
-
-    static func editorLaunchCommand(command: String, filePath: String) -> String {
-        if command.contains("{file}") {
-            return command.replacingOccurrences(of: "{file}", with: filePath)
-        }
-        return command + " " + shellEscapedPath(filePath)
+        insertTab(TerminalTab(extensionState: state))
     }
 
     private static func commandTitle(_ command: String) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = trimmed.split(separator: " ").first else { return "Editor" }
         return String(first)
-    }
-
-    private static func shellEscapedPath(_ path: String) -> String {
-        let needsQuoting = path.contains { character in
-            character.isWhitespace || "'\"\\&|;$`!()[]{}<>*?".contains(character)
-        }
-        guard needsQuoting else { return path }
-        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func insertTab(_ tab: TerminalTab) {

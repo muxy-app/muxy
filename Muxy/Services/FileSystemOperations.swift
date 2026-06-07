@@ -25,21 +25,17 @@ enum FileSystemOperationError: Error, Equatable {
 }
 
 enum FileSystemOperations {
-    static func createFile(named rawName: String, in directory: String) async throws -> String {
+    static func writeFile(contents: String, atAbsolutePath absolutePath: String) async throws {
         try await GitProcessRunner.offMainThrowing {
-            try createFileSync(named: rawName, in: directory)
+            try writeFileSync(contents: contents, atAbsolutePath: absolutePath)
         }
     }
 
-    static func createFolder(named rawName: String, in directory: String) async throws -> String {
-        try await GitProcessRunner.offMainThrowing {
-            try createFolderSync(named: rawName, in: directory)
-        }
-    }
-
-    static func rename(at absolutePath: String, to rawName: String) async throws -> String {
-        try await GitProcessRunner.offMainThrowing {
-            try renameSync(at: absolutePath, to: rawName)
+    nonisolated static func writeFileSync(contents: String, atAbsolutePath absolutePath: String) throws {
+        do {
+            try contents.write(toFile: absolutePath, atomically: true, encoding: .utf8)
+        } catch {
+            throw FileSystemOperationError.underlying(error.localizedDescription)
         }
     }
 
@@ -53,18 +49,6 @@ enum FileSystemOperations {
                     continuation.resume(returning: ())
                 }
             }
-        }
-    }
-
-    static func move(_ sources: [String], into destinationDirectory: String) async throws -> [String] {
-        try await GitProcessRunner.offMainThrowing {
-            try transferSync(sources: sources, destinationDirectory: destinationDirectory, copy: false)
-        }
-    }
-
-    static func copy(_ sources: [String], into destinationDirectory: String) async throws -> [String] {
-        try await GitProcessRunner.offMainThrowing {
-            try transferSync(sources: sources, destinationDirectory: destinationDirectory, copy: true)
         }
     }
 
@@ -92,17 +76,7 @@ enum FileSystemOperations {
         }
     }
 
-    nonisolated private static func createFileSync(named rawName: String, in directory: String) throws -> String {
-        let name = try sanitize(rawName)
-        let target = uniquePathSync(forName: name, in: directory)
-        let created = FileManager.default.createFile(atPath: target, contents: nil)
-        guard created else {
-            throw FileSystemOperationError.underlying("Failed to create file at \(target)")
-        }
-        return target
-    }
-
-    nonisolated private static func createFolderSync(named rawName: String, in directory: String) throws -> String {
+    nonisolated static func createFolderSync(named rawName: String, in directory: String) throws -> String {
         let name = try sanitize(rawName)
         let target = uniquePathSync(forName: name, in: directory)
         do {
@@ -117,7 +91,7 @@ enum FileSystemOperations {
         return target
     }
 
-    nonisolated private static func renameSync(at absolutePath: String, to rawName: String) throws -> String {
+    nonisolated static func renameSync(at absolutePath: String, to rawName: String) throws -> String {
         let name = try sanitize(rawName)
         let parent = (absolutePath as NSString).deletingLastPathComponent
         let currentName = (absolutePath as NSString).lastPathComponent
@@ -134,10 +108,9 @@ enum FileSystemOperations {
         return candidate
     }
 
-    nonisolated private static func transferSync(
+    nonisolated static func transferSync(
         sources: [String],
-        destinationDirectory: String,
-        copy: Bool
+        destinationDirectory: String
     ) throws -> [String] {
         let fm = FileManager.default
         var results: [String] = []
@@ -148,20 +121,16 @@ enum FileSystemOperations {
             }
             let sourceParent = (source as NSString).deletingLastPathComponent
             let name = (source as NSString).lastPathComponent
-            if !copy, sourceParent == destinationDirectory {
+            if sourceParent == destinationDirectory {
                 results.append(source)
                 continue
             }
-            if !copy, isInside(path: destinationDirectory, ancestor: source) {
+            if isInside(path: destinationDirectory, ancestor: source) {
                 throw FileSystemOperationError.sameAsSource
             }
             let target = uniquePathSync(forName: name, in: destinationDirectory)
             do {
-                if copy {
-                    try fm.copyItem(atPath: source, toPath: target)
-                } else {
-                    try fm.moveItem(atPath: source, toPath: target)
-                }
+                try fm.moveItem(atPath: source, toPath: target)
             } catch {
                 throw FileSystemOperationError.underlying(error.localizedDescription)
             }

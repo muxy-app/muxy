@@ -2,19 +2,31 @@ import AppKit
 import SwiftUI
 
 struct PaletteOverlay<Item: Identifiable & Sendable>: View {
+    struct Page {
+        let items: [Item]
+        let hasMore: Bool
+    }
+
+    static var searchDebounce: Duration { .milliseconds(120) }
+
     let placeholder: String
     let emptyLabel: String
     let noMatchLabel: String
-    let search: (String) async -> [Item]
+    let pageSize: Int
+    let revision: Int
+    let isLoading: Bool
+    let page: (String, Int, Int) -> Page
     let onSelect: (Item) -> Void
     let onDismiss: () -> Void
     let row: (Item, Bool) -> AnyView
 
     @State private var query = ""
     @State private var results: [Item] = []
+    @State private var hasMore = false
     @State private var highlightedIndex: Int? = 0
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
+    @State private var refilterTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -31,10 +43,14 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
             }
         }
         .onAppear {
-            performSearch(debounce: false)
+            refilter()
+        }
+        .onChange(of: revision) {
+            scheduleRefilter()
         }
         .onDisappear {
             searchTask?.cancel()
+            refilterTask?.cancel()
         }
     }
 
@@ -54,6 +70,11 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                 onPageUp: { moveHighlight(-PaletteSearchField.pageJump) },
                 onPageDown: { moveHighlight(PaletteSearchField.pageJump) }
             )
+            if isLoading || isSearching {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Searching")
+            }
         }
         .padding(.horizontal, UIMetrics.spacing6)
         .padding(.vertical, UIMetrics.spacing5)
@@ -64,7 +85,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 
     private var resultsList: some View {
         Group {
-            if results.isEmpty, !isSearching {
+            if results.isEmpty, !isLoading, !isSearching {
                 VStack {
                     Spacer()
                     Text(query.isEmpty ? emptyLabel : noMatchLabel)
@@ -81,6 +102,9 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
                                     .contentShape(Rectangle())
                                     .onTapGesture { onSelect(item) }
                                     .id(item.id)
+                                    .onAppear {
+                                        if index >= results.count - 1 { loadMore() }
+                                    }
                             }
                         }
                     }
@@ -94,27 +118,52 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
         .frame(maxHeight: .infinity)
     }
 
-    private func performSearch(debounce: Bool = true) {
+    private func performSearch() {
         searchTask?.cancel()
-
         let currentQuery = query
         isSearching = true
 
         searchTask = Task {
-            if debounce {
-                try? await Task.sleep(for: .milliseconds(50))
-                guard !Task.isCancelled else { return }
-            }
-
-            let found = await search(currentQuery)
+            try? await Task.sleep(for: Self.searchDebounce)
             guard !Task.isCancelled else { return }
-
-            await MainActor.run {
-                results = found
-                highlightedIndex = found.isEmpty ? nil : 0
-                isSearching = false
-            }
+            apply(page(currentQuery, 0, pageSize), resetHighlight: true)
+            isSearching = false
         }
+    }
+
+    private func scheduleRefilter() {
+        guard refilterTask == nil else { return }
+        refilterTask = Task {
+            try? await Task.sleep(for: Self.searchDebounce)
+            refilterTask = nil
+            guard !Task.isCancelled else { return }
+            refilter()
+        }
+    }
+
+    private func refilter() {
+        searchTask?.cancel()
+        searchTask = nil
+        isSearching = false
+        let limit = max(pageSize, results.count)
+        apply(page(query, 0, limit), resetHighlight: results.isEmpty)
+    }
+
+    private func apply(_ result: Page, resetHighlight: Bool) {
+        results = result.items
+        hasMore = result.hasMore
+        if resetHighlight || highlightedIndex == nil {
+            highlightedIndex = result.items.isEmpty ? nil : 0
+        } else if let index = highlightedIndex {
+            highlightedIndex = min(index, max(0, result.items.count - 1))
+        }
+    }
+
+    private func loadMore() {
+        guard hasMore, !isSearching else { return }
+        let next = page(query, results.count, pageSize)
+        results.append(contentsOf: next.items)
+        hasMore = next.hasMore
     }
 
     private func moveHighlight(_ delta: Int) {
@@ -134,6 +183,7 @@ struct PaletteOverlay<Item: Identifiable & Sendable>: View {
 
 struct PaletteSearchField: NSViewRepresentable {
     static let pageJump = 10
+    private static let focusAttemptLimit = 12
 
     @Binding var text: String
     let placeholder: String
@@ -165,10 +215,32 @@ struct PaletteSearchField: NSViewRepresentable {
         field.cell?.sendsActionOnEndEditing = false
         field.onEscape = onEscape
         field.onControlKey = onControlKey
-        DispatchQueue.main.async {
-            field.window?.makeFirstResponder(field)
-        }
+        claimFocus(for: field, attempt: 0)
         return field
+    }
+
+    private func claimFocus(for field: NSTextField, attempt: Int) {
+        guard attempt < Self.focusAttemptLimit else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + focusRetryDelay(for: attempt)) { [weak field] in
+            guard let field else { return }
+            guard let window = field.window else {
+                claimFocus(for: field, attempt: attempt + 1)
+                return
+            }
+            if field.currentEditor() != nil {
+                return
+            }
+            window.makeFirstResponder(field)
+            guard field.currentEditor() == nil else { return }
+            claimFocus(for: field, attempt: attempt + 1)
+        }
+    }
+
+    private func focusRetryDelay(for attempt: Int) -> DispatchTimeInterval {
+        if attempt == 0 {
+            return .milliseconds(0)
+        }
+        return .milliseconds(min(120, attempt * 16))
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {

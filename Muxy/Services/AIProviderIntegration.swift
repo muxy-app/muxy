@@ -23,10 +23,10 @@ extension AIProviderIntegration {
 }
 
 extension AIProviderIntegration {
-    var settingsKey: String { "muxy.notifications.provider.\(id).enabled" }
+    var settingsKey: String { NotificationSettings.providerEnabledKey(for: id) }
 
     var isEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: settingsKey, fallback: true) }
+        get { NotificationSettings.providerEnabled(providerID: id) }
         nonmutating set { UserDefaults.standard.set(newValue, forKey: settingsKey) }
     }
 
@@ -63,19 +63,6 @@ final class AIProviderRegistry {
         piProvider,
     ]
 
-    lazy var usageProviders: [any AIUsageProvider] = [
-        claudeCodeProvider,
-        CodexUsageProvider(),
-        CopilotUsageProvider(),
-        CursorUsageProvider(),
-        AmpUsageProvider(),
-        ZaiUsageProvider(),
-        MiniMaxUsageProvider(),
-        KimiUsageProvider(),
-        FactoryUsageProvider(),
-        piProvider,
-    ]
-
     private init() {}
 
     func installAll() {
@@ -88,14 +75,22 @@ final class AIProviderRegistry {
 
         for provider in providers {
             guard provider.isEnabled else {
-                try? provider.uninstall()
+                logger.info("\(provider.displayName) is disabled, uninstalling hook if present")
+                do {
+                    try provider.uninstall()
+                } catch {
+                    logger.warning("Failed to uninstall \(provider.displayName): \(error.localizedDescription)")
+                }
                 continue
             }
-            guard provider.isToolInstalled() else { continue }
+            guard provider.isToolInstalled() else {
+                logger.info("\(provider.displayName) tool not installed, skipping hook install")
+                continue
+            }
             guard let hookScript = MuxyNotificationHooks
                 .scriptPath(named: provider.hookScriptName, extension: provider.hookScriptExtension)
             else {
-                logger.info("Hook script \(provider.hookScriptName) not found, skipping \(provider.displayName)")
+                logger.warning("Hook script \(provider.hookScriptName) not found in bundle, skipping \(provider.displayName)")
                 continue
             }
             do {
@@ -110,7 +105,7 @@ final class AIProviderRegistry {
     func forceInstall(_ provider: AIProviderIntegration) {
         guard let hookScript = MuxyNotificationHooks.scriptPath(named: provider.hookScriptName, extension: provider.hookScriptExtension)
         else {
-            logger.info("Hook script \(provider.hookScriptName) not found, skipping force install")
+            logger.warning("Hook script \(provider.hookScriptName) not found, cannot force-install \(provider.displayName)")
             return
         }
 
@@ -141,28 +136,17 @@ final class AIProviderRegistry {
         for provider in providers where provider.socketTypeKey == socketType {
             return .aiProvider(provider.id)
         }
-        if let declared = ExtensionStore.shared.declaredAIProvider(for: socketType) {
-            return .aiProvider(declared.extensionID)
-        }
         return .socket
     }
 
     func iconName(for source: MuxyNotification.Source) -> String {
         switch source {
         case .osc:
-            return "terminal"
+            "terminal"
         case let .aiProvider(id):
-            if let providerIcon = providers.first(where: { $0.id == id })?.iconName {
-                return providerIcon
-            }
-            if let extensionStatus = ExtensionStore.shared.statuses.first(where: { $0.id == id }),
-               let icon = extensionStatus.muxyExtension.manifest.aiProvider?.iconName
-            {
-                return icon
-            }
-            return "sparkles"
+            providers.first(where: { $0.id == id })?.iconName ?? "sparkles"
         case .socket:
-            return "network"
+            "network"
         }
     }
 }

@@ -22,7 +22,8 @@
 #   muxy next-tab|previous-tab                Switch tabs
 
 COMMAND="$1"
-SOCKET="$HOME/Library/Application Support/Muxy/muxy.sock"
+SOCKET="${MUXY_SOCKET_PATH:-$HOME/Library/Application Support/Muxy/muxy.sock}"
+NC_TIMEOUT=6
 
 send_message() {
     local message="$1"
@@ -30,7 +31,10 @@ send_message() {
         echo "Error: Muxy is not running" >&2
         exit 1
     fi
-    printf '%s\n' "$message" | nc -U "$SOCKET"
+    if ! printf '%s\n' "$message" | nc -w "$NC_TIMEOUT" -U "$SOCKET"; then
+        echo "Error: no response from Muxy" >&2
+        exit 1
+    fi
 }
 
 send_command() {
@@ -40,7 +44,7 @@ send_command() {
         exit 1
     fi
     local response
-    response=$(printf '%s\n' "$message" | nc -U "$SOCKET" 2>/dev/null)
+    response=$(printf '%s\n' "$message" | nc -w "$NC_TIMEOUT" -U "$SOCKET" 2>/dev/null)
     if [ -z "$response" ]; then
         echo "Error: no response from Muxy" >&2
         exit 1
@@ -393,7 +397,7 @@ if [ -n "$COMMAND" ] && [ "$COMMAND" != "split-right" ] && [ "$COMMAND" != "spli
 
     ENCODED_PATH="$(percent_encode "$TARGET_DIR")"
 
-    if [ -e "$SOCKET" ] && printf '%s\n' "open-project|$TARGET_DIR" | nc -U "$SOCKET" 2>/dev/null; then
+    if [ -e "$SOCKET" ] && printf '%s\n' "open-project|$TARGET_DIR" | nc -w "$NC_TIMEOUT" -U "$SOCKET" 2>/dev/null; then
         exit 0
     fi
 

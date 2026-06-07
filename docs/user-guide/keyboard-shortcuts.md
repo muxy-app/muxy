@@ -59,20 +59,10 @@ Mouse side buttons (3 / 4) and three‑finger horizontal trackpad swipes also na
 | --- | --- |
 | Open Project… | `Cmd+O` |
 | Source Control | `Cmd+K` |
-| Quick Open | `Cmd+P` |
-| Find in Files | `Cmd+Shift+F` |
 | Toggle Sidebar | `Cmd+B` |
-| Toggle File Tree | `Cmd+E` |
-| Toggle AI Usage | `Cmd+L` |
 | Theme Picker | `Cmd+Shift+K` |
 | Reload Configuration | `Cmd+Shift+R` |
-
-## Editor
-
-| Action | Shortcut |
-| --- | --- |
-| Save File | `Cmd+S` |
-| Find | `Cmd+F` |
+| Toggle Full Screen | `Cmd+Ctrl+F` |
 
 ## Rich Input
 
@@ -83,19 +73,17 @@ Mouse side buttons (3 / 4) and three‑finger horizontal trackpad swipes also na
 | Send Without Enter | `Cmd+Shift+Return` |
 | Voice Recording | `Cmd+Shift+I` |
 
-## Markdown preview
-
-| Action | Shortcut |
-| --- | --- |
-| Zoom In | `Cmd+=` |
-| Zoom Out | `Cmd+-` |
-| Reset Zoom | `Cmd+0` |
-
 ## Terminal
 
 | Action | Shortcut |
 | --- | --- |
 | Find in Terminal | `Cmd+F` |
+
+## Extensions
+
+| Action | Shortcut |
+| --- | --- |
+| Toggle Extension Debug Bar | `Cmd+\`` |
 
 ## Custom command shortcuts
 

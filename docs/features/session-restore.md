@@ -17,7 +17,7 @@ flowchart LR
 - Working directory when shell integration reports it.
 - Last submitted command when it is safe to replay.
 
-Editor, diff, and source-control tabs are workspace state, not terminal session restore.
+Source-control and extension tabs are workspace state, not terminal session restore.
 
 ## Settings
 

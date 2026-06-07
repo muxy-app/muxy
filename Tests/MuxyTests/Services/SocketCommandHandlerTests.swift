@@ -48,6 +48,26 @@ struct SocketCommandHandlerTests {
         #expect(paneID.flatMap { pane(with: $0, appState: appState)?.startupCommand } == "(echo a | wc); exec \"$0\" -l")
     }
 
+    @Test("split with startup command requires exec permission")
+    func splitWithCommandRequiresExecPermission() {
+        let plainSplit = SocketCommandHandler.requiredPermissions(
+            command: "split-right",
+            parts: ["split-right"]
+        )
+        let commandSplit = SocketCommandHandler.requiredPermissions(
+            command: "split-right",
+            parts: ["split-right", "", "echo hello"]
+        )
+        let whitespaceCommandSplit = SocketCommandHandler.requiredPermissions(
+            command: "split-down",
+            parts: ["split-down", "", "   "]
+        )
+
+        #expect(plainSplit == [.panesWrite])
+        #expect(commandSplit == [.panesWrite, .commandsExec])
+        #expect(whitespaceCommandSplit == [.panesWrite])
+    }
+
     @Test("split fails without active project")
     func splitFailsWithoutActiveProject() async {
         let appState = AppState(
@@ -273,6 +293,81 @@ struct SocketCommandHandlerTests {
 
         #expect(UUID(uuidString: result) != nil)
         #expect(appState.focusedArea(for: projectID)!.tabs.count == before + 1)
+    }
+
+    @Test("direct tabs.open requires an identified extension")
+    func directTabsOpenRequiresIdentify() async {
+        let appState = makeAppState()
+        let payload = Data(#"{"kind":"terminal"}"#.utf8).base64EncodedString()
+
+        let result = await SocketCommandHandler.handleRequest("tabs.open|\(payload)", appState: appState)
+
+        #expect(result == "error:identify required")
+    }
+
+    @Test("exec rejects an unidentified session")
+    func execRejectsUnidentifiedSession() async {
+        let appState = makeAppState()
+        let payload = #"{"argv":["echo","hi"]}"#
+        let encoded = Data(payload.utf8).base64EncodedString()
+        let result = await SocketCommandHandler.handleRequest("exec|\(encoded)", appState: appState)
+        #expect(result == "error:identify required")
+    }
+
+    @Test("exec denies an identified session without the commands:exec permission")
+    func execDeniesWithoutPermission() async {
+        let appState = makeAppState()
+        let context = NotificationSocketServer.ClientContext(extensionID: "unloaded-ext")
+        let payload = Data(#"{"argv":["echo","hi"]}"#.utf8).base64EncodedString()
+        let result = await SocketCommandHandler.handleRequest(
+            "exec|\(payload)",
+            appState: appState,
+            clientContext: context
+        )
+        #expect(result == "error:permission denied (commands:exec)")
+    }
+
+    @Test("exec base64 framing round-trips argv and stdin containing newlines and pipes")
+    func execFramingRoundTrips() throws {
+        let request = ExecRequest(
+            argv: ["sh", "-c", "echo a | wc"],
+            shell: nil,
+            cwd: nil,
+            env: nil,
+            stdin: "line one\nline two | piped\n",
+            timeoutMs: nil
+        )
+        let json: [String: Any] = [
+            "argv": request.argv ?? [],
+            "stdin": request.stdin ?? "",
+        ]
+        let encoded = try JSONSerialization.data(withJSONObject: json).base64EncodedString()
+        #expect(!encoded.contains("\n"))
+        #expect(!encoded.contains("|"))
+
+        let decodedData = try #require(Data(base64Encoded: encoded))
+        let decodedJSON = try #require(try JSONSerialization.jsonObject(with: decodedData) as? [String: Any])
+        let decoded = try ExtensionBridgeShared.decodeExecRequest(decodedJSON)
+        #expect(decoded.argv == ["sh", "-c", "echo a | wc"])
+        #expect(decoded.stdin == "line one\nline two | piped\n")
+    }
+
+    @Test("exec result base64 framing round-trips stdout containing newlines")
+    func execResultFramingRoundTrips() throws {
+        let result = ExecResult(
+            stdout: "first\nsecond | third\n",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+            truncated: false
+        )
+        let encoded = try JSONSerialization
+            .data(withJSONObject: ExtensionBridgeShared.encodeExecResult(result))
+            .base64EncodedString()
+        let decodedData = try #require(Data(base64Encoded: encoded))
+        let decoded = try #require(try JSONSerialization.jsonObject(with: decodedData) as? [String: Any])
+        #expect(decoded["stdout"] as? String == "first\nsecond | third\n")
+        #expect(decoded["exitCode"] as? Int == 0)
     }
 
     private func pane(with paneID: UUID, appState: AppState) -> TerminalPaneState? {

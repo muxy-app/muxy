@@ -181,6 +181,14 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     func markNotificationRead(_ notificationID: UUID) {
         markNotificationReadCalls.append(notificationID)
     }
+
+    var extensionRequestCalls: [(extension: String, action: String, payload: MuxyJSON, clientID: UUID)] = []
+    var stubExtensionResult: Result<MuxyJSON, MuxyError> = .success(.null)
+
+    func extensionRequest(extension: String, action: String, payload: MuxyJSON, clientID: UUID) async -> Result<MuxyJSON, MuxyError> {
+        extensionRequestCalls.append((`extension`, action, payload, clientID))
+        return stubExtensionResult
+    }
 }
 
 @Suite("MuxyRemoteServer routing")
@@ -626,6 +634,68 @@ struct MuxyRemoteServerRoutingTests {
             Issue.record("expected ok for both subscribe and unsubscribe")
             return
         }
+    }
+
+    @Test("extensionRequest forwards params and returns delegate payload")
+    func extensionRequestRoutes() async {
+        let (server, delegate) = makeServer()
+        delegate.stubExtensionResult = .success(.object(["pong": .number(42)]))
+
+        let response = await server.processRequest(
+            MuxyRequest(
+                id: "12",
+                method: .extensionRequest,
+                params: .extensionRequest(ExtensionRequestParams(
+                    extension: "weather",
+                    action: "forecast",
+                    payload: .object(["city": .string("Berlin")])
+                ))
+            ),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(delegate.extensionRequestCalls.first?.extension == "weather")
+        #expect(delegate.extensionRequestCalls.first?.action == "forecast")
+        guard case let .extensionResult(result) = response.result else {
+            Issue.record("expected extensionResult result")
+            return
+        }
+        #expect(result.payload == .object(["pong": .number(42)]))
+    }
+
+    @Test("extensionRequest surfaces delegate failure as the mapped error")
+    func extensionRequestFailure() async {
+        let (server, delegate) = makeServer()
+        delegate.stubExtensionResult = .failure(.forbidden)
+
+        let response = await server.processRequest(
+            MuxyRequest(
+                id: "13",
+                method: .extensionRequest,
+                params: .extensionRequest(ExtensionRequestParams(extension: "x", action: "y", payload: .null))
+            ),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(response.result == nil)
+        #expect(response.error?.code == 403)
+    }
+
+    @Test("extensionRequest requires authentication")
+    func extensionRequestRequiresAuth() async {
+        let (server, delegate) = makeServer()
+
+        let response = await server.processRequest(
+            MuxyRequest(
+                id: "14",
+                method: .extensionRequest,
+                params: .extensionRequest(ExtensionRequestParams(extension: "x", action: "y", payload: .null))
+            ),
+            clientID: UUID()
+        )
+
+        #expect(delegate.extensionRequestCalls.isEmpty)
+        #expect(response.error?.code == 401)
     }
 
     @Test("missing delegate returns internal error")

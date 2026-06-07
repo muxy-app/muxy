@@ -5,14 +5,11 @@ struct TabAreaView: View {
     let isFocused: Bool
     let isActiveProject: Bool
     let showTabStrip: Bool
-    let showVCSButton: Bool
     let projectID: UUID
     let shortcutIndexOffset: Int
     let onFocus: () -> Void
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
-    let onCreateVCSTab: () -> Void
-    let onCreateDiffViewerTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onForceCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
@@ -41,13 +38,10 @@ struct TabAreaView: View {
                     tabs: PaneTabStrip.snapshots(from: area.tabs),
                     activeTabID: area.activeTabID,
                     isFocused: isFocused,
-                    showVCSButton: showVCSButton,
                     projectID: projectID,
                     shortcutIndexOffset: shortcutIndexOffset,
                     onSelectTab: onSelectTab,
                     onCreateTab: onCreateTab,
-                    onCreateVCSTab: onCreateVCSTab,
-                    onCreateDiffViewerTab: onCreateDiffViewerTab,
                     onCloseTab: onCloseTab,
                     onCloseOtherTabs: { tabID in
                         closeTabs(area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id))
@@ -90,6 +84,7 @@ struct TabAreaView: View {
                     let isActive = tab.id == area.activeTabID
                     TabContentView(
                         tab: tab,
+                        area: area,
                         focused: isActive && isFocused && isActiveProject,
                         visible: isActive && isActiveProject,
                         areaID: area.id,
@@ -147,20 +142,6 @@ struct TabAreaView: View {
             guard let pane = tab.content.pane else { return }
             TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .saveActiveEditor)) { _ in
-            guard isFocused, isActiveProject else { return }
-            guard let tabID = area.activeTabID,
-                  let tab = area.tabs.first(where: { $0.id == tabID })
-            else { return }
-            guard let editorState = tab.content.editorState else { return }
-            Task { @MainActor in
-                do {
-                    try await editorState.saveFileAsync()
-                } catch {
-                    appState.pendingSaveErrorMessage = error.localizedDescription
-                }
-            }
-        }
     }
 
     private func handleExternalDragHover(note: Notification) {
@@ -195,6 +176,7 @@ private struct ExternalDragHoverHighlight: View {
 
 private struct TabContentView: View {
     let tab: TerminalTab
+    let area: TabArea
     let focused: Bool
     let visible: Bool
     let areaID: UUID
@@ -214,14 +196,8 @@ private struct TabContentView: View {
                 onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
             )
-        case let .vcs(vcsState):
-            VCSTabView(state: vcsState, focused: focused, onFocus: onFocus)
-        case let .editor(editorState):
-            EditorPane(state: editorState, focused: focused, onFocus: onFocus)
-        case let .diffViewer(diffState):
-            DiffViewerPane(state: diffState, focused: focused, onFocus: onFocus)
-        case let .imageViewer(imageState):
-            ImageViewerPane(state: imageState, focused: focused, onFocus: onFocus)
+        case let .extensionWebView(extensionState):
+            ExtensionWebViewPane(state: extensionState, focused: focused, onFocus: onFocus)
         }
     }
 }

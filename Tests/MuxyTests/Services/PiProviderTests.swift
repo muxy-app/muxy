@@ -158,6 +158,48 @@ struct PiProviderTests {
         #expect(fixture.provider(pathEnvironment: binURL.path).isToolInstalled())
     }
 
+    @Test("registerExtensionInSettings creates settings.json when it does not exist")
+    func registerCreatesSettingsWhenMissing() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        try FileManager.default.removeItem(at: fixture.settingsURL)
+        #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path))
+
+        try fixture.provider().install(hookScriptPath: "")
+
+        #expect(FileManager.default.fileExists(atPath: fixture.settingsURL.path))
+        let settings = try fixture.readSettings()
+        let extensions = try #require(settings["extensions"] as? [String])
+        #expect(extensions.count == 1)
+    }
+
+    @Test("registerExtensionInSettings throws invalidSettingsFile when settings.json is not valid JSON")
+    func registerThrowsWhenSettingsInvalid() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        try Data("not json".utf8).write(to: fixture.settingsURL)
+
+        #expect(throws: PiProviderError.invalidSettingsFile(fixture.settingsURL.path)) {
+            try fixture.provider().install(hookScriptPath: "")
+        }
+    }
+
+    @Test("unregisterExtensionFromSettings gracefully returns when settings.json is missing")
+    func unregisterGracefullyWhenSettingsMissing() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        let provider = fixture.provider()
+        try provider.install(hookScriptPath: "")
+
+        try FileManager.default.removeItem(at: fixture.settingsURL)
+        #expect(!FileManager.default.fileExists(atPath: fixture.settingsURL.path))
+
+        try provider.uninstall()
+    }
+
     @Test("install throws when resource is missing")
     func installThrowsWhenResourceMissing() throws {
         let fixture = try Fixture()

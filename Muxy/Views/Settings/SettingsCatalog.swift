@@ -6,13 +6,11 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case projects
     case appearance
     case terminal
-    case editor
+    case richInput
     case shortcuts
     case voice
     case notifications
     case mobile
-    case ai
-    case extensions
     case json
 
     var id: String { rawValue }
@@ -23,13 +21,11 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .projects: "Projects"
         case .appearance: "Interface"
         case .terminal: "Terminal"
-        case .editor: "Editor"
+        case .richInput: "Rich Input"
         case .shortcuts: "Shortcuts"
         case .voice: "Voice"
         case .notifications: "Notifications"
         case .mobile: "Mobile"
-        case .ai: "AI"
-        case .extensions: "Extensions"
         case .json: "JSON"
         }
     }
@@ -40,22 +36,59 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .projects: "folder"
         case .appearance: "macwindow"
         case .terminal: "terminal"
-        case .editor: "pencil.line"
+        case .richInput: "text.cursor"
         case .shortcuts: "keyboard"
         case .voice: "mic"
         case .notifications: "bell"
         case .mobile: "iphone"
-        case .ai: "sparkles"
-        case .extensions: "puzzlepiece.extension"
         case .json: "curlybraces"
         }
     }
+}
 
-    var developmentBadge: String? {
+enum SettingsRoute: Hashable, Identifiable {
+    case builtin(SettingsCategory)
+    case ext(String)
+
+    var id: String {
         switch self {
-        case .extensions: "DEV"
-        default: nil
+        case let .builtin(category): "builtin.\(category.rawValue)"
+        case let .ext(extensionID): "ext.\(extensionID)"
         }
+    }
+
+    init?(storedID: String) {
+        if storedID.hasPrefix("builtin.") {
+            let rawCategory = String(storedID.dropFirst("builtin.".count))
+            guard let category = SettingsCategory(rawValue: rawCategory) else { return nil }
+            self = .builtin(category)
+            return
+        }
+
+        if storedID.hasPrefix("ext.") {
+            let extensionID = String(storedID.dropFirst("ext.".count))
+            guard !extensionID.isEmpty else { return nil }
+            self = .ext(extensionID)
+            return
+        }
+
+        return nil
+    }
+}
+
+enum SettingsRouteSelectionStore {
+    static let storageKey = "muxy.settings.selectedRoute"
+    static let fallbackRoute = SettingsRoute.builtin(.general)
+
+    static func load(defaults: UserDefaults = .standard) -> SettingsRoute {
+        guard let storedID = defaults.string(forKey: storageKey),
+              let route = SettingsRoute(storedID: storedID)
+        else { return fallbackRoute }
+        return route
+    }
+
+    static func save(_ route: SettingsRoute, defaults: UserDefaults = .standard) {
+        defaults.set(route.id, forKey: storageKey)
     }
 }
 
@@ -115,14 +148,6 @@ enum SettingsCatalog {
             category: .appearance,
             section: "Sidebar",
             defaultValue: false
-        ),
-        SettingsCatalogItem(
-            key: GeneralSettingsKeys.fileTreeSource,
-            title: "File Tree Root Directory",
-            description: "Controls whether the file tree follows the project or active terminal.",
-            category: .projects,
-            section: "File Tree",
-            defaultValue: FileTreeSourcePreference.defaultValue.rawValue
         ),
         SettingsCatalogItem(
             key: ProjectPickerPreferences.storageKey,
@@ -209,6 +234,14 @@ enum SettingsCatalog {
             defaultValue: true
         ),
         SettingsCatalogItem(
+            key: ResourceUsagePreferences.visibleKey,
+            title: "Show Resource Usage in Status Bar",
+            description: "Shows app and subprocess CPU and memory usage in the status bar. Disabling it stops the sampling.",
+            category: .appearance,
+            section: "Interface",
+            defaultValue: ResourceUsagePreferences.defaultVisible
+        ),
+        SettingsCatalogItem(
             key: "muxy.theme.light",
             title: "Light Terminal Theme",
             description: "Chooses the terminal theme for light appearance.",
@@ -241,67 +274,10 @@ enum SettingsCatalog {
             defaultValue: SidebarExpandedStyle.defaultValue.rawValue
         ),
         SettingsCatalogItem(
-            key: "muxy.vcsDisplayMode",
-            title: "Source Control Display Mode",
-            description: "Controls how source control is shown.",
-            category: .appearance,
-            section: "Source Control",
-            defaultValue: VCSDisplayMode.attached.rawValue
-        ),
-
-        SettingsCatalogItem(
-            key: "editor.defaultEditor",
-            title: "Default Editor",
-            description: "Chooses between Muxy's editor and a terminal editor command.",
-            category: .editor,
-            section: "Editor",
-            defaultValue: EditorSettings.DefaultEditor.builtIn.rawValue
-        ),
-        SettingsCatalogItem(
-            key: "editor.externalEditorCommand",
-            title: "Editor Command",
-            description: "Runs this command when the terminal editor is selected.",
-            category: .editor,
-            section: "Editor",
-            defaultValue: "vim"
-        ),
-        SettingsCatalogItem(
-            key: MarkdownPreviewPreferences.allowRemoteImagesKey,
-            title: "Allow Remote Images",
-            description: "Allows HTTPS images in Markdown preview.",
-            category: .editor,
-            section: "Markdown Preview",
-            defaultValue: true
-        ),
-        SettingsCatalogItem(
-            key: "editor.markdownPreviewFontFamily",
-            title: "Markdown Preview Font Family",
-            description: "Controls the Markdown preview font.",
-            category: .editor,
-            section: "Markdown Preview",
-            defaultValue: EditorSettings.defaultMarkdownPreviewFontFamily
-        ),
-        SettingsCatalogItem(
-            key: "editor.markdownPreviewFontScale",
-            title: "Markdown Preview Zoom",
-            description: "Controls Markdown preview zoom.",
-            category: .editor,
-            section: "Markdown Preview",
-            defaultValue: Double(EditorSettings.defaultMarkdownPreviewFontScale)
-        ),
-        SettingsCatalogItem(
-            key: "editor.htmlDefaultViewMode",
-            title: "HTML Default View",
-            description: "Chooses the default view mode for HTML files.",
-            category: .editor,
-            section: "HTML",
-            defaultValue: EditorSettings.defaultHTMLViewMode.rawValue
-        ),
-        SettingsCatalogItem(
             key: "editor.richInputImageStrategy",
             title: "Rich Input Image Submission",
             description: "Chooses how rich input submits images.",
-            category: .editor,
+            category: .richInput,
             section: "Rich Input",
             defaultValue: RichInputImageStrategy.clipboard.rawValue
         ),
@@ -309,7 +285,7 @@ enum SettingsCatalog {
             key: RichInputPreferences.positionKey,
             title: "Rich Input Position",
             description: "Controls where the rich input panel appears.",
-            category: .editor,
+            category: .richInput,
             section: "Rich Input",
             defaultValue: RichInputPreferences.defaultPosition.rawValue
         ),
@@ -317,7 +293,7 @@ enum SettingsCatalog {
             key: RichInputPreferences.floatingKey,
             title: "Floating Rich Input",
             description: "Shows rich input as a floating panel.",
-            category: .editor,
+            category: .richInput,
             section: "Rich Input",
             defaultValue: RichInputPreferences.defaultFloating
         ),
@@ -325,7 +301,7 @@ enum SettingsCatalog {
             key: "editor.richInputFontFamily",
             title: "Rich Input Font Family",
             description: "Controls the rich input editor font family.",
-            category: .editor,
+            category: .richInput,
             section: "Rich Input",
             defaultValue: EditorSettings.defaultRichInputFontFamily
         ),
@@ -333,57 +309,9 @@ enum SettingsCatalog {
             key: "editor.richInputLineHeightMultiplier",
             title: "Rich Input Line Height",
             description: "Controls line height in rich input.",
-            category: .editor,
+            category: .richInput,
             section: "Rich Input",
             defaultValue: Double(EditorSettings.defaultRichInputLineHeightMultiplier)
-        ),
-        SettingsCatalogItem(
-            key: "editor.highlightCurrentLine",
-            title: "Highlight Current Line",
-            description: "Highlights the active line in the built-in editor.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: true
-        ),
-        SettingsCatalogItem(
-            key: "editor.showLineNumbers",
-            title: "Show Line Numbers",
-            description: "Shows line numbers in the built-in editor.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: true
-        ),
-        SettingsCatalogItem(
-            key: "editor.lineWrapping",
-            title: "Wrap Lines",
-            description: "Wraps long lines in the built-in editor.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: false
-        ),
-        SettingsCatalogItem(
-            key: "editor.fontFamily",
-            title: "Editor Font Family",
-            description: "Controls the built-in editor font family.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: "SF Mono"
-        ),
-        SettingsCatalogItem(
-            key: "editor.fontSize",
-            title: "Editor Font Size",
-            description: "Controls the built-in editor font size.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: 13
-        ),
-        SettingsCatalogItem(
-            key: "editor.lineHeightMultiplier",
-            title: "Editor Line Height",
-            description: "Controls line height in the built-in editor.",
-            category: .editor,
-            section: "Appearance",
-            defaultValue: Double(EditorSettings.defaultLineHeightMultiplier)
         ),
 
         SettingsCatalogItem(
@@ -401,6 +329,22 @@ enum SettingsCatalog {
             category: .terminal,
             section: "Blocked Commands",
             defaultValue: SessionRestorePreferences.defaultExcludedCommands
+        ),
+        SettingsCatalogItem(
+            key: TerminalOfflinePreferences.enabledKey,
+            title: "Free Idle Background Terminals",
+            description: "Frees a background tab's terminal after it stays idle, reclaiming memory.",
+            category: .terminal,
+            section: "Memory",
+            defaultValue: TerminalOfflinePreferences.defaultIsEnabled
+        ),
+        SettingsCatalogItem(
+            key: TerminalOfflinePreferences.idleThresholdKey,
+            title: "Idle Timeout (seconds)",
+            description: "How long a background tab stays idle before its terminal is freed.",
+            category: .terminal,
+            section: "Memory",
+            defaultValue: TerminalOfflinePreferences.defaultIdleThreshold
         ),
         SettingsCatalogItem(
             key: "shortcuts.app",
@@ -435,28 +379,36 @@ enum SettingsCatalog {
             defaultValue: RecordingPreferences.defaultLanguage
         ),
         SettingsCatalogItem(
-            key: "muxy.notifications.toastEnabled",
+            key: NotificationSettings.Key.toastEnabled,
             title: "Toast Notifications",
             description: "Shows toast notifications.",
             category: .notifications,
             section: "Delivery",
-            defaultValue: true
+            defaultValue: NotificationSettings.Default.toastEnabled
         ),
         SettingsCatalogItem(
-            key: "muxy.notifications.sound",
+            key: NotificationSettings.Key.desktopEnabled,
+            title: "Desktop Notifications",
+            description: "Shows a macOS notification when Muxy is not frontmost.",
+            category: .notifications,
+            section: "Delivery",
+            defaultValue: NotificationSettings.Default.desktopEnabled
+        ),
+        SettingsCatalogItem(
+            key: NotificationSettings.Key.sound,
             title: "Notification Sound",
             description: "Chooses the notification sound.",
             category: .notifications,
             section: "Sound",
-            defaultValue: NotificationSound.funk.rawValue
+            defaultValue: NotificationSettings.Default.sound.rawValue
         ),
         SettingsCatalogItem(
-            key: "muxy.notifications.toastPosition",
+            key: NotificationSettings.Key.toastPosition,
             title: "Toast Position",
             description: "Controls where toast notifications appear.",
             category: .notifications,
             section: "Toast",
-            defaultValue: ToastPosition.topCenter.rawValue
+            defaultValue: NotificationSettings.Default.toastPosition.rawValue
         ),
         SettingsCatalogItem(
             key: "ai.providers",
@@ -495,111 +447,6 @@ enum SettingsCatalog {
             description: "Manages mobile devices that can connect.",
             category: .mobile,
             section: "Approved Devices"
-        ),
-
-        SettingsCatalogItem(
-            key: AIAssistantSettings.providerKey,
-            title: "AI Assistant Tool",
-            description: "Chooses the CLI tool used for commit and PR generation.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: AIAssistantProvider.claude.rawValue
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.claudeModelKey,
-            title: "Claude Model",
-            description: "Optional Claude model override.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.codexModelKey,
-            title: "Codex Model",
-            description: "Optional Codex model override.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.opencodeModelKey,
-            title: "OpenCode Model",
-            description: "Optional OpenCode model override.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.piModelKey,
-            title: "Pi Model",
-            description: "Optional Pi model override.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.customCommandKey,
-            title: "Custom AI Command",
-            description: "Command used when the custom AI provider is selected.",
-            category: .ai,
-            section: "Provider",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.commitPromptKey,
-            title: "Commit Prompt",
-            description: "Prompt used to generate commit messages.",
-            category: .ai,
-            section: "Commit Prompt",
-            defaultValue: ""
-        ),
-        SettingsCatalogItem(
-            key: AIAssistantSettings.prPromptKey,
-            title: "Pull Request Prompt",
-            description: "Prompt used to generate pull request drafts.",
-            category: .ai,
-            section: "Pull Request Prompt",
-            defaultValue: ""
-        ),
-
-        SettingsCatalogItem(
-            key: AIUsageSettingsStore.usageEnabledKey,
-            title: "Enable AI Usage",
-            description: "Shows the AI usage board in the sidebar.",
-            category: .ai,
-            section: "AI Usage",
-            defaultValue: false
-        ),
-        SettingsCatalogItem(
-            key: AIUsageSettingsStore.usageDisplayModeKey,
-            title: "Usage Display Mode",
-            description: "Shows used or remaining AI quota.",
-            category: .ai,
-            section: "AI Usage",
-            defaultValue: AIUsageSettingsStore.defaultUsageDisplayMode.rawValue
-        ),
-        SettingsCatalogItem(
-            key: AIUsageSettingsStore.autoRefreshIntervalKey,
-            title: "Auto Refresh",
-            description: "Controls how often AI usage data refreshes.",
-            category: .ai,
-            section: "AI Usage",
-            defaultValue: AIUsageSettingsStore.defaultAutoRefreshInterval.rawValue
-        ),
-        SettingsCatalogItem(
-            key: AIUsageSettingsStore.showSecondaryLimitsKey,
-            title: "Show Secondary Limits",
-            description: "Shows weekly and monthly quotas next to primary usage.",
-            category: .ai,
-            section: "AI Usage",
-            defaultValue: AIUsageSettingsStore.defaultShowSecondaryLimits
-        ),
-        SettingsCatalogItem(
-            key: "aiUsage.providers",
-            title: "Tracked Usage Providers",
-            description: "Chooses which providers appear on the usage board.",
-            category: .ai,
-            section: "AI Usage"
         ),
     ]
 

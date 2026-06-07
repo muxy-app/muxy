@@ -11,22 +11,8 @@ enum RichInputPreferences {
     static let defaultFloating = true
 
     static let positionKey = "muxy.richInput.position"
-    static let defaultPosition: RichInputPanelPosition = .right
+    static let defaultPosition: PanelPosition = .right
 
     static let broadcastKey = "muxy.richInput.broadcast"
     static let defaultBroadcast = false
-}
-
-enum RichInputPanelPosition: String, CaseIterable, Identifiable {
-    case right
-    case bottom
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .right: "Right"
-        case .bottom: "Bottom"
-        }
-    }
 }

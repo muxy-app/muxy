@@ -59,6 +59,12 @@ enum ExtensionEventEmitter {
                 payload: ["tabID": tabID.uuidString]
             ))
         }
+        for tabID in before.tabs.subtracting(after.tabs) {
+            server.broadcast(event: ExtensionEvent(
+                name: ExtensionEventName.tabClosed,
+                payload: ["tabID": tabID.uuidString]
+            ))
+        }
 
         if before.activeProjectID != after.activeProjectID, let projectID = after.activeProjectID {
             server.broadcast(event: ExtensionEvent(

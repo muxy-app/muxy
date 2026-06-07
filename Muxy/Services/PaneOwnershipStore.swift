@@ -47,6 +47,10 @@ final class PaneOwnershipStore {
         deviceNames[clientID] = name
     }
 
+    func deviceName(for clientID: UUID) -> String? {
+        deviceNames[clientID]
+    }
+
     func assign(paneID: UUID, to clientID: UUID) {
         let name = deviceNames[clientID] ?? "Mobile"
         if case let .remote(existing, _) = owners[paneID], existing != clientID {

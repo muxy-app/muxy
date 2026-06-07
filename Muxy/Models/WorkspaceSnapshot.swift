@@ -108,6 +108,9 @@ struct TerminalTabSnapshot: Codable {
     let paneID: UUID?
     let filePath: String?
     let currentWorkingDirectory: String?
+    let extensionID: String?
+    let extensionTabTypeID: String?
+    let extensionTabData: ExtensionJSON?
 
     init(
         kind: TerminalTab.Kind,
@@ -119,7 +122,10 @@ struct TerminalTabSnapshot: Codable {
         paneTitle: String?,
         paneID: UUID? = nil,
         filePath: String? = nil,
-        currentWorkingDirectory: String? = nil
+        currentWorkingDirectory: String? = nil,
+        extensionID: String? = nil,
+        extensionTabTypeID: String? = nil,
+        extensionTabData: ExtensionJSON? = nil
     ) {
         self.kind = kind
         self.id = id
@@ -131,6 +137,9 @@ struct TerminalTabSnapshot: Codable {
         self.paneID = paneID
         self.filePath = filePath
         self.currentWorkingDirectory = currentWorkingDirectory
+        self.extensionID = extensionID
+        self.extensionTabTypeID = extensionTabTypeID
+        self.extensionTabData = extensionTabData
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -144,11 +153,15 @@ struct TerminalTabSnapshot: Codable {
         case paneID
         case filePath
         case currentWorkingDirectory
+        case extensionID
+        case extensionTabTypeID
+        case extensionTabData
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        kind = try container.decodeIfPresent(TerminalTab.Kind.self, forKey: .kind) ?? .terminal
+        let rawKind = try container.decodeIfPresent(String.self, forKey: .kind)
+        kind = rawKind.flatMap(TerminalTab.Kind.init(rawValue:)) ?? .terminal
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
         colorID = try container.decodeIfPresent(String.self, forKey: .colorID)
@@ -158,6 +171,9 @@ struct TerminalTabSnapshot: Codable {
         paneID = try container.decodeIfPresent(UUID.self, forKey: .paneID)
         filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
         currentWorkingDirectory = try container.decodeIfPresent(String.self, forKey: .currentWorkingDirectory)
+        extensionID = try container.decodeIfPresent(String.self, forKey: .extensionID)
+        extensionTabTypeID = try container.decodeIfPresent(String.self, forKey: .extensionTabTypeID)
+        extensionTabData = try container.decodeIfPresent(ExtensionJSON.self, forKey: .extensionTabData)
     }
 }
 

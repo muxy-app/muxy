@@ -29,23 +29,6 @@ struct MuxyCommands: Commands {
             ?? project.path
     }
 
-    private var activeEditorState: EditorTabState? {
-        guard let project = activeProject else { return nil }
-        return appState.activeTab(for: project.id)?.content.editorState
-    }
-
-    private var activeEditorFilePath: String? {
-        activeEditorState?.filePath
-    }
-
-    private var activeEditorCursorLine: Int? {
-        activeEditorState?.cursorLine
-    }
-
-    private var activeEditorCursorColumn: Int? {
-        activeEditorState?.cursorColumn
-    }
-
     private var shortcutDispatcher: ShortcutActionDispatcher {
         ShortcutActionDispatcher(
             appState: appState,
@@ -57,22 +40,7 @@ struct MuxyCommands: Commands {
     }
 
     private func performShortcutAction(_ action: ShortcutAction) {
-        _ = shortcutDispatcher.perform(action, activeProject: activeProject) { project in
-            VCSDisplayMode.current.route(
-                tab: { appState.createVCSTab(projectID: project.id) },
-                window: { NotificationCenter.default.post(name: .openVCSWindow, object: nil) },
-                attached: { NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil) }
-            )
-        }
-    }
-
-    private var isMarkdownPreviewActive: Bool {
-        guard let state = activeEditorState, state.isMarkdownFile else { return false }
-        return state.markdownViewMode == .preview || state.markdownViewMode == .split
-    }
-
-    private func adjustMarkdownPreviewZoom(by delta: CGFloat) {
-        EditorSettings.shared.adjustMarkdownPreviewFontScale(by: delta)
+        _ = shortcutDispatcher.perform(action, activeProject: activeProject)
     }
 
     private func performCommandShortcut(_ shortcut: CommandShortcut) {
@@ -92,6 +60,13 @@ struct MuxyCommands: Commands {
                 Label("Settings...", systemImage: "gearshape")
             }
             .keyboardShortcut(",", modifiers: .command)
+
+            Button {
+                NotificationCenter.default.post(name: .openExtensionsModal, object: nil)
+            } label: {
+                Label("Extensions...", systemImage: "puzzlepiece.extension")
+            }
+            .keyboardShortcut(",", modifiers: [.command, .shift])
         }
 
         CommandGroup(after: .appSettings) {
@@ -182,13 +157,7 @@ struct MuxyCommands: Commands {
                     ForEach(ideService.installedApps) { ide in
                         Button {
                             guard let activeProjectPath else { return }
-                            _ = ideService.openProject(
-                                at: activeProjectPath,
-                                highlightingFileAt: activeEditorFilePath,
-                                line: activeEditorCursorLine,
-                                column: activeEditorCursorColumn,
-                                in: ide
-                            )
+                            _ = ideService.openProject(at: activeProjectPath, in: ide)
                         } label: {
                             HStack(spacing: 8) {
                                 AppBundleIconView(appURL: ide.appURL, fallbackSystemName: ide.symbolName, size: 20)
@@ -219,36 +188,6 @@ struct MuxyCommands: Commands {
                     }
                 }
             }
-
-            Button("Source Control") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.openVCSTab)
-            }
-            .shortcut(for: .openVCSTab, store: keyBindings)
-
-            Button("Diff Viewer") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.openDiffViewerTab)
-            }
-            .shortcut(for: .openDiffViewerTab, store: keyBindings)
-
-            Button("Quick Open") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.quickOpen)
-            }
-            .shortcut(for: .quickOpen, store: keyBindings)
-
-            Button("Find in Files") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.findInFiles)
-            }
-            .shortcut(for: .findInFiles, store: keyBindings)
-
-            Button("Save") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.saveFile)
-            }
-            .shortcut(for: .saveFile, store: keyBindings)
 
             Divider()
 
@@ -332,29 +271,6 @@ struct MuxyCommands: Commands {
             .shortcut(for: .cyclePreviousTabAcrossPanes, store: keyBindings)
         }
 
-        CommandGroup(after: .toolbar) {
-            Button("Zoom In Markdown Preview") {
-                guard isMainWindowFocused, isMarkdownPreviewActive else { return }
-                adjustMarkdownPreviewZoom(by: EditorSettings.markdownPreviewZoomStep)
-            }
-            .keyboardShortcut("=", modifiers: .command)
-            .disabled(!isMarkdownPreviewActive)
-
-            Button("Zoom Out Markdown Preview") {
-                guard isMainWindowFocused, isMarkdownPreviewActive else { return }
-                adjustMarkdownPreviewZoom(by: -EditorSettings.markdownPreviewZoomStep)
-            }
-            .keyboardShortcut("-", modifiers: .command)
-            .disabled(!isMarkdownPreviewActive)
-
-            Button("Reset Markdown Preview Zoom") {
-                guard isMainWindowFocused, isMarkdownPreviewActive else { return }
-                EditorSettings.shared.markdownPreviewFontScale = EditorSettings.defaultMarkdownPreviewFontScale
-            }
-            .keyboardShortcut("0", modifiers: .command)
-            .disabled(!isMarkdownPreviewActive)
-        }
-
         CommandGroup(after: .windowList) {
             Button("Next Tab") {
                 guard isMainWindowFocused else { return }
@@ -394,6 +310,12 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .toggleRichInput, store: keyBindings)
 
+            Button("Toggle Full Screen") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.toggleFullScreen)
+            }
+            .shortcut(for: .toggleFullScreen, store: keyBindings)
+
             Divider()
 
             Button("Next Project") {
@@ -427,21 +349,9 @@ struct MuxyCommands: Commands {
                 performShortcutAction(.toggleThemePicker)
             }
             .shortcut(for: .toggleThemePicker, store: keyBindings)
-
-            Button("AI Usage") {
-                guard isMainWindowFocused else { return }
-                performShortcutAction(.toggleAIUsage)
-            }
-            .shortcut(for: .toggleAIUsage, store: keyBindings)
         }
 
         CommandGroup(replacing: .help) {
-            Button("Muxy Help") {
-                openHelpWindow()
-            }
-
-            Divider()
-
             Button("Documentation") {
                 HelpLinks.openDocs()
             }
@@ -464,9 +374,5 @@ struct MuxyCommands: Commands {
                 HelpLinks.openIssues()
             }
         }
-    }
-
-    private func openHelpWindow() {
-        NotificationCenter.default.post(name: .openHelpWindow, object: nil)
     }
 }

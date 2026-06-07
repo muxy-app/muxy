@@ -4,8 +4,6 @@ import SwiftUI
 struct ProjectStatusBar: View {
     struct StatusContext: Equatable {
         let path: String
-        let worktreeName: String?
-        let branch: String?
     }
 
     let activePane: TerminalPaneState?
@@ -14,6 +12,11 @@ struct ProjectStatusBar: View {
     let isInteractive: Bool
     let richInputVisible: Bool
     @Binding var richInputFontSize: Double
+    @Binding var extensionOutputVisible: Bool
+    var onTriggerExtensionCommand: ((ExtensionStore.StatusBarItemBinding) -> Void)?
+    @Environment(ExtensionStore.self) private var extensionStore
+    @State private var popoverHost = PopoverHost.shared
+    @AppStorage(ResourceUsagePreferences.visibleKey) private var showResourceUsage = ResourceUsagePreferences.defaultVisible
 
     private var richInputShortcutLabel: String {
         KeyBindingStore.shared.combo(for: .toggleRichInput).displayString
@@ -25,29 +28,9 @@ struct ProjectStatusBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if let statusContext {
-                pathButton(statusContext.path)
-                if let worktreeName = statusContext.worktreeName {
-                    separator
-                    worktreeLabel(worktreeName)
-                }
-                if let branch = statusContext.branch {
-                    separator
-                    branchLabel(branch)
-                }
-            }
+            leftSide
             Spacer(minLength: 8)
-            if richInputVisible {
-                zoomControls
-                separator
-                shortcutHints
-                separator
-            }
-            if activePane != nil {
-                richInputToggleButton
-                separator
-                voiceRecordingButton
-            }
+            rightSide
         }
         .padding(.horizontal, 10)
         .frame(height: 28)
@@ -58,6 +41,46 @@ struct ProjectStatusBar: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Status bar")
+    }
+
+    private var leftSide: some View {
+        HStack(spacing: 8) {
+            if let statusContext {
+                pathButton(statusContext.path)
+                separator
+            }
+            ForEach(extensionStore.statusBarItems(side: .left)) { binding in
+                extensionItem(binding: binding)
+                separator
+            }
+        }
+    }
+
+    private var rightSide: some View {
+        HStack(spacing: 8) {
+            separator
+            extensionOutputChip
+            ForEach(extensionStore.statusBarItems(side: .right)) { binding in
+                separator
+                extensionItem(binding: binding)
+            }
+            if richInputVisible {
+                separator
+                zoomControls
+                separator
+                shortcutHints
+            }
+            if activePane != nil {
+                separator
+                richInputToggleButton
+                separator
+                voiceRecordingButton
+            }
+            if showResourceUsage {
+                separator
+                ResourceUsageButton()
+            }
+        }
     }
 
     private var statusContext: StatusContext? {
@@ -78,18 +101,7 @@ struct ProjectStatusBar: View {
             ?? activeWorktree?.path
             ?? fallbackProjectPath
         else { return nil }
-        return StatusContext(
-            path: path,
-            worktreeName: activeWorktree?.name,
-            branch: nonEmpty(activePane?.branchObserver.branch) ?? nonEmpty(activeWorktree?.branch)
-        )
-    }
-
-    private static func nonEmpty(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty
-        else { return nil }
-        return trimmed
+        return StatusContext(path: path)
     }
 
     private func pathButton(_ fullPath: String) -> some View {
@@ -116,38 +128,63 @@ struct ProjectStatusBar: View {
         }
     }
 
-    private func worktreeLabel(_ worktreeName: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "square.stack.3d.up")
-                .font(.system(size: 10, weight: .semibold))
-            Text(worktreeName)
-                .font(.system(size: 11, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-        .foregroundStyle(MuxyTheme.fgMuted)
-        .help("Worktree: \(worktreeName)")
-    }
-
-    private func branchLabel(_ branch: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 10, weight: .semibold))
-            Text(branch)
-                .font(.system(size: 11, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .foregroundStyle(MuxyTheme.fgMuted)
-        .help("Branch: \(branch)")
-    }
-
     private var separator: some View {
         Rectangle()
             .fill(MuxyTheme.border)
             .frame(width: 1)
             .frame(maxHeight: .infinity)
             .accessibilityHidden(true)
+    }
+
+    private func extensionItem(binding: ExtensionStore.StatusBarItemBinding) -> some View {
+        let popover = extensionStore.popover(for: binding.muxyExtension, command: binding.item.command)
+        return Button {
+            if let popover {
+                popoverHost.toggle(
+                    anchorID: binding.id,
+                    extensionID: binding.muxyExtension.id,
+                    popover: popover,
+                    data: nil
+                )
+            } else {
+                onTriggerExtensionCommand?(binding)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                ExtensionIconView(
+                    icon: binding.displayIcon,
+                    muxyExtension: binding.muxyExtension,
+                    size: 10
+                )
+                if let text = binding.displayText, !text.isEmpty {
+                    Text(text)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(MuxyTheme.fgMuted)
+            .padding(.horizontal, 4)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, -4)
+        .help(binding.item.tooltip ?? binding.item.id)
+        .accessibilityLabel(binding.item.tooltip ?? binding.item.id)
+        .extensionPopover(anchorID: binding.id, host: popoverHost)
+    }
+
+    private var extensionOutputChip: some View {
+        Button {
+            extensionOutputVisible.toggle()
+        } label: {
+            Image(systemName: "ladybug")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(extensionOutputVisible ? MuxyTheme.accent : MuxyTheme.fgMuted)
+        }
+        .buttonStyle(.plain)
+        .help("Toggle Extension Output panel")
+        .accessibilityLabel("Toggle Extension Output")
     }
 
     private var richInputToggleButton: some View {

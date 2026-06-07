@@ -1,5 +1,8 @@
 import AppKit
+import os
 import SwiftUI
+
+private let deepLinkLogger = Logger(subsystem: "app.muxy", category: "DeepLink")
 
 @main
 struct MuxyApp: App {
@@ -10,10 +13,10 @@ struct MuxyApp: App {
     @State private var projectStore: ProjectStore
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
-    @State private var vcsWorktreeAutoRefresher: VCSWorktreeAutoRefresher
     @State private var didStartDeferredServices = false
 
     init() {
+        LaunchArgumentGuard.terminateIfNeeded()
         _ = MuxyApp.launchDate
         let environment = AppEnvironment.live
         let projectStore = ProjectStore(persistence: environment.projectPersistence)
@@ -33,16 +36,10 @@ struct MuxyApp: App {
         let projectGroupStore = ProjectGroupStore(
             persistence: environment.projectGroupPersistence
         )
-        let vcsWorktreeAutoRefresher = VCSWorktreeAutoRefresher(
-            appState: appState,
-            projectStore: projectStore,
-            worktreeStore: worktreeStore
-        )
         _appState = State(initialValue: appState)
         _projectStore = State(initialValue: projectStore)
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
-        _vcsWorktreeAutoRefresher = State(initialValue: vcsWorktreeAutoRefresher)
     }
 
     var body: some Scene {
@@ -55,27 +52,28 @@ struct MuxyApp: App {
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
                 .environment(ThemeService.shared)
+                .environment(ExtensionStore.shared)
+                .environment(ExtensionSettingsStore.shared)
                 .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
                     startDeferredServicesIfNeeded()
                     NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore
                     NotificationStore.shared.markAllAsRead()
+                    DesktopNotificationService.shared.start(appState: appState)
                     MemoryDiagnostics.shared.configure(appState: appState)
                     TerminalProgressStore.shared.appState = appState
                     appDelegate.onTerminate = { [appState] in
                         appState.saveTerminalSessions()
                         appState.saveWorkspaces()
                     }
-                    appDelegate.hasUnsavedEditorTabs = { [appState] in
-                        appState.unsavedEditorTabs()
-                    }
-                    appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore] path in
+                    appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore, projectGroupStore] path in
                         CLIAccessor.openProjectFromPath(
                             path,
                             appState: appState,
                             projectStore: projectStore,
-                            worktreeStore: worktreeStore
+                            worktreeStore: worktreeStore,
+                            projectGroupStore: projectGroupStore
                         )
                     }
                     appDelegate.flushPendingOpens()
@@ -99,17 +97,23 @@ struct MuxyApp: App {
                     }
                     appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
                         for id in projectIDs {
-                            if let project = projectStore.projects.first(where: { $0.id == id }) {
-                                let knownWorktrees = worktreeStore.list(for: id)
-                                Task.detached {
-                                    await WorktreeStore.cleanupOnDisk(
+                            guard let project = projectStore.projects.first(where: { $0.id == id }) else {
+                                worktreeStore.removeProject(id)
+                                continue
+                            }
+                            let knownWorktrees = worktreeStore.list(for: id)
+                            Task {
+                                do {
+                                    try await WorktreeStore.cleanupOnDisk(
                                         for: project,
                                         knownWorktrees: knownWorktrees
                                     )
+                                    projectStore.remove(id: id)
+                                    worktreeStore.removeProject(id)
+                                } catch {
+                                    ToastState.shared.show("Could not remove \(project.name): \(error.localizedDescription)")
                                 }
                             }
-                            projectStore.remove(id: id)
-                            worktreeStore.removeProject(id)
                         }
                     }
                     projectStore.onProjectRemoved = { [projectGroupStore] projectID in
@@ -132,23 +136,6 @@ struct MuxyApp: App {
                 updateService: .shared
             )
         }
-
-        Window("Source Control", id: "vcs") {
-            VCSWindowView()
-                .environment(appState)
-                .environment(projectStore)
-                .environment(worktreeStore)
-                .environment(projectGroupStore)
-                .environment(GhosttyService.shared)
-                .preferredColorScheme(MuxyTheme.colorScheme)
-        }
-        .defaultSize(width: 700, height: 600)
-
-        Window("Muxy Help", id: "help") {
-            HelpView()
-                .preferredColorScheme(MuxyTheme.colorScheme)
-        }
-        .defaultSize(width: 820, height: 580)
     }
 
     private func startDeferredServicesIfNeeded() {
@@ -159,8 +146,12 @@ struct MuxyApp: App {
             SettingsJSONStore.beginAutomaticUserSettingsSync()
             try? await Task.sleep(for: .seconds(2))
             UpdateService.shared.start()
+            TerminalOfflineService.shared.start()
             AIProviderRegistry.shared.installAll()
+            LoginShellPath.hydrateInBackground()
+            await NotificationSocketServer.shared.awaitReady()
             ExtensionStore.shared.startAll()
+            await ExtensionStore.shared.checkForUpdates()
         }
     }
 }
@@ -168,14 +159,17 @@ struct MuxyApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var onTerminate: (() -> Void)?
-    var hasUnsavedEditorTabs: (() -> [EditorTabState])?
     var openProjectFromPath: ((String) -> Void)?
 
     private var pendingOpenPaths: [String] = []
+    private var pendingInstallName: String?
+    private var isReadyForModals = false
     private var systemAppearanceObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
-    private var settingsThemeObserver: NSObjectProtocol?
+    private var extensionsObserver: NSObjectProtocol?
+    private var modalThemeObserver: NSObjectProtocol?
     private weak var settingsWindow: NSWindow?
+    private weak var extensionsWindow: NSWindow?
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -199,6 +193,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for path in queued {
             handler(path)
         }
+        isReadyForModals = true
+        if let name = pendingInstallName {
+            pendingInstallName = nil
+            presentExtensionsModal(installName: name)
+        }
+    }
+
+    @MainActor
+    func handleInstallExtension(name: String) {
+        guard isReadyForModals else {
+            pendingInstallName = name
+            return
+        }
+        presentExtensionsModal(installName: name)
     }
 
     nonisolated static func resolveProjectPath(from url: URL) -> String? {
@@ -239,12 +247,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return standardized
     }
 
+    nonisolated static func resolveInstallName(from url: URL) -> String? {
+        guard url.scheme == "muxy", url.host == "extensions" else { return nil }
+        let segments = url.pathComponents.filter { $0 != "/" }
+        guard segments.first == "install" else { return nil }
+        guard let raw = segments.dropFirst().first?.removingPercentEncoding, !raw.isEmpty else { return nil }
+        guard (try? ExtensionManifestLoader.validate(name: raw)) != nil else { return nil }
+        return raw
+    }
+
     @MainActor
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            guard let path = Self.resolveProjectPath(from: url) else { continue }
-            handleOpenProjectPath(path)
+            handleIncomingURL(url)
         }
+    }
+
+    @MainActor
+    func handleIncomingURL(_ url: URL) {
+        deepLinkLogger.log("incoming url: \(url.absoluteString, privacy: .public)")
+        if let name = Self.resolveInstallName(from: url) {
+            handleInstallExtension(name: name)
+            return
+        }
+        guard let path = Self.resolveProjectPath(from: url) else { return }
+        handleOpenProjectPath(path)
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
@@ -260,7 +287,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @MainActor
+    private func registerURLEventHandler() {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
+    @MainActor
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        registerURLEventHandler()
+    }
+
+    @MainActor
+    @objc
+    private func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent _: NSAppleEventDescriptor) {
+        guard let string = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: string)
+        else { return }
+        handleIncomingURL(url)
+    }
+
+    @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UserDefaults.standard.register(defaults: ["ApplePressAndHoldEnabled": false])
         SentryService.shared.start()
         NSWindow.allowsAutomaticWindowTabbing = false
         NSApp.setActivationPolicy(.regular)
@@ -272,13 +324,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ThemeService.shared.migrateToPairedThemeIfNeeded()
         observeSystemAppearanceChanges()
         ModifierKeyMonitor.shared.start()
+        DesktopNotificationService.shared.prepare()
         NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
             Task { @MainActor [weak self] in
                 self?.handleOpenProjectPath(path)
             }
         }
+        NotificationSocketServer.shared.installExtensionHandler = { [weak self] name in
+            Task { @MainActor [weak self] in
+                self?.handleInstallExtension(name: name)
+            }
+        }
         NotificationSocketServer.shared.start()
-        _ = AIUsageSettingsStore.isUsageEnabled()
         DiagnosticsMenuController.shared.install()
         observeSettingsRequests()
         consumeLaunchArguments()
@@ -303,48 +360,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    @MainActor
+    @discardableResult
+    static func activateMainWindowOnCurrentSpace() -> NSWindow? {
+        NSApp.activate(ignoringOtherApps: true)
+        guard let window = mainAppWindow() else { return nil }
+        let previousBehavior = window.collectionBehavior
+        window.collectionBehavior.insert(.moveToActiveSpace)
+        window.makeKeyAndOrderFront(nil)
+        window.collectionBehavior = previousBehavior
+        return window
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let unsaved = hasUnsavedEditorTabs?() ?? []
-        guard !unsaved.isEmpty else { return confirmQuitIfNeeded() }
-
-        let alert = NSAlert()
-        alert.messageText = unsaved.count == 1
-            ? "You have unsaved changes in 1 file."
-            : "You have unsaved changes in \(unsaved.count) files."
-        alert.informativeText = "If you quit without saving, your changes will be lost."
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Save All")
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Discard")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.buttons[1].keyEquivalent = "\u{1b}"
-
-        let response = alert.runModal()
-        switch response {
-        case .alertFirstButtonReturn:
-            Task { @MainActor in
-                var failures: [String] = []
-                for state in unsaved {
-                    do {
-                        try await state.saveFileAsync()
-                    } catch {
-                        failures.append("\(state.fileName): \(error.localizedDescription)")
-                    }
-                }
-                if failures.isEmpty {
-                    NSApp.reply(toApplicationShouldTerminate: true)
-                    return
-                }
-                Self.presentSaveFailureAlert(failures: failures)
-                NSApp.reply(toApplicationShouldTerminate: false)
-            }
-            return .terminateLater
-        case .alertThirdButtonReturn:
-            return .terminateNow
-        default:
-            return .terminateCancel
-        }
+        confirmQuitIfNeeded()
     }
 
     @MainActor
@@ -371,20 +400,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return .terminateNow
     }
 
-    @MainActor
-    private static func presentSaveFailureAlert(failures: [String]) {
-        let alert = NSAlert()
-        alert.messageText = failures.count == 1
-            ? "Could Not Save File"
-            : "Could Not Save \(failures.count) Files"
-        alert.informativeText = failures.joined(separator: "\n")
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "OK")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.runModal()
-    }
-
     func applicationWillTerminate(_ notification: Notification) {
         if let observer = systemAppearanceObserver {
             DistributedNotificationCenter.default().removeObserver(observer)
@@ -394,9 +409,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NotificationCenter.default.removeObserver(settingsObserver)
             self.settingsObserver = nil
         }
-        if let settingsThemeObserver {
-            NotificationCenter.default.removeObserver(settingsThemeObserver)
-            self.settingsThemeObserver = nil
+        if let extensionsObserver {
+            NotificationCenter.default.removeObserver(extensionsObserver)
+            self.extensionsObserver = nil
+        }
+        if let modalThemeObserver {
+            NotificationCenter.default.removeObserver(modalThemeObserver)
+            self.modalThemeObserver = nil
         }
         onTerminate?()
         NotificationStore.shared.saveToDisk()
@@ -419,46 +438,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.presentSettingsModal()
             }
         }
-        settingsThemeObserver = NotificationCenter.default.addObserver(
+        extensionsObserver = NotificationCenter.default.addObserver(
+            forName: .openExtensionsModal,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.presentExtensionsModal()
+            }
+        }
+        modalThemeObserver = NotificationCenter.default.addObserver(
             forName: .themeDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.settingsWindow?.backgroundColor = MuxyTheme.nsBg
+                self?.extensionsWindow?.backgroundColor = MuxyTheme.nsBg
             }
         }
     }
 
     @MainActor
     private func presentSettingsModal() {
-        if let settingsWindow {
-            settingsWindow.makeKeyAndOrderFront(nil)
-            return
-        }
-        guard let parent = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        let host = NSHostingController(
-            rootView: SettingsView()
-                .frame(width: 980, height: 680)
-                .preferredColorScheme(MuxyTheme.colorScheme)
+        let config = AppModalConfig(
+            title: "Settings",
+            size: CGSize(width: 980, height: 680),
+            existing: settingsWindow,
+            delegate: self,
+            onClosed: { [weak self] in self?.settingsWindow = nil }
         )
-        let window = SettingsModalWindow(contentViewController: host)
-        window.title = "Settings"
-        window.styleMask = [.titled, .closable]
-        window.isOpaque = true
-        window.backgroundColor = MuxyTheme.nsBg
-        window.delegate = self
-        settingsWindow = window
-        parent.beginSheet(window) { [weak self, weak window] _ in
-            guard self?.settingsWindow === window else { return }
-            self?.settingsWindow = nil
+        settingsWindow = AppModalPresenter.present(config) {
+            SettingsView()
         }
-        window.startOutsideClickMonitor()
+    }
+
+    @MainActor
+    private func presentExtensionsModal(installName: String? = nil) {
+        let config = AppModalConfig(
+            title: "Extensions",
+            size: CGSize(width: 880, height: 620),
+            existing: extensionsWindow,
+            delegate: self,
+            onClosed: { [weak self] in self?.extensionsWindow = nil }
+        )
+        extensionsWindow = AppModalPresenter.present(config) {
+            ExtensionsView(installName: installName)
+        }
+        if let installName {
+            NotificationCenter.default.post(
+                name: .openExtensionInstall,
+                object: nil,
+                userInfo: [ExtensionInstallUserInfoKey.name: installName]
+            )
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard notification.object as? NSWindow === settingsWindow else { return }
-        settingsWindow = nil
+        let closed = notification.object as? NSWindow
+        if closed === settingsWindow { settingsWindow = nil }
+        if closed === extensionsWindow { extensionsWindow = nil }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -496,48 +535,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
-    }
-}
-
-private final class SettingsModalWindow: NSWindow {
-    private var outsideClickMonitor: Any?
-
-    func startOutsideClickMonitor() {
-        stopOutsideClickMonitor()
-        outsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self, let sheetParent, event.window === sheetParent else { return event }
-            close()
-            return nil
-        }
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           event.charactersIgnoringModifiers?.lowercased() == "w"
-        {
-            close()
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-
-    override func cancelOperation(_ sender: Any?) {
-        close()
-    }
-
-    override func close() {
-        stopOutsideClickMonitor()
-        guard let sheetParent else {
-            super.close()
-            return
-        }
-        sheetParent.endSheet(self)
-    }
-
-    private func stopOutsideClickMonitor() {
-        guard let outsideClickMonitor else { return }
-        NSEvent.removeMonitor(outsideClickMonitor)
-        self.outsideClickMonitor = nil
     }
 }
 

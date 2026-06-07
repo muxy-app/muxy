@@ -4,8 +4,6 @@ import SwiftUI
 struct ProjectsSettingsView: View {
     @AppStorage(GeneralSettingsKeys.defaultWorktreeParentPath)
     private var defaultWorktreeParentPath = ""
-    @AppStorage(GeneralSettingsKeys.fileTreeSource)
-    private var fileTreeSourceRaw = FileTreeSourcePreference.defaultValue.rawValue
     @AppStorage(ProjectLifecyclePreferences.keepOpenWhenNoTabsKey)
     private var keepProjectsOpenWhenNoTabs = false
     @AppStorage(ProjectPickerPreferences.storageKey)
@@ -39,22 +37,6 @@ struct ProjectsSettingsView: View {
                     label: "Keep projects open after closing the last tab",
                     isOn: $keepProjectsOpenWhenNoTabs
                 )
-            }
-
-            SettingsSection(
-                "File Tree",
-                footer: "When set to the active terminal, the file tree follows the working directory of "
-                    + "the active terminal tab. If there is no active terminal, it keeps the last known path."
-            ) {
-                SettingsRow("Root directory") {
-                    Picker("", selection: $fileTreeSourceRaw) {
-                        ForEach(FileTreeSourcePreference.allCases) { source in
-                            Text(source.title).tag(source.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
-                }
             }
 
             SettingsSection(

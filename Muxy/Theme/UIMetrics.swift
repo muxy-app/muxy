@@ -46,6 +46,8 @@ enum UIMetrics {
 
     static var sidebarCollapsedWidth: CGFloat { scaled(44) }
     static var sidebarExpandedWidth: CGFloat { scaled(220) }
+    static var sidebarExpandedMinWidth: CGFloat { scaled(180) }
+    static var sidebarExpandedMaxWidth: CGFloat { scaled(480) }
 
     static var tabBarHeight: CGFloat { scaled(28) }
     static var headerHeight: CGFloat { scaled(36) }

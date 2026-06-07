@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "NotificationSocketServer")
@@ -10,6 +11,7 @@ final class NotificationSocketServer: @unchecked Sendable {
         let allowedEvents: Set<String>
         let commandEvents: Set<String>
         let permissions: Set<ExtensionPermission>
+        let token: String
     }
 
     struct ExtensionSnapshot: Equatable {
@@ -18,8 +20,12 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     final class ClientSession: @unchecked Sendable {
         static let droppedNotificationDisconnectThreshold = 100
+        static let maxConcurrentCommands = 8
 
-        let fd: Int32
+        var fd: Int32
+        var pendingClose = false
+        var commandInFlight = false
+        var inFlightCommandCount = 0
         var extensionID: String?
         var subscriptions: Set<String> = []
         var writeBuffer = Data()
@@ -34,13 +40,21 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     private var serverFD: Int32 = -1
     private var acceptSource: DispatchSourceRead?
+    private var didFinishListening = false
+    private var readyContinuations: [CheckedContinuation<Void, Never>] = []
     private let queue = DispatchQueue(label: "app.muxy.notificationSocket")
     private var subscribers: [ObjectIdentifier: ClientSession] = [:]
+    private var liveSessionByExtension: [String: ClientSession] = [:]
     private var readSources: [ObjectIdentifier: DispatchSourceRead] = [:]
     private var extensionSnapshot = ExtensionSnapshot(entries: [:])
+    private var inProcessObservers: [UUID: @Sendable (ExtensionEvent) -> Void] = [:]
+    private var extensionEventObservers: [UUID: @Sendable (String, ExtensionLocalEvent.Message) -> Void] = [:]
+    private var pendingInvokes: [String: CheckedContinuation<Data, Error>] = [:]
+    private var invokeOwner: [String: ObjectIdentifier] = [:]
 
     var openProjectHandler: (@Sendable (String) -> Void)?
-    var commandHandler: (@Sendable (String, ClientContext) async -> String)?
+    var installExtensionHandler: (@Sendable (String) -> Void)?
+    var commandHandler: (@MainActor @Sendable (String, ClientContext) async -> String)?
 
     struct ClientContext {
         let extensionID: String?
@@ -60,6 +74,22 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
     }
 
+    func awaitReady() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { [weak self] in
+                guard let self else {
+                    continuation.resume()
+                    return
+                }
+                guard !self.didFinishListening else {
+                    continuation.resume()
+                    return
+                }
+                self.readyContinuations.append(continuation)
+            }
+        }
+    }
+
     func stop() {
         queue.async { [weak self] in
             self?.cleanup()
@@ -68,18 +98,27 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     func applyExtensionSnapshot(_ snapshot: ExtensionSnapshot) {
         queue.async { [weak self] in
-            guard let self else { return }
-            self.extensionSnapshot = snapshot
-            for session in self.subscribers.values {
-                guard let extensionID = session.extensionID else { continue }
-                guard let entry = snapshot.entries[extensionID] else {
-                    session.extensionID = nil
-                    session.subscriptions.removeAll()
-                    continue
-                }
-                session.subscriptions = session.subscriptions.filter { event in
-                    Self.canSubscribe(entry: entry, to: event)
-                }
+            self?.commitSnapshot(snapshot)
+        }
+    }
+
+    func applyExtensionSnapshotSync(_ snapshot: ExtensionSnapshot) {
+        queue.sync {
+            commitSnapshot(snapshot)
+        }
+    }
+
+    private func commitSnapshot(_ snapshot: ExtensionSnapshot) {
+        extensionSnapshot = snapshot
+        for session in subscribers.values {
+            guard let extensionID = session.extensionID else { continue }
+            guard let entry = snapshot.entries[extensionID] else {
+                session.extensionID = nil
+                session.subscriptions.removeAll()
+                continue
+            }
+            session.subscriptions = session.subscriptions.filter { event in
+                Self.canSubscribe(entry: entry, to: event)
             }
         }
     }
@@ -99,10 +138,162 @@ final class NotificationSocketServer: @unchecked Sendable {
             for session in self.subscribers.values where session.subscriptions.contains(event.name) {
                 self.enqueueWrite(session: session, text: line)
             }
+            for callback in self.inProcessObservers.values {
+                callback(event)
+            }
+        }
+    }
+
+    @discardableResult
+    func addInProcessObserver(_ callback: @escaping @Sendable (ExtensionEvent) -> Void) -> UUID {
+        let token = UUID()
+        queue.async { [weak self] in
+            self?.inProcessObservers[token] = callback
+        }
+        return token
+    }
+
+    func removeInProcessObserver(_ token: UUID) {
+        queue.async { [weak self] in
+            self?.inProcessObservers.removeValue(forKey: token)
+        }
+    }
+
+    @discardableResult
+    func addExtensionEventObserver(
+        extensionID: String,
+        _ callback: @escaping @Sendable (ExtensionLocalEvent.Message) -> Void
+    ) -> UUID {
+        let token = UUID()
+        queue.async { [weak self] in
+            self?.extensionEventObservers[token] = { incomingExtensionID, event in
+                guard Self.canDeliverExtensionEvent(
+                    observerExtensionID: extensionID,
+                    incomingExtensionID: incomingExtensionID
+                )
+                else { return }
+                callback(event)
+            }
+        }
+        return token
+    }
+
+    func removeExtensionEventObserver(_ token: UUID) {
+        queue.async { [weak self] in
+            self?.extensionEventObservers.removeValue(forKey: token)
+        }
+    }
+
+    func pushModalResult(extensionID: String, requestID: String, payload: Data) {
+        queue.async { [weak self] in
+            guard let self,
+                  let session = self.session(forExtension: extensionID),
+                  let line = ExtensionModalResult.serialize(requestID: requestID, payload: payload)
+            else { return }
+            self.enqueueWrite(session: session, text: line + "\n")
+        }
+    }
+
+    func emitExtensionEventToBackground(extensionID: String, event: ExtensionLocalEvent.Message) async -> Bool {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            queue.async { [weak self] in
+                guard let self,
+                      self.extensionSnapshot.entries[extensionID] != nil,
+                      let session = self.session(forExtension: extensionID),
+                      let line = ExtensionLocalEvent.serialize(name: event.name, payload: event.payload)
+                else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                self.enqueueWrite(session: session, text: line + "\n")
+                continuation.resume(returning: true)
+            }
+        }
+    }
+
+    static let invokeTimeout: Duration = .seconds(15)
+
+    func invokeRemote(extensionID: String, action: String, payload: Data) async throws -> Data {
+        let callID = UUID().uuidString
+        let base64 = payload.base64EncodedString()
+
+        let invokeTask = Task {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+                queue.async { [weak self] in
+                    guard let self else {
+                        continuation.resume(throwing: MuxyError.extensionUnavailable)
+                        return
+                    }
+                    guard let session = self.session(forExtension: extensionID) else {
+                        continuation.resume(throwing: MuxyError.extensionUnavailable)
+                        return
+                    }
+                    self.pendingInvokes[callID] = continuation
+                    self.invokeOwner[callID] = ObjectIdentifier(session)
+                    self.enqueueWrite(session: session, text: "invoke|\(callID)|\(action)|\(base64)\n")
+                }
+            }
+        }
+
+        let timeoutTask = Task {
+            try? await Task.sleep(for: Self.invokeTimeout)
+            guard !Task.isCancelled else { return }
+            self.queue.async { [weak self] in
+                guard let self, let continuation = self.pendingInvokes.removeValue(forKey: callID) else { return }
+                self.invokeOwner.removeValue(forKey: callID)
+                continuation.resume(throwing: MuxyError.timeout)
+            }
+        }
+
+        defer { timeoutTask.cancel() }
+        return try await invokeTask.value
+    }
+
+    private func session(forExtension extensionID: String) -> ClientSession? {
+        liveSessionByExtension[extensionID]
+    }
+
+    struct InvokeResult: Equatable {
+        let callID: String
+        let ok: Bool
+        let body: Data
+    }
+
+    static func parseInvokeResult(_ message: String) -> InvokeResult? {
+        let parts = message.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 3, parts[0] == "invoke-result", !parts[1].isEmpty else { return nil }
+        let status = parts[2]
+        guard status == "ok" || status == "err" else { return nil }
+        let body = parts.count >= 4 ? (Data(base64Encoded: parts[3]) ?? Data()) : Data()
+        return InvokeResult(callID: parts[1], ok: status == "ok", body: body)
+    }
+
+    private func handleInvokeResult(_ message: String, session: ClientSession) {
+        guard let parsed = Self.parseInvokeResult(message) else { return }
+        guard let owner = invokeOwner[parsed.callID], owner == ObjectIdentifier(session) else { return }
+        guard let continuation = pendingInvokes.removeValue(forKey: parsed.callID) else { return }
+        invokeOwner.removeValue(forKey: parsed.callID)
+
+        if parsed.ok {
+            continuation.resume(returning: parsed.body)
+            return
+        }
+        let messageText = String(data: parsed.body, encoding: .utf8) ?? "extension error"
+        continuation.resume(throwing: MuxyError.extensionError(messageText))
+    }
+
+    private func failPendingInvokes(for session: ClientSession) {
+        let owner = ObjectIdentifier(session)
+        let callIDs = invokeOwner.filter { $0.value == owner }.map(\.key)
+        for callID in callIDs {
+            invokeOwner.removeValue(forKey: callID)
+            guard let continuation = pendingInvokes.removeValue(forKey: callID) else { continue }
+            continuation.resume(throwing: MuxyError.extensionUnavailable)
         }
     }
 
     private func startListening() {
+        defer { markListeningFinished() }
         let path = Self.socketPath
         unlink(path)
 
@@ -169,18 +360,13 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
     }
 
-    private static let maxMessageSize = 65536
+    private static let maxMessageSize = 128 * 1024
 
     private static let stickyCommandNames: Set<String> = [
         "subscribe", "identify",
     ]
 
-    private static let commandNames: Set<String> = [
-        "split-right", "split-down", "send", "send-keys",
-        "read-screen", "close-pane", "rename-pane", "list-panes",
-        "list-projects", "switch-project", "list-worktrees", "create-worktree", "switch-worktree", "refresh-worktrees",
-        "list-tabs", "switch-tab", "new-tab", "next-tab", "previous-tab",
-    ]
+    private static let commandNames: Set<String> = MuxyAPI.Permissions.verbNames
 
     private func openSession(_ session: ClientSession) {
         let readSource = DispatchSource.makeReadSource(fileDescriptor: session.fd, queue: queue)
@@ -197,6 +383,7 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     private func readFromSession(_ session: ClientSession) {
         var buffer = [UInt8](repeating: 0, count: 4096)
+        var reachedEOF = false
         while true {
             let bytesRead = read(session.fd, &buffer, buffer.count)
             if bytesRead > 0 {
@@ -206,11 +393,12 @@ final class NotificationSocketServer: @unchecked Sendable {
                     disposeSession(session)
                     return
                 }
+                processBufferedLines(session: session)
                 continue
             }
             if bytesRead == 0 {
-                disposeSession(session)
-                return
+                reachedEOF = true
+                break
             }
             if errno == EAGAIN || errno == EWOULDBLOCK {
                 break
@@ -219,6 +407,24 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
 
+        processBufferedLines(session: session)
+
+        if reachedEOF {
+            session.pendingClose = true
+            let id = ObjectIdentifier(session)
+            if let source = readSources.removeValue(forKey: id) {
+                source.cancel()
+            }
+            subscribers.removeValue(forKey: id)
+            if session.writeBuffer.isEmpty, !session.commandInFlight, session.fd >= 0 {
+                close(session.fd)
+                session.fd = -1
+                session.pendingClose = false
+            }
+        }
+    }
+
+    private func processBufferedLines(session: ClientSession) {
         while let newlineRange = session.inputBuffer.range(of: Data([UInt8(ascii: "\n")])) {
             let lineData = session.inputBuffer.subdata(in: 0 ..< newlineRange.lowerBound)
             session.inputBuffer.removeSubrange(0 ..< newlineRange.upperBound)
@@ -244,19 +450,35 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
 
+        if head == "invoke-result" {
+            handleInvokeResult(trimmed, session: session)
+            return
+        }
+
+        if head == ExtensionLocalEvent.messageHead {
+            let response = processExtensionEvent(trimmed, session: session)
+            enqueueWrite(session: session, text: response + "\n")
+            return
+        }
+
         processNotificationMessage(data, session: session)
     }
 
     private func evaluateSticky(head: String, message: String, session: ClientSession) -> String {
         switch head {
         case "identify":
-            let parts = message.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-            guard parts.count == 2, !parts[1].isEmpty else { return "error:usage identify|<extension-id>" }
+            let parts = message.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 2, !parts[1].isEmpty else { return "error:usage identify|<extension-id>|<token>" }
             let claimedID = parts[1]
-            guard extensionSnapshot.entries[claimedID] != nil else {
+            guard let entry = extensionSnapshot.entries[claimedID] else {
                 return "error:unknown extension \(claimedID)"
             }
+            let providedToken = parts.count >= 3 ? parts[2] : ""
+            guard !entry.token.isEmpty, providedToken == entry.token else {
+                return "error:invalid extension token"
+            }
             session.extensionID = claimedID
+            liveSessionByExtension[claimedID] = session
             return "ok"
         case "subscribe":
             let parts = message.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
@@ -277,17 +499,56 @@ final class NotificationSocketServer: @unchecked Sendable {
         }
     }
 
+    private func processExtensionEvent(_ message: String, session: ClientSession) -> String {
+        guard let extensionID = session.extensionID else { return "error:identify required" }
+        guard extensionSnapshot.entries[extensionID] != nil else {
+            return "error:extension \(extensionID) is no longer loaded"
+        }
+        guard let event = ExtensionLocalEvent.parse(message) else {
+            return "error:invalid extension event"
+        }
+        for callback in extensionEventObservers.values {
+            callback(extensionID, event)
+        }
+        return "ok"
+    }
+
+    private static func canDeliverExtensionEvent(
+        observerExtensionID: String,
+        incomingExtensionID: String
+    ) -> Bool {
+        observerExtensionID == incomingExtensionID
+    }
+
+    static func canDeliverExtensionEventForTesting(
+        observerExtensionID: String,
+        incomingExtensionID: String
+    ) -> Bool {
+        canDeliverExtensionEvent(
+            observerExtensionID: observerExtensionID,
+            incomingExtensionID: incomingExtensionID
+        )
+    }
+
     private func processCommand(_ message: String, session: ClientSession) {
         guard let handler = commandHandler else {
             enqueueWrite(session: session, text: "error:no handler registered\n")
             return
         }
+        guard session.inFlightCommandCount < ClientSession.maxConcurrentCommands else {
+            enqueueWrite(session: session, text: "error:too many concurrent commands\n")
+            return
+        }
         let context = ClientContext(extensionID: session.extensionID)
+        session.commandInFlight = true
+        session.inFlightCommandCount += 1
         Task { @Sendable [weak self] in
             let response = await handler(message, context)
             guard let self else { return }
             self.queue.async { [weak self] in
                 self?.enqueueWrite(session: session, text: response + "\n")
+                session.inFlightCommandCount -= 1
+                session.commandInFlight = session.inFlightCommandCount > 0
             }
         }
     }
@@ -311,8 +572,16 @@ final class NotificationSocketServer: @unchecked Sendable {
                 scheduleWriteSource(session: session)
                 return
             }
+            session.pendingClose = false
             disposeSession(session)
             return
+        }
+        if session.pendingClose {
+            if session.fd >= 0 {
+                close(session.fd)
+                session.fd = -1
+            }
+            session.pendingClose = false
         }
     }
 
@@ -347,13 +616,15 @@ final class NotificationSocketServer: @unchecked Sendable {
             return
         }
 
-        if message == "split-right" || message.hasPrefix("split-right|") {
-            logger.info("Received legacy split-right request via socket")
-            return
-        }
-
-        if message == "split-down" || message.hasPrefix("split-down|") {
-            logger.info("Received legacy split-down request via socket")
+        let installPrefix = "install-extension|"
+        if message.hasPrefix(installPrefix) {
+            let name = String(message.dropFirst(installPrefix.count))
+            guard !name.isEmpty else {
+                logger.warning("Ignoring install-extension for empty name")
+                return
+            }
+            logger.info("Received install-extension request via socket")
+            installExtensionHandler?(name)
             return
         }
 
@@ -454,10 +725,23 @@ final class NotificationSocketServer: @unchecked Sendable {
     }
 
     private func closeSession(_ session: ClientSession) {
+        if let extensionID = session.extensionID, liveSessionByExtension[extensionID] === session {
+            liveSessionByExtension.removeValue(forKey: extensionID)
+        }
+        failPendingInvokes(for: session)
         session.writeSource?.cancel()
         session.writeSource = nil
-        if session.fd >= 0 {
+        if session.fd >= 0, !session.pendingClose {
             close(session.fd)
+        }
+    }
+
+    private func markListeningFinished() {
+        didFinishListening = true
+        let waiters = readyContinuations
+        readyContinuations.removeAll()
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 

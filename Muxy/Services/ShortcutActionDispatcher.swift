@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor
@@ -5,7 +6,7 @@ struct ShortcutActionDispatcher {
     let appState: AppState
     let projectStore: ProjectStore
     let worktreeStore: WorktreeStore
-    let projectGroupStore: ProjectGroupStore?
+    let projectGroupStore: ProjectGroupStore
     let ghostty: GhosttyService
     let notificationCenter: NotificationCenter
 
@@ -13,7 +14,7 @@ struct ShortcutActionDispatcher {
         appState: AppState,
         projectStore: ProjectStore,
         worktreeStore: WorktreeStore,
-        projectGroupStore: ProjectGroupStore? = nil,
+        projectGroupStore: ProjectGroupStore,
         ghostty: GhosttyService,
         notificationCenter: NotificationCenter = .default
     ) {
@@ -26,11 +27,10 @@ struct ShortcutActionDispatcher {
     }
 
     private var navigableProjects: [Project] {
-        guard let projectGroupStore else { return projectStore.projects }
-        return projectGroupStore.filteredProjects(from: projectStore.projects)
+        projectGroupStore.filteredProjects(from: projectStore.projects)
     }
 
-    func perform(_ action: ShortcutAction, activeProject: Project?, openVCS: (Project) -> Void) -> Bool {
+    func perform(_ action: ShortcutAction, activeProject: Project?) -> Bool {
         if let index = action.tabSelectionIndex {
             guard let projectID = appState.activeProjectID else { return false }
             appState.selectTabByIndex(index, projectID: projectID)
@@ -123,7 +123,8 @@ struct ShortcutActionDispatcher {
             ProjectOpenService.openProjectViaPicker(
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )
             return true
         case .reloadConfig:
@@ -154,20 +155,6 @@ struct ShortcutActionDispatcher {
         case .submitRichInput,
              .submitRichInputWithoutReturn:
             return false
-        case .openVCSTab:
-            guard let activeProject else { return false }
-            openVCS(activeProject)
-            return true
-        case .openDiffViewerTab:
-            guard let activeProject else { return false }
-            appState.openDiffViewer(projectID: activeProject.id)
-            return true
-        case .quickOpen:
-            notificationCenter.post(name: .quickOpen, object: nil)
-            return true
-        case .findInFiles:
-            notificationCenter.post(name: .findInFiles, object: nil)
-            return true
         case .terminalOmnibox:
             postTerminalOmnibox(scope: .openTabs)
             return true
@@ -183,18 +170,11 @@ struct ShortcutActionDispatcher {
         case .terminalOmniboxHistory:
             postTerminalOmnibox(scope: .history)
             return true
-        case .saveFile:
-            notificationCenter.post(name: .saveActiveEditor, object: nil)
-            return true
         case .toggleSidebar:
             notificationCenter.post(name: .toggleSidebar, object: nil)
             return true
-        case .toggleFileTree:
-            notificationCenter.post(name: .toggleFileTree, object: nil)
-            return true
-        case .toggleAIUsage:
-            guard AIUsageSettingsStore.isUsageEnabled() else { return false }
-            notificationCenter.post(name: .toggleAIUsage, object: nil)
+        case .toggleExtensionConsole:
+            notificationCenter.post(name: .toggleExtensionConsole, object: nil)
             return true
         case .navigateBack:
             guard appState.navigation.canGoBack else { return false }
@@ -209,6 +189,10 @@ struct ShortcutActionDispatcher {
                   let areaID = appState.focusedAreaID(for: projectID)
             else { return false }
             appState.toggleMaximize(areaID: areaID, for: projectID)
+            return true
+        case .toggleFullScreen:
+            guard let window = AppDelegate.mainAppWindow() else { return false }
+            window.toggleFullScreen(nil)
             return true
         case .toggleVoiceRecording,
              .selectTab1,

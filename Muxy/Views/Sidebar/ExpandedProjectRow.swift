@@ -31,6 +31,8 @@ struct ExpandedProjectRow: View {
     @State private var isRefreshingWorktrees = false
     @State private var showColorPicker = false
     @State private var showSymbolPicker = false
+    @State private var pendingWorktreeRemoval: WorktreeRemovalConfirmation?
+    @State private var removalRequest: WorktreeRemovalRequest?
 
     private var isActive: Bool {
         appState.activeProjectID == project.id
@@ -137,6 +139,7 @@ struct ExpandedProjectRow: View {
                 onCancel: { cancelRename() }
             )
         }
+        .worktreeRemovalSheet($removalRequest)
         .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
             ProjectIconColorPicker(selectedID: project.iconColor) { id in
                 onSetIconColor(id)
@@ -148,6 +151,23 @@ struct ExpandedProjectRow: View {
                 onSetIcon(name)
                 showSymbolPicker = false
             }
+        }
+        .alert(
+            pendingWorktreeRemoval?.title ?? "",
+            isPresented: worktreeRemovalAlertBinding,
+            presenting: pendingWorktreeRemoval
+        ) { confirmation in
+            Button("Remove", role: .destructive) {
+                performRemove(worktree: confirmation.worktree)
+                pendingWorktreeRemoval = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) {
+                pendingWorktreeRemoval = nil
+            }
+            .keyboardShortcut(.cancelAction)
+        } message: { confirmation in
+            Text(confirmation.message)
         }
     }
 
@@ -390,54 +410,43 @@ struct ExpandedProjectRow: View {
         }
     }
 
+    @MainActor
     private func requestRemove(worktree: Worktree) async {
         let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(worktreePath: worktree.path)
-        if !hasChanges {
-            performRemove(worktree: worktree)
-            return
-        }
-        presentRemoveConfirmation(worktree: worktree)
+        pendingWorktreeRemoval = WorktreeRemovalConfirmation(
+            worktree: worktree,
+            hasUncommittedChanges: hasChanges
+        )
     }
 
-    private func presentRemoveConfirmation(worktree: Worktree) {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              window.attachedSheet == nil
-        else { return }
-
-        let alert = NSAlert()
-        alert.messageText = "Remove worktree \"\(worktree.name)\"?"
-        alert.informativeText = "This worktree has uncommitted changes. Removing it will permanently discard them."
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Remove")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.buttons[1].keyEquivalent = "\u{1b}"
-
-        alert.beginSheetModal(for: window) { response in
-            guard response == .alertFirstButtonReturn else { return }
-            performRemove(worktree: worktree)
-        }
+    private var worktreeRemovalAlertBinding: Binding<Bool> {
+        Binding(
+            get: { pendingWorktreeRemoval != nil },
+            set: { newValue in
+                if !newValue {
+                    pendingWorktreeRemoval = nil
+                }
+            }
+        )
     }
 
     private func performRemove(worktree: Worktree) {
-        let repoPath = project.path
         let remaining = worktrees.filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.id == activeWorktreeID })
             ?? remaining.first(where: { $0.isPrimary })
             ?? remaining.first
-        appState.removeWorktree(
-            projectID: project.id,
+        removalRequest = WorktreeRemovalRequest(
             worktree: worktree,
-            replacement: replacement
+            repoPath: project.path,
+            onSuccess: {
+                appState.removeWorktree(
+                    projectID: project.id,
+                    worktree: worktree,
+                    replacement: replacement
+                )
+                worktreeStore.remove(worktreeID: worktree.id, from: project.id)
+            }
         )
-        worktreeStore.remove(worktreeID: worktree.id, from: project.id)
-        Task.detached {
-            await WorktreeStore.cleanupOnDisk(
-                worktree: worktree,
-                repoPath: repoPath
-            )
-        }
     }
 
     private func startRename() {

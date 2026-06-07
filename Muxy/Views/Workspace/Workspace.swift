@@ -6,7 +6,6 @@ struct TerminalArea: View {
     let isActiveProject: Bool
     @Environment(AppState.self) private var appState
     @Environment(TabDragCoordinator.self) private var dragCoordinator
-    @Environment(\.openWindow) private var openWindow
 
     private var root: SplitNode? {
         appState.workspaceRoots[worktreeKey]
@@ -55,24 +54,6 @@ struct TerminalArea: View {
                 onCreateTab: {
                     appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
                 },
-                onCreateVCSTab: {
-                    VCSDisplayMode.current.route(
-                        tab: { appState.dispatch(.createVCSTab(projectID: project.id, areaID: area.id)) },
-                        window: { openWindow(id: "vcs") },
-                        attached: { NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil) }
-                    )
-                },
-                onCreateDiffViewerTab: {
-                    appState.dispatch(.createDiffViewerTab(
-                        projectID: project.id,
-                        areaID: area.id,
-                        request: AppState.DiffViewerRequest(
-                            vcs: VCSStateStore.shared.state(for: area.projectPath),
-                            filePath: nil,
-                            isStaged: false
-                        )
-                    ))
-                },
                 onCloseTab: { tabID in
                     appState.closeTab(tabID, areaID: area.id, projectID: project.id)
                 },
@@ -98,7 +79,6 @@ struct TerminalArea: View {
                 focusedAreaID: focusedAreaID,
                 isActiveProject: isActiveProject,
                 showTabStrip: !rootIsTabArea,
-                showVCSButton: false,
                 projectID: project.id,
                 shortcutOffsets: appState.shortcutOffsets(for: project.id),
                 onFocusArea: { areaID in
@@ -109,25 +89,6 @@ struct TerminalArea: View {
                 },
                 onCreateTab: { areaID in
                     appState.dispatch(.createTab(projectID: project.id, areaID: areaID))
-                },
-                onCreateVCSTab: { areaID in
-                    VCSDisplayMode.current.route(
-                        tab: { appState.dispatch(.createVCSTab(projectID: project.id, areaID: areaID)) },
-                        window: { openWindow(id: "vcs") },
-                        attached: { NotificationCenter.default.post(name: .toggleAttachedVCS, object: nil) }
-                    )
-                },
-                onCreateDiffViewerTab: { areaID in
-                    let projectPath = root.findArea(id: areaID)?.projectPath ?? project.path
-                    appState.dispatch(.createDiffViewerTab(
-                        projectID: project.id,
-                        areaID: areaID,
-                        request: AppState.DiffViewerRequest(
-                            vcs: VCSStateStore.shared.state(for: projectPath),
-                            filePath: nil,
-                            isStaged: false
-                        )
-                    ))
                 },
                 onCloseTab: { areaID, tabID in
                     appState.closeTab(tabID, areaID: areaID, projectID: project.id)
@@ -165,8 +126,6 @@ private struct MaximizedAreaView: View {
     let onToggleMaximize: () -> Void
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
-    let onCreateVCSTab: () -> Void
-    let onCreateDiffViewerTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onForceCloseTab: (UUID) -> Void
     let onSplit: (SplitDirection) -> Void
@@ -178,14 +137,11 @@ private struct MaximizedAreaView: View {
             isFocused: true,
             isActiveProject: isActiveProject,
             showTabStrip: true,
-            showVCSButton: false,
             projectID: projectID,
             shortcutIndexOffset: 0,
             onFocus: {},
             onSelectTab: onSelectTab,
             onCreateTab: onCreateTab,
-            onCreateVCSTab: onCreateVCSTab,
-            onCreateDiffViewerTab: onCreateDiffViewerTab,
             onCloseTab: onCloseTab,
             onForceCloseTab: onForceCloseTab,
             onSplit: onSplit,
