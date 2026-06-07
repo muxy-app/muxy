@@ -7,7 +7,7 @@ enum HomeProjectService {
         appState: AppState,
         worktreeStore: WorktreeStore
     ) -> Bool {
-        let home = Project.makeHome()
+        let home = Project.home
         worktreeStore.ensurePrimary(for: home)
         guard let worktree = worktreeStore.preferred(
             for: home.id,

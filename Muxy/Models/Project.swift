@@ -37,12 +37,10 @@ extension Project {
     static let homeName = "Home"
     static let homeIcon = "house.fill"
 
-    static func makeHome() -> Project {
-        Project(
-            id: homeID,
-            name: homeName,
-            path: FileManager.default.homeDirectoryForCurrentUser.path,
-            sortOrder: Int.min
-        )
-    }
+    static let home = Project(
+        id: homeID,
+        name: homeName,
+        path: FileManager.default.homeDirectoryForCurrentUser.path,
+        sortOrder: Int.min
+    )
 }

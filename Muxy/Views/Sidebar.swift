@@ -118,12 +118,11 @@ struct Sidebar: View {
     }
 
     private var homeProject: Project? {
-        guard showHomeProject else { return nil }
-        return projectStore.projects.first(where: { $0.isHome })
+        showHomeProject ? Project.home : nil
     }
 
     private var displayedProjects: [Project] {
-        projectGroupStore.filteredProjects(from: projectStore.projects).filter { !$0.isHome }
+        projectGroupStore.filteredProjects(from: projectStore.storedProjects)
     }
 
     private var projectList: some View {

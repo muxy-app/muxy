@@ -26,9 +26,9 @@ struct ProjectTests {
         #expect(project.preferredWorktreeParentPath == nil)
     }
 
-    @Test("makeHome uses the reserved id, home name and expanded home path")
-    func makeHomeIdentity() {
-        let home = Project.makeHome()
+    @Test("home uses the reserved id, home name and expanded home path")
+    func homeIdentity() {
+        let home = Project.home
 
         #expect(home.id == Project.homeID)
         #expect(home.isHome)

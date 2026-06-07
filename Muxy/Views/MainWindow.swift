@@ -74,6 +74,7 @@ struct MainWindow: View {
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
+    @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
     @AppStorage("muxy.extensionConsoleHeight") private var extensionConsoleHeight: Double = PanelLayoutMetrics.consoleDefaultHeight
     @State private var extensionOutputSelected: String?
@@ -627,14 +628,18 @@ struct MainWindow: View {
         return scope
     }
 
+    private var omniboxProjects: [Project] {
+        showHomeProject ? projectStore.projects : projectStore.storedProjects
+    }
+
     private var terminalOmniboxProjects: [TerminalOmniboxProjectItem] {
-        projectStore.projects.map {
+        omniboxProjects.map {
             TerminalOmniboxProjectItem(projectID: $0.id, name: $0.name, path: $0.path)
         }
     }
 
     private var terminalOmniboxWorktrees: [TerminalOmniboxWorktreeItem] {
-        projectStore.projects.flatMap { project in
+        omniboxProjects.flatMap { project in
             worktreeStore.list(for: project.id).map { worktree in
                 TerminalOmniboxWorktreeItem(
                     projectID: project.id,
@@ -649,18 +654,18 @@ struct MainWindow: View {
     }
 
     private var terminalOmniboxOpenTabs: [OpenTerminalTabItem] {
-        projectStore.projects.flatMap { appState.allOpenTerminalTabItems(for: $0.id) }
+        omniboxProjects.flatMap { appState.allOpenTerminalTabItems(for: $0.id) }
     }
 
     private var terminalOmniboxClosedTabs: [ClosedTerminalTabSnapshot] {
-        let projectIDs = Set(projectStore.projects.map(\.id))
+        let projectIDs = Set(omniboxProjects.map(\.id))
         return TerminalSessionStore.shared.closedTerminalTabs.filter {
             projectIDs.contains($0.projectID)
         }
     }
 
     private var terminalOmniboxCommandProjectIDs: Set<UUID> {
-        Set(projectStore.projects.compactMap { project in
+        Set(omniboxProjects.compactMap { project in
             worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id]) == nil
                 ? nil
                 : project.id

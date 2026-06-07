@@ -47,7 +47,7 @@ struct ProjectStoreTests {
 
     @Test("load drops any persisted Home record")
     func loadDropsPersistedHome() {
-        let persistence = ProjectPersistenceStub(initial: [Project.makeHome(), Project(name: "Repo", path: "/tmp/repo")])
+        let persistence = ProjectPersistenceStub(initial: [Project.home, Project(name: "Repo", path: "/tmp/repo")])
         let store = ProjectStore(persistence: persistence)
 
         #expect(store.storedProjects.contains(where: { $0.isHome }) == false)

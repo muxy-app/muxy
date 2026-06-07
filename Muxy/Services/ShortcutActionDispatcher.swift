@@ -27,11 +27,9 @@ struct ShortcutActionDispatcher {
     }
 
     private var navigableProjects: [Project] {
-        let filtered = projectGroupStore.filteredProjects(from: projectStore.projects).filter { !$0.isHome }
-        guard HomeProjectPreferences.isVisible,
-              let home = projectStore.projects.first(where: { $0.isHome })
-        else { return filtered }
-        return [home] + filtered
+        let filtered = projectGroupStore.filteredProjects(from: projectStore.storedProjects)
+        guard HomeProjectPreferences.isVisible else { return filtered }
+        return [Project.home] + filtered
     }
 
     func perform(_ action: ShortcutAction, activeProject: Project?) -> Bool {

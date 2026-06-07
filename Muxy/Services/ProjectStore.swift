@@ -16,7 +16,7 @@ final class ProjectStore {
     }
 
     var projects: [Project] {
-        [Project.makeHome()] + storedProjects
+        [Project.home] + storedProjects
     }
 
     func add(_ project: Project) {
