@@ -134,6 +134,33 @@ struct TerminalBridgeResolveFilePathTests {
         #expect(location == .init(path: file, line: 12, column: nil))
     }
 
+    @Test func resolvesFileLocationRootLevelDottedNameWithLineSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "README.md")
+        let url = try #require(URL(string: "README.md:10"))
+        let location = TerminalBridge.resolveFileLocation(from: url, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 10, column: nil))
+    }
+
+    @Test func resolvesFileLocationRootLevelDottedNameWithLineAndColumnSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "main.swift")
+        let url = try #require(URL(string: "main.swift:42:7"))
+        let location = TerminalBridge.resolveFileLocation(from: url, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 42, column: 7))
+    }
+
+    @Test func resolvesFileLocationRootLevelExtensionlessNameWithLineSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "Makefile")
+        let url = try #require(URL(string: "Makefile:12"))
+        let location = TerminalBridge.resolveFileLocation(from: url, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 12, column: nil))
+    }
+
     @Test func resolvesFileLocationWithoutSuffix() throws {
         let dir = makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -175,11 +202,15 @@ struct TerminalBridgeResolveFilePathTests {
         #expect(TerminalBridge.isExternalLink(try #require(URL(string: "mailto:a@b.com"))))
         #expect(TerminalBridge.isExternalLink(try #require(URL(string: "tel:+123"))))
         #expect(TerminalBridge.isExternalLink(try #require(URL(string: "vscode://file/x"))))
+        #expect(TerminalBridge.isExternalLink(try #require(URL(string: "ssh:host"))))
+        #expect(TerminalBridge.isExternalLink(try #require(URL(string: "spotify:track:abc"))))
     }
 
     @Test func treatsSchemelessAndMisparsedPathsAsNonExternal() throws {
         #expect(!TerminalBridge.isExternalLink(try #require(URL(string: "/tmp/x.md:12"))))
         #expect(!TerminalBridge.isExternalLink(try #require(URL(string: "notes.md:5"))))
         #expect(!TerminalBridge.isExternalLink(try #require(URL(string: "reviews/results.md:12"))))
+        #expect(!TerminalBridge.isExternalLink(try #require(URL(string: "main.swift:42:7"))))
+        #expect(!TerminalBridge.isExternalLink(try #require(URL(string: "Makefile:12"))))
     }
 }

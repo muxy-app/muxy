@@ -344,11 +344,16 @@ struct TerminalBridge: NSViewRepresentable {
         let column: Int?
     }
 
-    static let externalLinkSchemes: Set<String> = ["http", "https", "mailto", "tel", "sms", "facetime", "facetime-audio"]
-
     static func isExternalLink(_ url: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased() else { return false }
-        return url.host != nil || externalLinkSchemes.contains(scheme)
+        guard url.scheme != nil else { return false }
+        guard !isLocalPathCandidate(url) else { return false }
+        return true
+    }
+
+    static func isLocalPathCandidate(_ url: URL) -> Bool {
+        guard !url.isFileURL, url.host == nil, !url.absoluteString.contains("//") else { return false }
+        let raw = url.absoluteString.removingPercentEncoding ?? url.absoluteString
+        return url.scheme == nil || stripLineColumnSuffix(from: raw) != nil
     }
 
     static func resolveFilePath(_ token: String, projectPath: String) -> String? {
@@ -375,7 +380,7 @@ struct TerminalBridge: NSViewRepresentable {
             guard !isDirectory.boolValue else { return nil }
             return path
         }
-        guard url.scheme == nil else { return nil }
+        guard isLocalPathCandidate(url) else { return nil }
         let raw = url.absoluteString.removingPercentEncoding ?? url.absoluteString
         return resolveFilePath(raw, projectPath: projectPath)
     }
@@ -384,7 +389,7 @@ struct TerminalBridge: NSViewRepresentable {
         if let path = resolveLocalFilePath(from: url, projectPath: projectPath) {
             return ResolvedFileLocation(path: path, line: nil, column: nil)
         }
-        guard !url.isFileURL, url.scheme == nil else { return nil }
+        guard isLocalPathCandidate(url) else { return nil }
         let raw = url.absoluteString.removingPercentEncoding ?? url.absoluteString
         guard let stripped = stripLineColumnSuffix(from: raw) else { return nil }
         guard let path = resolveFilePath(stripped.path, projectPath: projectPath) else { return nil }
