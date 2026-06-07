@@ -495,13 +495,6 @@ private struct ExpandedWorktreeRow: View {
         return worktree.name
     }
 
-    private var branchLabel: String? {
-        guard !worktree.isPrimary else { return nil }
-        guard let branch = worktree.branch, !branch.isEmpty else { return nil }
-        guard branch.caseInsensitiveCompare(displayName) != .orderedSame else { return nil }
-        return branch
-    }
-
     var body: some View {
         HStack(spacing: UIMetrics.spacing3) {
             leadingIndicator
@@ -515,25 +508,15 @@ private struct ExpandedWorktreeRow: View {
                     .onSubmit { commitRename() }
                     .onExitCommand { cancelRename() }
             } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: UIMetrics.spacing2) {
-                        Text(displayName)
-                            .font(.system(size: UIMetrics.fontBody, weight: activeStyle ? .semibold : .regular))
-                            .foregroundStyle(MuxyTheme.fg)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                HStack(spacing: UIMetrics.spacing2) {
+                    Text(displayName)
+                        .font(.system(size: UIMetrics.fontBody, weight: activeStyle ? .semibold : .regular))
+                        .foregroundStyle(MuxyTheme.fg)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-                        if worktree.isPrimary {
-                            PrimaryBadge()
-                        }
-                    }
-
-                    if let branch = branchLabel {
-                        Text(branch)
-                            .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
-                            .foregroundStyle(MuxyTheme.fg)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                    if worktree.isPrimary {
+                        PrimaryBadge()
                     }
                 }
             }
@@ -571,7 +554,6 @@ private struct ExpandedWorktreeRow: View {
     private var worktreeAccessibilityLabel: String {
         var label = displayName
         if worktree.isPrimary { label += ", primary" }
-        if let branch = branchLabel { label += ", branch: \(branch)" }
         return label
     }
 
