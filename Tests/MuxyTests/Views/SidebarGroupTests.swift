@@ -65,7 +65,7 @@ struct SidebarGroupTests {
 
         store.remove(id: project.id)
 
-        #expect(store.projects.isEmpty)
+        #expect(store.storedProjects.isEmpty)
     }
 
     @Test("group selection survives unrelated group renames")

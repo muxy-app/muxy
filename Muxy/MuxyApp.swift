@@ -96,7 +96,7 @@ struct MuxyApp: App {
                         return delegate
                     }
                     appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
-                        for id in projectIDs {
+                        for id in projectIDs where id != Project.homeID {
                             guard let project = projectStore.projects.first(where: { $0.id == id }) else {
                                 worktreeStore.removeProject(id)
                                 continue

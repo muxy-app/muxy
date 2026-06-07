@@ -8,6 +8,7 @@ struct InterfaceSettingsView: View {
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyle = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
     @AppStorage(ResourceUsagePreferences.visibleKey) private var showResourceUsage = ResourceUsagePreferences.defaultVisible
+    @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
 
     var body: some View {
         SettingsContainer {
@@ -29,6 +30,8 @@ struct InterfaceSettingsView: View {
             }
 
             SettingsSection("Sidebar", showsDivider: false) {
+                SettingsToggleRow(label: "Show Home", isOn: $showHomeProject)
+
                 SettingsToggleRow(
                     label: "Auto-expand worktrees on project switch",
                     isOn: $autoExpandWorktrees

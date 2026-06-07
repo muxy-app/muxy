@@ -175,6 +175,12 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .newTab, store: keyBindings)
 
+            Button("New Home Tab") {
+                guard isMainWindowFocused else { return }
+                performShortcutAction(.newHomeTab)
+            }
+            .shortcut(for: .newHomeTab, store: keyBindings)
+
             Menu("Custom Commands") {
                 if commandShortcuts.shortcuts.isEmpty {
                     Button("No Custom Commands") {}

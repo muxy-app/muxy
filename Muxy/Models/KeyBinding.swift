@@ -9,6 +9,7 @@ private struct ShortcutMetadata {
 
 enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case newTab
+    case newHomeTab
     case reopenClosedTerminalTab
     case closeTab
     case renameTab
@@ -68,6 +69,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
 
     static let allCases: [Self] = [
         .newTab,
+        .newHomeTab,
         .reopenClosedTerminalTab,
         .closeTab,
         .renameTab,
@@ -130,6 +132,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     private var metadata: ShortcutMetadata {
         switch self {
         case .newTab: ShortcutMetadata(displayName: "New Tab", category: "Tabs", scope: .mainWindow)
+        case .newHomeTab: ShortcutMetadata(displayName: "New Home Tab", category: "Tabs", scope: .mainWindow)
         case .reopenClosedTerminalTab: ShortcutMetadata(
                 displayName: "Reopen Closed Terminal Tab",
                 category: "Tabs",
@@ -294,6 +297,7 @@ struct KeyBinding: Codable, Identifiable {
 
     static let defaults: [Self] = [
         Self(action: .newTab, combo: KeyCombo(key: "t", command: true)),
+        Self(action: .newHomeTab, combo: KeyCombo(key: "n", command: true)),
         Self(action: .reopenClosedTerminalTab, combo: KeyCombo(key: "t", command: true, shift: true)),
         Self(action: .closeTab, combo: KeyCombo(key: "w", command: true)),
         Self(action: .renameTab, combo: KeyCombo(key: "t", shift: true, option: true)),

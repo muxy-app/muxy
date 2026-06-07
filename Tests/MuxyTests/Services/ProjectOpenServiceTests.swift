@@ -23,8 +23,8 @@ struct ProjectOpenServiceTests {
         )
 
         #expect(didConfirm)
-        #expect(projectStore.projects.count == 1)
-        #expect(appState.activeProjectID == projectStore.projects.first?.id)
+        #expect(projectStore.storedProjects.count == 1)
+        #expect(appState.activeProjectID == projectStore.storedProjects.first?.id)
     }
 
     @Test("new project is added to selected group")
@@ -47,10 +47,9 @@ struct ProjectOpenServiceTests {
             projectGroupStore: projectGroupStore
         )
 
-        let addedProject = try #require(projectStore.projects.first)
+        let addedProject = try #require(projectStore.storedProjects.first)
         #expect(didConfirm)
-        #expect(projectStore.projects.count == 1)
-        #expect(projectGroupStore.filteredProjects(from: projectStore.projects).first?.id == addedProject.id)
+        #expect(projectStore.storedProjects.count == 1)
         #expect(groupPersistence.savedGroups?.first?.projectIDs == [addedProject.id])
     }
 
@@ -73,8 +72,9 @@ struct ProjectOpenServiceTests {
             projectGroupStore: projectGroupStore
         )
 
+        let addedProject = try #require(projectStore.storedProjects.first)
         #expect(didConfirm)
-        #expect(projectGroupStore.filteredProjects(from: projectStore.projects).count == 1)
+        #expect(projectGroupStore.filteredProjects(from: projectStore.projects).contains { $0.id == addedProject.id })
         #expect(groupPersistence.savedGroups == nil)
     }
 
@@ -102,8 +102,8 @@ struct ProjectOpenServiceTests {
             worktreeStore: worktreeStore,
             projectGroupStore: projectGroupStore
         ))
-        #expect(projectStore.projects.count == 1)
-        #expect(appState.activeProjectID == projectStore.projects.first?.id)
+        #expect(projectStore.storedProjects.count == 1)
+        #expect(appState.activeProjectID == projectStore.storedProjects.first?.id)
     }
 
     @Test("already-added path is added to selected group")
@@ -129,7 +129,7 @@ struct ProjectOpenServiceTests {
         )
 
         #expect(didConfirm)
-        #expect(projectStore.projects.count == 1)
+        #expect(projectStore.storedProjects.count == 1)
         #expect(groupPersistence.savedGroups?.first?.projectIDs == [project.id])
     }
 
@@ -152,7 +152,7 @@ struct ProjectOpenServiceTests {
         )
 
         #expect(didConfirm)
-        #expect(projectStore.projects.count == 1)
+        #expect(projectStore.storedProjects.count == 1)
         #expect(worktreeStore.primary(for: project.id) != nil)
         #expect(appState.activeProjectID == project.id)
     }
@@ -176,7 +176,7 @@ struct ProjectOpenServiceTests {
         )
 
         #expect(result == .success)
-        #expect(projectStore.projects.count == 1)
+        #expect(projectStore.storedProjects.count == 1)
         #expect(appState.activeProjectID == project.id)
     }
 
@@ -206,7 +206,7 @@ struct ProjectOpenServiceTests {
             projectGroupStore: projectGroupStore,
             createIfMissing: true
         ))
-        #expect(projectStore.projects.isEmpty)
+        #expect(projectStore.storedProjects.isEmpty)
         #expect(appState.activeProjectID == nil)
     }
 
@@ -227,7 +227,7 @@ struct ProjectOpenServiceTests {
 
         #expect(!didConfirm)
         #expect(!FileManager.default.fileExists(atPath: dir.path))
-        #expect(projectStore.projects.isEmpty)
+        #expect(projectStore.storedProjects.isEmpty)
         #expect(appState.activeProjectID == nil)
     }
 
@@ -249,7 +249,7 @@ struct ProjectOpenServiceTests {
 
         #expect(didConfirm)
         #expect(FileManager.default.fileExists(atPath: dir.path))
-        #expect(projectStore.projects.first?.path == dir.standardizedFileURL.path)
+        #expect(projectStore.storedProjects.first?.path == dir.standardizedFileURL.path)
     }
 
     @Test("create failure returns create failed without adding a project")
@@ -269,7 +269,7 @@ struct ProjectOpenServiceTests {
         let result = service.confirm(path: "/tmp/muxy-create-failure", createIfMissing: true)
 
         #expect(result == .createFailed)
-        #expect(projectStore.projects.isEmpty)
+        #expect(projectStore.storedProjects.isEmpty)
         #expect(appState.activeProjectID == nil)
     }
 

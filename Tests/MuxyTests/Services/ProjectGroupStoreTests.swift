@@ -79,6 +79,17 @@ struct ProjectGroupStoreTests {
         #expect(persistence.savedGroups?.first?.projectIDs == [projectID])
     }
 
+    @Test("addProject never adds the Home project to a group")
+    func addProjectIgnoresHome() {
+        let group = ProjectGroup(name: "Work")
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = ProjectGroupStore(persistence: persistence)
+
+        store.addProject(projectID: Project.homeID, toGroup: group.id)
+
+        #expect(store.groups.first?.projectIDs.isEmpty == true)
+    }
+
     @Test("addProject ignores duplicate projectID")
     func addProjectDuplicate() {
         let projectID = UUID()

@@ -58,6 +58,10 @@ struct ExpandedProjectRow: View {
         String(project.name.prefix(1)).uppercased()
     }
 
+    private func hideHome() {
+        HomeProjectPreferences.isVisible = false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             projectHeader
@@ -66,6 +70,10 @@ struct ExpandedProjectRow: View {
             }
         }
         .task(id: project.path) {
+            guard !project.isHome else {
+                isCheckingGitRepo = false
+                return
+            }
             isCheckingGitRepo = true
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
@@ -82,35 +90,11 @@ struct ExpandedProjectRow: View {
             }
         }
         .contextMenu {
-            Button("Set Logo...") { pickLogoImage() }
-            if project.logo != nil {
-                Button("Remove Logo") { onSetLogo(nil) }
+            if project.isHome {
+                Button("Hide Home") { hideHome() }
+            } else {
+                projectContextMenu
             }
-            Button("Set Icon...") { showSymbolPicker = true }
-            if project.icon != nil {
-                Button("Remove Icon") { onSetIcon(nil) }
-            }
-            Button("Set Icon Color...") { showColorPicker = true }
-            if project.iconColor != nil {
-                Button("Reset Icon Color") { onSetIconColor(nil) }
-            }
-            Divider()
-            Button("Rename Project") { startRename() }
-            if isGitRepo {
-                Divider()
-                Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
-                Button("New Worktree…") { showCreateWorktreeSheet = true }
-            } else if isCheckingGitRepo {
-                Divider()
-                Button("Loading Worktrees…") {}
-                    .disabled(true)
-            }
-            if !projectGroupStore.groups.isEmpty {
-                Divider()
-                ProjectGroupMembershipMenu(project: project)
-            }
-            Divider()
-            Button("Remove Project", role: .destructive, action: onRemove)
         }
         .sheet(isPresented: $showCreateWorktreeSheet) {
             CreateWorktreeSheet(project: project) { result in
@@ -268,7 +252,11 @@ struct ExpandedProjectRow: View {
             RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                 .fill(iconBackground(hasLogo: logo != nil))
 
-            if let logo {
+            if project.isHome {
+                Image(systemName: Project.homeIcon)
+                    .font(.system(size: UIMetrics.fontTitleLarge, weight: .medium))
+                    .foregroundStyle(MuxyTheme.accentForeground)
+            } else if let logo {
                 Image(nsImage: logo)
                     .resizable()
                     .scaledToFill()
@@ -338,12 +326,48 @@ struct ExpandedProjectRow: View {
         return label
     }
 
+    @ViewBuilder
+    private var projectContextMenu: some View {
+        Button("Set Logo...") { pickLogoImage() }
+        if project.logo != nil {
+            Button("Remove Logo") { onSetLogo(nil) }
+        }
+        Button("Set Icon...") { showSymbolPicker = true }
+        if project.icon != nil {
+            Button("Remove Icon") { onSetIcon(nil) }
+        }
+        Button("Set Icon Color...") { showColorPicker = true }
+        if project.iconColor != nil {
+            Button("Reset Icon Color") { onSetIconColor(nil) }
+        }
+        Divider()
+        Button("Rename Project") { startRename() }
+        if isGitRepo {
+            Divider()
+            Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
+            Button("New Worktree…") { showCreateWorktreeSheet = true }
+        } else if isCheckingGitRepo {
+            Divider()
+            Button("Loading Worktrees…") {}
+                .disabled(true)
+        }
+        if !projectGroupStore.groups.isEmpty {
+            Divider()
+            ProjectGroupMembershipMenu(project: project)
+        }
+        Divider()
+        Button("Remove Project", role: .destructive, action: onRemove)
+    }
+
     private var resolvedLogo: NSImage? {
         guard let filename = project.logo else { return nil }
         return NSImage(contentsOfFile: ProjectLogoStorage.logoPath(for: filename))
     }
 
     private func iconBackground(hasLogo: Bool) -> AnyShapeStyle {
+        if project.isHome {
+            return AnyShapeStyle(hovered ? MuxyTheme.accent.opacity(0.85) : MuxyTheme.accent)
+        }
         if hasLogo { return AnyShapeStyle(Color.clear) }
         if let tint = ProjectIconColor.color(for: project.iconColor) {
             return AnyShapeStyle(hovered ? tint.opacity(0.85) : tint)
