@@ -69,6 +69,12 @@ final class ModifierKeyMonitor {
         return true
     }
 
+    func hint(for action: ShortcutAction) -> KeyCombo? {
+        let combo = KeyBindingStore.shared.combo(for: action)
+        guard isHolding(modifiers: combo.modifiers) else { return nil }
+        return combo
+    }
+
     private func updateFlags(_ flags: NSEvent.ModifierFlags) {
         let wasHoldingModifier = commandHeld || controlHeld
         commandHeld = flags.contains(.command)

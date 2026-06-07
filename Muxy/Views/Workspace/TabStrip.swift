@@ -381,13 +381,11 @@ private struct TabCell: View {
         return progressStore.isCompletionPending(for: paneID)
     }
 
-    private var showBadge: Bool {
+    private var shortcutHint: KeyCombo? {
         guard let shortcutIndex,
               let action = ShortcutAction.tabAction(for: shortcutIndex)
-        else { return false }
-        return ModifierKeyMonitor.shared.isHolding(
-            modifiers: KeyBindingStore.shared.combo(for: action).modifiers
-        )
+        else { return nil }
+        return ModifierKeyMonitor.shared.hint(for: action)
     }
 
     var body: some View {
@@ -397,7 +395,7 @@ private struct TabCell: View {
                     .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     .opacity(titleHidden && hovered && !tab.isPinned ? 0 : 1)
                     .overlay(alignment: .topTrailing) {
-                        if hasUnread || hasCompletionPending, !active, !showBadge {
+                        if hasUnread || hasCompletionPending, !active, shortcutHint == nil {
                             Circle()
                                 .fill(MuxyTheme.accent)
                                 .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
@@ -619,8 +617,8 @@ private struct TabCell: View {
 
     @ViewBuilder
     private var tabIconOrBadge: some View {
-        if showBadge, let shortcutIndex {
-            ShortcutIconBadge(number: shortcutIndex, size: UIMetrics.iconMD)
+        if let shortcutIndex, let hint = shortcutHint {
+            ShortcutIconBadge(number: shortcutIndex, size: UIMetrics.iconMD, combo: hint)
                 .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
         } else {
             tabIconView

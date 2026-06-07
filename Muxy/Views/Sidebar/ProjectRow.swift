@@ -178,8 +178,8 @@ struct ProjectRow: View {
 
     @ViewBuilder
     private var iconOrBadge: some View {
-        if showShortcutBadge, let shortcutIndex {
-            ShortcutIconBadge(number: shortcutIndex, size: UIMetrics.iconXXL)
+        if let shortcutIndex, let hint = shortcutHint {
+            ShortcutIconBadge(number: shortcutIndex, size: UIMetrics.iconXXL, combo: hint)
                 .padding(UIMetrics.scaled(3))
         } else {
             projectIcon
@@ -253,13 +253,11 @@ struct ProjectRow: View {
         return isActive ? MuxyTheme.fg : MuxyTheme.fgMuted
     }
 
-    private var showShortcutBadge: Bool {
+    private var shortcutHint: KeyCombo? {
         guard let shortcutIndex,
               let action = ShortcutAction.projectAction(for: shortcutIndex)
-        else { return false }
-        return ModifierKeyMonitor.shared.isHolding(
-            modifiers: KeyBindingStore.shared.combo(for: action).modifiers
-        )
+        else { return nil }
+        return ModifierKeyMonitor.shared.hint(for: action)
     }
 
     private func pickLogoImage() {
