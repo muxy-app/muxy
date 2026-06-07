@@ -179,6 +179,25 @@ final class ExtensionStore {
         reload()
     }
 
+    func delete(extensionID: String) throws {
+        guard let status = statuses.first(where: { $0.id == extensionID }) else { return }
+        guard !status.isDev else { throw ExtensionDeleteError.devExtension }
+
+        stopProcess(extensionID: extensionID)
+
+        let target = rootDirectoryURL.appendingPathComponent(extensionID, isDirectory: true)
+        if FileManager.default.fileExists(atPath: target.path) {
+            try FileManager.default.removeItem(at: target)
+        }
+
+        ExtensionEnabledStore.clear(extensionID: extensionID)
+        ExtensionSettingsStore.shared.clearAll(extensionID: extensionID)
+        ExtensionGrantStore.shared.removeAll(for: extensionID)
+        availableUpdates.removeValue(forKey: extensionID)
+
+        reload()
+    }
+
     func availableUpdateVersion(for extensionID: String) -> String? {
         availableUpdates[extensionID]
     }
@@ -950,5 +969,16 @@ final class ExtensionStore {
         if wasIntentional { return .stopped }
         if terminationStatus == 0 { return .exitedCleanly }
         return .exitedWithStatus(terminationStatus)
+    }
+}
+
+enum ExtensionDeleteError: LocalizedError, Equatable {
+    case devExtension
+
+    var errorDescription: String? {
+        switch self {
+        case .devExtension:
+            "Unpacked extensions can only be removed with “Remove from Muxy”."
+        }
     }
 }

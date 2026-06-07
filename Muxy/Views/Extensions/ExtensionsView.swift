@@ -74,7 +74,8 @@ struct ExtensionsView: View {
             ExtensionDetailPage(
                 status: status,
                 store: store,
-                grantStore: grantStore
+                grantStore: grantStore,
+                onDeleted: { selectedExtensionID = nil }
             )
         } else if tab == .browse {
             ExtensionStorePage(
@@ -120,7 +121,6 @@ struct ExtensionsView: View {
                     Text("Extensions")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(MuxyTheme.fg)
-                    SettingsDevelopmentBadge(text: "DEV")
                 }
             }
             if !isShowingSubPage {
@@ -312,7 +312,6 @@ private struct ExtensionsListPage: View {
 
     private var developmentBanner: some View {
         HStack(alignment: .top, spacing: 8) {
-            SettingsDevelopmentBadge(text: "DEV")
             Text("Extensions are under active development. APIs, manifest format, and behavior may change without notice.")
                 .font(.system(size: 11))
                 .foregroundStyle(MuxyTheme.fgMuted)
@@ -674,8 +673,10 @@ private struct ExtensionDetailPage: View {
     let status: ExtensionStore.ExtensionStatus
     let store: ExtensionStore
     let grantStore: ExtensionGrantStore
+    var onDeleted: () -> Void = {}
     @State private var showLogs = false
     @State private var isUpdating = false
+    @State private var showDeleteConfirmation = false
 
     private var ext: MuxyExtension { status.muxyExtension }
 
@@ -753,8 +754,8 @@ private struct ExtensionDetailPage: View {
                     .foregroundStyle(MuxyTheme.fgDim)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                Spacer(minLength: 12)
                 if status.isDev {
-                    Spacer(minLength: 12)
                     Button {
                         store.removeDevPath(status.devSourcePath ?? ext.directory.path)
                     } label: {
@@ -764,12 +765,32 @@ private struct ExtensionDetailPage: View {
                     }
                     .buttonStyle(.plain)
                     .help("Stop loading this dev extension. Your folder is left untouched.")
+                } else {
+                    Button {
+                        showDeleteConfirmation = true
+                    } label: {
+                        Text("Delete")
+                            .font(.system(size: 11))
+                            .foregroundStyle(MuxyTheme.diffRemoveFg)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Delete this extension and its data from Muxy.")
                 }
             }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+        .confirmationDialog(
+            "Delete \(ext.displayName)?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) { performDelete() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the extension and its settings, permissions, and shortcuts. This cannot be undone.")
+        }
     }
 
     private func errorBlock(_ error: String) -> some View {
@@ -986,6 +1007,18 @@ private struct ExtensionDetailPage: View {
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             ToastState.shared.show(title: "Could not update \(status.id)", body: message)
+        }
+    }
+
+    private func performDelete() {
+        let name = ext.displayName
+        do {
+            try store.delete(extensionID: status.id)
+            onDeleted()
+            ToastState.shared.show("Deleted \(name)")
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            ToastState.shared.show(title: "Could not delete \(name)", body: message)
         }
     }
 
