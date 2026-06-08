@@ -49,16 +49,29 @@ struct TerminalPane: View {
                 visible: visible,
                 areaID: areaID,
                 onFocus: onFocus,
-                onProcessExit: onProcessExit,
+                onProcessExit: {
+                    if state.remoteHostID != nil, let start = state.sshStartTime {
+                        let elapsed = Date().timeIntervalSince(start)
+                        if elapsed < 10 {
+                            let host = RemoteHostStore.shared.find(byID: state.remoteHostID ?? UUID())?.host ?? ""
+                            state.sshError = .unknown("Could not connect to \(host)")
+                            return
+                        }
+                    }
+                    onProcessExit()
+                },
                 onSplitRequest: onSplitRequest
             )
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Terminal")
             .accessibilityAddTraits(.allowsDirectInteraction)
-            .opacity(remoteOwnerName == nil ? 1 : 0)
-            .allowsHitTesting(remoteOwnerName == nil)
+            .opacity(remoteOwnerName == nil && state.sshError == nil ? 1 : 0)
+            .allowsHitTesting(remoteOwnerName == nil && state.sshError == nil)
 
-            if let name = remoteOwnerName {
+            if let error = state.sshError {
+                sshErrorOverlay(error)
+                    .transition(.opacity)
+            } else if let name = remoteOwnerName {
                 RemoteControlledPlaceholder(deviceName: name) {
                     PaneOwnershipStore.shared.releaseToMac(paneID: state.id)
                 }
@@ -92,6 +105,33 @@ struct TerminalPane: View {
                     .transition(.opacity)
             }
         }
+    }
+
+    private func sshErrorOverlay(_ error: SSHConnectionError) -> some View {
+        VStack(spacing: UIMetrics.spacing6) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 28))
+                .foregroundStyle(MuxyTheme.warning)
+            Text(error.title)
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+            Text(error.message)
+                .font(.system(size: UIMetrics.fontBody))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .multilineTextAlignment(.center)
+            HStack(spacing: UIMetrics.spacing4) {
+                Button("Reconnect") {
+                    state.sshError = nil
+                    state.sshStartTime = Date()
+                    TerminalViewRegistry.shared.existingView(for: state.id)?.wake()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MuxyTheme.bg)
     }
 }
 
@@ -205,7 +245,9 @@ struct TerminalBridge: NSViewRepresentable {
             commandInteractive: launch.interactive,
             closesOnCommandExit: launch.closesOnCommandExit
         )
-        if view.envVars.isEmpty, let key = worktreeKey {
+        if !state.envVars.isEmpty {
+            view.envVars = state.envVars
+        } else if view.envVars.isEmpty, let key = worktreeKey {
             view.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
         }
         view.isFocused = focused
@@ -249,7 +291,9 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
-        if nsView.envVars.isEmpty, nsView.surface == nil, let key = worktreeKey {
+        if !state.envVars.isEmpty {
+            nsView.envVars = state.envVars
+        } else if nsView.envVars.isEmpty, nsView.surface == nil, let key = worktreeKey {
             nsView.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
         }
         nsView.overlayActive = overlayActive

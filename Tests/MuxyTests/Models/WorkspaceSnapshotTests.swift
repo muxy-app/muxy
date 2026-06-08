@@ -159,7 +159,7 @@ struct WorkspaceSnapshotTests {
         let decoded = try JSONDecoder().decode(SplitNodeSnapshot.self, from: data)
 
         if case let .split(decodedBranch) = decoded {
-            #expect(decodedBranch.direction == .horizontal)
+            #expect(decodedBranch.direction == SplitDirectionSnapshot.horizontal)
             #expect(abs(decodedBranch.ratio - 0.6) < 0.001)
         } else {
             Issue.record("Expected split snapshot")
@@ -179,7 +179,8 @@ struct WorkspaceSnapshotTests {
             root: .tabArea(TabAreaSnapshot(
                 id: focusedAreaID, projectPath: testPath,
                 tabs: [TerminalTabSnapshot(kind: .terminal, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Shell")],
-                activeTabIndex: 0
+                activeTabIndex: 0,
+                remoteConfig: nil
             ))
         )
         let data = try JSONEncoder().encode(snapshot)
@@ -226,7 +227,8 @@ struct WorkspaceSnapshotTests {
             root: .tabArea(TabAreaSnapshot(
                 id: areaID, projectPath: testPath,
                 tabs: [TerminalTabSnapshot(kind: .terminal, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Shell")],
-                activeTabIndex: 0
+                activeTabIndex: 0,
+                remoteConfig: nil
             ))
         )
 
@@ -253,7 +255,8 @@ struct WorkspaceSnapshotTests {
             root: .tabArea(TabAreaSnapshot(
                 id: UUID(), projectPath: testPath,
                 tabs: [TerminalTabSnapshot(kind: .terminal, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Shell")],
-                activeTabIndex: 0
+                activeTabIndex: 0,
+                remoteConfig: nil
             ))
         )
 
@@ -279,7 +282,8 @@ struct WorkspaceSnapshotTests {
             root: .tabArea(TabAreaSnapshot(
                 id: UUID(), projectPath: testPath,
                 tabs: [TerminalTabSnapshot(kind: .terminal, customTitle: nil, colorID: nil, isPinned: false, projectPath: testPath, paneTitle: "Shell")],
-                activeTabIndex: 0
+                activeTabIndex: 0,
+                remoteConfig: nil
             ))
         )
 
@@ -313,7 +317,8 @@ struct WorkspaceSnapshotTests {
             root: .tabArea(TabAreaSnapshot(
                 id: UUID(), projectPath: importedWorktree.path,
                 tabs: [TerminalTabSnapshot(kind: .terminal, customTitle: nil, colorID: nil, isPinned: false, projectPath: importedWorktree.path, paneTitle: "Shell")],
-                activeTabIndex: 0
+                activeTabIndex: 0,
+                remoteConfig: nil
             ))
         )
 

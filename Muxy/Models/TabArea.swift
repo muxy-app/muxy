@@ -5,35 +5,44 @@ import Foundation
 final class TabArea: Identifiable {
     let id: UUID
     let projectPath: String
+    let remoteConfig: RemoteProjectConfig?
     var tabs: [TerminalTab] = []
     var activeTabID: UUID?
     private var tabHistory: [UUID] = []
 
-    init(projectPath: String) {
+    init(projectPath: String, remoteConfig: RemoteProjectConfig? = nil) {
         id = UUID()
         self.projectPath = projectPath
-        let tab = TerminalTab(pane: TerminalPaneState(projectPath: projectPath))
+        self.remoteConfig = remoteConfig
+        let pane = Self.paneForProject(projectPath: projectPath, remoteConfig: remoteConfig)
+        let tab = TerminalTab(pane: pane)
         tabs.append(tab)
         activeTabID = tab.id
     }
 
-    init(projectPath: String, command: String?) {
+    init(projectPath: String, command: String?, remoteConfig: RemoteProjectConfig? = nil) {
         id = UUID()
         self.projectPath = projectPath
-        let wrappedCommand = command.map { "(\($0)); exec \"$0\" -l" }
+        self.remoteConfig = remoteConfig
+        let effectiveCommand: String? = if let remoteConfig, let command {
+            Self.sshCommandForRemote(config: remoteConfig, injectedCommand: command)
+        } else {
+            command.map { "(\($0)); exec \"$0\" -l" }
+        }
         let pane = TerminalPaneState(
             projectPath: projectPath,
-            startupCommand: wrappedCommand,
-            startupCommandInteractive: wrappedCommand != nil
+            startupCommand: effectiveCommand,
+            startupCommandInteractive: effectiveCommand != nil
         )
         let tab = TerminalTab(pane: pane)
         tabs.append(tab)
         activeTabID = tab.id
     }
 
-    init(projectPath: String, existingTab tab: TerminalTab) {
+    init(projectPath: String, existingTab tab: TerminalTab, remoteConfig: RemoteProjectConfig? = nil) {
         id = UUID()
         self.projectPath = projectPath
+        self.remoteConfig = remoteConfig
         tabs.append(tab)
         activeTabID = tab.id
     }
@@ -41,6 +50,7 @@ final class TabArea: Identifiable {
     init(restoring snapshot: TabAreaSnapshot, sessionsByPaneID: [UUID: TerminalSessionSnapshot] = [:]) {
         id = snapshot.id
         projectPath = snapshot.projectPath
+        remoteConfig = snapshot.remoteConfig
         tabs = snapshot.tabs.map { tabSnapshot in
             TerminalTab(
                 restoring: tabSnapshot,
@@ -57,12 +67,14 @@ final class TabArea: Identifiable {
     func snapshot() -> TabAreaSnapshot {
         let persistedTabs = tabs
         let activeIndex = persistedTabs.firstIndex(where: { $0.id == activeTabID })
-        return TabAreaSnapshot(
+        var snapshot = TabAreaSnapshot(
             id: id,
             projectPath: projectPath,
             tabs: persistedTabs.map { $0.snapshot() },
             activeTabIndex: activeIndex
         )
+        snapshot.remoteConfig = remoteConfig
+        return snapshot
     }
 
     var activeTab: TerminalTab? {
@@ -75,7 +87,8 @@ final class TabArea: Identifiable {
     }
 
     func createTab() {
-        insertTab(TerminalTab(pane: TerminalPaneState(projectPath: projectPath)))
+        let pane = Self.paneForProject(projectPath: projectPath, remoteConfig: remoteConfig)
+        insertTab(TerminalTab(pane: pane))
     }
 
     func createTab(inDirectory directory: String) {
@@ -86,11 +99,12 @@ final class TabArea: Identifiable {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return }
         let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveCommand = Self.sshWrappedCommand(command: trimmedCommand, remoteConfig: remoteConfig)
         let pane = TerminalPaneState(
             projectPath: projectPath,
             title: title.isEmpty ? Self.commandTitle(trimmedCommand) : title,
-            startupCommand: trimmedCommand,
-            startupCommandInteractive: true,
+            startupCommand: effectiveCommand,
+            startupCommandInteractive: effectiveCommand != nil,
             closesOnStartupCommandExit: closesOnCommandExit
         )
         insertTab(TerminalTab(pane: pane))
@@ -144,11 +158,82 @@ final class TabArea: Identifiable {
         activeTabID = tab.id
     }
 
+    private static func paneForProject(projectPath: String, remoteConfig: RemoteProjectConfig?) -> TerminalPaneState {
+        guard let remoteConfig else {
+            return TerminalPaneState(projectPath: projectPath)
+        }
+        let sshCommand = sshCommandForRemote(config: remoteConfig)
+        let pane = TerminalPaneState(
+            projectPath: projectPath,
+            startupCommand: sshCommand,
+            startupCommandInteractive: true,
+            closesOnStartupCommandExit: false
+        )
+        pane.remoteHostID = remoteConfig.hostID
+        pane.sshStartTime = Date()
+        if let host = RemoteHostStore.shared.find(byID: remoteConfig.hostID), host.useKeychain,
+           let password = KeychainSSHHelper.getPassword(host: host.host, user: host.user) {
+            pane.envVars = [
+                ("MUXY_SSH_USER", host.user),
+                ("MUXY_SSH_HOST", host.host),
+                ("MUXY_SSH_PORT", "\(host.port)"),
+                ("MUXY_SSH_REMOTE_PATH", remoteConfig.remotePath),
+                ("MUXY_SSH_PASSWORD", password),
+                ("MUXY_SSH_CONTROL_PATH", host.controlPath()),
+            ]
+        }
+        return pane
+    }
+
+    private static func askpassScriptPath() -> String {
+        Bundle.appResources.resourceURL?
+            .appendingPathComponent("scripts/muxy-ssh-askpass.sh")
+            .path ?? ""
+    }
+
+    private static func sshWrappedCommand(command: String?, remoteConfig: RemoteProjectConfig?) -> String? {
+        guard let command else { return nil }
+        if let remoteConfig {
+            return sshCommandForRemote(config: remoteConfig, injectedCommand: command)
+        }
+        return command
+    }
+
+    private static func sshCommandForRemote(config: RemoteProjectConfig, injectedCommand: String? = nil) -> String {
+        let store = RemoteHostStore.shared
+        guard let host = store.find(byID: config.hostID) else {
+            return injectedCommand ?? "echo 'Host not found'"
+        }
+        var args = host.sshCommandArgs(remotePath: nil)
+        if let injectedCommand {
+            args.removeLast()
+            args.append("\(host.user)@\(host.host)")
+            args.append("-t")
+            args.append("cd \(ShellEscaper.escape(config.remotePath)); \(injectedCommand)")
+        } else {
+            args.removeLast()
+            args.append("\(host.user)@\(host.host)")
+            args.append("-t")
+            args.append("cd \(ShellEscaper.escape(config.remotePath)); exec $SHELL -l")
+        }
+        if host.useKeychain, KeychainSSHHelper.getPassword(host: host.host, user: host.user) != nil {
+            return "/usr/bin/expect \(askpassScriptPath())"
+        }
+        let command = args.map { arg in
+            if arg.contains(" ") || arg.contains(";") {
+                return "'\(arg.replacingOccurrences(of: "'", with: "'\\''"))'"
+            }
+            return arg
+        }.joined(separator: " ")
+        return command
+    }
+
     enum InsertSide { case left, right }
 
     func createTabAdjacent(to tabID: UUID, side: InsertSide) {
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else { return }
-        let tab = TerminalTab(pane: TerminalPaneState(projectPath: projectPath))
+        let pane = Self.paneForProject(projectPath: projectPath, remoteConfig: remoteConfig)
+        let tab = TerminalTab(pane: pane)
         let desiredIndex = side == .left ? index : index + 1
         let insertIndex = max(desiredIndex, firstUnpinnedIndex)
         tabs.insert(tab, at: insertIndex)

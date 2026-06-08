@@ -20,12 +20,13 @@ enum WorkspaceReducerShared {
         projectID: UUID,
         worktreeID: UUID,
         worktreePath: String,
+        remoteConfig: RemoteProjectConfig? = nil,
         state: inout WorkspaceState,
         effects: inout WorkspaceSideEffects
     ) {
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         guard state.workspaceRoots[key] == nil else { return }
-        let area = TabArea(projectPath: worktreePath)
+        let area = TabArea(projectPath: worktreePath, remoteConfig: remoteConfig)
         state.workspaceRoots[key] = .tabArea(area)
         state.focusedAreaID[key] = area.id
     }

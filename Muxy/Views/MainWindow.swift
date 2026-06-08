@@ -533,6 +533,9 @@ struct MainWindow: View {
                 closedTabs: terminalOmniboxClosedTabs,
                 commandShortcuts: CommandShortcutStore.shared.shortcuts,
                 extensionCommands: terminalOmniboxExtensionCommands,
+                sshHosts: RemoteHostStore.shared.hosts.map {
+                    SSHHostOmniboxItem(hostID: $0.id, name: $0.name, host: $0.host, user: $0.user)
+                },
                 activeProjectID: appState.activeProjectID,
                 activeWorktreeID: appState.activeProjectID.flatMap { appState.activeWorktreeID[$0] },
                 commandProjectIDs: terminalOmniboxCommandProjectIDs,
@@ -608,6 +611,16 @@ struct MainWindow: View {
                 projectStore: projectStore,
                 worktreeStore: worktreeStore
             ))
+        case let .sshHost(item):
+            let config = RemoteProjectConfig(
+                hostID: item.hostID,
+                remotePath: "~",
+                displayName: item.name
+            )
+            let project = projectStore.addRemote(name: item.name, config: config)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                appState.selectRemoteProject(projectID: project.id, config: config)
+            }
         }
     }
 

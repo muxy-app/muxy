@@ -1,5 +1,33 @@
 import Foundation
 
+enum SSHConnectionError {
+    case refused(String)
+    case authFailed(String)
+    case hostKeyChanged(String)
+    case timeout(String)
+    case unknown(String)
+
+    var title: String {
+        switch self {
+        case .refused: "Connection Refused"
+        case .authFailed: "Authentication Failed"
+        case .hostKeyChanged: "Host Key Changed"
+        case .timeout: "Connection Timeout"
+        case .unknown: "Connection Error"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case let .refused(host): "Could not connect to \(host): Connection refused"
+        case let .authFailed(detail): detail
+        case let .hostKeyChanged(detail): detail
+        case let .timeout(host): "Connection to \(host) timed out"
+        case let .unknown(detail): detail
+        }
+    }
+}
+
 struct TerminalPaneLaunch: Equatable {
     let command: String?
     let interactive: Bool
@@ -18,6 +46,10 @@ final class TerminalPaneState: Identifiable {
     let closesOnStartupCommandExit: Bool
     let externalEditorFilePath: String?
     let restoredSession: TerminalSessionSnapshot?
+    var envVars: [(key: String, value: String)] = []
+    var remoteHostID: UUID?
+    var sshError: SSHConnectionError?
+    var sshStartTime: Date?
     var activeRestoredCommand: String?
     var restoreDecision: TerminalSessionRestoreDecision = .none
     var restoreConsumed = false

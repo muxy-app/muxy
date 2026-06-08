@@ -45,6 +45,8 @@ struct Sidebar: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
     @State private var projectPendingRemoval: Project?
+    @State private var showSSHHostPanel = false
+    @State private var showAddRemoteProject = false
     let expanded: Bool
     let expandedCustomWidth: CGFloat
     @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
@@ -106,15 +108,54 @@ struct Sidebar: View {
     }
 
     private var addButton: some View {
-        AddProjectButton(expanded: isWide) {
-            ProjectOpenService.openProjectViaPicker(
-                appState: appState,
-                projectStore: projectStore,
-                worktreeStore: worktreeStore,
-                projectGroupStore: projectGroupStore
-            )
+        Menu {
+            Button(action: {
+                ProjectOpenService.openProjectViaPicker(
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
+                )
+            }) {
+                Label("Add Local Project...", systemImage: "folder.badge.plus")
+            }
+
+            Button(action: { showAddRemoteProject = true }) {
+                Label("Add Remote Project...", systemImage: "externaldrive.connected.to.line.below")
+            }
+
+            Divider()
+
+            Button(action: { showSSHHostPanel = true }) {
+                Label("Manage SSH Hosts...", systemImage: "server.rack")
+            }
+        } label: {
+            if isWide {
+                HStack(spacing: UIMetrics.spacing3) {
+                    Image(systemName: "plus")
+                        .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                    Text("Add Project")
+                        .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                    Spacer()
+                }
+                .padding(.horizontal, UIMetrics.spacing4)
+                .padding(.vertical, UIMetrics.spacing3)
+                .contentShape(Rectangle())
+            } else {
+                Image(systemName: "plus")
+                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                    .frame(maxWidth: .infinity)
+            }
         }
-        .help(shortcutTooltip("Add Project", for: .openProject))
+        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
+        .foregroundStyle(MuxyTheme.fgMuted)
+        .sheet(isPresented: $showSSHHostPanel) {
+            SSHHostManagementPanel()
+        }
+        .sheet(isPresented: $showAddRemoteProject) {
+            AddRemoteProjectSheet(isPresented: $showAddRemoteProject)
+        }
     }
 
     private var homeProject: Project? {
@@ -218,6 +259,10 @@ struct Sidebar: View {
     }
 
     private func select(_ project: Project) {
+        if let remoteConfig = project.remoteConfig {
+            appState.selectRemoteProject(projectID: project.id, config: remoteConfig)
+            return
+        }
         worktreeStore.ensurePrimary(for: project)
         guard let worktree = worktreeStore.preferred(
             for: project.id,

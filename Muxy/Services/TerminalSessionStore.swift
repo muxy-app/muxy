@@ -133,6 +133,7 @@ final class TerminalSessionStore {
             for area in root.allAreas() {
                 for tab in area.tabs {
                     guard let pane = tab.content.pane else { continue }
+                    guard pane.remoteHostID == nil else { continue }
                     let view = TerminalViewRegistry.shared.existingView(for: pane.id)
                     let isRunning = view.map { $0.needsConfirmQuit() } ?? false
                     let hasRestoredCommand = pane.activeRestoredCommand != nil

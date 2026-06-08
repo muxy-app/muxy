@@ -25,6 +25,26 @@ enum ProjectLifecycleReducer {
         )
     }
 
+    static func selectRemoteProject(
+        projectID: UUID,
+        config: RemoteProjectConfig,
+        state: inout WorkspaceState,
+        effects: inout WorkspaceSideEffects
+    ) {
+        let sentinelWorktreeID = UUID()
+        let localPath = Project.remoteProjectLocalPath(id: projectID)
+        state.activeProjectID = projectID
+        state.activeWorktreeID[projectID] = sentinelWorktreeID
+        WorkspaceReducerShared.ensureWorkspaceExists(
+            projectID: projectID,
+            worktreeID: sentinelWorktreeID,
+            worktreePath: localPath,
+            remoteConfig: config,
+            state: &state,
+            effects: &effects
+        )
+    }
+
     static func removeProject(
         projectID: UUID,
         state: inout WorkspaceState,

@@ -38,6 +38,14 @@ enum WorkspaceReducer {
                 effects: &effects
             )
 
+        case let .selectRemoteProject(projectID, config):
+            ProjectLifecycleReducer.selectRemoteProject(
+                projectID: projectID,
+                config: config,
+                state: &state,
+                effects: &effects
+            )
+
         case let .removeProject(projectID):
             ProjectLifecycleReducer.removeProject(projectID: projectID, state: &state, effects: &effects)
 

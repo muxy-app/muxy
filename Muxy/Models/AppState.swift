@@ -26,6 +26,7 @@ final class AppState {
     enum Action {
         case selectProject(projectID: UUID, worktreeID: UUID, worktreePath: String)
         case selectWorktree(projectID: UUID, worktreeID: UUID, worktreePath: String)
+        case selectRemoteProject(projectID: UUID, config: RemoteProjectConfig)
         case removeProject(projectID: UUID)
         case removeWorktree(
             projectID: UUID,
@@ -192,6 +193,10 @@ final class AppState {
             worktreeID: worktree.id,
             worktreePath: worktree.path
         ))
+    }
+
+    func selectRemoteProject(projectID: UUID, config: RemoteProjectConfig) {
+        dispatch(.selectRemoteProject(projectID: projectID, config: config))
     }
 
     func openInitialTab(projectID: UUID, worktree: Worktree) {

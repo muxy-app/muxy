@@ -284,6 +284,11 @@ struct ExpandedProjectRow: View {
                     .fill(MuxyTheme.accent)
                     .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
                     .offset(x: UIMetrics.spacing1, y: -UIMetrics.spacing1)
+            } else if project.isRemote {
+                Image(systemName: "circlebadge.fill")
+                    .font(.system(size: 6))
+                    .foregroundStyle(MuxyTheme.accent)
+                    .offset(x: UIMetrics.spacing1, y: -UIMetrics.spacing1)
             }
         }
     }

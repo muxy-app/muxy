@@ -137,6 +137,8 @@ struct MuxyCommands: Commands {
             }
             .shortcut(for: .openProject, store: keyBindings)
 
+            Divider()
+
             Menu("Open in IDE") {
                 Button {
                     guard let activeProjectPath else { return }

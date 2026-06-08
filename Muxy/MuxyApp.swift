@@ -54,8 +54,10 @@ struct MuxyApp: App {
                 .environment(ThemeService.shared)
                 .environment(ExtensionStore.shared)
                 .environment(ExtensionSettingsStore.shared)
+                .environment(RemoteHostStore.shared)
                 .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
+                    RemoteHostStore.shared.ensureControlDir()
                     startDeferredServicesIfNeeded()
                     NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore

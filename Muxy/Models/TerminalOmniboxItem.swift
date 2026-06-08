@@ -63,6 +63,19 @@ struct ExtensionPaletteItem: Identifiable, Equatable {
     }
 }
 
+struct SSHHostOmniboxItem: Identifiable, Equatable {
+    let hostID: UUID
+    let name: String
+    let host: String
+    let user: String
+
+    var id: String { "ssh-\(hostID.uuidString)" }
+
+    var searchKey: String {
+        [name, host, user, "ssh"].joined(separator: " ")
+    }
+}
+
 enum TerminalOmniboxItem: Identifiable, Equatable {
     case project(TerminalOmniboxProjectItem)
     case worktree(TerminalOmniboxWorktreeItem)
@@ -70,6 +83,7 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
     case closedTab(ClosedTerminalTabSnapshot)
     case commandShortcut(CommandShortcut)
     case extensionCommand(ExtensionPaletteItem)
+    case sshHost(SSHHostOmniboxItem)
 
     var id: String {
         switch self {
@@ -84,6 +98,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
         case let .commandShortcut(shortcut):
             "shortcut-\(shortcut.id.uuidString)"
         case let .extensionCommand(item):
+            item.id
+        case let .sshHost(item):
             item.id
         }
     }
@@ -102,6 +118,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             shortcut.displayName
         case let .extensionCommand(item):
             item.command.title
+        case let .sshHost(item):
+            item.name
         }
     }
 
@@ -119,6 +137,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             shortcut.trimmedCommand
         case let .extensionCommand(item):
             item.command.subtitle ?? item.extensionName
+        case let .sshHost(item):
+            "\(item.user)@\(item.host)"
         }
     }
 
@@ -136,6 +156,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             "Custom Commands"
         case .extensionCommand:
             "Extension Commands"
+        case .sshHost:
+            "SSH Hosts"
         }
     }
 
@@ -153,6 +175,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             "command"
         case .extensionCommand:
             "puzzlepiece.extension"
+        case .sshHost:
+            "server.rack"
         }
     }
 
@@ -174,6 +198,8 @@ enum TerminalOmniboxItem: Identifiable, Equatable {
             [shortcut.displayName, shortcut.trimmedCommand].joined(separator: " ")
         case let .extensionCommand(item):
             item.searchKey
+        case let .sshHost(item):
+            item.searchKey
         }
     }
 }
@@ -185,6 +211,7 @@ struct TerminalOmniboxItemContext {
     let closedTabs: [ClosedTerminalTabSnapshot]
     let commandShortcuts: [CommandShortcut]
     let extensionCommands: [ExtensionPaletteItem]
+    let sshHosts: [SSHHostOmniboxItem]
     let activeProjectID: UUID?
     let activeWorktreeID: UUID?
     let commandProjectIDs: Set<UUID>
@@ -196,6 +223,7 @@ struct TerminalOmniboxItemContext {
         closedTabs: [ClosedTerminalTabSnapshot],
         commandShortcuts: [CommandShortcut],
         extensionCommands: [ExtensionPaletteItem] = [],
+        sshHosts: [SSHHostOmniboxItem] = [],
         activeProjectID: UUID?,
         activeWorktreeID: UUID?,
         commandProjectIDs: Set<UUID>
@@ -206,6 +234,7 @@ struct TerminalOmniboxItemContext {
         self.closedTabs = closedTabs
         self.commandShortcuts = commandShortcuts
         self.extensionCommands = extensionCommands
+        self.sshHosts = sshHosts
         self.activeProjectID = activeProjectID
         self.activeWorktreeID = activeWorktreeID
         self.commandProjectIDs = commandProjectIDs
@@ -233,14 +262,15 @@ enum TerminalOmniboxItemResolver {
                 .filter { $0.projectID == activeProjectID && $0.worktreeID == activeWorktreeID }
                 .map(TerminalOmniboxItem.openTab)
         case .commandShortcuts:
+            let sshItems = context.sshHosts.map(TerminalOmniboxItem.sshHost)
             let extensionItems = context.extensionCommands.map(TerminalOmniboxItem.extensionCommand)
             guard context.activeProjectID.map(context.commandProjectIDs.contains) == true else {
-                return extensionItems
+                return sshItems + extensionItems
             }
             let shortcuts = context.commandShortcuts
                 .filter { !$0.trimmedCommand.isEmpty }
                 .map(TerminalOmniboxItem.commandShortcut)
-            return shortcuts + extensionItems
+            return sshItems + shortcuts + extensionItems
         case .history:
             guard let activeProjectID = context.activeProjectID,
                   let activeWorktreeID = context.activeWorktreeID

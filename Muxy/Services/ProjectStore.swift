@@ -24,6 +24,13 @@ final class ProjectStore {
         save()
     }
 
+    func addRemote(name: String, config: RemoteProjectConfig) -> Project {
+        let project = Project(name: name, remoteConfig: config)
+        storedProjects.append(project)
+        save()
+        return project
+    }
+
     func remove(id: UUID) {
         guard id != Project.homeID else { return }
         storedProjects.removeAll { $0.id == id }
