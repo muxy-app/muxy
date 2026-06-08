@@ -10,7 +10,7 @@ final class ClientThemeStore {
     private init() {}
 
     func setTheme(_ theme: ClientThemeDTO?, for clientID: UUID) {
-        themes[clientID] = theme
+        themes[clientID] = theme?.capped()
     }
 
     func theme(for clientID: UUID) -> ClientThemeDTO? {

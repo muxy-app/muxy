@@ -105,6 +105,23 @@ struct ClientThemeTests {
         #expect(resolveActiveTheme(ownership: ownership, store: store, paneID: ownedPane) == nil)
     }
 
+    @Test("store caps an oversized palette so retained themes stay bounded")
+    func storeCapsOversizedPalette() {
+        let store = ClientThemeStore.shared
+        let clientID = UUID()
+        defer { store.clear(for: clientID) }
+
+        store.setTheme(ClientThemeDTO(fg: 1, bg: 2, palette: (0 ..< 64).map { UInt32($0) }), for: clientID)
+
+        #expect(store.theme(for: clientID)?.palette.count == ClientThemeDTO.paletteLimit)
+    }
+
+    @Test("capped is a no-op for an in-range palette")
+    func cappedKeepsInRangePalette() {
+        let theme = makeTheme()
+        #expect(theme.capped() == theme)
+    }
+
     private func resolveActiveTheme(
         ownership: PaneOwnershipStore,
         store: ClientThemeStore,

@@ -189,7 +189,7 @@ final class GhosttyTerminalNSView: NSView {
 
         ghostty_surface_set_size(surface, backingSize.width, backingSize.height)
 
-        applyColorScheme(isDark: ThemeService.isCurrentAppearanceDark())
+        reapplyActiveColors()
 
         if let screen = window?.screen ?? NSScreen.main,
            let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32

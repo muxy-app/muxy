@@ -252,7 +252,9 @@ public struct DeviceThemeEventDTO: Codable, Sendable {
     }
 }
 
-public struct ClientThemeDTO: Codable, Sendable, Equatable {
+public struct ClientThemeDTO: Codable, Sendable, Equatable, Hashable {
+    public static let paletteLimit = 16
+
     public let fg: UInt32
     public let bg: UInt32
     public let palette: [UInt32]
@@ -276,6 +278,19 @@ public struct ClientThemeDTO: Codable, Sendable, Equatable {
         self.cursorText = cursorText
         self.selectionBackground = selectionBackground
         self.selectionForeground = selectionForeground
+    }
+
+    public func capped() -> ClientThemeDTO {
+        guard palette.count > Self.paletteLimit else { return self }
+        return ClientThemeDTO(
+            fg: fg,
+            bg: bg,
+            palette: Array(palette.prefix(Self.paletteLimit)),
+            cursorColor: cursorColor,
+            cursorText: cursorText,
+            selectionBackground: selectionBackground,
+            selectionForeground: selectionForeground
+        )
     }
 }
 

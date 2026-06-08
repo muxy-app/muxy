@@ -315,8 +315,9 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func setClientTheme(_ theme: ClientThemeDTO?, clientID: UUID) {
         ClientThemeStore.shared.setTheme(theme, for: clientID)
+        let stored = ClientThemeStore.shared.theme(for: clientID)
         for paneID in PaneOwnershipStore.shared.panes(ownedBy: clientID) {
-            TerminalViewRegistry.shared.existingView(for: paneID)?.applyClientTheme(theme)
+            TerminalViewRegistry.shared.existingView(for: paneID)?.applyClientTheme(stored)
         }
     }
 

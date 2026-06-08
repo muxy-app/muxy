@@ -5,23 +5,51 @@ import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "ClientThemeApplier")
 
+@MainActor
 enum ClientThemeApplier {
-    @MainActor
-    static func apply(_ theme: ClientThemeDTO, to surface: ghostty_surface_t) {
-        guard let base = GhosttyService.shared.config,
-              let config = ghostty_config_clone(base)
-        else { return }
-        defer { ghostty_config_free(config) }
+    private static let cacheLimit = 8
+    private static var cachedConfigs: [ClientThemeDTO: ghostty_config_t] = [:]
+    private static var cachedConfigVersion = -1
 
-        guard loadColors(theme, into: config) else { return }
-        ghostty_config_finalize(config)
+    static func apply(_ theme: ClientThemeDTO, to surface: ghostty_surface_t) {
+        guard let config = config(for: theme) else { return }
         ghostty_surface_update_config(surface, config)
     }
 
-    @MainActor
     static func revert(_ surface: ghostty_surface_t) {
         guard let base = GhosttyService.shared.config else { return }
         ghostty_surface_update_config(surface, base)
+    }
+
+    static func invalidate() {
+        for config in cachedConfigs.values {
+            ghostty_config_free(config)
+        }
+        cachedConfigs.removeAll(keepingCapacity: true)
+    }
+
+    private static func config(for theme: ClientThemeDTO) -> ghostty_config_t? {
+        if cachedConfigVersion != GhosttyService.shared.configVersion {
+            invalidate()
+            cachedConfigVersion = GhosttyService.shared.configVersion
+        }
+        if let cached = cachedConfigs[theme] { return cached }
+        guard let config = buildConfig(for: theme) else { return nil }
+        if cachedConfigs.count >= cacheLimit { invalidate() }
+        cachedConfigs[theme] = config
+        return config
+    }
+
+    private static func buildConfig(for theme: ClientThemeDTO) -> ghostty_config_t? {
+        guard let base = GhosttyService.shared.config,
+              let config = ghostty_config_clone(base)
+        else { return nil }
+        guard loadColors(theme, into: config) else {
+            ghostty_config_free(config)
+            return nil
+        }
+        ghostty_config_finalize(config)
+        return config
     }
 
     private static func loadColors(_ theme: ClientThemeDTO, into config: ghostty_config_t) -> Bool {
@@ -41,7 +69,7 @@ enum ClientThemeApplier {
 
     static func configText(for theme: ClientThemeDTO) -> String {
         var lines: [String] = []
-        for (index, color) in theme.palette.prefix(16).enumerated() {
+        for (index, color) in theme.palette.prefix(ClientThemeDTO.paletteLimit).enumerated() {
             lines.append("palette = \(index)=\(hex(color))")
         }
         lines.append("background = \(hex(theme.bg))")
