@@ -252,7 +252,7 @@ public struct DeviceThemeEventDTO: Codable, Sendable {
     }
 }
 
-public struct ClientThemeDTO: Codable, Sendable, Equatable, Hashable {
+public struct ClientThemeDTO: Codable, Sendable, Equatable {
     public static let paletteLimit = 16
 
     public let fg: UInt32
