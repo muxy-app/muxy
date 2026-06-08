@@ -11,6 +11,7 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     var terminalInputCalls: [(paneID: UUID, bytes: Data, clientID: UUID)] = []
     var takeOverCalls: [(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32)] = []
     var releasePaneCalls: [(paneID: UUID, clientID: UUID)] = []
+    var setClientThemeCalls: [(theme: ClientThemeDTO?, clientID: UUID)] = []
     var registerDeviceCalls: [(clientID: UUID, name: String)] = []
     var clientDisconnectedCalls: [UUID] = []
     var markNotificationReadCalls: [UUID] = []
@@ -71,6 +72,10 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
 
     func releasePane(paneID: UUID, clientID: UUID) {
         releasePaneCalls.append((paneID, clientID))
+    }
+
+    func setClientTheme(_ theme: ClientThemeDTO?, clientID: UUID) {
+        setClientThemeCalls.append((theme, clientID))
     }
 
     func registerDevice(clientID: UUID, name: String) {
@@ -313,6 +318,66 @@ struct MuxyRemoteServerRoutingTests {
         #expect(call?.clientID == clientID)
         #expect(call?.cols == 80)
         #expect(call?.rows == 24)
+    }
+
+    @Test("setClientTheme threads theme and clientID through")
+    func setClientThemeRoutes() async {
+        let (server, delegate) = makeServer()
+        let clientID = authedClient(on: server)
+        let theme = ClientThemeDTO(fg: 0xD4D4D4, bg: 0x141414, palette: Array(repeating: 0x242424, count: 16))
+
+        let response = await server.processRequest(
+            MuxyRequest(
+                id: "set-theme",
+                method: .setClientTheme,
+                params: .setClientTheme(SetClientThemeParams(theme: theme))
+            ),
+            clientID: clientID
+        )
+
+        #expect(delegate.setClientThemeCalls.count == 1)
+        #expect(delegate.setClientThemeCalls.first?.clientID == clientID)
+        #expect(delegate.setClientThemeCalls.first?.theme == theme)
+        guard case .ok = response.result else {
+            Issue.record("expected ok result")
+            return
+        }
+    }
+
+    @Test("setClientTheme requires authentication")
+    func setClientThemeRequiresAuth() async {
+        let (server, delegate) = makeServer()
+
+        let response = await server.processRequest(
+            MuxyRequest(
+                id: "set-theme-unauth",
+                method: .setClientTheme,
+                params: .setClientTheme(SetClientThemeParams(theme: nil))
+            ),
+            clientID: UUID()
+        )
+
+        #expect(delegate.setClientThemeCalls.isEmpty)
+        #expect(response.error?.code == 401)
+    }
+
+    @Test("authenticateDevice stashes the client theme on approval")
+    func authenticateDeviceStashesTheme() async {
+        let (server, delegate) = makeServer()
+        let theme = ClientThemeDTO(fg: 1, bg: 2, palette: Array(repeating: 3, count: 16))
+
+        _ = await server.processRequest(
+            MuxyRequest(
+                id: "auth-theme",
+                method: .authenticateDevice,
+                params: .authenticateDevice(
+                    AuthenticateDeviceParams(deviceID: UUID(), deviceName: "iPhone", token: "token", theme: theme)
+                )
+            ),
+            clientID: UUID()
+        )
+
+        #expect(delegate.setClientThemeCalls.first?.theme == theme)
     }
 
     @Test("registerDevice returns device info with clientID")

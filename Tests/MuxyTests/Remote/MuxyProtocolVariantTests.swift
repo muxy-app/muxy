@@ -107,6 +107,7 @@ struct MuxyProtocolVariantTests {
             ProtocolSample(.authenticateDevice(AuthenticateDeviceParams(deviceID: ids.deviceID, deviceName: "iPhone", token: "token")), caseName: ".authenticateDevice"),
             ProtocolSample(.takeOverPane(TakeOverPaneParams(paneID: ids.paneID, cols: 80, rows: 24)), caseName: ".takeOverPane"),
             ProtocolSample(.releasePane(ReleasePaneParams(paneID: ids.paneID)), caseName: ".releasePane"),
+            ProtocolSample(.setClientTheme(SetClientThemeParams(theme: ClientThemeDTO(fg: 0xD4D4D4, bg: 0x141414, palette: Array(repeating: 0x242424, count: 16), cursorColor: 0xD4D4D4, cursorText: 0x141414, selectionBackground: 0x2C2C2C, selectionForeground: 0xE4E4E4))), caseName: ".setClientTheme"),
             ProtocolSample(.getVCSStatus(GetVCSStatusParams(projectID: ids.projectID)), caseName: ".getVCSStatus"),
             ProtocolSample(.vcsRefresh(VCSRefreshParams(projectID: ids.projectID)), caseName: ".vcsRefresh"),
             ProtocolSample(.vcsCommit(VCSCommitParams(projectID: ids.projectID, message: "Commit", stageAll: true)), caseName: ".vcsCommit"),

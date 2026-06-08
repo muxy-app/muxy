@@ -43,6 +43,10 @@ final class PaneOwnershipStore {
         return nil
     }
 
+    func panes(ownedBy clientID: UUID) -> [UUID] {
+        Array(ownedPanesByClient[clientID] ?? [])
+    }
+
     func registerDevice(clientID: UUID, name: String) {
         deviceNames[clientID] = name
     }

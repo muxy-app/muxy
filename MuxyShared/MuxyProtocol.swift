@@ -85,6 +85,7 @@ public enum MuxyMethod: String, Codable, Sendable {
     case authenticateDevice
     case takeOverPane
     case releasePane
+    case setClientTheme
     case getVCSStatus
     case vcsRefresh
     case vcsCommit
@@ -129,6 +130,7 @@ public enum MuxyParams: Codable, Sendable {
     case authenticateDevice(AuthenticateDeviceParams)
     case takeOverPane(TakeOverPaneParams)
     case releasePane(ReleasePaneParams)
+    case setClientTheme(SetClientThemeParams)
     case getVCSStatus(GetVCSStatusParams)
     case vcsRefresh(VCSRefreshParams)
     case vcsCommit(VCSCommitParams)
@@ -178,6 +180,7 @@ public enum MuxyParams: Codable, Sendable {
         case "authenticateDevice": self = try .authenticateDevice(container.decode(AuthenticateDeviceParams.self, forKey: .value))
         case "takeOverPane": self = try .takeOverPane(container.decode(TakeOverPaneParams.self, forKey: .value))
         case "releasePane": self = try .releasePane(container.decode(ReleasePaneParams.self, forKey: .value))
+        case "setClientTheme": self = try .setClientTheme(container.decode(SetClientThemeParams.self, forKey: .value))
         case "getTerminalContent": self = try .getTerminalContent(container.decode(GetTerminalContentParams.self, forKey: .value))
         case "getVCSStatus": self = try .getVCSStatus(container.decode(GetVCSStatusParams.self, forKey: .value))
         case "vcsRefresh": self = try .vcsRefresh(container.decode(VCSRefreshParams.self, forKey: .value))
@@ -242,6 +245,8 @@ public enum MuxyParams: Codable, Sendable {
         case let .takeOverPane(v): try container.encode("takeOverPane", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .releasePane(v): try container.encode("releasePane", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .setClientTheme(v): try container.encode("setClientTheme", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .getTerminalContent(v): try container.encode("getTerminalContent", forKey: .type)
             try container.encode(v, forKey: .value)

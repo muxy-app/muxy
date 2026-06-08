@@ -32,6 +32,7 @@ Enums:
 | --- | --- | --- |
 | `takeOverPane` | `paneID`, `cols`, `rows` | `ok` |
 | `releasePane` | `paneID` | `ok` |
+| `setClientTheme` | `theme?` | `ok` |
 | `terminalInput` | `paneID`, `bytes` | `ok` |
 | `terminalResize` | `paneID`, `cols`, `rows` | `ok` |
 | `terminalScroll` | `paneID`, `deltaX`, `deltaY`, `precise` | `ok` |
@@ -43,6 +44,7 @@ Notes:
 - `takeOverPane` immediately pushes a [`terminalSnapshot`](events.md) event to the calling client, then streams [`terminalOutput`](events.md) until released.
 - `terminalInput.bytes` is base64-encoded raw bytes delivered verbatim to the PTY. The client encodes escape sequences, control codes, and mouse reports itself. `terminalInput` is fire-and-forget — the server does **not** send a response for it.
 - `getTerminalContent` is a one-shot pull that returns the rendered grid as [`terminalCells`](data-objects.md#terminal-cells). New clients should instead render the pane with their own VT emulator fed by the `terminalOutput` stream; use the pull only for an initial paint or debugging. It returns `404` if the pane has no live surface.
+- `setClientTheme` recolors the live Ghostty surfaces of the panes this client **owns** — both currently owned panes and any taken over afterward — with the client's [`clientTheme`](data-objects.md#client-theme). It is optional: clients that never send it keep the Mac theme. Colors revert to the Mac theme when the pane is released or the client disconnects. Send `theme: null` to clear and revert immediately. The theme can also be supplied at [pairing](pairing.md) time.
 
 ## Notifications & visual data
 

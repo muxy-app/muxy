@@ -48,10 +48,13 @@ Authenticates a previously approved device.
   "value": {
     "deviceID": "2f8d1f9f-e065-4f62-af30-8c4b3d0bfc53",
     "deviceName": "Pixel 9",
-    "token": "random-secret-token"
+    "token": "random-secret-token",
+    "theme": null
   }
 }
 ```
+
+`theme` is an optional [`clientTheme`](data-objects.md#client-theme). When present, the colors are stored for this connection and applied to every pane the client takes over (see [`setClientTheme`](methods.md)). It is the client→server counterpart to the `theme*` fields the server returns below, and may be omitted entirely. `pairDevice` accepts the same optional field.
 
 Outcomes:
 

@@ -25,6 +25,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         self.worktreeStore = worktreeStore
         PaneOwnershipStore.shared.onOwnershipChanged = { [weak self] paneID, owner in
             TerminalViewRegistry.shared.existingView(for: paneID)?.remoteOwnershipDidChange()
+            self?.applyOwnerTheme(paneID: paneID, owner: owner)
             self?.broadcastOwnership(paneID: paneID, owner: owner)
         }
         NotificationCenter.default.addObserver(
@@ -43,6 +44,15 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     private func broadcastOwnership(paneID: UUID, owner: PaneOwnerDTO) {
         let dto = PaneOwnershipEventDTO(paneID: paneID, owner: owner)
         server?.broadcast(MuxyEvent(event: .paneOwnershipChanged, data: .paneOwnership(dto)))
+    }
+
+    private func applyOwnerTheme(paneID: UUID, owner: PaneOwnerDTO) {
+        let theme: ClientThemeDTO? = if case let .remote(clientID, _) = owner {
+            ClientThemeStore.shared.theme(for: clientID)
+        } else {
+            nil
+        }
+        TerminalViewRegistry.shared.existingView(for: paneID)?.applyClientTheme(theme)
     }
 
     private func broadcastTheme() {
@@ -303,8 +313,16 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         PaneOwnershipStore.shared.releaseToMac(paneID: paneID)
     }
 
+    func setClientTheme(_ theme: ClientThemeDTO?, clientID: UUID) {
+        ClientThemeStore.shared.setTheme(theme, for: clientID)
+        for paneID in PaneOwnershipStore.shared.panes(ownedBy: clientID) {
+            TerminalViewRegistry.shared.existingView(for: paneID)?.applyClientTheme(theme)
+        }
+    }
+
     func clientDisconnected(clientID: UUID) {
         PaneOwnershipStore.shared.releaseAll(clientID: clientID)
+        ClientThemeStore.shared.clear(for: clientID)
     }
 
     func getPaneOwner(paneID: UUID) -> PaneOwnerDTO? {

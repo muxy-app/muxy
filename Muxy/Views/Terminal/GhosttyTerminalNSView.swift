@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import GhosttyKit
+import MuxyShared
 import UniformTypeIdentifiers
 
 final class GhosttyTerminalNSView: NSView {
@@ -434,6 +435,37 @@ final class GhosttyTerminalNSView: NSView {
     func applyColorScheme(isDark: Bool) {
         guard let surface else { return }
         ghostty_surface_set_color_scheme(surface, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+    }
+
+    func applyClientTheme(_ theme: ClientThemeDTO?) {
+        guard let surface else { return }
+        if let theme {
+            ClientThemeApplier.apply(theme, to: surface)
+            return
+        }
+        ClientThemeApplier.revert(surface)
+        applyColorScheme(isDark: ThemeService.isCurrentAppearanceDark())
+    }
+
+    func reapplyActiveColors() {
+        guard surface != nil else { return }
+        if let theme = activeClientTheme() {
+            applyClientTheme(theme)
+            return
+        }
+        applyColorScheme(isDark: ThemeService.isCurrentAppearanceDark())
+    }
+
+    func reapplyClientThemeIfOwned() {
+        guard surface != nil, let theme = activeClientTheme() else { return }
+        applyClientTheme(theme)
+    }
+
+    private func activeClientTheme() -> ClientThemeDTO? {
+        guard let paneID = TerminalViewRegistry.shared.paneID(for: self),
+              let clientID = PaneOwnershipStore.shared.remoteOwner(for: paneID)
+        else { return nil }
+        return ClientThemeStore.shared.theme(for: clientID)
     }
 
     private func updateMetalLayerSize(deferred: Bool) {

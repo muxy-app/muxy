@@ -120,6 +120,26 @@ A `tabArea` node is encoded as `{ "type": "tabArea", "tabArea": { … } }`; a `s
 - `altScreen`, `cursorKeys`, `bracketedPaste`, `focusEvent` are terminal mode flags the client needs to encode input correctly.
 - `mouseEvent` and `mouseFormat` mirror the pane's active mouse-tracking mode and encoding.
 
+## Client theme
+
+The `theme` carried by [`setClientTheme`](methods.md) and the pairing/authenticate requests. All colors are unsigned 32-bit integers in `0xRRGGBB` form.
+
+```json
+{
+  "fg": 13948116,
+  "bg": 1315860,
+  "palette": [2368548, 16542083, "… 16 entries …"],
+  "cursorColor": 13948116,
+  "cursorText": 1315860,
+  "selectionBackground": 2894892,
+  "selectionForeground": 14998740
+}
+```
+
+- `fg`, `bg`, and `palette` are required; `palette` should hold 16 entries (indices 0–15) and anything past 16 is ignored.
+- `cursorColor`, `cursorText`, `selectionBackground`, and `selectionForeground` are optional and omitted when unset.
+- Send the whole object as `null` (`{ "theme": null }`) to clear and revert the owned panes to the Mac theme.
+
 ## Notification
 
 ```json
