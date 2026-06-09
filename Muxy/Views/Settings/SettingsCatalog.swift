@@ -338,22 +338,6 @@ enum SettingsCatalog {
         ),
 
         SettingsCatalogItem(
-            key: SessionRestorePreferences.enabledKey,
-            title: "Restore Terminal Sessions",
-            description: "Restores terminal sessions when a project opens.",
-            category: .terminal,
-            section: "Session Restore",
-            defaultValue: SessionRestorePreferences.defaultIsEnabled
-        ),
-        SettingsCatalogItem(
-            key: SessionRestorePreferences.excludedCommandsKey,
-            title: "Blocked Commands",
-            description: "Commands that are never restored automatically.",
-            category: .terminal,
-            section: "Blocked Commands",
-            defaultValue: SessionRestorePreferences.defaultExcludedCommands
-        ),
-        SettingsCatalogItem(
             key: TerminalOfflinePreferences.enabledKey,
             title: "Free Idle Background Terminals",
             description: "Frees a background tab's terminal after it stays idle, reclaiming memory.",

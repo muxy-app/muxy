@@ -17,10 +17,6 @@ final class TerminalPaneState: Identifiable {
     let startupCommandInteractive: Bool
     let closesOnStartupCommandExit: Bool
     let externalEditorFilePath: String?
-    let restoredSession: TerminalSessionSnapshot?
-    var activeRestoredCommand: String?
-    var restoreDecision: TerminalSessionRestoreDecision = .none
-    var restoreConsumed = false
     var isOffline = false
     let searchState = TerminalSearchState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
@@ -33,8 +29,7 @@ final class TerminalPaneState: Identifiable {
         startupCommand: String? = nil,
         startupCommandInteractive: Bool = false,
         closesOnStartupCommandExit: Bool = true,
-        externalEditorFilePath: String? = nil,
-        restoredSession: TerminalSessionSnapshot? = nil
+        externalEditorFilePath: String? = nil
     ) {
         self.id = id
         self.projectPath = projectPath
@@ -44,35 +39,14 @@ final class TerminalPaneState: Identifiable {
         self.startupCommandInteractive = startupCommandInteractive
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
         self.externalEditorFilePath = externalEditorFilePath
-        self.restoredSession = restoredSession
-        if let restoredSession {
-            let decision = TerminalSessionRestorePolicy.decision(for: restoredSession)
-            restoreDecision = decision
-            if case let .command(command) = decision {
-                activeRestoredCommand = command
-            }
-        }
     }
 
     func consumeRestoredLaunch() -> TerminalPaneLaunch {
-        guard !restoreConsumed else {
-            return TerminalPaneLaunch(
-                command: startupCommand,
-                interactive: startupCommandInteractive,
-                closesOnCommandExit: closesOnStartupCommandExit
-            )
-        }
-        restoreConsumed = true
-        switch restoreDecision {
-        case .none:
-            return TerminalPaneLaunch(
-                command: startupCommand,
-                interactive: startupCommandInteractive,
-                closesOnCommandExit: closesOnStartupCommandExit
-            )
-        case let .command(command):
-            return TerminalPaneLaunch(command: command, interactive: true, closesOnCommandExit: true)
-        }
+        TerminalPaneLaunch(
+            command: startupCommand,
+            interactive: startupCommandInteractive,
+            closesOnCommandExit: closesOnStartupCommandExit
+        )
     }
 
     func setTitle(_ newTitle: String) {
@@ -81,10 +55,18 @@ final class TerminalPaneState: Identifiable {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, let self, self.title != newTitle else { return }
             self.title = newTitle
+            self.notifyTabUpdated()
         }
     }
 
     func setWorkingDirectory(_ path: String) {
+        guard currentWorkingDirectory != path else { return }
         currentWorkingDirectory = path
+        notifyTabUpdated()
+    }
+
+    private func notifyTabUpdated() {
+        guard let appState = NotificationStore.shared.appState else { return }
+        ExtensionEventEmitter.emitTabUpdated(forPane: id, appState: appState)
     }
 }

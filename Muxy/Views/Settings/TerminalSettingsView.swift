@@ -10,13 +10,10 @@ struct TerminalSettingsView: View {
     private var autoCopyTerminalSelection = false
     @AppStorage(TabCloseConfirmationPreferences.confirmRunningProcessKey)
     private var confirmRunningProcess = true
-    @AppStorage(SessionRestorePreferences.enabledKey)
-    private var restoreSessionsEnabled = SessionRestorePreferences.defaultIsEnabled
     @AppStorage(TerminalOfflinePreferences.enabledKey)
     private var freeIdleTerminalsEnabled = TerminalOfflinePreferences.defaultIsEnabled
     @AppStorage(TerminalOfflinePreferences.idleThresholdKey)
     private var idleThresholdSeconds = TerminalOfflinePreferences.defaultIdleThreshold
-    @State private var excludedCommands = SessionRestorePreferences.excludedCommandsText
 
     private var idleTimeoutSelection: Binding<String> {
         Binding(
@@ -84,42 +81,6 @@ struct TerminalSettingsView: View {
                     width: 140
                 )
                 .disabled(!freeIdleTerminalsEnabled)
-            }
-
-            SettingsSection(
-                "Session Restore",
-                footer: "Sessions are restored when a project is opened for the first time after launch."
-            ) {
-                SettingsToggleRow(
-                    label: "Restore terminal sessions",
-                    isOn: $restoreSessionsEnabled
-                )
-            }
-
-            SettingsSection(
-                "Blocked Commands",
-                footer: "One command or prefix per line. Matching commands are never started automatically.",
-                showsDivider: false
-            ) {
-                HStack {
-                    Spacer()
-                    Button("Reset to Defaults") {
-                        excludedCommands = SessionRestorePreferences.defaultExcludedCommands.joined(separator: "\n")
-                        SessionRestorePreferences.excludedCommandsText = excludedCommands
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
-                    .disabled(excludedCommands == SessionRestorePreferences.defaultExcludedCommands.joined(separator: "\n"))
-                }
-                .padding(.horizontal, SettingsMetrics.horizontalPadding)
-                TextEditor(text: $excludedCommands)
-                    .font(.system(size: 12, design: .monospaced))
-                    .scrollContentBackground(.hidden)
-                    .settingsTextInput(minHeight: 180)
-                    .padding(.horizontal, SettingsMetrics.horizontalPadding)
-                    .padding(.vertical, SettingsMetrics.rowVerticalPadding)
-                    .onChange(of: excludedCommands) { _, value in
-                        SessionRestorePreferences.excludedCommandsText = value
-                    }
             }
         }
         .task {

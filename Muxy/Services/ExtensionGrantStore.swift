@@ -15,6 +15,7 @@ enum ExtensionGatedVerb: String, Codable, CaseIterable {
     case panesSendKeys = "panes.sendKeys"
     case panesReadScreen = "panes.readScreen"
     case tabsOpenForeign = "tabs.openForeign"
+    case tabsRunCommand = "tabs.runCommand"
     case remoteInvoke = "remote.invoke"
     case gitWrite = "git.write"
     case filesWrite = "files.write"
@@ -27,6 +28,7 @@ enum ExtensionGatedVerb: String, Codable, CaseIterable {
         case .panesSendKeys: "terminal keystrokes"
         case .panesReadScreen: "terminal output reads"
         case .tabsOpenForeign: "foreign tab opens"
+        case .tabsRunCommand: "auto-run terminal commands"
         case .remoteInvoke: "mobile requests"
         case .gitWrite: "git changes"
         case .filesWrite: "file changes"
@@ -172,6 +174,7 @@ enum ExtensionGatedPayload {
     case git(operation: String, repoPath: String)
     case file(operation: String, path: String)
     case http(hostname: String, method: String, url: String)
+    case tabCommand(command: String)
 
     func matches(_ match: ExtensionGrantMatch) -> Bool {
         switch (self, match) {
@@ -197,6 +200,8 @@ enum ExtensionGatedPayload {
             return operation == expected
         case let (.http(hostname, _, _), .hostEquals(expected)):
             return hostname == expected
+        case let (.tabCommand(command), .shellExact(expected)):
+            return command == expected
         default:
             return false
         }
@@ -359,6 +364,8 @@ enum ExtensionGrantSuggestion {
             return .fileOperationEquals(operation)
         case let (.httpFetch, .http(hostname, _, _)):
             return .hostEquals(hostname)
+        case let (.tabsRunCommand, .tabCommand(command)):
+            return .shellExact(command)
         case (.panesSend, _),
              (.panesSendKeys, _),
              (.panesReadScreen, _),

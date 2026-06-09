@@ -222,8 +222,8 @@ struct ModelCoverageTests {
         #expect(values == ["abc", "", "ab"])
     }
 
-    @Test("Terminal pane consumes restored launch only once and updates state")
-    func terminalPaneConsumesRestoredLaunchOnlyOnce() {
+    @Test("Terminal pane consumeRestoredLaunch returns startup launch and updates state")
+    func terminalPaneConsumeRestoredLaunchReturnsStartupLaunch() {
         let pane = TerminalPaneState(
             id: UUID(),
             projectPath: "/repo",
@@ -240,10 +240,8 @@ struct ModelCoverageTests {
         #expect(pane.externalEditorFilePath == "/repo/file.swift")
         #expect(pane.searchState.displayText == "")
 
-        let firstLaunch = pane.consumeRestoredLaunch()
-        #expect(firstLaunch == TerminalPaneLaunch(command: "zsh", interactive: false, closesOnCommandExit: false))
-        let secondLaunch = pane.consumeRestoredLaunch()
-        #expect(secondLaunch == TerminalPaneLaunch(command: "zsh", interactive: false, closesOnCommandExit: false))
+        let launch = pane.consumeRestoredLaunch()
+        #expect(launch == TerminalPaneLaunch(command: "zsh", interactive: false, closesOnCommandExit: false))
 
         pane.setWorkingDirectory("/repo/other")
         #expect(pane.currentWorkingDirectory == "/repo/other")

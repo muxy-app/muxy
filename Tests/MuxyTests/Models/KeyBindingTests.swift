@@ -94,13 +94,6 @@ struct KeyBindingTests {
         #expect(combos[.toggleMaximizePane] == KeyCombo(key: KeyCombo.returnKey, command: true, option: true))
     }
 
-    @Test("KeyBinding.defaults uses browser reopen shortcut")
-    func defaultsIncludesReopenClosedTerminalTabShortcut() {
-        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
-        #expect(combos[.reopenClosedTerminalTab] == KeyCombo(key: "t", command: true, shift: true))
-        #expect(combos[.renameTab] == KeyCombo(key: "t", shift: true, option: true))
-    }
-
     @Test("KeyBinding.defaults includes scoped omnibox shortcuts")
     func defaultsIncludesScopedOmniboxShortcuts() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
@@ -108,7 +101,6 @@ struct KeyBindingTests {
         #expect(combos[.terminalOmniboxProjects] == KeyCombo(key: "p", command: true, option: true))
         #expect(combos[.terminalOmniboxWorktrees] == KeyCombo(key: "w", command: true, option: true))
         #expect(combos[.terminalOmniboxCommands] == KeyCombo(key: "p", command: true, shift: true))
-        #expect(combos[.terminalOmniboxHistory] == KeyCombo(key: "h", command: true, option: true))
     }
 
     @Test("Toggle Full Screen uses Cmd+Ctrl+F by default")

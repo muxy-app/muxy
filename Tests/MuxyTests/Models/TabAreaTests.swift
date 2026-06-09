@@ -70,64 +70,6 @@ struct TabAreaTests {
         #expect(area.activeTabID == activeTabID)
     }
 
-    @Test("restoreClosedTerminalTab creates terminal tab with saved command")
-    func restoreClosedTerminalTab() {
-        let area = TabArea(projectPath: testPath)
-        let snapshot = ClosedTerminalTabSnapshot(
-            id: UUID(),
-            projectID: UUID(),
-            worktreeID: UUID(),
-            areaID: area.id,
-            projectPath: testPath,
-            title: "nvim",
-            customTitle: "Editor",
-            colorID: "blue",
-            workingDirectory: "/tmp/test/Sources",
-            startupCommand: nil,
-            lastSubmittedCommand: "nvim Package.swift",
-            closedSequence: 1,
-            closedAt: Date()
-        )
-
-        area.restoreClosedTerminalTab(snapshot)
-
-        let tab = area.activeTab
-        let pane = tab?.content.pane
-        #expect(area.tabs.count == 2)
-        #expect(tab?.customTitle == "Editor")
-        #expect(tab?.colorID == "blue")
-        #expect(pane?.projectPath == testPath)
-        #expect(pane?.currentWorkingDirectory == "/tmp/test/Sources")
-        #expect(pane?.startupCommand == "nvim Package.swift")
-        #expect(pane?.startupCommandInteractive == true)
-    }
-
-    @Test("restoreClosedTerminalTab preserves AI command")
-    func restoreClosedTerminalTabPreservesAICommand() {
-        let area = TabArea(projectPath: testPath)
-        let snapshot = ClosedTerminalTabSnapshot(
-            id: UUID(),
-            projectID: UUID(),
-            worktreeID: UUID(),
-            areaID: area.id,
-            projectPath: testPath,
-            title: "Codex",
-            customTitle: nil,
-            colorID: nil,
-            workingDirectory: "/tmp/test",
-            startupCommand: nil,
-            lastSubmittedCommand: "codex",
-            closedSequence: 1,
-            closedAt: Date()
-        )
-
-        area.restoreClosedTerminalTab(snapshot)
-
-        let pane = area.activeTab?.content.pane
-        #expect(pane?.startupCommand == "codex")
-        #expect(pane?.startupCommandInteractive == true)
-    }
-
     @Test("restoring terminal tab ignores stale working directory outside project")
     func restoringTerminalTabIgnoresOutsideWorkingDirectory() {
         let snapshot = TerminalTabSnapshot(
@@ -163,8 +105,8 @@ struct TabAreaTests {
         #expect(tab.content.pane?.currentWorkingDirectory == "/tmp/test/Sources")
     }
 
-    @Test("TerminalTab restore preserves metadata and restored session directory")
-    func terminalTabRestorePreservesMetadataAndSessionDirectory() {
+    @Test("TerminalTab restore preserves metadata and round-trips")
+    func terminalTabRestorePreservesMetadata() {
         let paneID = UUID()
         let snapshot = TerminalTabSnapshot(
             kind: .terminal,
@@ -177,23 +119,8 @@ struct TabAreaTests {
             paneID: paneID,
             currentWorkingDirectory: "/outside"
         )
-        let restoredSession = TerminalSessionSnapshot(
-            id: UUID(),
-            projectID: UUID(),
-            worktreeID: UUID(),
-            paneID: paneID,
-            tabID: snapshot.id,
-            areaID: UUID(),
-            projectPath: testPath,
-            title: "Session",
-            workingDirectory: "/tmp/test/Session",
-            startupCommand: nil,
-            lastSubmittedCommand: "swift test",
-            activity: .running,
-            capturedAt: Date()
-        )
 
-        let tab = TerminalTab(restoring: snapshot, restoredSession: restoredSession)
+        let tab = TerminalTab(restoring: snapshot)
         let roundTrip = tab.snapshot()
 
         #expect(tab.id == snapshot.id)
@@ -202,7 +129,7 @@ struct TabAreaTests {
         #expect(tab.isPinned)
         #expect(tab.title == "Shell")
         #expect(tab.content.projectPath == testPath)
-        #expect(tab.content.pane?.currentWorkingDirectory == "/tmp/test/Session")
+        #expect(tab.content.pane?.currentWorkingDirectory == nil)
         #expect(roundTrip.id == snapshot.id)
         #expect(roundTrip.customTitle == "Shell")
         #expect(roundTrip.colorID == "green")

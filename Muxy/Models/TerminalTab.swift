@@ -67,7 +67,7 @@ final class TerminalTab: Identifiable {
         content = .extensionWebView(extensionState)
     }
 
-    init(restoring snapshot: TerminalTabSnapshot, restoredSession: TerminalSessionSnapshot? = nil) {
+    init(restoring snapshot: TerminalTabSnapshot) {
         id = snapshot.id
         customTitle = snapshot.customTitle
         colorID = snapshot.colorID
@@ -75,15 +75,14 @@ final class TerminalTab: Identifiable {
         switch snapshot.kind {
         case .terminal:
             let restoredWorkingDirectory = Self.restoredWorkingDirectory(
-                restoredSession?.workingDirectory ?? snapshot.currentWorkingDirectory,
+                snapshot.currentWorkingDirectory,
                 projectPath: snapshot.projectPath
             )
             content = .terminal(TerminalPaneState(
                 id: snapshot.paneID ?? UUID(),
                 projectPath: snapshot.projectPath,
                 title: snapshot.paneTitle,
-                initialWorkingDirectory: restoredWorkingDirectory,
-                restoredSession: restoredSession
+                initialWorkingDirectory: restoredWorkingDirectory
             ))
         case .extensionWebView:
             if let extensionID = snapshot.extensionID,

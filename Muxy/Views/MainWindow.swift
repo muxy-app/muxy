@@ -530,7 +530,6 @@ struct MainWindow: View {
                 projects: terminalOmniboxProjects,
                 worktrees: terminalOmniboxWorktrees,
                 openTabs: terminalOmniboxOpenTabs,
-                closedTabs: terminalOmniboxClosedTabs,
                 commandShortcuts: CommandShortcutStore.shared.shortcuts,
                 extensionCommands: terminalOmniboxExtensionCommands,
                 activeProjectID: appState.activeProjectID,
@@ -593,9 +592,6 @@ struct MainWindow: View {
         case let .openTab(tab):
             _ = selectOmniboxProject(tab.projectID, worktreeID: tab.worktreeID)
             appState.dispatch(.selectTab(projectID: tab.projectID, areaID: tab.areaID, tabID: tab.tabID))
-        case let .closedTab(snapshot):
-            _ = selectOmniboxProject(snapshot.projectID, worktreeID: snapshot.worktreeID)
-            _ = appState.reopenClosedTerminalTab(id: snapshot.id, projectID: snapshot.projectID)
         case let .commandShortcut(shortcut):
             guard let projectID = scopedProjectID else { return }
             _ = selectOmniboxProject(projectID, worktreeID: scopedWorktreeID)
@@ -655,13 +651,6 @@ struct MainWindow: View {
 
     private var terminalOmniboxOpenTabs: [OpenTerminalTabItem] {
         omniboxProjects.flatMap { appState.allOpenTerminalTabItems(for: $0.id) }
-    }
-
-    private var terminalOmniboxClosedTabs: [ClosedTerminalTabSnapshot] {
-        let projectIDs = Set(omniboxProjects.map(\.id))
-        return TerminalSessionStore.shared.closedTerminalTabs.filter {
-            projectIDs.contains($0.projectID)
-        }
     }
 
     private var terminalOmniboxCommandProjectIDs: Set<UUID> {

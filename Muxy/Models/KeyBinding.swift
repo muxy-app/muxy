@@ -10,7 +10,6 @@ private struct ShortcutMetadata {
 enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case newTab
     case newHomeTab
-    case reopenClosedTerminalTab
     case closeTab
     case renameTab
     case pinUnpinTab
@@ -58,7 +57,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case terminalOmniboxProjects
     case terminalOmniboxWorktrees
     case terminalOmniboxCommands
-    case terminalOmniboxHistory
     case toggleSidebar
     case navigateBack
     case navigateForward
@@ -70,7 +68,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     static let allCases: [Self] = [
         .newTab,
         .newHomeTab,
-        .reopenClosedTerminalTab,
         .closeTab,
         .renameTab,
         .pinUnpinTab,
@@ -117,7 +114,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .terminalOmniboxProjects,
         .terminalOmniboxWorktrees,
         .terminalOmniboxCommands,
-        .terminalOmniboxHistory,
         .toggleSidebar,
         .navigateBack,
         .navigateForward,
@@ -133,11 +129,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .newTab: ShortcutMetadata(displayName: "New Tab", category: "Tabs", scope: .mainWindow)
         case .newHomeTab: ShortcutMetadata(displayName: "New Home Tab", category: "Tabs", scope: .mainWindow)
-        case .reopenClosedTerminalTab: ShortcutMetadata(
-                displayName: "Reopen Closed Terminal Tab",
-                category: "Tabs",
-                scope: .mainWindow
-            )
         case .closeTab: ShortcutMetadata(displayName: "Close Tab", category: "Tabs", scope: .mainWindow)
         case .renameTab: ShortcutMetadata(displayName: "Rename Tab", category: "Tabs", scope: .mainWindow)
         case .pinUnpinTab: ShortcutMetadata(displayName: "Pin/Unpin Tab", category: "Tabs", scope: .mainWindow)
@@ -201,11 +192,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
             )
         case .terminalOmniboxCommands: ShortcutMetadata(
                 displayName: "Terminal Omnibox Custom Commands",
-                category: "Terminal",
-                scope: .mainWindow
-            )
-        case .terminalOmniboxHistory: ShortcutMetadata(
-                displayName: "Terminal Omnibox History",
                 category: "Terminal",
                 scope: .mainWindow
             )
@@ -298,7 +284,6 @@ struct KeyBinding: Codable, Identifiable {
     static let defaults: [Self] = [
         Self(action: .newTab, combo: KeyCombo(key: "t", command: true)),
         Self(action: .newHomeTab, combo: KeyCombo(key: "n", command: true)),
-        Self(action: .reopenClosedTerminalTab, combo: KeyCombo(key: "t", command: true, shift: true)),
         Self(action: .closeTab, combo: KeyCombo(key: "w", command: true)),
         Self(action: .renameTab, combo: KeyCombo(key: "t", shift: true, option: true)),
         Self(action: .pinUnpinTab, combo: KeyCombo(key: "", modifiers: 0)),
@@ -345,7 +330,6 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .terminalOmniboxProjects, combo: KeyCombo(key: "p", command: true, option: true)),
         Self(action: .terminalOmniboxWorktrees, combo: KeyCombo(key: "w", command: true, option: true)),
         Self(action: .terminalOmniboxCommands, combo: KeyCombo(key: "p", command: true, shift: true)),
-        Self(action: .terminalOmniboxHistory, combo: KeyCombo(key: "h", command: true, option: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .navigateBack, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, control: true)),
         Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),

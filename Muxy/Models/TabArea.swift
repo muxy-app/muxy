@@ -38,15 +38,10 @@ final class TabArea: Identifiable {
         activeTabID = tab.id
     }
 
-    init(restoring snapshot: TabAreaSnapshot, sessionsByPaneID: [UUID: TerminalSessionSnapshot] = [:]) {
+    init(restoring snapshot: TabAreaSnapshot) {
         id = snapshot.id
         projectPath = snapshot.projectPath
-        tabs = snapshot.tabs.map { tabSnapshot in
-            TerminalTab(
-                restoring: tabSnapshot,
-                restoredSession: tabSnapshot.paneID.flatMap { sessionsByPaneID[$0] }
-            )
-        }
+        tabs = snapshot.tabs.map { TerminalTab(restoring: $0) }
         if let index = snapshot.activeTabIndex, index >= 0, index < tabs.count {
             activeTabID = tabs[index].id
         } else {
@@ -82,34 +77,24 @@ final class TabArea: Identifiable {
         insertTab(TerminalTab(pane: TerminalPaneState(projectPath: directory)))
     }
 
-    func createCommandTab(name: String, command: String, closesOnCommandExit: Bool = true) {
+    func createCommandTab(
+        name: String,
+        command: String,
+        closesOnCommandExit: Bool = true,
+        directory: String? = nil
+    ) {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return }
         let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let pane = TerminalPaneState(
-            projectPath: projectPath,
+            projectPath: directory ?? projectPath,
             title: title.isEmpty ? Self.commandTitle(trimmedCommand) : title,
+            initialWorkingDirectory: directory,
             startupCommand: trimmedCommand,
             startupCommandInteractive: true,
             closesOnStartupCommandExit: closesOnCommandExit
         )
         insertTab(TerminalTab(pane: pane))
-    }
-
-    func restoreClosedTerminalTab(_ snapshot: ClosedTerminalTabSnapshot) {
-        let command = snapshot.commandToRestore
-        let safeCommand = command.flatMap { TerminalSessionRestorePolicy.isSafeToRestore($0) ? $0 : nil }
-        let pane = TerminalPaneState(
-            projectPath: snapshot.projectPath,
-            title: snapshot.title,
-            initialWorkingDirectory: snapshot.workingDirectory,
-            startupCommand: safeCommand,
-            startupCommandInteractive: safeCommand != nil
-        )
-        let tab = TerminalTab(pane: pane)
-        tab.customTitle = snapshot.customTitle
-        tab.colorID = snapshot.colorID
-        insertTab(tab)
     }
 
     func findExtensionTab(extensionID: String, tabTypeID: String) -> TerminalTab? {

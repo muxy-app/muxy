@@ -159,6 +159,19 @@ await muxy.tabs.open({
 
 `extensionWebView` requires the target extension to be loaded and the named tab type to exist.
 
+A `terminal` tab accepts two optional fields:
+
+```js
+await muxy.tabs.open({ kind: 'terminal', directory: 'packages/app', command: 'npm run dev' });
+```
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `directory` | string | Opens the terminal in this folder. Resolved relative to the active worktree root and **must stay inside it** — paths that escape via `..` or symlinks are rejected, and the folder must already exist. Needs only `tabs:write`. |
+| `command` | string | A startup command auto-run in the new terminal. It runs interactively and the tab stays open after it exits. Because auto-running a command is sensitive, this additionally triggers a one-time runtime consent prompt on top of `tabs:write`. |
+
+The two are independent: `directory` alone needs no extra consent; `command` alone (no `directory`) opens in the default location; both together open in `directory` and run `command`. These fields are how an extension drives its own session restore — pair them with the [`command.executed`](events.md) and enriched `tab.*` events to record a session, then recreate each terminal tab. Extension-webview tabs are restorable the same way: pass back the recorded `extensionID`/`tabTypeID` as `extension.id`/`extension.tabType`, and the `data` parsed from the tab event's JSON `data` string as `extension.data`.
+
 By default every `open` creates a new tab. Pass `singleton: true` to keep one tab per tab type instead — if a tab of that type is already open, Muxy focuses it and pushes the new `data` into the live page rather than duplicating it. The page receives the new payload through `muxy.onDataChange`:
 
 ```js

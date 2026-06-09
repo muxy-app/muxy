@@ -12,7 +12,6 @@ struct TerminalOmniboxItemResolverTests {
         let areaID = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
         let tabID = UUID(uuidString: "00000000-0000-0000-0000-000000000004")!
         let shortcutID = UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
-        let closedID = UUID(uuidString: "00000000-0000-0000-0000-000000000006")!
 
         let project = TerminalOmniboxProjectItem(projectID: projectID, name: "Muxy", path: "/repo/muxy")
         let primaryWorktree = TerminalOmniboxWorktreeItem(
@@ -40,21 +39,6 @@ struct TerminalOmniboxItemResolverTests {
             workingDirectory: "/repo/muxy",
             command: "npm run dev"
         )
-        let closedTab = ClosedTerminalTabSnapshot(
-            id: closedID,
-            projectID: projectID,
-            worktreeID: worktreeID,
-            areaID: areaID,
-            projectPath: "/repo/muxy",
-            title: "Closed",
-            customTitle: nil,
-            colorID: nil,
-            workingDirectory: "/repo/muxy",
-            startupCommand: "swift test",
-            lastSubmittedCommand: "swift build",
-            closedSequence: 1,
-            closedAt: Date(timeIntervalSince1970: 0)
-        )
         let shortcut = CommandShortcut(
             id: shortcutID,
             name: "  Run Tests  ",
@@ -79,12 +63,6 @@ struct TerminalOmniboxItemResolverTests {
         #expect(TerminalOmniboxItem.openTab(openTab).subtitle == "npm run dev")
         #expect(TerminalOmniboxItem.openTab(openTab).sectionTitle == "Open Tabs")
         #expect(TerminalOmniboxItem.openTab(openTab).symbol == "terminal")
-
-        #expect(TerminalOmniboxItem.closedTab(closedTab).id == "closed-\(closedID.uuidString)")
-        #expect(TerminalOmniboxItem.closedTab(closedTab).subtitle == "swift build")
-        #expect(TerminalOmniboxItem.closedTab(closedTab).sectionTitle == "History")
-        #expect(TerminalOmniboxItem.closedTab(closedTab).symbol == "clock.arrow.circlepath")
-        #expect(TerminalOmniboxItem.closedTab(closedTab).searchKey == "Closed /repo/muxy swift build")
 
         #expect(TerminalOmniboxItem.commandShortcut(shortcut).id == "shortcut-\(shortcutID.uuidString)")
         #expect(TerminalOmniboxItem.commandShortcut(shortcut).title == "Run Tests")
@@ -122,7 +100,6 @@ struct TerminalOmniboxItemResolverTests {
                     ),
                 ],
                 openTabs: [],
-                closedTabs: [],
                 commandShortcuts: [],
                 activeProjectID: activeProjectID,
                 activeWorktreeID: activeWorktreeID,
@@ -176,21 +153,6 @@ struct TerminalOmniboxItemResolverTests {
             workingDirectory: "/repo/muxy-other",
             command: nil
         )
-        let closedTab = ClosedTerminalTabSnapshot(
-            id: UUID(),
-            projectID: activeProjectID,
-            worktreeID: activeWorktreeID,
-            areaID: UUID(),
-            projectPath: "/repo/muxy",
-            title: "Closed",
-            customTitle: nil,
-            colorID: nil,
-            workingDirectory: "/repo/muxy",
-            startupCommand: nil,
-            lastSubmittedCommand: nil,
-            closedSequence: 1,
-            closedAt: Date()
-        )
         let shortcut = CommandShortcut(name: "Build", command: "swift build")
         let emptyShortcut = CommandShortcut(name: "Empty", command: "   ")
         let context = TerminalOmniboxItemContext(
@@ -207,24 +169,6 @@ struct TerminalOmniboxItemResolverTests {
                 ),
             ],
             openTabs: [activeOpenTab, otherOpenTab],
-            closedTabs: [
-                closedTab,
-                ClosedTerminalTabSnapshot(
-                    id: UUID(),
-                    projectID: otherProjectID,
-                    worktreeID: activeWorktreeID,
-                    areaID: UUID(),
-                    projectPath: "/repo/other",
-                    title: "Other Closed",
-                    customTitle: nil,
-                    colorID: nil,
-                    workingDirectory: "/repo/other",
-                    startupCommand: nil,
-                    lastSubmittedCommand: nil,
-                    closedSequence: 2,
-                    closedAt: Date()
-                ),
-            ],
             commandShortcuts: [shortcut, emptyShortcut],
             activeProjectID: activeProjectID,
             activeWorktreeID: activeWorktreeID,
@@ -234,14 +178,12 @@ struct TerminalOmniboxItemResolverTests {
         #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .projects) == [.project(project)])
         #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .worktrees) == [.worktree(activeWorktree)])
         #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .openTabs) == [.openTab(activeOpenTab)])
-        #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .history) == [.closedTab(closedTab)])
         #expect(TerminalOmniboxItemResolver.items(in: context, launchScope: .commandShortcuts) == [.commandShortcut(shortcut)])
 
         let inactiveContext = TerminalOmniboxItemContext(
             projects: [project],
             worktrees: [activeWorktree],
             openTabs: [activeOpenTab],
-            closedTabs: [closedTab],
             commandShortcuts: [shortcut],
             activeProjectID: nil,
             activeWorktreeID: nil,
@@ -250,7 +192,6 @@ struct TerminalOmniboxItemResolverTests {
 
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .worktrees).isEmpty)
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .openTabs).isEmpty)
-        #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .history).isEmpty)
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .commandShortcuts).isEmpty)
     }
 
@@ -267,7 +208,6 @@ struct TerminalOmniboxItemResolverTests {
             projects: [],
             worktrees: [],
             openTabs: [],
-            closedTabs: [],
             commandShortcuts: [shortcut],
             extensionCommands: [extensionItem],
             activeProjectID: projectID,
@@ -290,7 +230,6 @@ struct TerminalOmniboxItemResolverTests {
             projects: [],
             worktrees: [],
             openTabs: [],
-            closedTabs: [],
             commandShortcuts: [CommandShortcut(name: "Server", command: "npm run dev")],
             extensionCommands: [extensionItem],
             activeProjectID: nil,

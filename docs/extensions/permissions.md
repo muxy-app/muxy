@@ -14,7 +14,7 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `panes:read` | `read-screen`, `list-panes` |
 | `panes:write` | `split-right`, `split-down`, `send`, `send-keys`, `close-pane`, `rename-pane`. Split requests with a startup command also require `commands:exec`. |
 | `tabs:read` | `list-tabs` |
-| `tabs:write` | `switch-tab`, `new-tab`, `next-tab`, `previous-tab`, `open-tab` |
+| `tabs:write` | `switch-tab`, `new-tab`, `next-tab`, `previous-tab`, `open-tab`. Opening a terminal tab with a startup `command` also prompts for runtime consent. |
 | `projects:read` | `list-projects` |
 | `projects:write` | `switch-project` |
 | `worktrees:read` | `list-worktrees` |
@@ -41,6 +41,7 @@ These verbs prompt the user at runtime even when the manifest permission is gran
 | `panes.send` | Typing arbitrary text into an active terminal. |
 | `panes.sendKeys` | Pressing keys (including Ctrl+C, Enter) in an active terminal. |
 | `panes.readScreen` | Reading the visible contents of a terminal. |
+| `tabs.runCommand` | Auto-running a startup `command` in a terminal opened via `tabs.open`. Gated under `tabs:write`; the directory-only form needs no consent. |
 | remote method (device request) | Running an extension's [remote method](remote-methods.md) handler in response to a mobile request, gated under `remote:serve`. Remembered per action. |
 | `git.*` (writes) | Mutating the repository (stage, commit, push, pull, branch, PR, worktree). Remembered per operation (allowing `push` does not allow `discard`). |
 | `files.*` (writes) | Modifying workspace files (write, mkdir, rename, move, delete). Remembered per operation (allowing `write` does not allow `delete`). |

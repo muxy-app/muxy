@@ -98,6 +98,8 @@ struct CreateWorktreeRequest {
 struct OpenTabRequest: Decodable {
     let kind: TerminalTab.Kind
     let extensionPayload: ExtensionPayload?
+    let directory: String?
+    let command: String?
 
     struct ExtensionPayload: Decodable {
         let id: String
@@ -131,17 +133,28 @@ struct OpenTabRequest: Decodable {
     private enum CodingKeys: String, CodingKey {
         case kind
         case `extension`
+        case directory
+        case command
     }
 
-    init(kind: TerminalTab.Kind, extensionPayload: ExtensionPayload? = nil) {
+    init(
+        kind: TerminalTab.Kind,
+        extensionPayload: ExtensionPayload? = nil,
+        directory: String? = nil,
+        command: String? = nil
+    ) {
         self.kind = kind
         self.extensionPayload = extensionPayload
+        self.directory = directory
+        self.command = command
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         kind = try container.decode(TerminalTab.Kind.self, forKey: .kind)
         extensionPayload = try container.decodeIfPresent(ExtensionPayload.self, forKey: .extension)
+        directory = try container.decodeIfPresent(String.self, forKey: .directory)
+        command = try container.decodeIfPresent(String.self, forKey: .command)
     }
 }
 
@@ -870,9 +883,12 @@ enum MuxyAPI {
             }
             switch request.kind {
             case .terminal:
-                activateOpenTarget(target, appState: appState)
-                appState.dispatch(.createTab(projectID: target.key.projectID, areaID: target.areaID))
-                return .success(())
+                return await openTerminalTab(
+                    request,
+                    target: target,
+                    appState: appState,
+                    callingExtensionID: callingExtensionID
+                )
             case .extensionWebView:
                 guard let payload = request.extensionPayload else {
                     return .failure(.invalidArguments("extensionWebView tabs require extension payload"))
@@ -909,6 +925,63 @@ enum MuxyAPI {
                 ))
                 return .success(())
             }
+        }
+
+        private static func openTerminalTab(
+            _ request: OpenTabRequest,
+            target: OpenTabTarget,
+            appState: AppState,
+            callingExtensionID: String?
+        ) async -> Result<Void, APIError> {
+            var resolvedDirectory: String?
+            if let directory = request.directory {
+                guard let root = appState.workspaceRoots[target.key]?.findArea(id: target.areaID)?.projectPath,
+                      let resolved = Files.resolve(root: root, relativePath: directory),
+                      directoryExists(at: resolved)
+                else {
+                    return .failure(.invalidArguments("directory must be an existing folder inside the worktree"))
+                }
+                resolvedDirectory = resolved
+            }
+
+            let trimmedCommand = request.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let command = trimmedCommand, !command.isEmpty else {
+                activateOpenTarget(target, appState: appState)
+                if let directory = resolvedDirectory {
+                    appState.dispatch(.createTabInDirectory(
+                        projectID: target.key.projectID,
+                        areaID: target.areaID,
+                        directory: directory
+                    ))
+                } else {
+                    appState.dispatch(.createTab(projectID: target.key.projectID, areaID: target.areaID))
+                }
+                return .success(())
+            }
+
+            if let callingExtensionID {
+                let allowed = await tabCommandConsentGranted(extensionID: callingExtensionID, command: command)
+                guard allowed else {
+                    return .failure(.consentDenied(verb: ExtensionGatedVerb.tabsRunCommand.rawValue))
+                }
+            }
+
+            activateOpenTarget(target, appState: appState)
+            appState.dispatch(.createCommandTab(CommandTabRequest(
+                projectID: target.key.projectID,
+                areaID: target.areaID,
+                name: command,
+                command: command,
+                closesOnCommandExit: false,
+                directory: resolvedDirectory
+            )))
+            return .success(())
+        }
+
+        private static func directoryExists(at path: String) -> Bool {
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+            return exists && isDirectory.boolValue
         }
 
         private static func activateOpenTarget(_ target: OpenTabTarget, appState: AppState) {
@@ -980,6 +1053,18 @@ private func consentGranted(
         extensionID: extensionID,
         verb: verb,
         payload: .pane(id: paneIDString),
+        source: "muxy-api"
+    )
+    let decision = await ExtensionConsentService.shared.gate(request)
+    return decision == .allow
+}
+
+@MainActor
+private func tabCommandConsentGranted(extensionID: String, command: String) async -> Bool {
+    let request = ExtensionConsentRequestBuilder.make(
+        extensionID: extensionID,
+        verb: .tabsRunCommand,
+        payload: .tabCommand(command: command),
         source: "muxy-api"
     )
     let decision = await ExtensionConsentService.shared.gate(request)

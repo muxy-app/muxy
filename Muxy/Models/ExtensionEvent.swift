@@ -28,6 +28,7 @@ enum ExtensionEventName {
     static let paneClosed = "pane.closed"
     static let paneFocused = "pane.focused"
     static let tabCreated = "tab.created"
+    static let tabUpdated = "tab.updated"
     static let tabClosed = "tab.closed"
     static let tabFocused = "tab.focused"
     static let panelOpened = "panel.opened"
@@ -38,4 +39,5 @@ enum ExtensionEventName {
     static let worktreeSwitched = "worktree.switched"
     static let notificationPosted = "notification.posted"
     static let fileChanged = "file.changed"
+    static let commandExecuted = "command.executed"
 }

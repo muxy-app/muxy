@@ -37,7 +37,6 @@ final class AppState {
         case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
         case createCommandTab(CommandTabRequest)
         case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
-        case restoreClosedTerminalTab(projectID: UUID, areaID: UUID?, snapshot: ClosedTerminalTabSnapshot)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTab(projectID: UUID, areaID: UUID, tabID: UUID)
         case selectTabByIndex(projectID: UUID, index: Int)
@@ -62,7 +61,6 @@ final class AppState {
     private let selectionStore: any ActiveProjectSelectionStoring
     private let terminalViews: any TerminalViewRemoving
     private let workspacePersistence: any WorkspacePersisting
-    private let terminalSessions: any TerminalSessionStoring
     var onProjectsEmptied: (([UUID]) -> Void)?
 
     var activeProjectID: UUID?
@@ -93,13 +91,11 @@ final class AppState {
     init(
         selectionStore: any ActiveProjectSelectionStoring,
         terminalViews: any TerminalViewRemoving,
-        workspacePersistence: any WorkspacePersisting,
-        terminalSessions: any TerminalSessionStoring = TerminalSessionStore.shared
+        workspacePersistence: any WorkspacePersisting
     ) {
         self.selectionStore = selectionStore
         self.terminalViews = terminalViews
         self.workspacePersistence = workspacePersistence
-        self.terminalSessions = terminalSessions
     }
 
     func restoreSelection(projects: [Project], worktrees: [UUID: [Worktree]]) {
@@ -113,8 +109,7 @@ final class AppState {
         let restored = WorkspaceRestorer.restoreAll(
             from: snapshots,
             projects: projects,
-            worktrees: worktrees,
-            sessionsByPaneID: terminalSessions.sessionsByPaneID
+            worktrees: worktrees
         )
         for entry in restored {
             workspaceRoots[entry.key] = entry.root
@@ -152,10 +147,6 @@ final class AppState {
         } catch {
             logger.error("Failed to save workspaces: \(error)")
         }
-    }
-
-    func saveTerminalSessions() {
-        terminalSessions.save(workspaceRoots: workspaceRoots)
     }
 
     private func saveSelection() {
@@ -223,6 +214,26 @@ final class AppState {
                 for tab in area.tabs {
                     if let pane = tab.content.pane, pane.id == paneID {
                         return (key, pane)
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    struct PaneTabLocation {
+        let worktreeKey: WorktreeKey
+        let areaID: UUID
+        let tabID: UUID
+        let pane: TerminalPaneState
+    }
+
+    func locateTab(forPane paneID: UUID) -> PaneTabLocation? {
+        for (key, root) in workspaceRoots {
+            for area in root.allAreas() {
+                for tab in area.tabs {
+                    if let pane = tab.content.pane, pane.id == paneID {
+                        return PaneTabLocation(worktreeKey: key, areaID: area.id, tabID: tab.id, pane: pane)
                     }
                 }
             }
@@ -336,7 +347,7 @@ final class AppState {
     func forceCloseTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
         clearPendingProcessCloseIfMatching(tabID: tabID, areaID: areaID, projectID: projectID)
         unpinTabIfNeeded(tabID, areaID: areaID, projectID: projectID)
-        closeAndRecordTerminalTab(tabID, areaID: areaID, projectID: projectID)
+        dispatch(.closeTab(projectID: projectID, areaID: areaID, tabID: tabID))
     }
 
     func forceCloseTab(instanceID: String) {
@@ -377,52 +388,17 @@ final class AppState {
             pendingLastTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
         }
-        closeAndRecordTerminalTab(tabID, areaID: areaID, projectID: projectID)
+        dispatch(.closeTab(projectID: projectID, areaID: areaID, tabID: tabID))
     }
 
     func confirmCloseLastTab() {
         guard let pending = pendingLastTabClose else { return }
         pendingLastTabClose = nil
-        closeAndRecordTerminalTab(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
+        dispatch(.closeTab(projectID: pending.projectID, areaID: pending.areaID, tabID: pending.tabID))
     }
 
     func cancelCloseLastTab() {
         pendingLastTabClose = nil
-    }
-
-    func reopenLastClosedTerminalTab() -> Bool {
-        guard let projectID = activeProjectID,
-              let key = activeWorktreeKey(for: projectID),
-              workspaceRoots[key] != nil
-        else { return false }
-        guard let snapshot = terminalSessions.popLastClosedTerminalTab(
-            projectID: projectID,
-            worktreeID: key.worktreeID
-        )
-        else { return false }
-        dispatch(.restoreClosedTerminalTab(
-            projectID: projectID,
-            areaID: focusedAreaID[key],
-            snapshot: snapshot
-        ))
-        return true
-    }
-
-    func reopenClosedTerminalTab(id: UUID, projectID: UUID) -> Bool {
-        guard let key = activeWorktreeKey(for: projectID),
-              workspaceRoots[key] != nil,
-              let snapshot = terminalSessions.popClosedTerminalTab(
-                  id: id,
-                  projectID: projectID,
-                  worktreeID: key.worktreeID
-              )
-        else { return false }
-        dispatch(.restoreClosedTerminalTab(
-            projectID: projectID,
-            areaID: focusedAreaID[key],
-            snapshot: snapshot
-        ))
-        return true
     }
 
     func openTerminalTabItems(for projectID: UUID) -> [OpenTerminalTabItem] {
@@ -432,7 +408,6 @@ final class AppState {
                 guard let pane = tab.content.pane else { return nil }
                 let command = TerminalCommandTracker.shared.lastSubmittedCommand(for: pane.id)
                     ?? pane.startupCommand
-                    ?? pane.activeRestoredCommand
                 return OpenTerminalTabItem(
                     projectID: projectID,
                     worktreeID: key.worktreeID,
@@ -455,7 +430,6 @@ final class AppState {
                         guard let pane = tab.content.pane else { return nil }
                         let command = TerminalCommandTracker.shared.lastSubmittedCommand(for: pane.id)
                             ?? pane.startupCommand
-                            ?? pane.activeRestoredCommand
                         return OpenTerminalTabItem(
                             projectID: projectID,
                             worktreeID: key.worktreeID,
@@ -468,42 +442,6 @@ final class AppState {
                     }
                 }
             }
-    }
-
-    private func closedTerminalTabSnapshot(tabID: UUID, areaID: UUID, projectID: UUID) -> ClosedTerminalTabSnapshot? {
-        guard let key = activeWorktreeKey(for: projectID),
-              let root = workspaceRoots[key],
-              let area = root.findArea(id: areaID),
-              let tab = area.tabs.first(where: { $0.id == tabID }),
-              let pane = tab.content.pane
-        else { return nil }
-        let lastSubmittedCommand = TerminalCommandTracker.shared.lastSubmittedCommand(for: pane.id)
-            ?? pane.activeRestoredCommand
-        return ClosedTerminalTabSnapshot(
-            id: UUID(),
-            projectID: projectID,
-            worktreeID: key.worktreeID,
-            areaID: areaID,
-            projectPath: pane.projectPath,
-            title: tab.title,
-            customTitle: tab.customTitle,
-            colorID: tab.colorID,
-            workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
-            startupCommand: pane.startupCommand,
-            lastSubmittedCommand: lastSubmittedCommand,
-            closedSequence: terminalSessions.nextClosedSequence(),
-            closedAt: Date()
-        )
-    }
-
-    private func closeAndRecordTerminalTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
-        let closedSnapshot = closedTerminalTabSnapshot(tabID: tabID, areaID: areaID, projectID: projectID)
-        dispatch(.closeTab(projectID: projectID, areaID: areaID, tabID: tabID))
-        if let closedSnapshot {
-            terminalSessions.recordClosedTerminalTab(closedSnapshot, workspaceRoots: workspaceRoots)
-        } else {
-            saveTerminalSessions()
-        }
     }
 
     func availableLayouts(for projectID: UUID) -> [LayoutDescriptor] {

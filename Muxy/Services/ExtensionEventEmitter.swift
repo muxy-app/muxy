@@ -2,6 +2,25 @@ import Foundation
 
 @MainActor
 enum ExtensionEventEmitter {
+    struct TabContext: Equatable {
+        let tabID: UUID
+        let paneID: UUID?
+        let kind: String
+        let projectID: UUID
+        let worktreeID: UUID
+        let areaID: UUID
+        let title: String
+        let projectPath: String
+        let cwd: String?
+        let extensionID: String?
+        let tabTypeID: String?
+        let data: String?
+
+        var changesRelevantToRestore: [String] {
+            [title, projectPath, cwd ?? "", data ?? ""]
+        }
+    }
+
     struct WorkspaceSnapshot {
         let activeProjectID: UUID?
         let activeWorktreeID: [UUID: UUID]
@@ -9,21 +28,28 @@ enum ExtensionEventEmitter {
         let tabs: Set<UUID>
         let focusedAreaID: [WorktreeKey: UUID]
         let activeTabIDPerArea: [UUID: UUID]
+        let tabContext: [UUID: TabContext]
+        let paneContext: [UUID: TabContext]
     }
 
     static func snapshot(from appState: AppState) -> WorkspaceSnapshot {
         var panes = Set<UUID>()
         var tabs = Set<UUID>()
         var activeTabs: [UUID: UUID] = [:]
-        for root in appState.workspaceRoots.values {
+        var tabContext: [UUID: TabContext] = [:]
+        var paneContext: [UUID: TabContext] = [:]
+        for (key, root) in appState.workspaceRoots {
             for area in root.allAreas() {
                 if let activeTabID = area.activeTabID {
                     activeTabs[area.id] = activeTabID
                 }
                 for tab in area.tabs {
                     tabs.insert(tab.id)
+                    let context = context(for: tab, areaID: area.id, key: key)
+                    tabContext[tab.id] = context
                     if let pane = tab.content.pane {
                         panes.insert(pane.id)
+                        paneContext[pane.id] = context
                     }
                 }
             }
@@ -34,8 +60,73 @@ enum ExtensionEventEmitter {
             panes: panes,
             tabs: tabs,
             focusedAreaID: appState.focusedAreaID,
-            activeTabIDPerArea: activeTabs
+            activeTabIDPerArea: activeTabs,
+            tabContext: tabContext,
+            paneContext: paneContext
         )
+    }
+
+    static func emitTabUpdated(forPane paneID: UUID, appState: AppState) {
+        guard let located = appState.locateTab(forPane: paneID),
+              let area = appState.workspaceRoots[located.worktreeKey]?.findArea(id: located.areaID),
+              let tab = area.tabs.first(where: { $0.id == located.tabID })
+        else { return }
+        let context = context(for: tab, areaID: located.areaID, key: located.worktreeKey)
+        NotificationSocketServer.shared.broadcast(event: ExtensionEvent(
+            name: ExtensionEventName.tabUpdated,
+            payload: payload(from: context)
+        ))
+    }
+
+    private static func context(for tab: TerminalTab, areaID: UUID, key: WorktreeKey) -> TabContext {
+        TabContext(
+            tabID: tab.id,
+            paneID: tab.content.pane?.id,
+            kind: tab.kind.rawValue,
+            projectID: key.projectID,
+            worktreeID: key.worktreeID,
+            areaID: areaID,
+            title: tab.title,
+            projectPath: tab.content.projectPath,
+            cwd: tab.content.pane?.currentWorkingDirectory,
+            extensionID: tab.content.extensionState?.extensionID,
+            tabTypeID: tab.content.extensionState?.tabTypeID,
+            data: encodedData(tab.content.extensionState?.data)
+        )
+    }
+
+    private static func encodedData(_ data: ExtensionJSON?) -> String? {
+        guard let data else { return nil }
+        guard let encoded = try? JSONEncoder().encode(data) else { return nil }
+        return String(data: encoded, encoding: .utf8)
+    }
+
+    private static func payload(from context: TabContext) -> [String: String] {
+        var payload: [String: String] = [
+            "tabID": context.tabID.uuidString,
+            "kind": context.kind,
+            "projectID": context.projectID.uuidString,
+            "worktreeID": context.worktreeID.uuidString,
+            "areaID": context.areaID.uuidString,
+            "title": context.title,
+            "projectPath": context.projectPath,
+        ]
+        if let paneID = context.paneID { payload["paneID"] = paneID.uuidString }
+        if let cwd = context.cwd { payload["cwd"] = cwd }
+        if let extensionID = context.extensionID { payload["extensionID"] = extensionID }
+        if let tabTypeID = context.tabTypeID { payload["tabTypeID"] = tabTypeID }
+        if let data = context.data { payload["data"] = data }
+        return payload
+    }
+
+    private static func tabEventPayload(tabID: UUID, context: TabContext?) -> [String: String] {
+        guard let context else { return ["tabID": tabID.uuidString] }
+        return payload(from: context)
+    }
+
+    private static func paneEventPayload(paneID: UUID, context: TabContext?) -> [String: String] {
+        guard let context else { return ["paneID": paneID.uuidString] }
+        return payload(from: context)
     }
 
     static func emit(before: WorkspaceSnapshot, after: WorkspaceSnapshot) {
@@ -44,25 +135,35 @@ enum ExtensionEventEmitter {
         for paneID in after.panes.subtracting(before.panes) {
             server.broadcast(event: ExtensionEvent(
                 name: ExtensionEventName.paneCreated,
-                payload: ["paneID": paneID.uuidString]
+                payload: paneEventPayload(paneID: paneID, context: after.paneContext[paneID])
             ))
         }
         for paneID in before.panes.subtracting(after.panes) {
             server.broadcast(event: ExtensionEvent(
                 name: ExtensionEventName.paneClosed,
-                payload: ["paneID": paneID.uuidString]
+                payload: paneEventPayload(paneID: paneID, context: before.paneContext[paneID])
             ))
         }
         for tabID in after.tabs.subtracting(before.tabs) {
             server.broadcast(event: ExtensionEvent(
                 name: ExtensionEventName.tabCreated,
-                payload: ["tabID": tabID.uuidString]
+                payload: tabEventPayload(tabID: tabID, context: after.tabContext[tabID])
             ))
         }
         for tabID in before.tabs.subtracting(after.tabs) {
             server.broadcast(event: ExtensionEvent(
                 name: ExtensionEventName.tabClosed,
-                payload: ["tabID": tabID.uuidString]
+                payload: tabEventPayload(tabID: tabID, context: before.tabContext[tabID])
+            ))
+        }
+        for tabID in after.tabs.intersection(before.tabs) {
+            guard let afterContext = after.tabContext[tabID],
+                  let beforeContext = before.tabContext[tabID],
+                  afterContext.changesRelevantToRestore != beforeContext.changesRelevantToRestore
+            else { continue }
+            server.broadcast(event: ExtensionEvent(
+                name: ExtensionEventName.tabUpdated,
+                payload: payload(from: afterContext)
             ))
         }
 

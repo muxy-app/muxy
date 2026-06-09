@@ -59,8 +59,6 @@ struct ShortcutActionDispatcher {
                 appState: appState,
                 worktreeStore: worktreeStore
             )
-        case .reopenClosedTerminalTab:
-            return appState.reopenLastClosedTerminalTab()
         case .closeTab:
             guard let projectID = appState.activeProjectID,
                   let area = appState.focusedArea(for: projectID),
@@ -173,9 +171,6 @@ struct ShortcutActionDispatcher {
             return true
         case .terminalOmniboxCommands:
             postTerminalOmnibox(scope: .commandShortcuts)
-            return true
-        case .terminalOmniboxHistory:
-            postTerminalOmnibox(scope: .history)
             return true
         case .toggleSidebar:
             notificationCenter.post(name: .toggleSidebar, object: nil)

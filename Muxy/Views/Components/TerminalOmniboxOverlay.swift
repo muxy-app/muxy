@@ -4,7 +4,6 @@ struct TerminalOmniboxOverlay: View {
     let projects: [TerminalOmniboxProjectItem]
     let worktrees: [TerminalOmniboxWorktreeItem]
     let openTabs: [OpenTerminalTabItem]
-    let closedTabs: [ClosedTerminalTabSnapshot]
     let commandShortcuts: [CommandShortcut]
     let extensionCommands: [ExtensionPaletteItem]
     let activeProjectID: UUID?
@@ -33,7 +32,6 @@ struct TerminalOmniboxOverlay: View {
                 projects: projects,
                 worktrees: worktrees,
                 openTabs: openTabs,
-                closedTabs: closedTabs,
                 commandShortcuts: commandShortcuts,
                 extensionCommands: extensionCommands,
                 activeProjectID: activeProjectID,
@@ -72,9 +70,6 @@ struct TerminalOmniboxOverlay: View {
         .onChange(of: openTabs.count) {
             highlightedIndex = displayList.isEmpty ? nil : min(highlightedIndex ?? 0, displayList.count - 1)
         }
-        .onChange(of: closedTabs.count) {
-            highlightedIndex = displayList.isEmpty ? nil : min(highlightedIndex ?? 0, displayList.count - 1)
-        }
     }
 
     private var searchField: some View {
@@ -110,8 +105,6 @@ struct TerminalOmniboxOverlay: View {
             "Search open tabs..."
         case .commandShortcuts:
             "Search custom commands..."
-        case .history:
-            "Search history..."
         }
     }
 
@@ -174,8 +167,6 @@ struct TerminalOmniboxOverlay: View {
             "No open tabs found"
         case .commandShortcuts:
             "No custom commands found"
-        case .history:
-            "No history found"
         }
     }
 
@@ -242,7 +233,6 @@ struct TerminalOmniboxOverlay: View {
         case .commandShortcut:
             onSelect(item, activeProjectID, activeWorktreeID)
         case .openTab,
-             .closedTab,
              .extensionCommand:
             onSelect(item, nil, nil)
         }
