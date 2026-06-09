@@ -224,17 +224,14 @@ final class AppState {
     struct PaneTabLocation {
         let worktreeKey: WorktreeKey
         let areaID: UUID
-        let tabID: UUID
-        let pane: TerminalPaneState
+        let tab: TerminalTab
     }
 
     func locateTab(forPane paneID: UUID) -> PaneTabLocation? {
         for (key, root) in workspaceRoots {
             for area in root.allAreas() {
-                for tab in area.tabs {
-                    if let pane = tab.content.pane, pane.id == paneID {
-                        return PaneTabLocation(worktreeKey: key, areaID: area.id, tabID: tab.id, pane: pane)
-                    }
+                for tab in area.tabs where tab.content.pane?.id == paneID {
+                    return PaneTabLocation(worktreeKey: key, areaID: area.id, tab: tab)
                 }
             }
         }

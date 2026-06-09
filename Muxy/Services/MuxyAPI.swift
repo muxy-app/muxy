@@ -962,15 +962,16 @@ enum MuxyAPI {
                 return .success(())
             }
 
-            if let callingExtensionID {
-                let allowed = await tabCommandConsentGranted(
-                    extensionID: callingExtensionID,
-                    command: command,
-                    consent: consent
-                )
-                guard allowed else {
-                    return .failure(.consentDenied(verb: ExtensionGatedVerb.tabsRunCommand.rawValue))
-                }
+            guard let callingExtensionID else {
+                return .failure(.consentDenied(verb: ExtensionGatedVerb.tabsRunCommand.rawValue))
+            }
+            let allowed = await tabCommandConsentGranted(
+                extensionID: callingExtensionID,
+                command: command,
+                consent: consent
+            )
+            guard allowed else {
+                return .failure(.consentDenied(verb: ExtensionGatedVerb.tabsRunCommand.rawValue))
             }
 
             activateOpenTarget(target, appState: appState)

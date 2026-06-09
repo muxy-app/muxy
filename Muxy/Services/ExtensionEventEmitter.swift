@@ -67,11 +67,8 @@ enum ExtensionEventEmitter {
     }
 
     static func emitTabUpdated(forPane paneID: UUID, appState: AppState) {
-        guard let located = appState.locateTab(forPane: paneID),
-              let area = appState.workspaceRoots[located.worktreeKey]?.findArea(id: located.areaID),
-              let tab = area.tabs.first(where: { $0.id == located.tabID })
-        else { return }
-        let context = context(for: tab, areaID: located.areaID, key: located.worktreeKey)
+        guard let located = appState.locateTab(forPane: paneID) else { return }
+        let context = context(for: located.tab, areaID: located.areaID, key: located.worktreeKey)
         NotificationSocketServer.shared.broadcast(event: ExtensionEvent(
             name: ExtensionEventName.tabUpdated,
             payload: payload(from: context)
