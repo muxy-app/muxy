@@ -1,6 +1,20 @@
 import AppKit
 import SwiftUI
 
+private struct TooltipView: NSViewRepresentable {
+    let tooltip: String?
+
+    func makeNSView(context _: Context) -> NSView {
+        let view = NSView()
+        view.toolTip = tooltip
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context _: Context) {
+        nsView.toolTip = tooltip
+    }
+}
+
 private struct TruncationHelpModifier: ViewModifier {
     let text: String
     let font: NSFont
@@ -16,12 +30,11 @@ private struct TruncationHelpModifier: ViewModifier {
         content
             .background(
                 GeometryReader { proxy in
-                    Color.clear
+                    TooltipView(tooltip: isTruncated ? text : nil)
                         .onAppear { availableWidth = proxy.size.width }
                         .onChange(of: proxy.size.width) { _, width in availableWidth = width }
                 }
             )
-            .help(isTruncated ? text : "")
     }
 }
 
