@@ -48,6 +48,7 @@ final class ExtensionStore {
     private(set) var statuses: [ExtensionStatus] = []
     private(set) var loadFailures: [LoadFailure] = []
     private(set) var availableUpdates: [String: String] = [:]
+    private(set) var hasLoadedFromDisk = false
 
     private var processes: [String: Process] = [:]
     private var hostPGIDs: [String: pid_t] = [:]
@@ -724,6 +725,7 @@ final class ExtensionStore {
             )
         }
         pruneResolvedUpdates()
+        hasLoadedFromDisk = true
     }
 
     private func loadOne(

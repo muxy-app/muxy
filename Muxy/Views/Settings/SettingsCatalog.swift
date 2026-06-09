@@ -5,6 +5,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case general
     case projects
     case appearance
+    case sidebar
     case terminal
     case richInput
     case shortcuts
@@ -21,6 +22,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .general: "App"
         case .projects: "Projects"
         case .appearance: "Interface"
+        case .sidebar: "Sidebar"
         case .terminal: "Terminal"
         case .richInput: "Rich Input"
         case .shortcuts: "Shortcuts"
@@ -37,6 +39,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .projects: "folder"
         case .appearance: "macwindow"
+        case .sidebar: "sidebar.left"
         case .terminal: "terminal"
         case .richInput: "text.cursor"
         case .shortcuts: "keyboard"
@@ -148,9 +151,26 @@ enum SettingsCatalog {
             key: GeneralSettingsKeys.autoExpandWorktreesOnProjectSwitch,
             title: "Auto-expand Worktrees",
             description: "Automatically reveals worktrees when switching projects.",
-            category: .appearance,
+            category: .sidebar,
             section: "Sidebar",
             defaultValue: false
+        ),
+        SettingsCatalogItem(
+            key: HomeProjectPreferences.visibleKey,
+            title: "Show Home",
+            description: "Shows the permanent Home project at the top of the sidebar.",
+            category: .sidebar,
+            section: "Sidebar",
+            defaultValue: HomeProjectPreferences.defaultVisible
+        ),
+        SettingsCatalogItem(
+            key: SidebarSelection.storageKey,
+            title: "Active Sidebar",
+            description: "Chooses the built-in sidebar or one provided by an extension.",
+            category: .sidebar,
+            section: "Sidebar",
+            defaultValue: SidebarSelection.builtinValue,
+            aliases: ["extension sidebar", "webview sidebar"]
         ),
         SettingsCatalogItem(
             key: ProjectPickerPreferences.storageKey,
@@ -264,7 +284,7 @@ enum SettingsCatalog {
             key: SidebarCollapsedStyle.storageKey,
             title: "Collapsed Sidebar Style",
             description: "Controls the sidebar appearance when collapsed.",
-            category: .appearance,
+            category: .sidebar,
             section: "Sidebar",
             defaultValue: SidebarCollapsedStyle.defaultValue.rawValue
         ),
@@ -272,7 +292,7 @@ enum SettingsCatalog {
             key: SidebarExpandedStyle.storageKey,
             title: "Expanded Sidebar Style",
             description: "Controls the sidebar appearance when expanded.",
-            category: .appearance,
+            category: .sidebar,
             section: "Sidebar",
             defaultValue: SidebarExpandedStyle.defaultValue.rawValue
         ),

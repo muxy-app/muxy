@@ -4,6 +4,7 @@ enum LifecycleSurfaceKind: String {
     case tab
     case panel
     case popover
+    case sidebar
 }
 
 struct LifecycleSurfaceKey: Hashable {

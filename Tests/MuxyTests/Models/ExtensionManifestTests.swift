@@ -999,6 +999,86 @@ struct ExtensionManifestTests {
         #expect(ExtensionCommandAction.runScript(script: "s.js").requiredPermission == .commandsRunScript)
     }
 
+    @Test("decodes a sidebar declaration")
+    func decodesSidebar() throws {
+        let json = #"""
+        {
+            "name": "sb-ext",
+            "version": "1.0.0",
+            "sidebar": {
+                "id": "main",
+                "title": "My Sidebar",
+                "icon": "sparkles",
+                "entry": "sidebar/index.html"
+            }
+        }
+        """#
+        let manifest = try JSONDecoder().decode(ExtensionManifest.self, from: Data(json.utf8))
+
+        #expect(manifest.sidebar?.id == "main")
+        #expect(manifest.sidebar?.title == "My Sidebar")
+        #expect(manifest.sidebar?.icon == .symbol("sparkles"))
+        #expect(manifest.sidebar?.entry == "sidebar/index.html")
+    }
+
+    @Test("loads a sidebar and resolves its entry")
+    func loadsSidebar() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "sb-load",
+                "version": "1.0.0",
+                "sidebar": { "id": "main", "entry": "sidebar/index.html" }
+            }
+            """,
+            files: ["sidebar/index.html": "<html></html>"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let ext = try ExtensionManifestLoader.load(from: directory)
+
+        #expect(ext.manifest.sidebar?.id == "main")
+    }
+
+    @Test("rejects a sidebar with a missing entry")
+    func rejectsSidebarMissingEntry() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "sb-missing",
+                "version": "1.0.0",
+                "sidebar": { "id": "main", "entry": "sidebar/index.html" }
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.self) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects a sidebar entry that escapes the extension directory")
+    func rejectsSidebarEntryOutsideDirectory() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "sb-escape",
+                "version": "1.0.0",
+                "sidebar": { "id": "main", "entry": "../escape.html" }
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.sidebarEntryOutsideDirectory(
+            sidebarID: "main",
+            url: directory.appendingPathComponent("../escape.html")
+        )) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
     private func makeTemporaryExtension(
         manifest: String,
         files: [String: String] = [:]

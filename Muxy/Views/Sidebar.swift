@@ -45,11 +45,21 @@ struct Sidebar: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
     @State private var projectPendingRemoval: Project?
+    @State private var extensionStore = ExtensionStore.shared
     let expanded: Bool
     let expandedCustomWidth: CGFloat
     @AppStorage(SidebarCollapsedStyle.storageKey) private var collapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
+    @AppStorage(SidebarSelection.storageKey) private var activeSidebarRaw = SidebarSelection.builtinValue
+
+    private var activeExtensionSidebarID: String? {
+        SidebarSelection.resolvedExtensionID(from: activeSidebarRaw, store: extensionStore)
+    }
+
+    private var awaitingExtensionSidebar: Bool {
+        activeSidebarRaw != SidebarSelection.builtinValue && !extensionStore.hasLoadedFromDisk
+    }
 
     private var collapsedStyle: SidebarCollapsedStyle {
         SidebarCollapsedStyle(rawValue: collapsedStyleRaw) ?? .defaultValue
@@ -68,40 +78,50 @@ struct Sidebar: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            projectList
-                .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
-                .clipped()
+        sidebarContent
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .frame(width: SidebarLayout.resolvedWidth(
+                expanded: expanded,
+                collapsedStyle: collapsedStyle,
+                expandedStyle: expandedStyle,
+                expandedCustomWidth: expandedCustomWidth
+            ))
+            .opacity(isHidden ? 0 : 1)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Sidebar")
+            .alert(
+                "Remove \"\(projectPendingRemoval?.name ?? "")\"?",
+                isPresented: removalAlertBinding,
+                presenting: projectPendingRemoval
+            ) { project in
+                Button("Remove", role: .destructive) {
+                    performRemove(project)
+                    projectPendingRemoval = nil
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("Cancel", role: .cancel) {
+                    projectPendingRemoval = nil
+                }
+                .keyboardShortcut(.cancelAction)
+            } message: { _ in
+                Text("This will remove the project from Muxy. Project files on disk will not be deleted.")
+            }
+    }
 
-            SidebarFooter(isWide: isWide, sidebarExpanded: expanded)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxHeight: .infinity, alignment: .bottom)
-        .frame(width: SidebarLayout.resolvedWidth(
-            expanded: expanded,
-            collapsedStyle: collapsedStyle,
-            expandedStyle: expandedStyle,
-            expandedCustomWidth: expandedCustomWidth
-        ))
-        .opacity(isHidden ? 0 : 1)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Sidebar")
-        .alert(
-            "Remove \"\(projectPendingRemoval?.name ?? "")\"?",
-            isPresented: removalAlertBinding,
-            presenting: projectPendingRemoval
-        ) { project in
-            Button("Remove", role: .destructive) {
-                performRemove(project)
-                projectPendingRemoval = nil
+    @ViewBuilder private var sidebarContent: some View {
+        if let activeExtensionSidebarID {
+            ExtensionSidebarView(extensionID: activeExtensionSidebarID)
+        } else if awaitingExtensionSidebar {
+            Color.clear
+        } else {
+            VStack(spacing: 0) {
+                projectList
+                    .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
+                    .clipped()
+
+                SidebarFooter(isWide: isWide, sidebarExpanded: expanded)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .keyboardShortcut(.defaultAction)
-            Button("Cancel", role: .cancel) {
-                projectPendingRemoval = nil
-            }
-            .keyboardShortcut(.cancelAction)
-        } message: { _ in
-            Text("This will remove the project from Muxy. Project files on disk will not be deleted.")
         }
     }
 

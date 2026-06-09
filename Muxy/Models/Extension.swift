@@ -229,6 +229,45 @@ struct ExtensionPopover: Codable, Equatable, Identifiable {
     }
 }
 
+struct ExtensionSidebar: Codable, Equatable, Identifiable {
+    let id: String
+    let title: String?
+    let icon: ExtensionIcon?
+    let entry: String
+    let defaultData: ExtensionJSON?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case icon
+        case entry
+        case defaultData
+    }
+
+    init(
+        id: String,
+        title: String? = nil,
+        icon: ExtensionIcon? = nil,
+        entry: String,
+        defaultData: ExtensionJSON? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.icon = icon
+        self.entry = entry
+        self.defaultData = defaultData
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        icon = try container.decodeIfPresent(ExtensionIcon.self, forKey: .icon)
+        entry = try container.decode(String.self, forKey: .entry)
+        defaultData = try container.decodeIfPresent(ExtensionJSON.self, forKey: .defaultData)
+    }
+}
+
 enum ExtensionIcon: Codable, Equatable {
     case symbol(String)
     case svg(String)
@@ -523,6 +562,7 @@ struct ExtensionManifest: Codable, Equatable {
     let tabTypes: [ExtensionTabType]
     let panels: [ExtensionPanel]
     let popovers: [ExtensionPopover]
+    let sidebar: ExtensionSidebar?
     let permissions: [ExtensionPermission]
     let topbarItems: [ExtensionTopbarItem]
     let statusBarItems: [ExtensionStatusBarItem]
@@ -539,6 +579,7 @@ struct ExtensionManifest: Codable, Equatable {
         case tabTypes
         case panels
         case popovers
+        case sidebar
         case permissions
         case topbarItems
         case statusBarItems
@@ -556,6 +597,7 @@ struct ExtensionManifest: Codable, Equatable {
         tabTypes: [ExtensionTabType] = [],
         panels: [ExtensionPanel] = [],
         popovers: [ExtensionPopover] = [],
+        sidebar: ExtensionSidebar? = nil,
         permissions: [ExtensionPermission] = [],
         topbarItems: [ExtensionTopbarItem] = [],
         statusBarItems: [ExtensionStatusBarItem] = [],
@@ -571,6 +613,7 @@ struct ExtensionManifest: Codable, Equatable {
         self.tabTypes = tabTypes
         self.panels = panels
         self.popovers = popovers
+        self.sidebar = sidebar
         self.permissions = permissions
         self.topbarItems = topbarItems
         self.statusBarItems = statusBarItems
@@ -589,6 +632,7 @@ struct ExtensionManifest: Codable, Equatable {
         tabTypes = try container.decodeIfPresent([ExtensionTabType].self, forKey: .tabTypes) ?? []
         panels = try container.decodeIfPresent([ExtensionPanel].self, forKey: .panels) ?? []
         popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
+        sidebar = try container.decodeIfPresent(ExtensionSidebar.self, forKey: .sidebar)
         permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
         topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
         statusBarItems = try container.decodeIfPresent([ExtensionStatusBarItem].self, forKey: .statusBarItems) ?? []
@@ -607,6 +651,7 @@ struct ExtensionManifest: Codable, Equatable {
         tabTypes = muxy.tabTypes
         panels = muxy.panels
         popovers = muxy.popovers
+        sidebar = muxy.sidebar
         permissions = muxy.permissions
         topbarItems = muxy.topbarItems
         statusBarItems = muxy.statusBarItems
@@ -663,6 +708,7 @@ struct MuxyManifestBody: Codable, Equatable {
     let tabTypes: [ExtensionTabType]
     let panels: [ExtensionPanel]
     let popovers: [ExtensionPopover]
+    let sidebar: ExtensionSidebar?
     let permissions: [ExtensionPermission]
     let topbarItems: [ExtensionTopbarItem]
     let statusBarItems: [ExtensionStatusBarItem]
@@ -677,6 +723,7 @@ struct MuxyManifestBody: Codable, Equatable {
         case tabTypes
         case panels
         case popovers
+        case sidebar
         case permissions
         case topbarItems
         case statusBarItems
@@ -693,6 +740,7 @@ struct MuxyManifestBody: Codable, Equatable {
         tabTypes = try container.decodeIfPresent([ExtensionTabType].self, forKey: .tabTypes) ?? []
         panels = try container.decodeIfPresent([ExtensionPanel].self, forKey: .panels) ?? []
         popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
+        sidebar = try container.decodeIfPresent(ExtensionSidebar.self, forKey: .sidebar)
         permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
         topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
         statusBarItems = try container.decodeIfPresent([ExtensionStatusBarItem].self, forKey: .statusBarItems) ?? []
@@ -725,6 +773,10 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case popoverEntryMissing(popoverID: String, url: URL)
     case popoverEntryOutsideDirectory(popoverID: String, url: URL)
     case duplicatePopover(String)
+    case sidebarEntryMissing(sidebarID: String, url: URL)
+    case sidebarEntryOutsideDirectory(sidebarID: String, url: URL)
+    case sidebarSVGMissing(sidebarID: String, url: URL)
+    case sidebarSVGOutsideDirectory(sidebarID: String, url: URL)
     case commandReferencesUnknownTabType(commandID: String, tabType: String)
     case commandReferencesUnknownPanel(commandID: String, panel: String)
     case commandReferencesUnknownPopover(commandID: String, popover: String)
@@ -794,6 +846,14 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Popover '\(popoverID)' entry at \(url.path) escapes the extension directory"
         case let .duplicatePopover(id):
             "Duplicate popover '\(id)'"
+        case let .sidebarEntryMissing(sidebarID, url):
+            "Sidebar '\(sidebarID)' entry not found at \(url.path)"
+        case let .sidebarEntryOutsideDirectory(sidebarID, url):
+            "Sidebar '\(sidebarID)' entry at \(url.path) escapes the extension directory"
+        case let .sidebarSVGMissing(sidebarID, url):
+            "Sidebar '\(sidebarID)' icon SVG not found at \(url.path)"
+        case let .sidebarSVGOutsideDirectory(sidebarID, url):
+            "Sidebar '\(sidebarID)' icon SVG at \(url.path) escapes the extension directory"
         case let .commandReferencesUnknownTabType(commandID, tabType):
             "Command '\(commandID)' references unknown tab type '\(tabType)'"
         case let .commandReferencesUnknownPanel(commandID, panel):
@@ -913,6 +973,7 @@ enum ExtensionManifestLoader {
         try validateTabTypes(manifest: manifest, in: muxyExtension)
         try validatePanels(manifest: manifest, in: muxyExtension)
         try validatePopovers(manifest: manifest, in: muxyExtension)
+        try validateSidebar(manifest: manifest, in: muxyExtension)
         try validateCommands(manifest: manifest, in: muxyExtension)
         try validateTopbarItems(manifest: manifest, in: muxyExtension)
         try validateStatusBarItems(manifest: manifest, in: muxyExtension)
@@ -1023,6 +1084,27 @@ enum ExtensionManifestLoader {
                     outside: { ExtensionLoadError.panelHeaderButtonSVGOutsideDirectory(panelID: panel.id, buttonID: button.id, url: $0) }
                 )
             }
+        }
+    }
+
+    private static func validateSidebar(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
+        guard let sidebar = manifest.sidebar else { return }
+        guard let url = muxyExtension.resolveResource(sidebar.entry) else {
+            throw ExtensionLoadError.sidebarEntryOutsideDirectory(
+                sidebarID: sidebar.id,
+                url: muxyExtension.directory.appendingPathComponent(sidebar.entry)
+            )
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw ExtensionLoadError.sidebarEntryMissing(sidebarID: sidebar.id, url: url)
+        }
+        if let icon = sidebar.icon {
+            try validateIcon(
+                icon,
+                in: muxyExtension,
+                missing: { ExtensionLoadError.sidebarSVGMissing(sidebarID: sidebar.id, url: $0) },
+                outside: { ExtensionLoadError.sidebarSVGOutsideDirectory(sidebarID: sidebar.id, url: $0) }
+            )
         }
     }
 

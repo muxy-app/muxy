@@ -83,6 +83,7 @@ flowchart TD
 | [Tabs](tabs.md) | Register webview tab types and the injected `window.muxy` JS API |
 | [Panels](panels.md) | Register dockable/floating webview panels and the placement rules |
 | [Popovers](popovers.md) | Anchor a transient webview popover to a topbar/status bar item |
+| [Sidebars](sidebars.md) | Replace the built-in left sidebar with a full-height webview |
 | [Topbar](topbar.md) | Attach icons to the tab strip that trigger a command |
 | [Status Bar](statusbar.md) | Attach icons to the footer status bar; update text live |
 | [Modal](modal.md) | Present a native searchable picker; resolves with the selected item |

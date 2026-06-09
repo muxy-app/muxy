@@ -41,8 +41,9 @@ something real:
 - **Declare what it does** in `package.json` under the `muxy` key — see
   [Manifest](manifest.md).
 - **Add UI** with [Tabs](tabs.md), [Panels](panels.md), [Popovers](popovers.md),
-  [Topbar](topbar.md), and [Status Bar](statusbar.md) items, or run logic from
-  [Palette Commands](palette-commands.md) and [Scripts](scripts.md).
+  [Sidebars](sidebars.md), [Topbar](topbar.md), and [Status Bar](statusbar.md)
+  items, or run logic from [Palette Commands](palette-commands.md) and
+  [Scripts](scripts.md).
 - **Work with the workspace** through [Events](events.md), [Git](git.md),
   [Files](files.md), [HTTP](http.md), and [Settings](settings.md).
 - **Request the minimum** you need — see [Permissions](permissions.md).

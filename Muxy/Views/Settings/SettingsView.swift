@@ -117,6 +117,8 @@ struct SettingsView: View {
             ProjectsSettingsView()
         case .appearance:
             InterfaceSettingsView()
+        case .sidebar:
+            SidebarSettingsView()
         case .terminal:
             TerminalSettingsView()
         case .richInput:
