@@ -24,16 +24,22 @@ final class TabArea: Identifiable {
         id = UUID()
         self.projectPath = projectPath
         self.remoteConfig = remoteConfig
-        let effectiveCommand: String? = if let remoteConfig, let command {
-            Self.sshCommandForRemote(config: remoteConfig, injectedCommand: command)
+        let pane: TerminalPaneState
+        if let remoteConfig, let host = RemoteHostStore.shared.find(byID: remoteConfig.hostID) {
+            pane = Self.nativeSSHPane(
+                projectPath: projectPath,
+                host: host,
+                remoteConfig: remoteConfig,
+                command: command
+            )
         } else {
-            command.map { "(\($0)); exec \"$0\" -l" }
+            let effectiveCommand = command.map { "(\($0)); exec \"$0\" -l" }
+            pane = TerminalPaneState(
+                projectPath: projectPath,
+                startupCommand: effectiveCommand,
+                startupCommandInteractive: effectiveCommand != nil
+            )
         }
-        let pane = TerminalPaneState(
-            projectPath: projectPath,
-            startupCommand: effectiveCommand,
-            startupCommandInteractive: effectiveCommand != nil
-        )
         let tab = TerminalTab(pane: pane)
         tabs.append(tab)
         activeTabID = tab.id
@@ -99,14 +105,24 @@ final class TabArea: Identifiable {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return }
         let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveCommand = Self.sshWrappedCommand(command: trimmedCommand, remoteConfig: remoteConfig)
-        let pane = TerminalPaneState(
-            projectPath: projectPath,
-            title: title.isEmpty ? Self.commandTitle(trimmedCommand) : title,
-            startupCommand: effectiveCommand,
-            startupCommandInteractive: effectiveCommand != nil,
-            closesOnStartupCommandExit: closesOnCommandExit
-        )
+        let pane: TerminalPaneState = if let remoteConfig, let host = RemoteHostStore.shared.find(byID: remoteConfig.hostID) {
+            Self.nativeSSHPane(
+                projectPath: projectPath,
+                title: title.isEmpty ? Self.commandTitle(trimmedCommand) : title,
+                host: host,
+                remoteConfig: remoteConfig,
+                command: trimmedCommand,
+                closesOnStartupCommandExit: closesOnCommandExit
+            )
+        } else {
+            TerminalPaneState(
+                projectPath: projectPath,
+                title: title.isEmpty ? Self.commandTitle(trimmedCommand) : title,
+                startupCommand: trimmedCommand,
+                startupCommandInteractive: true,
+                closesOnStartupCommandExit: closesOnCommandExit
+            )
+        }
         insertTab(TerminalTab(pane: pane))
     }
 
@@ -162,70 +178,39 @@ final class TabArea: Identifiable {
         guard let remoteConfig else {
             return TerminalPaneState(projectPath: projectPath)
         }
-        let sshCommand = sshCommandForRemote(config: remoteConfig)
+        guard let host = RemoteHostStore.shared.find(byID: remoteConfig.hostID) else {
+            return TerminalPaneState(
+                projectPath: projectPath,
+                startupCommand: "echo 'Host not found'",
+                startupCommandInteractive: true
+            )
+        }
+        return nativeSSHPane(projectPath: projectPath, host: host, remoteConfig: remoteConfig)
+    }
+
+    private static func nativeSSHPane(
+        projectPath: String,
+        title: String = "Terminal",
+        host: RemoteHost,
+        remoteConfig: RemoteProjectConfig,
+        command: String? = nil,
+        closesOnStartupCommandExit: Bool = false
+    ) -> TerminalPaneState {
         let pane = TerminalPaneState(
             projectPath: projectPath,
-            startupCommand: sshCommand,
-            startupCommandInteractive: true,
-            closesOnStartupCommandExit: false
+            title: title,
+            startupCommand: nil,
+            startupCommandInteractive: false,
+            closesOnStartupCommandExit: closesOnStartupCommandExit,
+            nativeSSHConfiguration: NativeSSHConnectionConfiguration.make(
+                host: host,
+                remoteConfig: remoteConfig,
+                command: command
+            )
         )
         pane.remoteHostID = remoteConfig.hostID
         pane.sshStartTime = Date()
-        if let host = RemoteHostStore.shared.find(byID: remoteConfig.hostID), host.useKeychain,
-           let password = KeychainSSHHelper.getPassword(host: host.host, user: host.user) {
-            pane.envVars = [
-                ("MUXY_SSH_USER", host.user),
-                ("MUXY_SSH_HOST", host.host),
-                ("MUXY_SSH_PORT", "\(host.port)"),
-                ("MUXY_SSH_REMOTE_PATH", remoteConfig.remotePath),
-                ("MUXY_SSH_PASSWORD", password),
-                ("MUXY_SSH_CONTROL_PATH", host.controlPath()),
-            ]
-        }
         return pane
-    }
-
-    private static func askpassScriptPath() -> String {
-        Bundle.appResources.resourceURL?
-            .appendingPathComponent("scripts/muxy-ssh-askpass.sh")
-            .path ?? ""
-    }
-
-    private static func sshWrappedCommand(command: String?, remoteConfig: RemoteProjectConfig?) -> String? {
-        guard let command else { return nil }
-        if let remoteConfig {
-            return sshCommandForRemote(config: remoteConfig, injectedCommand: command)
-        }
-        return command
-    }
-
-    private static func sshCommandForRemote(config: RemoteProjectConfig, injectedCommand: String? = nil) -> String {
-        let store = RemoteHostStore.shared
-        guard let host = store.find(byID: config.hostID) else {
-            return injectedCommand ?? "echo 'Host not found'"
-        }
-        var args = host.sshCommandArgs(remotePath: nil)
-        if let injectedCommand {
-            args.removeLast()
-            args.append("\(host.user)@\(host.host)")
-            args.append("-t")
-            args.append("cd \(ShellEscaper.escape(config.remotePath)); \(injectedCommand)")
-        } else {
-            args.removeLast()
-            args.append("\(host.user)@\(host.host)")
-            args.append("-t")
-            args.append("cd \(ShellEscaper.escape(config.remotePath)); exec $SHELL -l")
-        }
-        if host.useKeychain, KeychainSSHHelper.getPassword(host: host.host, user: host.user) != nil {
-            return "/usr/bin/expect \(askpassScriptPath())"
-        }
-        let command = args.map { arg in
-            if arg.contains(" ") || arg.contains(";") {
-                return "'\(arg.replacingOccurrences(of: "'", with: "'\\''"))'"
-            }
-            return arg
-        }.joined(separator: " ")
-        return command
     }
 
     enum InsertSide { case left, right }

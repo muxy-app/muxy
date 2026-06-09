@@ -126,7 +126,7 @@ struct AddRemoteHostSheet: View {
             useKeychain: useKeychain
         )
 
-        if useKeychain && !password.isEmpty {
+        if useKeychain, !password.isEmpty {
             KeychainSSHHelper.storePassword(password, host: host, user: user)
         } else if !useKeychain {
             KeychainSSHHelper.deletePassword(host: host, user: user)

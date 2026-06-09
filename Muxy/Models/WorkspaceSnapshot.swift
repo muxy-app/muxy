@@ -95,7 +95,7 @@ struct TabAreaSnapshot: Codable {
     let projectPath: String
     let tabs: [TerminalTabSnapshot]
     let activeTabIndex: Int?
-    var remoteConfig: RemoteProjectConfig? = nil
+    var remoteConfig: RemoteProjectConfig?
 }
 
 struct TerminalTabSnapshot: Codable {

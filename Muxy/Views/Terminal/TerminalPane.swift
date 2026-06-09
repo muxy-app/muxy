@@ -50,7 +50,7 @@ struct TerminalPane: View {
                 areaID: areaID,
                 onFocus: onFocus,
                 onProcessExit: {
-                    if state.remoteHostID != nil, let start = state.sshStartTime {
+                    if state.remoteHostID != nil, state.nativeSSHConfiguration == nil, let start = state.sshStartTime {
                         let elapsed = Date().timeIntervalSince(start)
                         if elapsed < 10 {
                             let host = RemoteHostStore.shared.find(byID: state.remoteHostID ?? UUID())?.host ?? ""
@@ -124,7 +124,11 @@ struct TerminalPane: View {
                 Button("Reconnect") {
                     state.sshError = nil
                     state.sshStartTime = Date()
-                    TerminalViewRegistry.shared.existingView(for: state.id)?.wake()
+                    if state.nativeSSHConfiguration != nil {
+                        TerminalViewRegistry.shared.existingView(for: state.id)?.restartNativeSSH()
+                    } else {
+                        TerminalViewRegistry.shared.existingView(for: state.id)?.wake()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -243,7 +247,8 @@ struct TerminalBridge: NSViewRepresentable {
             workingDirectory: state.currentWorkingDirectory ?? state.projectPath,
             command: launch.command,
             commandInteractive: launch.interactive,
-            closesOnCommandExit: launch.closesOnCommandExit
+            closesOnCommandExit: launch.closesOnCommandExit,
+            nativeSSHConfiguration: state.nativeSSHConfiguration
         )
         if !state.envVars.isEmpty {
             view.envVars = state.envVars
@@ -270,6 +275,9 @@ struct TerminalBridge: NSViewRepresentable {
         }
         view.onOfflineChange = { [weak state] offline in
             state?.isOffline = offline
+        }
+        view.onSSHError = { [weak state] error in
+            state?.sshError = error
         }
         view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         configureSearchCallbacks(view)
@@ -316,6 +324,9 @@ struct TerminalBridge: NSViewRepresentable {
         }
         nsView.onOfflineChange = { [weak state] offline in
             state?.isOffline = offline
+        }
+        nsView.onSSHError = { [weak state] error in
+            state?.sshError = error
         }
         configureSearchCallbacks(nsView)
         configureFileOpenCallback(nsView)

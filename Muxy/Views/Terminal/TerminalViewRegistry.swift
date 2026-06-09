@@ -18,16 +18,21 @@ final class TerminalViewRegistry {
         workingDirectory: String,
         command: String? = nil,
         commandInteractive: Bool = false,
-        closesOnCommandExit: Bool = true
+        closesOnCommandExit: Bool = true,
+        nativeSSHConfiguration: NativeSSHConnectionConfiguration? = nil
     ) -> GhosttyTerminalNSView {
         if let existing = views[paneID] {
+            if existing.nativeSSHConfiguration == nil {
+                existing.nativeSSHConfiguration = nativeSSHConfiguration
+            }
             return existing
         }
         let view = GhosttyTerminalNSView(
             workingDirectory: workingDirectory,
             command: command,
             commandInteractive: commandInteractive,
-            closesOnCommandExit: closesOnCommandExit
+            closesOnCommandExit: closesOnCommandExit,
+            nativeSSHConfiguration: nativeSSHConfiguration
         )
         views[paneID] = view
         paneIDs[ObjectIdentifier(view)] = paneID

@@ -14,6 +14,7 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
         .package(url: "https://github.com/jpsim/Yams", from: "5.1.0"),
         .package(url: "https://github.com/getsentry/sentry-cocoa", from: "8.40.0"),
+        .package(url: "https://github.com/apple/swift-nio-ssh.git", from: "0.8.0"),
     ],
     targets: [
         .target(
@@ -52,6 +53,7 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "Yams", package: "Yams"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
+                .product(name: "NIOSSH", package: "swift-nio-ssh"),
             ],
             path: "Muxy",
             exclude: ["Info.plist", "Muxy.entitlements"],
@@ -91,6 +93,7 @@ let package = Package(
                 "MuxyServer",
                 "MuxyExtensionHost",
                 .product(name: "Yams", package: "Yams"),
+                .product(name: "NIOSSH", package: "swift-nio-ssh"),
             ],
             path: "Tests/MuxyTests",
             linkerSettings: [

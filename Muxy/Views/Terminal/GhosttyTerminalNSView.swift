@@ -10,6 +10,7 @@ final class GhosttyTerminalNSView: NSView {
     private let command: String?
     private let commandInteractive: Bool
     private let commandClosesOnExit: Bool
+    var nativeSSHConfiguration: NativeSSHConnectionConfiguration?
     var envVars: [(key: String, value: String)] = []
     var onTitleChange: ((String) -> Void)?
     var onWorkingDirectoryChange: ((String) -> Void)?
@@ -25,6 +26,7 @@ final class GhosttyTerminalNSView: NSView {
     var onCmdClickFile: ((String) -> Void)?
     var resolveCmdHoverFile: ((String) -> Bool)?
     var onOpenURL: ((URL) -> Bool)?
+    var onSSHError: ((SSHConnectionError) -> Void)?
     private var isShowingHandCursor = false
     private var fileHoverUnderlineLayer: CAShapeLayer?
     private var lastMouseTopDownPoint: CGPoint?
@@ -67,12 +69,14 @@ final class GhosttyTerminalNSView: NSView {
         workingDirectory: String,
         command: String? = nil,
         commandInteractive: Bool = false,
-        closesOnCommandExit: Bool = true
+        closesOnCommandExit: Bool = true,
+        nativeSSHConfiguration: NativeSSHConnectionConfiguration? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.commandInteractive = commandInteractive
         commandClosesOnExit = closesOnCommandExit
+        self.nativeSSHConfiguration = nativeSSHConfiguration
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -122,23 +126,43 @@ final class GhosttyTerminalNSView: NSView {
 
         let launchCommand = hasMaterializedOnce ? nil : command
 
-        var config = ghostty_surface_config_new()
-        config.platform_tag = GHOSTTY_PLATFORM_MACOS
-        config.platform = ghostty_platform_u(
+        var surfaceConfig = ghostty_surface_config_new()
+        surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
+        surfaceConfig.platform = ghostty_platform_u(
             macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(self).toOpaque())
         )
-        config.userdata = Unmanaged.passUnretained(self).toOpaque()
-        config.scale_factor = Double(window?.backingScaleFactor ?? 2.0)
-        config.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
+        surfaceConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
+        surfaceConfig.scale_factor = Double(window?.backingScaleFactor ?? 2.0)
+        surfaceConfig.context = GHOSTTY_SURFACE_CONTEXT_SPLIT
 
         cleanupSurfaceConfigPointers()
 
         var cEnvVars: [ghostty_env_var_s] = []
         guard let workingDirectoryPointer = strdup(workingDirectory) else { return }
         surfaceCStringPointers.append(workingDirectoryPointer)
-        config.working_directory = UnsafePointer(workingDirectoryPointer)
+        surfaceConfig.working_directory = UnsafePointer(workingDirectoryPointer)
+
+        let nativeSSHBridge: NativeSSHFileDescriptorBridge?
+        if nativeSSHConfiguration != nil {
+            do {
+                nativeSSHBridge = try NativeSSHFileDescriptorBridge.make()
+                if let bridgeCommand = nativeSSHBridge?.terminalBridgeCommand,
+                   let bridgeCommandPointer = strdup(bridgeCommand)
+                {
+                    surfaceCStringPointers.append(bridgeCommandPointer)
+                    surfaceConfig.command = UnsafePointer(bridgeCommandPointer)
+                    surfaceConfig.wait_after_command = false
+                }
+            } catch {
+                onSSHError?(.unknown(error.localizedDescription))
+                return
+            }
+        } else {
+            nativeSSHBridge = nil
+        }
 
         if let command = launchCommand,
+           nativeSSHConfiguration == nil,
            let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
                interactive: commandInteractive,
                keepsShellOpen: !commandClosesOnExit
@@ -148,8 +172,8 @@ final class GhosttyTerminalNSView: NSView {
         {
             surfaceCStringPointers.append(contentsOf: [loginWrapped, commandKey, commandValue])
             cEnvVars.append(ghostty_env_var_s(key: commandKey, value: commandValue))
-            config.command = UnsafePointer(loginWrapped)
-            config.wait_after_command = false
+            surfaceConfig.command = UnsafePointer(loginWrapped)
+            surfaceConfig.wait_after_command = false
         }
 
         for pair in envVars {
@@ -163,13 +187,14 @@ final class GhosttyTerminalNSView: NSView {
             envVarPointer.initialize(from: cEnvVars, count: cEnvVars.count)
             surfaceEnvVarPointer = envVarPointer
             surfaceEnvVarCount = cEnvVars.count
-            config.env_vars = envVarPointer
-            config.env_var_count = cEnvVars.count
+            surfaceConfig.env_vars = envVarPointer
+            surfaceConfig.env_var_count = cEnvVars.count
         }
 
-        surface = ghostty_surface_new(app, &config)
+        surface = ghostty_surface_new(app, &surfaceConfig)
 
         if surface == nil {
+            nativeSSHBridge?.closeAllBeforeSurfaceCreation()
             cleanupSurfaceConfigPointers()
         }
 
@@ -200,6 +225,24 @@ final class GhosttyTerminalNSView: NSView {
 
         if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
             RemoteTerminalStreamer.shared.attach(paneID: paneID, surface: surface)
+            if let nativeSSHConfiguration, let nativeSSHBridge {
+                SSHConnectionService.shared.start(
+                    paneID: paneID,
+                    configuration: nativeSSHConfiguration,
+                    bridge: nativeSSHBridge,
+                    size: currentTerminalSize(),
+                    callbacks: NativeSSHConnectionCallbacks(
+                        onError: { [weak self] error in
+                            self?.onSSHError?(error)
+                        },
+                        onClose: { [weak self] in
+                            guard let self, !self.processExitHandled else { return }
+                            self.processExitHandled = true
+                            self.onProcessExit?()
+                        }
+                    )
+                )
+            }
         }
 
         applyOcclusionState()
@@ -207,6 +250,9 @@ final class GhosttyTerminalNSView: NSView {
 
     func destroySurface() {
         if let surface {
+            if let paneID = TerminalViewRegistry.shared.paneID(for: self), nativeSSHConfiguration != nil {
+                SSHConnectionService.shared.stop(paneID: paneID)
+            }
             if let paneID = TerminalViewRegistry.shared.paneID(for: self) {
                 RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: surface)
             }
@@ -238,6 +284,7 @@ final class GhosttyTerminalNSView: NSView {
         onSearchTotal = nil
         onSearchSelected = nil
         onProgressReport = nil
+        onSSHError = nil
         if let observer = screenChangeObserver {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil
@@ -372,6 +419,14 @@ final class GhosttyTerminalNSView: NSView {
         applyOcclusionState()
     }
 
+    func restartNativeSSH() {
+        guard nativeSSHConfiguration != nil else { return }
+        processExitHandled = false
+        destroySurface()
+        createSurface()
+        applyOcclusionState()
+    }
+
     private var isCurrentlyVisible: Bool {
         window != nil && isPaneVisible && isWindowVisible
     }
@@ -397,6 +452,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func isTerminalIdle() -> Bool {
+        if nativeSSHConfiguration != nil { return false }
         guard let surface else { return true }
         if ghostty_surface_needs_confirm_quit(surface) { return false }
         return !isAlternateScreenActive(surface: surface)
@@ -419,7 +475,8 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private var isEligibleForOffline: Bool {
-        surface != nil && !keepsAwake && offlineInvisibleAt != nil
+        nativeSSHConfiguration == nil &&
+            surface != nil && !keepsAwake && offlineInvisibleAt != nil
             && !isOfflineBlockedByRemote && isTerminalIdle()
     }
 
@@ -473,6 +530,7 @@ final class GhosttyTerminalNSView: NSView {
         }
 
         ghostty_surface_set_size(surface, backingSize.width, backingSize.height)
+        notifyNativeSSHResize()
     }
 
     func remoteOwnershipDidChange() {
@@ -495,6 +553,27 @@ final class GhosttyTerminalNSView: NSView {
         return (UInt32(width), UInt32(height))
     }
 
+    private func currentTerminalSize() -> NativeSSHTerminalSize {
+        guard let surface else { return .fallback }
+        let size = ghostty_surface_size(surface)
+        let columns = Int(size.columns)
+        let rows = Int(size.rows)
+        guard columns > 0, rows > 0 else { return .fallback }
+        return NativeSSHTerminalSize(
+            columns: columns,
+            rows: rows,
+            widthPixels: Int(size.width_px),
+            heightPixels: Int(size.height_px)
+        )
+    }
+
+    private func notifyNativeSSHResize() {
+        guard nativeSSHConfiguration != nil,
+              let paneID = TerminalViewRegistry.shared.paneID(for: self)
+        else { return }
+        SSHConnectionService.shared.resize(paneID: paneID, size: currentTerminalSize())
+    }
+
     private func isAppShortcut(_ event: NSEvent) -> Bool {
         let key = KeyCombo.normalized(key: event.charactersIgnoringModifiers ?? "", keyCode: event.keyCode)
         let modifiers = event.modifierFlags.intersection(KeyCombo.supportedModifierMask)
@@ -510,6 +589,7 @@ final class GhosttyTerminalNSView: NSView {
     private static let systemShortcutKeys: Set<String> = ["q", "h", "m", ","]
 
     func needsConfirmQuit() -> Bool {
+        if nativeSSHConfiguration != nil { return true }
         guard let surface else { return false }
         return ghostty_surface_needs_confirm_quit(surface)
     }

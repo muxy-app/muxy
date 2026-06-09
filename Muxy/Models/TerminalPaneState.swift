@@ -46,6 +46,7 @@ final class TerminalPaneState: Identifiable {
     let closesOnStartupCommandExit: Bool
     let externalEditorFilePath: String?
     let restoredSession: TerminalSessionSnapshot?
+    var nativeSSHConfiguration: NativeSSHConnectionConfiguration?
     var envVars: [(key: String, value: String)] = []
     var remoteHostID: UUID?
     var sshError: SSHConnectionError?
@@ -66,7 +67,8 @@ final class TerminalPaneState: Identifiable {
         startupCommandInteractive: Bool = false,
         closesOnStartupCommandExit: Bool = true,
         externalEditorFilePath: String? = nil,
-        restoredSession: TerminalSessionSnapshot? = nil
+        restoredSession: TerminalSessionSnapshot? = nil,
+        nativeSSHConfiguration: NativeSSHConnectionConfiguration? = nil
     ) {
         self.id = id
         self.projectPath = projectPath
@@ -77,6 +79,7 @@ final class TerminalPaneState: Identifiable {
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
         self.externalEditorFilePath = externalEditorFilePath
         self.restoredSession = restoredSession
+        self.nativeSSHConfiguration = nativeSSHConfiguration
         if let restoredSession {
             let decision = TerminalSessionRestorePolicy.decision(for: restoredSession)
             restoreDecision = decision
@@ -87,6 +90,9 @@ final class TerminalPaneState: Identifiable {
     }
 
     func consumeRestoredLaunch() -> TerminalPaneLaunch {
+        if nativeSSHConfiguration != nil {
+            return TerminalPaneLaunch(command: nil, interactive: false, closesOnCommandExit: false)
+        }
         guard !restoreConsumed else {
             return TerminalPaneLaunch(
                 command: startupCommand,

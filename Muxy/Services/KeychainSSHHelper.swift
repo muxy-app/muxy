@@ -1,6 +1,6 @@
 import Foundation
-import Security
 import os
+import Security
 
 private let logger = Logger(subsystem: "app.muxy", category: "KeychainSSHHelper")
 

@@ -10,7 +10,7 @@ struct SSHHostManagementPanel: View {
     @State private var hostToDelete: RemoteHost?
 
     private var remoteProjects: [Project] {
-        projectStore.storedProjects.filter { $0.isRemote }
+        projectStore.storedProjects.filter(\.isRemote)
     }
 
     var body: some View {
@@ -41,12 +41,12 @@ struct SSHHostManagementPanel: View {
             }
 
             HStack {
-                Button(action: { isAddingHost = true }) {
+                Button(action: { isAddingHost = true }, label: {
                     Label("Add Host", systemImage: "plus")
-                }
-                Button(action: { isImportingConfig = true }) {
+                })
+                Button(action: { isImportingConfig = true }, label: {
                     Label("Import from SSH Config", systemImage: "doc.text")
-                }
+                })
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
@@ -88,7 +88,7 @@ struct SSHHostManagementPanel: View {
         } message: {
             if let host = hostToDelete {
                 let count = projectsForHost(host.id).count
-                if count > 0 {
+                if count >= 1 {
                     Text("This host has \(count) remote project(s). Deleting the host will not remove these projects.")
                 } else {
                     Text("Are you sure you want to delete host \"\(host.name)\"?")

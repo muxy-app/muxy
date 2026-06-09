@@ -116,19 +116,19 @@ struct Sidebar: View {
                     worktreeStore: worktreeStore,
                     projectGroupStore: projectGroupStore
                 )
-            }) {
+            }, label: {
                 Label("Add Local Project...", systemImage: "folder.badge.plus")
-            }
+            })
 
-            Button(action: { showAddRemoteProject = true }) {
+            Button(action: { showAddRemoteProject = true }, label: {
                 Label("Add Remote Project...", systemImage: "externaldrive.connected.to.line.below")
-            }
+            })
 
             Divider()
 
-            Button(action: { showSSHHostPanel = true }) {
+            Button(action: { showSSHHostPanel = true }, label: {
                 Label("Manage SSH Hosts...", systemImage: "server.rack")
-            }
+            })
         } label: {
             if isWide {
                 HStack(spacing: UIMetrics.spacing3) {

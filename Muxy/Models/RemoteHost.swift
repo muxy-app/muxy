@@ -54,7 +54,7 @@ extension RemoteHost {
     }
 
     func sshCommandArgs(remotePath: String?) -> [String] {
-        var args: [String] = ["ssh"]
+        var args = ["ssh"]
 
         args.append(contentsOf: [
             "-o", "ControlMaster=auto",

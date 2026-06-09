@@ -58,7 +58,7 @@ enum SSHConfigParser {
             switch directive {
             case "host":
                 flushCurrent()
-                currentNames = parts.dropFirst().map { $0 }
+                currentNames = parts.dropFirst().map(\.self)
                 currentHostName = nil
                 currentUser = nil
                 currentPort = 22
