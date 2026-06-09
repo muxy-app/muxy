@@ -33,7 +33,7 @@ Use the `muxy` command to open projects and control panes from a shell or automa
 
 ## Custom command shortcuts
 
-Define reusable shell command shortcuts in **Settings → Keyboard Shortcuts → Custom Commands**:
+Define reusable shell command shortcuts in **Settings → Commands**:
 
 - Display name, command, optional icon, optional keybinding.
 - Triggering one creates a new tab and runs the command.

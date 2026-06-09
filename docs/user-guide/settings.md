@@ -39,9 +39,14 @@ See [Session Restore](../features/session-restore.md).
 ## Keyboard Shortcuts
 
 - All actions remappable via a key‑capture recorder.
-- **Custom Commands** — define reusable shell command shortcuts.
 
 See [Keyboard Shortcuts](keyboard-shortcuts.md).
+
+## Commands
+
+- Define reusable shell command shortcuts that open a new terminal tab.
+
+See [Keyboard Shortcuts](keyboard-shortcuts.md#commands).
 
 ## Recording
 
