@@ -514,6 +514,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @MainActor
     private func presentWhatsNewModal(preloadedMarkdown: String? = nil) {
         guard let version = WhatsNewPreferences.currentVersion else { return }
+        if preloadedMarkdown != nil {
+            whatsNewWindow?.close()
+            whatsNewWindow = nil
+        }
         let config = AppModalConfig(
             title: "What's New",
             size: CGSize(width: 806, height: 560),
