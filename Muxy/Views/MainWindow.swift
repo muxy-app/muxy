@@ -653,16 +653,17 @@ struct MainWindow: View {
     }
 
     private var terminalOmniboxWorkspaces: [TerminalOmniboxWorkspaceItem] {
+        let storedProjects = projectStore.storedProjects
         let allProjects = TerminalOmniboxWorkspaceItem(
             groupID: nil,
             name: "All Projects",
-            projectCount: projectStore.storedProjects.count
+            projectCount: storedProjects.count
         )
         let groups = projectGroupStore.groups.map { group in
             TerminalOmniboxWorkspaceItem(
                 groupID: group.id,
                 name: group.name,
-                projectCount: group.projectIDs.count
+                projectCount: storedProjects.count { group.projectIDs.contains($0.id) }
             )
         }
         return [allProjects] + groups

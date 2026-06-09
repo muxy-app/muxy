@@ -11,6 +11,7 @@ Open the workspace menu at the top of the sidebar.
 | Action | How |
 | --- | --- |
 | Show everything | Pick **All Projects** |
+| Switch from the keyboard | Press **⌘⌥S** to open the workspace switcher in the terminal omnibox |
 | Create a workspace | Pick **New Workspace** |
 | Rename / delete | Use the workspace row actions |
 | Move a project | Right-click a project -> **Move to Workspace** |
