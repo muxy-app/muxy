@@ -36,7 +36,7 @@ muxy.events.subscribe('extension.refresh.request', async () => {
 
 ## Subscribing
 
-- **Workspace events** (`pane.*`, `tab.*`, `panel.*`, `popover.*`, `project.*`, `worktree.*`, `notification.posted`, `file.changed`, `command.executed`) must be listed in your manifest `events` array before you can subscribe. Subscribing to anything not declared is rejected.
+- **Workspace events** (`pane.*`, `tab.*`, `panel.*`, `popover.*`, `project.*`, `worktree.*`, `notification.posted`, `file.changed`) must be listed in your manifest `events` array before you can subscribe. Subscribing to anything not declared is rejected.
 - **Command events** (`command.<id>`) are auto-allowed: declaring a command in `manifest.commands` is implicit consent to receive its trigger, so you do not add it to `events`.
 - **Extension-local events** (`extension.*`) are auto-allowed for the same extension. They are not workspace events, do not appear in `events`, and cannot cross extension boundaries.
 
@@ -69,17 +69,14 @@ When an extension is reloaded or disabled, its subscriptions are dropped and re-
 | `worktree.switched` | `projectID`, `worktreeID` | `events: ["worktree.switched"]` |
 | `notification.posted` | `paneID`, `projectID`, `tabID`, `title` | `events: ["notification.posted"]` |
 | `file.changed` | `path`, `projectPath` | `events: ["file.changed"]` |
-| `command.executed` | `command`, `paneID`, `projectID`, `worktreeID`, `areaID`, `tabID`, `cwd` | `events: ["command.executed"]` |
 | `command.<id>` | `command`, `extension` | Auto-allowed when `commands[].id == <id>` |
 | `extension.<name>` | JSON payload from emitter | Auto-allowed same-extension local event |
 
 `file.changed` fires for files under the active project/worktree root. It is debounced (~0.3s) and skips Git-internal noise (`.git/` lock files and directories); one event is delivered per changed `path`, with `projectPath` set to the watched root. Pair it with [`muxy.files`](files.md) to build a reactive file tree.
 
-`command.executed` fires once per command the user runs in a terminal pane, but only when shell integration confirms the command actually ran (the same PWD/title confirmation Muxy uses elsewhere) — so it requires the user's shell to have shell integration set up. Commands typed at a secure (password) prompt are never emitted. The payload carries the `command` text plus its `paneID`, `cwd`, and the surrounding `projectID`/`worktreeID`/`areaID`/`tabID`. Together with the enriched `tab.*` payloads it is the building block for an extension's own session restore: record which commands ran where, then replay them with [`muxy.tabs.open`](tabs.md).
-
 The enriched `tab.created` / `tab.updated` / `tab.closed` / `pane.created` / `pane.closed` payloads carry the full context of the surface — `kind` (`"terminal"` or `"extensionWebView"`), `projectID`, `worktreeID`, `areaID`, `title`, `projectPath`, and where relevant `cwd`, `extensionID`, and `tabTypeID` — so an extension can recreate a tab without a separate lookup. Keys are omitted when nil (e.g. `cwd` only appears for terminal surfaces, `extensionID`/`tabTypeID` only for extension webviews).
 
-`tab.updated` fires when an existing tab's restore-relevant state changes — its `title`, `cwd`, or extension `data` — not once per command (that's `command.executed`). It is coalesced and title changes are debounced (~0.5s). The `tab.*` payloads also carry an optional `data` key for extension-webview tabs: a JSON-encoded string of the tab's `data` blob (the same object passed as `extension.data` to [`muxy.tabs.open`](tabs.md)), omitted for terminal tabs and when there is no data. `JSON.parse` it and pass it back to `tabs.open` to recreate the tab — this is the basis for extension-driven session restore, where an extension records `tab.created`/`tab.updated`/`tab.closed` for every tab, terminal and extension alike, and replays them later.
+`tab.updated` fires when an existing tab's restore-relevant state changes — its `title`, `cwd`, or extension `data`. It is coalesced and title changes are debounced (~0.5s). The `tab.*` payloads also carry an optional `data` key for extension-webview tabs: a JSON-encoded string of the tab's `data` blob (the same object passed as `extension.data` to [`muxy.tabs.open`](tabs.md)), omitted for terminal tabs and when there is no data. `JSON.parse` it and pass it back to `tabs.open` to recreate the tab — this is the basis for extension-driven session restore, where an extension records `tab.created`/`tab.updated`/`tab.closed` for every tab, terminal and extension alike, and replays them later.
 
 `tab.closed`, `panel.closed`, and `popover.closed` fire **after** the surface is actually removed. To *prevent* a close (e.g. an unsaved editor), don't use these observation events — use [Lifecycle](lifecycle.md), which asks your surface for an allow/prevent verdict *before* it closes.
 

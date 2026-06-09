@@ -29,13 +29,6 @@ See [Themes](../features/themes.md).
 
 - **Rich Input** — image submission mode, position, floating mode, font, and line height.
 
-## Sessions
-
-- **Restore Terminal Sessions** — recreates terminal tabs after restart.
-- **Blocked Commands** — commands Muxy will not restore automatically.
-
-See [Session Restore](../features/session-restore.md).
-
 ## Keyboard Shortcuts
 
 - All actions remappable via a key‑capture recorder.

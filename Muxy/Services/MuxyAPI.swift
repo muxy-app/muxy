@@ -872,7 +872,8 @@ enum MuxyAPI {
         static func open(
             _ request: OpenTabRequest,
             appState: AppState,
-            callingExtensionID: String? = nil
+            callingExtensionID: String? = nil,
+            consent: ExtensionConsentService = .shared
         ) async -> Result<Void, APIError> {
             let target: OpenTabTarget
             switch resolveOpenTarget(appState: appState) {
@@ -887,7 +888,8 @@ enum MuxyAPI {
                     request,
                     target: target,
                     appState: appState,
-                    callingExtensionID: callingExtensionID
+                    callingExtensionID: callingExtensionID,
+                    consent: consent
                 )
             case .extensionWebView:
                 guard let payload = request.extensionPayload else {
@@ -931,7 +933,8 @@ enum MuxyAPI {
             _ request: OpenTabRequest,
             target: OpenTabTarget,
             appState: AppState,
-            callingExtensionID: String?
+            callingExtensionID: String?,
+            consent: ExtensionConsentService
         ) async -> Result<Void, APIError> {
             var resolvedDirectory: String?
             if let directory = request.directory {
@@ -960,7 +963,11 @@ enum MuxyAPI {
             }
 
             if let callingExtensionID {
-                let allowed = await tabCommandConsentGranted(extensionID: callingExtensionID, command: command)
+                let allowed = await tabCommandConsentGranted(
+                    extensionID: callingExtensionID,
+                    command: command,
+                    consent: consent
+                )
                 guard allowed else {
                     return .failure(.consentDenied(verb: ExtensionGatedVerb.tabsRunCommand.rawValue))
                 }
@@ -1060,14 +1067,18 @@ private func consentGranted(
 }
 
 @MainActor
-private func tabCommandConsentGranted(extensionID: String, command: String) async -> Bool {
+private func tabCommandConsentGranted(
+    extensionID: String,
+    command: String,
+    consent: ExtensionConsentService
+) async -> Bool {
     let request = ExtensionConsentRequestBuilder.make(
         extensionID: extensionID,
         verb: .tabsRunCommand,
         payload: .tabCommand(command: command),
         source: "muxy-api"
     )
-    let decision = await ExtensionConsentService.shared.gate(request)
+    let decision = await consent.gate(request)
     return decision == .allow
 }
 

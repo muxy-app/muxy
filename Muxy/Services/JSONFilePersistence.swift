@@ -6,6 +6,10 @@ enum MuxyFileStorage {
         return dir.appendingPathComponent(filename)
     }
 
+    static func removeFile(named filename: String) {
+        try? FileManager.default.removeItem(at: fileURL(filename: filename))
+    }
+
     static func appSupportDirectory(create: Bool = true) -> URL {
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,

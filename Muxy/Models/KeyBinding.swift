@@ -285,7 +285,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .newTab, combo: KeyCombo(key: "t", command: true)),
         Self(action: .newHomeTab, combo: KeyCombo(key: "n", command: true)),
         Self(action: .closeTab, combo: KeyCombo(key: "w", command: true)),
-        Self(action: .renameTab, combo: KeyCombo(key: "t", shift: true, option: true)),
+        Self(action: .renameTab, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .pinUnpinTab, combo: KeyCombo(key: "", modifiers: 0)),
         Self(action: .splitRight, combo: KeyCombo(key: "d", command: true)),
         Self(action: .splitDown, combo: KeyCombo(key: "d", command: true, shift: true)),

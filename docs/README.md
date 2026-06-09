@@ -34,7 +34,6 @@ flowchart TB
 | [Terminal](features/terminal.md) | Ghostty config, find, copy/paste, custom commands |
 | [Rich Input](features/rich-input.md) | Multiline prompts, files, images, broadcast send |
 | [Voice Recording](features/voice-recording.md) | Dictate text into Muxy from the status bar |
-| [Session Restore](features/session-restore.md) | Restore terminal tabs after restart |
 | [Source Control](features/source-control.md) | Git status, diff, branches, pull requests |
 | [Notification Setup](features/notifications.md) | OSC sequences, hooks, socket API |
 | [AI Assistant](features/ai-assistant.md) | Draft commit messages and PR text from diffs |

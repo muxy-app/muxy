@@ -144,6 +144,7 @@ struct MuxyApp: App {
         didStartDeferredServices = true
         Task { @MainActor in
             await Task.yield()
+            MuxyFileStorage.removeFile(named: "terminal-sessions.json")
             SettingsJSONStore.beginAutomaticUserSettingsSync()
             try? await Task.sleep(for: .seconds(2))
             UpdateService.shared.start()

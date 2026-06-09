@@ -84,15 +84,7 @@ final class GhosttyRuntimeEventAdapter: GhosttyRuntimeEventHandling {
         DispatchQueue.main.async {
             view.onWorkingDirectoryChange?(path)
             if let paneID = TerminalViewRegistry.shared.paneID(for: view) {
-                let executedCommand = TerminalCommandTracker.shared.pendingCommand(for: paneID)
                 TerminalCommandTracker.shared.confirmCommand(paneID: paneID)
-                if let executedCommand {
-                    ExtensionCommandEventEmitter.emit(
-                        paneID: paneID,
-                        command: executedCommand,
-                        workingDirectory: path
-                    )
-                }
             }
         }
     }
