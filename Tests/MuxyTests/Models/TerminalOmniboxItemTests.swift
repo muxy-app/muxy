@@ -64,6 +64,18 @@ struct TerminalOmniboxItemResolverTests {
         #expect(TerminalOmniboxItem.openTab(openTab).sectionTitle == "Open Tabs")
         #expect(TerminalOmniboxItem.openTab(openTab).symbol == "terminal")
 
+        let namedWorkspace = TerminalOmniboxWorkspaceItem(groupID: UUID(), name: "Backend", projectCount: 3)
+        let allWorkspaces = TerminalOmniboxWorkspaceItem(groupID: nil, name: "All Projects", projectCount: 7)
+        #expect(TerminalOmniboxItem.workspace(namedWorkspace).title == "Backend")
+        #expect(TerminalOmniboxItem.workspace(namedWorkspace).subtitle == "3 projects")
+        #expect(TerminalOmniboxItem.workspace(namedWorkspace).symbol == "square.stack.3d.up")
+        #expect(TerminalOmniboxItem.workspace(namedWorkspace).sectionTitle == "Workspaces")
+        #expect(TerminalOmniboxItem.workspace(allWorkspaces).id == "workspace-all")
+        #expect(TerminalOmniboxItem.workspace(allWorkspaces).subtitle == "All projects")
+        #expect(TerminalOmniboxItem.workspace(allWorkspaces).symbol == "square.grid.2x2")
+        #expect(TerminalOmniboxItem
+            .workspace(TerminalOmniboxWorkspaceItem(groupID: UUID(), name: "Solo", projectCount: 1)).subtitle == "1 project")
+
         #expect(TerminalOmniboxItem.commandShortcut(shortcut).id == "shortcut-\(shortcutID.uuidString)")
         #expect(TerminalOmniboxItem.commandShortcut(shortcut).title == "Run Tests")
         #expect(TerminalOmniboxItem.commandShortcut(shortcut).subtitle == "swift test")
@@ -193,6 +205,25 @@ struct TerminalOmniboxItemResolverTests {
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .worktrees).isEmpty)
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .openTabs).isEmpty)
         #expect(TerminalOmniboxItemResolver.items(in: inactiveContext, launchScope: .commandShortcuts).isEmpty)
+    }
+
+    @Test("Workspaces scope returns every workspace item")
+    func workspacesScopeReturnsAllWorkspaces() {
+        let allProjects = TerminalOmniboxWorkspaceItem(groupID: nil, name: "All Projects", projectCount: 5)
+        let backend = TerminalOmniboxWorkspaceItem(groupID: UUID(), name: "Backend", projectCount: 2)
+        let context = TerminalOmniboxItemContext(
+            projects: [],
+            worktrees: [],
+            workspaces: [allProjects, backend],
+            openTabs: [],
+            commandShortcuts: [],
+            activeProjectID: nil,
+            activeWorktreeID: nil,
+            commandProjectIDs: []
+        )
+
+        let items = TerminalOmniboxItemResolver.items(in: context, launchScope: .workspaces)
+        #expect(items == [.workspace(allProjects), .workspace(backend)])
     }
 
     @Test("commandShortcuts scope includes extension commands")

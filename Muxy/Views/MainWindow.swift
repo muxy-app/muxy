@@ -529,6 +529,7 @@ struct MainWindow: View {
             TerminalOmniboxOverlay(
                 projects: terminalOmniboxProjects,
                 worktrees: terminalOmniboxWorktrees,
+                workspaces: terminalOmniboxWorkspaces,
                 openTabs: terminalOmniboxOpenTabs,
                 commandShortcuts: CommandShortcutStore.shared.shortcuts,
                 extensionCommands: terminalOmniboxExtensionCommands,
@@ -589,6 +590,8 @@ struct MainWindow: View {
             _ = selectOmniboxProject(project.projectID)
         case let .worktree(worktree):
             _ = selectOmniboxProject(worktree.projectID, worktreeID: worktree.worktreeID)
+        case let .workspace(workspace):
+            selectOmniboxWorkspace(workspace)
         case let .openTab(tab):
             _ = selectOmniboxProject(tab.projectID, worktreeID: tab.worktreeID)
             appState.dispatch(.selectTab(projectID: tab.projectID, areaID: tab.areaID, tabID: tab.tabID))
@@ -649,6 +652,22 @@ struct MainWindow: View {
         }
     }
 
+    private var terminalOmniboxWorkspaces: [TerminalOmniboxWorkspaceItem] {
+        let allProjects = TerminalOmniboxWorkspaceItem(
+            groupID: nil,
+            name: "All Projects",
+            projectCount: projectStore.storedProjects.count
+        )
+        let groups = projectGroupStore.groups.map { group in
+            TerminalOmniboxWorkspaceItem(
+                groupID: group.id,
+                name: group.name,
+                projectCount: group.projectIDs.count
+            )
+        }
+        return [allProjects] + groups
+    }
+
     private var terminalOmniboxOpenTabs: [OpenTerminalTabItem] {
         omniboxProjects.flatMap { appState.allOpenTerminalTabItems(for: $0.id) }
     }
@@ -672,6 +691,14 @@ struct MainWindow: View {
         guard let worktree else { return false }
         appState.selectProject(project, worktree: worktree)
         return true
+    }
+
+    private func selectOmniboxWorkspace(_ workspace: TerminalOmniboxWorkspaceItem) {
+        guard let groupID = workspace.groupID else {
+            projectGroupStore.clearGroupSelection()
+            return
+        }
+        projectGroupStore.selectGroup(id: groupID)
     }
 
     private var toastPosition: ToastPosition {

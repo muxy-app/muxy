@@ -3,6 +3,7 @@ import SwiftUI
 struct TerminalOmniboxOverlay: View {
     let projects: [TerminalOmniboxProjectItem]
     let worktrees: [TerminalOmniboxWorktreeItem]
+    let workspaces: [TerminalOmniboxWorkspaceItem]
     let openTabs: [OpenTerminalTabItem]
     let commandShortcuts: [CommandShortcut]
     let extensionCommands: [ExtensionPaletteItem]
@@ -31,6 +32,7 @@ struct TerminalOmniboxOverlay: View {
             in: TerminalOmniboxItemContext(
                 projects: projects,
                 worktrees: worktrees,
+                workspaces: workspaces,
                 openTabs: openTabs,
                 commandShortcuts: commandShortcuts,
                 extensionCommands: extensionCommands,
@@ -101,6 +103,8 @@ struct TerminalOmniboxOverlay: View {
             "Search project..."
         case .worktrees:
             "Search worktree..."
+        case .workspaces:
+            "Search workspace..."
         case .openTabs:
             "Search open tabs..."
         case .commandShortcuts:
@@ -163,6 +167,8 @@ struct TerminalOmniboxOverlay: View {
             "No projects found"
         case .worktrees:
             "No worktrees found"
+        case .workspaces:
+            "No workspaces found"
         case .openTabs:
             "No open tabs found"
         case .commandShortcuts:
@@ -173,7 +179,8 @@ struct TerminalOmniboxOverlay: View {
     private var returnHintLabel: String {
         switch launchScope {
         case .projects,
-             .worktrees:
+             .worktrees,
+             .workspaces:
             "Switch"
         default:
             "Open"
@@ -228,7 +235,8 @@ struct TerminalOmniboxOverlay: View {
     private func dispatchSelection(_ item: TerminalOmniboxItem) {
         switch item {
         case .project,
-             .worktree:
+             .worktree,
+             .workspace:
             onSelect(item, nil, nil)
         case .commandShortcut:
             onSelect(item, activeProjectID, activeWorktreeID)

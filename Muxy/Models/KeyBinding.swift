@@ -56,6 +56,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case terminalOmnibox
     case terminalOmniboxProjects
     case terminalOmniboxWorktrees
+    case terminalOmniboxWorkspaces
     case terminalOmniboxCommands
     case toggleSidebar
     case navigateBack
@@ -113,6 +114,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .terminalOmnibox,
         .terminalOmniboxProjects,
         .terminalOmniboxWorktrees,
+        .terminalOmniboxWorkspaces,
         .terminalOmniboxCommands,
         .toggleSidebar,
         .navigateBack,
@@ -187,6 +189,11 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
             )
         case .terminalOmniboxWorktrees: ShortcutMetadata(
                 displayName: "Terminal Omnibox Worktrees",
+                category: "Terminal",
+                scope: .mainWindow
+            )
+        case .terminalOmniboxWorkspaces: ShortcutMetadata(
+                displayName: "Terminal Omnibox Workspaces",
                 category: "Terminal",
                 scope: .mainWindow
             )
@@ -329,6 +336,7 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .terminalOmnibox, combo: KeyCombo(key: "o", command: true, option: true)),
         Self(action: .terminalOmniboxProjects, combo: KeyCombo(key: "p", command: true, option: true)),
         Self(action: .terminalOmniboxWorktrees, combo: KeyCombo(key: "w", command: true, option: true)),
+        Self(action: .terminalOmniboxWorkspaces, combo: KeyCombo(key: "s", command: true, shift: true)),
         Self(action: .terminalOmniboxCommands, combo: KeyCombo(key: "p", command: true, shift: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
         Self(action: .navigateBack, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, control: true)),

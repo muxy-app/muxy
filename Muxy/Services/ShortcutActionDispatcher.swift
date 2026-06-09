@@ -169,6 +169,9 @@ struct ShortcutActionDispatcher {
         case .terminalOmniboxWorktrees:
             postTerminalOmnibox(scope: .worktrees)
             return true
+        case .terminalOmniboxWorkspaces:
+            postTerminalOmnibox(scope: .workspaces)
+            return true
         case .terminalOmniboxCommands:
             postTerminalOmnibox(scope: .commandShortcuts)
             return true
