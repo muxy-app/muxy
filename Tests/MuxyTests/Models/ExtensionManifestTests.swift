@@ -1079,6 +1079,43 @@ struct ExtensionManifestTests {
         }
     }
 
+    @Test("rejects a sidebar with an empty id")
+    func rejectsSidebarEmptyID() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "sb-empty-id",
+                "version": "1.0.0",
+                "sidebar": { "id": "", "entry": "sidebar/index.html" }
+            }
+            """,
+            files: ["sidebar/index.html": "<html></html>"]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.sidebarEmptyID) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
+    @Test("rejects a sidebar with an empty entry")
+    func rejectsSidebarEmptyEntry() throws {
+        let directory = try makeTemporaryExtension(
+            manifest: """
+            {
+                "name": "sb-empty-entry",
+                "version": "1.0.0",
+                "sidebar": { "id": "main", "entry": "" }
+            }
+            """
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(throws: ExtensionLoadError.sidebarEntryEmpty(sidebarID: "main")) {
+            try ExtensionManifestLoader.load(from: directory)
+        }
+    }
+
     private func makeTemporaryExtension(
         manifest: String,
         files: [String: String] = [:]

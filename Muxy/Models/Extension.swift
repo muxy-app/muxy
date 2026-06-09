@@ -773,6 +773,8 @@ enum ExtensionLoadError: LocalizedError, Equatable {
     case popoverEntryMissing(popoverID: String, url: URL)
     case popoverEntryOutsideDirectory(popoverID: String, url: URL)
     case duplicatePopover(String)
+    case sidebarEmptyID
+    case sidebarEntryEmpty(sidebarID: String)
     case sidebarEntryMissing(sidebarID: String, url: URL)
     case sidebarEntryOutsideDirectory(sidebarID: String, url: URL)
     case sidebarSVGMissing(sidebarID: String, url: URL)
@@ -846,6 +848,10 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Popover '\(popoverID)' entry at \(url.path) escapes the extension directory"
         case let .duplicatePopover(id):
             "Duplicate popover '\(id)'"
+        case .sidebarEmptyID:
+            "Sidebar id must not be empty"
+        case let .sidebarEntryEmpty(sidebarID):
+            "Sidebar '\(sidebarID)' entry must not be empty"
         case let .sidebarEntryMissing(sidebarID, url):
             "Sidebar '\(sidebarID)' entry not found at \(url.path)"
         case let .sidebarEntryOutsideDirectory(sidebarID, url):
@@ -1089,6 +1095,10 @@ enum ExtensionManifestLoader {
 
     private static func validateSidebar(manifest: ExtensionManifest, in muxyExtension: MuxyExtension) throws {
         guard let sidebar = manifest.sidebar else { return }
+        guard !sidebar.id.isEmpty else { throw ExtensionLoadError.sidebarEmptyID }
+        guard !sidebar.entry.isEmpty else {
+            throw ExtensionLoadError.sidebarEntryEmpty(sidebarID: sidebar.id)
+        }
         guard let url = muxyExtension.resolveResource(sidebar.entry) else {
             throw ExtensionLoadError.sidebarEntryOutsideDirectory(
                 sidebarID: sidebar.id,
