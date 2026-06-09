@@ -59,20 +59,10 @@ Mouse side buttons (3 / 4) and three‑finger horizontal trackpad swipes also na
 | --- | --- |
 | Open Project… | `Cmd+O` |
 | Source Control | `Cmd+K` |
-| Quick Open | `Cmd+P` |
-| Find in Files | `Cmd+Shift+F` |
 | Toggle Sidebar | `Cmd+B` |
-| Toggle File Tree | `Cmd+E` |
-| Toggle AI Usage | `Cmd+L` |
 | Theme Picker | `Cmd+Shift+K` |
 | Reload Configuration | `Cmd+Shift+R` |
-
-## Editor
-
-| Action | Shortcut |
-| --- | --- |
-| Save File | `Cmd+S` |
-| Find | `Cmd+F` |
+| Toggle Full Screen | `Cmd+Ctrl+F` |
 
 ## Rich Input
 
@@ -83,20 +73,18 @@ Mouse side buttons (3 / 4) and three‑finger horizontal trackpad swipes also na
 | Send Without Enter | `Cmd+Shift+Return` |
 | Voice Recording | `Cmd+Shift+I` |
 
-## Markdown preview
-
-| Action | Shortcut |
-| --- | --- |
-| Zoom In | `Cmd+=` |
-| Zoom Out | `Cmd+-` |
-| Reset Zoom | `Cmd+0` |
-
 ## Terminal
 
 | Action | Shortcut |
 | --- | --- |
 | Find in Terminal | `Cmd+F` |
 
-## Custom command shortcuts
+## Extensions
 
-Define your own command shortcuts in **Settings → Keyboard Shortcuts → Custom Commands**. Each entry has a display name, a shell command, an optional icon, and an optional keybinding. Triggering one creates a tab and runs the command.
+| Action | Shortcut |
+| --- | --- |
+| Toggle Extension Debug Bar | `Cmd+\`` |
+
+## Commands
+
+Define your own command shortcuts in **Settings → Commands**. Each entry has a display name, a shell command, an optional icon, and an optional keybinding. Triggering one creates a tab and runs the command.

@@ -11,6 +11,9 @@ struct PaneTabStrip: View {
         let isPinned: Bool
         let hasCustomTitle: Bool
         let colorID: String?
+        let extensionID: String?
+        let customIcon: ExtensionIcon?
+        let isOffline: Bool
     }
 
     let areaID: UUID
@@ -18,17 +21,12 @@ struct PaneTabStrip: View {
     let activeTabID: UUID?
     let isFocused: Bool
     var isWindowTitleBar: Bool = false
-    var showVCSButton = true
     var showDevelopmentBadge = false
     var openInIDEProjectPath: String?
-    var openInIDEFilePath: String?
-    var openInIDECursorProvider: () -> (line: Int?, column: Int?) = { (nil, nil) }
     let projectID: UUID
     var shortcutIndexOffset: Int = 0
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
-    let onCreateVCSTab: () -> Void
-    let onCreateDiffViewerTab: () -> Void
     let onCloseTab: (UUID) -> Void
     let onCloseOtherTabs: (UUID) -> Void
     let onCloseTabsToLeft: (UUID) -> Void
@@ -44,10 +42,6 @@ struct PaneTabStrip: View {
     let onSetColorID: (UUID, String?) -> Void
     let onReorderTab: (IndexSet, Int) -> Void
     @Environment(TabDragCoordinator.self) private var dragCoordinator
-    @Environment(AppState.self) private var appState
-    @Environment(ProjectStore.self) private var projectStore
-    @Environment(WorktreeStore.self) private var worktreeStore
-    @Environment(ExtensionStore.self) private var extensionStore
     @State private var dragState = TabDragState()
 
     static func snapshots(from tabs: [TerminalTab]) -> [TabSnapshot] {
@@ -59,7 +53,10 @@ struct PaneTabStrip: View {
                 kind: tab.kind,
                 isPinned: tab.isPinned,
                 hasCustomTitle: tab.customTitle != nil,
-                colorID: tab.colorID
+                colorID: tab.colorID,
+                extensionID: tab.content.extensionState?.extensionID,
+                customIcon: tab.content.extensionState?.customIcon,
+                isOffline: tab.content.pane?.isOffline ?? false
             )
         }
     }
@@ -88,12 +85,9 @@ struct PaneTabStrip: View {
                         .padding(.trailing, UIMetrics.spacing3)
                 }
                 if isWindowTitleBar {
-                    OpenInIDEControl(
-                        projectPath: openInIDEProjectPath,
-                        filePath: openInIDEFilePath,
-                        cursorProvider: openInIDECursorProvider
-                    )
+                    OpenInIDEControl(projectPath: openInIDEProjectPath)
                     LayoutPickerMenu(projectID: projectID)
+                    ExtensionTopbarItems()
                 }
                 if showMaximizeButton || isMaximized, let onToggleMaximize {
                     let symbol = isMaximized
@@ -103,37 +97,12 @@ struct PaneTabStrip: View {
                     IconButton(symbol: symbol, accessibilityLabel: label, action: onToggleMaximize)
                         .help(shortcutTooltip("Toggle Maximize Pane", for: .toggleMaximizePane))
                 }
-                ForEach(extensionStore.topbarItems) { binding in
-                    ExtensionIconButton(
-                        icon: binding.item.icon,
-                        muxyExtension: binding.muxyExtension,
-                        accessibilityLabel: binding.item.tooltip ?? binding.item.id,
-                        action: { triggerExtensionCommand(binding: binding) }
-                    )
-                    .help(binding.item.tooltip ?? binding.item.id)
-                }
                 IconButton(symbol: "square.split.2x1", accessibilityLabel: "Split Right") { onSplit(.horizontal) }
                     .help(shortcutTooltip("Split Right", for: .splitRight))
                 IconButton(symbol: "square.split.1x2", accessibilityLabel: "Split Down") { onSplit(.vertical) }
                     .help(shortcutTooltip("Split Down", for: .splitDown))
                 IconButton(symbol: "plus", accessibilityLabel: "New Tab") { onCreateTab() }
                     .help(shortcutTooltip("New Tab", for: .newTab))
-                if showVCSButton {
-                    IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
-                        NotificationCenter.default.post(name: .quickOpen, object: nil)
-                    }
-                    .help(shortcutTooltip("Quick Open", for: .quickOpen))
-                    FileDiffIconButton(action: onCreateDiffViewerTab)
-                        .help(shortcutTooltip("Diff Viewer", for: .openDiffViewerTab))
-                    IconButton(symbol: "arrow.triangle.branch", size: 12, accessibilityLabel: "Source Control") {
-                        onCreateVCSTab()
-                    }
-                    .help(shortcutTooltip("Source Control", for: .openVCSTab))
-                    FileTreeIconButton {
-                        NotificationCenter.default.post(name: .toggleFileTree, object: nil)
-                    }
-                    .help(shortcutTooltip("File Tree", for: .toggleFileTree))
-                }
             }
             .padding(.leading, UIMetrics.spacing4)
             .padding(.trailing, UIMetrics.spacing2)
@@ -224,18 +193,6 @@ struct PaneTabStrip: View {
 
     private func shortcutTooltip(_ name: String, for action: ShortcutAction) -> String {
         "\(name) (\(KeyBindingStore.shared.combo(for: action).displayString))"
-    }
-
-    private func triggerExtensionCommand(binding: ExtensionStore.TopbarItemBinding) {
-        extensionStore.triggerCommand(
-            ExtensionStore.CommandInvocation(
-                extensionID: binding.muxyExtension.id,
-                commandID: binding.item.command,
-                appState: appState,
-                projectStore: projectStore,
-                worktreeStore: worktreeStore
-            )
-        )
     }
 
     private var developmentBadge: some View {
@@ -424,23 +381,21 @@ private struct TabCell: View {
         return progressStore.isCompletionPending(for: paneID)
     }
 
-    private var showBadge: Bool {
+    private var shortcutHint: KeyCombo? {
         guard let shortcutIndex,
               let action = ShortcutAction.tabAction(for: shortcutIndex)
-        else { return false }
-        return ModifierKeyMonitor.shared.isHolding(
-            modifiers: KeyBindingStore.shared.combo(for: action).modifiers
-        )
+        else { return nil }
+        return ModifierKeyMonitor.shared.hint(for: action)
     }
 
     var body: some View {
         HStack(spacing: 0) {
             HStack(spacing: UIMetrics.spacing3) {
-                tabIconView
+                tabIconOrBadge
                     .foregroundStyle(active ? MuxyTheme.fg : MuxyTheme.fgMuted)
                     .opacity(titleHidden && hovered && !tab.isPinned ? 0 : 1)
                     .overlay(alignment: .topTrailing) {
-                        if hasUnread || hasCompletionPending, !active {
+                        if hasUnread || hasCompletionPending, !active, shortcutHint == nil {
                             Circle()
                                 .fill(MuxyTheme.accent)
                                 .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
@@ -480,13 +435,6 @@ private struct TabCell: View {
             .overlay(alignment: titleHidden ? .center : .trailing) {
                 trailingAccessory
                     .padding(.trailing, titleHidden ? 0 : UIMetrics.spacing5)
-            }
-            .overlay {
-                if showBadge, let shortcutIndex,
-                   let action = ShortcutAction.tabAction(for: shortcutIndex)
-                {
-                    ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
-                }
             }
             .overlay(alignment: .bottom) {
                 if let accentColor = bottomAccentColor {
@@ -659,15 +607,23 @@ private struct TabCell: View {
         var label = tab.title
         switch tab.kind {
         case .terminal: label += ", Terminal"
-        case .vcs: label += ", Source Control"
-        case .editor: label += ", Editor"
-        case .diffViewer: label += ", Diff Viewer"
-        case .imageViewer: label += ", Image Viewer"
         case .extensionWebView: label += ", Extension"
         }
         if tab.isPinned { label += ", Pinned" }
+        if tab.isOffline, !active { label += ", Idle" }
         if hasUnread { label += ", Unread" }
         return label
+    }
+
+    @ViewBuilder
+    private var tabIconOrBadge: some View {
+        if let shortcutIndex, let hint = shortcutHint {
+            ShortcutIconBadge(number: shortcutIndex, size: UIMetrics.iconMD, combo: hint)
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
+        } else {
+            tabIconView
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
+        }
     }
 
     @ViewBuilder
@@ -679,28 +635,31 @@ private struct TabCell: View {
         } else if tab.isPinned {
             Image(systemName: "pin.fill")
                 .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+        } else if tab.isOffline, !active {
+            Image(systemName: "moon.zzz")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                .help("Idle — terminal freed to save memory. Reopens when selected.")
         } else {
             switch tab.kind {
             case .terminal:
                 Image(systemName: "terminal")
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-            case .vcs:
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-            case .editor:
-                Image(systemName: "pencil.line")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
-            case .diffViewer:
-                FileDiffIcon()
-                    .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-                    .frame(width: UIMetrics.iconSM, height: UIMetrics.iconSM)
-            case .imageViewer:
-                Image(systemName: "photo")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             case .extensionWebView:
-                Image(systemName: "puzzlepiece.extension")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                extensionIconView
             }
+        }
+    }
+
+    @ViewBuilder
+    private var extensionIconView: some View {
+        if let icon = tab.customIcon,
+           let extensionID = tab.extensionID,
+           let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID)
+        {
+            ExtensionIconView(icon: icon, muxyExtension: muxyExtension, size: 12)
+        } else {
+            Image(systemName: "puzzlepiece.extension")
+                .font(.system(size: UIMetrics.fontBody, weight: .semibold))
         }
     }
 }

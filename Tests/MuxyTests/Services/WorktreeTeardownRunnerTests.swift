@@ -27,9 +27,10 @@ struct WorktreeTeardownRunnerTests {
     @Test("run executes teardown commands with worktree environment")
     func runExecutesTeardownCommandsWithEnvironment() async throws {
         let projectPath = try makeProjectConfig(teardown: [" first ", "", "second"])
+        let worktreePath = try makeWorktreeDirectory()
         let worktree = Worktree(
             name: "Feature",
-            path: "/tmp/feature",
+            path: worktreePath,
             branch: "feature/test",
             source: .muxy,
             isPrimary: false
@@ -43,9 +44,30 @@ struct WorktreeTeardownRunnerTests {
         )
 
         #expect(capture.commands == ["first", "second"])
-        #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_PATH"] == "/tmp/feature" })
+        #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_PATH"] == worktreePath })
         #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_NAME"] == "Feature" })
         #expect(capture.environments.allSatisfy { $0["MUXY_WORKTREE_BRANCH"] == "feature/test" })
+    }
+
+    @Test("run skips teardown when the worktree folder is gone")
+    func runSkipsWhenWorktreeFolderMissing() async throws {
+        let projectPath = try makeProjectConfig(teardown: ["cleanup"])
+        let worktree = Worktree(
+            name: "Feature",
+            path: "/tmp/muxy-missing-\(UUID().uuidString)",
+            branch: nil,
+            source: .muxy,
+            isPrimary: false
+        )
+        let capture = ExecutionCapture()
+
+        try await WorktreeTeardownRunner.run(
+            sourceProjectPath: projectPath,
+            worktree: worktree,
+            executor: capture.executor(returning: 0)
+        )
+
+        #expect(capture.commands.isEmpty)
     }
 
     @Test("run skips externally managed worktrees")
@@ -72,7 +94,13 @@ struct WorktreeTeardownRunnerTests {
     @Test("run stops and throws on teardown failure")
     func runStopsOnFailure() async throws {
         let projectPath = try makeProjectConfig(teardown: ["fail", "after"])
-        let worktree = Worktree(name: "Feature", path: "/tmp/feature", branch: nil, source: .muxy, isPrimary: false)
+        let worktree = Worktree(
+            name: "Feature",
+            path: try makeWorktreeDirectory(),
+            branch: nil,
+            source: .muxy,
+            isPrimary: false
+        )
         let capture = ExecutionCapture()
 
         await #expect(throws: WorktreeTeardownError.self) {
@@ -88,7 +116,13 @@ struct WorktreeTeardownRunnerTests {
     @Test("run streams command and output lines to the emit closure")
     func runStreamsOutputLines() async throws {
         let projectPath = try makeProjectConfig(teardown: ["echo hello"])
-        let worktree = Worktree(name: "Feature", path: "/tmp/feature", branch: nil, source: .muxy, isPrimary: false)
+        let worktree = Worktree(
+            name: "Feature",
+            path: try makeWorktreeDirectory(),
+            branch: nil,
+            source: .muxy,
+            isPrimary: false
+        )
         let collected = LineCollector()
 
         try await WorktreeTeardownRunner.run(
@@ -124,6 +158,13 @@ struct WorktreeTeardownRunnerTests {
         #expect(status == 0)
         #expect(lines.contains(where: { $0.channel == .stdout && $0.text == "out" }))
         #expect(lines.contains(where: { $0.channel == .stderr && $0.text == "err" }))
+    }
+
+    private func makeWorktreeDirectory() throws -> String {
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("muxy-teardown-worktree-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
+        return path.path
     }
 
     private func makeProjectConfig(teardown: [String]) throws -> String {

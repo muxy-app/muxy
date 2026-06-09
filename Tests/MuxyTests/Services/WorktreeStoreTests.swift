@@ -122,6 +122,130 @@ struct WorktreeStoreTests {
         #expect(imported.isExternallyManaged)
     }
 
+    @Test("refreshFromGit re-syncs branch-derived name on branch rename but keeps custom names")
+    func refreshFromGitSyncsBranchDerivedName() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(
+                        name: project.name,
+                        path: project.path,
+                        branch: "main",
+                        isPrimary: true
+                    ),
+                    Worktree(
+                        name: "passion729/regulus",
+                        path: "/tmp/repo-wt1",
+                        branch: "passion729/regulus",
+                        source: .external,
+                        isPrimary: false
+                    ),
+                    Worktree(
+                        name: "My Feature",
+                        path: "/tmp/repo-wt2",
+                        branch: "feature-old",
+                        source: .external,
+                        isPrimary: false
+                    ),
+                ]
+            ]
+        )
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: project.path,
+                    branch: "main",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+                GitWorktreeRecord(
+                    path: "/tmp/repo-wt1",
+                    branch: "passion729/greeting",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+                GitWorktreeRecord(
+                    path: "/tmp/repo-wt2",
+                    branch: "feature-new",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+            ]
+        ])
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            projects: [project]
+        )
+
+        let worktrees = try await store.refreshFromGit(project: project)
+
+        let tracked = try #require(worktrees.first(where: { $0.path == "/tmp/repo-wt1" }))
+        #expect(tracked.branch == "passion729/greeting")
+        #expect(tracked.name == "passion729/greeting")
+
+        let custom = try #require(worktrees.first(where: { $0.path == "/tmp/repo-wt2" }))
+        #expect(custom.branch == "feature-new")
+        #expect(custom.name == "My Feature")
+    }
+
+    @Test("refreshFromGit keeps a branch-derived name when the worktree goes detached")
+    func refreshFromGitKeepsNameOnDetachedHead() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(
+                        name: project.name,
+                        path: project.path,
+                        branch: "main",
+                        isPrimary: true
+                    ),
+                    Worktree(
+                        name: "passion729/regulus",
+                        path: "/tmp/repo-wt1",
+                        branch: "passion729/regulus",
+                        source: .external,
+                        isPrimary: false
+                    ),
+                ]
+            ]
+        )
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: project.path,
+                    branch: "main",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+                GitWorktreeRecord(
+                    path: "/tmp/repo-wt1",
+                    branch: nil,
+                    head: "abc123",
+                    isBare: false,
+                    isDetached: true
+                ),
+            ]
+        ])
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            projects: [project]
+        )
+
+        let worktrees = try await store.refreshFromGit(project: project)
+
+        let detached = try #require(worktrees.first(where: { $0.path == "/tmp/repo-wt1" }))
+        #expect(detached.branch == nil)
+        #expect(detached.name == "passion729/regulus")
+    }
+
     @Test("refreshFromGit keeps missing Muxy-managed worktrees")
     func refreshFromGitKeepsMissingMuxyManagedEntries() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
@@ -358,37 +482,6 @@ struct WorktreeStoreTests {
         #expect(worktrees.count == 1)
         #expect(worktrees[0].isPrimary)
         #expect(worktrees[0].branch == "feat/worktree-refresh")
-    }
-
-    @Test("remove evicts cached VCS state for the removed worktree")
-    func removeEvictsCachedVCSState() {
-        let project = Project(name: "Repo", path: "/tmp/repo-\(UUID().uuidString)")
-        let removable = Worktree(
-            name: "feature-a",
-            path: project.path + "-feature-a",
-            branch: "feature-a",
-            source: .muxy,
-            isPrimary: false
-        )
-        let persistence = WorktreePersistenceStub(
-            initial: [
-                project.id: [
-                    Worktree(name: project.name, path: project.path, isPrimary: true),
-                    removable,
-                ]
-            ]
-        )
-        let store = WorktreeStore(
-            persistence: persistence,
-            listGitWorktrees: GitWorktreeListingStub(recordsByRepoPath: [:]).listWorktrees,
-            projects: [project]
-        )
-        _ = VCSStateStore.shared.state(for: removable.path)
-        #expect(VCSStateStore.shared.cachedState(for: removable.path) != nil)
-
-        store.remove(worktreeID: removable.id, from: project.id)
-
-        #expect(VCSStateStore.shared.cachedState(for: removable.path) == nil)
     }
 
     @Test("remove deletes externally managed worktrees")

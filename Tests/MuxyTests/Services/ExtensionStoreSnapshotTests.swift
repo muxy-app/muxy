@@ -42,7 +42,6 @@ struct ExtensionStoreSnapshotBuildingTests {
             {
                 "name": "enabled-ext",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
                 "events": ["pane.created"],
                 "commands": [{ "id": "ping", "title": "Ping" }],
                 "permissions": ["panes:read", "notifications:write"]
@@ -54,7 +53,6 @@ struct ExtensionStoreSnapshotBuildingTests {
             {
                 "name": "disabled-ext",
                 "version": "1.0.0",
-                "entrypoint": "run.sh",
                 "events": ["pane.closed"]
             }
             """
@@ -80,14 +78,7 @@ struct ExtensionStoreSnapshotBuildingTests {
     private func makeTemporaryExtension(manifest: String) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ext-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let manifestURL = directory.appendingPathComponent("manifest.json")
-        try Data(manifest.utf8).write(to: manifestURL)
-        let entrypoint = directory.appendingPathComponent("run.sh")
-        try Data("#!/bin/sh\n".utf8).write(to: entrypoint)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.executable],
-            ofItemAtPath: entrypoint.path
-        )
+        try ExtensionManifestFixture.write(flatManifest: manifest, to: directory)
         return directory
     }
 }
@@ -110,5 +101,25 @@ struct ExtensionStoreTerminationClassificationTests {
     func nonZeroExitMapsToStatus() {
         #expect(ExtensionStore.classifyTermination(wasIntentional: false, terminationStatus: 15) == .exitedWithStatus(15))
         #expect(ExtensionStore.classifyTermination(wasIntentional: false, terminationStatus: 1) == .exitedWithStatus(1))
+    }
+}
+
+@Suite("ExtensionStore crash restart policy")
+struct ExtensionStoreCrashRestartTests {
+    @Test("a crash restarts while attempts remain")
+    func restartsWhileAttemptsRemain() {
+        #expect(ExtensionStore.shouldRestartAfterCrash(isEnabled: true, attempts: 0))
+        #expect(ExtensionStore.shouldRestartAfterCrash(isEnabled: true, attempts: 4))
+    }
+
+    @Test("a crash stops restarting once the attempt budget is exhausted")
+    func stopsAfterBudgetExhausted() {
+        #expect(!ExtensionStore.shouldRestartAfterCrash(isEnabled: true, attempts: 5))
+        #expect(!ExtensionStore.shouldRestartAfterCrash(isEnabled: true, attempts: 6))
+    }
+
+    @Test("a disabled extension never restarts")
+    func disabledNeverRestarts() {
+        #expect(!ExtensionStore.shouldRestartAfterCrash(isEnabled: false, attempts: 0))
     }
 }

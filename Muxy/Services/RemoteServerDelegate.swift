@@ -8,6 +8,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "RemoteServerDelega
 
 @MainActor
 final class RemoteServerDelegate: MuxyRemoteServerDelegate {
+    static let diffPreviewLineLimit = 20000
     private let appState: AppState
     private let projectStore: ProjectStore
     private let worktreeStore: WorktreeStore
@@ -24,6 +25,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         self.worktreeStore = worktreeStore
         PaneOwnershipStore.shared.onOwnershipChanged = { [weak self] paneID, owner in
             TerminalViewRegistry.shared.existingView(for: paneID)?.remoteOwnershipDidChange()
+            self?.applyOwnerTheme(paneID: paneID, owner: owner)
             self?.broadcastOwnership(paneID: paneID, owner: owner)
         }
         NotificationCenter.default.addObserver(
@@ -42,6 +44,15 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     private func broadcastOwnership(paneID: UUID, owner: PaneOwnerDTO) {
         let dto = PaneOwnershipEventDTO(paneID: paneID, owner: owner)
         server?.broadcast(MuxyEvent(event: .paneOwnershipChanged, data: .paneOwnership(dto)))
+    }
+
+    private func applyOwnerTheme(paneID: UUID, owner: PaneOwnerDTO) {
+        let theme: ClientThemeDTO? = if case let .remote(clientID, _) = owner {
+            ClientThemeStore.shared.theme(for: clientID)
+        } else {
+            nil
+        }
+        TerminalViewRegistry.shared.existingView(for: paneID)?.applyClientTheme(theme)
     }
 
     private func broadcastTheme() {
@@ -145,16 +156,9 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func createTab(projectID: UUID, areaID: UUID?, kind: TabKindDTO) -> TabDTO? {
         switch kind {
-        case .terminal:
+        case .terminal,
+             .vcs:
             appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
-        case .vcs:
-            appState.dispatch(.createVCSTab(projectID: projectID, areaID: areaID))
-        case .editor:
-            appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
-        case .diffViewer:
-            appState.dispatch(.createTab(projectID: projectID, areaID: areaID))
-        case .imageViewer:
-            return nil
         case .extensionWebView:
             return nil
         }
@@ -194,12 +198,11 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func sendTerminalInput(paneID: UUID, bytes: Data, clientID: UUID) {
-        guard let view = TerminalViewRegistry.shared.existingView(for: paneID) else {
-            logger.warning("No terminal view for pane \(paneID)")
+        guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
             return
         }
-
-        guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
+        guard let view = ensureTerminalView(paneID: paneID), view.ensureLiveSurfaceForExternalIO() else {
+            logger.warning("No terminal surface for pane \(paneID)")
             return
         }
 
@@ -207,13 +210,13 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func scrollTerminal(paneID: UUID, deltaX: Double, deltaY: Double, precise: Bool, clientID: UUID) {
-        guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
-              let surface = view.surface
-        else { return }
-
         guard PaneOwnershipStore.shared.isOwnedBy(clientID: clientID, paneID: paneID) else {
             return
         }
+        guard let view = ensureTerminalView(paneID: paneID),
+              view.ensureLiveSurfaceForExternalIO(),
+              let surface = view.surface
+        else { return }
 
         let mods: ghostty_input_scroll_mods_t = precise ? 1 : 0
         ghostty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
@@ -227,7 +230,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     private func applyPTYSize(paneID: UUID, cols: UInt32, rows: UInt32) {
-        guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
+        guard let view = ensureTerminalView(paneID: paneID),
+              view.ensureLiveSurfaceForExternalIO(),
               let surface = view.surface
         else { return }
 
@@ -278,7 +282,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32) {
-        ensureTerminalView(paneID: paneID)
+        guard ensureTerminalView(paneID: paneID) != nil else { return }
         let snapshotBytes = buildTerminalSnapshot(paneID: paneID)
         PaneOwnershipStore.shared.assign(paneID: paneID, to: clientID)
         if let bytes = snapshotBytes, !bytes.isEmpty {
@@ -289,27 +293,12 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         applyPTYSize(paneID: paneID, cols: cols, rows: rows)
     }
 
-    private func ensureTerminalView(paneID: UUID) {
-        if TerminalViewRegistry.shared.existingView(for: paneID) != nil { return }
-        guard let location = appState.locatePane(paneID: paneID) else {
-            logger.warning("Cannot materialize pane \(paneID): no matching tab in workspace")
-            return
+    private func ensureTerminalView(paneID: UUID) -> GhosttyTerminalNSView? {
+        guard let view = TerminalSurfaceMaterializer.materialize(paneID: paneID, appState: appState) else {
+            logger.warning("Cannot materialize pane \(paneID): no matching tab or surface")
+            return nil
         }
-        let pane = location.pane
-        let view = TerminalViewRegistry.shared.view(
-            for: paneID,
-            workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
-            command: pane.startupCommand,
-            commandInteractive: pane.startupCommandInteractive,
-            closesOnCommandExit: pane.closesOnStartupCommandExit
-        )
-        if view.envVars.isEmpty {
-            view.envVars = TerminalEnvVarBuilder.build(paneID: paneID, worktreeKey: location.worktreeKey)
-        }
-        view.materializeHeadless()
-        if view.surface == nil {
-            logger.warning("Headless materialization left pane \(paneID) without a surface")
-        }
+        return view
     }
 
     private func buildTerminalSnapshot(paneID: UUID) -> Data? {
@@ -324,8 +313,17 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         PaneOwnershipStore.shared.releaseToMac(paneID: paneID)
     }
 
+    func setClientTheme(_ theme: ClientThemeDTO?, clientID: UUID) {
+        ClientThemeStore.shared.setTheme(theme, for: clientID)
+        let stored = ClientThemeStore.shared.theme(for: clientID)
+        for paneID in PaneOwnershipStore.shared.panes(ownedBy: clientID) {
+            TerminalViewRegistry.shared.existingView(for: paneID)?.applyClientTheme(stored)
+        }
+    }
+
     func clientDisconnected(clientID: UUID) {
         PaneOwnershipStore.shared.releaseAll(clientID: clientID)
+        ClientThemeStore.shared.clear(for: clientID)
     }
 
     func getPaneOwner(paneID: UUID) -> PaneOwnerDTO? {
@@ -333,7 +331,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func getTerminalContent(paneID: UUID) -> TerminalCellsDTO? {
-        guard let view = TerminalViewRegistry.shared.existingView(for: paneID),
+        guard let view = ensureTerminalView(paneID: paneID),
+              view.ensureLiveSurfaceForExternalIO(),
               let surface = view.surface
         else { return nil }
 
@@ -377,18 +376,22 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func getVCSStatus(projectID: UUID) async -> VCSStatusDTO? {
         guard let repoPath = try? repoPath(projectID: projectID) else { return nil }
-        let state = VCSStateStore.shared.state(for: repoPath)
-        if !state.hasCompletedInitialLoad {
-            await state.refreshAndWait()
-        }
-        return Self.toStatusDTO(state)
+        return await vcsStatusDTO(repoPath: repoPath, forceFresh: false)
     }
 
     func vcsRefresh(projectID: UUID) async -> VCSStatusDTO? {
         guard let repoPath = try? repoPath(projectID: projectID) else { return nil }
-        let state = VCSStateStore.shared.state(for: repoPath)
-        await state.refreshAndWait()
-        return Self.toStatusDTO(state)
+        return await vcsStatusDTO(repoPath: repoPath, forceFresh: true)
+    }
+
+    private func vcsStatusDTO(repoPath: String, forceFresh: Bool) async -> VCSStatusDTO? {
+        guard let snapshot = try? await GitStatusAggregator.snapshot(
+            repoPath: repoPath,
+            forceFreshPullRequest: forceFresh,
+            git: gitService
+        )
+        else { return nil }
+        return Self.toStatusDTO(snapshot)
     }
 
     func vcsCommit(projectID: UUID, message: String, stageAll: Bool) async throws {
@@ -441,11 +444,8 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func vcsGetDiff(projectID: UUID, filePath: String, forceFull: Bool) async throws -> VCSDiffDTO {
         let repoPath = try repoPath(projectID: projectID)
-        let state = VCSStateStore.shared.state(for: repoPath)
-        if !state.hasCompletedInitialLoad {
-            await state.refreshAndWait()
-        }
-        let file = state.files.first { $0.path == filePath }
+        let files = try await gitService.changedFiles(repoPath: repoPath)
+        let file = files.first { $0.path == filePath }
         if file?.isBinary == true {
             return VCSDiffDTO(
                 filePath: filePath,
@@ -465,7 +465,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         } else {
             .unknown
         }
-        let lineLimit = forceFull ? nil : DiffLoader.previewLineLimit
+        let lineLimit = forceFull ? nil : Self.diffPreviewLineLimit
         let result = try await gitService.patchAndCompare(
             repoPath: repoPath,
             filePath: filePath,
@@ -489,6 +489,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         case .addition: .addition
         case .deletion: .deletion
         case .collapsed: .collapsed
+        case .commentSpacer: .context
         }
         return VCSDiffRowDTO(
             kind: kind,
@@ -502,17 +503,15 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func vcsListBranches(projectID: UUID) async throws -> VCSBranchesDTO {
         let repoPath = try repoPath(projectID: projectID)
-        let state = VCSStateStore.shared.state(for: repoPath)
-        if !state.hasCompletedInitialLoad {
-            await state.refreshAndWait()
-        }
-        guard let current = state.branchName else {
+        guard let current = try? await gitService.currentBranch(repoPath: repoPath) else {
             throw RemoteVCSError.notGitRepo
         }
-        return VCSBranchesDTO(
+        async let branches = try? gitService.listBranches(repoPath: repoPath)
+        async let defaultBranch = gitService.defaultBranch(repoPath: repoPath)
+        return await VCSBranchesDTO(
             current: current,
-            locals: state.branches,
-            defaultBranch: state.defaultBranch
+            locals: branches ?? [],
+            defaultBranch: defaultBranch
         )
     }
 
@@ -676,17 +675,16 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         )
     }
 
-    private static func toStatusDTO(_ state: VCSTabState) -> VCSStatusDTO? {
-        guard let branch = state.branchName else { return nil }
-        let pullRequest = state.pullRequestInfo.map(Self.toPullRequestDTO)
+    private static func toStatusDTO(_ snapshot: GitStatusSnapshot) -> VCSStatusDTO? {
+        let pullRequest = snapshot.pullRequest.map(Self.toPullRequestDTO)
         return VCSStatusDTO(
-            branch: branch,
-            aheadCount: state.aheadBehind.ahead,
-            behindCount: state.aheadBehind.behind,
-            hasUpstream: state.aheadBehind.hasUpstream,
-            stagedFiles: state.files.filter(\.isStaged).map { Self.toFileDTO($0, staged: true) },
-            changedFiles: state.files.filter(\.isUnstaged).map { Self.toFileDTO($0, staged: false) },
-            defaultBranch: state.defaultBranch,
+            branch: snapshot.branch,
+            aheadCount: snapshot.aheadBehind.ahead,
+            behindCount: snapshot.aheadBehind.behind,
+            hasUpstream: snapshot.aheadBehind.hasUpstream,
+            stagedFiles: snapshot.stagedFiles.map { Self.toFileDTO($0, staged: true) },
+            changedFiles: snapshot.unstagedFiles.map { Self.toFileDTO($0, staged: false) },
+            defaultBranch: snapshot.defaultBranch,
             pullRequest: pullRequest
         )
     }
@@ -779,6 +777,55 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func markNotificationRead(_ notificationID: UUID) {
         NotificationStore.shared.markAsRead(notificationID)
+    }
+
+    func extensionRequest(
+        extension extensionID: String,
+        action: String,
+        payload: MuxyJSON,
+        clientID: UUID
+    ) async -> Result<MuxyJSON, MuxyError> {
+        guard let loaded = ExtensionStore.shared.loadedExtension(id: extensionID) else {
+            return .failure(.notFound)
+        }
+        guard loaded.manifest.remoteMethod(id: action) != nil else {
+            return .failure(.notFound)
+        }
+        guard ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: .remoteServe) else {
+            return .failure(.forbidden)
+        }
+
+        let deviceName = PaneOwnershipStore.shared.deviceName(for: clientID) ?? "Mobile"
+        let consent = ExtensionConsentRequestBuilder.make(
+            extensionID: extensionID,
+            verb: .remoteInvoke,
+            payload: .remote(action: action, deviceName: deviceName),
+            source: "remote-server"
+        )
+        guard await ExtensionConsentService.shared.gate(consent) == .allow else {
+            return .failure(.forbidden)
+        }
+
+        let payloadData: Data
+        do {
+            payloadData = try payload.encoded()
+        } catch {
+            return .failure(.invalidParams)
+        }
+
+        do {
+            let resultData = try await NotificationSocketServer.shared.invokeRemote(
+                extensionID: extensionID,
+                action: action,
+                payload: payloadData
+            )
+            let value = try MuxyJSON.decoded(from: resultData)
+            return .success(value)
+        } catch let error as MuxyError {
+            return .failure(error)
+        } catch {
+            return .failure(.extensionError(error.localizedDescription))
+        }
     }
 
     private func resolveWorktreePath(projectID: UUID) -> String? {

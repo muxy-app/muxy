@@ -9,6 +9,7 @@ private struct ShortcutMetadata {
 
 enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case newTab
+    case newHomeTab
     case reopenClosedTerminalTab
     case closeTab
     case renameTab
@@ -53,26 +54,22 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     case toggleRichInput
     case submitRichInput
     case submitRichInputWithoutReturn
-    case openVCSTab
-    case openDiffViewerTab
-    case quickOpen
-    case findInFiles
     case terminalOmnibox
     case terminalOmniboxProjects
     case terminalOmniboxWorktrees
     case terminalOmniboxCommands
     case terminalOmniboxHistory
-    case saveFile
     case toggleSidebar
-    case toggleFileTree
-    case toggleAIUsage
     case navigateBack
     case navigateForward
     case toggleMaximizePane
     case toggleVoiceRecording
+    case toggleFullScreen
+    case toggleExtensionConsole
 
     static let allCases: [Self] = [
         .newTab,
+        .newHomeTab,
         .reopenClosedTerminalTab,
         .closeTab,
         .renameTab,
@@ -116,23 +113,18 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         .toggleRichInput,
         .submitRichInput,
         .submitRichInputWithoutReturn,
-        .openVCSTab,
-        .openDiffViewerTab,
-        .quickOpen,
-        .findInFiles,
         .terminalOmnibox,
         .terminalOmniboxProjects,
         .terminalOmniboxWorktrees,
         .terminalOmniboxCommands,
         .terminalOmniboxHistory,
-        .saveFile,
         .toggleSidebar,
-        .toggleFileTree,
-        .toggleAIUsage,
         .navigateBack,
         .navigateForward,
         .toggleMaximizePane,
         .toggleVoiceRecording,
+        .toggleFullScreen,
+        .toggleExtensionConsole,
     ]
 
     var id: String { rawValue }
@@ -140,6 +132,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     private var metadata: ShortcutMetadata {
         switch self {
         case .newTab: ShortcutMetadata(displayName: "New Tab", category: "Tabs", scope: .mainWindow)
+        case .newHomeTab: ShortcutMetadata(displayName: "New Home Tab", category: "Tabs", scope: .mainWindow)
         case .reopenClosedTerminalTab: ShortcutMetadata(
                 displayName: "Reopen Closed Terminal Tab",
                 category: "Tabs",
@@ -187,7 +180,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .selectProject7: ShortcutMetadata(displayName: "Project 7", category: "Project Navigation", scope: .mainWindow)
         case .selectProject8: ShortcutMetadata(displayName: "Project 8", category: "Project Navigation", scope: .mainWindow)
         case .selectProject9: ShortcutMetadata(displayName: "Project 9", category: "Project Navigation", scope: .mainWindow)
-        case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .mainWindow)
+        case .findInTerminal: ShortcutMetadata(displayName: "Find", category: "Terminal", scope: .terminal)
         case .toggleRichInput: ShortcutMetadata(displayName: "Toggle Rich Input", category: "Rich Input", scope: .mainWindow)
         case .submitRichInput: ShortcutMetadata(displayName: "Send", category: "Rich Input", scope: .richInput)
         case .submitRichInputWithoutReturn: ShortcutMetadata(
@@ -195,10 +188,6 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
                 category: "Rich Input",
                 scope: .richInput
             )
-        case .openVCSTab: ShortcutMetadata(displayName: "Source Control", category: "App", scope: .mainWindow)
-        case .openDiffViewerTab: ShortcutMetadata(displayName: "Diff Viewer", category: "App", scope: .mainWindow)
-        case .quickOpen: ShortcutMetadata(displayName: "Quick Open", category: "App", scope: .mainWindow)
-        case .findInFiles: ShortcutMetadata(displayName: "Find in Files", category: "App", scope: .mainWindow)
         case .terminalOmnibox: ShortcutMetadata(displayName: "Terminal Omnibox Open Tabs", category: "Terminal", scope: .mainWindow)
         case .terminalOmniboxProjects: ShortcutMetadata(
                 displayName: "Terminal Omnibox Projects",
@@ -220,10 +209,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
                 category: "Terminal",
                 scope: .mainWindow
             )
-        case .saveFile: ShortcutMetadata(displayName: "Save File", category: "Editor", scope: .mainWindow)
         case .toggleSidebar: ShortcutMetadata(displayName: "Toggle Sidebar", category: "App", scope: .mainWindow)
-        case .toggleFileTree: ShortcutMetadata(displayName: "Toggle File Tree", category: "App", scope: .mainWindow)
-        case .toggleAIUsage: ShortcutMetadata(displayName: "Toggle AI Usage", category: "App", scope: .mainWindow)
         case .navigateBack: ShortcutMetadata(displayName: "Navigate Back", category: "Navigation", scope: .mainWindow)
         case .navigateForward: ShortcutMetadata(displayName: "Navigate Forward", category: "Navigation", scope: .mainWindow)
         case .toggleVoiceRecording: ShortcutMetadata(
@@ -237,6 +223,12 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
         case .reloadConfig: ShortcutMetadata(displayName: "Reload Configuration", category: "App", scope: .global)
         case .refreshWorktrees: ShortcutMetadata(displayName: "Refresh Worktrees", category: "App", scope: .mainWindow)
         case .toggleMaximizePane: ShortcutMetadata(displayName: "Toggle Maximize Pane", category: "Panes", scope: .mainWindow)
+        case .toggleFullScreen: ShortcutMetadata(displayName: "Toggle Full Screen", category: "App", scope: .mainWindow)
+        case .toggleExtensionConsole: ShortcutMetadata(
+                displayName: "Toggle Extension Debug Bar",
+                category: "Extensions",
+                scope: .mainWindow
+            )
         }
     }
 
@@ -245,7 +237,7 @@ enum ShortcutAction: String, Codable, CaseIterable, Identifiable {
     var scope: ShortcutScope { metadata.scope }
 
     static var categories: [String] {
-        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "Editor", "App"]
+        ["Tabs", "Panes", "Tab Navigation", "Project Navigation", "Navigation", "Terminal", "Rich Input", "App", "Extensions"]
     }
 
     static func tabAction(for index: Int) -> Self? {
@@ -305,6 +297,7 @@ struct KeyBinding: Codable, Identifiable {
 
     static let defaults: [Self] = [
         Self(action: .newTab, combo: KeyCombo(key: "t", command: true)),
+        Self(action: .newHomeTab, combo: KeyCombo(key: "n", command: true)),
         Self(action: .reopenClosedTerminalTab, combo: KeyCombo(key: "t", command: true, shift: true)),
         Self(action: .closeTab, combo: KeyCombo(key: "w", command: true)),
         Self(action: .renameTab, combo: KeyCombo(key: "t", shift: true, option: true)),
@@ -319,8 +312,6 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .cycleNextTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, control: true)),
         Self(action: .cyclePreviousTabAcrossPanes, combo: KeyCombo(key: KeyCombo.tabKey, shift: true, control: true)),
         Self(action: .toggleThemePicker, combo: KeyCombo(key: "k", command: true, shift: true)),
-        Self(action: .openVCSTab, combo: KeyCombo(key: "y", command: true)),
-        Self(action: .openDiffViewerTab, combo: KeyCombo(key: "y", command: true, shift: true)),
         Self(action: .openProject, combo: KeyCombo(key: "o", command: true)),
         Self(action: .reloadConfig, combo: KeyCombo(key: "r", command: true, shift: true)),
         Self(action: .refreshWorktrees, combo: KeyCombo(key: "r", command: true, option: true)),
@@ -350,20 +341,17 @@ struct KeyBinding: Codable, Identifiable {
         Self(action: .toggleRichInput, combo: KeyCombo(key: "i", command: true)),
         Self(action: .submitRichInput, combo: KeyCombo(key: KeyCombo.returnKey, command: true)),
         Self(action: .submitRichInputWithoutReturn, combo: KeyCombo(key: KeyCombo.returnKey, command: true, shift: true)),
-        Self(action: .quickOpen, combo: KeyCombo(key: "p", command: true)),
-        Self(action: .findInFiles, combo: KeyCombo(key: "f", command: true, shift: true)),
         Self(action: .terminalOmnibox, combo: KeyCombo(key: "o", command: true, option: true)),
         Self(action: .terminalOmniboxProjects, combo: KeyCombo(key: "p", command: true, option: true)),
         Self(action: .terminalOmniboxWorktrees, combo: KeyCombo(key: "w", command: true, option: true)),
         Self(action: .terminalOmniboxCommands, combo: KeyCombo(key: "p", command: true, shift: true)),
         Self(action: .terminalOmniboxHistory, combo: KeyCombo(key: "h", command: true, option: true)),
-        Self(action: .saveFile, combo: KeyCombo(key: "s", command: true)),
         Self(action: .toggleSidebar, combo: KeyCombo(key: "b", command: true)),
-        Self(action: .toggleFileTree, combo: KeyCombo(key: "e", command: true)),
-        Self(action: .toggleAIUsage, combo: KeyCombo(key: "l", command: true)),
         Self(action: .navigateBack, combo: KeyCombo(key: KeyCombo.leftArrowKey, command: true, control: true)),
         Self(action: .navigateForward, combo: KeyCombo(key: KeyCombo.rightArrowKey, command: true, control: true)),
         Self(action: .toggleMaximizePane, combo: KeyCombo(key: KeyCombo.returnKey, command: true, option: true)),
         Self(action: .toggleVoiceRecording, combo: KeyCombo(key: "i", command: true, shift: true)),
+        Self(action: .toggleFullScreen, combo: KeyCombo(key: "f", command: true, control: true)),
+        Self(action: .toggleExtensionConsole, combo: KeyCombo(key: "`", command: true)),
     ]
 }

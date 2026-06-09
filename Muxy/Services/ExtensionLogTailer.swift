@@ -1,6 +1,11 @@
 import Darwin
 import Foundation
 
+enum ExtensionLogUpdate {
+    case reset([String])
+    case append([String])
+}
+
 @MainActor
 final class ExtensionLogTailer {
     static let maxBufferedLines = 1000
@@ -9,11 +14,11 @@ final class ExtensionLogTailer {
     private var source: DispatchSourceFileSystemObject?
     private var readOffset: UInt64 = 0
     private var partial: String = ""
-    private let onAppend: @MainActor ([String]) -> Void
+    private let onUpdate: @MainActor (ExtensionLogUpdate) -> Void
 
-    init(url: URL, onAppend: @escaping @MainActor ([String]) -> Void) {
+    init(url: URL, onUpdate: @escaping @MainActor (ExtensionLogUpdate) -> Void) {
         self.url = url
-        self.onAppend = onAppend
+        self.onUpdate = onUpdate
     }
 
     deinit {
@@ -35,7 +40,7 @@ final class ExtensionLogTailer {
         try? Data().write(to: url, options: [.atomic])
         readOffset = 0
         partial = ""
-        onAppend([])
+        onUpdate(.reset([]))
     }
 
     private func ensureFileExists() {
@@ -50,7 +55,7 @@ final class ExtensionLogTailer {
 
     private func loadInitialLines() {
         let lines = ExtensionLogTail.read(url: url, maxLines: Self.maxBufferedLines)
-        onAppend(lines)
+        onUpdate(.reset(lines))
         if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
            let size = attributes[.size] as? UInt64
         {
@@ -99,7 +104,7 @@ final class ExtensionLogTailer {
             readOffset = 0
             partial = ""
             let lines = ExtensionLogTail.read(url: url, maxLines: Self.maxBufferedLines)
-            onAppend(lines)
+            onUpdate(.reset(lines))
             readOffset = size
             return
         }
@@ -123,16 +128,12 @@ final class ExtensionLogTailer {
         let pieces = combined.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         if combined.hasSuffix("\n") {
             partial = ""
-            let lines = pieces.dropLast()
-            if !lines.isEmpty {
-                onAppend(Array(lines))
-            }
         } else {
             partial = pieces.last ?? ""
-            let lines = pieces.dropLast()
-            if !lines.isEmpty {
-                onAppend(Array(lines))
-            }
+        }
+        let lines = pieces.dropLast()
+        if !lines.isEmpty {
+            onUpdate(.append(Array(lines)))
         }
     }
 }

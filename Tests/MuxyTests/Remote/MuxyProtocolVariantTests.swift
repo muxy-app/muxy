@@ -39,6 +39,18 @@ struct MuxyProtocolVariantTests {
         }
     }
 
+    @Test("MuxyJSON round-trips nested values")
+    func muxyJSONRoundTrips() throws {
+        let value = MuxyJSON.object([
+            "name": .string("muxy"),
+            "count": .number(3),
+            "ok": .bool(true),
+            "tags": .array([.string("a"), .null]),
+        ])
+        let decoded = try MuxyJSON.decoded(from: value.encoded())
+        #expect(decoded == value)
+    }
+
     @Test("pane owner display name uses local and remote names")
     func paneOwnerDisplayName() {
         #expect(PaneOwnerDTO.mac(deviceName: "Mac").displayName == "Mac")
@@ -80,7 +92,7 @@ struct MuxyProtocolVariantTests {
             ProtocolSample(.listWorktrees(ListWorktreesParams(projectID: ids.projectID)), caseName: ".listWorktrees"),
             ProtocolSample(.selectWorktree(SelectWorktreeParams(projectID: ids.projectID, worktreeID: ids.worktreeID)), caseName: ".selectWorktree"),
             ProtocolSample(.getWorkspace(GetWorkspaceParams(projectID: ids.projectID)), caseName: ".getWorkspace"),
-            ProtocolSample(.createTab(CreateTabParams(projectID: ids.projectID, areaID: ids.areaID, kind: .editor)), caseName: ".createTab"),
+            ProtocolSample(.createTab(CreateTabParams(projectID: ids.projectID, areaID: ids.areaID, kind: .terminal)), caseName: ".createTab"),
             ProtocolSample(.closeTab(CloseTabParams(projectID: ids.projectID, areaID: ids.areaID, tabID: ids.tabID)), caseName: ".closeTab"),
             ProtocolSample(.selectTab(SelectTabParams(projectID: ids.projectID, areaID: ids.areaID, tabID: ids.tabID)), caseName: ".selectTab"),
             ProtocolSample(.splitArea(SplitAreaParams(projectID: ids.projectID, areaID: ids.areaID, direction: .horizontal, position: .second)), caseName: ".splitArea"),
@@ -95,6 +107,7 @@ struct MuxyProtocolVariantTests {
             ProtocolSample(.authenticateDevice(AuthenticateDeviceParams(deviceID: ids.deviceID, deviceName: "iPhone", token: "token")), caseName: ".authenticateDevice"),
             ProtocolSample(.takeOverPane(TakeOverPaneParams(paneID: ids.paneID, cols: 80, rows: 24)), caseName: ".takeOverPane"),
             ProtocolSample(.releasePane(ReleasePaneParams(paneID: ids.paneID)), caseName: ".releasePane"),
+            ProtocolSample(.setClientTheme(SetClientThemeParams(theme: ClientThemeDTO(fg: 0xD4D4D4, bg: 0x141414, palette: Array(repeating: 0x242424, count: 16), cursorColor: 0xD4D4D4, cursorText: 0x141414, selectionBackground: 0x2C2C2C, selectionForeground: 0xE4E4E4))), caseName: ".setClientTheme"),
             ProtocolSample(.getVCSStatus(GetVCSStatusParams(projectID: ids.projectID)), caseName: ".getVCSStatus"),
             ProtocolSample(.vcsRefresh(VCSRefreshParams(projectID: ids.projectID)), caseName: ".vcsRefresh"),
             ProtocolSample(.vcsCommit(VCSCommitParams(projectID: ids.projectID, message: "Commit", stageAll: true)), caseName: ".vcsCommit"),
@@ -115,6 +128,7 @@ struct MuxyProtocolVariantTests {
             ProtocolSample(.markNotificationRead(MarkNotificationReadParams(notificationID: ids.notificationID)), caseName: ".markNotificationRead"),
             ProtocolSample(.subscribe(SubscribeParams(events: [.workspaceChanged, .themeChanged])), caseName: ".subscribe"),
             ProtocolSample(.unsubscribe(UnsubscribeParams(events: [.terminalOutput])), caseName: ".unsubscribe"),
+            ProtocolSample(.extensionRequest(ExtensionRequestParams(extension: "weather", action: "forecast", payload: .object(["city": .string("Berlin")]))), caseName: ".extensionRequest"),
         ]
     }
 
@@ -136,6 +150,7 @@ struct MuxyProtocolVariantTests {
             ProtocolSample(.vcsDiff(diff), caseName: ".vcsDiff"),
             ProtocolSample(.projectLogo(ProjectLogoDTO(projectID: ids.projectID, pngData: "base64")), caseName: ".projectLogo"),
             ProtocolSample(.notifications([notification(ids)]), caseName: ".notifications"),
+            ProtocolSample(.extensionResult(ExtensionResultDTO(payload: .array([.number(1), .bool(true), .null]))), caseName: ".extensionResult"),
             ProtocolSample(.ok, caseName: ".ok"),
         ]
     }

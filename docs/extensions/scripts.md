@@ -1,6 +1,6 @@
 # Inline Scripts (`runScript` Commands)
 
-A palette command with `action.kind = "runScript"` runs a JavaScript file in a per-extension JavaScriptCore context. The script has access to the same `muxy.*` API as webview tabs — minus DOM and theme — and is executed when the user picks the command from the palette.
+A palette command with `action.kind = "runScript"` runs a JavaScript file in an in-process JavaScriptCore context when the user picks it. The script gets a **synchronous** `muxy.*` API: it can read and act on workspace state (tabs, panes, projects, worktrees, files, git), run shell commands, and present native UI (dialogs, modals, toasts, notifications, topbar/status-bar items) — all without a rendering surface. Requires the `commands:run-script` permission.
 
 ```json
 {
@@ -17,58 +17,108 @@ A palette command with `action.kind = "runScript"` runs a JavaScript file in a p
 
 ```js
 const panes = muxy.panes.list();
-muxy.toast({
+muxy.notifications.notify({
   title: 'Pane audit',
   body: `${panes.length} pane(s) — focused: ${panes.find(p => p.isFocused)?.title ?? 'none'}`,
 });
 ```
 
+A script can also present native UI and act on the choice via `onSelect` — no background listener,
+tab, or panel needed. `modal.open` returns immediately; the choice arrives in the callback:
+
+```js
+muxy.modal.open({
+  placeholder: 'Switch to worktree…',
+  items: muxy.worktrees.list().map(w => ({ id: w.id, title: w.name, subtitle: w.branch })),
+  onSelect(choice) { if (choice) muxy.worktrees.switchTo(choice.id); },
+});
+```
+
+For large lists (e.g. a file picker over a big repo), pass `items` as a producer function instead
+of an array so the picker opens instantly and you stream rows in while Muxy filters them natively —
+see [Modal → Streaming large lists](modal.md#streaming-large-lists-items-producer):
+
+```js
+muxy.modal.open({
+  placeholder: 'Open file…',
+  items(emit) {
+    const out = muxy.exec(['git', 'ls-files']).stdout.split('\n');
+    let batch = [];
+    for (const line of out) {
+      const p = line.trim();
+      if (!p) continue;
+      batch.push({ id: p, title: p.split('/').pop(), subtitle: p });
+      if (batch.length >= 5000) { emit(batch); batch = []; }
+    }
+    if (batch.length) emit(batch);
+  },
+  onSelect(choice) {
+    if (!choice) return;
+    muxy.tabs.open({
+      kind: 'extensionWebView',
+      extension: {
+        id: muxy.extensionID,
+        tabType: 'editor',
+        singleton: true,
+        data: { path: choice.id },
+      },
+    });
+  },
+});
+```
+
+Note there is **no `await`** — see [API surface](#api-surface).
+
 ## Lifecycle
 
-- The first time a script for an extension runs, Muxy creates a `JSContext` and a dedicated dispatch queue for it.
-- The context is **cached** for the extension's lifetime. Subsequent invocations reuse it, so any `var` / `function` defined in a previous run is still visible.
-- The context is **evicted** when the extension is disabled or reloaded (Settings → Extensions → Reload Extensions).
-- The script source is read fresh from disk on every invocation, so editing the file picks up on the next palette trigger — no app restart.
+- The `JSContext` is created on first run and **cached for the extension's lifetime**, so `var`/`function` defined in one run remain visible to the next.
+- It is **evicted** when the extension is disabled or reloaded (Settings → Extensions → Reload Extensions).
+- The script **source is re-read from disk on every run**, so edits apply on the next palette trigger with no restart.
 
 ## API surface
 
-`muxy.extensionID` plus the same methods as webview tabs:
+`muxy.extensionID` plus the following methods. They are **synchronous** — they return values directly, no `await` (unlike the Promise-based webview bridge):
 
 ```
-muxy.toast(opts)
+muxy.notifications.notify(opts)      // alias: muxy.toast(opts)
+muxy.dialog.{confirm, alert}
+muxy.modal.open(opts)
+muxy.topbar.{set, show, hide}        // requires panels:write
+muxy.statusbar.{set, show, hide}     // requires panels:write
 muxy.tabs.{list, switchTo, new, next, previous, open}
 muxy.panes.{list, send, sendKeys, readScreen, close, rename}
 muxy.projects.{list, switchTo}
 muxy.worktrees.{list, switchTo, refresh}
+muxy.files.{list, read, stat, write, mkdir, rename, move, delete}
+muxy.git.{status, diff, log, branches, commit, push, pull, …}   // full git surface, incl. git.pr.*, git.branch.*, git.worktree.*, git.tag.*
+muxy.exec(argv, options?) / muxy.exec({ shell, ... })           // requires commands:exec
 ```
-
-Plus `muxy.exec(argv, options?)` / `muxy.exec({ shell, ... })` for running shell commands (requires `commands:exec`):
 
 ```js
 const status = muxy.exec(['git', 'status', '--short']);
 console.log(status.stdout);
 ```
 
-**Differences from the webview API:**
+Differences from the webview API:
 
-- All calls are **synchronous** — `muxy.panes.list()` and `muxy.exec(...)` return values directly, not Promises. Internally Muxy blocks the script's dispatch queue while the async work runs on the main actor; the main thread is not blocked, so the UI stays responsive.
-- No `muxy.theme`, `muxy.onThemeChange`, `muxy.data`, or `muxy.tabInstanceID` — scripts are not tied to a tab and have no rendering surface.
-- No `muxy.events.subscribe` — scripts are strictly one-shot.
+- All calls are **synchronous** — they return values directly, not Promises. Muxy blocks the script's own dispatch queue while the work runs on the main actor, so the UI stays responsive.
+- No rendering/tab surface: no `muxy.data`, `muxy.theme`, `muxy.onDataChange`, `muxy.onThemeChange`, `muxy.focused`, `muxy.onFocus`, or `muxy.tabInstanceID`.
+- No page-only APIs: no `muxy.panels`, `muxy.popover`, `muxy.http`, or `muxy.tabs.setTitle`/`setIcon` (those need a tab instance).
+- No `muxy.events` and no `muxy.remote` — those are background-script APIs ([events](events.md), [remote methods](remote-methods.md)).
 
 ## Permissions
 
-Running a `runScript` command requires `commands:run-script`. Each verb the script calls (`muxy.panes.send`, etc.) is gated by its own permission as on every other surface. If the script calls a method without the matching permission, the method throws an `Error("permission denied (<perm>)")` that the script can catch.
+Each verb is gated by its own permission, as on every surface (see [Permissions](permissions.md)). Calling a method without its permission throws `Error("permission denied (<perm>)")`, which the script can catch.
 
 ## Errors and logging
 
-- `console.log`, `console.warn`, and `console.error` are bridged to the extension's [log file](logs.md), tagged `[log]`, `[warn]`, `[err]`.
-- If the script throws, the error message is appended as `[err]` and the failed run is recorded with a `[muxy] runScript failed` line.
-- If the script file is missing, the run is skipped and logged.
+- `console.log`, `console.warn`, `console.error` are bridged to the extension's [log file](logs.md), tagged `[log]`, `[warn]`, `[err]`.
+- A thrown error is logged as `[err]` plus a `[muxy] runScript failed` line. A missing script file is skipped and logged.
 
 ## When to use a script vs. a webview tab
 
 | Use `runScript` when | Use a webview tab when |
 | --- | --- |
-| You're acting on workspace state and don't need UI | You need to render anything |
-| The work fits in one shot — fire and forget | You want long-lived per-instance state |
-| You want shared module-like state across invocations of *one* extension | You need DOM events, forms, charts, etc. |
+| You act on workspace state and need no UI | You need to render anything |
+| The work is fire-and-forget | You want long-lived per-instance state |
+| You want module-like state shared across runs of *one* extension | You need DOM events, forms, charts, etc. |

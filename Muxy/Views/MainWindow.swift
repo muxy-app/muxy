@@ -31,45 +31,15 @@ struct MainWindow: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(GhosttyService.self) private var ghostty
-    @Environment(\.openWindow) private var openWindow
     @State private var dragCoordinator = TabDragCoordinator()
-    private enum AttachedVCSLayout {
-        static let minWidth: CGFloat = 200
-        static let defaultWidth: CGFloat = 400
-        static let maxWidth: CGFloat = 800
-    }
-
-    private enum FileTreeLayout {
-        static let minWidth: CGFloat = 180
-        static let defaultWidth: CGFloat = 260
-        static let maxWidth: CGFloat = 600
-    }
-
-    private enum RichInputPanelLayout {
-        static let minWidth: CGFloat = 280
-        static let defaultWidth: CGFloat = 380
-        static let maxWidth: CGFloat = 800
-        static let minHeight: CGFloat = 120
-        static let defaultHeight: CGFloat = 220
-        static let maxHeight: CGFloat = 600
-    }
-
-    private enum SidePanelKind {
-        case vcs
-        case fileTree
-    }
-
     private enum CloseConfirmationKind {
         case lastTab
-        case unsavedEditor
         case runningProcess
 
         var title: String {
             switch self {
             case .lastTab:
                 "Close Project?"
-            case .unsavedEditor:
-                "Save Changes Before Closing?"
             case .runningProcess:
                 "Close Tab?"
             }
@@ -79,33 +49,24 @@ struct MainWindow: View {
             switch self {
             case .lastTab:
                 "This is the last tab. Closing it will remove the project from the sidebar."
-            case .unsavedEditor:
-                "This file has unsaved changes. If you don't save, your changes will be lost."
             case .runningProcess:
                 "A process is still running in this tab. Are you sure you want to close it?"
             }
         }
     }
 
-    @State private var vcsPanelVisible = false
-    @State private var vcsPanelWidth: CGFloat = AttachedVCSLayout.defaultWidth
-    @State private var fileTreePanelVisible = false
-    @AppStorage("muxy.fileTreeWidth") private var fileTreePanelWidth: Double = .init(FileTreeLayout.defaultWidth)
-    @State private var fileTreeStates: [WorktreeKey: FileTreeState] = [:]
-    @State private var fileTreeLastTerminalPaths: [WorktreeKey: String] = [:]
-    @AppStorage(GeneralSettingsKeys.fileTreeSource) private var fileTreeSourceRaw = FileTreeSourcePreference.defaultValue.rawValue
-    @State private var richInputPanelVisible = false
-    @State private var panelToRestoreAfterRichInput: SidePanelKind?
-    @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = .init(RichInputPanelLayout.defaultWidth)
-    @AppStorage("muxy.richInputPanelHeight") private var richInputPanelHeight: Double = .init(RichInputPanelLayout.defaultHeight)
+    @State var panelHost = PanelHost.shared
+    @State private var workspaceFileWatcher = WorkspaceFileWatcher()
+    @AppStorage("muxy.extensionPanelWidth") private var extensionPanelWidth: Double = PanelLayoutMetrics.extensionDefaultWidth
+    @AppStorage("muxy.extensionPanelHeight") private var extensionPanelHeight: Double = PanelLayoutMetrics.extensionDefaultHeight
+    @AppStorage("muxy.richInputPanelWidth") private var richInputPanelWidth: Double = PanelLayoutMetrics.richInputDefaultWidth
+    @AppStorage("muxy.richInputPanelHeight") private var richInputPanelHeight: Double = PanelLayoutMetrics.richInputDefaultHeight
     @AppStorage(RichInputPreferences.fontSizeKey) private var richInputFontSize: Double = RichInputPreferences.defaultFontSize
     @AppStorage(RichInputPreferences.floatingKey) private var richInputFloating = RichInputPreferences.defaultFloating
-    @AppStorage(RichInputPreferences.positionKey) private var richInputPosition: RichInputPanelPosition = RichInputPreferences
+    @AppStorage(RichInputPreferences.positionKey) private var richInputPosition: PanelPosition = RichInputPreferences
         .defaultPosition
     @AppStorage(RichInputPreferences.broadcastKey) private var richInputBroadcast = RichInputPreferences.defaultBroadcast
     @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
-    @State private var showQuickOpen = false
-    @State private var showFindInFiles = false
     @State private var showTerminalOmnibox = false
     @State private var terminalOmniboxLaunchScope = TerminalOmniboxLaunchScope.openTabs
     @State private var showProjectPicker = false
@@ -113,12 +74,15 @@ struct MainWindow: View {
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
     @AppStorage("muxy.showStatusBar") private var showStatusBar = true
-    @AppStorage("muxy.showExtensionOutput") private var showExtensionOutput = false
+    @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage("muxy.extensionOutputSelected") private var extensionOutputSelectedStored = ""
+    @AppStorage("muxy.extensionConsoleHeight") private var extensionConsoleHeight: Double = PanelLayoutMetrics.consoleDefaultHeight
     @State private var extensionOutputSelected: String?
     @AppStorage(SidebarCollapsedStyle.storageKey) private var sidebarCollapsedStyleRaw = SidebarCollapsedStyle.defaultValue.rawValue
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
-    @AppStorage("muxy.notifications.toastPosition") private var toastPositionRaw = ToastPosition.topCenter.rawValue
+    @AppStorage("muxy.sidebarExpandedCustomWidth") private var sidebarExpandedCustomWidth: Double = .init(SidebarLayout.expandedWidth)
+    @AppStorage(NotificationSettings.Key.toastPosition)
+    private var toastPositionRaw = NotificationSettings.Default.toastPosition.rawValue
     @AppStorage(RecordingPreferences.autoSendKey) private var recordingAutoSend = RecordingPreferences.defaultAutoSend
     @AppStorage(RecordingPreferences.languageKey) private var recordingLanguage = RecordingPreferences.defaultLanguage
     @State private var voiceRecording = VoiceRecordingState.shared
@@ -127,6 +91,9 @@ struct MainWindow: View {
     var body: some View {
         HStack(spacing: 0) {
             leftNavigationColumn
+            if sidebarIsResizable {
+                sidebarResizeHandle
+            }
             mainWorkspaceColumn
         }
         .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
@@ -142,35 +109,47 @@ struct MainWindow: View {
         }
         .animation(.easeInOut(duration: 0.2), value: voiceRecording.isPanelVisible)
         .overlay(alignment: toastAlignment) {
-            if let toast = ToastState.shared.message {
-                HStack(spacing: UIMetrics.spacing3) {
+            if let toast = ToastState.shared.content {
+                HStack(alignment: toast.body == nil ? .center : .top, spacing: UIMetrics.spacing3) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: UIMetrics.fontBody, weight: .semibold))
                         .foregroundStyle(MuxyTheme.diffAddFg)
-                    Text(toast)
-                        .font(.system(size: UIMetrics.fontBody, weight: .medium))
-                        .foregroundStyle(MuxyTheme.fg)
+                    VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
+                        Text(toast.title)
+                            .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                            .foregroundStyle(MuxyTheme.fg)
+                            .lineLimit(1)
+                        if let body = toast.body {
+                            Text(body)
+                                .font(.system(size: UIMetrics.fontFootnote))
+                                .foregroundStyle(MuxyTheme.fgMuted)
+                                .lineLimit(2)
+                        }
+                    }
+                    .frame(maxWidth: UIMetrics.scaled(360), alignment: .leading)
                 }
                 .padding(.horizontal, UIMetrics.scaled(14))
                 .padding(.vertical, UIMetrics.spacing4)
+                .fixedSize(horizontal: true, vertical: false)
                 .background(MuxyTheme.bg, in: Capsule())
                 .overlay(Capsule().stroke(MuxyTheme.border, lineWidth: 1))
+                .contentShape(Capsule())
                 .padding(toastEdgePadding)
                 .transition(.move(edge: toastTransitionEdge).combined(with: .opacity))
-                .allowsHitTesting(false)
-                .accessibilityLabel(toast)
-                .accessibilityAddTraits(.isStaticText)
+                .allowsHitTesting(toast.isActionable)
+                .onTapGesture {
+                    ToastState.shared.performAction()
+                }
+                .accessibilityLabel(toast.accessibilityLabel)
+                .accessibilityAddTraits(toast.isActionable ? .isButton : .isStaticText)
             }
         }
         .overlay { modalOverlayLayer }
         .overlay { ExtensionConsentOverlay() }
-        .animation(.easeInOut(duration: 0.15), value: showQuickOpen)
-        .animation(.easeInOut(duration: 0.15), value: showFindInFiles)
         .animation(.easeInOut(duration: 0.15), value: showTerminalOmnibox)
         .animation(.easeInOut(duration: 0.15), value: showProjectPicker)
+        .animation(.easeInOut(duration: 0.15), value: ExtensionModalService.shared.active)
         .modifier(OverlayExitTracker(
-            showQuickOpen: showQuickOpen,
-            showFindInFiles: showFindInFiles,
             showTerminalOmnibox: showTerminalOmnibox,
             showProjectPicker: showProjectPicker,
             onAnimatingOut: { overlayAnimatingOut = $0 }
@@ -179,20 +158,16 @@ struct MainWindow: View {
         .coordinateSpace(name: DragCoordinateSpace.mainWindow)
         .environment(dragCoordinator)
         .background(MainWindowShortcutInterceptor(
+            isTerminalFocused: { isTerminalPaneFocused },
             onShortcut: { action in handleShortcutAction(action) },
             onCommandShortcut: { shortcut in handleCommandShortcut(shortcut) },
+            onExtensionShortcut: { shortcut in handleExtensionShortcut(shortcut) },
             onMouseBack: { appState.goBack() },
             onMouseForward: { appState.goForward() }
         ))
         .background(WindowConfigurator(configVersion: ghostty.configVersion, uiScalePreset: UIScale.shared.preset))
         .background(WindowTitleUpdater(title: windowTitle))
         .ignoresSafeArea(.container, edges: .top)
-        .onReceive(NotificationCenter.default.publisher(for: .quickOpen)) { _ in
-            showQuickOpen.toggle()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .findInFiles)) { _ in
-            showFindInFiles.toggle()
-        }
         .onReceive(NotificationCenter.default.publisher(for: .openProjectPicker)) { _ in
             showProjectPicker = true
         }
@@ -220,56 +195,31 @@ struct MainWindow: View {
                 sidebarExpanded.toggle()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleExtensionConsole)) { _ in
+            panelHost.toggle(BuiltinPanel.extensionConsole, at: .bottom, mode: .floating)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .windowFullScreenDidChange)) { notification in
             isFullScreen = notification.userInfo?["isFullScreen"] as? Bool ?? false
         }
-        .background(WindowOpenReceiver(openWindow: openWindow))
         .modifier(SidePanelNotificationListeners(
-            onToggleAttachedVCS: { toggleAttachedVCSPanel() },
-            onToggleFileTree: { toggleFileTreePanel() },
             onToggleRichInput: { toggleRichInputPanel() },
             onToggleVoiceRecording: { _ = openVoiceRecorder() }
         ))
-        .onChange(of: vcsPruneSignature) {
-            pruneFileTreeStates()
+        .onChange(of: worktreeKeysSignature) {
+            pruneWorktreeStates()
         }
-        .onChange(of: vcsEnsureSignature) {
-            guard let project = activeProject else { return }
-            if fileTreePanelVisible {
-                ensureFileTreeState(for: project)
-            }
+        .onChange(of: activeWorktreeSignature) {
+            updateWorkspaceFileWatcher()
         }
-        .modifier(FileTreeSourceObserver(
-            activeTerminalCWD: activeTerminalPane?.currentWorkingDirectory,
-            activeTerminalID: activeTerminalPane?.id,
-            sourceRaw: fileTreeSourceRaw,
-            onTerminalChange: refreshFileTreeRootForActiveTerminal,
-            onSourceChange: {
-                guard let project = activeProject else { return }
-                ensureFileTreeState(for: project)
-            }
+        .task {
+            updateWorkspaceFileWatcher()
+        }
+        .modifier(TabCloseConfirmationObserver(
+            lastTab: appState.pendingLastTabClose != nil,
+            runningProcess: appState.pendingProcessTabClose != nil,
+            onLastTab: { presentCloseConfirmation(.lastTab) },
+            onRunningProcess: { presentCloseConfirmation(.runningProcess) }
         ))
-        .modifier(FileTreeSelectionSync(
-            filePath: activeEditorFilePath,
-            panelVisible: fileTreePanelVisible,
-            sync: syncFileTreeSelection
-        ))
-        .onChange(of: appState.pendingLastTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.lastTab)
-        }
-        .onChange(of: appState.pendingUnsavedEditorTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.unsavedEditor)
-        }
-        .onChange(of: appState.pendingProcessTabClose != nil) { _, isPresented in
-            guard isPresented else { return }
-            presentCloseConfirmation(.runningProcess)
-        }
-        .onChange(of: appState.pendingSaveErrorMessage != nil) { _, isPresented in
-            guard isPresented, let message = appState.pendingSaveErrorMessage else { return }
-            presentSaveErrorAlert(message: message)
-        }
         .onChange(of: appState.pendingLayoutApply != nil) { _, isPresented in
             guard isPresented, let pending = appState.pendingLayoutApply else { return }
             presentLayoutApplyConfirmation(pending: pending)
@@ -288,13 +238,16 @@ struct MainWindow: View {
                     .accessibilityHidden(true)
             }
 
-            Sidebar(expanded: sidebarExpanded)
+            Sidebar(
+                expanded: sidebarExpanded,
+                expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
+            )
         }
         .frame(width: leftNavigationWidth, alignment: .leading)
         .clipped()
         .background(MuxyTheme.bg)
         .overlay(alignment: .trailing) {
-            if leftNavigationWidth > 0 {
+            if leftNavigationWidth > 0, !sidebarIsResizable {
                 Rectangle().fill(MuxyTheme.border)
                     .frame(width: 1)
                     .padding(.top, leftNavigationBorderTopPadding)
@@ -302,7 +255,7 @@ struct MainWindow: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .animation(.easeInOut(duration: 0.2), value: leftNavigationWidth)
+        .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
 
     private var mainWorkspaceColumn: some View {
@@ -330,7 +283,7 @@ struct MainWindow: View {
 
             topBarContent
         }
-        .animation(.easeInOut(duration: 0.2), value: mainTitleBarLeadingInset)
+        .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
     }
 
     @ViewBuilder
@@ -350,7 +303,7 @@ struct MainWindow: View {
                         }
                     }
                 }
-                .animation(.easeInOut(duration: 0.2), value: titleBarNavigationOverlayWidth)
+                .animation(.easeInOut(duration: 0.2), value: sidebarExpanded)
         }
     }
 
@@ -360,13 +313,13 @@ struct MainWindow: View {
                 ZStack {
                     MuxyTheme.bg
                     if let project = activeProject,
-                       appState.workspaceRoot(for: project.id) == nil,
+                       !appState.hasTabs(for: project.id),
                        let worktree = resolvedActiveWorktree(for: project)
                     {
                         EmptyProjectPlaceholder(project: project) {
-                            appState.selectWorktree(projectID: project.id, worktree: worktree)
+                            appState.openInitialTab(projectID: project.id, worktree: worktree)
                         }
-                    } else if projectsWithWorkspaces.isEmpty {
+                    } else if projectsWithTabs.isEmpty {
                         WelcomeView()
                     } else if let project = activeProjectWithWorkspace,
                               let activeKey = appState.activeWorktreeKey(for: project.id)
@@ -384,31 +337,16 @@ struct MainWindow: View {
                     }
                 }
 
-                rightSidePanel
+                pinnedPanelSlot(at: .right)
             }
             .overlay(alignment: .trailing) {
-                floatingRichInputOverlay
+                floatingPanelOverlay(at: .right)
             }
             .overlay(alignment: .bottom) {
-                floatingBottomRichInputOverlay
+                floatingPanelOverlay(at: .bottom)
             }
-            .animation(.easeInOut(duration: 0.2), value: richInputPanelVisible)
 
-            bottomDockedRichInputPanel
-
-            if showExtensionOutput {
-                ExtensionOutputPanel(
-                    isPresented: $showExtensionOutput,
-                    selectedExtensionID: Binding(
-                        get: { extensionOutputSelected ?? (extensionOutputSelectedStored.isEmpty ? nil : extensionOutputSelectedStored) },
-                        set: { newValue in
-                            extensionOutputSelected = newValue
-                            extensionOutputSelectedStored = newValue ?? ""
-                        }
-                    )
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+            pinnedPanelSlot(at: .bottom)
 
             if showStatusBar {
                 ProjectStatusBar(
@@ -418,7 +356,7 @@ struct MainWindow: View {
                     isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
                     richInputVisible: richInputPanelVisible,
                     richInputFontSize: $richInputFontSize,
-                    extensionOutputVisible: $showExtensionOutput,
+                    extensionOutputVisible: extensionConsoleBinding,
                     onTriggerExtensionCommand: { binding in
                         ExtensionStore.shared.triggerCommand(
                             ExtensionStore.CommandInvocation(
@@ -467,16 +405,8 @@ struct MainWindow: View {
                 activeTabID: area.activeTabID,
                 isFocused: true,
                 isWindowTitleBar: true,
-                showVCSButton: true,
                 showDevelopmentBadge: AppEnvironment.isDevelopment,
                 openInIDEProjectPath: activeWorktreePath(for: project),
-                openInIDEFilePath: area.activeTab?.content.editorState?.filePath,
-                openInIDECursorProvider: {
-                    guard let editorState = appState.activeTab(for: project.id)?.content.editorState else {
-                        return (nil, nil)
-                    }
-                    return (editorState.cursorLine, editorState.cursorColumn)
-                },
                 projectID: project.id,
                 onSelectTab: { tabID in
                     appState.dispatch(.selectTab(projectID: project.id, areaID: area.id, tabID: tabID))
@@ -484,39 +414,22 @@ struct MainWindow: View {
                 onCreateTab: {
                     appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
                 },
-                onCreateVCSTab: {
-                    openVCS(for: project, preferredAreaID: area.id)
-                },
-                onCreateDiffViewerTab: {
-                    appState.dispatch(.createDiffViewerTab(
-                        projectID: project.id,
-                        areaID: area.id,
-                        request: AppState.DiffViewerRequest(
-                            vcs: VCSStateStore.shared.state(for: area.projectPath),
-                            filePath: nil,
-                            isStaged: false
-                        )
-                    ))
-                },
                 onCloseTab: { tabID in
                     appState.closeTab(tabID, areaID: area.id, projectID: project.id)
                 },
                 onCloseOtherTabs: { tabID in
-                    for id in area.tabs.filter({ $0.id != tabID && !$0.isPinned }).map(\.id) {
-                        appState.closeTab(id, areaID: area.id, projectID: project.id)
-                    }
+                    let ids = area.tabs.filter { $0.id != tabID && !$0.isPinned }.map(\.id)
+                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
                 },
                 onCloseTabsToLeft: { tabID in
                     guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                    for id in area.tabs.prefix(index).filter({ !$0.isPinned }).map(\.id) {
-                        appState.closeTab(id, areaID: area.id, projectID: project.id)
-                    }
+                    let ids = area.tabs.prefix(index).filter { !$0.isPinned }.map(\.id)
+                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
                 },
                 onCloseTabsToRight: { tabID in
                     guard let index = area.tabs.firstIndex(where: { $0.id == tabID }) else { return }
-                    for id in area.tabs.suffix(from: index + 1).filter({ !$0.isPinned }).map(\.id) {
-                        appState.closeTab(id, areaID: area.id, projectID: project.id)
-                    }
+                    let ids = area.tabs.suffix(from: index + 1).filter { !$0.isPinned }.map(\.id)
+                    appState.closeTabs(ids, areaID: area.id, projectID: project.id)
                 },
                 onSplit: { dir in
                     appState.dispatch(.splitArea(.init(
@@ -574,26 +487,10 @@ struct MainWindow: View {
                                 .padding(.trailing, UIMetrics.spacing3)
                         }
                         if let project = activeProject {
-                            OpenInIDEControl(
-                                projectPath: activeWorktreePath(for: project),
-                                filePath: activeEditorFilePath,
-                                cursorProvider: activeEditorCursor
-                            )
+                            OpenInIDEControl(projectPath: activeWorktreePath(for: project))
                             LayoutPickerMenu(projectID: project.id)
                         }
-                        if let project = activeProject, activeProjectHasSplitWorkspace {
-                            IconButton(symbol: "doc.text", size: 12, accessibilityLabel: "Quick Open") {
-                                NotificationCenter.default.post(name: .quickOpen, object: nil)
-                            }
-                            .help("Quick Open (\(KeyBindingStore.shared.combo(for: .quickOpen).displayString))")
-                            FileDiffIconButton {
-                                openVCS(for: project)
-                            }
-                            FileTreeIconButton {
-                                NotificationCenter.default.post(name: .toggleFileTree, object: nil)
-                            }
-                            .help("File Tree (\(KeyBindingStore.shared.combo(for: .toggleFileTree).displayString))")
-                        }
+                        ExtensionTopbarItems()
                     }
                     .padding(.trailing, UIMetrics.spacing2)
                 }
@@ -601,51 +498,26 @@ struct MainWindow: View {
     }
 
     private var overlayActive: Bool {
-        showQuickOpen
-            || showFindInFiles
-            || showTerminalOmnibox
+        showTerminalOmnibox
             || showProjectPicker
+            || ExtensionModalService.shared.active != nil
             || overlayAnimatingOut
     }
 
     @ViewBuilder
     private var modalOverlayLayer: some View {
-        quickOpenOverlay
-        findInFilesOverlay
         terminalOmniboxOverlay
         projectPickerOverlay
+        extensionModalOverlay
     }
 
     @ViewBuilder
-    private var quickOpenOverlay: some View {
-        if showQuickOpen, let project = activeProject {
-            QuickOpenOverlay(
-                projectPath: activeWorktreePath(for: project),
-                onSelect: { filePath in
-                    showQuickOpen = false
-                    appState.openFile(filePath, projectID: project.id)
-                },
-                onDismiss: { showQuickOpen = false }
-            )
-            .transition(.opacity.combined(with: .scale(scale: 0.98)))
-        }
-    }
-
-    @ViewBuilder
-    private var findInFilesOverlay: some View {
-        if showFindInFiles, let project = activeProject {
-            FindInFilesOverlay(
-                projectPath: activeWorktreePath(for: project),
-                onSelect: { match in
-                    showFindInFiles = false
-                    appState.openFile(
-                        match.absolutePath,
-                        projectID: project.id,
-                        line: match.lineNumber,
-                        column: match.column
-                    )
-                },
-                onDismiss: { showFindInFiles = false }
+    private var extensionModalOverlay: some View {
+        if let request = ExtensionModalService.shared.active {
+            ExtensionModalOverlay(
+                request: request,
+                onSelect: { item in ExtensionModalService.shared.select(item) },
+                onDismiss: { ExtensionModalService.shared.dismiss() }
             )
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
         }
@@ -756,14 +628,18 @@ struct MainWindow: View {
         return scope
     }
 
+    private var omniboxProjects: [Project] {
+        showHomeProject ? projectStore.projects : projectStore.storedProjects
+    }
+
     private var terminalOmniboxProjects: [TerminalOmniboxProjectItem] {
-        projectStore.projects.map {
+        omniboxProjects.map {
             TerminalOmniboxProjectItem(projectID: $0.id, name: $0.name, path: $0.path)
         }
     }
 
     private var terminalOmniboxWorktrees: [TerminalOmniboxWorktreeItem] {
-        projectStore.projects.flatMap { project in
+        omniboxProjects.flatMap { project in
             worktreeStore.list(for: project.id).map { worktree in
                 TerminalOmniboxWorktreeItem(
                     projectID: project.id,
@@ -778,18 +654,18 @@ struct MainWindow: View {
     }
 
     private var terminalOmniboxOpenTabs: [OpenTerminalTabItem] {
-        projectStore.projects.flatMap { appState.allOpenTerminalTabItems(for: $0.id) }
+        omniboxProjects.flatMap { appState.allOpenTerminalTabItems(for: $0.id) }
     }
 
     private var terminalOmniboxClosedTabs: [ClosedTerminalTabSnapshot] {
-        let projectIDs = Set(projectStore.projects.map(\.id))
+        let projectIDs = Set(omniboxProjects.map(\.id))
         return TerminalSessionStore.shared.closedTerminalTabs.filter {
             projectIDs.contains($0.projectID)
         }
     }
 
     private var terminalOmniboxCommandProjectIDs: Set<UUID> {
-        Set(projectStore.projects.compactMap { project in
+        Set(omniboxProjects.compactMap { project in
             worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id]) == nil
                 ? nil
                 : project.id
@@ -810,7 +686,7 @@ struct MainWindow: View {
     }
 
     private var toastPosition: ToastPosition {
-        ToastPosition(rawValue: toastPositionRaw) ?? .topCenter
+        NotificationSettings.toastPosition(rawValue: toastPositionRaw)
     }
 
     private var toastAlignment: Alignment {
@@ -854,8 +730,13 @@ struct MainWindow: View {
         SidebarLayout.resolvedWidth(
             expanded: sidebarExpanded,
             collapsedStyle: sidebarCollapsedStyle,
-            expandedStyle: sidebarExpandedStyle
+            expandedStyle: sidebarExpandedStyle,
+            expandedCustomWidth: CGFloat(sidebarExpandedCustomWidth)
         )
+    }
+
+    private var sidebarIsResizable: Bool {
+        SidebarLayout.isWide(expanded: sidebarExpanded, expandedStyle: sidebarExpandedStyle)
     }
 
     private var leftNavigationWidth: CGFloat {
@@ -944,13 +825,16 @@ struct MainWindow: View {
         return [activeKey]
     }
 
+    private var isTerminalPaneFocused: Bool {
+        guard let projectID = appState.activeProjectID else { return false }
+        return appState.activeTab(for: projectID)?.content.pane != nil
+    }
+
     private func handleShortcutAction(_ action: ShortcutAction) -> Bool {
         if action == .toggleVoiceRecording {
             return openVoiceRecorder()
         }
-        return shortcutDispatcher.perform(action, activeProject: activeProject) { project in
-            openVCS(for: project)
-        }
+        return shortcutDispatcher.perform(action, activeProject: activeProject)
     }
 
     private func openVoiceRecorder() -> Bool {
@@ -971,265 +855,192 @@ struct MainWindow: View {
         return true
     }
 
-    private var activeProjectHasSplitWorkspace: Bool {
-        guard let project = activeProject,
-              let root = appState.workspaceRoot(for: project.id)
-        else { return false }
-        if case .split = root { return true }
-        return false
+    private func handleExtensionShortcut(_ shortcut: ExtensionShortcut) -> Bool {
+        ExtensionStore.shared.triggerCommand(.init(
+            extensionID: shortcut.extensionID,
+            commandID: shortcut.commandID,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
+        ))
+        return true
     }
 
-    private var projectsWithWorkspaces: [Project] {
-        projectStore.projects.filter { appState.workspaceRoot(for: $0.id) != nil }
+    private var projectsWithTabs: [Project] {
+        projectStore.projects.filter { appState.hasTabs(for: $0.id) }
+    }
+
+    var richInputPanelVisible: Bool { panelHost.isOpen(BuiltinPanel.richInput) }
+    var showExtensionOutput: Bool { panelHost.isOpen(BuiltinPanel.extensionConsole) }
+
+    private var extensionConsoleBinding: Binding<Bool> {
+        Binding(
+            get: { panelHost.isOpen(BuiltinPanel.extensionConsole) },
+            set: { _ in panelHost.toggle(BuiltinPanel.extensionConsole, at: .bottom, mode: .floating) }
+        )
     }
 
     @ViewBuilder
-    private var floatingRichInputOverlay: some View {
-        if isRichInputVisible(floating: true, at: .right) {
-            richInputPanelContent(at: .right)
+    func pinnedPanelSlot(at position: PanelPosition) -> some View {
+        if let panelID = panelHost.pinnedPanel(at: position) {
+            panelContent(for: panelID, position: position, mode: .pinned)
+        }
+    }
+
+    @ViewBuilder
+    func floatingPanelOverlay(at position: PanelPosition) -> some View {
+        if let panelID = panelHost.floatingPanel(at: position) {
+            panelContent(for: panelID, position: position, mode: .floating)
                 .background(MuxyTheme.bg)
-                .transition(.move(edge: .trailing))
         }
     }
 
     @ViewBuilder
-    private var bottomDockedRichInputPanel: some View {
-        if isRichInputVisible(floating: false, at: .bottom) {
-            richInputPanelContent(at: .bottom)
+    private func panelContent(for panelID: String, position: PanelPosition, mode: PanelMode) -> some View {
+        switch panelID {
+        case BuiltinPanel.richInput:
+            richInputPanelBody(position: position, mode: mode)
+        case BuiltinPanel.extensionConsole:
+            extensionConsolePanelBody(position: position, mode: mode)
+        default:
+            extensionPanelBody(panelID: panelID, position: position, mode: mode)
         }
     }
 
     @ViewBuilder
-    private var floatingBottomRichInputOverlay: some View {
-        if isRichInputVisible(floating: true, at: .bottom) {
-            richInputPanelContent(at: .bottom)
-                .background(MuxyTheme.bg)
-                .transition(.move(edge: .bottom))
-        }
-    }
-
-    private func isRichInputVisible(floating: Bool, at position: RichInputPanelPosition) -> Bool {
-        richInputPanelVisible
-            && richInputFloating == floating
-            && richInputPosition == position
-            && activeRichInputState != nil
-            && activeWorktreeKey != nil
-    }
-
-    @ViewBuilder
-    private func richInputPanelContent(at position: RichInputPanelPosition) -> some View {
+    private func richInputPanelBody(position: PanelPosition, mode: PanelMode) -> some View {
         if let richInputState = activeRichInputState, let worktreeKey = activeWorktreeKey {
-            let panel = RichInputSidePanel(
-                state: richInputState,
-                worktreeKey: worktreeKey,
-                onDismiss: { closeRichInputPanel() },
-                onSubmit: { appendReturn, selectedText in
-                    submitRichInput(richInputState, appendReturn: appendReturn, selectedText: selectedText)
+            PanelContainer(
+                chrome: PanelChrome(
+                    iconSymbol: "keyboard",
+                    title: "Rich Input",
+                    trailingButtons: [richInputBroadcastButton]
+                ),
+                mode: mode,
+                position: position,
+                onClose: { closeRichInputPanel() },
+                onTogglePin: { toggleRichInputFloating() },
+                onTogglePosition: { toggleRichInputPosition() },
+                content: {
+                    RichInputSidePanel(
+                        state: richInputState,
+                        worktreeKey: worktreeKey,
+                        onSubmit: { appendReturn, selectedText in
+                            submitRichInput(richInputState, appendReturn: appendReturn, selectedText: selectedText)
+                        }
+                    )
                 }
             )
-            switch position {
-            case .right:
-                HStack(spacing: 0) {
-                    sidePanelResizeHandle { delta in
-                        let next = richInputPanelWidth - Double(delta)
-                        richInputPanelWidth = max(
-                            Double(RichInputPanelLayout.minWidth),
-                            min(Double(RichInputPanelLayout.maxWidth), next)
-                        )
-                    }
-                    panel.frame(width: CGFloat(richInputPanelWidth))
-                }
-            case .bottom:
-                VStack(spacing: 0) {
-                    bottomPanelResizeHandle { delta in
-                        let next = richInputPanelHeight - Double(delta)
-                        richInputPanelHeight = max(
-                            Double(RichInputPanelLayout.minHeight),
-                            min(Double(RichInputPanelLayout.maxHeight), next)
-                        )
-                    }
-                    panel.frame(height: CGFloat(richInputPanelHeight))
-                }
-            }
+            .modifier(PanelFrame(
+                position: position,
+                size: position == .bottom ? $richInputPanelHeight : $richInputPanelWidth,
+                range: position == .bottom
+                    ? PanelLayoutMetrics.richInputHeightRange
+                    : PanelLayoutMetrics.richInputWidthRange
+            ))
         }
+    }
+
+    private func extensionConsolePanelBody(position: PanelPosition, mode: PanelMode) -> some View {
+        PanelContainer(
+            chrome: PanelChrome(
+                iconSymbol: "terminal",
+                title: "Extension Output",
+                hiddenControls: [.pin, .position]
+            ),
+            mode: mode,
+            position: position,
+            onClose: { panelHost.close(BuiltinPanel.extensionConsole) },
+            onTogglePin: nil,
+            onTogglePosition: nil,
+            content: {
+                ExtensionOutputPanel(
+                    selectedExtensionID: Binding(
+                        get: { extensionOutputSelected ?? (extensionOutputSelectedStored.isEmpty ? nil : extensionOutputSelectedStored) },
+                        set: { newValue in
+                            extensionOutputSelected = newValue
+                            extensionOutputSelectedStored = newValue ?? ""
+                        }
+                    )
+                )
+            }
+        )
+        .modifier(PanelFrame(
+            position: position,
+            size: $extensionConsoleHeight,
+            range: PanelLayoutMetrics.consoleHeightRange
+        ))
     }
 
     @ViewBuilder
-    private var rightSidePanel: some View {
-        if isRichInputVisible(floating: false, at: .right) {
-            richInputPanelContent(at: .right)
-        } else if vcsPanelVisible, VCSDisplayMode.current == .attached, let state = activeVCSState {
-            HStack(spacing: 0) {
-                sidePanelResizeHandle { delta in
-                    vcsPanelWidth = max(
-                        AttachedVCSLayout.minWidth,
-                        min(AttachedVCSLayout.maxWidth, vcsPanelWidth - delta)
-                    )
-                }
-                VCSTabView(state: state, focused: false, onFocus: {})
-                    .frame(width: vcsPanelWidth)
+    private func extensionPanelBody(panelID: String, position: PanelPosition, mode: PanelMode) -> some View {
+        if let state = ExtensionPanelRegistry.shared.state(forHostPanelID: panelID) {
+            ExtensionPanelView(
+                state: state,
+                placement: PanelPlacement(panelID: panelID, position: position, mode: mode)
+            )
+            .id(panelID)
+            .modifier(PanelFrame(
+                position: position,
+                size: position == .bottom ? $extensionPanelHeight : $extensionPanelWidth,
+                range: position == .bottom
+                    ? PanelLayoutMetrics.extensionHeightRange
+                    : PanelLayoutMetrics.extensionWidthRange
+            ))
+        }
+    }
+
+    private var richInputBroadcastButton: PanelHeaderButton {
+        PanelHeaderButton(
+            id: "richInput.broadcast",
+            icon: .symbol(richInputBroadcast
+                ? "dot.radiowaves.left.and.right"
+                : "antenna.radiowaves.left.and.right.slash"),
+            label: richInputBroadcast
+                ? "Broadcast On — Send to All Split Panes"
+                : "Broadcast Off — Send to Active Pane",
+            isActive: richInputBroadcast,
+            action: { richInputBroadcast.toggle() }
+        )
+    }
+
+    private var sidebarResizeHandle: some View {
+        panelResize(
+            axis: .horizontal,
+            edge: .trailing,
+            value: $sidebarExpandedCustomWidth,
+            range: SidebarLayout.minExpandedWidth ... SidebarLayout.maxExpandedWidth
+        )
+        .padding(.top, leftNavigationBorderTopPadding)
+    }
+
+    private func panelResize<V: BinaryFloatingPoint>(
+        axis: ResizeHandle.Axis,
+        edge: PanelResizeHandle.Edge,
+        value: Binding<V>,
+        range: ClosedRange<CGFloat>
+    ) -> some View {
+        PanelResizeHandle(
+            axis: axis,
+            edge: edge,
+            current: { CGFloat(value.wrappedValue) },
+            apply: { next in
+                value.wrappedValue = V(min(range.upperBound, max(range.lowerBound, next)))
             }
-        } else if fileTreePanelVisible, let treeState = activeFileTreeState {
-            HStack(spacing: 0) {
-                sidePanelResizeHandle { delta in
-                    let next = fileTreePanelWidth - Double(delta)
-                    fileTreePanelWidth = max(
-                        Double(FileTreeLayout.minWidth),
-                        min(Double(FileTreeLayout.maxWidth), next)
-                    )
-                }
-                FileTreeView(
-                    state: treeState,
-                    onOpenFile: { filePath in
-                        guard let projectID = appState.activeProjectID else { return }
-                        appState.openFile(filePath, projectID: projectID, preserveFocus: true)
-                    },
-                    onOpenTerminal: { directory in
-                        guard let projectID = appState.activeProjectID else { return }
-                        appState.dispatch(.createTabInDirectory(
-                            projectID: projectID,
-                            areaID: nil,
-                            directory: directory
-                        ))
-                    },
-                    onFileMoved: { oldPath, newPath in
-                        appState.handleFileMoved(from: oldPath, to: newPath)
-                    }
-                )
-                .id(activeFileTreeIdentity)
-                .frame(width: CGFloat(fileTreePanelWidth))
-            }
-        }
+        )
     }
 
-    private func sidePanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        ResizeHandle(axis: .horizontal) { v in
-            onDrag(v.translation.width)
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func bottomPanelResizeHandle(onDrag: @escaping (CGFloat) -> Void) -> some View {
-        ResizeHandle(axis: .vertical) { v in
-            onDrag(v.translation.height)
-        }
-        .accessibilityHidden(true)
-    }
-
-    private var activeFileTreeState: FileTreeState? {
-        guard let project = activeProject,
-              let key = appState.activeWorktreeKey(for: project.id)
-        else { return nil }
-        return fileTreeStates[key]
-    }
-
-    private var activeFileTreeIdentity: WorktreeKey? {
-        guard let project = activeProject else { return nil }
-        return appState.activeWorktreeKey(for: project.id)
-    }
-
-    private func ensureFileTreeState(for project: Project) {
-        guard let key = appState.activeWorktreeKey(for: project.id) else { return }
-        let path = resolvedFileTreeRoot(for: project, key: key)
-        if let existing = fileTreeStates[key] {
-            existing.setRootPath(path)
-            return
-        }
-        fileTreeStates[key] = FileTreeState(rootPath: path)
-    }
-
-    private var fileTreeSource: FileTreeSourcePreference {
-        FileTreeSourcePreference(rawValue: fileTreeSourceRaw) ?? .projectBase
-    }
-
-    private func resolvedFileTreeRoot(for project: Project, key: WorktreeKey) -> String {
-        let base = activeWorktreePath(for: project)
-        guard fileTreeSource == .activeTerminal else { return base }
-        if let cwd = appState.activeTab(for: project.id)?.content.pane?.currentWorkingDirectory {
-            fileTreeLastTerminalPaths[key] = cwd
-            return cwd
-        }
-        return fileTreeLastTerminalPaths[key] ?? base
-    }
-
-    private func refreshFileTreeRootForActiveTerminal() {
-        guard fileTreeSource == .activeTerminal,
-              fileTreePanelVisible,
-              let project = activeProject
-        else { return }
-        ensureFileTreeState(for: project)
-    }
-
-    private var activeEditorState: EditorTabState? {
-        guard let project = activeProject else { return nil }
-        return appState.activeTab(for: project.id)?.content.editorState
-    }
-
-    private var activeEditorFilePath: String? {
-        activeEditorState?.filePath
-    }
-
-    private func activeEditorCursor() -> (line: Int?, column: Int?) {
-        guard let state = activeEditorState else { return (nil, nil) }
-        return (state.cursorLine, state.cursorColumn)
-    }
-
-    private func syncFileTreeSelection(filePath: String?) {
-        guard fileTreePanelVisible,
-              let project = activeProject,
-              let key = appState.activeWorktreeKey(for: project.id),
-              let state = fileTreeStates[key]
-        else { return }
-        if let filePath {
-            state.revealFile(at: filePath)
-        } else {
-            state.clearSelection()
-        }
-    }
-
-    private func pruneFileTreeStates() {
-        let validKeys = validVCSKeys()
-        fileTreeStates = fileTreeStates.filter { validKeys.contains($0.key) }
-        fileTreeLastTerminalPaths = fileTreeLastTerminalPaths.filter { validKeys.contains($0.key) }
-        richInputStates = richInputStates.filter { validKeys.contains($0.key) }
-    }
-
-    private func toggleAttachedVCSPanel() {
-        guard VCSDisplayMode.current == .attached,
-              activeProject != nil
-        else {
-            vcsPanelVisible = false
-            return
-        }
-
-        let isShowing = !vcsPanelVisible
-        vcsPanelVisible = isShowing
-        if isShowing {
-            fileTreePanelVisible = false
-            panelToRestoreAfterRichInput = nil
-            closeRichInputPanel()
-        }
-    }
-
-    private func toggleFileTreePanel() {
+    private func updateWorkspaceFileWatcher() {
         guard let project = activeProject else {
-            if fileTreePanelVisible {
-                fileTreePanelVisible = false
-                NotificationCenter.default.post(name: .refocusActiveTerminal, object: nil)
-            }
+            workspaceFileWatcher.setRoot(nil)
             return
         }
+        workspaceFileWatcher.setRoot(activeWorktreePath(for: project))
+    }
 
-        ensureFileTreeState(for: project)
-        let isShowing = !fileTreePanelVisible
-        fileTreePanelVisible = isShowing
-        if isShowing {
-            vcsPanelVisible = false
-            panelToRestoreAfterRichInput = nil
-            closeRichInputPanel()
-        } else {
-            NotificationCenter.default.post(name: .refocusActiveTerminal, object: nil)
-        }
+    private func pruneWorktreeStates() {
+        let validKeys = validWorktreeKeys()
+        richInputStates = richInputStates.filter { validKeys.contains($0.key) }
     }
 
     private var activeRichInputState: RichInputState? {
@@ -1257,53 +1068,31 @@ struct MainWindow: View {
     private func toggleRichInputPanel() {
         guard let richInputState = activeRichInputState else { return }
         guard richInputPanelVisible else {
-            if richInputReplacesRightSidePanel {
-                if vcsPanelVisible {
-                    panelToRestoreAfterRichInput = .vcs
-                } else if fileTreePanelVisible {
-                    panelToRestoreAfterRichInput = .fileTree
-                } else {
-                    panelToRestoreAfterRichInput = nil
-                }
-                vcsPanelVisible = false
-                fileTreePanelVisible = false
-            } else {
-                panelToRestoreAfterRichInput = nil
-            }
-            richInputPanelVisible = true
+            panelHost.open(BuiltinPanel.richInput, at: richInputPosition, mode: richInputMode)
             richInputState.focusVersion += 1
             return
         }
-        if NSApp.keyWindow?.firstResponder is MarkdownEditingTextView {
-            closeRichInputPanel()
-        } else {
-            richInputState.focusVersion += 1
-        }
+        closeRichInputPanel()
     }
 
-    private var richInputReplacesRightSidePanel: Bool {
-        !richInputFloating && richInputPosition == .right
+    private var richInputMode: PanelMode {
+        richInputFloating ? .floating : .pinned
+    }
+
+    private func toggleRichInputFloating() {
+        richInputFloating.toggle()
+        guard richInputPanelVisible else { return }
+        panelHost.setMode(richInputMode, for: BuiltinPanel.richInput)
+    }
+
+    private func toggleRichInputPosition() {
+        richInputPosition = richInputPosition.opposite
+        guard richInputPanelVisible else { return }
+        panelHost.move(BuiltinPanel.richInput, to: richInputPosition)
     }
 
     private func closeRichInputPanel() {
-        richInputPanelVisible = false
-        let panelToRestore = panelToRestoreAfterRichInput
-        panelToRestoreAfterRichInput = nil
-        switch panelToRestore {
-        case .vcs:
-            if VCSDisplayMode.current == .attached, activeProject != nil {
-                vcsPanelVisible = true
-                return
-            }
-        case .fileTree:
-            if let project = activeProject {
-                ensureFileTreeState(for: project)
-                fileTreePanelVisible = true
-                return
-            }
-        case .none:
-            break
-        }
+        panelHost.close(BuiltinPanel.richInput)
         guard let paneID = activeRichInputPaneID,
               let view = TerminalViewRegistry.shared.existingView(for: paneID)
         else { return }
@@ -1330,13 +1119,6 @@ struct MainWindow: View {
         return root.allAreas().compactMap { $0.activeTab?.content.pane?.id }
     }
 
-    private var activeVCSState: VCSTabState? {
-        guard let project = activeProject,
-              appState.activeWorktreeKey(for: project.id) != nil
-        else { return nil }
-        return VCSStateStore.shared.state(for: activeWorktreePath(for: project))
-    }
-
     private func activeWorktreePath(for project: Project) -> String {
         guard let key = appState.activeWorktreeKey(for: project.id) else { return project.path }
         return worktreeStore
@@ -1344,23 +1126,7 @@ struct MainWindow: View {
             .path ?? project.path
     }
 
-    private func openVCS(for project: Project, preferredAreaID: UUID? = nil) {
-        VCSDisplayMode.current.route(
-            tab: {
-                let areaID = preferredAreaID
-                    ?? appState.focusedAreaID(for: project.id)
-                    ?? appState.workspaceRoot(for: project.id)?.allAreas().first?.id
-                guard let areaID else { return }
-                appState.dispatch(.createVCSTab(projectID: project.id, areaID: areaID))
-            },
-            window: { openWindow(id: "vcs") },
-            attached: {
-                toggleAttachedVCSPanel()
-            }
-        )
-    }
-
-    private func validVCSKeys() -> Set<WorktreeKey> {
+    private func validWorktreeKeys() -> Set<WorktreeKey> {
         var keys: Set<WorktreeKey> = []
         for project in projectStore.projects {
             for worktree in worktreeStore.list(for: project.id) {
@@ -1370,7 +1136,7 @@ struct MainWindow: View {
         return keys
     }
 
-    private var vcsPruneSignature: [String] {
+    private var worktreeKeysSignature: [String] {
         var result: [String] = []
         for project in projectStore.projects {
             result.append(project.id.uuidString)
@@ -1381,7 +1147,7 @@ struct MainWindow: View {
         return result
     }
 
-    private var vcsEnsureSignature: String {
+    private var activeWorktreeSignature: String {
         let projectID = appState.activeProjectID?.uuidString ?? ""
         let worktreeID = appState.activeProjectID.flatMap { appState.activeWorktreeID[$0] }?.uuidString ?? ""
         return "\(projectID):\(worktreeID)"
@@ -1398,22 +1164,10 @@ struct MainWindow: View {
         alert.alertStyle = .warning
         alert.icon = NSApp.applicationIconImage
 
-        switch kind {
-        case .unsavedEditor:
-            alert.addButton(withTitle: "Save")
-            alert.addButton(withTitle: "Cancel")
-            alert.addButton(withTitle: "Don't Save")
-            alert.buttons[0].keyEquivalent = "\r"
-            alert.buttons[1].keyEquivalent = "\u{1b}"
-            alert.buttons[2].keyEquivalent = "d"
-            alert.buttons[2].keyEquivalentModifierMask = [.command]
-        case .lastTab,
-             .runningProcess:
-            alert.addButton(withTitle: "Close")
-            alert.addButton(withTitle: "Cancel")
-            alert.buttons[0].keyEquivalent = "\r"
-            alert.buttons[1].keyEquivalent = "\u{1b}"
-        }
+        alert.addButton(withTitle: "Close")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
 
         if kind == .runningProcess {
             alert.showsSuppressionButton = true
@@ -1428,15 +1182,6 @@ struct MainWindow: View {
                 } else {
                     appState.cancelCloseLastTab()
                 }
-            case .unsavedEditor:
-                switch response {
-                case .alertFirstButtonReturn:
-                    appState.saveAndCloseUnsavedEditorTab()
-                case .alertThirdButtonReturn:
-                    appState.confirmCloseUnsavedEditorTab()
-                default:
-                    appState.cancelCloseUnsavedEditorTab()
-                }
             case .runningProcess:
                 if response == .alertFirstButtonReturn {
                     if alert.suppressionButton?.state == .on {
@@ -1447,27 +1192,6 @@ struct MainWindow: View {
                     appState.cancelCloseRunningTab()
                 }
             }
-        }
-    }
-
-    private func presentSaveErrorAlert(message: String) {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-              window.attachedSheet == nil
-        else {
-            appState.pendingSaveErrorMessage = nil
-            return
-        }
-
-        let alert = NSAlert()
-        alert.messageText = "Could Not Save File"
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "OK")
-        alert.buttons[0].keyEquivalent = "\r"
-
-        alert.beginSheetModal(for: window) { _ in
-            appState.pendingSaveErrorMessage = nil
         }
     }
 
@@ -1516,35 +1240,22 @@ private struct WindowTitleUpdater: NSViewRepresentable {
     }
 }
 
-private struct FileTreeSelectionSync: ViewModifier {
-    let filePath: String?
-    let panelVisible: Bool
-    let sync: (String?) -> Void
+private struct TabCloseConfirmationObserver: ViewModifier {
+    let lastTab: Bool
+    let runningProcess: Bool
+    let onLastTab: () -> Void
+    let onRunningProcess: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: filePath) { _, newValue in
-                sync(newValue)
+            .onChange(of: lastTab) { _, isPresented in
+                guard isPresented else { return }
+                onLastTab()
             }
-            .onChange(of: panelVisible) { _, visible in
-                guard visible else { return }
-                sync(filePath)
+            .onChange(of: runningProcess) { _, isPresented in
+                guard isPresented else { return }
+                onRunningProcess()
             }
-    }
-}
-
-private struct FileTreeSourceObserver: ViewModifier {
-    let activeTerminalCWD: String?
-    let activeTerminalID: UUID?
-    let sourceRaw: String
-    let onTerminalChange: () -> Void
-    let onSourceChange: () -> Void
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: activeTerminalCWD) { _, _ in onTerminalChange() }
-            .onChange(of: activeTerminalID) { _, _ in onTerminalChange() }
-            .onChange(of: sourceRaw) { _, _ in onSourceChange() }
     }
 }
 
@@ -1577,51 +1288,64 @@ private struct NavigationArrowButton: View {
 }
 
 private struct MainWindowShortcutInterceptor: NSViewRepresentable {
+    let isTerminalFocused: () -> Bool
     let onShortcut: (ShortcutAction) -> Bool
     let onCommandShortcut: (CommandShortcut) -> Bool
+    let onExtensionShortcut: (ExtensionShortcut) -> Bool
     let onMouseBack: () -> Void
     let onMouseForward: () -> Void
 
     func makeNSView(context: Context) -> ShortcutInterceptingView {
         let view = ShortcutInterceptingView()
+        view.isTerminalFocused = isTerminalFocused
         view.onShortcut = onShortcut
         view.onCommandShortcut = onCommandShortcut
+        view.onExtensionShortcut = onExtensionShortcut
         view.onMouseBack = onMouseBack
         view.onMouseForward = onMouseForward
         return view
     }
 
     func updateNSView(_ nsView: ShortcutInterceptingView, context: Context) {
+        nsView.isTerminalFocused = isTerminalFocused
         nsView.onShortcut = onShortcut
         nsView.onCommandShortcut = onCommandShortcut
+        nsView.onExtensionShortcut = onExtensionShortcut
         nsView.onMouseBack = onMouseBack
         nsView.onMouseForward = onMouseForward
     }
 }
 
 private final class ShortcutInterceptingView: NSView {
+    var isTerminalFocused: (() -> Bool)?
     var onShortcut: ((ShortcutAction) -> Bool)?
     var onCommandShortcut: ((CommandShortcut) -> Bool)?
+    var onExtensionShortcut: ((ExtensionShortcut) -> Bool)?
     var onMouseBack: (() -> Void)?
     var onMouseForward: (() -> Void)?
     private var mouseMonitor: Any?
+    private var keyMonitor: Any?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
             removeMouseMonitor()
+            removeKeyMonitor()
         } else {
             installMouseMonitorIfNeeded()
+            installKeyMonitorIfNeeded()
         }
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard event.type == .keyDown,
-              ShortcutContext.isMainWindow(window)
-        else { return super.performKeyEquivalent(with: event) }
-
-        let scopes = ShortcutContext.activeScopes(for: window)
+    private func handleShortcutEvent(_ event: NSEvent) -> Bool {
+        let scopes = ShortcutContext.activeScopes(for: window, isTerminalFocused: isTerminalFocused?() ?? false)
         let layerWasActive = CommandShortcutStore.shared.isLayerActive
+        guard layerWasActive
+            || !event.modifierFlags.isDisjoint(with: [.command, .control, .option])
+        else {
+            return false
+        }
+
         if let shortcut = CommandShortcutStore.shared.shortcut(for: event, scopes: scopes) {
             CommandShortcutStore.shared.deactivateLayer()
             _ = onCommandShortcut?(shortcut)
@@ -1644,7 +1368,31 @@ private final class ShortcutInterceptingView: NSView {
             }
         }
 
-        return super.performKeyEquivalent(with: event)
+        if let shortcut = ExtensionShortcutStore.shared.match(event: event, scopes: scopes) {
+            if onExtensionShortcut?(shortcut) == true {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func installKeyMonitorIfNeeded() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            guard let self,
+                  let window = self.window,
+                  window.isKeyWindow,
+                  ShortcutContext.isMainWindow(window)
+            else { return event }
+            return self.handleShortcutEvent(event) ? nil : event
+        }
+    }
+
+    private func removeKeyMonitor() {
+        guard let keyMonitor else { return }
+        NSEvent.removeMonitor(keyMonitor)
+        self.keyMonitor = nil
     }
 
     private func installMouseMonitorIfNeeded() {
@@ -1694,35 +1442,12 @@ private final class ShortcutInterceptingView: NSView {
     }
 }
 
-private struct WindowOpenReceiver: View {
-    let openWindow: OpenWindowAction
-
-    var body: some View {
-        Color.clear
-            .frame(width: 0, height: 0)
-            .onReceive(NotificationCenter.default.publisher(for: .openVCSWindow)) { _ in
-                openWindow(id: "vcs")
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .openHelpWindow)) { _ in
-                openWindow(id: "help")
-            }
-    }
-}
-
 private struct SidePanelNotificationListeners: ViewModifier {
-    let onToggleAttachedVCS: () -> Void
-    let onToggleFileTree: () -> Void
     let onToggleRichInput: () -> Void
     let onToggleVoiceRecording: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(for: .toggleAttachedVCS)) { _ in
-                onToggleAttachedVCS()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .toggleFileTree)) { _ in
-                onToggleFileTree()
-            }
             .onReceive(NotificationCenter.default.publisher(for: .toggleRichInput)) { _ in
                 onToggleRichInput()
             }
@@ -1814,16 +1539,12 @@ private final class ObserverHolder {
 }
 
 private struct OverlayExitTracker: ViewModifier {
-    let showQuickOpen: Bool
-    let showFindInFiles: Bool
     let showTerminalOmnibox: Bool
     let showProjectPicker: Bool
     let onAnimatingOut: (Bool) -> Void
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: showQuickOpen) { _, visible in trackExit(visible) }
-            .onChange(of: showFindInFiles) { _, visible in trackExit(visible) }
             .onChange(of: showTerminalOmnibox) { _, visible in trackExit(visible) }
             .onChange(of: showProjectPicker) { _, visible in trackExit(visible) }
     }

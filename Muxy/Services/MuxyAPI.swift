@@ -3,11 +3,13 @@ import Foundation
 enum APIError: Error, Equatable {
     case invalidArguments(String)
     case noActiveProject
+    case noActiveWorkspace
     case noFocusedArea
     case projectStoreUnavailable
     case worktreeStoreUnavailable
     case invalidPaneID
     case paneNotFound(String)
+    case paneSurfaceNotReady(paneID: String, waitedSeconds: Double)
     case projectNotFound(String)
     case worktreeNotFound(String)
     case tabNotFound(String)
@@ -22,11 +24,14 @@ enum APIError: Error, Equatable {
         switch self {
         case let .invalidArguments(detail): detail
         case .noActiveProject: "no active project"
+        case .noActiveWorkspace: "no active workspace"
         case .noFocusedArea: "no focused area"
         case .projectStoreUnavailable: "project store unavailable"
         case .worktreeStoreUnavailable: "worktree store unavailable"
         case .invalidPaneID: "invalid pane ID"
         case let .paneNotFound(id): "pane not found \(id)"
+        case let .paneSurfaceNotReady(id, waited):
+            "pane surface not ready \(id) (waited \(String(format: "%.1f", waited))s)"
         case let .projectNotFound(id): "project not found\(id.isEmpty ? "" : " \(id)")"
         case let .worktreeNotFound(id): "worktree not found \(id)"
         case let .tabNotFound(id): "tab not found \(id)"
@@ -92,31 +97,50 @@ struct CreateWorktreeRequest {
 
 struct OpenTabRequest: Decodable {
     let kind: TerminalTab.Kind
-    let filePath: String?
     let extensionPayload: ExtensionPayload?
 
     struct ExtensionPayload: Decodable {
         let id: String
         let tabType: String
         let data: ExtensionJSON?
+        let singleton: Bool
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case tabType
+            case data
+            case singleton
+        }
+
+        init(id: String, tabType: String, data: ExtensionJSON?, singleton: Bool = false) {
+            self.id = id
+            self.tabType = tabType
+            self.data = data
+            self.singleton = singleton
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            tabType = try container.decode(String.self, forKey: .tabType)
+            data = try container.decodeIfPresent(ExtensionJSON.self, forKey: .data)
+            singleton = try container.decodeIfPresent(Bool.self, forKey: .singleton) ?? false
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
         case kind
-        case filePath
         case `extension`
     }
 
-    init(kind: TerminalTab.Kind, filePath: String? = nil, extensionPayload: ExtensionPayload? = nil) {
+    init(kind: TerminalTab.Kind, extensionPayload: ExtensionPayload? = nil) {
         self.kind = kind
-        self.filePath = filePath
         self.extensionPayload = extensionPayload
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         kind = try container.decode(TerminalTab.Kind.self, forKey: .kind)
-        filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
         extensionPayload = try container.decodeIfPresent(ExtensionPayload.self, forKey: .extension)
     }
 }
@@ -133,10 +157,79 @@ enum MuxyAPI {
 
         static let verbNames: Set<String> = Set(cliAliases.keys).union(extensionVerbs)
 
-        private static let extensionVerbs: Set<String> = [
+        private static let extensionVerbs: Set<String> = Set([
+            "exec",
+            "http.fetch",
+            "dialog.confirm",
+            "dialog.alert",
+            "modal.open",
+            "modal.feed",
+            "modal.finish",
+            "modal.await",
             "extension.settings.get",
             "extension.settings.set",
             "extension.statusbar.set",
+            "panel.open",
+            "panel.close",
+            "panel.toggle",
+            "popover.close",
+            "popover.resize",
+            "topbar.set",
+            "statusbar.set",
+            "tabs.open",
+            "lifecycle.ackBeforeClose",
+            "lifecycle.resolveBeforeClose",
+            "lifecycle.closeSelf",
+        ]).union(gitVerbs).union(filesVerbs)
+
+        static let filesVerbs: Set<String> = [
+            "files.list",
+            "files.read",
+            "files.stat",
+            "files.write",
+            "files.mkdir",
+            "files.rename",
+            "files.move",
+            "files.delete",
+        ]
+
+        static let gitVerbs: Set<String> = [
+            "git.status",
+            "git.diff",
+            "git.repoInfo",
+            "git.log",
+            "git.branches",
+            "git.currentBranch",
+            "git.aheadBehind",
+            "git.pr.info",
+            "git.pr.number",
+            "git.pr.diff",
+            "git.pr.list",
+            "git.worktrees",
+            "git.init",
+            "git.stage",
+            "git.unstage",
+            "git.discard",
+            "git.commit",
+            "git.push",
+            "git.pull",
+            "git.branch.create",
+            "git.branch.switch",
+            "git.pr.create",
+            "git.pr.merge",
+            "git.pr.close",
+            "git.worktree.add",
+            "git.worktree.remove",
+            "git.worktree.switch",
+            "git.remoteBranches",
+            "git.branch.delete",
+            "git.branch.deleteRemote",
+            "git.checkout",
+            "git.cherryPick",
+            "git.revert",
+            "git.tag.create",
+            "git.pr.checkout",
+            "git.pr.checkoutWorktree",
         ]
 
         private static let cliAliases: [String: String] = [
@@ -176,15 +269,113 @@ enum MuxyAPI {
             "tabs.next": .tabsWrite,
             "tabs.previous": .tabsWrite,
             "tabs.open": .tabsWrite,
+            "tabs.setTitle": .tabsWrite,
+            "tabs.setIcon": .tabsWrite,
             "projects.list": .projectsRead,
             "projects.switch": .projectsWrite,
             "worktrees.list": .worktreesRead,
             "worktrees.create": .worktreesWrite,
             "worktrees.switch": .worktreesWrite,
             "worktrees.refresh": .worktreesWrite,
+            "git.status": .gitRead,
+            "git.diff": .gitRead,
+            "git.repoInfo": .gitRead,
+            "git.log": .gitRead,
+            "git.branches": .gitRead,
+            "git.currentBranch": .gitRead,
+            "git.aheadBehind": .gitRead,
+            "git.pr.info": .gitRead,
+            "git.pr.number": .gitRead,
+            "git.pr.diff": .gitRead,
+            "git.pr.list": .gitRead,
+            "git.worktrees": .gitRead,
+            "git.init": .gitWrite,
+            "git.stage": .gitWrite,
+            "git.unstage": .gitWrite,
+            "git.discard": .gitWrite,
+            "git.commit": .gitWrite,
+            "git.push": .gitWrite,
+            "git.pull": .gitWrite,
+            "git.branch.create": .gitWrite,
+            "git.branch.switch": .gitWrite,
+            "git.pr.create": .gitWrite,
+            "git.pr.merge": .gitWrite,
+            "git.pr.close": .gitWrite,
+            "git.worktree.add": .gitWrite,
+            "git.worktree.remove": .gitWrite,
+            "git.worktree.switch": .gitWrite,
+            "git.remoteBranches": .gitRead,
+            "git.branch.delete": .gitWrite,
+            "git.branch.deleteRemote": .gitWrite,
+            "git.checkout": .gitWrite,
+            "git.cherryPick": .gitWrite,
+            "git.revert": .gitWrite,
+            "git.tag.create": .gitWrite,
+            "git.pr.checkout": .gitWrite,
+            "git.pr.checkoutWorktree": .gitWrite,
+            "files.list": .filesRead,
+            "files.read": .filesRead,
+            "files.stat": .filesRead,
+            "files.write": .filesWrite,
+            "files.mkdir": .filesWrite,
+            "files.rename": .filesWrite,
+            "files.move": .filesWrite,
+            "files.delete": .filesWrite,
             "toast": .notificationsWrite,
+            "notifications.notify": .notificationsWrite,
+            "panel.open": .panelsWrite,
+            "panel.close": .panelsWrite,
+            "panel.toggle": .panelsWrite,
+            "popover.close": .panelsWrite,
+            "popover.resize": .panelsWrite,
+            "topbar.set": .panelsWrite,
+            "statusbar.set": .panelsWrite,
             "exec": .commandsExec,
         ]
+    }
+
+    @MainActor
+    enum Panels {
+        static func open(
+            extensionID: String,
+            panelID: String,
+            data: ExtensionJSON?,
+            toggle: Bool
+        ) -> Result<Void, APIError> {
+            guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID),
+                  let panel = muxyExtension.manifest.panel(id: panelID)
+            else {
+                return .failure(.invalidArguments("unknown panel '\(panelID)'"))
+            }
+            if toggle {
+                ExtensionPanelRegistry.shared.toggle(extensionID: extensionID, panel: panel, data: data)
+            } else {
+                ExtensionPanelRegistry.shared.open(extensionID: extensionID, panel: panel, data: data)
+            }
+            return .success(())
+        }
+
+        static func close(extensionID: String, panelID: String) -> Result<Void, APIError> {
+            let hostPanelID = ExtensionPanelState.hostPanelID(extensionID: extensionID, panelID: panelID)
+            ExtensionPanelRegistry.shared.close(hostPanelID: hostPanelID)
+            return .success(())
+        }
+    }
+
+    @MainActor
+    enum Popovers {
+        static func close(extensionID: String) -> Result<Void, APIError> {
+            PopoverHost.shared.requestClose(extensionID: extensionID)
+            return .success(())
+        }
+
+        static func resize(extensionID: String, width: Double, height: Double) -> Result<Void, APIError> {
+            guard width > 0, height > 0 else {
+                return .failure(.invalidArguments("popover.resize requires positive width and height"))
+            }
+            PopoverHost.shared.resize(extensionID: extensionID, width: width, height: height)
+            return .success(())
+        }
     }
 
     @MainActor
@@ -248,11 +439,18 @@ enum MuxyAPI {
             {
                 return .failure(.consentDenied(verb: ExtensionGatedVerb.panesSend.rawValue))
             }
-            guard let view = await waitForView(paneID: paneID, appState: appState) else {
+            switch await waitForView(paneID: paneID, appState: appState) {
+            case let .view(view):
+                view.sendText(text)
+                return .success(())
+            case .notFound:
                 return .failure(.paneNotFound(paneIDString))
+            case let .surfaceNotReady(waited):
+                return .failure(.paneSurfaceNotReady(
+                    paneID: paneIDString,
+                    waitedSeconds: waited.secondsValue
+                ))
             }
-            view.sendText(text)
-            return .success(())
         }
 
         static func sendKeys(
@@ -269,10 +467,24 @@ enum MuxyAPI {
             {
                 return .failure(.consentDenied(verb: ExtensionGatedVerb.panesSendKeys.rawValue))
             }
-            guard let view = await waitForView(paneID: paneID, appState: appState) else {
+            switch await waitForView(paneID: paneID, appState: appState) {
+            case let .view(view):
+                return Self.performSendKeys(view: view, key: key, paneIDString: paneIDString)
+            case .notFound:
                 return .failure(.paneNotFound(paneIDString))
+            case let .surfaceNotReady(waited):
+                return .failure(.paneSurfaceNotReady(
+                    paneID: paneIDString,
+                    waitedSeconds: waited.secondsValue
+                ))
             }
+        }
 
+        private static func performSendKeys(
+            view: GhosttyTerminalNSView,
+            key: String,
+            paneIDString: String
+        ) -> Result<Void, APIError> {
             let bytes: Data
             switch key.lowercased() {
             case "escape",
@@ -317,10 +529,17 @@ enum MuxyAPI {
                 return .failure(.consentDenied(verb: ExtensionGatedVerb.panesReadScreen.rawValue))
             }
             let clamped = min(max(lines, 1), 500)
-            guard let view = await waitForView(paneID: paneID, appState: appState) else {
+            switch await waitForView(paneID: paneID, appState: appState) {
+            case let .view(view):
+                return .success(view.readScreenText(lastLines: clamped))
+            case .notFound:
                 return .failure(.paneNotFound(paneIDString))
+            case let .surfaceNotReady(waited):
+                return .failure(.paneSurfaceNotReady(
+                    paneID: paneIDString,
+                    waitedSeconds: waited.secondsValue
+                ))
             }
-            return .success(view.readScreenText(lastLines: clamped))
         }
 
         static func close(
@@ -333,7 +552,7 @@ enum MuxyAPI {
             guard let loc = locateTab(paneID: paneID, appState: appState) else {
                 return .failure(.paneNotFound(paneIDString))
             }
-            appState.dispatch(.closeTab(projectID: loc.key.projectID, areaID: loc.areaID, tabID: loc.tabID))
+            appState.closeTab(loc.tabID, areaID: loc.areaID, projectID: loc.key.projectID)
             return .success(())
         }
 
@@ -592,41 +811,67 @@ enum MuxyAPI {
             return .success(())
         }
 
+        static func setTitle(
+            instanceID: String,
+            title: String,
+            appState: AppState,
+            callingExtensionID: String
+        ) -> Result<Void, APIError> {
+            locateExtensionTab(instanceID: instanceID, callingExtensionID: callingExtensionID, appState: appState)
+                .map { state in
+                    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                    state.customTitle = trimmed.isEmpty ? nil : title
+                }
+        }
+
+        static func setIcon(
+            instanceID: String,
+            icon: ExtensionIcon?,
+            appState: AppState,
+            callingExtensionID: String
+        ) -> Result<Void, APIError> {
+            locateExtensionTab(instanceID: instanceID, callingExtensionID: callingExtensionID, appState: appState)
+                .map { state in state.customIcon = icon }
+        }
+
+        private static func locateExtensionTab(
+            instanceID: String,
+            callingExtensionID: String,
+            appState: AppState
+        ) -> Result<ExtensionTabState, APIError> {
+            guard let id = UUID(uuidString: instanceID) else {
+                return .failure(.invalidArguments("invalid tab instance id"))
+            }
+            for (_, root) in appState.workspaceRoots {
+                for area in root.allAreas() {
+                    for tab in area.tabs {
+                        guard let state = tab.content.extensionState, state.id == id else { continue }
+                        guard state.extensionID == callingExtensionID else {
+                            return .failure(.tabNotFound(instanceID))
+                        }
+                        return .success(state)
+                    }
+                }
+            }
+            return .failure(.tabNotFound(instanceID))
+        }
+
         static func open(
             _ request: OpenTabRequest,
             appState: AppState,
             callingExtensionID: String? = nil
         ) async -> Result<Void, APIError> {
-            guard let projectID = appState.activeProjectID else {
-                return .failure(.noActiveProject)
+            let target: OpenTabTarget
+            switch resolveOpenTarget(appState: appState) {
+            case let .success(resolved):
+                target = resolved
+            case let .failure(error):
+                return .failure(error)
             }
             switch request.kind {
             case .terminal:
-                appState.dispatch(.createTab(projectID: projectID, areaID: nil))
-                return .success(())
-            case .vcs:
-                appState.dispatch(.createVCSTab(projectID: projectID, areaID: nil))
-                return .success(())
-            case .editor:
-                guard let filePath = request.filePath, !filePath.isEmpty else {
-                    return .failure(.invalidArguments("editor tabs require filePath"))
-                }
-                appState.dispatch(.createEditorTab(
-                    projectID: projectID,
-                    areaID: nil,
-                    filePath: filePath,
-                    suppressInitialFocus: false
-                ))
-                return .success(())
-            case .imageViewer:
-                guard let filePath = request.filePath, !filePath.isEmpty else {
-                    return .failure(.invalidArguments("imageViewer tabs require filePath"))
-                }
-                appState.dispatch(.createImageViewerTab(
-                    projectID: projectID,
-                    areaID: nil,
-                    filePath: filePath
-                ))
+                activateOpenTarget(target, appState: appState)
+                appState.dispatch(.createTab(projectID: target.key.projectID, areaID: target.areaID))
                 return .success(())
             case .extensionWebView:
                 guard let payload = request.extensionPayload else {
@@ -650,20 +895,71 @@ enum MuxyAPI {
                         return .failure(.consentDenied(verb: ExtensionGatedVerb.tabsOpenForeign.rawValue))
                     }
                 }
+                activateOpenTarget(target, appState: appState)
                 appState.dispatch(.createExtensionTab(
-                    projectID: projectID,
-                    areaID: nil,
+                    projectID: target.key.projectID,
+                    areaID: target.areaID,
                     request: AppState.CreateExtensionTabRequest(
                         extensionID: payload.id,
                         tabTypeID: payload.tabType,
                         title: tabType.title,
-                        data: payload.data ?? tabType.defaultData
+                        data: payload.data ?? tabType.defaultData,
+                        singleton: payload.singleton
                     )
                 ))
                 return .success(())
-            case .diffViewer:
-                return .failure(.invalidArguments("diffViewer cannot be opened via open-tab yet"))
             }
+        }
+
+        private static func activateOpenTarget(_ target: OpenTabTarget, appState: AppState) {
+            appState.dispatch(.navigate(
+                projectID: target.key.projectID,
+                worktreeID: target.key.worktreeID,
+                areaID: target.areaID,
+                tabID: nil
+            ))
+        }
+
+        private struct OpenTabTarget {
+            let key: WorktreeKey
+            let areaID: UUID
+        }
+
+        private static func resolveOpenTarget(appState: AppState) -> Result<OpenTabTarget, APIError> {
+            if let entry = appState.navigation.current {
+                let key = WorktreeKey(projectID: entry.projectID, worktreeID: entry.worktreeID)
+                if let target = openTarget(key: key, preferredAreaID: entry.areaID, appState: appState) {
+                    return .success(target)
+                }
+            }
+            if let projectID = appState.activeProjectID,
+               let key = appState.activeWorktreeKey(for: projectID),
+               let target = openTarget(key: key, preferredAreaID: appState.focusedAreaID[key], appState: appState)
+            {
+                return .success(target)
+            }
+            if appState.workspaceRoots.count == 1,
+               let key = appState.workspaceRoots.keys.first,
+               let target = openTarget(key: key, preferredAreaID: appState.focusedAreaID[key], appState: appState)
+            {
+                return .success(target)
+            }
+            return .failure(appState.workspaceRoots.isEmpty ? .noActiveProject : .noActiveWorkspace)
+        }
+
+        private static func openTarget(
+            key: WorktreeKey,
+            preferredAreaID: UUID?,
+            appState: AppState
+        ) -> OpenTabTarget? {
+            guard let root = appState.workspaceRoots[key] else { return nil }
+            if let preferredAreaID,
+               let area = root.findArea(id: preferredAreaID)
+            {
+                return OpenTabTarget(key: key, areaID: area.id)
+            }
+            guard let area = root.allAreas().first else { return nil }
+            return OpenTabTarget(key: key, areaID: area.id)
         }
     }
 }
@@ -746,26 +1042,57 @@ private func collectTabs(appState: AppState) -> Set<UUID> {
     return ids
 }
 
+private extension Duration {
+    var secondsValue: Double {
+        Double(components.seconds) + Double(components.attoseconds) / 1e18
+    }
+}
+
+private enum WaitForViewResult {
+    case view(GhosttyTerminalNSView)
+    case notFound
+    case surfaceNotReady(waited: Duration)
+}
+
 @MainActor
 private func waitForView(
     paneID: UUID,
     appState: AppState? = nil,
     timeout: Duration = .seconds(3)
-) async -> GhosttyTerminalNSView? {
-    if let view = TerminalViewRegistry.shared.existingView(for: paneID) {
-        return view
+) async -> WaitForViewResult {
+    let start = ContinuousClock.now
+    guard let appState else {
+        return await waitForRegisteredView(paneID: paneID, start: start, timeout: timeout)
     }
-    if let appState, locateTab(paneID: paneID, appState: appState) == nil {
-        return nil
+    guard appState.locatePane(paneID: paneID) != nil else {
+        return .notFound
     }
+    if let view = TerminalSurfaceMaterializer.materialize(paneID: paneID, appState: appState) {
+        return .view(view)
+    }
+    return .surfaceNotReady(waited: ContinuousClock.now - start)
+}
+
+@MainActor
+private func waitForRegisteredView(
+    paneID: UUID,
+    start: ContinuousClock.Instant,
+    timeout: Duration
+) async -> WaitForViewResult {
     let deadline = ContinuousClock.now + timeout
     while ContinuousClock.now < deadline {
         if let view = TerminalViewRegistry.shared.existingView(for: paneID) {
-            return view
+            return view.ensureLiveSurfaceForExternalIO()
+                ? .view(view)
+                : .surfaceNotReady(waited: ContinuousClock.now - start)
         }
-        try? await Task.sleep(for: .milliseconds(50))
+        do {
+            try await Task.sleep(for: .milliseconds(50))
+        } catch {
+            return .surfaceNotReady(waited: ContinuousClock.now - start)
+        }
     }
-    return nil
+    return .notFound
 }
 
 @MainActor

@@ -41,6 +41,15 @@ Run `scripts/checks.sh --fix` after every task.
 - Never answer any question without a proper investigation and exploring the codebase.
 - Prioritize problem comprehension over premature implementation. Validate the approach before execution to avoid rework
 - Plan properly before executing to not double work
+- Low memory and CPU usage is one of the key factors
+- Simpler, flexible and scalable approaches are key factors
+- Never run the app. User will run and test visually
+
+## Extensions
+
+- When providing API or hook or features to extensions, Make sure we update the extension SKILL and docs.
+- Extension features usually need testing, offer a demo extension at ~/.config/muxy/extensions to the user.
+- Prefix the demo extensions with `demo-*`
 
 ## Code Review
 

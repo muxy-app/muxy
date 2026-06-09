@@ -1,49 +1,56 @@
 # Events
 
-Extensions opt in to events by sending `subscribe|<event>` after `identify`. Subscribed events arrive on the same connection as `event|<name>|key=value|key=value...` lines.
+Events let an extension react to what's happening in the workspace — a pane opening, a project switch, one of its own palette commands firing. They also provide an extension-local channel so a tab, panel, or popover can talk to its own `background.js`, and the background script can send updates back to open webviews.
 
-## Handshake
+Subscribe from your `background.js`:
 
-```mermaid
-sequenceDiagram
-  participant E as Extension
-  participant M as Muxy
-
-  E->>M: identify|hello|<token>
-  M-->>E: ok
-  E->>M: subscribe|pane.created
-  M-->>E: ok
-  E->>M: subscribe|command.ping
-  M-->>E: ok
-  Note over M: User triggers Hello: Ping from palette
-  M--)E: event|command.ping|command=ping|extension=hello
-  Note over M: User splits a pane
-  M--)E: event|pane.created|paneID=...
+```js
+muxy.events.subscribe('pane.created', (payload) => {
+  console.log('new pane', payload.paneID);
+});
 ```
 
-The connection stays open for the lifetime of the extension subprocess. Muxy fans out matching events to every subscribed session.
+In a tab/panel/popover page, the same API is on the bridge as `window.muxy.events.subscribe(...)`. The handler receives the payload as a plain object; Muxy handles the host process, identity, and transport for you.
 
-## Identify rules
+`muxy.events` exists only in `background.js` and in webview pages. It is **not** available inside [`runScript`](scripts.md) palette-command scripts — those run in a short-lived in-process context with no event channel.
 
-- `identify|<id>|<token>` is checked against the set of extensions currently loaded by `ExtensionStore`. Unknown IDs are rejected with `error:unknown extension <id>`.
-- `<token>` must match the value Muxy passed to the subprocess as `MUXY_EXTENSION_TOKEN`. Mismatches return `error:invalid extension token`. The token is regenerated on every extension start.
-- An extension may identify only once per connection. Subsequent `identify` lines overwrite the session's claimed ID — but must still present the correct token.
-- Sessions that never call `identify` (e.g. the `muxy` CLI) are treated as unidentified. They can still call verbs that don't require an extension identity.
+Workspace events originate in the main process from `ExtensionEventEmitter`, which diffs workspace state and fans matching events out to subscribed extensions.
 
-## Subscribe rules
+Extension-local events use the reserved `extension.` prefix and stay inside one extension. They are not listed in the manifest, need no permission, and are only delivered between the extension's own webviews and its own background script.
 
-An identified extension can only subscribe to events that are either:
+```js
+// panel.js
+muxy.events.subscribe('extension.refresh.result', (payload) => {
+  render(payload);
+});
+await muxy.events.emit('extension.refresh.request', { source: muxy.tabInstanceID });
+```
 
-1. listed in its manifest `events` array, or
-2. the event name of one of its own palette commands (`command.<id>` — auto-allowed; no `events` entry needed).
+```js
+// background.js
+muxy.events.subscribe('extension.refresh.request', async () => {
+  const status = await muxy.git.status();
+  await muxy.events.emit('extension.refresh.result', { status });
+});
+```
 
-Anything else returns `error:event <name> not declared in manifest`.
+## Subscribing
 
-When an extension is **reloaded** or **disabled**, every active session's `extensionID` is cleared and its subscriptions are re-filtered against the new manifest. Any in-flight subscription to an event no longer declared is dropped silently.
+- **Workspace events** (`pane.*`, `tab.*`, `panel.*`, `popover.*`, `project.*`, `worktree.*`, `notification.posted`, `file.changed`) must be listed in your manifest `events` array before you can subscribe. Subscribing to anything not declared is rejected.
+- **Command events** (`command.<id>`) are auto-allowed: declaring a command in `manifest.commands` is implicit consent to receive its trigger, so you do not add it to `events`.
+- **Extension-local events** (`extension.*`) are auto-allowed for the same extension. They are not workspace events, do not appear in `events`, and cannot cross extension boundaries.
+
+```json
+{
+  "events": ["pane.created", "project.switched"]
+}
+```
+
+When an extension is reloaded or disabled, its subscriptions are dropped and re-filtered against the new manifest.
+
+`muxy.events.subscribe(name, handler)` returns an unsubscribe function on webviews and background scripts. `muxy.events.emit(name, payload?)` accepts only `extension.*` names. Payloads must be JSON-serializable and are capped at 64 KiB. A webview emit is relayed through the extension's `background.js`, so it rejects when no background script is running.
 
 ## Available events
-
-All workspace events require the extension to list them in `manifest.events` before they can be subscribed. The `command.<id>` family is the one exception: an extension's own command events are auto-allowed (declaring the command in `manifest.commands` is implicit consent to receive its trigger).
 
 | Event | Payload keys | Allowed by |
 | --- | --- | --- |
@@ -51,24 +58,21 @@ All workspace events require the extension to list them in `manifest.events` bef
 | `pane.closed` | `paneID` | `events: ["pane.closed"]` |
 | `pane.focused` | `projectID`, `worktreeID`, `areaID`, `tabID` | `events: ["pane.focused"]` |
 | `tab.created` | `tabID` | `events: ["tab.created"]` |
+| `tab.closed` | `tabID` | `events: ["tab.closed"]` |
 | `tab.focused` | `areaID`, `tabID` | `events: ["tab.focused"]` |
+| `panel.opened` | `extensionID`, `panelID` | `events: ["panel.opened"]` |
+| `panel.closed` | `extensionID`, `panelID` | `events: ["panel.closed"]` |
+| `popover.opened` | `extensionID`, `popoverID` | `events: ["popover.opened"]` |
+| `popover.closed` | `extensionID`, `popoverID` | `events: ["popover.closed"]` |
 | `project.switched` | `projectID` | `events: ["project.switched"]` |
 | `worktree.switched` | `projectID`, `worktreeID` | `events: ["worktree.switched"]` |
 | `notification.posted` | `paneID`, `projectID`, `tabID`, `title` | `events: ["notification.posted"]` |
+| `file.changed` | `path`, `projectPath` | `events: ["file.changed"]` |
 | `command.<id>` | `command`, `extension` | Auto-allowed when `commands[].id == <id>` |
+| `extension.<name>` | JSON payload from emitter | Auto-allowed same-extension local event |
 
-## Wire format
+`file.changed` fires for files under the active project/worktree root. It is debounced (~0.3s) and skips Git-internal noise (`.git/` lock files and directories); one event is delivered per changed `path`, with `projectPath` set to the watched root. Pair it with [`muxy.files`](files.md) to build a reactive file tree.
 
-```
-event|<name>|<key>=<value>|<key>=<value>
-```
+`tab.closed`, `panel.closed`, and `popover.closed` fire **after** the surface is actually removed. To *prevent* a close (e.g. an unsaved editor), don't use these observation events — use [Lifecycle](lifecycle.md), which asks your surface for an allow/prevent verdict *before* it closes.
 
-Keys are alphabetically sorted. Values have `|` and newlines stripped to keep the line parseable. UTF-8, newline-terminated. The full line — including the trailing `\n` — never exceeds 64 KiB; oversized payloads truncate sender-side.
-
-## Event sources inside Muxy
-
-- Workspace deltas (panes/tabs/projects/worktrees) are computed in `ExtensionEventEmitter` by snapshotting `AppState` before and after every `dispatch`.
-- `notification.posted` is emitted from `NotificationStore` when a notification clears the focus filter.
-- `command.<id>` is emitted from `ExtensionStore.triggerCommand` when the palette item is selected.
-
-All sources route through `NotificationSocketServer.broadcast(event:)`, which fans out to any session whose `subscriptions` set contains the event name.
+See [Permissions](permissions.md) for how `events` fits the manifest, [Lifecycle](lifecycle.md) for intercepting closes, and [Palette Commands](palette-commands.md) for `command.<id>`.

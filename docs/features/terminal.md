@@ -12,10 +12,6 @@ Most Ghostty options work — fonts, colors, padding, keybinds, shell integratio
 
 `⌘F` opens an inline search overlay scoped to the focused pane. Enter / Shift-Enter cycle through matches; Escape dismisses.
 
-## Find in files
-
-`Cmd+Shift+F` searches text across the active project. It uses `rg`, supports match case and whole word, and opens the selected match in the editor.
-
 ## Copy and paste
 
 | Action | Shortcut |
@@ -37,7 +33,7 @@ Use the `muxy` command to open projects and control panes from a shell or automa
 
 ## Custom command shortcuts
 
-Define reusable shell command shortcuts in **Settings → Keyboard Shortcuts → Custom Commands**:
+Define reusable shell command shortcuts in **Settings → Commands**:
 
 - Display name, command, optional icon, optional keybinding.
 - Triggering one creates a new tab and runs the command.

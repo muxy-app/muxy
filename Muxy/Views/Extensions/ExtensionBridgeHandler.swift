@@ -1,17 +1,24 @@
 import Foundation
+import MuxyShared
 import os
 import WebKit
 
 private let logger = Logger(subsystem: "app.muxy", category: "ExtensionBridge")
 
 @MainActor
-final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
+final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, BeforeCloseAsking {
     private let extensionID: String
     private weak var appState: AppState?
     private weak var projectStore: ProjectStore?
     private weak var worktreeStore: WorktreeStore?
     private weak var webView: WKWebView?
     private var eventObservers: [String: UUID] = [:]
+    private var extensionEventObservers: [String: UUID] = [:]
+    private var surfaceKey: LifecycleSurfaceKey?
+    private var pendingLifecycle: [String: CheckedContinuation<LifecycleVerdict, Never>] = [:]
+    private var acknowledgedLifecycle: Set<String> = []
+    private var acknowledgementTimeouts: [String: Task<Void, Never>] = [:]
+    private var nextLifecycleCallID = 1
 
     init(
         extensionID: String,
@@ -29,11 +36,106 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
         self.webView = webView
     }
 
+    func bind(surfaceKey: LifecycleSurfaceKey) {
+        self.surfaceKey = surfaceKey
+    }
+
     func dropAllEventSubscriptions() {
         for token in eventObservers.values {
             NotificationSocketServer.shared.removeInProcessObserver(token)
         }
         eventObservers.removeAll()
+        for token in extensionEventObservers.values {
+            NotificationSocketServer.shared.removeExtensionEventObserver(token)
+        }
+        extensionEventObservers.removeAll()
+    }
+
+    func requestBeforeClose(reason: LifecycleSurfaceKind, instanceID: String) async -> LifecycleVerdict {
+        guard let webView else { return .allow }
+        let callID = String(nextLifecycleCallID)
+        nextLifecycleCallID += 1
+        armAcknowledgementTimeout(callID: callID)
+
+        return await withCheckedContinuation { continuation in
+            pendingLifecycle[callID] = continuation
+            let script = """
+            if (typeof window.__muxyBeforeClose === 'function') {
+                window.__muxyBeforeClose(\(jsLiteral(callID)), \(jsLiteral(reason.rawValue)), \(jsLiteral(instanceID)));
+            } else if (typeof window.__muxyResolveBeforeClose === 'function') {
+                window.__muxyResolveBeforeClose(\(jsLiteral(callID)), false);
+            }
+            """
+            webView.evaluateJavaScript(script) { [weak self] _, error in
+                guard error != nil else { return }
+                self?.resolveLifecycle(callID: callID, verdict: .allow)
+            }
+        }
+    }
+
+    func failPendingLifecycle() {
+        let pending = pendingLifecycle
+        pendingLifecycle.removeAll()
+        acknowledgedLifecycle.removeAll()
+        cancelAcknowledgementTimeouts()
+        for continuation in pending.values {
+            continuation.resume(returning: .allow)
+        }
+    }
+
+    private func armAcknowledgementTimeout(callID: String) {
+        acknowledgementTimeouts[callID] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: ExtensionLifecycle.acknowledgementTimeout)
+            guard !Task.isCancelled else { return }
+            self?.resolveLifecycle(callID: callID, verdict: .allow)
+        }
+    }
+
+    private func cancelAcknowledgementTimeout(callID: String) {
+        acknowledgementTimeouts.removeValue(forKey: callID)?.cancel()
+    }
+
+    private func cancelAcknowledgementTimeouts() {
+        for task in acknowledgementTimeouts.values {
+            task.cancel()
+        }
+        acknowledgementTimeouts.removeAll()
+    }
+
+    private func resolveLifecycle(callID: String, verdict: LifecycleVerdict) {
+        cancelAcknowledgementTimeout(callID: callID)
+        acknowledgedLifecycle.remove(callID)
+        guard let continuation = pendingLifecycle.removeValue(forKey: callID) else { return }
+        continuation.resume(returning: verdict)
+    }
+
+    private func handleAckBeforeClose(args: [String: Any]) {
+        guard let callID = args["callID"] as? String,
+              pendingLifecycle[callID] != nil,
+              !acknowledgedLifecycle.contains(callID)
+        else { return }
+        acknowledgedLifecycle.insert(callID)
+        cancelAcknowledgementTimeout(callID: callID)
+    }
+
+    private func handleResolveBeforeClose(args: [String: Any]) {
+        guard let callID = args["callID"] as? String else { return }
+        let prevent = (args["prevent"] as? Bool) ?? false
+        resolveLifecycle(callID: callID, verdict: prevent ? .prevent : .allow)
+    }
+
+    private func handleCloseSelf(appState: AppState) {
+        guard let surfaceKey else { return }
+        switch surfaceKey.kind {
+        case .tab:
+            appState.forceCloseTab(instanceID: surfaceKey.instanceID)
+        case .panel:
+            ExtensionPanelRegistry.shared.forceClose(instanceID: surfaceKey.instanceID)
+        case .popover:
+            PopoverHost.shared.forceClose(instanceID: surfaceKey.instanceID)
+        case .sidebar:
+            break
+        }
     }
 
     func userContentController(
@@ -74,11 +176,22 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
     private func handle(verb: String, args: [String: Any], appState: AppState) async throws -> Any {
         switch verb {
         case "events.subscribe":
-            try handleSubscribe(args: args)
+            return try handleSubscribe(args: args)
         case "events.unsubscribe":
-            try handleUnsubscribe(args: args)
+            return try handleUnsubscribe(args: args)
+        case "events.emit":
+            return try await handleEmit(args: args)
+        case "lifecycle.ackBeforeClose":
+            handleAckBeforeClose(args: args)
+            return NSNull()
+        case "lifecycle.resolveBeforeClose":
+            handleResolveBeforeClose(args: args)
+            return NSNull()
+        case "lifecycle.closeSelf":
+            handleCloseSelf(appState: appState)
+            return NSNull()
         default:
-            try await MuxyAPIDispatcher.dispatch(
+            return try await MuxyAPIDispatcher.dispatch(
                 verb: verb,
                 args: args,
                 context: MuxyAPIDispatcher.Context(
@@ -93,6 +206,9 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
 
     private func handleSubscribe(args: [String: Any]) throws -> Any {
         let event = try stringArg(args, "event")
+        if ExtensionLocalEvent.isLocalName(event) {
+            return try handleLocalSubscribe(event: event)
+        }
         guard let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID) else {
             throw APIError.invalidArguments("extension \(extensionID) not loaded")
         }
@@ -114,6 +230,13 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
 
     private func handleUnsubscribe(args: [String: Any]) throws -> Any {
         let event = try stringArg(args, "event")
+        if ExtensionLocalEvent.isLocalName(event) {
+            guard let token = extensionEventObservers.removeValue(forKey: event) else {
+                return NSNull()
+            }
+            NotificationSocketServer.shared.removeExtensionEventObserver(token)
+            return NSNull()
+        }
         guard let token = eventObservers.removeValue(forKey: event) else {
             return NSNull()
         }
@@ -121,10 +244,56 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply {
         return NSNull()
     }
 
+    private func handleLocalSubscribe(event: String) throws -> Any {
+        guard ExtensionLocalEvent.isValidName(event) else {
+            throw APIError.invalidArguments("extension events must start with extension.")
+        }
+        guard ExtensionStore.shared.loadedExtension(id: extensionID) != nil else {
+            throw APIError.invalidArguments("extension \(extensionID) not loaded")
+        }
+        guard extensionEventObservers[event] == nil else { return event }
+        let token = NotificationSocketServer.shared.addExtensionEventObserver(extensionID: extensionID) { [weak self] incoming in
+            guard incoming.name == event else { return }
+            Task { @MainActor [weak self] in
+                self?.deliverExtensionEvent(incoming)
+            }
+        }
+        extensionEventObservers[event] = token
+        return event
+    }
+
+    private func handleEmit(args: [String: Any]) async throws -> Any {
+        guard ExtensionStore.shared.loadedExtension(id: extensionID) != nil else {
+            throw APIError.invalidArguments("extension \(extensionID) not loaded")
+        }
+        let event = try ExtensionBridgeShared.decodeExtensionLocalEvent(args: args)
+        let delivered = await NotificationSocketServer.shared.emitExtensionEventToBackground(
+            extensionID: extensionID,
+            event: event
+        )
+        guard delivered else {
+            throw APIError.invalidArguments("background script unavailable")
+        }
+        return NSNull()
+    }
+
     private func deliverEvent(_ event: ExtensionEvent) {
         guard let webView else { return }
         let nameLiteral = jsLiteral(event.name)
         let payloadLiteral = jsLiteral(payloadJSON: event.payload)
+        let script = """
+        if (typeof window.__muxyEventDispatch === 'function') {
+            window.__muxyEventDispatch(\(nameLiteral), \(payloadLiteral));
+        }
+        """
+        webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
+    private func deliverExtensionEvent(_ event: ExtensionLocalEvent.Message) {
+        guard let webView,
+              let payloadLiteral = String(data: event.payload, encoding: .utf8)
+        else { return }
+        let nameLiteral = jsLiteral(event.name)
         let script = """
         if (typeof window.__muxyEventDispatch === 'function') {
             window.__muxyEventDispatch(\(nameLiteral), \(payloadLiteral));

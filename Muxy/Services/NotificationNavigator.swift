@@ -37,6 +37,18 @@ enum NotificationNavigator {
     }
 
     static func navigate(
+        notificationID: UUID,
+        appState: AppState,
+        notificationStore: NotificationStore
+    ) -> Bool {
+        guard let notification = notificationStore.notifications.first(where: { $0.id == notificationID }) else {
+            return false
+        }
+        navigate(to: notification, appState: appState, notificationStore: notificationStore)
+        return true
+    }
+
+    static func navigate(
         to notification: MuxyNotification,
         appState: AppState,
         notificationStore: NotificationStore

@@ -64,6 +64,10 @@ final class ExtensionLogStore: @unchecked Sendable {
         }
     }
 
+    func flush() {
+        queue.sync {}
+    }
+
     private func startTrimTimer() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + Self.trimInterval, repeating: Self.trimInterval)

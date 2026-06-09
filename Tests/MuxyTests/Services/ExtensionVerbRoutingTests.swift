@@ -6,12 +6,28 @@ import Testing
 @Suite("Extension verb routing")
 @MainActor
 struct ExtensionVerbRoutingTests {
-    @Test("MuxyAPI verbNames includes the three extension verbs")
+    @Test("MuxyAPI verbNames includes the extension verbs")
     func verbNamesIncludesExtensionVerbs() {
         let verbs = MuxyAPI.Permissions.verbNames
+        #expect(verbs.contains("exec"))
         #expect(verbs.contains("extension.settings.get"))
         #expect(verbs.contains("extension.settings.set"))
         #expect(verbs.contains("extension.statusbar.set"))
+        #expect(verbs.contains("topbar.set"))
+        #expect(verbs.contains("statusbar.set"))
+        #expect(verbs.contains("tabs.open"))
+    }
+
+    @Test("topbar.set and statusbar.set require panels:write")
+    func barItemVerbsRequirePanelsWrite() {
+        #expect(MuxyAPI.Permissions.required(for: "topbar.set") == .panelsWrite)
+        #expect(MuxyAPI.Permissions.required(for: "statusbar.set") == .panelsWrite)
+    }
+
+    @Test("notifications.notify and toast both require notifications:write")
+    func notifyVerbRequiresNotificationsWrite() {
+        #expect(MuxyAPI.Permissions.required(for: "notifications.notify") == .notificationsWrite)
+        #expect(MuxyAPI.Permissions.required(for: "toast") == .notificationsWrite)
     }
 
     @Test("MuxyAPI verbNames includes the legacy CLI verbs")
@@ -85,6 +101,15 @@ struct ExtensionVerbRoutingTests {
             clientContext: .init(extensionID: "ghost-extension-xyz")
         )
         #expect(result.hasPrefix("error:"))
+    }
+
+    @Test("topbar.set and statusbar.set without identify return error")
+    func barItemSetRequiresIdentify() async {
+        let appState = makeAppState()
+        for verb in ["topbar.set", "statusbar.set"] {
+            let result = await SocketCommandHandler.handleRequest("\(verb)|e30=", appState: appState)
+            #expect(result == "error:identify required")
+        }
     }
 
     @Test("extension.statusbar.set with empty text is treated as clear")

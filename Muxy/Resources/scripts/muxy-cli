@@ -2,8 +2,8 @@
 # Muxy CLI wrapper
 # Usage:
 #   muxy <path>                              Open a folder in Muxy
-#   muxy split-right [--from <id>] [cmd...]  Split horizontally (returns pane ID)
-#   muxy split-down [--from <id>] [cmd...]   Split vertically (returns pane ID)
+#   muxy split-right [--from <id>] [cmd...]  Split horizontally from the calling pane (returns pane ID)
+#   muxy split-down [--from <id>] [cmd...]   Split vertically from the calling pane (returns pane ID)
 #   muxy send --pane <id> <text>             Send text to a pane
 #   muxy send-keys --pane <id> <key>         Send special key (Escape, Enter, Tab, Ctrl+C)
 #   muxy read-screen --pane <id> [--lines N] Read terminal content
@@ -25,30 +25,29 @@ COMMAND="$1"
 SOCKET="${MUXY_SOCKET_PATH:-$HOME/Library/Application Support/Muxy/muxy.sock}"
 NC_TIMEOUT=6
 
-send_message() {
-    local message="$1"
-    if [ ! -e "$SOCKET" ]; then
-        echo "Error: Muxy is not running" >&2
-        exit 1
-    fi
-    if ! printf '%s\n' "$message" | nc -w "$NC_TIMEOUT" -U "$SOCKET"; then
-        echo "Error: no response from Muxy" >&2
-        exit 1
-    fi
-}
-
 send_command() {
     local message="$1"
     if [ ! -e "$SOCKET" ]; then
         echo "Error: Muxy is not running" >&2
         exit 1
     fi
-    local response
-    response=$(printf '%s\n' "$message" | nc -w "$NC_TIMEOUT" -U "$SOCKET" 2>/dev/null)
-    if [ -z "$response" ]; then
+
+    local raw
+    raw=$(mktemp "${TMPDIR:-/tmp}/muxy-cli.XXXXXX") || {
+        echo "Error: could not create temporary file" >&2
+        exit 1
+    }
+    trap 'rm -f "$raw"' EXIT
+
+    printf '%s\n' "$message" | nc -w "$NC_TIMEOUT" -U "$SOCKET" > "$raw" 2>/dev/null
+
+    if [ "$(tail -c1 "$raw" | od -An -tu1 | tr -d ' ')" != "0" ]; then
         echo "Error: no response from Muxy" >&2
         exit 1
     fi
+
+    local response
+    response=$(cat "$raw")
     case "$response" in
         error:*)
             echo "${response#error:}" >&2
@@ -63,7 +62,7 @@ send_command() {
 case "$COMMAND" in
     split-right)
         shift
-        FROM=""
+        FROM="${MUXY_PANE_ID:-}"
         CMD_ARGS=()
         while [[ $# -gt 0 ]]; do
             case $1 in
@@ -87,7 +86,7 @@ case "$COMMAND" in
         ;;
     split-down)
         shift
-        FROM=""
+        FROM="${MUXY_PANE_ID:-}"
         CMD_ARGS=()
         while [[ $# -gt 0 ]]; do
             case $1 in
@@ -337,8 +336,8 @@ case "$COMMAND" in
     ""|--help|-h)
         echo "Usage:"
         echo "  muxy <path>                              Open a folder in Muxy"
-        echo "  muxy split-right [--from <id>] [cmd...]  Split horizontally (returns pane ID)"
-        echo "  muxy split-down [--from <id>] [cmd...]   Split vertically (returns pane ID)"
+        echo "  muxy split-right [--from <id>] [cmd...]  Split horizontally from the calling pane (returns pane ID)"
+        echo "  muxy split-down [--from <id>] [cmd...]   Split vertically from the calling pane (returns pane ID)"
         echo "  muxy send --pane <id> <text>             Send text to a pane"
         echo "  muxy send-keys --pane <id> <key>         Send special key (Escape, Enter, Tab, Ctrl+C)"
         echo "  muxy read-screen --pane <id> [--lines N] Read terminal content"
@@ -397,7 +396,7 @@ if [ -n "$COMMAND" ] && [ "$COMMAND" != "split-right" ] && [ "$COMMAND" != "spli
 
     ENCODED_PATH="$(percent_encode "$TARGET_DIR")"
 
-    if [ -e "$SOCKET" ] && printf '%s\n' "open-project|$TARGET_DIR" | nc -w "$NC_TIMEOUT" -U "$SOCKET" 2>/dev/null; then
+    if [ -e "$SOCKET" ] && printf '%s\n' "open-project|$TARGET_DIR" | nc -w "$NC_TIMEOUT" -U "$SOCKET" >/dev/null 2>&1; then
         exit 0
     fi
 

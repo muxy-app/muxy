@@ -103,13 +103,15 @@ Pane-control commands talk to the running Muxy app through a local Unix socket. 
 
 ### Create splits
 
-Split the focused pane to the right:
+When you run `muxy split-right` or `muxy split-down` from inside a Muxy pane, the split starts from the pane you are in. Muxy exports `MUXY_PANE_ID` into every pane, and `muxy` uses it automatically.
+
+Split the current pane to the right:
 
 ```bash
 muxy split-right
 ```
 
-Split the focused pane downward:
+Split the current pane downward:
 
 ```bash
 muxy split-down
@@ -128,7 +130,7 @@ Both commands print the new pane ID. Save it when you want to control that pane 
 PANE=$(muxy split-right npm run dev)
 ```
 
-Split from a specific pane instead of the focused pane:
+Split from a different pane with `--from`:
 
 ```bash
 muxy split-right --from "$PANE" "npm test"

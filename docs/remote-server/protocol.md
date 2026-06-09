@@ -1,6 +1,6 @@
 # Protocol
 
-Every WebSocket frame is a JSON object with a top-level `type` field. Three types: `request`, `response`, `event`.
+Every WebSocket frame is a JSON object with a top-level `type` field and a `payload`. Three types: `request`, `response`, `event`.
 
 ```mermaid
 sequenceDiagram
@@ -8,7 +8,7 @@ sequenceDiagram
   participant S as Server
 
   C->>S: { type: request, payload: { id, method, params } }
-  S-->>C: { type: response, payload: { id, result or error } }
+  S-->>C: { type: response, payload: { id, result | error } }
   Note over S,C: Server may push events at any time after auth
   S--)C: { type: event, payload: { event, data } }
 ```
@@ -28,21 +28,25 @@ sequenceDiagram
 
 Rules:
 
-- `id` is unique per in-flight request.
+- `id` is unique per in-flight request and is echoed back on the response.
 - `method` identifies the API operation.
-- `params.type` must match `method` when params are present.
+- When `params` is present, `params.type` **must** equal `method`; a mismatch returns `400`.
 - Methods without parameters may send `params: null`.
+- Every request gets exactly one response **except `terminalInput`**, which is fire-and-forget and produces no response.
 
 Example with params:
 
 ```json
 {
-  "id": "req-1",
-  "method": "getWorkspace",
-  "params": {
-    "type": "getWorkspace",
-    "value": {
-      "projectID": "9b84c9a0-1d55-4c64-bbf6-ef59ee02fa09"
+  "type": "request",
+  "payload": {
+    "id": "req-1",
+    "method": "getWorkspace",
+    "params": {
+      "type": "getWorkspace",
+      "value": {
+        "projectID": "9b84c9a0-1d55-4c64-bbf6-ef59ee02fa09"
+      }
     }
   }
 }
@@ -74,7 +78,7 @@ Failure:
 }
 ```
 
-Only one of `result` or `error` is present; the unused field is omitted.
+Exactly one of `result` or `error` is present; the unused field is omitted. `result.type` names the payload (`projects`, `workspace`, `ok`, …) as listed per method in [Methods](methods.md).
 
 ## Event envelope
 
@@ -85,10 +89,15 @@ Only one of `result` or `error` is present; the unused field is omitted.
     "event": "workspaceChanged",
     "data": {
       "type": "workspace",
-      "value": { "projectID": "…", "worktreeID": "…", "focusedAreaID": "…", "root": { "type": "tabArea", "tabArea": { … } } }
+      "value": {
+        "projectID": "…",
+        "worktreeID": "…",
+        "focusedAreaID": "…",
+        "root": { "type": "tabArea", "tabArea": { "…": "…" } }
+      }
     }
   }
 }
 ```
 
-See [Events](events.md) for the full list of pushed events and their data types.
+`event` is the event name; `data.type` is the payload discriminator. The two often differ — e.g. `notificationReceived` carries `data.type` `notification`, `projectsChanged` carries `projects`, and `themeChanged` carries `deviceTheme`. See [Events](events.md) for the full mapping.

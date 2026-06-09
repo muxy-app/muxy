@@ -14,11 +14,12 @@ enum SocketCommandHandler {
             return "error:empty command"
         }
 
-        if let extensionID = clientContext.extensionID,
-           let required = MuxyAPI.Permissions.required(for: cmd),
-           !ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: required)
-        {
-            return "error:permission denied (\(required.rawValue))"
+        if let extensionID = clientContext.extensionID {
+            for required in requiredPermissions(command: cmd, parts: parts)
+                where !ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: required)
+            {
+                return "error:permission denied (\(required.rawValue))"
+            }
         }
 
         switch cmd {
@@ -190,6 +191,19 @@ enum SocketCommandHandler {
             } catch {
                 return "error:invalid open-tab payload: \(error.localizedDescription)"
             }
+        case "tabs.open":
+            guard parts.count >= 2 else { return "error:usage tabs.open|<base64-json>" }
+            guard let extensionID = clientContext.extensionID else { return "error:identify required" }
+            return await handleAPIVerb(
+                verb: cmd,
+                base64Payload: parts[1],
+                context: MuxyAPIDispatcher.Context(
+                    extensionID: extensionID,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore
+                )
+            )
         case "extension.settings.get":
             guard parts.count >= 2 else { return "error:usage extension.settings.get|key" }
             return handleSettingsGet(key: parts[1], extensionID: clientContext.extensionID)
@@ -202,9 +216,290 @@ enum SocketCommandHandler {
             let rawText = parts.count >= 3 ? parts.dropFirst(2).joined(separator: "|") : nil
             let text = (rawText?.isEmpty == true) ? nil : rawText
             return handleStatusBarSet(itemID: parts[1], text: text, extensionID: clientContext.extensionID)
+        case "panel.open",
+             "panel.toggle":
+            guard parts.count >= 2 else { return "error:usage \(cmd)|panelID[|<json-data>]" }
+            return handlePanelOpen(
+                panelID: parts[1],
+                rawData: parts.count >= 3 ? parts.dropFirst(2).joined(separator: "|") : nil,
+                toggle: cmd == "panel.toggle",
+                extensionID: clientContext.extensionID
+            )
+        case "panel.close":
+            guard parts.count >= 2 else { return "error:usage panel.close|panelID" }
+            return handlePanelClose(panelID: parts[1], extensionID: clientContext.extensionID)
+        case "popover.close":
+            return handlePopoverClose(extensionID: clientContext.extensionID)
+        case "popover.resize":
+            guard parts.count >= 3 else { return "error:usage popover.resize|width|height" }
+            return handlePopoverResize(
+                width: parts[1],
+                height: parts[2],
+                extensionID: clientContext.extensionID
+            )
+        case "exec":
+            guard parts.count >= 2 else { return "error:usage exec|<base64-json>" }
+            return await handleExec(
+                base64Payload: parts[1],
+                appState: appState,
+                worktreeStore: worktreeStore,
+                extensionID: clientContext.extensionID
+            )
+        case "dialog.confirm":
+            guard parts.count >= 2 else { return "error:usage dialog.confirm|<base64-json>" }
+            return await handleDialogConfirm(base64Payload: parts[1], extensionID: clientContext.extensionID)
+        case "dialog.alert":
+            guard parts.count >= 2 else { return "error:usage dialog.alert|<base64-json>" }
+            return await handleDialogAlert(base64Payload: parts[1], extensionID: clientContext.extensionID)
+        case "modal.open",
+             "modal.feed",
+             "modal.finish",
+             "modal.await":
+            guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
+            guard let extensionID = clientContext.extensionID else { return "error:identify required" }
+            return await handleModalVerb(
+                verb: cmd,
+                base64Payload: parts[1],
+                context: MuxyAPIDispatcher.Context(
+                    extensionID: extensionID,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore
+                )
+            )
+        case "topbar.set",
+             "statusbar.set":
+            guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
+            return handleBarItemSet(verb: cmd, base64Payload: parts[1], extensionID: clientContext.extensionID)
+        case let verb where verb.hasPrefix("git."):
+            guard parts.count >= 2 else { return "error:usage \(cmd)|<base64-json>" }
+            guard let extensionID = clientContext.extensionID else { return "error:identify required" }
+            return await handleGit(
+                verb: verb,
+                base64Payload: parts[1],
+                context: MuxyAPIDispatcher.Context(
+                    extensionID: extensionID,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore
+                )
+            )
         default:
             return "error:unknown command \(cmd)"
         }
+    }
+
+    private static func handleGit(
+        verb: String,
+        base64Payload: String,
+        context: MuxyAPIDispatcher.Context
+    ) async -> String {
+        await handleAPIVerb(verb: verb, base64Payload: base64Payload, context: context)
+    }
+
+    private static func handleAPIVerb(
+        verb: String,
+        base64Payload: String,
+        context: MuxyAPIDispatcher.Context
+    ) async -> String {
+        guard let data = Data(base64Encoded: base64Payload),
+              let args = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return "error:invalid \(verb) payload" }
+        do {
+            let result = try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: context)
+            guard let encoded = try? JSONSerialization.data(withJSONObject: result, options: [.fragmentsAllowed]) else {
+                return "error:\(verb) result encoding failed"
+            }
+            return encoded.base64EncodedString()
+        } catch let error as APIError {
+            return "error:\(error.message)"
+        } catch {
+            return "error:\(error.localizedDescription)"
+        }
+    }
+
+    private static func handleExec(
+        base64Payload: String,
+        appState: AppState,
+        worktreeStore: WorktreeStore?,
+        extensionID: String?
+    ) async -> String {
+        guard let extensionID else { return "error:identify required" }
+        guard let data = Data(base64Encoded: base64Payload),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return "error:invalid exec payload" }
+
+        let request: ExecRequest
+        do {
+            request = try ExtensionBridgeShared.decodeExecRequest(json)
+        } catch {
+            return "error:\(error.localizedDescription)"
+        }
+
+        let defaultCwd = ExtensionBridgeShared.activeWorktreePath(
+            appState: appState,
+            worktreeStore: worktreeStore
+        )
+        do {
+            let result = try await ExtensionCommandExecutor.exec(
+                request: request,
+                extensionID: extensionID,
+                defaultCwd: defaultCwd
+            )
+            let resultJSON = ExtensionBridgeShared.encodeExecResult(result)
+            guard let encoded = try? JSONSerialization.data(withJSONObject: resultJSON) else {
+                return "error:exec result encoding failed"
+            }
+            return encoded.base64EncodedString()
+        } catch {
+            return "error:\(error.localizedDescription)"
+        }
+    }
+
+    private static func handleDialogConfirm(base64Payload: String, extensionID: String?) async -> String {
+        guard let extensionID else { return "error:identify required" }
+        guard let args = decodeJSONObject(base64Payload) else {
+            return "error:invalid dialog payload"
+        }
+        do {
+            let request = try ExtensionDialogService.makeConfirmRequest(extensionID: extensionID, args: args)
+            let choice = try await ExtensionDialogService.confirm(request)
+            return encodeJSONFragment(choice ?? NSNull())
+        } catch {
+            return "error:\((error as? APIError)?.message ?? error.localizedDescription)"
+        }
+    }
+
+    private static func handleDialogAlert(base64Payload: String, extensionID: String?) async -> String {
+        guard let extensionID else { return "error:identify required" }
+        guard let args = decodeJSONObject(base64Payload) else {
+            return "error:invalid alert payload"
+        }
+        do {
+            let request = try ExtensionDialogService.makeAlertRequest(extensionID: extensionID, args: args)
+            try await ExtensionDialogService.alert(request)
+            return encodeJSONFragment(NSNull())
+        } catch {
+            return "error:\((error as? APIError)?.message ?? error.localizedDescription)"
+        }
+    }
+
+    private static func handleModalVerb(
+        verb: String,
+        base64Payload: String,
+        context: MuxyAPIDispatcher.Context
+    ) async -> String {
+        guard let args = decodeJSONObject(base64Payload) else {
+            return "error:invalid \(verb) payload"
+        }
+        do {
+            let result = try await MuxyAPIDispatcher.dispatch(verb: verb, args: args, context: context)
+            if verb == "modal.open", let dict = result as? [String: Any], let requestID = dict["requestID"] as? String {
+                registerModalResultPush(requestID: requestID, extensionID: context.extensionID)
+            }
+            return encodeJSONFragment(result)
+        } catch {
+            return "error:\((error as? APIError)?.message ?? error.localizedDescription)"
+        }
+    }
+
+    private static func registerModalResultPush(requestID: String, extensionID: String) {
+        ExtensionModalService.shared.onResult(requestID: requestID) { item in
+            let payload = ExtensionModalService.modalResultPayload(item)
+            let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.fragmentsAllowed])) ?? Data("null".utf8)
+            NotificationSocketServer.shared.pushModalResult(
+                extensionID: extensionID,
+                requestID: requestID,
+                payload: data
+            )
+        }
+    }
+
+    private static func handleBarItemSet(verb: String, base64Payload: String, extensionID: String?) -> String {
+        guard let extensionID else { return "error:identify required" }
+        guard ExtensionStore.shared.extensionHasPermission(id: extensionID, permission: .panelsWrite) else {
+            return "error:permission denied (panels:write)"
+        }
+        guard let args = decodeJSONObject(base64Payload), let itemID = args["id"] as? String else {
+            return "error:invalid \(verb) payload"
+        }
+        let icon = ExtensionIcon.parse(args["icon"])
+        let visible = args["visible"] as? Bool
+        if verb == "topbar.set" {
+            let updated = ExtensionStore.shared.setTopbarItem(
+                extensionID: extensionID,
+                itemID: itemID,
+                icon: icon,
+                visible: visible
+            )
+            return updated ? encodeJSONFragment(NSNull()) : "error:unknown topbar item '\(itemID)'"
+        }
+        let rawText = args["text"] as? String
+        let updated = ExtensionStore.shared.setStatusBarItem(
+            extensionID: extensionID,
+            itemID: itemID,
+            update: ExtensionStore.StatusBarUpdate(
+                icon: icon,
+                text: (rawText?.isEmpty == true) ? nil : rawText,
+                clearText: args.keys.contains("text"),
+                visible: visible
+            )
+        )
+        return updated ? encodeJSONFragment(NSNull()) : "error:unknown status bar item '\(itemID)'"
+    }
+
+    private static func decodeJSONObject(_ base64Payload: String) -> [String: Any]? {
+        guard let data = Data(base64Encoded: base64Payload),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return json
+    }
+
+    private static func encodeJSONFragment(_ value: Any) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]) else {
+            return "error:result encoding failed"
+        }
+        return data.base64EncodedString()
+    }
+
+    private static func handlePanelOpen(
+        panelID: String,
+        rawData: String?,
+        toggle: Bool,
+        extensionID: String?
+    ) -> String {
+        guard let extensionID else { return "error:identify required" }
+        let data = rawData
+            .flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONDecoder().decode(ExtensionJSON.self, from: $0) }
+        return serialize(
+            MuxyAPI.Panels.open(extensionID: extensionID, panelID: panelID, data: data, toggle: toggle),
+            ok: "ok"
+        )
+    }
+
+    private static func handlePanelClose(panelID: String, extensionID: String?) -> String {
+        guard let extensionID else { return "error:identify required" }
+        return serialize(
+            MuxyAPI.Panels.close(extensionID: extensionID, panelID: panelID),
+            ok: "ok"
+        )
+    }
+
+    private static func handlePopoverClose(extensionID: String?) -> String {
+        guard let extensionID else { return "error:identify required" }
+        return serialize(MuxyAPI.Popovers.close(extensionID: extensionID), ok: "ok")
+    }
+
+    private static func handlePopoverResize(width: String, height: String, extensionID: String?) -> String {
+        guard let extensionID else { return "error:identify required" }
+        guard let widthValue = Double(width), let heightValue = Double(height) else {
+            return "error:usage popover.resize|width|height"
+        }
+        return serialize(
+            MuxyAPI.Popovers.resize(extensionID: extensionID, width: widthValue, height: heightValue),
+            ok: "ok"
+        )
     }
 
     private static func handleSettingsGet(key: String, extensionID: String?) -> String {
@@ -313,6 +608,16 @@ enum SocketCommandHandler {
             return (fromPane, parts.dropFirst(1).dropLast().joined(separator: "|"))
         }
         return (nil, parts.dropFirst(1).joined(separator: "|"))
+    }
+
+    static func requiredPermissions(command: String, parts: [String]) -> [ExtensionPermission] {
+        var permissions = MuxyAPI.Permissions.required(for: command).map { [$0] } ?? []
+        guard command == "split-right" || command == "split-down" else { return permissions }
+        let splitRequest = parseSplitRequest(parts: parts)
+        let trimmedCommand = splitRequest.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedCommand?.isEmpty == false else { return permissions }
+        permissions.append(.commandsExec)
+        return permissions
     }
 
     private static func serialize<T>(

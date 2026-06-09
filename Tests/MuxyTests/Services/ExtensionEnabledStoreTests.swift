@@ -5,10 +5,10 @@ import Testing
 
 @Suite("ExtensionEnabledStore")
 struct ExtensionEnabledStoreTests {
-    @Test("defaults to enabled when no value is stored")
-    func defaultsToEnabledWhenUnset() {
+    @Test("defaults to disabled when no value is stored")
+    func defaultsToDisabledWhenUnset() {
         let defaults = makeIsolatedDefaults()
-        #expect(ExtensionEnabledStore.isEnabled(extensionID: "ext-a", defaults: defaults))
+        #expect(!ExtensionEnabledStore.isEnabled(extensionID: "ext-a", defaults: defaults))
     }
 
     @Test("persists disabled state and reads it back")
@@ -29,17 +29,17 @@ struct ExtensionEnabledStoreTests {
     @Test("clear removes the stored override")
     func clearResetsToDefault() {
         let defaults = makeIsolatedDefaults()
-        ExtensionEnabledStore.setEnabled(false, extensionID: "ext-a", defaults: defaults)
+        ExtensionEnabledStore.setEnabled(true, extensionID: "ext-a", defaults: defaults)
         ExtensionEnabledStore.clear(extensionID: "ext-a", defaults: defaults)
-        #expect(ExtensionEnabledStore.isEnabled(extensionID: "ext-a", defaults: defaults))
+        #expect(!ExtensionEnabledStore.isEnabled(extensionID: "ext-a", defaults: defaults))
     }
 
     @Test("isolates state per extension id")
     func isolatesPerExtension() {
         let defaults = makeIsolatedDefaults()
-        ExtensionEnabledStore.setEnabled(false, extensionID: "ext-a", defaults: defaults)
-        #expect(!ExtensionEnabledStore.isEnabled(extensionID: "ext-a", defaults: defaults))
-        #expect(ExtensionEnabledStore.isEnabled(extensionID: "ext-b", defaults: defaults))
+        ExtensionEnabledStore.setEnabled(true, extensionID: "ext-a", defaults: defaults)
+        #expect(ExtensionEnabledStore.isEnabled(extensionID: "ext-a", defaults: defaults))
+        #expect(!ExtensionEnabledStore.isEnabled(extensionID: "ext-b", defaults: defaults))
     }
 
     @Test("hasOverride reflects whether a value has been stored")

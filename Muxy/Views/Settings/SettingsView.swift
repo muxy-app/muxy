@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct SettingsView: View {
-    @State private var selectedRoute: SettingsRoute = .builtin(.general)
+    @State private var selectedRoute = SettingsRouteSelectionStore.load()
     @State private var searchText = ""
     @Environment(ExtensionStore.self) private var extensionStore
 
@@ -53,13 +53,15 @@ struct SettingsView: View {
         .tint(SettingsStyle.accent)
         .preferredColorScheme(MuxyTheme.colorScheme)
         .resetsSettingsFocusOnOutsideClick()
+        .onAppear {
+            selectedRoute = validatedRoute(selectedRoute)
+        }
         .onChange(of: searchText) { _, _ in
             guard !isRouteVisible(selectedRoute) else { return }
-            if let first = visibleCategories.first {
-                selectedRoute = .builtin(first)
-            } else if let ext = visibleExtensionRoutes.first {
-                selectedRoute = .ext(ext.extensionID)
-            }
+            selectedRoute = fallbackVisibleRoute()
+        }
+        .onChange(of: selectedRoute) { _, route in
+            SettingsRouteSelectionStore.save(route)
         }
         .onReceive(NotificationCenter.default.publisher(for: .focusProjectPickerDefaultLocation)) { _ in
             searchText = ""
@@ -77,6 +79,23 @@ struct SettingsView: View {
         case let .builtin(category): visibleCategories.contains(category)
         case let .ext(extensionID): visibleExtensionRoutes.contains { $0.extensionID == extensionID }
         }
+    }
+
+    private func validatedRoute(_ route: SettingsRoute) -> SettingsRoute {
+        guard isRouteVisible(route) else { return fallbackVisibleRoute() }
+        return route
+    }
+
+    private func fallbackVisibleRoute() -> SettingsRoute {
+        if let first = visibleCategories.first {
+            return .builtin(first)
+        }
+
+        if let ext = visibleExtensionRoutes.first {
+            return .ext(ext.extensionID)
+        }
+
+        return SettingsRouteSelectionStore.fallbackRoute
     }
 
     @ViewBuilder
@@ -98,20 +117,22 @@ struct SettingsView: View {
             ProjectsSettingsView()
         case .appearance:
             InterfaceSettingsView()
+        case .sidebar:
+            SidebarSettingsView()
         case .terminal:
             TerminalSettingsView()
-        case .editor:
-            EditorSettingsView()
+        case .richInput:
+            RichInputSettingsView()
         case .shortcuts:
             KeyboardShortcutsSettingsView()
+        case .commands:
+            CommandsSettingsView()
         case .voice:
             RecordingSettingsView()
         case .notifications:
             NotificationSettingsView()
         case .mobile:
             MobileSettingsView()
-        case .ai:
-            AIAssistantSettingsView()
         case .json:
             SettingsJSONEditorView()
         }

@@ -10,6 +10,7 @@ public struct ProjectDTO: Identifiable, Codable, Hashable, Sendable {
     public var logo: String?
     public var iconColor: String?
     public var preferredWorktreeParentPath: String?
+    public var worktreesEnabled: Bool
 
     public init(
         id: UUID,
@@ -20,7 +21,8 @@ public struct ProjectDTO: Identifiable, Codable, Hashable, Sendable {
         icon: String? = nil,
         logo: String? = nil,
         iconColor: String? = nil,
-        preferredWorktreeParentPath: String? = nil
+        preferredWorktreeParentPath: String? = nil,
+        worktreesEnabled: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -31,5 +33,6 @@ public struct ProjectDTO: Identifiable, Codable, Hashable, Sendable {
         self.logo = logo
         self.iconColor = iconColor
         self.preferredWorktreeParentPath = preferredWorktreeParentPath
+        self.worktreesEnabled = worktreesEnabled
     }
 }

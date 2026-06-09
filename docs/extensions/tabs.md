@@ -1,6 +1,6 @@
 # Extension Tabs
 
-Extensions can register custom tab types that render HTML/CSS/JS inside Muxy. Each opened tab is its own `WKWebView`. The Muxy host injects a `window.muxy` JavaScript API that calls the same typed `MuxyAPI` layer as the socket and the CLI — same permission gates apply.
+A tab type lets an extension render its own HTML/CSS/JS as a full tab inside Muxy. Each opened tab is a separate `WKWebView`; tabs do not share a JavaScript context. The page talks to Muxy through the injected [`window.muxy`](#windowmuxy) bridge, which enforces the same [permissions](permissions.md) as everything else.
 
 ## Declaring a tab type
 
@@ -13,16 +13,12 @@ Extensions can register custom tab types that render HTML/CSS/JS inside Muxy. Ea
     {
       "id": "pr-viewer",
       "title": "PR Viewer",
-      "entry": "tabs/pr.html",
+      "entry": "index.html",
       "defaultData": { "mode": "compact" }
     }
   ],
   "commands": [
-    {
-      "id": "open-pr",
-      "title": "Open PR…",
-      "action": { "kind": "openTab", "tabType": "pr-viewer" }
-    }
+    { "id": "open-pr", "title": "Open PR…", "action": { "kind": "openTab", "tabType": "pr-viewer" } }
   ]
 }
 ```
@@ -31,36 +27,88 @@ Extensions can register custom tab types that render HTML/CSS/JS inside Muxy. Ea
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `id` | string | yes | Stable per extension. Used to reference the tab type from commands and from `muxy.tabs.open()`. |
-| `title` | string | yes | Default tab title. Used until the page sets a `customTitle`. |
-| `entry` | string | yes | Path relative to the extension directory. Must resolve inside the directory (no `..` traversal). |
-| `defaultData` | object | no | JSON payload merged into `window.muxy.data` when no explicit data is passed. |
+| `id` | string | yes | Stable per extension. Referenced from `openTab` commands and from `muxy.tabs.open()`. |
+| `title` | string | yes | Default tab title, until the page sets its own. |
+| `entry` | string | yes | HTML path relative to the build output — any layout works (e.g. root `index.html`); not a fixed `tabs/` folder. Must resolve inside the extension directory (no `..` traversal). |
+| `defaultData` | object | no | JSON merged into `window.muxy.data` when no explicit data is passed at open time. |
 
-The loader validates that `entry` exists and lives inside the extension directory; openTab commands must reference a declared tab type id.
+The page loads at `muxy-ext://<extensionID>/<entry>` and references its own files with relative paths; the scheme is scoped to that one extension's directory.
 
-## Asset loading
+## Topbar (recommended)
 
-The webview loads its entry HTML at `muxy-ext://<extensionID>/<entry>` and the page can reference its own files with relative paths (`<link href="styles.css">`, `<script src="app.js">`). The `muxy-ext://` scheme is only registered inside the webview's configuration — it isn't a system-wide URL handler — and the scheme handler is locked to that one extension's directory.
+A tab fills its whole region with one webview, so the page renders all of its own chrome. Extension tabs open with a thin **topbar** at the top — a horizontal bar holding the title on the left and controls on the right. **Render a matching topbar at the top of your page so your tab feels native; split panes line up only when every tab uses the same bar.**
+
+The bar's height tracks the user's interface scale (Settings → Interface), so don't hardcode it — Muxy injects it as the `--muxy-topbar-height` CSS variable, updated live when the scale or theme changes. Use it together with the theme variables so the bar matches the app exactly:
+
+```css
+.topbar {
+  box-sizing: content-box;
+  height: var(--muxy-topbar-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: var(--muxy-background);
+  border-bottom: 1px solid var(--muxy-border);
+  flex: 0 0 auto;
+}
+.topbar .title { color: var(--muxy-foreground); font-weight: 600; }
+.topbar .actions { margin-left: auto; display: flex; gap: 4px; }
+```
+
+`--muxy-topbar-height` is the bar's content height; native tabs draw their 1px divider *below* it, so keep `box-sizing: content-box` on `.topbar` (the border adds beneath the height rather than eating into it) for the divider to land on the same line as adjacent native tabs.
+
+```html
+<body>
+  <header class="topbar">
+    <span class="title">PR Viewer</span>
+    <span class="actions">
+      <button id="refresh">Refresh</button>
+    </span>
+  </header>
+  <main class="content"><!-- your tab body --></main>
+</body>
+```
+
+Because the topbar is your own HTML, you control its contents — put a title and icon on the left and as many action buttons or icons on either side as you need. To render edge-to-edge content instead (a canvas, a custom layout that owns the whole tab), simply omit the topbar; nothing in Muxy forces one.
+
+See [theming](README.md) and the SKILL for the full `--muxy-*` variable list and copy-paste CSS.
 
 ## window.muxy
 
-The native side injects `window.muxy` at document start, before any of the page's scripts run. Every method returns a `Promise`.
+Muxy injects `window.muxy` before the page's scripts run. Most methods return a `Promise` and require their matching manifest permission — an unauthorized call rejects with `permission denied (<permission>)`. The subscription helpers (`onDataChange`, `onThemeChange`, `onFocus`, `events.subscribe`) instead return a synchronous unsubscribe function.
 
 ```ts
 window.muxy = {
   extensionID: string,
   tabInstanceID: string,
-  data: object | null,         // the payload the tab was opened with
+  data: object | null,                 // payload the tab was opened with (or defaultData)
+  onDataChange(callback): unsubscribe, // fires when a singleton tab is reopened with new data
+  theme: object,                       // current --muxy-* theme values
+  onThemeChange(callback): unsubscribe,
+  focused: boolean,                    // whether this surface is the active, focused one
+  onFocus(callback): unsubscribe,      // fires when focus is gained or lost — autofocus your editor here
 
-  toast({ title, body?, paneID? }): Promise<void>,
+  notifications: {
+    notify({ title, body?, paneID? }): Promise<void>,   // requires notifications:write
+  },
+  toast({ title, body?, paneID? }): Promise<void>,        // same as notifications.notify
+
+  dialog: {                                               // native sheets — see dialogs.md
+    confirm(opts): Promise<string | null>,                // resolves the chosen button label, null on cancel
+    alert(opts): Promise<void>,
+  },
+  modal: { open(opts): Promise<Item | null> },            // searchable picker — see modal.md
 
   tabs: {
-    open(request): Promise<void>,      // { kind, filePath?, extension? }
+    open(request): Promise<void>,       // see "Opening another tab"
     list(): Promise<TabInfo[]>,
     switchTo(idOrIndex): Promise<void>,
     new(): Promise<string | null>,
     next(): Promise<void>,
     previous(): Promise<void>,
+    setTitle(title): Promise<void>,     // retitle this tab; "" resets to the manifest default
+    setIcon(icon): Promise<void>,       // set this tab's icon; null resets to the default
   },
 
   panes: {
@@ -72,9 +120,19 @@ window.muxy = {
     rename(paneID, title): Promise<void>,
   },
 
-  projects: { list(), switchTo(identifier) },
-  events: { subscribe(name, callback): unsubscribe },
+  projects:  { list(), switchTo(identifier) },
   worktrees: { list(project?), switchTo(identifier, project?), refresh(project?) },
+  panels:    { open(id, data?), toggle(id, data?), close(id) },  // panels:write — see panels.md
+  popover:   { close(), resize(width, height) },                // panels:write — see popovers.md
+  topbar:    { set(opts), show(id), hide(id) },                 // panels:write — see topbar.md
+  statusbar: { set(opts), show(id), hide(id) },                 // panels:write — see statusbar.md
+  git:       { status, diff, log, branches, commit, push, /* … */ pr: {}, branch: {}, worktree: {}, tag: {} }, // see git.md
+  files:     { list, read, stat, write, mkdir, rename, move, delete },  // see files.md
+  http:      { fetch(url, options?): Promise<HTTPResult> },     // no CORS — see http.md
+  events:    {
+    subscribe(name, callback): unsubscribe,
+    emit(name: `extension.${string}`, payload?): Promise<void>,
+  },
   exec(argv: string[], options?): Promise<ExecResult>,
   exec(options: { shell: string, ... }): Promise<ExecResult>,
 }
@@ -87,18 +145,12 @@ interface ExecResult {
 }
 ```
 
-Each call requires the matching manifest permission — e.g. `panes.send` requires `panes:write`. Unauthorized calls reject with `Error("permission denied (panes:write)")`.
-
 ### Opening another tab
 
+`tabs.open` accepts two kinds: `terminal` and `extensionWebView` (with a target `extension`). It is available from tabs, panels, popovers, `runScript` commands, and background scripts; non-webview callers open into the active workspace and reject when Muxy cannot identify one.
+
 ```js
-// Open the editor on a specific file
-await muxy.tabs.open({ kind: 'editor', filePath: '/path/to/foo.swift' });
-
-// Open the VCS panel
-await muxy.tabs.open({ kind: 'vcs' });
-
-// Open an extension tab type (own or another extension's)
+await muxy.tabs.open({ kind: 'terminal' });
 await muxy.tabs.open({
   kind: 'extensionWebView',
   extension: { id: 'pr-tools', tabType: 'pr-viewer', data: { prNumber: 42 } },
@@ -107,61 +159,90 @@ await muxy.tabs.open({
 
 `extensionWebView` requires the target extension to be loaded and the named tab type to exist.
 
-### Running shell commands
+By default every `open` creates a new tab. Pass `singleton: true` to keep one tab per tab type instead — if a tab of that type is already open, Muxy focuses it and pushes the new `data` into the live page rather than duplicating it. The page receives the new payload through `muxy.onDataChange`:
 
 ```js
-// argv form — no shell, no quoting concerns
+await muxy.tabs.open({
+  kind: 'extensionWebView',
+  extension: { id: 'pr-tools', tabType: 'pr-viewer', singleton: true, data: { prNumber: 42 } },
+});
+
+muxy.onDataChange((data) => render(data));
+```
+
+### Reacting to focus
+
+A page learns when its surface becomes the active, focused one through `muxy.onFocus`. Use it to move keyboard focus into your own UI — autofocus an editor or input the moment the tab is opened or switched back to:
+
+```js
+const editor = document.querySelector('textarea');
+muxy.onFocus((focused) => {
+  if (focused) editor.focus();
+});
+```
+
+`muxy.focused` reads the current state synchronously. The callback fires only on a change — gaining focus when its tab is opened or selected, losing it when another tab takes over. Panels and popovers count as focused while they are shown.
+
+### Setting the tab title and icon at runtime
+
+A tab can rename itself and change its tab-bar icon live — useful when the page reflects changing state (a file editor showing the open file, a build tool showing pass/fail). Both apply to the calling page's own tab and take effect immediately, no reopen.
+
+```js
+await muxy.tabs.setTitle('App.swift');
+await muxy.tabs.setIcon({ symbol: 'swift' });   // SF Symbol
+await muxy.tabs.setIcon({ svg: 'icons/file.svg' }); // bundled SVG, template-rendered
+```
+
+| Call | Notes |
+| --- | --- |
+| `setTitle(title)` | New tab-bar title. An empty/whitespace string resets to the manifest `tabType.title`. |
+| `setIcon(icon)` | `"<sf-symbol>"`, `{ symbol }`, or `{ svg }` (path inside the extension). `null` resets to the default extension icon. |
+
+Both need `tabs:write`. Overrides are **runtime-only** — they live while the tab is open and reset to the manifest defaults on app restart, so set them again from your page on load. A page can only customize its own tab.
+
+### Running shell commands
+
+`exec` requires `commands:exec`. Use the argv form to avoid a shell (no quoting concerns) or the `{ shell }` form for pipes and expansion.
+
+```js
 const { stdout, exitCode } = await muxy.exec(['git', 'diff', '--name-only']);
-if (exitCode === 0) {
-  for (const file of stdout.split('\n').filter(Boolean)) {
-    console.log('changed:', file);
-  }
-}
-
-// shell form — pipes, redirects, expansion
 const counted = await muxy.exec({ shell: 'git diff | wc -l' });
-
-// with options
 await muxy.exec(['ls'], { cwd: '~', timeoutMs: 5000 });
 ```
 
-Requires `commands:exec`. The default working directory is the active worktree's path; override via `options.cwd` (`~` expands). Default timeout is 30 seconds; on timeout the child is `SIGTERM`'d, then `SIGKILL`'d 2 s later, and the Promise resolves with `timedOut: true`. Output is capped at 10 MB combined; when exceeded the Promise still resolves with `truncated: true` and the captured prefix. PATH is hydrated from the user's login shell at app startup, so common commands (`git`, `npm`, …) resolve without absolute paths. The UI never blocks — child processes run on a background queue.
+- Default cwd is the active worktree; override with `options.cwd` (`~` expands).
+- Default timeout is 30 s. On timeout the child gets `SIGTERM`, then `SIGKILL` 2 s later, and the Promise resolves with `timedOut: true`.
+- Combined output is capped at 10 MB; beyond that it resolves with `truncated: true` and the captured prefix.
+- `PATH` is taken from the user's login shell at startup, so `git`, `npm`, etc. resolve without absolute paths.
 
 ### Subscribing to workspace events
 
 ```js
-const unsubscribe = muxy.events.subscribe('tab.focused', (payload) => {
-  console.log('tab focused:', payload.tabID);
-});
-
-// Later, when you don't need it anymore:
+const unsubscribe = muxy.events.subscribe('tab.focused', (p) => console.log(p.tabID));
 unsubscribe();
 ```
 
-The event must be declared in the extension's manifest `events: [...]` array (or be a `command.<id>` event of the same extension, which is auto-allowed). Unknown events reject the subscribe call with `Error("event <name> not declared in manifest")`.
+The event must be listed in the manifest `events` array (a `command.<id>` event of the same extension is auto-allowed); otherwise the subscribe rejects. Subscriptions drop automatically on page reload, tab close, and extension disable/reload.
 
-Subscriptions are dropped automatically when the page reloads, when the tab closes, and when the extension is disabled or reloaded.
+For webview-to-background coordination, use extension-local events. Names must start with `extension.`, do not go in the manifest, and are scoped to the same extension:
 
-## Calling from the extension subprocess
-
-The subprocess can open tabs over the socket too:
-
-```
-open-tab|{"kind":"extensionWebView","extension":{"id":"pr-tools","tabType":"pr-viewer","data":{"prNumber":42}}}
+```js
+await muxy.events.emit('extension.editor.saved', { path: 'Sources/App.swift' });
 ```
 
-This requires `tabs:write` like any other tabs-mutating verb.
+An extension-local emit requires the extension's `background.js` to be running. The background script can subscribe to the same name and can emit `extension.*` events back to open tabs, panels, and popovers.
 
 ## Persistence
 
-Workspace restoration persists the tab's `extensionID`, `tabTypeID`, and `data`. On restart, the tab reopens with the same payload. If the extension is no longer loaded when restore runs, the tab renders a placeholder until the extension comes back.
+Workspace restore persists each tab's `extensionID`, `tabTypeID`, and `data`, so it reopens with the same payload. If the extension isn't loaded when restore runs, the tab shows a placeholder until it returns.
 
 ## Logging
 
-The injected `window.muxy` wraps `console.log`, `console.warn`, and `console.error` so they also write to the extension's [log file](logs.md), tagged `[log]`, `[warn]`, `[err]`. Uncaught errors and unhandled promise rejections are captured the same way.
+`console.log` / `warn` / `error`, uncaught errors, and unhandled rejections are mirrored to the extension's [log file](logs.md).
 
-## Limits and gotchas
+## Limits
 
-- One `WKWebView` per tab instance. Tabs do not share JavaScript context. To share state across tabs, route through the extension subprocess.
-- The page cannot navigate to external URLs (`http://`, `https://`, `file://`). Only `muxy-ext://` and `about:` are allowed. Open external links yourself with `muxy.tabs.open()` for an editor tab or a future link-handling API.
-- For non-webview command logic (no DOM), use the [`runScript`](scripts.md) command action instead of opening a hidden tab.
+- One `WKWebView` per tab instance; tabs do not share state. Coordinate shared state through your background script with `extension.*` events.
+- Pages can only navigate within `muxy-ext://` and `about:` — no `http`/`https`/`file`. Open external content via `muxy.tabs.open()`.
+- Background scripts only expose `muxy.tabs.open`; tab listing, switching, and customization remain page and `runScript` capabilities.
+- For command logic with no UI, use a [`runScript`](scripts.md) command action instead of a hidden tab.

@@ -44,6 +44,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func getTerminalContent(paneID: UUID) -> TerminalCellsDTO?
     func takeOverPane(paneID: UUID, clientID: UUID, cols: UInt32, rows: UInt32)
     func releasePane(paneID: UUID, clientID: UUID)
+    func setClientTheme(_ theme: ClientThemeDTO?, clientID: UUID)
     func registerDevice(clientID: UUID, name: String)
     func authenticateDevice(deviceID: UUID, token: String, name: String) -> DeviceAuthDecision
     func requestPairing(deviceID: UUID, token: String, name: String) async -> DeviceAuthDecision
@@ -75,6 +76,7 @@ public protocol MuxyRemoteServerDelegate: AnyObject {
     func getProjectLogo(projectID: UUID) -> ProjectLogoDTO?
     func listNotifications() -> [NotificationDTO]
     func markNotificationRead(_ notificationID: UUID)
+    func extensionRequest(extension: String, action: String, payload: MuxyJSON, clientID: UUID) async -> Result<MuxyJSON, MuxyError>
 }
 
 public final class MuxyRemoteServer: @unchecked Sendable {
@@ -293,7 +295,8 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                 requestID: request.id,
                 clientID: clientID,
                 deviceID: params.deviceID,
-                decision: decision
+                decision: decision,
+                clientTheme: params.theme
             )
 
         case .authenticateDevice:
@@ -309,7 +312,8 @@ public final class MuxyRemoteServer: @unchecked Sendable {
                 requestID: request.id,
                 clientID: clientID,
                 deviceID: params.deviceID,
-                decision: decision
+                decision: decision,
+                clientTheme: params.theme
             )
 
         default:
@@ -703,6 +707,30 @@ public final class MuxyRemoteServer: @unchecked Sendable {
             }
             delegate.releasePane(paneID: params.paneID, clientID: clientID)
             return MuxyResponse(id: request.id, result: .ok)
+
+        case .setClientTheme:
+            guard case let .setClientTheme(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            delegate.setClientTheme(params.theme, clientID: clientID)
+            return MuxyResponse(id: request.id, result: .ok)
+
+        case .extensionRequest:
+            guard case let .extensionRequest(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            let result = await delegate.extensionRequest(
+                extension: params.extension,
+                action: params.action,
+                payload: params.payload,
+                clientID: clientID
+            )
+            switch result {
+            case let .success(payload):
+                return MuxyResponse(id: request.id, result: .extensionResult(ExtensionResultDTO(payload: payload)))
+            case let .failure(error):
+                return MuxyResponse(id: request.id, error: error)
+            }
         }
     }
 
@@ -711,12 +739,16 @@ public final class MuxyRemoteServer: @unchecked Sendable {
         requestID: String,
         clientID: UUID,
         deviceID: UUID,
-        decision: DeviceAuthDecision
+        decision: DeviceAuthDecision,
+        clientTheme: ClientThemeDTO?
     ) -> MuxyResponse {
         switch decision {
         case let .approved(deviceName):
             markAuthenticated(clientID, deviceID: deviceID)
             delegate?.registerDevice(clientID: clientID, name: deviceName)
+            if let clientTheme {
+                delegate?.setClientTheme(clientTheme, clientID: clientID)
+            }
             let theme = delegate?.getDeviceTheme()
             let result = PairingResultDTO(
                 clientID: clientID,

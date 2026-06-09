@@ -1,5 +1,8 @@
 import AppKit
+import os
 import SwiftUI
+
+private let deepLinkLogger = Logger(subsystem: "app.muxy", category: "DeepLink")
 
 @main
 struct MuxyApp: App {
@@ -10,7 +13,7 @@ struct MuxyApp: App {
     @State private var projectStore: ProjectStore
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
-    @State private var vcsWorktreeAutoRefresher: VCSWorktreeAutoRefresher
+    @State private var worktreeAutoRefresher: VCSWorktreeAutoRefresher?
     @State private var didStartDeferredServices = false
 
     init() {
@@ -35,16 +38,10 @@ struct MuxyApp: App {
         let projectGroupStore = ProjectGroupStore(
             persistence: environment.projectGroupPersistence
         )
-        let vcsWorktreeAutoRefresher = VCSWorktreeAutoRefresher(
-            appState: appState,
-            projectStore: projectStore,
-            worktreeStore: worktreeStore
-        )
         _appState = State(initialValue: appState)
         _projectStore = State(initialValue: projectStore)
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
-        _vcsWorktreeAutoRefresher = State(initialValue: vcsWorktreeAutoRefresher)
     }
 
     var body: some Scene {
@@ -62,17 +59,16 @@ struct MuxyApp: App {
                 .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
                     startDeferredServicesIfNeeded()
+                    startWorktreeAutoRefreshIfNeeded()
                     NotificationStore.shared.appState = appState
                     NotificationStore.shared.worktreeStore = worktreeStore
                     NotificationStore.shared.markAllAsRead()
+                    DesktopNotificationService.shared.start(appState: appState)
                     MemoryDiagnostics.shared.configure(appState: appState)
                     TerminalProgressStore.shared.appState = appState
                     appDelegate.onTerminate = { [appState] in
                         appState.saveTerminalSessions()
                         appState.saveWorkspaces()
-                    }
-                    appDelegate.hasUnsavedEditorTabs = { [appState] in
-                        appState.unsavedEditorTabs()
                     }
                     appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore, projectGroupStore] path in
                         CLIAccessor.openProjectFromPath(
@@ -103,7 +99,7 @@ struct MuxyApp: App {
                         return delegate
                     }
                     appState.onProjectsEmptied = { [projectStore, worktreeStore] projectIDs in
-                        for id in projectIDs {
+                        for id in projectIDs where id != Project.homeID {
                             guard let project = projectStore.projects.first(where: { $0.id == id }) else {
                                 worktreeStore.removeProject(id)
                                 continue
@@ -143,23 +139,6 @@ struct MuxyApp: App {
                 updateService: .shared
             )
         }
-
-        Window("Source Control", id: "vcs") {
-            VCSWindowView()
-                .environment(appState)
-                .environment(projectStore)
-                .environment(worktreeStore)
-                .environment(projectGroupStore)
-                .environment(GhosttyService.shared)
-                .preferredColorScheme(MuxyTheme.colorScheme)
-        }
-        .defaultSize(width: 700, height: 600)
-
-        Window("Muxy Help", id: "help") {
-            HelpView()
-                .preferredColorScheme(MuxyTheme.colorScheme)
-        }
-        .defaultSize(width: 820, height: 580)
     }
 
     private func startDeferredServicesIfNeeded() {
@@ -170,26 +149,42 @@ struct MuxyApp: App {
             SettingsJSONStore.beginAutomaticUserSettingsSync()
             try? await Task.sleep(for: .seconds(2))
             UpdateService.shared.start()
+            TerminalOfflineService.shared.start()
             AIProviderRegistry.shared.installAll()
             LoginShellPath.hydrateInBackground()
+            await NotificationSocketServer.shared.awaitReady()
             ExtensionStore.shared.startAll()
+            await ExtensionStore.shared.checkForUpdates()
+            appDelegate.presentWhatsNewIfNeeded()
         }
+    }
+
+    private func startWorktreeAutoRefreshIfNeeded() {
+        guard worktreeAutoRefresher == nil else { return }
+        worktreeAutoRefresher = VCSWorktreeAutoRefresher(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore
+        )
     }
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var onTerminate: (() -> Void)?
-    var hasUnsavedEditorTabs: (() -> [EditorTabState])?
     var openProjectFromPath: ((String) -> Void)?
 
     private var pendingOpenPaths: [String] = []
+    private var pendingInstallName: String?
+    private var isReadyForModals = false
     private var systemAppearanceObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
     private var extensionsObserver: NSObjectProtocol?
+    private var whatsNewObserver: NSObjectProtocol?
     private var modalThemeObserver: NSObjectProtocol?
     private weak var settingsWindow: NSWindow?
     private weak var extensionsWindow: NSWindow?
+    private weak var whatsNewWindow: NSWindow?
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -213,6 +208,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for path in queued {
             handler(path)
         }
+        isReadyForModals = true
+        if let name = pendingInstallName {
+            pendingInstallName = nil
+            presentExtensionsModal(installName: name)
+        }
+    }
+
+    @MainActor
+    func handleInstallExtension(name: String) {
+        guard isReadyForModals else {
+            pendingInstallName = name
+            return
+        }
+        presentExtensionsModal(installName: name)
     }
 
     nonisolated static func resolveProjectPath(from url: URL) -> String? {
@@ -253,12 +262,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return standardized
     }
 
+    nonisolated static func resolveInstallName(from url: URL) -> String? {
+        guard url.scheme == "muxy", url.host == "extensions" else { return nil }
+        let segments = url.pathComponents.filter { $0 != "/" }
+        guard segments.first == "install" else { return nil }
+        guard let raw = segments.dropFirst().first?.removingPercentEncoding, !raw.isEmpty else { return nil }
+        guard (try? ExtensionManifestLoader.validate(name: raw)) != nil else { return nil }
+        return raw
+    }
+
     @MainActor
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            guard let path = Self.resolveProjectPath(from: url) else { continue }
-            handleOpenProjectPath(path)
+            handleIncomingURL(url)
         }
+    }
+
+    @MainActor
+    func handleIncomingURL(_ url: URL) {
+        deepLinkLogger.log("incoming url: \(url.absoluteString, privacy: .public)")
+        if let name = Self.resolveInstallName(from: url) {
+            handleInstallExtension(name: name)
+            return
+        }
+        guard let path = Self.resolveProjectPath(from: url) else { return }
+        handleOpenProjectPath(path)
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
@@ -271,6 +299,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
         }
         return false
+    }
+
+    @MainActor
+    private func registerURLEventHandler() {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
+    @MainActor
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        registerURLEventHandler()
+    }
+
+    @MainActor
+    @objc
+    private func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent _: NSAppleEventDescriptor) {
+        guard let string = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
+              let url = URL(string: string)
+        else { return }
+        handleIncomingURL(url)
     }
 
     @MainActor
@@ -287,13 +339,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ThemeService.shared.migrateToPairedThemeIfNeeded()
         observeSystemAppearanceChanges()
         ModifierKeyMonitor.shared.start()
+        DesktopNotificationService.shared.prepare()
         NotificationSocketServer.shared.openProjectHandler = { [weak self] path in
             Task { @MainActor [weak self] in
                 self?.handleOpenProjectPath(path)
             }
         }
+        NotificationSocketServer.shared.installExtensionHandler = { [weak self] name in
+            Task { @MainActor [weak self] in
+                self?.handleInstallExtension(name: name)
+            }
+        }
         NotificationSocketServer.shared.start()
-        _ = AIUsageSettingsStore.isUsageEnabled()
         DiagnosticsMenuController.shared.install()
         observeSettingsRequests()
         consumeLaunchArguments()
@@ -318,48 +375,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    @MainActor
+    @discardableResult
+    static func activateMainWindowOnCurrentSpace() -> NSWindow? {
+        NSApp.activate(ignoringOtherApps: true)
+        guard let window = mainAppWindow() else { return nil }
+        let previousBehavior = window.collectionBehavior
+        window.collectionBehavior.insert(.moveToActiveSpace)
+        window.makeKeyAndOrderFront(nil)
+        window.collectionBehavior = previousBehavior
+        return window
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let unsaved = hasUnsavedEditorTabs?() ?? []
-        guard !unsaved.isEmpty else { return confirmQuitIfNeeded() }
-
-        let alert = NSAlert()
-        alert.messageText = unsaved.count == 1
-            ? "You have unsaved changes in 1 file."
-            : "You have unsaved changes in \(unsaved.count) files."
-        alert.informativeText = "If you quit without saving, your changes will be lost."
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Save All")
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Discard")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.buttons[1].keyEquivalent = "\u{1b}"
-
-        let response = alert.runModal()
-        switch response {
-        case .alertFirstButtonReturn:
-            Task { @MainActor in
-                var failures: [String] = []
-                for state in unsaved {
-                    do {
-                        try await state.saveFileAsync()
-                    } catch {
-                        failures.append("\(state.fileName): \(error.localizedDescription)")
-                    }
-                }
-                if failures.isEmpty {
-                    NSApp.reply(toApplicationShouldTerminate: true)
-                    return
-                }
-                Self.presentSaveFailureAlert(failures: failures)
-                NSApp.reply(toApplicationShouldTerminate: false)
-            }
-            return .terminateLater
-        case .alertThirdButtonReturn:
-            return .terminateNow
-        default:
-            return .terminateCancel
-        }
+        confirmQuitIfNeeded()
     }
 
     @MainActor
@@ -386,20 +415,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return .terminateNow
     }
 
-    @MainActor
-    private static func presentSaveFailureAlert(failures: [String]) {
-        let alert = NSAlert()
-        alert.messageText = failures.count == 1
-            ? "Could Not Save File"
-            : "Could Not Save \(failures.count) Files"
-        alert.informativeText = failures.joined(separator: "\n")
-        alert.alertStyle = .warning
-        alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "OK")
-        alert.buttons[0].keyEquivalent = "\r"
-        alert.runModal()
-    }
-
     func applicationWillTerminate(_ notification: Notification) {
         if let observer = systemAppearanceObserver {
             DistributedNotificationCenter.default().removeObserver(observer)
@@ -412,6 +427,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let extensionsObserver {
             NotificationCenter.default.removeObserver(extensionsObserver)
             self.extensionsObserver = nil
+        }
+        if let whatsNewObserver {
+            NotificationCenter.default.removeObserver(whatsNewObserver)
+            self.whatsNewObserver = nil
         }
         if let modalThemeObserver {
             NotificationCenter.default.removeObserver(modalThemeObserver)
@@ -447,6 +466,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.presentExtensionsModal()
             }
         }
+        whatsNewObserver = NotificationCenter.default.addObserver(
+            forName: .openWhatsNewModal,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.presentWhatsNewModal()
+            }
+        }
         modalThemeObserver = NotificationCenter.default.addObserver(
             forName: .themeDidChange,
             object: nil,
@@ -455,6 +483,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             MainActor.assumeIsolated {
                 self?.settingsWindow?.backgroundColor = MuxyTheme.nsBg
                 self?.extensionsWindow?.backgroundColor = MuxyTheme.nsBg
+                self?.whatsNewWindow?.backgroundColor = MuxyTheme.nsBg
             }
         }
     }
@@ -474,7 +503,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @MainActor
-    private func presentExtensionsModal() {
+    private func presentExtensionsModal(installName: String? = nil) {
         let config = AppModalConfig(
             title: "Extensions",
             size: CGSize(width: 880, height: 620),
@@ -483,7 +512,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             onClosed: { [weak self] in self?.extensionsWindow = nil }
         )
         extensionsWindow = AppModalPresenter.present(config) {
-            ExtensionsView()
+            ExtensionsView(installName: installName)
+        }
+        if let installName {
+            NotificationCenter.default.post(
+                name: .openExtensionInstall,
+                object: nil,
+                userInfo: [ExtensionInstallUserInfoKey.name: installName]
+            )
+        }
+    }
+
+    @MainActor
+    private func presentWhatsNewModal(preloadedMarkdown: String? = nil) {
+        guard let version = WhatsNewPreferences.currentVersion else { return }
+        if preloadedMarkdown != nil {
+            whatsNewWindow?.close()
+            whatsNewWindow = nil
+        }
+        let config = AppModalConfig(
+            title: "What's New",
+            size: CGSize(width: 806, height: 560),
+            existing: whatsNewWindow,
+            delegate: self,
+            onClosed: { [weak self] in self?.whatsNewWindow = nil }
+        )
+        whatsNewWindow = AppModalPresenter.present(config) {
+            WhatsNewView(version: version, preloadedMarkdown: preloadedMarkdown)
+        }
+    }
+
+    @MainActor
+    func presentWhatsNewIfNeeded() {
+        guard WhatsNewPreferences.shouldAutoShow,
+              let version = WhatsNewPreferences.currentVersion
+        else { return }
+        Task { @MainActor in
+            guard let markdown = try? await WhatsNewService.fetchReleaseNotes(version: version)
+            else { return }
+            presentWhatsNewModal(preloadedMarkdown: markdown)
+            WhatsNewPreferences.markCurrentVersionViewed()
         }
     }
 
@@ -491,6 +559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let closed = notification.object as? NSWindow
         if closed === settingsWindow { settingsWindow = nil }
         if closed === extensionsWindow { extensionsWindow = nil }
+        if closed === whatsNewWindow { whatsNewWindow = nil }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

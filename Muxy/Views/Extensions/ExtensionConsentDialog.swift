@@ -156,11 +156,13 @@ struct ExtensionConsentDialog: View {
     let request: ExtensionConsentRequest
     let onChoice: (ExtensionConsentChoice) -> Void
 
+    @State private var blockKind = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             payloadBox
-            rememberHint
+            blockToggle
             buttons
         }
         .padding(20)
@@ -204,34 +206,49 @@ struct ExtensionConsentDialog: View {
         .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: 6))
     }
 
-    private var rememberHint: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "info.circle")
-                .font(.system(size: UIMetrics.fontCaption))
-                .foregroundStyle(MuxyTheme.fgMuted)
-            Text("\"Remember\" saves rule: ")
-                .font(.system(size: UIMetrics.fontCaption))
-                .foregroundStyle(MuxyTheme.fgMuted)
-                + Text(request.suggestedMatch.displayString)
-                .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
-                .foregroundStyle(MuxyTheme.fg)
-            Spacer()
+    private var blockToggle: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $blockKind) {
+                Text("Block all \(request.verb.kindDisplayName) from this extension")
+                    .font(.system(size: UIMetrics.fontCaption))
+                    .foregroundStyle(MuxyTheme.fg)
+            }
+            .toggleStyle(.checkbox)
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: UIMetrics.fontCaption))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                Text("\"Remember\" saves rule: ")
+                    .font(.system(size: UIMetrics.fontCaption))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                    + Text(rememberRuleDescription)
+                    .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
+                    .foregroundStyle(MuxyTheme.fg)
+                Spacer()
+            }
         }
+    }
+
+    private var rememberRuleDescription: String {
+        blockKind ? "all \(request.verb.kindDisplayName)" : request.suggestedMatch.displayString
     }
 
     private var buttons: some View {
         HStack(spacing: 8) {
-            Button("Deny & remember") { onChoice(.denyAndRemember) }
+            Button("Deny & remember") { onChoice(blockKind ? .blockKind : .denyAndRemember) }
                 .buttonStyle(.bordered)
+                .tint(blockKind ? MuxyTheme.diffRemoveFg : nil)
             Spacer()
             Button("Cancel") { onChoice(.denyOnce) }
                 .keyboardShortcut(.escape, modifiers: [])
                 .buttonStyle(.bordered)
             Button("Allow") { onChoice(.allowOnce) }
                 .buttonStyle(.bordered)
+                .disabled(blockKind)
             Button("Allow & remember") { onChoice(.allowAndRemember) }
                 .keyboardShortcut(.return, modifiers: [])
                 .buttonStyle(.borderedProminent)
+                .disabled(blockKind)
         }
     }
 
@@ -242,6 +259,10 @@ struct ExtensionConsentDialog: View {
              .panesSendKeys: "keyboard.fill"
         case .panesReadScreen: "eye.fill"
         case .tabsOpenForeign: "rectangle.stack.fill"
+        case .remoteInvoke: "antenna.radiowaves.left.and.right"
+        case .gitWrite: "arrow.triangle.branch"
+        case .filesWrite: "doc.fill"
+        case .httpFetch: "globe"
         }
     }
 
@@ -252,6 +273,10 @@ struct ExtensionConsentDialog: View {
         case .panesSendKeys: "wants to press keys in a terminal"
         case .panesReadScreen: "wants to read terminal output"
         case .tabsOpenForeign: "wants to open another extension's tab"
+        case .remoteInvoke: "wants to serve a mobile request"
+        case .gitWrite: "wants to modify the git repository"
+        case .filesWrite: "wants to modify workspace files"
+        case .httpFetch: "wants to make a network request"
         }
     }
 }

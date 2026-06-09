@@ -111,47 +111,18 @@ final class SentryService {
             options.sendDefaultPii = false
             options.enableAutoBreadcrumbTracking = false
             options.enableNetworkBreadcrumbs = false
+            options.enableAppHangTracking = false
+            options.enableWatchdogTerminationTracking = false
             options.enableSwizzling = true
             options.enableUncaughtNSExceptionReporting = true
             options.attachStacktrace = true
-            options.appHangTimeoutInterval = appHangTimeoutInterval
             options.beforeSend = { event in
                 event.user = nil
                 event.serverName = nil
-                if shouldDropAppHang(event) { return nil }
                 return event
             }
         }
     }
-
-    nonisolated static let appHangTimeoutInterval: TimeInterval = 5
-
-    nonisolated static func shouldDropAppHang(_ event: Event) -> Bool {
-        guard let exceptions = event.exceptions,
-              exceptions.contains(where: { $0.type == "App Hanging" })
-        else {
-            return false
-        }
-        let frames = exceptions.flatMap { $0.stacktrace?.frames ?? [] }
-        if frames.contains(where: { isAppKitModalFrame($0) }) {
-            return true
-        }
-        return !frames.contains(where: { $0.inApp?.boolValue == true })
-    }
-
-    nonisolated private static func isAppKitModalFrame(_ frame: Frame) -> Bool {
-        guard let function = frame.function else { return false }
-        return appKitModalFrameSignatures.contains { function.contains($0) }
-    }
-
-    nonisolated private static let appKitModalFrameSignatures: [String] = [
-        "runModal",
-        "_NSTryRunModal",
-        "_doModalLoop",
-        "NSAlert",
-        "NSOpenPanel",
-        "NSSavePanel",
-    ]
 
     private static let defaultStopper: () -> Void = {
         SentrySDK.close()

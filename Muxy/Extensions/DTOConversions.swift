@@ -12,7 +12,8 @@ extension Project {
             icon: icon,
             logo: logo,
             iconColor: iconColor,
-            preferredWorktreeParentPath: preferredWorktreeParentPath
+            preferredWorktreeParentPath: preferredWorktreeParentPath,
+            worktreesEnabled: worktreesEnabled
         )
     }
 }
@@ -85,10 +86,6 @@ extension TerminalTab.Kind {
     func toDTO() -> TabKindDTO {
         switch self {
         case .terminal: .terminal
-        case .vcs: .vcs
-        case .editor: .editor
-        case .diffViewer: .diffViewer
-        case .imageViewer: .imageViewer
         case .extensionWebView: .extensionWebView
         }
     }

@@ -6,17 +6,29 @@ The Mobile server is **disabled by default**. Toggle it from **Settings → Mobi
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| Enable Mobile Server | off | Starts/stops the WebSocket listener. |
-| Port | `4865` | Stored in `UserDefaults`, applied on start. Bind failures roll the toggle back off. |
-| Approved devices | empty | List of paired clients with revoke buttons. |
+| Allow mobile device connections | off | Starts/stops the WebSocket listener. |
+| Port | `4865` | Stored in `UserDefaults`. Changing it stops the server; it restarts on the new port when re-enabled. A bind failure rolls the toggle back off and surfaces the error. |
+| Approved devices | empty | List of paired clients, each with a **Revoke** button. |
+
+The valid port range is `1024`–`65535`. Development builds default to `4866` (one above the release default) so a debug build can run alongside a release build. If the port is already in use, the settings panel shows a **Free Port** action that terminates the process currently listening on it.
 
 ## Endpoint
 
-- Protocol: WebSocket
+- Protocol: WebSocket (text frames; binary frames are also accepted)
 - URL: `ws://<host>:<port>`
 - Encoding: UTF-8 JSON
 - Date format: ISO 8601
 - IDs: UUID strings
+
+## Discovery & pairing link
+
+When the server is enabled, the Mac advertises itself over Bonjour as `_muxy._tcp` and the settings panel shows a QR code and a pairing URI:
+
+```
+muxy://pair?host=<host>.local&port=<port>&service=<name>&label=<name>
+```
+
+The QR/URI carry the host, port, and a friendly label — **never the token**. First-time pairing still requires explicit approval on the Mac. When a Tailscale interface is present, a second pairing host (the `100.64.0.0/10` Tailscale IP) is offered alongside the `.local` hostname.
 
 ## Security model
 
@@ -24,27 +36,33 @@ The API is designed for trusted local networks.
 
 - Transport is `ws://`, not TLS.
 - Clients must authenticate before any other RPC.
-- New devices must be approved from the Mac before they become trusted.
+- New devices must be approved on the Mac before they become trusted.
+- Tokens are compared in constant time and only their SHA-256 hash is stored on disk.
 
 For production integrations, treat the connection as local-network only unless you provide your own secure tunnel such as Tailscale or a VPN.
 
 ## Error codes
 
-| Code | Meaning |
-| --- | --- |
-| `400` | Invalid parameters |
-| `401` | Authentication required |
-| `403` | Pairing denied |
-| `404` | Resource not found |
-| `408` | Pairing request timed out |
-| `500` | Internal error or operation failure |
+| Code | Constant | Meaning |
+| --- | --- | --- |
+| `400` | invalidParams | Invalid or mismatched parameters |
+| `401` | unauthorized | Authentication required, or unknown device |
+| `403` | pairingDenied / forbidden | Pairing denied, wrong token, or consent denied |
+| `404` | notFound | Resource not found |
+| `408` | pairingTimeout | Pairing request timed out |
+| `500` | internalError | Internal error or operation failure |
+| `502` | — | Extension handler threw or is unregistered |
+| `503` | extensionUnavailable | Extension not running |
+| `504` | timeout | Extension handler timed out |
+
+`502`–`504` only originate from `extensionRequest`.
 
 ## Integration recommendations
 
 - Persist `deviceID` and `token` securely.
-- Re-authenticate after reconnecting.
-- Treat `workspaceChanged` as authoritative.
+- Re-authenticate after reconnecting; the `clientID` is per-connection and changes.
+- Treat `workspaceChanged` as authoritative for layout and tab state.
 - Cache project logos after decoding the Base64 payload.
-- Call `takeOverPane` before interactive terminal control.
-- Handle `401` by retrying with pairing only when appropriate.
-- Do not assume event filtering is enforced server-side.
+- Call `takeOverPane` before any interactive terminal control; input from a non-owner is dropped.
+- Handle a `401` on `authenticateDevice` by falling back to `pairDevice`; a `403` means a wrong token — re-pair.
+- Do not rely on `subscribe`/`unsubscribe` for filtering — every event reaches every authenticated client.

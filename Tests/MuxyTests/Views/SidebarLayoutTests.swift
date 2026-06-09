@@ -49,6 +49,43 @@ struct SidebarLayoutTests {
         #expect(!SidebarLayout.isHidden(expanded: true, collapsedStyle: .hidden))
         #expect(SidebarLayout.isWide(expanded: true, expandedStyle: .wide))
     }
+
+    @Test("clampExpandedWidth clamps below the minimum")
+    func clampExpandedBelowMin() {
+        #expect(SidebarLayout.clampExpandedWidth(10) == SidebarLayout.minExpandedWidth)
+    }
+
+    @Test("clampExpandedWidth clamps above the maximum")
+    func clampExpandedAboveMax() {
+        #expect(SidebarLayout.clampExpandedWidth(10_000) == SidebarLayout.maxExpandedWidth)
+    }
+
+    @Test("clampExpandedWidth passes values inside the range through")
+    func clampExpandedInRange() {
+        let value = SidebarLayout.minExpandedWidth + 5
+        #expect(SidebarLayout.clampExpandedWidth(value) == value)
+    }
+
+    @Test("resolvedWidth honours a custom expanded width when wide")
+    func resolvedWidthUsesCustomExpandedWidth() {
+        let custom = SidebarLayout.minExpandedWidth + 12
+        #expect(SidebarLayout.resolvedWidth(
+            expanded: true,
+            collapsedStyle: .hidden,
+            expandedStyle: .wide,
+            expandedCustomWidth: custom
+        ) == custom)
+    }
+
+    @Test("resolvedWidth ignores custom expanded width for icon style")
+    func resolvedWidthIgnoresCustomWidthForIcons() {
+        #expect(SidebarLayout.resolvedWidth(
+            expanded: true,
+            collapsedStyle: .hidden,
+            expandedStyle: .icons,
+            expandedCustomWidth: 999
+        ) == SidebarLayout.collapsedWidth)
+    }
 }
 
 @Suite("MainWindowLayout")

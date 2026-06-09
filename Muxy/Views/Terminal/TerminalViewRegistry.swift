@@ -57,10 +57,20 @@ final class TerminalViewRegistry {
         paneIDs[ObjectIdentifier(view)]
     }
 
-    func applyColorSchemeToAllViews(isDark: Bool) {
+    func applyColorSchemeToAllViews(isDark _: Bool) {
         for view in views.values {
-            view.applyColorScheme(isDark: isDark)
+            view.reapplyActiveColors()
         }
+    }
+
+    func reapplyClientThemes() {
+        for view in views.values {
+            view.reapplyClientThemeIfOwned()
+        }
+    }
+
+    var liveViews: [GhosttyTerminalNSView] {
+        Array(views.values)
     }
 
     var liveViewCount: Int {

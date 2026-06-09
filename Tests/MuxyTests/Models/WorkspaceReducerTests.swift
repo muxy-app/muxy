@@ -40,10 +40,6 @@ struct WorkspaceReducerTests {
         state.workspaceRoots[key]?.findArea(id: areaID)
     }
 
-    private func makeDiff() -> DiffCache.LoadedDiff {
-        DiffCache.LoadedDiff(rows: [], additions: 1, deletions: 0, truncated: false)
-    }
-
     @Test("selectProject creates workspace if new")
     func selectProjectNew() {
         let projectID = UUID()
@@ -169,72 +165,71 @@ struct WorkspaceReducerTests {
         #expect(area?.tabs.count == 2)
     }
 
-    @Test("createVCSTab adds VCS tab")
-    func createVCSTab() {
+    @Test("createExtensionTab adds extension tab")
+    func createExtensionTab() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
 
-        let action = AppState.Action.createVCSTab(projectID: projectID, areaID: nil)
+        let action = extensionTabAction(projectID: projectID, data: .object(["pr": .number(1)]), singleton: false)
         _ = WorkspaceReducer.reduce(action: action, state: &state)
 
         let area = focusedArea(in: state, projectID: projectID)
-        #expect(area?.activeTab?.kind == .vcs)
+        #expect(area?.activeTab?.kind == .extensionWebView)
+        #expect(area?.activeTab?.content.extensionState?.data == .object(["pr": .number(1)]))
     }
 
-    @Test("createVCSTab focuses existing VCS tab instead of adding a duplicate")
-    func createVCSTabReusesExisting() {
+    @Test("non-singleton extension tab opens a duplicate every time")
+    func createExtensionTabDuplicates() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
 
-        let action = AppState.Action.createVCSTab(projectID: projectID, areaID: nil)
+        let action = extensionTabAction(projectID: projectID, data: nil, singleton: false)
         _ = WorkspaceReducer.reduce(action: action, state: &state)
-        let firstArea = focusedArea(in: state, projectID: projectID)
-        let firstTabID = firstArea?.activeTabID
-
-        firstArea?.createTab()
-        #expect(firstArea?.activeTab?.kind == .terminal)
-
         _ = WorkspaceReducer.reduce(action: action, state: &state)
 
         let area = focusedArea(in: state, projectID: projectID)
-        #expect(area?.tabs.filter { $0.kind == .vcs }.count == 1)
+        #expect(area?.tabs.filter { $0.kind == .extensionWebView }.count == 2)
+    }
+
+    @Test("singleton extension tab focuses existing tab and reloads its data")
+    func createExtensionTabSingletonReuses() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+
+        let first = extensionTabAction(projectID: projectID, data: .object(["pr": .number(1)]), singleton: true)
+        _ = WorkspaceReducer.reduce(action: first, state: &state)
+        let area = focusedArea(in: state, projectID: projectID)
+        let firstTabID = area?.activeTabID
+
+        area?.createTab()
+
+        let second = extensionTabAction(projectID: projectID, data: .object(["pr": .number(2)]), singleton: true)
+        _ = WorkspaceReducer.reduce(action: second, state: &state)
+
+        #expect(area?.tabs.filter { $0.kind == .extensionWebView }.count == 1)
         #expect(area?.activeTabID == firstTabID)
+        #expect(area?.activeTab?.content.extensionState?.data == .object(["pr": .number(2)]))
     }
 
-    @Test("createEditorTab adds editor tab")
-    func createEditorTab() {
-        let projectID = UUID()
-        let worktreeID = UUID()
-        var state = makeState(projectID: projectID, worktreeID: worktreeID)
-
-        let action = AppState.Action.createEditorTab(
-            projectID: projectID, areaID: nil, filePath: "/tmp/test/file.swift", suppressInitialFocus: false
-        )
-        _ = WorkspaceReducer.reduce(action: action, state: &state)
-
-        let area = focusedArea(in: state, projectID: projectID)
-        #expect(area?.activeTab?.kind == .editor)
-    }
-
-    @Test("createExternalEditorTab adds terminal editor tab")
-    func createExternalEditorTab() {
-        let projectID = UUID()
-        let worktreeID = UUID()
-        var state = makeState(projectID: projectID, worktreeID: worktreeID)
-
-        let action = AppState.Action.createExternalEditorTab(
+    private func extensionTabAction(
+        projectID: UUID,
+        data: ExtensionJSON?,
+        singleton: Bool
+    ) -> AppState.Action {
+        .createExtensionTab(
             projectID: projectID,
             areaID: nil,
-            filePath: "/tmp/test/file.swift",
-            command: "vim"
+            request: AppState.CreateExtensionTabRequest(
+                extensionID: "pr-tools",
+                tabTypeID: "pr-viewer",
+                title: "PR Viewer",
+                data: data,
+                singleton: singleton
+            )
         )
-        _ = WorkspaceReducer.reduce(action: action, state: &state)
-
-        let area = focusedArea(in: state, projectID: projectID)
-        #expect(area?.activeTab?.kind == .terminal)
-        #expect(area?.activeTab?.content.pane?.externalEditorFilePath == "/tmp/test/file.swift")
     }
 
     @Test("closeTab removes tab and populates paneIDsToRemove")
@@ -309,37 +304,47 @@ struct WorkspaceReducerTests {
         #expect(effects.projectIDsToRemove.contains(projectID))
     }
 
-    @Test("closeTab diff viewer clears diff viewer cache")
-    func closeTabDiffViewerClearsDiffViewerCache() {
+    @Test("closeTab last tab keeps empty workspace when keepProjectOpenWhenEmpty is on")
+    func closeTabLastTabKeepsEmptyWorkspace() {
         let projectID = UUID()
         let worktreeID = UUID()
         var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        state.keepProjectOpenWhenEmpty = true
         let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
         let areaID = state.focusedAreaID[key]!
-        let vcs = VCSTabState(projectPath: testPath)
-        let viewerKey = DiffViewerTabState.cacheKey(filePath: "file.swift", isStaged: false)
+        let area = state.workspaceRoots[key]!.findArea(id: areaID)!
+        let tabID = area.tabs[0].id
 
-        vcs.diffCache.store(makeDiff(), for: viewerKey, pinnedPaths: [])
-        vcs.diffCache.store(makeDiff(), for: "file.swift", pinnedPaths: [])
-        _ = WorkspaceReducer.reduce(
-            action: .createDiffViewerTab(
-                projectID: projectID,
-                areaID: areaID,
-                request: .init(vcs: vcs, filePath: "file.swift", isStaged: false)
-            ),
+        let effects = WorkspaceReducer.reduce(
+            action: .closeTab(projectID: projectID, areaID: areaID, tabID: tabID),
             state: &state
         )
-        let area = state.workspaceRoots[key]!.findArea(id: areaID)!
-        let tabID = area.activeTabID!
+
+        #expect(state.workspaceRoots[key] != nil)
+        #expect(state.workspaceRoots[key]?.findArea(id: areaID)?.tabs.isEmpty == true)
+        #expect(!effects.projectIDsToRemove.contains(projectID))
+    }
+
+    @Test("selectProject does not create a tab for an emptied workspace")
+    func selectProjectKeepsEmptyWorkspace() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+        state.keepProjectOpenWhenEmpty = true
+        let key = WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+        let areaID = state.focusedAreaID[key]!
+        let tabID = state.workspaceRoots[key]!.findArea(id: areaID)!.tabs[0].id
 
         _ = WorkspaceReducer.reduce(
             action: .closeTab(projectID: projectID, areaID: areaID, tabID: tabID),
             state: &state
         )
+        _ = WorkspaceReducer.reduce(
+            action: .selectProject(projectID: projectID, worktreeID: worktreeID, worktreePath: testPath),
+            state: &state
+        )
 
-        #expect(vcs.diffCache.diff(for: viewerKey) == nil)
-        #expect(vcs.diffCache.diff(for: "file.swift") != nil)
-        vcs.diffCache.cancelAll()
+        #expect(state.workspaceRoots[key]?.findArea(id: areaID)?.tabs.isEmpty == true)
     }
 
     @Test("selectTab changes activeTabID")

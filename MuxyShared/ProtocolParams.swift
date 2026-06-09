@@ -7,6 +7,26 @@ public struct SelectProjectParams: Codable, Sendable {
     }
 }
 
+public struct ExtensionRequestParams: Codable, Sendable {
+    public let `extension`: String
+    public let action: String
+    public let payload: MuxyJSON
+
+    public init(extension: String, action: String, payload: MuxyJSON = .null) {
+        self.extension = `extension`
+        self.action = action
+        self.payload = payload
+    }
+}
+
+public struct ExtensionResultDTO: Codable, Sendable {
+    public let payload: MuxyJSON
+
+    public init(payload: MuxyJSON) {
+        self.payload = payload
+    }
+}
+
 public struct ListWorktreesParams: Codable, Sendable {
     public let projectID: UUID
     public init(projectID: UUID) {
@@ -130,10 +150,12 @@ public struct PairDeviceParams: Codable, Sendable {
     public let deviceID: UUID
     public let deviceName: String
     public let token: String
-    public init(deviceID: UUID, deviceName: String, token: String) {
+    public let theme: ClientThemeDTO?
+    public init(deviceID: UUID, deviceName: String, token: String, theme: ClientThemeDTO? = nil) {
         self.deviceID = deviceID
         self.deviceName = deviceName
         self.token = token
+        self.theme = theme
     }
 }
 
@@ -141,10 +163,12 @@ public struct AuthenticateDeviceParams: Codable, Sendable {
     public let deviceID: UUID
     public let deviceName: String
     public let token: String
-    public init(deviceID: UUID, deviceName: String, token: String) {
+    public let theme: ClientThemeDTO?
+    public init(deviceID: UUID, deviceName: String, token: String, theme: ClientThemeDTO? = nil) {
         self.deviceID = deviceID
         self.deviceName = deviceName
         self.token = token
+        self.theme = theme
     }
 }
 
@@ -225,6 +249,55 @@ public struct DeviceThemeEventDTO: Codable, Sendable {
         self.fg = fg
         self.bg = bg
         self.palette = palette
+    }
+}
+
+public struct ClientThemeDTO: Codable, Sendable, Equatable {
+    public static let paletteLimit = 16
+
+    public let fg: UInt32
+    public let bg: UInt32
+    public let palette: [UInt32]
+    public let cursorColor: UInt32?
+    public let cursorText: UInt32?
+    public let selectionBackground: UInt32?
+    public let selectionForeground: UInt32?
+    public init(
+        fg: UInt32,
+        bg: UInt32,
+        palette: [UInt32],
+        cursorColor: UInt32? = nil,
+        cursorText: UInt32? = nil,
+        selectionBackground: UInt32? = nil,
+        selectionForeground: UInt32? = nil
+    ) {
+        self.fg = fg
+        self.bg = bg
+        self.palette = palette
+        self.cursorColor = cursorColor
+        self.cursorText = cursorText
+        self.selectionBackground = selectionBackground
+        self.selectionForeground = selectionForeground
+    }
+
+    public func capped() -> ClientThemeDTO {
+        guard palette.count > Self.paletteLimit else { return self }
+        return ClientThemeDTO(
+            fg: fg,
+            bg: bg,
+            palette: Array(palette.prefix(Self.paletteLimit)),
+            cursorColor: cursorColor,
+            cursorText: cursorText,
+            selectionBackground: selectionBackground,
+            selectionForeground: selectionForeground
+        )
+    }
+}
+
+public struct SetClientThemeParams: Codable, Sendable {
+    public let theme: ClientThemeDTO?
+    public init(theme: ClientThemeDTO?) {
+        self.theme = theme
     }
 }
 

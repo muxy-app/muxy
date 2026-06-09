@@ -14,16 +14,69 @@ final class GitMetadataCache: @unchecked Sendable {
         let storedAt: Date
     }
 
+    struct ReadKey: Hashable {
+        let repoPath: String
+        let endpoint: String
+        let params: String
+    }
+
+    private struct ReadEntry {
+        let value: Any
+        let signature: String
+        let storedAt: Date
+    }
+
     private let lock = NSLock()
     private var prInfo: [PRKey: PREntry] = [:]
     private var defaultBranch: [String: String?] = [:]
     private var ghInstalled: Bool?
     private var remoteWebURL: [String: URL?] = [:]
     private var verifiedGitRepo: Set<String> = []
+    private var reads: [ReadKey: ReadEntry] = [:]
+    private var readOrder: [ReadKey] = []
 
     private let prTTL: TimeInterval = 300
+    private let readTTL: TimeInterval = 5
+    private let readCapacity = 128
 
     private init() {}
+
+    func cachedRead<T>(_ key: ReadKey, signature: String) -> T? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let entry = reads[key] else { return nil }
+        if entry.signature != signature || Date().timeIntervalSince(entry.storedAt) > readTTL {
+            removeRead(key)
+            return nil
+        }
+        return entry.value as? T
+    }
+
+    func storeRead(_ value: Any, key: ReadKey, signature: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        if reads[key] == nil {
+            readOrder.append(key)
+        }
+        reads[key] = ReadEntry(value: value, signature: signature, storedAt: Date())
+        while readOrder.count > readCapacity {
+            removeRead(readOrder[0])
+        }
+    }
+
+    func invalidateReads(repoPath: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        for key in readOrder where key.repoPath == repoPath {
+            reads.removeValue(forKey: key)
+        }
+        readOrder.removeAll { $0.repoPath == repoPath }
+    }
+
+    private func removeRead(_ key: ReadKey) {
+        reads.removeValue(forKey: key)
+        readOrder.removeAll { $0 == key }
+    }
 
     func cachedPRInfo(repoPath: String, branch: String, headSha: String) -> GitRepositoryService.PRInfo?? {
         lock.lock()

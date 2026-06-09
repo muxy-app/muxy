@@ -104,4 +104,113 @@ struct TerminalBridgeResolveFilePathTests {
         let url = URL(fileURLWithPath: dir.path)
         #expect(TerminalBridge.resolveLocalFilePath(from: url, projectPath: "/unused") == nil)
     }
+
+    @Test func resolvesFileLocationWithLineSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "results.md")
+        let url = try #require(URL(string: "\(file):12"))
+        let location = TerminalBridge.resolveFileLocation(from: url, projectPath: "/unused")
+        #expect(location == .init(path: file, line: 12, column: nil))
+    }
+
+    @Test func resolvesFileLocationWithLineAndColumnSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "main.swift")
+        let url = try #require(URL(string: "\(file):42:7"))
+        let location = TerminalBridge.resolveFileLocation(from: url, projectPath: "/unused")
+        #expect(location == .init(path: file, line: 42, column: 7))
+    }
+
+    @Test func resolvesFileLocationRelativeWithLineSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sub = dir.appendingPathComponent("reviews")
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        let file = writeFile(sub, name: "results.md")
+        let url = try #require(URL(string: "reviews/results.md:12"))
+        let location = TerminalBridge.resolveFileLocation(from: url, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 12, column: nil))
+    }
+
+    @Test func resolvesFileLocationRootLevelDottedNameWithLineSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "README.md")
+        let url = try #require(URL(string: "README.md:10"))
+        let location = TerminalBridge.resolveFileLocation(from: url, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 10, column: nil))
+    }
+
+    @Test func resolvesFileLocationRootLevelDottedNameWithLineAndColumnSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "main.swift")
+        let url = try #require(URL(string: "main.swift:42:7"))
+        let location = TerminalBridge.resolveFileLocation(from: url, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 42, column: 7))
+    }
+
+    @Test func resolvesFileLocationRootLevelExtensionlessNameWithLineSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "Makefile")
+        let url = try #require(URL(string: "Makefile:12"))
+        let location = TerminalBridge.resolveFileLocation(from: url, projectPath: dir.path)
+        #expect(location == .init(path: file, line: 12, column: nil))
+    }
+
+    @Test func resolvesFileLocationWithoutSuffix() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "plain.md")
+        let url = try #require(URL(string: file))
+        let location = TerminalBridge.resolveFileLocation(from: url, projectPath: "/unused")
+        #expect(location == .init(path: file, line: nil, column: nil))
+    }
+
+    @Test func resolvesFileLocationPrefersRealFileWithColonInName() throws {
+        let dir = makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = writeFile(dir, name: "foo:12")
+        let url = try #require(URL(string: file))
+        let location = TerminalBridge.resolveFileLocation(from: url, projectPath: "/unused")
+        #expect(location == .init(path: file, line: nil, column: nil))
+    }
+
+    @Test func resolvesFileLocationRejectsUnresolvableSchemeless() throws {
+        let url = try #require(URL(string: "/tmp/does-not-exist-\(UUID().uuidString).md:12"))
+        #expect(TerminalBridge.resolveFileLocation(from: url, projectPath: "/unused") == nil)
+    }
+
+    @Test func resolvesFileLocationRejectsHttpURL() throws {
+        let url = try #require(URL(string: "https://example.com/readme.md:12"))
+        #expect(TerminalBridge.resolveFileLocation(from: url, projectPath: "/tmp") == nil)
+    }
+
+    @Test func stripsLineSuffixOnlyWhenTrailingNumeric() {
+        #expect(TerminalBridge.stripLineColumnSuffix(from: "a.txt:12") == .init(path: "a.txt", line: 12, column: nil))
+        #expect(TerminalBridge.stripLineColumnSuffix(from: "a.txt:12:7") == .init(path: "a.txt", line: 12, column: 7))
+        #expect(TerminalBridge.stripLineColumnSuffix(from: "a.txt:12:notnum") == nil)
+        #expect(TerminalBridge.stripLineColumnSuffix(from: "a.txt") == nil)
+        #expect(TerminalBridge.stripLineColumnSuffix(from: ":12") == nil)
+    }
+
+    @Test func treatsWebAndOpaqueSchemesAsExternalLinks() throws {
+        #expect(TerminalBridge.isExternalLink(try #require(URL(string: "https://example.com/x"))))
+        #expect(TerminalBridge.isExternalLink(try #require(URL(string: "mailto:a@b.com"))))
+        #expect(TerminalBridge.isExternalLink(try #require(URL(string: "tel:+123"))))
+        #expect(TerminalBridge.isExternalLink(try #require(URL(string: "vscode://file/x"))))
+        #expect(TerminalBridge.isExternalLink(try #require(URL(string: "ssh:host"))))
+        #expect(TerminalBridge.isExternalLink(try #require(URL(string: "spotify:track:abc"))))
+    }
+
+    @Test func treatsSchemelessAndMisparsedPathsAsNonExternal() throws {
+        #expect(!TerminalBridge.isExternalLink(try #require(URL(string: "/tmp/x.md:12"))))
+        #expect(!TerminalBridge.isExternalLink(try #require(URL(string: "notes.md:5"))))
+        #expect(!TerminalBridge.isExternalLink(try #require(URL(string: "reviews/results.md:12"))))
+        #expect(!TerminalBridge.isExternalLink(try #require(URL(string: "main.swift:42:7"))))
+        #expect(!TerminalBridge.isExternalLink(try #require(URL(string: "Makefile:12"))))
+    }
 }

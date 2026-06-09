@@ -20,6 +20,7 @@ enum ExtensionConsentChoice {
     case allowAndRemember
     case denyOnce
     case denyAndRemember
+    case blockKind
 }
 
 @MainActor
@@ -97,7 +98,8 @@ final class ExtensionConsentService {
         case .allowOnce,
              .allowAndRemember: return .allow
         case .denyOnce,
-             .denyAndRemember: return .deny
+             .denyAndRemember,
+             .blockKind: return .deny
         }
     }
 
@@ -130,6 +132,9 @@ final class ExtensionConsentService {
             )
             grantStore.add(rule)
             recordAudit(request: request, decision: .deny, ruleID: rule.id)
+        case .blockKind:
+            let ruleID = grantStore.blockKind(extensionID: request.extensionID, verb: request.verb)
+            recordAudit(request: request, decision: .blocked, ruleID: ruleID)
         }
     }
 
@@ -223,6 +228,14 @@ enum ExtensionConsentRequestBuilder {
             return ("read screen of pane \(id)", ["pane: \(id)"])
         case let (.tabsOpenForeign, .foreignTab(target, tab)):
             return ("open \(target) tab \(tab)", ["extension: \(target)", "tab type: \(tab)"])
+        case let (.remoteInvoke, .remote(action, deviceName)):
+            return ("\(deviceName) calls \(action)", ["device: \(deviceName)", "action: \(action)"])
+        case let (.gitWrite, .git(operation, repoPath)):
+            return ("git \(operation)", ["operation: \(operation)", "repo: \(repoPath)"])
+        case let (.filesWrite, .file(operation, path)):
+            return ("file \(operation)", ["operation: \(operation)", "path: \(path)"])
+        case let (.httpFetch, .http(hostname, method, url)):
+            return ("fetch from \(hostname)", ["host: \(hostname)", "method: \(method)", "url: \(url)"])
         default:
             return ("(unknown)", [])
         }

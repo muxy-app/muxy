@@ -17,10 +17,21 @@ struct TerminalPane: View {
         if case let .remote(_, name) = ownership.owner(for: state.id) { name } else { nil }
     }
 
+    private var showsSleepingPlaceholder: Bool {
+        SleepingTabPlaceholderPolicy.shouldPresent(
+            isVisible: visible,
+            isOffline: state.isOffline,
+            isRemotelyOwned: remoteOwnerName != nil
+        )
+    }
+
+    private func wakePane() {
+        TerminalViewRegistry.shared.existingView(for: state.id)?.wake()
+        onFocus()
+    }
+
     var body: some View {
         terminalLayer
-            .onAppear { state.branchObserver.start() }
-            .onDisappear { state.branchObserver.stop() }
             .onReceive(NotificationCenter.default.publisher(for: .refocusActiveTerminal)) { _ in
                 guard focused, visible else { return }
                 let view = TerminalViewRegistry.shared.existingView(for: state.id)
@@ -75,7 +86,55 @@ struct TerminalPane: View {
                 )
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
+
+            if showsSleepingPlaceholder {
+                SleepingTabPlaceholder(isFocused: focused, onWake: wakePane)
+                    .transition(.opacity)
+            }
         }
+    }
+}
+
+struct SleepingTabPlaceholder: View {
+    let isFocused: Bool
+    let onWake: () -> Void
+
+    var body: some View {
+        VStack(spacing: UIMetrics.spacing7) {
+            Spacer()
+            Image(systemName: "moon.zzz")
+                .font(.system(size: UIMetrics.fontMega))
+                .foregroundStyle(MuxyTheme.fgMuted)
+            Text("Tab is asleep")
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+            Text("This terminal was freed to save memory. Wake it to resume your session.")
+                .font(.system(size: UIMetrics.fontBody))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: UIMetrics.scaled(360))
+            Button(action: onWake) {
+                HStack(spacing: UIMetrics.spacing4) {
+                    Text("Wake")
+                    if isFocused {
+                        Text("⏎")
+                            .font(.system(size: UIMetrics.fontFootnote, weight: .medium, design: .rounded))
+                            .opacity(0.72)
+                    }
+                }
+            }
+            .keyboardShortcut(isFocused ? KeyboardShortcut(.return, modifiers: []) : nil)
+            .buttonStyle(.borderedProminent)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MuxyTheme.bg)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onWake)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Tab is asleep")
+        .accessibilityHint("Wake the terminal to resume your session")
     }
 }
 
@@ -152,6 +211,7 @@ struct TerminalBridge: NSViewRepresentable {
         view.isFocused = focused
         view.overlayActive = overlayActive
         view.setVisible(visible)
+        view.setFocused(focused)
         view.onFocus = onFocus
         view.onProcessExit = onProcessExit
         view.onSplitRequest = onSplitRequest
@@ -166,6 +226,10 @@ struct TerminalBridge: NSViewRepresentable {
                 state?.setWorkingDirectory(path)
             }
         }
+        view.onOfflineChange = { [weak state] offline in
+            state?.isOffline = offline
+        }
+        view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         configureSearchCallbacks(view)
         configureFileOpenCallback(view)
         configureProgressCallback(view)
@@ -189,7 +253,9 @@ struct TerminalBridge: NSViewRepresentable {
             nsView.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
         }
         nsView.overlayActive = overlayActive
+        nsView.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         nsView.setVisible(visible)
+        nsView.setFocused(focused)
         nsView.onFocus = onFocus
         nsView.onProcessExit = onProcessExit
         nsView.onSplitRequest = onSplitRequest
@@ -203,6 +269,9 @@ struct TerminalBridge: NSViewRepresentable {
             DispatchQueue.main.async {
                 state?.setWorkingDirectory(path)
             }
+        }
+        nsView.onOfflineChange = { [weak state] offline in
+            state?.isOffline = offline
         }
         configureSearchCallbacks(nsView)
         configureFileOpenCallback(nsView)
@@ -244,28 +313,47 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     private func configureFileOpenCallback(_ view: GhosttyTerminalNSView) {
-        let projectID = worktreeKey?.projectID
         let projectPath = state.projectPath
-        view.onCmdClickFile = { token in
-            guard let projectID else { return }
-            guard let resolved = Self.resolveFilePath(token, projectPath: projectPath) else { return }
-            Task { @MainActor in
-                NotificationStore.shared.appState?.openFile(resolved, projectID: projectID, preserveFocus: true)
-            }
-        }
         view.resolveCmdHoverFile = { token in
             Self.resolveFilePath(token, projectPath: projectPath) != nil
         }
+        view.onCmdClickFile = { token in
+            guard let resolved = Self.resolveFilePath(token, projectPath: projectPath) else { return }
+            _ = IDEIntegrationService.shared.openProject(at: projectPath, highlightingFileAt: resolved)
+        }
         view.onOpenURL = { url in
-            if let path = Self.resolveLocalFilePath(from: url, projectPath: projectPath) {
-                guard let projectID else { return false }
-                Task { @MainActor in
-                    NotificationStore.shared.appState?.openFile(path, projectID: projectID, preserveFocus: true)
-                }
-                return true
+            if let location = Self.resolveFileLocation(from: url, projectPath: projectPath) {
+                return IDEIntegrationService.shared.openProject(
+                    at: projectPath,
+                    highlightingFileAt: location.path,
+                    line: location.line,
+                    column: location.column
+                )
+            }
+            guard Self.isExternalLink(url) else {
+                ToastState.shared.show("File not found")
+                return false
             }
             return NSWorkspace.shared.open(url)
         }
+    }
+
+    struct ResolvedFileLocation: Equatable {
+        let path: String
+        let line: Int?
+        let column: Int?
+    }
+
+    static func isExternalLink(_ url: URL) -> Bool {
+        guard url.scheme != nil else { return false }
+        guard !isLocalPathCandidate(url) else { return false }
+        return true
+    }
+
+    static func isLocalPathCandidate(_ url: URL) -> Bool {
+        guard !url.isFileURL, url.host == nil, !url.absoluteString.contains("//") else { return false }
+        let raw = url.absoluteString.removingPercentEncoding ?? url.absoluteString
+        return url.scheme == nil || stripLineColumnSuffix(from: raw) != nil
     }
 
     static func resolveFilePath(_ token: String, projectPath: String) -> String? {
@@ -292,9 +380,47 @@ struct TerminalBridge: NSViewRepresentable {
             guard !isDirectory.boolValue else { return nil }
             return path
         }
-        guard url.scheme == nil else { return nil }
+        guard isLocalPathCandidate(url) else { return nil }
         let raw = url.absoluteString.removingPercentEncoding ?? url.absoluteString
         return resolveFilePath(raw, projectPath: projectPath)
+    }
+
+    static func resolveFileLocation(from url: URL, projectPath: String) -> ResolvedFileLocation? {
+        if let path = resolveLocalFilePath(from: url, projectPath: projectPath) {
+            return ResolvedFileLocation(path: path, line: nil, column: nil)
+        }
+        guard isLocalPathCandidate(url) else { return nil }
+        let raw = url.absoluteString.removingPercentEncoding ?? url.absoluteString
+        guard let stripped = stripLineColumnSuffix(from: raw) else { return nil }
+        guard let path = resolveFilePath(stripped.path, projectPath: projectPath) else { return nil }
+        return ResolvedFileLocation(path: path, line: stripped.line, column: stripped.column)
+    }
+
+    static func stripLineColumnSuffix(from token: String) -> ResolvedFileLocation? {
+        let components = token.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard components.count >= 2 else { return nil }
+
+        if components.count >= 3,
+           let line = numericComponent(components[components.count - 2]),
+           let column = numericComponent(components[components.count - 1])
+        {
+            let path = components.dropLast(2).joined(separator: ":")
+            guard !path.isEmpty else { return nil }
+            return ResolvedFileLocation(path: path, line: line, column: column)
+        }
+
+        if let line = numericComponent(components[components.count - 1]) {
+            let path = components.dropLast().joined(separator: ":")
+            guard !path.isEmpty else { return nil }
+            return ResolvedFileLocation(path: path, line: line, column: nil)
+        }
+
+        return nil
+    }
+
+    private static func numericComponent(_ component: String) -> Int? {
+        guard !component.isEmpty, component.allSatisfy(\.isNumber) else { return nil }
+        return Int(component)
     }
 
     private func configureProgressCallback(_ view: GhosttyTerminalNSView) {

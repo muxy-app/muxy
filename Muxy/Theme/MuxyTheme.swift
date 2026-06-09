@@ -15,6 +15,7 @@ enum MuxyTheme {
 
     @MainActor static var accent: Color { snapshot.accent }
     @MainActor static var accentSoft: Color { snapshot.accentSoft }
+    @MainActor static var accentForeground: Color { snapshot.accentForeground }
     @MainActor static var warning: Color { snapshot.warning }
 
     @MainActor static var diffAddFg: Color { snapshot.diffAddFg }
@@ -66,6 +67,7 @@ extension MuxyTheme {
         let hover: Color
         let accent: Color
         let accentSoft: Color
+        let accentForeground: Color
         let warning: Color
         let diffAddFg: Color
         let diffRemoveFg: Color
@@ -107,6 +109,7 @@ extension MuxyTheme {
             hover = Color(nsColor: fgColor.withAlphaComponent(0.06))
             accent = Color(nsColor: accentColor)
             accentSoft = Color(nsColor: accentColor.withAlphaComponent(0.1))
+            accentForeground = Color(nsColor: Snapshot.contrastingForeground(for: accentColor))
             warning = Color(nsColor: resolvedPalette.paletteColor(at: 3) ?? NSColor.systemYellow)
 
             let addColor = resolvedPalette.paletteColor(at: 2) ?? NSColor.systemGreen
@@ -134,6 +137,14 @@ extension MuxyTheme {
                 0
             }
             colorScheme = luminance > 0.5 ? .light : .dark
+        }
+
+        static func contrastingForeground(for color: NSColor) -> NSColor {
+            guard let srgb = color.usingColorSpace(.sRGB) else { return .white }
+            let luminance = 0.2126 * srgb.redComponent
+                + 0.7152 * srgb.greenComponent
+                + 0.0722 * srgb.blueComponent
+            return luminance > 0.6 ? .black : .white
         }
     }
 }

@@ -5,6 +5,7 @@ struct IconButton: View {
     var size: CGFloat = 13
     var color: Color = MuxyTheme.fgMuted
     var hoverColor: Color = MuxyTheme.fg
+    var showsBadge = false
     let accessibilityLabel: String
     let action: () -> Void
 
@@ -17,7 +18,24 @@ struct IconButton: View {
         ) {
             Image(systemName: symbol)
                 .font(.system(size: UIMetrics.scaled(size), weight: .semibold))
+                .overlay(alignment: .topTrailing) {
+                    if showsBadge {
+                        IconButtonBadge()
+                    }
+                }
         }
+    }
+}
+
+private struct IconButtonBadge: View {
+    var body: some View {
+        Circle()
+            .fill(MuxyTheme.accent)
+            .frame(width: UIMetrics.scaled(6), height: UIMetrics.scaled(6))
+            .overlay(
+                Circle().stroke(MuxyTheme.bg, lineWidth: UIMetrics.scaled(1.5))
+            )
+            .offset(x: UIMetrics.scaled(4), y: UIMetrics.scaled(-4))
     }
 }
 

@@ -20,6 +20,17 @@ let package = Package(
             name: "MuxyShared",
             path: "MuxyShared"
         ),
+        .executableTarget(
+            name: "MuxyExtensionHost",
+            dependencies: [
+                "MuxyShared",
+            ],
+            path: "MuxyExtensionHost",
+            linkerSettings: [
+                .linkedFramework("Foundation"),
+                .linkedFramework("JavaScriptCore"),
+            ]
+        ),
         .target(
             name: "GhosttyKit",
             path: "GhosttyKit",
@@ -47,11 +58,9 @@ let package = Package(
             resources: [
                 .process("Resources/Assets.xcassets"),
                 .copy("Resources/ghostty"),
-                .copy("Resources/markdown-assets"),
-                .copy("Resources/ProviderIcons"),
-                .copy("Resources/rg"),
                 .copy("Resources/scripts"),
                 .copy("Resources/skills"),
+                .copy("Resources/starter-kits"),
                 .copy("Resources/terminfo"),
             ],
             linkerSettings: [
@@ -70,6 +79,7 @@ let package = Package(
                 .linkedFramework("MetalKit"),
                 .linkedFramework("QuartzCore"),
                 .linkedFramework("Speech"),
+                .linkedFramework("UserNotifications"),
                 .linkedLibrary("c++"),
             ]
         ),
@@ -79,6 +89,7 @@ let package = Package(
                 "Muxy",
                 "MuxyShared",
                 "MuxyServer",
+                "MuxyExtensionHost",
                 .product(name: "Yams", package: "Yams"),
             ],
             path: "Tests/MuxyTests",
@@ -98,6 +109,7 @@ let package = Package(
                 .linkedFramework("MetalKit"),
                 .linkedFramework("QuartzCore"),
                 .linkedFramework("Speech"),
+                .linkedFramework("UserNotifications"),
                 .linkedLibrary("c++"),
             ]
         ),

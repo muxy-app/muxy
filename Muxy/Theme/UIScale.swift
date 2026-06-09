@@ -35,7 +35,11 @@ final class UIScale {
     static let defaultPreset: Preset = .regular
 
     var preset: Preset = UIScale.defaultPreset {
-        didSet { save() }
+        didSet {
+            guard !isLoading, preset != oldValue else { return }
+            save()
+            NotificationCenter.default.post(name: .themeDidChange, object: nil)
+        }
     }
 
     var multiplier: CGFloat { preset.multiplier }

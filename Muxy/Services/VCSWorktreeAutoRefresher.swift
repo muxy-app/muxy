@@ -8,6 +8,7 @@ final class VCSWorktreeAutoRefresher {
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
     private var inFlight: Set<UUID> = []
     private var pending: Set<UUID> = []
+    private var watchers: [UUID: GitWorktreesWatcher] = [:]
 
     init(appState: AppState, projectStore: ProjectStore, worktreeStore: WorktreeStore) {
         self.appState = appState
@@ -15,6 +16,7 @@ final class VCSWorktreeAutoRefresher {
         self.worktreeStore = worktreeStore
         observe(.vcsDidRefresh)
         observe(.vcsRepoDidChange)
+        syncWatchers()
     }
 
     deinit {
@@ -39,12 +41,46 @@ final class VCSWorktreeAutoRefresher {
 
     private func handleRefresh(repoPath: String) {
         guard let projectID = worktreeStore.projectID(forWorktreePath: repoPath) else { return }
+        handleRefresh(projectID: projectID)
+    }
+
+    private func handleRefresh(projectID: UUID) {
         guard let project = projectStore.projects.first(where: { $0.id == projectID }) else { return }
         guard !inFlight.contains(projectID) else {
             pending.insert(projectID)
             return
         }
         runRefresh(project: project)
+    }
+
+    private func syncWatchers() {
+        withObservationTracking {
+            reconcileWatchers()
+        } onChange: {
+            Task { @MainActor [weak self] in
+                self?.syncWatchers()
+            }
+        }
+    }
+
+    private func reconcileWatchers() {
+        let projects = projectStore.projects
+        let currentIDs = Set(projects.map(\.id))
+
+        for projectID in Array(watchers.keys) where !currentIDs.contains(projectID) {
+            watchers.removeValue(forKey: projectID)
+        }
+
+        for project in projects where watchers[project.id] == nil {
+            let projectID = project.id
+            let watcher = GitWorktreesWatcher(repoPath: project.path) { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.handleRefresh(projectID: projectID)
+                }
+            }
+            guard let watcher else { continue }
+            watchers[projectID] = watcher
+        }
     }
 
     private func runRefresh(project: Project) {

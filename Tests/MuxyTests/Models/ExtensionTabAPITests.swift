@@ -11,7 +11,6 @@ struct ExtensionTabManifestTests {
         {
           "name": "x",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "commands": [{ "id": "ping", "title": "Ping" }]
         }
         """)
@@ -24,7 +23,6 @@ struct ExtensionTabManifestTests {
         {
           "name": "x",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [{ "id": "viewer", "title": "Viewer", "entry": "tabs/x.html" }],
           "commands": [{
             "id": "open",
@@ -47,7 +45,6 @@ struct ExtensionTabManifestTests {
         {
           "name": "x",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "commands": [{
             "id": "go",
             "title": "Go",
@@ -68,7 +65,6 @@ struct ExtensionTabManifestTests {
         {
           "name": "x",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [{
             "id": "viewer",
             "title": "Viewer",
@@ -96,7 +92,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "dupe",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [
             { "id": "viewer", "title": "A", "entry": "a.html" },
             { "id": "viewer", "title": "B", "entry": "b.html" }
@@ -116,7 +111,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "x",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "commands": [{
             "id": "bad",
             "title": "Bad",
@@ -137,7 +131,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "esc",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [{ "id": "v", "title": "V", "entry": "../escape.html" }]
         }
         """)
@@ -154,7 +147,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "missing",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [{ "id": "v", "title": "V", "entry": "tabs/nope.html" }]
         }
         """)
@@ -171,7 +163,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "noscript",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "commands": [{
             "id": "go",
             "title": "Go",
@@ -192,7 +183,6 @@ struct ExtensionTabValidationTests {
         {
           "name": "good",
           "version": "1.0",
-          "entrypoint": "run.sh",
           "tabTypes": [{ "id": "v", "title": "V", "entry": "tabs/v.html" }],
           "commands": [{
             "id": "open",
@@ -217,8 +207,7 @@ struct ExtensionTabValidationTests {
         let directory = try makeExtension(manifest: """
         {
           "name": "trav",
-          "version": "1.0",
-          "entrypoint": "run.sh"
+          "version": "1.0"
         }
         """)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -233,13 +222,7 @@ struct ExtensionTabValidationTests {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ext-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try Data(manifest.utf8).write(to: directory.appendingPathComponent("manifest.json"))
-        let entrypoint = directory.appendingPathComponent("run.sh")
-        try Data("#!/bin/sh\n".utf8).write(to: entrypoint)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: FilePermissions.executable],
-            ofItemAtPath: entrypoint.path
-        )
+        try ExtensionManifestFixture.write(flatManifest: manifest, to: directory)
         for (relPath, contents) in extraFiles {
             let fileURL = directory.appendingPathComponent(relPath)
             try FileManager.default.createDirectory(
@@ -268,16 +251,16 @@ struct ExtensionTabStateTests {
         #expect(state.displayTitle == "Renamed")
     }
 
-    @Test("initialData is preserved")
-    func initialDataPreserved() {
+    @Test("data is preserved")
+    func dataPreserved() {
         let state = ExtensionTabState(
             extensionID: "ext",
             tabTypeID: "viewer",
             projectPath: "/tmp",
             defaultTitle: "Viewer",
-            initialData: .object(["n": .number(1)])
+            data: .object(["n": .number(1)])
         )
-        #expect(state.initialData == .object(["n": .number(1)]))
+        #expect(state.data == .object(["n": .number(1)]))
     }
 }
 
@@ -291,7 +274,7 @@ struct TerminalTabExtensionRoundTrip {
             tabTypeID: "pr-viewer",
             projectPath: "/tmp/test",
             defaultTitle: "PR Viewer",
-            initialData: .object(["prNumber": .number(42)])
+            data: .object(["prNumber": .number(42)])
         )
         let tab = TerminalTab(extensionState: state)
         let snapshot = tab.snapshot()
@@ -321,7 +304,7 @@ struct TerminalTabExtensionRoundTrip {
         #expect(restored?.extensionID == "pr-tools")
         #expect(restored?.tabTypeID == "pr-viewer")
         #expect(restored?.defaultTitle == "PR Viewer")
-        #expect(restored?.initialData == .object(["prNumber": .number(7)]))
+        #expect(restored?.data == .object(["prNumber": .number(7)]))
     }
 
     @Test("restored extensionWebView falls back to terminal when fields missing")
@@ -408,17 +391,7 @@ struct OpenTabRequestTests {
         { "kind": "terminal" }
         """)
         #expect(request.kind == .terminal)
-        #expect(request.filePath == nil)
         #expect(request.extensionPayload == nil)
-    }
-
-    @Test("decodes editor kind with filePath")
-    func editorRequest() throws {
-        let request = try decode("""
-        { "kind": "editor", "filePath": "/tmp/foo.swift" }
-        """)
-        #expect(request.kind == .editor)
-        #expect(request.filePath == "/tmp/foo.swift")
     }
 
     @Test("decodes extensionWebView kind with extension payload")
@@ -433,6 +406,19 @@ struct OpenTabRequestTests {
         #expect(payload.id == "pr-tools")
         #expect(payload.tabType == "pr-viewer")
         #expect(payload.data == .object(["prNumber": .number(42)]))
+        #expect(payload.singleton == false)
+    }
+
+    @Test("decodes singleton flag on extension payload")
+    func singletonRequest() throws {
+        let request = try decode("""
+        {
+          "kind": "extensionWebView",
+          "extension": { "id": "pr-tools", "tabType": "pr-viewer", "singleton": true }
+        }
+        """)
+        let payload = try #require(request.extensionPayload)
+        #expect(payload.singleton == true)
     }
 
     private func decode(_ json: String) throws -> OpenTabRequest {

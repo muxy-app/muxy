@@ -1,4 +1,5 @@
 import Foundation
+import MuxyShared
 
 @MainActor
 enum ExtensionBridgeShared {
@@ -58,6 +59,33 @@ enum ExtensionBridgeShared {
         ]
     }
 
+    static func decodeHTTPRequest(_ args: [String: Any]) throws -> HTTPRequest {
+        guard let url = args["url"] as? String, !url.isEmpty else {
+            throw HTTPError.invalidArguments("http requires a url")
+        }
+        let headers: [String: String]? = (args["headers"] as? [String: Any]).map { raw in
+            raw.compactMapValues { $0 as? String }
+        }
+        let timeoutMs = (args["timeoutMs"] as? Int)
+            ?? (args["timeoutMs"] as? Double).map { Int($0) }
+        return HTTPRequest(
+            url: url,
+            method: (args["method"] as? String) ?? "GET",
+            headers: headers,
+            body: args["body"] as? String,
+            timeoutMs: timeoutMs
+        )
+    }
+
+    static func encodeHTTPResult(_ result: HTTPResult) -> [String: Any] {
+        [
+            "status": result.status,
+            "headers": result.headers,
+            "body": result.body,
+            "truncated": result.truncated,
+        ]
+    }
+
     static func activeWorktreePath(appState: AppState?, worktreeStore: WorktreeStore?) -> String? {
         guard let appState,
               let projectID = appState.activeProjectID,
@@ -65,5 +93,21 @@ enum ExtensionBridgeShared {
               let worktreeStore
         else { return nil }
         return worktreeStore.worktree(projectID: projectID, worktreeID: worktreeID)?.path
+    }
+
+    static func decodeExtensionLocalEvent(args: [String: Any]) throws -> ExtensionLocalEvent.Message {
+        guard let name = args["event"] as? String, ExtensionLocalEvent.isValidName(name) else {
+            throw APIError.invalidArguments("extension events must start with extension.")
+        }
+        do {
+            return try ExtensionLocalEvent.Message(
+                name: name,
+                payload: ExtensionLocalEvent.encodePayload(args["payload"])
+            )
+        } catch {
+            throw APIError.invalidArguments(
+                "event payload must be JSON-serializable and at most \(ExtensionLocalEvent.maxPayloadBytes) bytes"
+            )
+        }
     }
 }

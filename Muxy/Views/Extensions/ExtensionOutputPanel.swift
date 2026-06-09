@@ -2,12 +2,12 @@ import AppKit
 import SwiftUI
 
 struct ExtensionOutputPanel: View {
-    @Binding var isPresented: Bool
     @Binding var selectedExtensionID: String?
 
     @State private var store = ExtensionStore.shared
     @State private var lines: [String] = []
     @State private var tailer: ExtensionLogTailer?
+    @State private var coalescer: ExtensionLogCoalescer?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,12 +17,11 @@ struct ExtensionOutputPanel: View {
         }
         .frame(maxWidth: .infinity)
         .background(MuxyTheme.bg)
-        .overlay(
-            Rectangle().fill(MuxyTheme.border).frame(height: 1),
-            alignment: .top
-        )
         .onAppear { restartTailer() }
-        .onDisappear { tailer?.stop() }
+        .onDisappear {
+            tailer?.stop()
+            coalescer?.cancel()
+        }
         .onChange(of: effectiveExtensionID) { _, _ in
             restartTailer()
         }
@@ -30,9 +29,6 @@ struct ExtensionOutputPanel: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text("Extension Output")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
-                .foregroundStyle(MuxyTheme.fg)
             Menu {
                 ForEach(store.statuses) { status in
                     Button(status.muxyExtension.displayName) {
@@ -70,13 +66,6 @@ struct ExtensionOutputPanel: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(MuxyTheme.accent)
-            Button {
-                isPresented = false
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(MuxyTheme.fgMuted)
         }
         .font(.system(size: UIMetrics.fontFootnote))
         .padding(.horizontal, 10)
@@ -86,32 +75,44 @@ struct ExtensionOutputPanel: View {
     private var logBody: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
+                Group {
                     if lines.isEmpty {
                         Text("No log output yet.")
                             .font(.system(size: UIMetrics.fontFootnote))
                             .foregroundStyle(MuxyTheme.fgMuted)
                             .padding(8)
                     } else {
-                        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                            Text(line)
-                                .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
-                                .foregroundStyle(color(for: line))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 8)
-                                .id(index)
-                        }
+                        logText
+                            .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .textSelection(.enabled)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
+
+                Color.clear
+                    .frame(height: 1)
+                    .id(scrollAnchorID)
             }
-            .onChange(of: lines.count) { _, newCount in
-                guard newCount > 0 else { return }
-                proxy.scrollTo(newCount - 1, anchor: .bottom)
+            .onChange(of: lines.last) { _, _ in
+                proxy.scrollTo(scrollAnchorID, anchor: .bottom)
             }
         }
-        .frame(maxHeight: 220)
+        .frame(maxHeight: .infinity)
     }
+
+    private var logText: Text {
+        let lastIndex = lines.count - 1
+        return lines.enumerated().reduce(Text("")) { result, entry in
+            let (index, line) = entry
+            let suffix = index < lastIndex ? "\n" : ""
+            return result + Text(line + suffix).foregroundStyle(color(for: line))
+        }
+    }
+
+    private let scrollAnchorID = "muxy.extension-console.bottom"
 
     private var effectiveExtensionID: String? {
         if let selectedExtensionID, store.statuses.contains(where: { $0.id == selectedExtensionID }) {
@@ -135,18 +136,27 @@ struct ExtensionOutputPanel: View {
     private func restartTailer() {
         tailer?.stop()
         tailer = nil
+        coalescer?.cancel()
         lines = []
         guard let url = activeLogURL else { return }
-        let newTailer = ExtensionLogTailer(url: url) { newLines in
-            appendLines(newLines)
+        let newCoalescer = ExtensionLogCoalescer { update in
+            applyUpdate(update)
         }
+        let newTailer = ExtensionLogTailer(url: url) { update in
+            newCoalescer.ingest(update)
+        }
+        coalescer = newCoalescer
         tailer = newTailer
         newTailer.start()
     }
 
-    private func appendLines(_ newLines: [String]) {
-        if newLines.isEmpty, lines.isEmpty { return }
-        lines.append(contentsOf: newLines)
+    private func applyUpdate(_ update: ExtensionLogUpdate) {
+        switch update {
+        case let .reset(newLines):
+            lines = newLines
+        case let .append(newLines):
+            lines.append(contentsOf: newLines)
+        }
         if lines.count > ExtensionLogTailer.maxBufferedLines {
             lines.removeFirst(lines.count - ExtensionLogTailer.maxBufferedLines)
         }

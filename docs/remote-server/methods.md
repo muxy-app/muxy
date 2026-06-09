@@ -1,5 +1,7 @@
 # API Methods
 
+Each method name doubles as the `params.type` discriminator. The **Result** column is the `result.type` returned on success (see [Protocol](protocol.md)). Only `authenticateDevice` and `pairDevice` are reachable before authentication; every other method (including `registerDevice`) requires an authenticated client and otherwise returns `401`.
+
 ## Projects & Workspace
 
 | Method | Parameters | Result |
@@ -9,7 +11,7 @@
 | `listWorktrees` | `projectID` | `worktrees` |
 | `selectWorktree` | `projectID`, `worktreeID` | `ok` |
 | `getWorkspace` | `projectID` | `workspace` |
-| `createTab` | `projectID`, `areaID?`, `kind` | `tab` |
+| `createTab` | `projectID`, `areaID?`, `kind?` | `tab` |
 | `closeTab` | `projectID`, `areaID`, `tabID` | `ok` |
 | `selectTab` | `projectID`, `areaID`, `tabID` | `ok` |
 | `splitArea` | `projectID`, `areaID`, `direction`, `position` | `ok` |
@@ -18,9 +20,11 @@
 
 Enums:
 
-- `kind`: `terminal`, `vcs`, `editor`, `diffViewer`
+- `kind`: `terminal`, `vcs` (default `terminal`). `extensionWebView` is rejected — only terminal and VCS tabs can be created remotely.
 - `direction`: `horizontal`, `vertical`
 - `position`: `first`, `second`
+
+`getWorkspace` returns the workspace for the project's **active** worktree; select the worktree first with `selectWorktree`. It returns `404` when the project has no active workspace. `createTab` returns `tab` (the newly active tab) or `500` if creation fails.
 
 ## Terminal control
 
@@ -28,6 +32,7 @@ Enums:
 | --- | --- | --- |
 | `takeOverPane` | `paneID`, `cols`, `rows` | `ok` |
 | `releasePane` | `paneID` | `ok` |
+| `setClientTheme` | `theme?` | `ok` |
 | `terminalInput` | `paneID`, `bytes` | `ok` |
 | `terminalResize` | `paneID`, `cols`, `rows` | `ok` |
 | `terminalScroll` | `paneID`, `deltaX`, `deltaY`, `precise` | `ok` |
@@ -35,9 +40,11 @@ Enums:
 
 Notes:
 
-- Terminal control is **ownership-based**. Call `takeOverPane` before sending input or resize events; `releasePane` returns control to the Mac. If a pane is owned by another client, control requests may be ignored.
-- `terminalInput.bytes` is base64-encoded raw bytes, delivered verbatim to the PTY. The client encodes escape sequences, control codes, and mouse reports directly.
-- `getTerminalContent` is a **legacy pull API** that snapshots the rendered grid. New clients should render the pane with their own VT emulator and subscribe to the `terminalOutput` event stream instead.
+- Terminal control is **ownership-based**. Call `takeOverPane` before sending input, resize, or scroll; `releasePane` returns control to the Mac. Input/resize/scroll from a client that does **not** own the pane are silently dropped (still answered `ok`).
+- `takeOverPane` immediately pushes a [`terminalSnapshot`](events.md) event to the calling client, then streams [`terminalOutput`](events.md) until released.
+- `terminalInput.bytes` is base64-encoded raw bytes delivered verbatim to the PTY. The client encodes escape sequences, control codes, and mouse reports itself. `terminalInput` is fire-and-forget — the server does **not** send a response for it.
+- `getTerminalContent` is a one-shot pull that returns the rendered grid as [`terminalCells`](data-objects.md#terminal-cells). New clients should instead render the pane with their own VT emulator fed by the `terminalOutput` stream; use the pull only for an initial paint or debugging. It returns `404` if the pane has no live surface.
+- `setClientTheme` recolors the live Ghostty surfaces of the panes this client **owns** — both currently owned panes and any taken over afterward — with the client's [`clientTheme`](data-objects.md#client-theme). It is optional: clients that never send it keep the Mac theme. Colors revert to the Mac theme when the pane is released or the client disconnects. Send `theme: null` to clear and revert immediately. The theme can also be supplied at [pairing](pairing.md) time.
 
 ## Notifications & visual data
 
@@ -49,7 +56,25 @@ Notes:
 | `subscribe` | `events` | `ok` |
 | `unsubscribe` | `events` | `ok` |
 
-`subscribe` / `unsubscribe` are accepted for compatibility, but clients should still be prepared to receive all broadcast event types.
+`getProjectLogo` returns `404` when the project has no logo. `subscribe` / `unsubscribe` are accepted but are **no-ops** — the server performs no event filtering, so every authenticated client receives every broadcast event regardless of what it subscribed to.
+
+## Extensions
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `extensionRequest` | `extension`, `action`, `payload?` | `extensionResult` |
+
+`extensionRequest` proxies a call to an installed extension that serves the named `action`. `payload` (default `null`) and `extensionResult.payload` are arbitrary JSON. The desktop resolves the handler, prompts the user for consent, runs it in the extension's background script, and returns its value.
+
+| Code | Meaning |
+| --- | --- |
+| `404` | Unknown extension, or the action is not declared in `remoteMethods`. |
+| `403` | Extension lacks `remote:serve`, or the user denied consent. |
+| `503` | Extension is installed but not running / has no live background script. |
+| `502` | The handler threw, rejected, or is not registered. |
+| `504` | The handler did not reply in time. |
+
+See [extension remote methods](../extensions/remote-methods.md).
 
 ## Git & worktrees
 
@@ -57,21 +82,80 @@ Notes:
 | --- | --- | --- |
 | `getVCSStatus` | `projectID` | `vcsStatus` |
 | `vcsRefresh` | `projectID` | `vcsStatus` |
-| `vcsCommit` | `projectID`, `message`, `stageAll` | `ok` |
+| `vcsCommit` | `projectID`, `message`, `stageAll?` | `ok` |
 | `vcsPush` | `projectID` | `ok` |
 | `vcsPull` | `projectID` | `ok` |
 | `vcsStageFiles` | `projectID`, `paths` | `ok` |
 | `vcsUnstageFiles` | `projectID`, `paths` | `ok` |
 | `vcsDiscardFiles` | `projectID`, `paths`, `untrackedPaths` | `ok` |
+| `vcsGetDiff` | `projectID`, `filePath`, `forceFull?` | `vcsDiff` |
 | `vcsListBranches` | `projectID` | `vcsBranches` |
 | `vcsSwitchBranch` | `projectID`, `branch` | `ok` |
 | `vcsCreateBranch` | `projectID`, `name` | `ok` |
-| `vcsCreatePR` | `projectID`, `title`, `body`, `baseBranch`, `draft` | `vcsPRCreated` |
+| `vcsCreatePR` | `projectID`, `title`, `body`, `baseBranch?`, `draft` | `vcsPRCreated` |
 | `vcsMergePullRequest` | `projectID`, `number`, `method`, `deleteBranch` | `ok` |
-| `vcsAddWorktree` | `projectID`, `name`, `branch`, `createBranch` | `worktrees` |
+| `vcsAddWorktree` | `projectID`, `name`, `branch`, `createBranch`, `baseBranch?` | `worktrees` |
 | `vcsRemoveWorktree` | `projectID`, `worktreeID` | `ok` |
 
-`getVCSStatus` and `vcsListBranches` read from the desktop's in-memory VCS cache instead of running git on every call. The cache is lazily populated on first access per worktree and kept fresh by the desktop's file-system watcher and post-mutation notifications. Clients can call `vcsRefresh` at any time to force a full re-read from git; it awaits completion and returns the fresh `vcsStatus`.
+Enums & defaults:
+
+- `vcsCommit.stageAll` defaults `false`. `vcsGetDiff.forceFull` defaults `false` (a `false` value caps the diff at ~20k lines and sets `truncated`).
+- `vcsCreatePR.baseBranch` is optional; when omitted the repo's default branch is used. The result `vcsPRCreated` is `{ "url": string, "number": int }`.
+- `vcsMergePullRequest.method` is `merge`, `squash`, or `rebase`; `number` is the PR number.
+- `vcsAddWorktree.baseBranch` is only honored when `createBranch` is `true`. The result `worktrees` is an array containing the single new worktree.
+
+`getVCSStatus` and `vcsListBranches` read the desktop's in-memory VCS cache instead of running git on every call. The cache is lazily populated on first access per worktree and kept fresh by the file-system watcher and post-mutation refreshes. Call `vcsRefresh` to force a full re-read from git; it awaits completion and returns the fresh `vcsStatus`. Any VCS method that fails returns `500` with the underlying git error message.
+
+Result shapes: [`vcsStatus`](#vcsstatus-shape) and [`vcsBranches`](#vcsbranches-shape) below; [`vcsDiff`](#vcsdiff-shape) below.
+
+### `vcsStatus` shape
+
+```json
+{
+  "branch": "main",
+  "aheadCount": 1,
+  "behindCount": 0,
+  "hasUpstream": true,
+  "stagedFiles": [{ "path": "a.swift", "status": "modified", "isUntracked": false }],
+  "changedFiles": [{ "path": "b.swift", "status": "added", "isUntracked": false }],
+  "defaultBranch": "main",
+  "pullRequest": {
+    "url": "https://github.com/o/r/pull/1",
+    "number": 1,
+    "state": "OPEN",
+    "isDraft": false,
+    "baseBranch": "main",
+    "mergeable": true,
+    "mergeStateStatus": "CLEAN",
+    "checks": { "status": "success", "passing": 3, "failing": 0, "pending": 0, "total": 3 }
+  }
+}
+```
+
+`defaultBranch`, `pullRequest`, and `pullRequest.mergeable` are optional. `status` is one of `added`, `modified`, `deleted`, `renamed`, `copied`, `untracked`, `unmerged`.
+
+### `vcsBranches` shape
+
+```json
+{ "current": "main", "locals": ["main", "feature"], "defaultBranch": "main" }
+```
+
+### `vcsDiff` shape
+
+```json
+{
+  "filePath": "a.swift",
+  "rows": [
+    { "kind": "addition", "oldLineNumber": null, "newLineNumber": 12, "oldText": null, "newText": "let x = 1", "text": "let x = 1" }
+  ],
+  "additions": 1,
+  "deletions": 0,
+  "truncated": false,
+  "isBinary": false
+}
+```
+
+`kind` is `hunk`, `context`, `addition`, `deletion`, or `collapsed`. Binary files return `isBinary: true` with no rows.
 
 ## Example: full authentication request
 

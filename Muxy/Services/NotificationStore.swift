@@ -17,6 +17,7 @@ final class NotificationStore {
 
     private static let maxNotifications = 200
     private static let defaults = UserDefaults.standard
+    weak var desktopNotifier: (any DesktopNotificationDelivering)?
     private static let store = CodableFileStore<[MuxyNotification]>(
         fileURL: MuxyFileStorage.fileURL(filename: "notifications.json")
     )
@@ -154,14 +155,34 @@ final class NotificationStore {
     }
 
     private func deliverNotification(_ notification: MuxyNotification) {
-        if Self.defaults.bool(forKey: "muxy.notifications.toastEnabled", fallback: true) {
-            ToastState.shared.show(notification.title)
+        let plan = NotificationSettings.deliveryPlan(defaults: Self.defaults)
+        if plan.showToast {
+            ToastState.shared.show(title: notification.title, body: notification.body) { [weak self] in
+                self?.activate(notificationID: notification.id)
+            }
+        }
+        if plan.showDesktop {
+            desktopNotifier?.deliver(notification)
         }
         playSound()
     }
 
+    private func activate(notificationID: UUID) {
+        guard let appState else { return }
+        NSApp.activate()
+        guard NotificationNavigator.navigate(
+            notificationID: notificationID,
+            appState: appState,
+            notificationStore: self
+        )
+        else {
+            logger.debug("Toast notification response ignored: notification not found")
+            return
+        }
+    }
+
     private func playSound() {
-        let soundName = Self.defaults.string(forKey: "muxy.notifications.sound") ?? NotificationSound.funk.rawValue
+        guard let soundName = NotificationSettings.deliveryPlan(defaults: Self.defaults).soundName else { return }
         guard let sound = NotificationSound.playableSound(for: soundName) else { return }
         NotificationSoundPlayer.shared.play(sound)
     }
@@ -237,11 +258,5 @@ final class NotificationStore {
             logger.error("Failed to load notifications: \(error.localizedDescription)")
             return []
         }
-    }
-}
-
-extension UserDefaults {
-    func bool(forKey key: String, fallback: Bool) -> Bool {
-        object(forKey: key) != nil ? bool(forKey: key) : fallback
     }
 }

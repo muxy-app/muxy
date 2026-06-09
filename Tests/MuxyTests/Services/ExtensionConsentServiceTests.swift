@@ -59,9 +59,8 @@ struct ExtensionConsentServiceTests {
         )
 
         async let decision = service.gate(request)
-        try? await Task.sleep(for: .milliseconds(50))
-        let pending = service.pendingPrompt
-        #expect(pending?.id == request.id)
+        await waitUntil { service.pendingPrompt?.id == request.id }
+        #expect(service.pendingPrompt?.id == request.id)
         service.respond(requestID: request.id, choice: .allowAndRemember)
 
         let resolved = await decision
@@ -82,11 +81,49 @@ struct ExtensionConsentServiceTests {
         )
 
         async let decision = service.gate(request)
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil { service.pendingPrompt?.id == request.id }
         service.respond(requestID: request.id, choice: .denyOnce)
         let resolved = await decision
         #expect(resolved == .deny)
         #expect(grantStore.rules.isEmpty)
+    }
+
+    @Test("blockKind overrides existing allow rules and silences future prompts")
+    func blockKindBlocksWholeVerb() async {
+        let grantStore = makeGrantStore()
+        let service = ExtensionConsentService(grantStore: grantStore, auditLog: makeAuditLog())
+        grantStore.add(ExtensionGrantRule(
+            extensionID: "ext",
+            verb: .exec,
+            match: .argvPrefix(["git"]),
+            decision: .allow
+        ))
+        let request = ExtensionConsentRequestBuilder.make(
+            extensionID: "ext",
+            verb: .exec,
+            payload: .exec(argv: ["npm", "install"], shell: nil),
+            source: "test"
+        )
+
+        async let decision = service.gate(request)
+        await waitUntil { service.pendingPrompt?.id == request.id }
+        service.respond(requestID: request.id, choice: .blockKind)
+
+        let resolved = await decision
+        #expect(resolved == .deny)
+        #expect(grantStore.rules.count == 1)
+        #expect(grantStore.rules.first?.match == .any)
+        #expect(grantStore.rules.first?.decision == .blocked)
+
+        let previouslyAllowed = ExtensionConsentRequestBuilder.make(
+            extensionID: "ext",
+            verb: .exec,
+            payload: .exec(argv: ["git", "status"], shell: nil),
+            source: "test"
+        )
+        let allowedDecision = await service.gate(previouslyAllowed)
+        #expect(allowedDecision == .deny)
+        #expect(service.pendingPrompt == nil)
     }
 
     @Test("queue flood for one extension auto-denies excess")
@@ -104,7 +141,9 @@ struct ExtensionConsentServiceTests {
             )
             pending.append(Task { await service.gate(request) })
         }
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil {
+            (service.pendingPrompt == nil ? 0 : 1) + service.queuedPrompts.count == cap
+        }
 
         let overflow = ExtensionConsentRequestBuilder.make(
             extensionID: "noisy",
@@ -143,18 +182,31 @@ struct ExtensionConsentServiceTests {
             source: "test"
         )
         async let firstDecision = service.gate(first)
+        await waitUntil { service.pendingPrompt?.id == first.id }
+
         async let secondDecision = service.gate(second)
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil { service.queuedPrompts.count == 1 }
         #expect(service.pendingPrompt?.id == first.id)
-        #expect(service.queuedPrompts.count == 1)
+        #expect(service.queuedPrompts.first?.id == second.id)
+
         service.respond(requestID: first.id, choice: .allowOnce)
-        try? await Task.sleep(for: .milliseconds(50))
-        #expect(service.pendingPrompt?.id == second.id)
+        await waitUntil { service.pendingPrompt?.id == second.id }
         service.respond(requestID: second.id, choice: .denyOnce)
         let firstResult = await firstDecision
         let secondResult = await secondDecision
         #expect(firstResult == .allow)
         #expect(secondResult == .deny)
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(2),
+        _ condition: () -> Bool
+    ) async {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            if ContinuousClock.now >= deadline { return }
+            await Task.yield()
+        }
     }
 
     private func makeGrantStore() -> ExtensionGrantStore {

@@ -1,12 +1,13 @@
 import AppKit
 import Darwin
 import GhosttyKit
+import MuxyShared
 import UniformTypeIdentifiers
 
 final class GhosttyTerminalNSView: NSView {
     nonisolated(unsafe) private(set) var surface: ghostty_surface_t?
     private var surfaceFocused: Bool?
-    private let workingDirectory: String
+    private var workingDirectory: String
     private let command: String?
     private let commandInteractive: Bool
     private let commandClosesOnExit: Bool
@@ -34,7 +35,16 @@ final class GhosttyTerminalNSView: NSView {
 
     var processExitHandled = false
 
+    var onOfflineChange: ((Bool) -> Void)?
+    private var hasMaterializedOnce = false
+    private var isOfflinedState = false
+    private var offlineInvisibleAt: Date?
+
+    var isTakenOffline: Bool { isOfflinedState }
+    var offlineInvisibleSince: Date? { offlineInvisibleAt }
+
     private var isPaneVisible = true
+    private var isPaneFocused = false
     private var isWindowVisible = true
     nonisolated(unsafe) private var occlusionObserver: NSObjectProtocol?
 
@@ -111,6 +121,8 @@ final class GhosttyTerminalNSView: NSView {
         }
         pendingSurfaceCreation = false
 
+        let launchCommand = hasMaterializedOnce ? nil : command
+
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
         config.platform = ghostty_platform_u(
@@ -127,7 +139,7 @@ final class GhosttyTerminalNSView: NSView {
         surfaceCStringPointers.append(workingDirectoryPointer)
         config.working_directory = UnsafePointer(workingDirectoryPointer)
 
-        if let command,
+        if let command = launchCommand,
            let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
                interactive: commandInteractive,
                keepsShellOpen: !commandClosesOnExit
@@ -164,12 +176,20 @@ final class GhosttyTerminalNSView: NSView {
 
         guard let surface else { return }
 
+        hasMaterializedOnce = true
+        if isOfflinedState {
+            isOfflinedState = false
+            processExitHandled = false
+            onOfflineChange?(false)
+        }
+        resetOfflineVisibilityClock()
+
         let scale = Double(window?.backingScaleFactor ?? 2.0)
         ghostty_surface_set_content_scale(surface, scale, scale)
 
         ghostty_surface_set_size(surface, backingSize.width, backingSize.height)
 
-        applyColorScheme(isDark: ThemeService.isCurrentAppearanceDark())
+        reapplyActiveColors()
 
         if let screen = window?.screen ?? NSScreen.main,
            let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32
@@ -192,10 +212,16 @@ final class GhosttyTerminalNSView: NSView {
                 RemoteTerminalStreamer.shared.detach(paneID: paneID, surface: surface)
             }
             ghostty_surface_free(surface)
+            detachRendererLayer()
         }
         surface = nil
         surfaceFocused = nil
         cleanupSurfaceConfigPointers()
+    }
+
+    private func detachRendererLayer() {
+        layer = nil
+        wantsLayer = true
     }
 
     func tearDown() {
@@ -259,9 +285,11 @@ final class GhosttyTerminalNSView: NSView {
         delayedResizeWorkItem?.cancel()
         delayedResizeWorkItem = nil
 
+        updateOfflineVisibilityClock()
+
         guard let window else { return }
 
-        if surface == nil {
+        if surface == nil, !isOfflinedState || isPaneVisible {
             createSurface()
         }
 
@@ -305,7 +333,16 @@ final class GhosttyTerminalNSView: NSView {
     func setVisible(_ visible: Bool) {
         guard isPaneVisible != visible else { return }
         isPaneVisible = visible
+        updateOfflineVisibilityClock()
+        reviveSurfaceIfNeeded()
         applyOcclusionState()
+    }
+
+    func setFocused(_ focused: Bool) {
+        guard isPaneFocused != focused else { return }
+        isPaneFocused = focused
+        updateOfflineVisibilityClock()
+        reviveSurfaceIfNeeded()
     }
 
     private func applyOcclusionState() {
@@ -317,12 +354,118 @@ final class GhosttyTerminalNSView: NSView {
         let visible = window?.occlusionState.contains(.visible) ?? true
         guard isWindowVisible != visible else { return }
         isWindowVisible = visible
+        updateOfflineVisibilityClock()
+        reviveSurfaceIfNeeded()
         applyOcclusionState()
+    }
+
+    private func reviveSurfaceIfNeeded() {
+        guard isOfflinedState, surface == nil, keepsAwake else { return }
+        createSurface()
+    }
+
+    func wake() {
+        guard isOfflinedState, surface == nil else { return }
+        isPaneVisible = true
+        isPaneFocused = true
+        updateOfflineVisibilityClock()
+        createSurface()
+        applyOcclusionState()
+    }
+
+    private var isCurrentlyVisible: Bool {
+        window != nil && isPaneVisible && isWindowVisible
+    }
+
+    private var keepsAwake: Bool {
+        TerminalOfflinePolicy.keepsAwake(isOnScreen: isCurrentlyVisible, isFocused: isPaneFocused)
+    }
+
+    private func updateOfflineVisibilityClock() {
+        if keepsAwake {
+            offlineInvisibleAt = nil
+        } else if offlineInvisibleAt == nil {
+            offlineInvisibleAt = Date()
+        }
+    }
+
+    private func resetOfflineVisibilityClock() {
+        offlineInvisibleAt = keepsAwake ? nil : Date()
+    }
+
+    func updateResumeWorkingDirectory(_ directory: String) {
+        workingDirectory = directory
+    }
+
+    func isTerminalIdle() -> Bool {
+        guard let surface else { return true }
+        if ghostty_surface_needs_confirm_quit(surface) { return false }
+        return !isAlternateScreenActive(surface: surface)
+    }
+
+    var isOfflineBlockedByRemote: Bool {
+        guard let paneID = TerminalViewRegistry.shared.paneID(for: self) else { return false }
+        return TerminalViewRegistry.shared.isOwnedByRemote(paneID)
+    }
+
+    func takeOffline() {
+        guard isEligibleForOffline else { return }
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            MainActor.assumeIsolated {
+                self?.performOfflineTeardown()
+            }
+        }
+        CATransaction.commit()
+    }
+
+    private var isEligibleForOffline: Bool {
+        surface != nil && !keepsAwake && offlineInvisibleAt != nil
+            && !isOfflineBlockedByRemote && isTerminalIdle()
+    }
+
+    private func performOfflineTeardown() {
+        guard isEligibleForOffline else { return }
+        processExitHandled = true
+        destroySurface()
+        isOfflinedState = true
+        onOfflineChange?(true)
     }
 
     func applyColorScheme(isDark: Bool) {
         guard let surface else { return }
         ghostty_surface_set_color_scheme(surface, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+    }
+
+    func applyClientTheme(_ theme: ClientThemeDTO?) {
+        guard let surface else { return }
+        if let theme {
+            ClientThemeApplier.apply(theme, to: surface)
+            return
+        }
+        ClientThemeApplier.revert(surface)
+        applyColorScheme(isDark: ThemeService.isCurrentAppearanceDark())
+    }
+
+    func reapplyActiveColors() {
+        guard surface != nil else { return }
+        if let theme = activeClientTheme() {
+            applyClientTheme(theme)
+            return
+        }
+        applyColorScheme(isDark: ThemeService.isCurrentAppearanceDark())
+    }
+
+    func reapplyClientThemeIfOwned() {
+        guard surface != nil, let theme = activeClientTheme() else { return }
+        applyClientTheme(theme)
+    }
+
+    private func activeClientTheme() -> ClientThemeDTO? {
+        guard let paneID = TerminalViewRegistry.shared.paneID(for: self),
+              let clientID = PaneOwnershipStore.shared.remoteOwner(for: paneID)
+        else { return nil }
+        return ClientThemeStore.shared.theme(for: clientID)
     }
 
     private func updateMetalLayerSize(deferred: Bool) {
@@ -390,9 +533,10 @@ final class GhosttyTerminalNSView: NSView {
         if modifiers == .command, Self.systemShortcutKeys.contains(key) {
             return true
         }
-        let scopes = ShortcutContext.activeScopes(for: window)
+        let scopes = ShortcutContext.activeScopes(for: window, isTerminalFocused: true)
         return KeyBindingStore.shared.isRegisteredShortcut(event: event, scopes: scopes)
             || CommandShortcutStore.shared.isRegisteredShortcut(event: event, scopes: scopes)
+            || ExtensionShortcutStore.shared.isRegisteredShortcut(event: event, scopes: scopes)
     }
 
     private static let systemShortcutKeys: Set<String> = ["q", "h", "m", ","]
@@ -1064,6 +1208,12 @@ final class GhosttyTerminalNSView: NSView {
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
             ghostty_surface_send_input_raw(surface, base, UInt(bytes.count))
         }
+    }
+
+    func ensureLiveSurfaceForExternalIO() -> Bool {
+        guard surface == nil else { return true }
+        materializeHeadless()
+        return surface != nil
     }
 
     func readScreenText(lastLines: Int = 50) -> String {

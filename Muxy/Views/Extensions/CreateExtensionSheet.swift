@@ -8,10 +8,21 @@ struct CreateExtensionSheet: View {
     @State private var name = ""
     @State private var version = "0.1.0"
     @State private var description = ""
+    @State private var location: URL
     @State private var errorMessage: String?
+
+    init(store: ExtensionStore, onFinish: @escaping () -> Void) {
+        self.store = store
+        self.onFinish = onFinish
+        _location = State(initialValue: store.rootDirectory)
+    }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var trimmedVersion: String { version.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var isDefaultLocation: Bool {
+        location.standardizedFileURL.path == store.rootDirectory.standardizedFileURL.path
+    }
 
     private var canCreate: Bool {
         !trimmedName.isEmpty && !trimmedVersion.isEmpty
@@ -50,6 +61,22 @@ struct CreateExtensionSheet: View {
                     .lineLimit(2 ... 4)
             }
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Location")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MuxyTheme.fgMuted)
+                HStack(spacing: 8) {
+                    Text(location.path)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(MuxyTheme.fgDim)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    Button("Choose…") { chooseLocation() }
+                        .font(.system(size: 11))
+                }
+            }
+
             if let errorMessage {
                 Text(errorMessage)
                     .font(.system(size: 11))
@@ -75,7 +102,11 @@ struct CreateExtensionSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             guideRow(
                 symbol: "folder",
-                text: "Creates the extension in \(store.rootDirectory.path)/<name>"
+                text: "Creates the extension in \(location.path)/<name>"
+            )
+            guideRow(
+                symbol: "shippingbox",
+                text: "Copies the vanilla JS + Tailwind starter kit (a working panel, topbar item, and command)"
             )
             guideRow(
                 symbol: "doc.text",
@@ -137,12 +168,26 @@ struct CreateExtensionSheet: View {
         }
     }
 
+    private func chooseLocation() {
+        guard let directory = ExtensionFolderPicker.pick(
+            title: "Extension Location",
+            message: "Choose the parent folder for the new extension.",
+            directory: location
+        )
+        else { return }
+        location = directory
+    }
+
     private func create() {
         errorMessage = nil
         let request = ExtensionScaffoldRequest(name: name, version: version, description: description)
         do {
-            let directory = try ExtensionScaffoldService.create(request, in: store.rootDirectory)
-            store.reload()
+            let directory = try ExtensionScaffoldService.create(request, in: location)
+            if isDefaultLocation {
+                store.reload()
+            } else {
+                store.addDevPath(directory.path)
+            }
             onFinish()
             NSApp.keyWindow?.close()
             NotificationCenter.default.post(

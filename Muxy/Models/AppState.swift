@@ -15,18 +15,12 @@ final class AppState {
         var command: String?
     }
 
-    struct DiffViewerRequest {
-        let vcs: VCSTabState
-        let filePath: String?
-        let isStaged: Bool
-        var source: DiffViewerTabState.Source = .workingTree
-    }
-
     struct CreateExtensionTabRequest {
         let extensionID: String
         let tabTypeID: String
         let title: String
         let data: ExtensionJSON?
+        let singleton: Bool
     }
 
     enum Action {
@@ -42,11 +36,6 @@ final class AppState {
         case createTab(projectID: UUID, areaID: UUID?)
         case createTabInDirectory(projectID: UUID, areaID: UUID?, directory: String)
         case createCommandTab(CommandTabRequest)
-        case createVCSTab(projectID: UUID, areaID: UUID?)
-        case createEditorTab(projectID: UUID, areaID: UUID?, filePath: String, suppressInitialFocus: Bool)
-        case createExternalEditorTab(projectID: UUID, areaID: UUID?, filePath: String, command: String)
-        case createDiffViewerTab(projectID: UUID, areaID: UUID?, request: DiffViewerRequest)
-        case createImageViewerTab(projectID: UUID, areaID: UUID?, filePath: String)
         case createExtensionTab(projectID: UUID, areaID: UUID?, request: CreateExtensionTabRequest)
         case restoreClosedTerminalTab(projectID: UUID, areaID: UUID?, snapshot: ClosedTerminalTabSnapshot)
         case closeTab(projectID: UUID, areaID: UUID, tabID: UUID)
@@ -97,9 +86,7 @@ final class AppState {
     var pendingLayoutApply: PendingLayoutApply?
     var maximizedAreaID: [WorktreeKey: UUID] = [:]
     var pendingLastTabClose: PendingTabClose?
-    var pendingUnsavedEditorTabClose: PendingTabClose?
     var pendingProcessTabClose: PendingTabClose?
-    var pendingSaveErrorMessage: String?
     let navigation = NavigationHistory()
     private var focusHistory: [WorktreeKey: [UUID]] = [:]
 
@@ -207,6 +194,12 @@ final class AppState {
         ))
     }
 
+    func openInitialTab(projectID: UUID, worktree: Worktree) {
+        selectWorktree(projectID: projectID, worktree: worktree)
+        guard !hasTabs(for: projectID) else { return }
+        createTab(projectID: projectID)
+    }
+
     func focusedArea(for projectID: UUID) -> TabArea? {
         guard let key = activeWorktreeKey(for: projectID),
               let root = workspaceRoots[key],
@@ -218,6 +211,10 @@ final class AppState {
     func allAreas(for projectID: UUID) -> [TabArea] {
         guard let key = activeWorktreeKey(for: projectID) else { return [] }
         return workspaceRoots[key]?.allAreas() ?? []
+    }
+
+    func hasTabs(for projectID: UUID) -> Bool {
+        allAreas(for: projectID).contains { !$0.tabs.isEmpty }
     }
 
     func locatePane(paneID: UUID) -> (worktreeKey: WorktreeKey, pane: TerminalPaneState)? {
@@ -305,205 +302,30 @@ final class AppState {
         ))
     }
 
-    func createVCSTab(projectID: UUID) {
-        dispatch(.createVCSTab(projectID: projectID, areaID: nil))
-    }
-
-    func openFile(
-        _ filePath: String,
-        projectID: UUID,
-        preserveFocus: Bool = false,
-        line: Int? = nil,
-        column: Int = 1
-    ) {
-        if EditorTabState.usesHTMLPreview(filePath: filePath) {
-            openBuiltInEditorFile(filePath, projectID: projectID, preserveFocus: preserveFocus, line: line, column: column)
-            return
-        }
-        if ImageViewerTabState.canOpen(filePath: filePath) {
-            openImageFile(filePath, projectID: projectID)
-            return
-        }
-        let settings = EditorSettings.shared
-        if settings.defaultEditor == .terminalCommand {
-            let command = settings.externalEditorCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !command.isEmpty {
-                openFileInExternalEditor(filePath, projectID: projectID, command: command)
-                return
-            }
-        }
-        openBuiltInEditorFile(filePath, projectID: projectID, preserveFocus: preserveFocus, line: line, column: column)
-    }
-
-    private func openBuiltInEditorFile(
-        _ filePath: String,
-        projectID: UUID,
-        preserveFocus: Bool,
-        line: Int?,
-        column: Int
-    ) {
-        for area in allAreas(for: projectID) {
-            if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
-                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
-                if let line, let editorState = tab.content.editorState {
-                    requestEditorJump(state: editorState, line: line, column: column)
-                }
-                return
-            }
-        }
-        dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath, suppressInitialFocus: preserveFocus))
-        if let line {
-            for area in allAreas(for: projectID) {
-                if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }),
-                   let editorState = tab.content.editorState
-                {
-                    requestEditorJump(state: editorState, line: line, column: column)
-                    break
-                }
-            }
-        }
-    }
-
-    func openImageFile(_ filePath: String, projectID: UUID) {
-        for area in allAreas(for: projectID) {
-            if let tab = area.tabs.first(where: { $0.content.imageViewerState?.filePath == filePath }) {
-                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
-                return
-            }
-        }
-        dispatch(.createImageViewerTab(projectID: projectID, areaID: nil, filePath: filePath))
-    }
-
-    func openMarkdownLinkTarget(_ filePath: String, projectID: UUID, fragment: String?) {
-        for area in allAreas(for: projectID) {
-            if let tab = area.tabs.first(where: { $0.content.editorState?.filePath == filePath }) {
-                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
-                if let editorState = tab.content.editorState {
-                    prepareMarkdownLinkTarget(editorState, fragment: fragment)
-                }
-                return
-            }
-        }
-
-        dispatch(.createEditorTab(projectID: projectID, areaID: nil, filePath: filePath, suppressInitialFocus: false))
-        if let editorState = editorState(for: filePath, projectID: projectID) {
-            prepareMarkdownLinkTarget(editorState, fragment: fragment)
-        }
-    }
-
-    private func editorState(for filePath: String, projectID: UUID) -> EditorTabState? {
-        for area in allAreas(for: projectID) {
-            if let editorState = area.tabs.compactMap(\.content.editorState).first(where: { $0.filePath == filePath }) {
-                return editorState
-            }
-        }
-        return nil
-    }
-
-    private func prepareMarkdownLinkTarget(_ editorState: EditorTabState, fragment: String?) {
-        guard editorState.isMarkdownFile else { return }
-        editorState.markdownViewMode = .preview
-        editorState.requestMarkdownFragment(fragment)
-    }
-
-    private func requestEditorJump(state: EditorTabState, line: Int, column: Int) {
-        if state.isMarkdownFile, state.markdownViewMode != .code {
-            state.markdownViewMode = .code
-        }
-        state.pendingJumpLine = line
-        state.pendingJumpColumn = max(1, column)
-        state.pendingJumpVersion &+= 1
-    }
-
-    func handleFileMoved(from oldPath: String, to newPath: String) {
-        guard oldPath != newPath else { return }
-        let oldPrefix = oldPath + "/"
-        for (_, root) in workspaceRoots {
-            for area in root.allAreas() {
-                for tab in area.tabs {
-                    if let editorState = tab.content.editorState {
-                        let currentPath = editorState.filePath
-                        if currentPath == oldPath {
-                            editorState.updateFilePath(newPath)
-                        } else if currentPath.hasPrefix(oldPrefix) {
-                            editorState.updateFilePath(newPath + "/" + String(currentPath.dropFirst(oldPrefix.count)))
-                        }
-                    } else if let imageState = tab.content.imageViewerState {
-                        let currentPath = imageState.filePath
-                        if currentPath == oldPath {
-                            imageState.updateFilePath(newPath)
-                        } else if currentPath.hasPrefix(oldPrefix) {
-                            imageState.updateFilePath(newPath + "/" + String(currentPath.dropFirst(oldPrefix.count)))
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    func openDiffViewer(vcs: VCSTabState, filePath: String, isStaged: Bool, projectID: UUID) {
-        for area in allAreas(for: projectID) {
-            if let tab = area.tabs.first(where: { tab in
-                tab.content.diffViewerState != nil
-            }) {
-                tab.content.diffViewerState?.select(filePath: filePath, isStaged: isStaged)
-                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
-                return
-            }
-        }
-        dispatch(.createDiffViewerTab(
-            projectID: projectID,
-            areaID: nil,
-            request: DiffViewerRequest(vcs: vcs, filePath: filePath, isStaged: isStaged)
-        ))
-    }
-
-    func openDiffViewer(vcs: VCSTabState, source: DiffViewerTabState.Source, projectID: UUID) {
-        dispatch(.createDiffViewerTab(
-            projectID: projectID,
-            areaID: nil,
-            request: DiffViewerRequest(vcs: vcs, filePath: nil, isStaged: false, source: source)
-        ))
-    }
-
-    func openDiffViewer(projectID: UUID) {
-        guard let worktreePath = activeWorktreePath(for: projectID) else { return }
-        let vcs = VCSStateStore.shared.state(for: worktreePath)
-        for area in allAreas(for: projectID) {
-            if let tab = area.tabs.first(where: { tab in
-                tab.content.diffViewerState != nil
-            }) {
-                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
-                return
-            }
-        }
-        dispatch(.createDiffViewerTab(
-            projectID: projectID,
-            areaID: nil,
-            request: DiffViewerRequest(vcs: vcs, filePath: nil, isStaged: false)
-        ))
-    }
-
-    private func openFileInExternalEditor(_ filePath: String, projectID: UUID, command: String) {
-        for area in allAreas(for: projectID) {
-            if let tab = area.tabs.first(where: { $0.content.pane?.externalEditorFilePath == filePath }) {
-                dispatch(.selectTab(projectID: projectID, areaID: area.id, tabID: tab.id))
-                return
-            }
-        }
-        dispatch(.createExternalEditorTab(projectID: projectID, areaID: nil, filePath: filePath, command: command))
-    }
-
     func closeTab(_ tabID: UUID, projectID: UUID) {
         guard let area = focusedArea(for: projectID) else { return }
         closeTab(tabID, areaID: area.id, projectID: projectID)
     }
 
     func closeTab(_ tabID: UUID, areaID: UUID, projectID: UUID) {
-        if needsUnsavedEditorConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
-            pendingUnsavedEditorTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
+        guard let surfaceKey = lifecycleSurfaceKey(tabID: tabID, areaID: areaID, projectID: projectID) else {
+            proceedCloseAfterVeto(tabID, areaID: areaID, projectID: projectID)
             return
         }
+        Task { @MainActor in
+            let verdict = await ExtensionSurfaceBridgeRegistry.shared.requestBeforeClose(surfaceKey)
+            guard verdict == .allow else { return }
+            proceedCloseAfterVeto(tabID, areaID: areaID, projectID: projectID)
+        }
+    }
+
+    func closeTabs(_ tabIDs: [UUID], areaID: UUID, projectID: UUID) {
+        for tabID in tabIDs {
+            closeTab(tabID, areaID: areaID, projectID: projectID)
+        }
+    }
+
+    private func proceedCloseAfterVeto(_ tabID: UUID, areaID: UUID, projectID: UUID) {
         if needsProcessConfirmation(tabID: tabID, areaID: areaID, projectID: projectID) {
             pendingProcessTabClose = PendingTabClose(projectID: projectID, areaID: areaID, tabID: tabID)
             return
@@ -517,6 +339,27 @@ final class AppState {
         closeAndRecordTerminalTab(tabID, areaID: areaID, projectID: projectID)
     }
 
+    func forceCloseTab(instanceID: String) {
+        for (key, root) in workspaceRoots {
+            for area in root.allAreas() {
+                for tab in area.tabs where tab.content.extensionState?.id.uuidString == instanceID {
+                    forceCloseTab(tab.id, areaID: area.id, projectID: key.projectID)
+                    return
+                }
+            }
+        }
+    }
+
+    private func lifecycleSurfaceKey(tabID: UUID, areaID: UUID, projectID: UUID) -> LifecycleSurfaceKey? {
+        guard let key = activeWorktreeKey(for: projectID),
+              let root = workspaceRoots[key],
+              let area = root.findArea(id: areaID),
+              let tab = area.tabs.first(where: { $0.id == tabID }),
+              let state = tab.content.extensionState
+        else { return nil }
+        return LifecycleSurfaceKey(kind: .tab, instanceID: state.id.uuidString)
+    }
+
     func confirmCloseRunningTab() {
         guard let pending = pendingProcessTabClose else { return }
         pendingProcessTabClose = nil
@@ -525,39 +368,6 @@ final class AppState {
 
     func cancelCloseRunningTab() {
         pendingProcessTabClose = nil
-    }
-
-    func confirmCloseUnsavedEditorTab() {
-        guard let pending = pendingUnsavedEditorTabClose else { return }
-        pendingUnsavedEditorTabClose = nil
-        closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
-    }
-
-    func saveAndCloseUnsavedEditorTab() {
-        guard let pending = pendingUnsavedEditorTabClose else { return }
-        guard let key = activeWorktreeKey(for: pending.projectID),
-              let root = workspaceRoots[key],
-              let area = root.findArea(id: pending.areaID),
-              let tab = area.tabs.first(where: { $0.id == pending.tabID }),
-              let editorState = tab.content.editorState
-        else {
-            pendingUnsavedEditorTabClose = nil
-            return
-        }
-        pendingUnsavedEditorTabClose = nil
-        let fileName = editorState.fileName
-        Task { [weak self] in
-            do {
-                try await editorState.saveFileAsync()
-                self?.closeTabWithLastCheck(pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
-            } catch {
-                self?.pendingSaveErrorMessage = "Failed to save \(fileName): \(error.localizedDescription)"
-            }
-        }
-    }
-
-    func cancelCloseUnsavedEditorTab() {
-        pendingUnsavedEditorTabClose = nil
     }
 
     private func closeTabWithLastCheck(_ tabID: UUID, areaID: UUID, projectID: UUID) {
@@ -752,30 +562,6 @@ final class AppState {
         let allAreas = root.allAreas()
         let totalTabs = allAreas.reduce(0) { $0 + $1.tabs.count }
         return totalTabs <= 1
-    }
-
-    func unsavedEditorTabs() -> [EditorTabState] {
-        var result: [EditorTabState] = []
-        for (_, root) in workspaceRoots {
-            for area in root.allAreas() {
-                for tab in area.tabs {
-                    if let state = tab.content.editorState, state.isModified {
-                        result.append(state)
-                    }
-                }
-            }
-        }
-        return result
-    }
-
-    private func needsUnsavedEditorConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
-        guard let key = activeWorktreeKey(for: projectID),
-              let root = workspaceRoots[key],
-              let area = root.findArea(id: areaID),
-              let tab = area.tabs.first(where: { $0.id == tabID }),
-              let editorState = tab.content.editorState
-        else { return false }
-        return editorState.isModified
     }
 
     private func needsProcessConfirmation(tabID: UUID, areaID: UUID, projectID: UUID) -> Bool {
@@ -1018,12 +804,6 @@ final class AppState {
            !tabExists(tabID: pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
         {
             pendingLastTabClose = nil
-        }
-
-        if let pending = pendingUnsavedEditorTabClose,
-           !tabExists(tabID: pending.tabID, areaID: pending.areaID, projectID: pending.projectID)
-        {
-            pendingUnsavedEditorTabClose = nil
         }
 
         if let pending = pendingProcessTabClose,

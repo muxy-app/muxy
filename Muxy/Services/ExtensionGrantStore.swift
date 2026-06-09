@@ -6,6 +6,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "ExtensionGrantStor
 enum ExtensionGrantDecision: String, Codable, Equatable {
     case allow
     case deny
+    case blocked
 }
 
 enum ExtensionGatedVerb: String, Codable, CaseIterable {
@@ -14,6 +15,24 @@ enum ExtensionGatedVerb: String, Codable, CaseIterable {
     case panesSendKeys = "panes.sendKeys"
     case panesReadScreen = "panes.readScreen"
     case tabsOpenForeign = "tabs.openForeign"
+    case remoteInvoke = "remote.invoke"
+    case gitWrite = "git.write"
+    case filesWrite = "files.write"
+    case httpFetch = "http.fetch"
+
+    var kindDisplayName: String {
+        switch self {
+        case .exec: "shell commands"
+        case .panesSend: "terminal input"
+        case .panesSendKeys: "terminal keystrokes"
+        case .panesReadScreen: "terminal output reads"
+        case .tabsOpenForeign: "foreign tab opens"
+        case .remoteInvoke: "mobile requests"
+        case .gitWrite: "git changes"
+        case .filesWrite: "file changes"
+        case .httpFetch: "network requests"
+        }
+    }
 }
 
 enum ExtensionGrantMatch: Codable, Equatable {
@@ -23,6 +42,10 @@ enum ExtensionGrantMatch: Codable, Equatable {
     case shellExact(String)
     case paneEquals(String)
     case foreignTabEquals(targetExtensionID: String, tabTypeID: String)
+    case remoteActionEquals(String)
+    case gitOperationEquals(String)
+    case fileOperationEquals(String)
+    case hostEquals(String)
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -38,6 +61,10 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case shellExact
         case paneEquals
         case foreignTabEquals
+        case remoteActionEquals
+        case gitOperationEquals
+        case fileOperationEquals
+        case hostEquals
     }
 
     init(from decoder: Decoder) throws {
@@ -59,6 +86,14 @@ enum ExtensionGrantMatch: Codable, Equatable {
                 targetExtensionID: container.decode(String.self, forKey: .target),
                 tabTypeID: container.decode(String.self, forKey: .string)
             )
+        case .remoteActionEquals:
+            self = try .remoteActionEquals(container.decode(String.self, forKey: .string))
+        case .gitOperationEquals:
+            self = try .gitOperationEquals(container.decode(String.self, forKey: .string))
+        case .fileOperationEquals:
+            self = try .fileOperationEquals(container.decode(String.self, forKey: .string))
+        case .hostEquals:
+            self = try .hostEquals(container.decode(String.self, forKey: .string))
         }
     }
 
@@ -83,6 +118,18 @@ enum ExtensionGrantMatch: Codable, Equatable {
             try container.encode(Kind.foreignTabEquals, forKey: .kind)
             try container.encode(target, forKey: .target)
             try container.encode(tab, forKey: .string)
+        case let .remoteActionEquals(action):
+            try container.encode(Kind.remoteActionEquals, forKey: .kind)
+            try container.encode(action, forKey: .string)
+        case let .gitOperationEquals(operation):
+            try container.encode(Kind.gitOperationEquals, forKey: .kind)
+            try container.encode(operation, forKey: .string)
+        case let .fileOperationEquals(operation):
+            try container.encode(Kind.fileOperationEquals, forKey: .kind)
+            try container.encode(operation, forKey: .string)
+        case let .hostEquals(host):
+            try container.encode(Kind.hostEquals, forKey: .kind)
+            try container.encode(host, forKey: .string)
         }
     }
 
@@ -91,6 +138,10 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case .any: 0
         case .paneEquals,
              .shellExact: 100
+        case .hostEquals: 110
+        case .remoteActionEquals: 120
+        case .gitOperationEquals: 130
+        case .fileOperationEquals: 135
         case .foreignTabEquals: 150
         case let .argvPrefix(tokens): 50 + tokens.count
         case let .argvExact(tokens): 200 + tokens.count
@@ -105,6 +156,10 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .shellExact(value): "sh: \(value)"
         case let .paneEquals(value): "pane: \(value)"
         case let .foreignTabEquals(target, tab): "tab: \(target)/\(tab)"
+        case let .remoteActionEquals(action): "action: \(action)"
+        case let .gitOperationEquals(operation): "git: \(operation)"
+        case let .fileOperationEquals(operation): "file: \(operation)"
+        case let .hostEquals(host): "host: \(host)"
         }
     }
 }
@@ -113,6 +168,10 @@ enum ExtensionGatedPayload {
     case exec(argv: [String]?, shell: String?)
     case pane(id: String)
     case foreignTab(targetExtensionID: String, tabTypeID: String)
+    case remote(action: String, deviceName: String)
+    case git(operation: String, repoPath: String)
+    case file(operation: String, path: String)
+    case http(hostname: String, method: String, url: String)
 
     func matches(_ match: ExtensionGrantMatch) -> Bool {
         switch (self, match) {
@@ -130,6 +189,14 @@ enum ExtensionGatedPayload {
             return id == expected
         case let (.foreignTab(target, tab), .foreignTabEquals(expectedTarget, expectedTab)):
             return target == expectedTarget && tab == expectedTab
+        case let (.remote(action, _), .remoteActionEquals(expected)):
+            return action == expected
+        case let (.git(operation, _), .gitOperationEquals(expected)):
+            return operation == expected
+        case let (.file(operation, _), .fileOperationEquals(expected)):
+            return operation == expected
+        case let (.http(hostname, _, _), .hostEquals(expected)):
+            return hostname == expected
         default:
             return false
         }
@@ -209,7 +276,7 @@ final class ExtensionGrantStore {
                 return lhs.match.specificity > rhs.match.specificity
             }
             if lhs.decision != rhs.decision {
-                return lhs.decision == .deny
+                return rhs.decision == .allow
             }
             return lhs.createdAt < rhs.createdAt
         }
@@ -236,6 +303,15 @@ final class ExtensionGrantStore {
     func removeAll(for extensionID: String) {
         rules.removeAll { $0.extensionID == extensionID }
         save()
+    }
+
+    @discardableResult
+    func blockKind(extensionID: String, verb: ExtensionGatedVerb) -> UUID {
+        rules.removeAll { $0.extensionID == extensionID && $0.verb == verb }
+        let rule = ExtensionGrantRule(extensionID: extensionID, verb: verb, match: .any, decision: .blocked)
+        rules.append(rule)
+        save()
+        return rule.id
     }
 
     private func load() {
@@ -275,6 +351,14 @@ enum ExtensionGrantSuggestion {
             }
             if let shell { return .shellExact(shell) }
             return .any
+        case let (.remoteInvoke, .remote(action, _)):
+            return .remoteActionEquals(action)
+        case let (.gitWrite, .git(operation, _)):
+            return .gitOperationEquals(operation)
+        case let (.filesWrite, .file(operation, _)):
+            return .fileOperationEquals(operation)
+        case let (.httpFetch, .http(hostname, _, _)):
+            return .hostEquals(hostname)
         case (.panesSend, _),
              (.panesSendKeys, _),
              (.panesReadScreen, _),

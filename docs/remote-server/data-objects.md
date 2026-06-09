@@ -1,5 +1,7 @@
 # Data Objects
 
+Every object below is the exact wire shape produced by the desktop. All dates are ISO 8601, all IDs are UUID strings, and colors are unsigned 32-bit integers in `0xRRGGBB` form.
+
 ## Project
 
 ```json
@@ -10,10 +12,14 @@
   "sortOrder": 0,
   "createdAt": "2026-04-19T10:00:00Z",
   "icon": "hammer",
-  "logo": "custom",
-  "iconColor": "#7C3AED"
+  "logo": "a1b2c3d4",
+  "iconColor": "#7C3AED",
+  "preferredWorktreeParentPath": "/Users/example",
+  "worktreesEnabled": false
 }
 ```
+
+`icon`, `logo`, `iconColor`, and `preferredWorktreeParentPath` are optional and omitted when unset. `icon` is an SF Symbol name. `logo` is an opaque storage identifier — fetch the image with [`getProjectLogo`](methods.md). `iconColor` is a hex string or a palette id (`red`, `blue`, `violet`, …). `worktreesEnabled` indicates whether the project exposes its worktrees in the sidebar; it defaults to `false`.
 
 ## Worktree
 
@@ -29,24 +35,32 @@
 }
 ```
 
+`branch` is optional (omitted for a detached HEAD). `canBeRemoved` defaults to `!isPrimary` — the primary worktree cannot be removed.
+
 ## Workspace
 
-A workspace contains:
+A workspace describes one project's split/tab layout.
 
-- `projectID`
-- `worktreeID`
-- `focusedAreaID`
-- `root` — recursive tree node
+```json
+{
+  "projectID": "uuid",
+  "worktreeID": "uuid",
+  "focusedAreaID": "uuid",
+  "root": { "type": "tabArea", "tabArea": { … } }
+}
+```
 
-`root` has two node types:
+`focusedAreaID` is optional. `root` is a recursive node — either a `tabArea` leaf or a `split` branch:
 
 ```mermaid
 classDiagram
   class SplitNode {
-    type: "split" | "tabArea"
+    type: "tabArea" | "split"
   }
-  class Split {
+  class SplitBranch {
+    id: uuid
     direction: horizontal | vertical
+    ratio: double
     first: SplitNode
     second: SplitNode
   }
@@ -58,22 +72,26 @@ classDiagram
   }
   class Tab {
     id: uuid
-    kind: terminal | vcs | editor | diffViewer
+    kind: terminal | vcs | extensionWebView
     title: string
     isPinned: bool
-    paneID: uuid
+    paneID: uuid?
   }
-  SplitNode <|-- Split
   SplitNode <|-- TabArea
+  SplitNode <|-- SplitBranch
   TabArea "1" --> "*" Tab
-  Split "1" --> "2" SplitNode
+  SplitBranch "1" --> "2" SplitNode
 ```
 
-`paneID` is required for terminal-related methods.
+A `tabArea` node is encoded as `{ "type": "tabArea", "tabArea": { … } }`; a `split` node as `{ "type": "split", "split": { … } }`.
 
-## Terminal snapshot
+`ratio` is the first child's fraction of the split (0–1). `activeTabID` and `paneID` are optional. `paneID` is required for every terminal-related method, and is only present on panes that back a live surface.
 
-`getTerminalContent` returns a full terminal grid:
+`kind` is one of `terminal`, `vcs`, `extensionWebView`. There is no `editor` or `diffViewer` kind.
+
+## Terminal cells
+
+`getTerminalContent` returns a `terminalCells` object — a full snapshot of the rendered grid:
 
 ```json
 {
@@ -87,29 +105,71 @@ classDiagram
   "defaultBg": 0,
   "cells": [
     { "codepoint": 65, "fg": 16777215, "bg": 0, "flags": 0 }
-  ]
+  ],
+  "altScreen": false,
+  "cursorKeys": false,
+  "bracketedPaste": false,
+  "focusEvent": false,
+  "mouseEvent": 0,
+  "mouseFormat": 0
 }
 ```
 
-- Colors are integer RGB in `0xRRGGBB` form.
-- `cells` is a flat array representing the full grid.
-- `flags` is a bitmask for text styling and wide-character metadata.
+- `cells` is a flat, row-major array of `cols × rows` cells.
+- `defaultFg` / `defaultBg` / `fg` / `bg` are integer RGB in `0xRRGGBB` form.
+- `flags` is a bitmask: bold `1`, italic `2`, faint `4`, blink `8`, inverse `16`, invisible `32`, strike `64`, underline `128`, overline `256`, wide `512`, spacer `1024`.
+- `altScreen`, `cursorKeys`, `bracketedPaste`, `focusEvent` are terminal mode flags the client needs to encode input correctly.
+- `mouseEvent` and `mouseFormat` mirror the pane's active mouse-tracking mode and encoding.
+
+## Client theme
+
+The `theme` carried by [`setClientTheme`](methods.md) and the pairing/authenticate requests. All colors are unsigned 32-bit integers in `0xRRGGBB` form.
+
+```json
+{
+  "fg": 13948116,
+  "bg": 1315860,
+  "palette": [2368548, 16542083, "… 16 entries …"],
+  "cursorColor": 13948116,
+  "cursorText": 1315860,
+  "selectionBackground": 2894892,
+  "selectionForeground": 14998740
+}
+```
+
+- `fg`, `bg`, and `palette` are required; `palette` should hold 16 entries (indices 0–15) and anything past 16 is ignored.
+- `cursorColor`, `cursorText`, `selectionBackground`, and `selectionForeground` are optional and omitted when unset.
+- Send the whole object as `null` (`{ "theme": null }`) to clear and revert the owned panes to the Mac theme.
 
 ## Notification
 
-| Field | Notes |
+```json
+{
+  "id": "uuid",
+  "paneID": "uuid",
+  "projectID": "uuid",
+  "worktreeID": "uuid",
+  "areaID": "uuid",
+  "tabID": "uuid",
+  "source": { "aiProvider": { "_0": "claude" } },
+  "title": "Build finished",
+  "body": "All tests passed",
+  "timestamp": "2026-04-19T10:00:00Z",
+  "isRead": false
+}
+```
+
+`paneID`, `projectID`, `worktreeID`, `areaID`, and `tabID` give the full navigation context for click-to-focus. `source` is a tagged object with exactly one of three shapes:
+
+| Source | JSON |
 | --- | --- |
-| `id` | UUID |
-| `paneID` | Originating pane (if known) |
-| `projectID` / `worktreeID` / `areaID` / `tabID` | Full navigation context for click-to-focus |
-| `source` | `claude_hook`, `opencode`, OSC, custom, … |
-| `title` / `body` | User-visible content |
-| `timestamp` | ISO 8601 |
-| `isRead` | bool |
+| OSC 9 / terminal escape | `{ "osc": {} }` |
+| AI provider (id carried inside) | `{ "aiProvider": { "_0": "claude" } }` |
+| Extension / socket | `{ "socket": {} }` |
 
 ## Project logo
 
-Base64-encoded PNG:
+`getProjectLogo` returns Base64-encoded PNG bytes:
 
 ```json
 { "projectID": "uuid", "pngData": "iVBORw0KGgoAAAANS..." }

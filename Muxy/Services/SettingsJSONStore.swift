@@ -102,7 +102,6 @@ enum SettingsJSONStore {
         dictionary["shortcuts.app"] = keyBindingsJSONObject(KeyBinding.defaults)
         dictionary["shortcuts.customCommands"] = commandShortcutsJSONObject(CommandShortcutConfiguration())
         dictionary["ai.providers"] = notificationProviderSettings(defaultValue: true)
-        dictionary["aiUsage.providers"] = aiUsageProviderSettings(defaultValue: false)
         dictionary["mobile.approvedDevices"] = []
         return dictionary
     }
@@ -118,7 +117,6 @@ enum SettingsJSONStore {
             shortcuts: CommandShortcutStore.shared.shortcuts
         ))
         dictionary["ai.providers"] = notificationProviderSettings()
-        dictionary["aiUsage.providers"] = aiUsageProviderSettings()
         dictionary["mobile.approvedDevices"] = codableJSONObject(ApprovedDevicesStore.shared.devices) ?? []
         return dictionary
     }
@@ -194,21 +192,15 @@ enum SettingsJSONStore {
     private static func validateAllowedString(_ value: String, key: String) throws {
         let allowedValues: [String: Set<String>] = [
             UpdateChannel.storageKey: Set(UpdateChannel.allCases.map(\.rawValue)),
-            GeneralSettingsKeys.fileTreeSource: Set(FileTreeSourcePreference.allCases.map(\.rawValue)),
             ProjectPickerPreferences.storageKey: Set(ProjectPickerMode.allCases.map(\.rawValue)),
             SentryConsent.storageKey: Set(["", SentryConsent.allowed.rawValue, SentryConsent.denied.rawValue]),
             "muxy.ui.scale": Set(UIScale.Preset.allCases.map(\.rawValue)),
             SidebarCollapsedStyle.storageKey: Set(SidebarCollapsedStyle.allCases.map(\.rawValue)),
             SidebarExpandedStyle.storageKey: Set(SidebarExpandedStyle.allCases.map(\.rawValue)),
-            "muxy.vcsDisplayMode": Set(VCSDisplayMode.allCases.map(\.rawValue)),
-            RichInputPreferences.positionKey: Set(RichInputPanelPosition.allCases.map(\.rawValue)),
-            "editor.defaultEditor": Set(EditorSettings.DefaultEditor.allCases.map(\.rawValue)),
-            "editor.htmlDefaultViewMode": Set(EditorMarkdownViewMode.allCases.map(\.rawValue)),
+            RichInputPreferences.positionKey: Set(PanelPosition.allCases.map(\.rawValue)),
             "editor.richInputImageStrategy": Set(RichInputImageStrategy.allCases.map(\.rawValue)),
-            "muxy.notifications.sound": Set(NotificationSound.allCases.map(\.rawValue)),
-            "muxy.notifications.toastPosition": Set(ToastPosition.allCases.map(\.rawValue)),
-            AIAssistantSettings.providerKey: Set(AIAssistantProvider.allCases.map(\.rawValue)),
-            AIUsageSettingsStore.usageDisplayModeKey: Set(AIUsageDisplayMode.allCases.map(\.rawValue)),
+            NotificationSettings.Key.sound: Set(NotificationSound.allCases.map(\.rawValue)),
+            NotificationSettings.Key.toastPosition: Set(ToastPosition.allCases.map(\.rawValue)),
         ]
         guard let allowed = allowedValues[key] else { return }
         guard allowed.contains(value) else { throw SettingsJSONError.invalidValue(key) }
@@ -221,21 +213,11 @@ enum SettingsJSONStore {
             }
             return
         }
-        if key == AIUsageSettingsStore.autoRefreshIntervalKey {
-            guard AIUsageAutoRefreshInterval(rawValue: value) != nil else { throw SettingsJSONError.invalidValue(key) }
-        }
     }
 
     private static func validateAllowedDouble(_ value: Double, key: String) throws {
         switch key {
-        case "editor.fontSize":
-            guard (8 ... 36).contains(value) else { throw SettingsJSONError.invalidValue(key) }
-        case "editor.markdownPreviewFontScale":
-            guard (Double(EditorSettings.minMarkdownPreviewFontScale) ... Double(EditorSettings.maxMarkdownPreviewFontScale))
-                .contains(value)
-            else { throw SettingsJSONError.invalidValue(key) }
-        case "editor.lineHeightMultiplier",
-             "editor.richInputLineHeightMultiplier":
+        case "editor.richInputLineHeightMultiplier":
             guard (Double(EditorSettings.minLineHeightMultiplier) ... Double(EditorSettings.maxLineHeightMultiplier))
                 .contains(value)
             else { throw SettingsJSONError.invalidValue(key) }
@@ -252,20 +234,9 @@ enum SettingsJSONStore {
         case "muxy.theme.light": ThemeService.shared.currentLightThemeName() ?? ThemeService.defaultThemeName
         case "muxy.theme.dark": ThemeService.shared.currentDarkThemeName() ?? ThemeService.defaultThemeName
         case ProjectPickerDefaultLocation.storageKey: UserDefaults.standard.string(forKey: item.key) ?? ""
-        case "editor.defaultEditor": settings.defaultEditor.rawValue
-        case "editor.externalEditorCommand": settings.externalEditorCommand
-        case "editor.markdownPreviewFontFamily": settings.markdownPreviewFontFamily
-        case "editor.markdownPreviewFontScale": Double(settings.markdownPreviewFontScale)
-        case "editor.htmlDefaultViewMode": settings.htmlDefaultViewMode.rawValue
         case "editor.richInputImageStrategy": settings.richInputImageStrategy.rawValue
         case "editor.richInputFontFamily": settings.richInputFontFamily
         case "editor.richInputLineHeightMultiplier": Double(settings.richInputLineHeightMultiplier)
-        case "editor.highlightCurrentLine": settings.highlightCurrentLine
-        case "editor.showLineNumbers": settings.showLineNumbers
-        case "editor.lineWrapping": settings.lineWrapping
-        case "editor.fontFamily": settings.fontFamily
-        case "editor.fontSize": Double(settings.fontSize)
-        case "editor.lineHeightMultiplier": Double(settings.lineHeightMultiplier)
         default: UserDefaults.standard.object(forKey: item.key)
         }
     }
@@ -275,7 +246,6 @@ enum SettingsJSONStore {
         case "shortcuts.app",
              "shortcuts.customCommands",
              "ai.providers",
-             "aiUsage.providers",
              "mobile.approvedDevices":
             true
         default:
@@ -291,8 +261,7 @@ enum SettingsJSONStore {
             guard let configuration = commandShortcutConfiguration(from: value), isValidKeyCombo(configuration.prefixCombo),
                   configuration.shortcuts.allSatisfy({ isValidKeyCombo($0.combo) })
             else { throw SettingsJSONError.invalidValue(key) }
-        case "ai.providers",
-             "aiUsage.providers":
+        case "ai.providers":
             guard let values = value as? [String: Any], values.values.allSatisfy({ $0 is Bool }) else {
                 throw SettingsJSONError.invalidValue(key)
             }
@@ -342,13 +311,6 @@ enum SettingsJSONStore {
                 provider.isEnabled = enabled
             }
             AIProviderRegistry.shared.installAll()
-        case "aiUsage.providers":
-            guard let values = value as? [String: Any] else { return true }
-            for provider in AIUsageProviderCatalog.providers {
-                guard let enabled = values[provider.id] as? Bool else { continue }
-                AIUsageProviderTrackingStore.setTracked(enabled, providerID: provider.id)
-            }
-            AIUsageService.shared.recomposeSnapshots()
         case "mobile.approvedDevices":
             guard let devices: [ApprovedDevice] = codableValue(from: value) else { return true }
             ApprovedDevicesStore.shared.replaceDevices(devices)
@@ -362,21 +324,6 @@ enum SettingsJSONStore {
         guard !(value is NSNull) else { return false }
         let settings = EditorSettings.shared
         switch key {
-        case "editor.defaultEditor":
-            guard let rawValue = value as? String, let editor = EditorSettings.DefaultEditor(rawValue: rawValue) else { return false }
-            settings.defaultEditor = editor
-        case "editor.externalEditorCommand":
-            guard let value = value as? String else { return false }
-            settings.externalEditorCommand = value
-        case "editor.markdownPreviewFontFamily":
-            guard let value = value as? String else { return false }
-            settings.markdownPreviewFontFamily = value
-        case "editor.markdownPreviewFontScale":
-            guard let value = doubleValue(value) else { return false }
-            settings.markdownPreviewFontScale = CGFloat(value)
-        case "editor.htmlDefaultViewMode":
-            guard let rawValue = value as? String, let mode = EditorMarkdownViewMode(rawValue: rawValue) else { return false }
-            settings.htmlDefaultViewMode = mode
         case "editor.richInputImageStrategy":
             guard let rawValue = value as? String, let strategy = RichInputImageStrategy(rawValue: rawValue) else { return false }
             settings.richInputImageStrategy = strategy
@@ -386,24 +333,6 @@ enum SettingsJSONStore {
         case "editor.richInputLineHeightMultiplier":
             guard let value = doubleValue(value) else { return false }
             settings.richInputLineHeightMultiplier = CGFloat(value)
-        case "editor.highlightCurrentLine":
-            guard let value = value as? Bool else { return false }
-            settings.highlightCurrentLine = value
-        case "editor.showLineNumbers":
-            guard let value = value as? Bool else { return false }
-            settings.showLineNumbers = value
-        case "editor.lineWrapping":
-            guard let value = value as? Bool else { return false }
-            settings.lineWrapping = value
-        case "editor.fontFamily":
-            guard let value = value as? String else { return false }
-            settings.fontFamily = value
-        case "editor.fontSize":
-            guard let value = doubleValue(value) else { return false }
-            settings.fontSize = CGFloat(value)
-        case "editor.lineHeightMultiplier":
-            guard let value = doubleValue(value) else { return false }
-            settings.lineHeightMultiplier = CGFloat(value)
         default:
             return false
         }
@@ -462,12 +391,6 @@ enum SettingsJSONStore {
     private static func notificationProviderSettings(defaultValue: Bool? = nil) -> [String: Bool] {
         Dictionary(uniqueKeysWithValues: AIProviderRegistry.shared.providers.map { provider in
             (provider.id, defaultValue ?? provider.isEnabled)
-        })
-    }
-
-    private static func aiUsageProviderSettings(defaultValue: Bool? = nil) -> [String: Bool] {
-        Dictionary(uniqueKeysWithValues: AIUsageProviderCatalog.providers.map { provider in
-            (provider.id, defaultValue ?? AIUsageProviderTrackingStore.isTracked(providerID: provider.id))
         })
     }
 

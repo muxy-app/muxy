@@ -1,5 +1,6 @@
 import Foundation
 import JavaScriptCore
+import MuxyShared
 import os
 
 private let logger = Logger(subsystem: "app.muxy", category: "ExtensionScriptRunner")
@@ -20,10 +21,21 @@ final class ExtensionScriptRunner {
         }
     }
 
-    private struct ContextHandle {
+    private final class ContextHandle {
         let context: JSContext
         let queue: DispatchQueue
         let cancelFlag: ScriptCancelFlag
+        var bridge: AnyObject?
+        var pendingModals = 0
+        var scriptFinished = false
+
+        init(context: JSContext, queue: DispatchQueue, cancelFlag: ScriptCancelFlag) {
+            self.context = context
+            self.queue = queue
+            self.cancelFlag = cancelFlag
+        }
+
+        var canEvict: Bool { scriptFinished && pendingModals <= 0 }
     }
 
     private var contexts: [String: ContextHandle] = [:]
@@ -34,6 +46,7 @@ final class ExtensionScriptRunner {
         if let handle = contexts.removeValue(forKey: extensionID) {
             handle.cancelFlag.cancel()
         }
+        ExtensionModalService.shared.dismiss(extensionID: extensionID)
     }
 
     func runScript(
@@ -48,11 +61,6 @@ final class ExtensionScriptRunner {
         }
 
         let handle = try makeContextHandle(for: extensionID)
-        defer {
-            if contexts[extensionID]?.cancelFlag === handle.cancelFlag {
-                contexts.removeValue(forKey: extensionID)
-            }
-        }
         let bridge = ScriptBridge(
             extensionID: extensionID,
             appState: appState,
@@ -60,16 +68,30 @@ final class ExtensionScriptRunner {
             worktreeStore: worktreeStore,
             cancelFlag: handle.cancelFlag
         )
+        handle.bridge = bridge
+        bridge.deliveryQueue = handle.queue
+        bridge.modalPendingChanged = { [weak self, weak handle] delta in
+            guard let self, let handle else { return }
+            handle.pendingModals += delta
+            self.evictIfIdle(extensionID: extensionID, handle: handle)
+        }
         bridge.install(into: handle.context)
 
+        defer {
+            handle.scriptFinished = true
+            evictIfIdle(extensionID: extensionID, handle: handle)
+        }
+
+        let contextBox = JSContextBox(handle.context)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             handle.queue.async {
+                let context = contextBox.context
                 let capture = ExceptionCapture()
-                handle.context.exceptionHandler = { _, exception in
+                context.exceptionHandler = { _, exception in
                     capture.message = exception?.toString() ?? "unknown error"
                 }
-                _ = handle.context.evaluateScript(source, withSourceURL: scriptURL)
-                handle.context.exceptionHandler = nil
+                _ = context.evaluateScript(source, withSourceURL: scriptURL)
+                context.exceptionHandler = nil
                 if let message = capture.message {
                     logger.error("Extension \(extensionID) script error: \(message)")
                     continuation.resume(throwing: RunError.evaluationFailed(message))
@@ -78,6 +100,11 @@ final class ExtensionScriptRunner {
                 }
             }
         }
+    }
+
+    private func evictIfIdle(extensionID: String, handle: ContextHandle) {
+        guard handle.canEvict, contexts[extensionID] === handle else { return }
+        contexts.removeValue(forKey: extensionID)
     }
 
     private final class ExceptionCapture {
@@ -134,8 +161,11 @@ private final class ScriptBridge: @unchecked Sendable {
         self.cancelFlag = cancelFlag
     }
 
+    private weak var context: JSContext?
+
     @MainActor
     func install(into context: JSContext) {
+        self.context = context
         let dispatcher: @convention(block) (String, JSValue?) -> Any = { [weak self] verb, args in
             guard let self else { return Self.errorObject("bridge released") }
             let dict = (args?.toDictionary() as? [String: Any]) ?? [:]
@@ -148,7 +178,7 @@ private final class ScriptBridge: @unchecked Sendable {
             ExtensionLogStore.shared.append(extensionID: extID, line: "[\(level)] \(message)")
         }
         context.setObject(consoleBridge, forKeyedSubscript: "__muxyConsole" as NSString)
-        context.evaluateScript(Self.bridgeScript(extensionID: extensionID))
+        context.evaluateScript(ExtensionBridgeJS.script(extensionID: extensionID, surface: .inProcess))
     }
 
     private func dispatch(verb: String, args: [String: Any]) -> Any {
@@ -160,6 +190,9 @@ private final class ScriptBridge: @unchecked Sendable {
         do {
             let encoded = try syncAwait { @MainActor in
                 let raw = try await bridge.handle(verb: verb, args: argsBox.value)
+                if verb == "modal.open", let dict = raw as? [String: Any], let requestID = dict["requestID"] as? String {
+                    bridge.registerModalDelivery(requestID: requestID)
+                }
                 return try BridgeValue(from: raw)
             }
             return ["ok": true, "value": encoded.unwrap()]
@@ -169,6 +202,49 @@ private final class ScriptBridge: @unchecked Sendable {
             return Self.errorObject(error.localizedDescription)
         }
     }
+
+    @MainActor
+    private func registerModalDelivery(requestID: String) {
+        let onPending = modalPendingChanged
+        onPending?(1)
+        let completion = ModalDeliveryCompletion(onPending)
+        ExtensionModalService.shared.onResult(requestID: requestID) { [weak self] item in
+            guard let self else {
+                completion.finish()
+                return
+            }
+            self.deliverModalResult(requestID: requestID, item: item, completion: completion)
+        }
+    }
+
+    @MainActor
+    private func deliverModalResult(
+        requestID: String,
+        item: ExtensionModalService.Item?,
+        completion: ModalDeliveryCompletion
+    ) {
+        guard let queue = deliveryQueue, let context else {
+            completion.finish()
+            return
+        }
+        let payload: Any
+        if let item {
+            var dict: [String: Any] = ["id": item.id, "title": item.title]
+            dict["subtitle"] = item.subtitle ?? NSNull()
+            payload = dict
+        } else {
+            payload = NSNull()
+        }
+        let delivery = ModalDeliveryBox(context: context, requestID: requestID, payload: payload)
+        queue.async {
+            let deliver = delivery.context.objectForKeyedSubscript("__muxiDeliverModalResult")
+            deliver?.call(withArguments: [delivery.requestID, delivery.payload])
+            completion.finish()
+        }
+    }
+
+    var deliveryQueue: DispatchQueue?
+    var modalPendingChanged: ((Int) -> Void)?
 
     private static func errorObject(_ message: String) -> [String: Any] {
         ["ok": false, "error": message]
@@ -188,102 +264,6 @@ private final class ScriptBridge: @unchecked Sendable {
             )
         )
     }
-
-    private static func bridgeScript(extensionID: String) -> String {
-        let extLiteral = jsLiteral(extensionID)
-        return """
-        (() => {
-            const dispatch = (verb, args) => {
-                const reply = __muxyDispatch(verb, args || {});
-                if (reply && reply.ok) return reply.value;
-                throw new Error((reply && reply.error) || 'extension api error');
-            };
-            const muxy = {
-                extensionID: \(extLiteral),
-                toast: (opts) => dispatch('toast', opts || {}),
-                tabs: {
-                    list:     ()              => dispatch('tabs.list', {}),
-                    switchTo: (identifier)    => dispatch('tabs.switch', { identifier: String(identifier) }),
-                    new:      ()              => dispatch('tabs.new', {}),
-                    next:     ()              => dispatch('tabs.next', {}),
-                    previous: ()              => dispatch('tabs.previous', {}),
-                    open:     (request)       => dispatch('tabs.open', request || {}),
-                },
-                panes: {
-                    list:       ()                  => dispatch('panes.list', {}),
-                    send:       (paneID, text)      => dispatch('panes.send', { paneID, text: String(text) }),
-                    sendKeys:   (paneID, key)       => dispatch('panes.sendKeys', { paneID, key: String(key) }),
-                    readScreen: (paneID, lines)     => dispatch('panes.readScreen', { paneID, lines: lines == null ? 50 : Number(lines) }),
-                    close:      (paneID)            => dispatch('panes.close', { paneID }),
-                    rename:     (paneID, title)     => dispatch('panes.rename', { paneID, title: String(title) }),
-                },
-                projects: {
-                    list:     ()           => dispatch('projects.list', {}),
-                    switchTo: (identifier) => dispatch('projects.switch', { identifier: String(identifier) }),
-                },
-                worktrees: {
-                    list:     (project)             => dispatch('worktrees.list', { project: project == null ? null : String(project) }),
-                    switchTo: (identifier, project) => dispatch('worktrees.switch', {
-                        identifier: String(identifier),
-                        project: project == null ? null : String(project),
-                    }),
-                    refresh:  (project)             => dispatch('worktrees.refresh', { project: project == null ? null : String(project) }),
-                },
-                exec(argvOrOptions, maybeOptions) {
-                    let payload;
-                    if (Array.isArray(argvOrOptions)) {
-                        const opts = maybeOptions || {};
-                        payload = { argv: argvOrOptions.map(String) };
-                        if (opts.cwd != null) payload.cwd = String(opts.cwd);
-                        if (opts.env) payload.env = opts.env;
-                        if (opts.stdin != null) payload.stdin = String(opts.stdin);
-                        if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
-                    } else {
-                        const opts = argvOrOptions || {};
-                        payload = {};
-                        if (opts.shell != null) payload.shell = String(opts.shell);
-                        if (opts.argv) payload.argv = opts.argv.map(String);
-                        if (opts.cwd != null) payload.cwd = String(opts.cwd);
-                        if (opts.env) payload.env = opts.env;
-                        if (opts.stdin != null) payload.stdin = String(opts.stdin);
-                        if (opts.timeoutMs != null) payload.timeoutMs = Number(opts.timeoutMs);
-                    }
-                    return dispatch('exec', payload);
-                },
-            };
-            Object.freeze(muxy.tabs);
-            Object.freeze(muxy.panes);
-            Object.freeze(muxy.projects);
-            Object.freeze(muxy.worktrees);
-            Object.freeze(muxy);
-            this.muxy = muxy;
-
-            const formatForConsole = (value) => {
-                if (value === null) return 'null';
-                if (value === undefined) return 'undefined';
-                if (typeof value === 'string') return value;
-                if (value instanceof Error) return value.stack || value.message;
-                try { return JSON.stringify(value); } catch (_) { return String(value); }
-            };
-            const consoleSend = (level, args) => {
-                const message = Array.prototype.map.call(args, formatForConsole).join(' ');
-                __muxyConsole(level, message);
-            };
-            this.console = {
-                log:   function () { consoleSend('log', arguments); },
-                warn:  function () { consoleSend('warn', arguments); },
-                error: function () { consoleSend('err', arguments); },
-            };
-        })();
-        """
-    }
-
-    private static func jsLiteral(_ value: String) -> String {
-        guard let data = try? JSONEncoder().encode(value),
-              let literal = String(data: data, encoding: .utf8)
-        else { return "\"\"" }
-        return literal
-    }
 }
 
 private final class ResultBox<T>: @unchecked Sendable {
@@ -294,6 +274,33 @@ private struct AnyBox<T>: @unchecked Sendable {
     let value: T
     init(_ value: T) {
         self.value = value
+    }
+}
+
+private struct JSContextBox: @unchecked Sendable {
+    let context: JSContext
+    init(_ context: JSContext) {
+        self.context = context
+    }
+}
+
+private struct ModalDeliveryBox: @unchecked Sendable {
+    let context: JSContext
+    let requestID: String
+    let payload: Any
+}
+
+private final class ModalDeliveryCompletion: @unchecked Sendable {
+    private let onPending: ((Int) -> Void)?
+
+    init(_ onPending: ((Int) -> Void)?) {
+        self.onPending = onPending
+    }
+
+    func finish() {
+        DispatchQueue.main.async { [self] in
+            onPending?(-1)
+        }
     }
 }
 

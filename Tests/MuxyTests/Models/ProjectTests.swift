@@ -24,5 +24,44 @@ struct ProjectTests {
         let project = try decoder.decode(Project.self, from: Data(json.utf8))
 
         #expect(project.preferredWorktreeParentPath == nil)
+        #expect(!project.worktreesEnabled)
+    }
+
+    @Test("new projects default to worktrees disabled")
+    func newProjectDisablesWorktrees() {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+
+        #expect(!project.worktreesEnabled)
+    }
+
+    @Test("worktreesEnabled survives an encode/decode round-trip")
+    func worktreesEnabledRoundTrips() throws {
+        var project = Project(name: "Repo", path: "/tmp/repo")
+        project.worktreesEnabled = true
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(Project.self, from: encoder.encode(project))
+
+        #expect(decoded.worktreesEnabled)
+    }
+
+    @Test("home uses the reserved id, home name and expanded home path")
+    func homeIdentity() {
+        let home = Project.home
+
+        #expect(home.id == Project.homeID)
+        #expect(home.isHome)
+        #expect(home.name == Project.homeName)
+        #expect(home.path == FileManager.default.homeDirectoryForCurrentUser.path)
+    }
+
+    @Test("isHome is false for ordinary projects")
+    func ordinaryProjectIsNotHome() {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+
+        #expect(!project.isHome)
     }
 }

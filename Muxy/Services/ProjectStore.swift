@@ -6,7 +6,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "ProjectStore")
 @MainActor
 @Observable
 final class ProjectStore {
-    private(set) var projects: [Project] = []
+    private(set) var storedProjects: [Project] = []
     private let persistence: any ProjectPersisting
     var onProjectRemoved: ((UUID) -> Void)?
 
@@ -15,64 +15,72 @@ final class ProjectStore {
         load()
     }
 
+    var projects: [Project] {
+        [Project.home] + storedProjects
+    }
+
     func add(_ project: Project) {
-        projects.append(project)
+        storedProjects.append(project)
         save()
     }
 
     func remove(id: UUID) {
-        if let project = projects.first(where: { $0.id == id }) {
-            VCSPersistedSettings.clearSettings(repoPath: project.path)
-        }
-        projects.removeAll { $0.id == id }
+        guard id != Project.homeID else { return }
+        storedProjects.removeAll { $0.id == id }
         save()
         onProjectRemoved?(id)
     }
 
     func rename(id: UUID, to newName: String) {
-        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
-        projects[index].name = newName
+        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
+        storedProjects[index].name = newName
         save()
     }
 
     func setLogo(id: UUID, to logo: String?) {
-        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
         if logo == nil {
             ProjectLogoStorage.remove(forProjectID: id)
         }
-        projects[index].logo = logo
+        storedProjects[index].logo = logo
         save()
     }
 
     func setIcon(id: UUID, to icon: String?) {
-        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
-        projects[index].icon = icon
+        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
+        storedProjects[index].icon = icon
         save()
     }
 
     func setIconColor(id: UUID, to color: String?) {
-        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
-        projects[index].iconColor = color
+        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
+        storedProjects[index].iconColor = color
+        save()
+    }
+
+    func setWorktreesEnabled(id: UUID, to enabled: Bool) {
+        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
+        storedProjects[index].worktreesEnabled = enabled
         save()
     }
 
     func setPreferredWorktreeParentPath(id: UUID, to path: String?) {
-        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
-        projects[index].preferredWorktreeParentPath = WorktreeLocationResolver.normalizedPath(path)
+        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
+        storedProjects[index].preferredWorktreeParentPath = WorktreeLocationResolver.normalizedPath(path)
         save()
     }
 
     func reorder(fromOffsets source: IndexSet, toOffset destination: Int) {
-        projects.move(fromOffsets: source, toOffset: destination)
-        for index in projects.indices {
-            projects[index].sortOrder = index
+        storedProjects.move(fromOffsets: source, toOffset: destination)
+        for index in storedProjects.indices {
+            storedProjects[index].sortOrder = index
         }
         save()
     }
 
     func save() {
         do {
-            try persistence.saveProjects(projects)
+            try persistence.saveProjects(storedProjects)
         } catch {
             logger.error("Failed to save projects: \(error)")
         }
@@ -80,8 +88,8 @@ final class ProjectStore {
 
     private func load() {
         do {
-            projects = try persistence.loadProjects()
-            projects.sort { $0.sortOrder < $1.sortOrder }
+            storedProjects = try persistence.loadProjects().filter { !$0.isHome }
+            storedProjects.sort { $0.sortOrder < $1.sortOrder }
         } catch {
             logger.error("Failed to load projects: \(error)")
         }

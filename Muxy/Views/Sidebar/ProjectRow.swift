@@ -12,6 +12,7 @@ struct ProjectRow: View {
     let onSetLogo: (String?) -> Void
     let onSetIcon: (String?) -> Void
     let onSetIconColor: (String?) -> Void
+    let onSetWorktreesEnabled: (Bool) -> Void
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -39,15 +40,26 @@ struct ProjectRow: View {
     }
 
     private var hasWorktreeUI: Bool {
-        isGitRepo || worktrees.count > 1
+        project.worktreesEnabled && (isGitRepo || worktrees.count > 1)
+    }
+
+    private var worktreesEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { project.worktreesEnabled },
+            set: { onSetWorktreesEnabled($0) }
+        )
     }
 
     private var displayLetter: String {
         String(project.name.prefix(1)).uppercased()
     }
 
+    private func hideHome() {
+        HomeProjectPreferences.isVisible = false
+    }
+
     var body: some View {
-        projectIcon
+        iconOrBadge
             .help(project.name)
             .contentShape(RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
             .accessibilityElement(children: .combine)
@@ -67,6 +79,10 @@ struct ProjectRow: View {
                 onSelect()
             }
             .task(id: project.path) {
+                guard !project.isHome else {
+                    isCheckingGitRepo = false
+                    return
+                }
                 isCheckingGitRepo = true
                 try? await Task.sleep(for: .seconds(2))
                 guard !Task.isCancelled else { return }
@@ -74,43 +90,11 @@ struct ProjectRow: View {
                 isCheckingGitRepo = false
             }
             .contextMenu {
-                Button("Set Logo...") { pickLogoImage() }
-                if project.logo != nil {
-                    Button("Remove Logo") { onSetLogo(nil) }
+                if project.isHome {
+                    Button("Hide Home") { hideHome() }
+                } else {
+                    projectContextMenu
                 }
-                Button("Set Icon...") { showSymbolPicker = true }
-                if project.icon != nil {
-                    Button("Remove Icon") { onSetIcon(nil) }
-                }
-                Button("Set Icon Color...") { showColorPicker = true }
-                if project.iconColor != nil {
-                    Button("Reset Icon Color") { onSetIconColor(nil) }
-                }
-                Divider()
-                Button("Rename Project") { startRename() }
-                if isGitRepo {
-                    Divider()
-                    Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
-                    Button("New Worktree…") { showCreateWorktreeSheet = true }
-                    if worktrees.count > 1 {
-                        Button("Switch Worktree…") { showWorktreePopover = true }
-                    }
-                } else if isCheckingGitRepo {
-                    Divider()
-                    Button("Loading Worktrees…") {}
-                        .disabled(true)
-                } else if hasWorktreeUI {
-                    Divider()
-                    if worktrees.count > 1 {
-                        Button("Switch Worktree…") { showWorktreePopover = true }
-                    }
-                }
-                if !projectGroupStore.groups.isEmpty {
-                    Divider()
-                    ProjectGroupMembershipMenu(project: project)
-                }
-                Divider()
-                Button("Remove Project", role: .destructive, action: onRemove)
             }
             .popover(isPresented: $showWorktreePopover, arrowEdge: .trailing) {
                 WorktreePopover(
@@ -150,13 +134,6 @@ struct ProjectRow: View {
                     onCancel: { logoCropImage = nil }
                 )
             }
-            .overlay {
-                if showShortcutBadge, let shortcutIndex,
-                   let action = ShortcutAction.projectAction(for: shortcutIndex)
-                {
-                    ShortcutBadge(label: KeyBindingStore.shared.combo(for: action).displayString)
-                }
-            }
             .popover(isPresented: $isRenaming, arrowEdge: .trailing) {
                 RenamePopover(
                     text: $renameText,
@@ -178,9 +155,58 @@ struct ProjectRow: View {
             }
     }
 
+    @ViewBuilder
+    private var projectContextMenu: some View {
+        Button("Set Logo...") { pickLogoImage() }
+        if project.logo != nil {
+            Button("Remove Logo") { onSetLogo(nil) }
+        }
+        Button("Set Icon...") { showSymbolPicker = true }
+        if project.icon != nil {
+            Button("Remove Icon") { onSetIcon(nil) }
+        }
+        Button("Set Icon Color...") { showColorPicker = true }
+        if project.iconColor != nil {
+            Button("Reset Icon Color") { onSetIconColor(nil) }
+        }
+        Divider()
+        Button("Rename Project") { startRename() }
+        if isGitRepo {
+            Divider()
+            Toggle("Worktrees", isOn: worktreesEnabledBinding)
+            if project.worktreesEnabled {
+                Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
+                Button("New Worktree…") { showCreateWorktreeSheet = true }
+                if worktrees.count > 1 {
+                    Button("Switch Worktree…") { showWorktreePopover = true }
+                }
+            }
+        } else if isCheckingGitRepo {
+            Divider()
+            Button("Loading Worktrees…") {}
+                .disabled(true)
+        }
+        if !projectGroupStore.groups.isEmpty {
+            Divider()
+            ProjectGroupMembershipMenu(project: project)
+        }
+        Divider()
+        Button("Remove Project", role: .destructive, action: onRemove)
+    }
+
     private var resolvedLogo: NSImage? {
         guard let filename = project.logo else { return nil }
         return NSImage(contentsOfFile: ProjectLogoStorage.logoPath(for: filename))
+    }
+
+    @ViewBuilder
+    private var iconOrBadge: some View {
+        if let shortcutIndex, let hint = shortcutHint {
+            ShortcutIconBadge(number: shortcutIndex, size: UIMetrics.iconXXL, combo: hint)
+                .padding(UIMetrics.scaled(3))
+        } else {
+            projectIcon
+        }
     }
 
     private var projectIcon: some View {
@@ -191,7 +217,11 @@ struct ProjectRow: View {
             RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
                 .fill(iconBackground(hasLogo: logo != nil))
 
-            if let logo {
+            if project.isHome {
+                Image(systemName: Project.homeIcon)
+                    .font(.system(size: UIMetrics.fontTitleLarge, weight: .medium))
+                    .foregroundStyle(MuxyTheme.accentForeground)
+            } else if let logo {
                 Image(nsImage: logo)
                     .resizable()
                     .scaledToFill()
@@ -235,6 +265,9 @@ struct ProjectRow: View {
     }
 
     private func iconBackground(hasLogo: Bool) -> AnyShapeStyle {
+        if project.isHome {
+            return AnyShapeStyle(hovered ? MuxyTheme.accent.opacity(0.85) : MuxyTheme.accent)
+        }
         if hasLogo { return AnyShapeStyle(Color.clear) }
         if let tint = ProjectIconColor.color(for: project.iconColor) {
             return AnyShapeStyle(hovered ? tint.opacity(0.85) : tint)
@@ -250,13 +283,11 @@ struct ProjectRow: View {
         return isActive ? MuxyTheme.fg : MuxyTheme.fgMuted
     }
 
-    private var showShortcutBadge: Bool {
+    private var shortcutHint: KeyCombo? {
         guard let shortcutIndex,
               let action = ShortcutAction.projectAction(for: shortcutIndex)
-        else { return false }
-        return ModifierKeyMonitor.shared.isHolding(
-            modifiers: KeyBindingStore.shared.combo(for: action).modifiers
-        )
+        else { return nil }
+        return ModifierKeyMonitor.shared.hint(for: action)
     }
 
     private func pickLogoImage() {
@@ -265,6 +296,7 @@ struct ProjectRow: View {
         panel.allowedContentTypes = [.image]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
+        panel.directoryURL = URL(fileURLWithPath: project.path)
 
         guard panel.runModal() == .OK,
               let url = panel.url,
