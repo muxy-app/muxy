@@ -12,9 +12,7 @@ final class RemoteHostStore {
     private let persistence: CodableFileStore<[RemoteHost]>
 
     private static var storageURL: URL {
-        let configDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/muxy")
-        return configDir.appendingPathComponent("remote-hosts.json")
+        MuxyFileStorage.appSupportDirectory().appendingPathComponent("remote-hosts.json")
     }
 
     init() {
