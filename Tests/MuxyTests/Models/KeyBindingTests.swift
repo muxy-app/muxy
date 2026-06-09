@@ -74,11 +74,17 @@ struct KeyBindingTests {
         #expect(actions.count == unique.count)
     }
 
-    @Test("KeyBinding.defaults has unique combos")
+    @Test("KeyBinding.defaults has unique assigned combos")
     func defaultsUniqueCombos() {
-        let combos = KeyBinding.defaults.map(\.combo)
+        let combos = KeyBinding.defaults.map(\.combo).filter(\.isAssigned)
         let unique = Set(combos)
         #expect(combos.count == unique.count)
+    }
+
+    @Test("KeyBinding.defaults leaves rename tab unassigned")
+    func defaultsRenameTabUnassigned() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.renameTab]?.isAssigned == false)
     }
 
     @Test("KeyBinding.defaults includes cycle tab across panes shortcuts")
