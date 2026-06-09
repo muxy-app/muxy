@@ -8,6 +8,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case terminal
     case richInput
     case shortcuts
+    case commands
     case voice
     case notifications
     case mobile
@@ -23,6 +24,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .terminal: "Terminal"
         case .richInput: "Rich Input"
         case .shortcuts: "Shortcuts"
+        case .commands: "Commands"
         case .voice: "Voice"
         case .notifications: "Notifications"
         case .mobile: "Mobile"
@@ -38,6 +40,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .terminal: "terminal"
         case .richInput: "text.cursor"
         case .shortcuts: "keyboard"
+        case .commands: "command"
         case .voice: "mic"
         case .notifications: "bell"
         case .mobile: "iphone"
@@ -356,11 +359,11 @@ enum SettingsCatalog {
         ),
         SettingsCatalogItem(
             key: "shortcuts.customCommands",
-            title: "Custom Commands",
+            title: "Commands",
             description: "Configures shortcuts that open command tabs.",
-            category: .shortcuts,
-            section: "Custom Commands",
-            aliases: ["command layer"]
+            category: .commands,
+            section: "Commands",
+            aliases: ["command layer", "custom commands", "shortcuts"]
         ),
         SettingsCatalogItem(
             key: RecordingPreferences.autoSendKey,

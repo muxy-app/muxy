@@ -123,6 +123,8 @@ struct SettingsView: View {
             RichInputSettingsView()
         case .shortcuts:
             KeyboardShortcutsSettingsView()
+        case .commands:
+            CommandsSettingsView()
         case .voice:
             RecordingSettingsView()
         case .notifications:
