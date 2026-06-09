@@ -376,6 +376,10 @@ struct MuxyCommands: Commands {
 
             Divider()
 
+            Button("What's New?") {
+                NotificationCenter.default.post(name: .openWhatsNewModal, object: nil)
+            }
+
             Button("Report an Issue...") {
                 HelpLinks.openIssues()
             }

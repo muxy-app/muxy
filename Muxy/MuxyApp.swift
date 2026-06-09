@@ -152,6 +152,7 @@ struct MuxyApp: App {
             await NotificationSocketServer.shared.awaitReady()
             ExtensionStore.shared.startAll()
             await ExtensionStore.shared.checkForUpdates()
+            appDelegate.presentWhatsNewIfNeeded()
         }
     }
 }
@@ -167,9 +168,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var systemAppearanceObserver: NSObjectProtocol?
     private var settingsObserver: NSObjectProtocol?
     private var extensionsObserver: NSObjectProtocol?
+    private var whatsNewObserver: NSObjectProtocol?
     private var modalThemeObserver: NSObjectProtocol?
     private weak var settingsWindow: NSWindow?
     private weak var extensionsWindow: NSWindow?
+    private weak var whatsNewWindow: NSWindow?
 
     @MainActor
     func handleOpenProjectPath(_ path: String) {
@@ -413,6 +416,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NotificationCenter.default.removeObserver(extensionsObserver)
             self.extensionsObserver = nil
         }
+        if let whatsNewObserver {
+            NotificationCenter.default.removeObserver(whatsNewObserver)
+            self.whatsNewObserver = nil
+        }
         if let modalThemeObserver {
             NotificationCenter.default.removeObserver(modalThemeObserver)
             self.modalThemeObserver = nil
@@ -447,6 +454,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.presentExtensionsModal()
             }
         }
+        whatsNewObserver = NotificationCenter.default.addObserver(
+            forName: .openWhatsNewModal,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.presentWhatsNewModal()
+            }
+        }
         modalThemeObserver = NotificationCenter.default.addObserver(
             forName: .themeDidChange,
             object: nil,
@@ -455,6 +471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             MainActor.assumeIsolated {
                 self?.settingsWindow?.backgroundColor = MuxyTheme.nsBg
                 self?.extensionsWindow?.backgroundColor = MuxyTheme.nsBg
+                self?.whatsNewWindow?.backgroundColor = MuxyTheme.nsBg
             }
         }
     }
@@ -494,10 +511,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    @MainActor
+    private func presentWhatsNewModal(preloadedMarkdown: String? = nil) {
+        guard let version = WhatsNewPreferences.currentVersion else { return }
+        let config = AppModalConfig(
+            title: "What's New",
+            size: CGSize(width: 806, height: 560),
+            existing: whatsNewWindow,
+            delegate: self,
+            onClosed: { [weak self] in self?.whatsNewWindow = nil }
+        )
+        whatsNewWindow = AppModalPresenter.present(config) {
+            WhatsNewView(version: version, preloadedMarkdown: preloadedMarkdown)
+        }
+    }
+
+    @MainActor
+    func presentWhatsNewIfNeeded() {
+        guard WhatsNewPreferences.shouldAutoShow,
+              let version = WhatsNewPreferences.currentVersion
+        else { return }
+        Task { @MainActor in
+            guard let markdown = try? await WhatsNewService.fetchReleaseNotes(version: version)
+            else { return }
+            presentWhatsNewModal(preloadedMarkdown: markdown)
+            WhatsNewPreferences.markCurrentVersionViewed()
+        }
+    }
+
     func windowWillClose(_ notification: Notification) {
         let closed = notification.object as? NSWindow
         if closed === settingsWindow { settingsWindow = nil }
         if closed === extensionsWindow { extensionsWindow = nil }
+        if closed === whatsNewWindow { whatsNewWindow = nil }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

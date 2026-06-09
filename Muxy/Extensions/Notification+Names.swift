@@ -10,6 +10,7 @@ extension Notification.Name {
     static let openProjectPicker = Notification.Name("MuxyOpenProjectPicker")
     static let openSettingsModal = Notification.Name("MuxyOpenSettingsModal")
     static let openExtensionsModal = Notification.Name("MuxyOpenExtensionsModal")
+    static let openWhatsNewModal = Notification.Name("MuxyOpenWhatsNewModal")
     static let openExtensionInstall = Notification.Name("MuxyOpenExtensionInstall")
     static let openExtensionDirectoryAsProject = Notification.Name("MuxyOpenExtensionDirectoryAsProject")
     static let focusProjectPickerDefaultLocation = Notification.Name("MuxyFocusProjectPickerDefaultLocation")
