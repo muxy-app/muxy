@@ -12,6 +12,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "SSHConnection")
 struct NativeSSHConnectionCallbacks {
     let onError: @MainActor (SSHConnectionError) -> Void
     let onClose: @MainActor () -> Void
+    let onFinished: @MainActor (UUID) -> Void
 }
 
 @MainActor
@@ -32,13 +33,21 @@ final class SSHConnectionService {
     ) {
         logger.info("Starting native SSH for \(paneID.uuidString)")
         stop(paneID: paneID)
+        let trackedCallbacks = NativeSSHConnectionCallbacks(
+            onError: callbacks.onError,
+            onClose: callbacks.onClose,
+            onFinished: { [weak self] finishedPaneID in
+                self?.remove(paneID: finishedPaneID)
+                callbacks.onFinished(finishedPaneID)
+            }
+        )
         let connection = NativeSSHConnection(
             paneID: paneID,
             configuration: configuration,
             bridge: bridge,
             size: size,
             group: group,
-            callbacks: callbacks
+            callbacks: trackedCallbacks
         )
         connections[paneID] = connection
         connection.start()
@@ -52,6 +61,11 @@ final class SSHConnectionService {
         logger.info("Stopping native SSH for \(paneID.uuidString)")
         connections.removeValue(forKey: paneID)?.stop()
     }
+
+    func remove(paneID: UUID) {
+        logger.debug("Removing native SSH connection entry for \(paneID.uuidString)")
+        connections.removeValue(forKey: paneID)
+    }
 }
 
 final class NativeSSHConnection {
@@ -61,6 +75,7 @@ final class NativeSSHConnection {
     private let group: EventLoopGroup
     private let onError: @MainActor (SSHConnectionError) -> Void
     private let onClose: @MainActor () -> Void
+    private let onFinished: @MainActor (UUID) -> Void
 
     private var parentChannel: Channel?
     private var childChannel: Channel?
@@ -80,6 +95,7 @@ final class NativeSSHConnection {
         self.group = group
         self.onError = callbacks.onError
         self.onClose = callbacks.onClose
+        self.onFinished = callbacks.onFinished
         self.size = size
     }
 
@@ -201,6 +217,7 @@ final class NativeSSHConnection {
         parentChannel?.close(promise: nil)
         Task { @MainActor in
             self.onClose()
+            self.onFinished(self.paneID)
         }
     }
 
@@ -213,6 +230,7 @@ final class NativeSSHConnection {
         parentChannel?.close(promise: nil)
         Task { @MainActor in
             self.onError(mapped)
+            self.onFinished(self.paneID)
         }
     }
 }
@@ -364,26 +382,39 @@ final class NativeSSHShellHandler: ChannelDuplexHandler, @unchecked Sendable {
             guard let self else { return }
             var buffer = [UInt8](repeating: 0, count: 8192)
             let count = Darwin.read(self.inputFD, &buffer, buffer.count)
-            guard count >= 1 else {
+            if count > 0 {
+                let bytes = Array(buffer.prefix(count))
+                loopBoundContext.eventLoop.execute {
+                    let context = loopBoundContext.value
+                    var byteBuffer = context.channel.allocator.buffer(capacity: bytes.count)
+                    byteBuffer.writeBytes(bytes)
+                    let writePromise = context.eventLoop.makePromise(of: Void.self)
+                    context.writeAndFlush(
+                        self.wrapOutboundOut(SSHChannelData(type: .channel, data: .byteBuffer(byteBuffer))),
+                        promise: writePromise
+                    )
+                    writePromise.futureResult.whenFailure { _ in
+                        logger.error("SSH input write failed for \(self.paneID.uuidString)")
+                    }
+                }
+                return
+            }
+
+            guard count != -1 else {
                 logger.info("SSH input bridge closed for \(self.paneID.uuidString)")
                 loopBoundContext.eventLoop.execute {
                     loopBoundContext.value.close(promise: nil)
                 }
                 return
             }
-            let bytes = Array(buffer.prefix(count))
-            loopBoundContext.eventLoop.execute {
-                let context = loopBoundContext.value
-                var byteBuffer = context.channel.allocator.buffer(capacity: bytes.count)
-                byteBuffer.writeBytes(bytes)
-                let writePromise = context.eventLoop.makePromise(of: Void.self)
-                context.writeAndFlush(
-                    self.wrapOutboundOut(SSHChannelData(type: .channel, data: .byteBuffer(byteBuffer))),
-                    promise: writePromise
-                )
-                writePromise.futureResult.whenFailure { _ in
-                    logger.error("SSH input write failed for \(self.paneID.uuidString)")
+
+            let readError = errno
+            guard readError == EAGAIN || readError == EWOULDBLOCK || readError == EINTR else {
+                logger.error("SSH input bridge read failed for \(self.paneID.uuidString): \(readError)")
+                loopBoundContext.eventLoop.execute {
+                    loopBoundContext.value.close(promise: nil)
                 }
+                return
             }
         }
         source.setCancelHandler {}
@@ -632,8 +663,33 @@ private func writeFully(fd: Int32, pointer: UnsafeRawPointer, count: Int) -> Boo
     var written = 0
     while written < count {
         let result = write(fd, pointer.advanced(by: written), count - written)
+        guard result != -1 else {
+            let writeError = errno
+            if writeError == EAGAIN || writeError == EWOULDBLOCK || writeError == EINTR {
+                if !waitUntilWritable(fd: fd) { return false }
+                continue
+            }
+            return false
+        }
         guard result > 0 else { return false }
         written += result
     }
     return true
+}
+
+private func waitUntilWritable(fd: Int32) -> Bool {
+    var pollDescriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+    while true {
+        let result = poll(&pollDescriptor, 1, 25)
+        if result > 0 {
+            let revents = pollDescriptor.revents
+            if revents & Int16(POLLHUP) != 0 { return false }
+            if revents & Int16(POLLERR) != 0 { return false }
+            if revents & Int16(POLLNVAL) != 0 { return false }
+            return (revents & Int16(POLLOUT)) != 0
+        }
+        if result == 0 { return false }
+        if errno == EINTR { continue }
+        return false
+    }
 }

@@ -128,18 +128,29 @@ struct NativeSSHConnectionTests {
         let firstKey = try NIOSSHPublicKey(
             openSSHPublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"
         )
+        let firstKeyLine = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f"
         let secondKey = try NIOSSHPublicKey(
             openSSHPublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/"
         )
+        let secondKeyLine = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/"
         let knownHosts = """
-        example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f
-        [example.net]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4/
+        example.com \(firstKeyLine)
+        [example.net]:2222 \(secondKeyLine)
         """
 
         #expect(NativeSSHKnownHosts.validate(host: "example.com", port: 22, hostKey: firstKey, knownHosts: knownHosts) == .trusted)
         #expect(NativeSSHKnownHosts.validate(host: "example.com", port: 22, hostKey: secondKey, knownHosts: knownHosts) == .changed)
         #expect(NativeSSHKnownHosts.validate(host: "missing.example", port: 22, hostKey: firstKey, knownHosts: knownHosts) == .unknown)
         #expect(NativeSSHKnownHosts.validate(host: "example.net", port: 2222, hostKey: secondKey, knownHosts: knownHosts) == .trusted)
+        #expect(NativeSSHKnownHosts.validate(host: "api.example.com", port: 22, hostKey: firstKey, knownHosts: "*.example.com \(firstKeyLine)") == .trusted)
+        #expect(
+            NativeSSHKnownHosts.validate(
+                host: "hashed.example.com",
+                port: 22,
+                hostKey: firstKey,
+                knownHosts: "\(hashedHostPattern(host: "hashed.example.com")) \(firstKeyLine)",
+            ) == .trusted
+        )
     }
 
     @Test("Loads unencrypted OpenSSH Ed25519 private key")
@@ -209,6 +220,16 @@ struct NativeSSHConnectionTests {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
     }
+}
+
+
+private func hashedHostPattern(host: String) -> String {
+    let salt = "known-hosts-salt".data(using: .utf8) ?? Data()
+    let hostData = host.data(using: .utf8) ?? Data()
+    let digest = HMAC<SHA1>.authenticationCode(for: hostData, using: SymmetricKey(data: salt))
+    let saltText = salt.base64EncodedString()
+    let digestText = Data(digest).base64EncodedString()
+    return "|1|\(saltText)|\(digestText)"
 }
 
 private extension Data {

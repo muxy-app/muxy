@@ -46,6 +46,8 @@ final class NativeSSHFileDescriptorBridge {
 
         do {
             try setNonBlocking(terminalToSSH[0])
+            try setNonBlocking(terminalToSSH[1])
+            try setNonBlocking(sshToTerminal[0])
             try setNonBlocking(sshToTerminal[1])
         } catch {
             closeIfOpen(terminalToSSH[0])

@@ -1,3 +1,5 @@
+import CryptoKit
+import Darwin
 import Foundation
 import NIOSSH
 
@@ -43,17 +45,48 @@ enum NativeSSHKnownHosts {
     }
 
     private static func hostPatterns(_ rawPatterns: String, match host: String, port: Int) -> Bool {
-        let candidates = if port == 22 {
-            [host]
-        } else {
-            [host, "[\(host)]:\(port)"]
+        var candidates = [host, "[\(host)]"]
+        if port != 22 {
+            candidates.append("[\(host)]:\(port)")
+        }
+        if port == 22 {
+            candidates.append("[\(host)]:22")
         }
         return rawPatterns
             .split(separator: ",")
             .map(String.init)
             .contains { pattern in
-                guard !pattern.hasPrefix("|") else { return false }
+                let isHashed = pattern.hasPrefix("|1|")
+                if isHashed {
+                    return candidates.contains { hashedHostMatch(pattern, candidate: $0) }
+                }
+                if pattern.contains("*") || pattern.contains("?") {
+                    return candidates.contains { wildcardMatch(pattern: pattern, candidate: $0) }
+                }
                 return candidates.contains(pattern)
             }
+    }
+
+    private static func wildcardMatch(pattern: String, candidate: String) -> Bool {
+        pattern.withCString { patternCString in
+            candidate.withCString { candidateCString in
+                fnmatch(patternCString, candidateCString, FNM_CASEFOLD) == 0
+            }
+        }
+    }
+
+    private static func hashedHostMatch(_ pattern: String, candidate: String) -> Bool {
+        let components = pattern.split(separator: "|").map(String.init)
+        guard components.count == 4, components[0].isEmpty, components[1] == "1" else { return false }
+
+        guard let salt = Data(base64Encoded: components[2]),
+              let expectedDigest = Data(base64Encoded: components[3]),
+              let candidateData = candidate.data(using: .utf8)
+        else {
+            return false
+        }
+
+        let derived = HMAC<Insecure.SHA1>.authenticationCode(for: candidateData, using: SymmetricKey(data: salt))
+        return Data(derived) == expectedDigest
     }
 }

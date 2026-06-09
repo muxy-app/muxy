@@ -234,6 +234,8 @@ final class GhosttyTerminalNSView: NSView {
                             guard let self, !self.processExitHandled else { return }
                             self.processExitHandled = true
                             self.onProcessExit?()
+                        },
+                        onFinished: { _ in
                         }
                     )
                 )
