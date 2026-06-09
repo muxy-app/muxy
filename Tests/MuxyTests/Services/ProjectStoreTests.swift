@@ -33,6 +33,18 @@ struct ProjectStoreTests {
         #expect(persistence.projects.first?.preferredWorktreeParentPath == nil)
     }
 
+    @Test("setWorktreesEnabled persists the new value")
+    func setWorktreesEnabled() {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let persistence = ProjectPersistenceStub(initial: [project])
+        let store = ProjectStore(persistence: persistence)
+
+        store.setWorktreesEnabled(id: project.id, to: true)
+
+        #expect(store.storedProjects.first { $0.id == project.id }?.worktreesEnabled == true)
+        #expect(persistence.projects.first?.worktreesEnabled == true)
+    }
+
     @Test("projects always exposes Home at the front without persisting it")
     func projectsSynthesizesHome() {
         let existing = Project(name: "Repo", path: "/tmp/repo")

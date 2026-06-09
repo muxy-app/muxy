@@ -173,7 +173,8 @@ struct Sidebar: View {
                 onRename: { projectStore.rename(id: project.id, to: $0) },
                 onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
                 onSetIcon: { projectStore.setIcon(id: project.id, to: $0) },
-                onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) }
+                onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) },
+                onSetWorktreesEnabled: { projectStore.setWorktreesEnabled(id: project.id, to: $0) }
             )
         } else {
             ProjectRow(
@@ -185,7 +186,8 @@ struct Sidebar: View {
                 onRename: { projectStore.rename(id: project.id, to: $0) },
                 onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
                 onSetIcon: { projectStore.setIcon(id: project.id, to: $0) },
-                onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) }
+                onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) },
+                onSetWorktreesEnabled: { projectStore.setWorktreesEnabled(id: project.id, to: $0) }
             )
         }
     }

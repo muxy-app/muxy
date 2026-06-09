@@ -12,6 +12,7 @@ struct ExpandedProjectRow: View {
     let onSetLogo: (String?) -> Void
     let onSetIcon: (String?) -> Void
     let onSetIconColor: (String?) -> Void
+    let onSetWorktreesEnabled: (Bool) -> Void
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
@@ -51,7 +52,7 @@ struct ExpandedProjectRow: View {
     }
 
     private var hasWorktreeUI: Bool {
-        isGitRepo || worktrees.count > 1
+        project.worktreesEnabled && (isGitRepo || worktrees.count > 1)
     }
 
     private var displayLetter: String {
@@ -60,6 +61,16 @@ struct ExpandedProjectRow: View {
 
     private func hideHome() {
         HomeProjectPreferences.isVisible = false
+    }
+
+    private var worktreesEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { project.worktreesEnabled },
+            set: { enabled in
+                onSetWorktreesEnabled(enabled)
+                if !enabled { worktreesExpanded = false }
+            }
+        )
     }
 
     var body: some View {
@@ -346,8 +357,11 @@ struct ExpandedProjectRow: View {
         Button("Rename Project") { startRename() }
         if isGitRepo {
             Divider()
-            Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
-            Button("New Worktree…") { showCreateWorktreeSheet = true }
+            Toggle("Worktrees", isOn: worktreesEnabledBinding)
+            if project.worktreesEnabled {
+                Button("Refresh Worktrees") { Task { await refreshWorktrees() } }
+                Button("New Worktree…") { showCreateWorktreeSheet = true }
+            }
         } else if isCheckingGitRepo {
             Divider()
             Button("Loading Worktrees…") {}

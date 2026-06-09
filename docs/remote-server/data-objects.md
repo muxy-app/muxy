@@ -14,11 +14,12 @@ Every object below is the exact wire shape produced by the desktop. All dates ar
   "icon": "hammer",
   "logo": "a1b2c3d4",
   "iconColor": "#7C3AED",
-  "preferredWorktreeParentPath": "/Users/example"
+  "preferredWorktreeParentPath": "/Users/example",
+  "worktreesEnabled": false
 }
 ```
 
-`icon`, `logo`, `iconColor`, and `preferredWorktreeParentPath` are optional and omitted when unset. `icon` is an SF Symbol name. `logo` is an opaque storage identifier — fetch the image with [`getProjectLogo`](methods.md). `iconColor` is a hex string or a palette id (`red`, `blue`, `violet`, …).
+`icon`, `logo`, `iconColor`, and `preferredWorktreeParentPath` are optional and omitted when unset. `icon` is an SF Symbol name. `logo` is an opaque storage identifier — fetch the image with [`getProjectLogo`](methods.md). `iconColor` is a hex string or a palette id (`red`, `blue`, `violet`, …). `worktreesEnabled` indicates whether the project exposes its worktrees in the sidebar; it defaults to `false`.
 
 ## Worktree
 

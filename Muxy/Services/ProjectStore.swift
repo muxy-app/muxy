@@ -58,6 +58,12 @@ final class ProjectStore {
         save()
     }
 
+    func setWorktreesEnabled(id: UUID, to enabled: Bool) {
+        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
+        storedProjects[index].worktreesEnabled = enabled
+        save()
+    }
+
     func setPreferredWorktreeParentPath(id: UUID, to path: String?) {
         guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
         storedProjects[index].preferredWorktreeParentPath = WorktreeLocationResolver.normalizedPath(path)

@@ -12,7 +12,8 @@ extension Project {
             icon: icon,
             logo: logo,
             iconColor: iconColor,
-            preferredWorktreeParentPath: preferredWorktreeParentPath
+            preferredWorktreeParentPath: preferredWorktreeParentPath,
+            worktreesEnabled: worktreesEnabled
         )
     }
 }
