@@ -146,13 +146,8 @@ final class GhosttyTerminalNSView: NSView {
         if nativeSSHConfiguration != nil {
             do {
                 nativeSSHBridge = try NativeSSHFileDescriptorBridge.make()
-                if let bridgeCommand = nativeSSHBridge?.terminalBridgeCommand,
-                   let bridgeCommandPointer = strdup(bridgeCommand)
-                {
-                    surfaceCStringPointers.append(bridgeCommandPointer)
-                    surfaceConfig.command = UnsafePointer(bridgeCommandPointer)
-                    surfaceConfig.wait_after_command = false
-                }
+                surfaceConfig.custom_read_fd = nativeSSHBridge?.ghosttyReadFD ?? -1
+                surfaceConfig.custom_write_fd = nativeSSHBridge?.ghosttyWriteFD ?? -1
             } catch {
                 onSSHError?(.unknown(error.localizedDescription))
                 return

@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import Darwin
 import NIOSSH
 import Testing
 
@@ -73,6 +74,18 @@ struct NativeSSHConnectionTests {
         #expect(bridge.ghosttyWriteFD >= 0)
         #expect(bridge.sshReadFD >= 0)
         #expect(bridge.sshWriteFD >= 0)
+    }
+
+    @Test("FD bridge connects Ghostty and SSH directions")
+    func fdBridgeConnectsDirections() throws {
+        let bridge = try NativeSSHFileDescriptorBridge.make()
+        defer { bridge.closeAllBeforeSurfaceCreation() }
+
+        try expectWrite(fd: bridge.ghosttyWriteFD, bytes: [0x61, 0x62])
+        try expectRead(fd: bridge.sshReadFD, bytes: [0x61, 0x62])
+
+        try expectWrite(fd: bridge.sshWriteFD, bytes: [0x63, 0x64])
+        try expectRead(fd: bridge.ghosttyReadFD, bytes: [0x63, 0x64])
     }
 
     @Test("Error mapper handles auth and network failures")
@@ -161,6 +174,28 @@ struct NativeSSHConnectionTests {
         \(encoded)
         -----END OPENSSH PRIVATE KEY-----
         """
+    }
+
+    private func expectWrite(fd: Int32, bytes: [UInt8]) throws {
+        let result = bytes.withUnsafeBytes { buffer in
+            Darwin.write(fd, buffer.baseAddress, buffer.count)
+        }
+
+        #expect(result == bytes.count)
+        if result != bytes.count {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+
+    private func expectRead(fd: Int32, bytes: [UInt8]) throws {
+        var buffer = [UInt8](repeating: 0, count: bytes.count)
+        let result = Darwin.read(fd, &buffer, buffer.count)
+
+        #expect(result == bytes.count)
+        #expect(buffer == bytes)
+        if result != bytes.count || buffer != bytes {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
     }
 }
 
