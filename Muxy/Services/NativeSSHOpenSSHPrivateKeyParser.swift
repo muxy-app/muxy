@@ -21,7 +21,7 @@ enum NativeSSHOpenSSHPrivateKeyParser {
         let kdfName = try reader.readString()
         _ = try reader.readString()
         guard cipherName == "none", kdfName == "none" else {
-            throw NativeSSHConnectionFailure.unsupportedPrivateKey
+            throw NativeSSHConnectionFailure.encryptedPrivateKey
         }
         guard try reader.readUInt32() == 1 else {
             throw NativeSSHConnectionFailure.unsupportedPrivateKey
@@ -34,7 +34,7 @@ enum NativeSSHOpenSSHPrivateKeyParser {
             throw NativeSSHConnectionFailure.privateKeyLoadFailed
         }
         guard try privateReader.readString() == "ssh-ed25519" else {
-            throw NativeSSHConnectionFailure.unsupportedPrivateKey
+            throw NativeSSHConnectionFailure.unsupportedKeyType
         }
         _ = try privateReader.readDataString()
         let privateAndPublic = try privateReader.readBytesString()

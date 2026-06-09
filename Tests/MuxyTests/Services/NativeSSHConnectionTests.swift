@@ -29,8 +29,8 @@ struct NativeSSHConnectionTests {
         #expect(NativeSSHConnectionConfiguration.authentication(for: host) == nil)
     }
 
-    @Test("Remote shell command changes directory and starts login shell")
-    func remoteShellCommand() {
+    @Test("Shell mode sends cd as initial input without explicit command")
+    func shellModeInitialInput() {
         let host = RemoteHost(name: "Prod", host: "example.com", user: "deploy")
         let remoteConfig = RemoteProjectConfig(
             hostID: host.id,
@@ -42,11 +42,12 @@ struct NativeSSHConnectionTests {
 
         let configuration = NativeSSHConnectionConfiguration.make(host: host, remoteConfig: remoteConfig)
 
-        #expect(configuration.remoteCommand == "cd '/srv/app path'; exec $SHELL -l")
+        #expect(configuration.remoteExecCommand == nil)
+        #expect(configuration.initialShellInput == "cd '/srv/app path'\n")
     }
 
-    @Test("Remote command tab runs provided command in remote directory")
-    func remoteCommandTabCommand() {
+    @Test("Exec mode runs provided command in remote directory")
+    func execModeCommand() {
         let host = RemoteHost(name: "Prod", host: "example.com", user: "deploy")
         let remoteConfig = RemoteProjectConfig(
             hostID: host.id,
@@ -62,7 +63,8 @@ struct NativeSSHConnectionTests {
             command: "swift test"
         )
 
-        #expect(configuration.remoteCommand == "cd /srv/app; swift test")
+        #expect(configuration.remoteExecCommand == "cd /srv/app; swift test")
+        #expect(configuration.initialShellInput == "cd /srv/app\n")
     }
 
     @Test("FD bridge allocates usable descriptors")
@@ -95,9 +97,19 @@ struct NativeSSHConnectionTests {
             Issue.record("Host key changes should map to host-key changed")
         }
 
-        if case .authFailed = SSHConnectionErrorMapper.map(NativeSSHConnectionFailure.unsupportedPrivateKey, host: "example.com") {
+        if case .authFailed = SSHConnectionErrorMapper.map(NativeSSHConnectionFailure.unsupportedKeyType, host: "example.com") {
         } else {
-            Issue.record("Unsupported key should map to auth failure")
+            Issue.record("Unsupported key type should map to auth failure")
+        }
+
+        if case .unknownHostKey("example.com") = SSHConnectionErrorMapper.map(NativeSSHConnectionFailure.unknownHostKey, host: "example.com") {
+        } else {
+            Issue.record("Unknown host key should map to unknown-host-key error")
+        }
+
+        if case .authFailed = SSHConnectionErrorMapper.map(NativeSSHConnectionFailure.encryptedPrivateKey, host: "example.com") {
+        } else {
+            Issue.record("Encrypted key should map to auth failure")
         }
 
         if case .refused("example.com") = SSHConnectionErrorMapper.map(POSIXError(.ECONNREFUSED), host: "example.com") {

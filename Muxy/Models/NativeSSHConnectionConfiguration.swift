@@ -15,10 +15,6 @@ struct NativeSSHConnectionConfiguration: Equatable {
     let authentication: NativeSSHAuthentication?
     let command: String?
 
-    var remoteCommand: String {
-        remoteExecCommand ?? "\(pathCommand); exec $SHELL -l"
-    }
-
     var remoteExecCommand: String? {
         guard let command else { return nil }
         return "\(pathCommand); \(command)"

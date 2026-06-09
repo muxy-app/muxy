@@ -4,6 +4,7 @@ enum SSHConnectionError {
     case refused(String)
     case authFailed(String)
     case hostKeyChanged(String)
+    case unknownHostKey(String)
     case timeout(String)
     case unknown(String)
 
@@ -12,6 +13,7 @@ enum SSHConnectionError {
         case .refused: "Connection Refused"
         case .authFailed: "Authentication Failed"
         case .hostKeyChanged: "Host Key Changed"
+        case .unknownHostKey: "Unknown Host Key"
         case .timeout: "Connection Timeout"
         case .unknown: "Connection Error"
         }
@@ -22,6 +24,7 @@ enum SSHConnectionError {
         case let .refused(host): "Could not connect to \(host): Connection refused"
         case let .authFailed(detail): detail
         case let .hostKeyChanged(detail): detail
+        case let .unknownHostKey(host): "The host key for \(host) is not in known_hosts. Add it to ~/.ssh/known_hosts to connect."
         case let .timeout(host): "Connection to \(host) timed out"
         case let .unknown(detail): detail
         }
