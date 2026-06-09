@@ -193,6 +193,59 @@ struct WorktreeStoreTests {
         #expect(custom.name == "My Feature")
     }
 
+    @Test("refreshFromGit keeps a branch-derived name when the worktree goes detached")
+    func refreshFromGitKeepsNameOnDetachedHead() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(
+                        name: project.name,
+                        path: project.path,
+                        branch: "main",
+                        isPrimary: true
+                    ),
+                    Worktree(
+                        name: "passion729/regulus",
+                        path: "/tmp/repo-wt1",
+                        branch: "passion729/regulus",
+                        source: .external,
+                        isPrimary: false
+                    ),
+                ]
+            ]
+        )
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: project.path,
+                    branch: "main",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+                GitWorktreeRecord(
+                    path: "/tmp/repo-wt1",
+                    branch: nil,
+                    head: "abc123",
+                    isBare: false,
+                    isDetached: true
+                ),
+            ]
+        ])
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            projects: [project]
+        )
+
+        let worktrees = try await store.refreshFromGit(project: project)
+
+        let detached = try #require(worktrees.first(where: { $0.path == "/tmp/repo-wt1" }))
+        #expect(detached.branch == nil)
+        #expect(detached.name == "passion729/regulus")
+    }
+
     @Test("refreshFromGit keeps missing Muxy-managed worktrees")
     func refreshFromGitKeepsMissingMuxyManagedEntries() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")

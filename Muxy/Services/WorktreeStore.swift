@@ -170,7 +170,7 @@ final class WorktreeStore {
                 if list[index].isPrimary {
                     list[index].name = project.name
                     list[index].path = project.path
-                } else if list[index].name == list[index].branch {
+                } else if record.branch != nil, list[index].name == list[index].branch {
                     list[index].name = defaultName(for: record)
                 }
                 list[index].branch = record.branch
