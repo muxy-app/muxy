@@ -11,6 +11,7 @@ protocol AIProviderIntegration {
     var executableNames: [String] { get }
     var hookScriptName: String { get }
     var hookScriptExtension: String { get }
+    var sessionResumeCommand: String? { get }
 
     func isToolInstalled() -> Bool
     func install(hookScriptPath: String) throws
@@ -20,6 +21,7 @@ protocol AIProviderIntegration {
 extension AIProviderIntegration {
     var hookScriptName: String { "muxy-claude-hook" }
     var hookScriptExtension: String { "sh" }
+    var sessionResumeCommand: String? { nil }
 }
 
 extension AIProviderIntegration {
@@ -130,6 +132,11 @@ final class AIProviderRegistry {
                 logger.error("Failed to uninstall \(provider.displayName): \(error.localizedDescription)")
             }
         }
+    }
+
+    func resumeCommand(forProcessName name: String?) -> String? {
+        guard let name = name?.lowercased(), !name.isEmpty else { return nil }
+        return providers.first { $0.executableNames.contains(name) }?.sessionResumeCommand
     }
 
     func notificationSource(for socketType: String) -> MuxyNotification.Source {

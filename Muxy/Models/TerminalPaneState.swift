@@ -19,7 +19,12 @@ final class TerminalPaneState: Identifiable {
     let externalEditorFilePath: String?
     var isOffline = false
     let searchState = TerminalSearchState()
+    @ObservationIgnored var foregroundProcessNameProvider: (() -> String?)?
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
+
+    var foregroundProcessName: String? {
+        foregroundProcessNameProvider?()
+    }
 
     init(
         id: UUID = UUID(),

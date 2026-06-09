@@ -6,6 +6,7 @@ struct ClaudeCodeProvider: AIProviderIntegration {
     let socketTypeKey = "claude_hook"
     let iconName = "claude"
     let executableNames = ["claude"]
+    let sessionResumeCommand: String? = "claude --continue"
 
     private static let settingsPath = NSHomeDirectory() + "/.claude/settings.json"
     private static let muxyMarker = "muxy-notification-hook"

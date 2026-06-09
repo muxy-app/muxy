@@ -82,7 +82,10 @@ final class TerminalTab: Identifiable {
                 id: snapshot.paneID ?? UUID(),
                 projectPath: snapshot.projectPath,
                 title: snapshot.paneTitle,
-                initialWorkingDirectory: restoredWorkingDirectory
+                initialWorkingDirectory: restoredWorkingDirectory,
+                startupCommand: snapshot.agentResumeCommand,
+                startupCommandInteractive: snapshot.agentResumeCommand != nil,
+                closesOnStartupCommandExit: false
             ))
         case .extensionWebView:
             if let extensionID = snapshot.extensionID,
@@ -112,6 +115,7 @@ final class TerminalTab: Identifiable {
             paneTitle: extensionTabDefaultTitle ?? content.pane?.title,
             paneID: content.pane?.id,
             currentWorkingDirectory: content.pane?.currentWorkingDirectory,
+            agentResumeCommand: agentResumeCommand(),
             extensionID: content.extensionState?.extensionID,
             extensionTabTypeID: content.extensionState?.tabTypeID,
             extensionTabData: content.extensionState?.data
@@ -120,6 +124,11 @@ final class TerminalTab: Identifiable {
 
     private var extensionTabDefaultTitle: String? {
         content.extensionState?.defaultTitle
+    }
+
+    private func agentResumeCommand() -> String? {
+        guard let pane = content.pane else { return nil }
+        return AIProviderRegistry.shared.resumeCommand(forProcessName: pane.foregroundProcessName)
     }
 
     private static func restoredWorkingDirectory(_ path: String?, projectPath: String) -> String? {

@@ -1386,6 +1386,11 @@ final class GhosttyTerminalNSView: NSView {
         return cells.alt_screen
     }
 
+    func foregroundProcessName() -> String? {
+        guard let surface else { return nil }
+        return Self.processName(pid: ghostty_surface_foreground_pid(surface))
+    }
+
     private static func processName(pid: UInt64) -> String? {
         guard pid > 0, pid <= UInt64(Int32.max) else { return nil }
         var buffer = [CChar](repeating: 0, count: 1024)

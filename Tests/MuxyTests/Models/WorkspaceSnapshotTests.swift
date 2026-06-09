@@ -65,6 +65,100 @@ struct WorkspaceSnapshotTests {
         #expect(decoded.projectPath == testPath)
     }
 
+    @Test("TerminalTabSnapshot round-trip preserves agentResumeCommand")
+    func terminalTabSnapshotPreservesAgentResumeCommand() throws {
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: "claude",
+            agentResumeCommand: "claude --continue"
+        )
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(TerminalTabSnapshot.self, from: data)
+
+        #expect(decoded.agentResumeCommand == "claude --continue")
+    }
+
+    @Test("TerminalTabSnapshot decoding without agentResumeCommand defaults to nil")
+    func terminalTabSnapshotAgentResumeBackwardCompatibility() throws {
+        let json = """
+        {
+            "kind": "terminal",
+            "isPinned": false,
+            "projectPath": "\(testPath)",
+            "paneTitle": "Shell"
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(TerminalTabSnapshot.self, from: json)
+
+        #expect(decoded.agentResumeCommand == nil)
+    }
+
+    @Test("TerminalTab.snapshot captures resume command when an agent is foreground")
+    func tabSnapshotCapturesAgentResumeCommand() {
+        let pane = TerminalPaneState(projectPath: testPath)
+        pane.foregroundProcessNameProvider = { "Claude" }
+        let tab = TerminalTab(pane: pane)
+
+        #expect(tab.snapshot().agentResumeCommand == "claude --continue")
+    }
+
+    @Test("TerminalTab.snapshot leaves resume command nil when a shell is foreground")
+    func tabSnapshotSkipsResumeCommandForShell() {
+        let pane = TerminalPaneState(projectPath: testPath)
+        pane.foregroundProcessNameProvider = { "zsh" }
+        let tab = TerminalTab(pane: pane)
+
+        #expect(tab.snapshot().agentResumeCommand == nil)
+    }
+
+    @Test("TerminalTab.snapshot leaves resume command nil without a foreground provider")
+    func tabSnapshotSkipsResumeCommandWithoutProvider() {
+        let tab = TerminalTab(pane: TerminalPaneState(projectPath: testPath))
+
+        #expect(tab.snapshot().agentResumeCommand == nil)
+    }
+
+    @Test("TerminalTab restore relaunches the agent resume command")
+    func tabRestoreRelaunchesAgentResumeCommand() {
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: "claude",
+            currentWorkingDirectory: testPath,
+            agentResumeCommand: "claude --continue"
+        )
+        let tab = TerminalTab(restoring: snapshot)
+        let pane = tab.content.pane
+
+        #expect(pane?.startupCommand == "claude --continue")
+        #expect(pane?.startupCommandInteractive == true)
+        #expect(pane?.closesOnStartupCommandExit == false)
+    }
+
+    @Test("TerminalTab restore without resume command launches a plain shell")
+    func tabRestoreWithoutResumeCommandLaunchesShell() {
+        let snapshot = TerminalTabSnapshot(
+            kind: .terminal,
+            customTitle: nil,
+            colorID: nil,
+            isPinned: false,
+            projectPath: testPath,
+            paneTitle: "Shell"
+        )
+        let tab = TerminalTab(restoring: snapshot)
+        let pane = tab.content.pane
+
+        #expect(pane?.startupCommand == nil)
+        #expect(pane?.startupCommandInteractive == false)
+    }
+
     @Test("TerminalTabSnapshot decoding with removed editor kind falls back to terminal")
     func terminalTabSnapshotRemovedEditorKind() throws {
         let json = """

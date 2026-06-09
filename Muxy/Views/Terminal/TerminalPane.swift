@@ -229,6 +229,9 @@ struct TerminalBridge: NSViewRepresentable {
         view.onOfflineChange = { [weak state] offline in
             state?.isOffline = offline
         }
+        state.foregroundProcessNameProvider = { [weak view] in
+            view?.foregroundProcessName()
+        }
         view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         configureSearchCallbacks(view)
         configureFileOpenCallback(view)
