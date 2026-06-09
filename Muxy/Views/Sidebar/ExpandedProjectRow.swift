@@ -181,7 +181,10 @@ struct ExpandedProjectRow: View {
                     .foregroundStyle(MuxyTheme.fg)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .helpIfTruncated(project.name)
+                    .helpIfTruncated(
+                        project.name,
+                        font: .systemFont(ofSize: UIMetrics.fontEmphasis, weight: isActive ? .semibold : .medium)
+                    )
 
                 if hasWorktreeUI, let worktree = activeWorktree {
                     Text(worktree.isPrimary ? "primary" : worktree.name)
