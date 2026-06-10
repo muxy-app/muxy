@@ -138,8 +138,11 @@ struct Sidebar: View {
     }
 
     private var homeProject: Project? {
-        guard !projectGroupStore.isRemoteWorkspaceActive else { return nil }
-        return showHomeProject ? Project.home : nil
+        guard showHomeProject else { return nil }
+        guard !projectGroupStore.isRemoteWorkspaceActive else {
+            return projectGroupStore.activeRemoteHomeProject
+        }
+        return Project.home
     }
 
     private var displayedProjects: [Project] {

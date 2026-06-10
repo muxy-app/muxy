@@ -42,6 +42,10 @@ final class ProjectGroupStore {
         return group.remoteProjects
     }
 
+    var activeRemoteHomeProject: Project? {
+        activeGroup?.remoteHomeProject
+    }
+
     var isRemoteWorkspaceActive: Bool {
         activeGroup?.type == .ssh
     }

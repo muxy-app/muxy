@@ -48,4 +48,26 @@ struct ProjectGroupMigrationTests {
         let data = SSHWorkspaceData(host: "prod", remoteRoot: "  ")
         #expect(data.remoteRoot == "~")
     }
+
+    @Test("ssh workspace exposes a remote home project at the remote root")
+    func remoteHomeProject() {
+        let group = ProjectGroup(
+            name: "prod",
+            type: .ssh,
+            sshData: SSHWorkspaceData(host: "prod", remoteRoot: "~/code")
+        )
+        let home = group.remoteHomeProject
+        #expect(home?.path == "~/code")
+        #expect(home?.isRemote == true)
+        #expect(home?.isHome == true)
+        #expect(home?.remoteWorkspaceID == group.id)
+        #expect(home?.id == ProjectGroup.remoteHomeID(for: group.id))
+        #expect(home?.id != group.id)
+    }
+
+    @Test("local workspace has no remote home project")
+    func localHasNoRemoteHome() {
+        let group = ProjectGroup(name: "Personal")
+        #expect(group.remoteHomeProject == nil)
+    }
 }

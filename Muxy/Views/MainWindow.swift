@@ -635,7 +635,8 @@ struct MainWindow: View {
 
     private var omniboxProjects: [Project] {
         if projectGroupStore.isRemoteWorkspaceActive {
-            return projectGroupStore.displayProjects(localProjects: projectStore.storedProjects)
+            let remoteHome = showHomeProject ? projectGroupStore.activeRemoteHomeProject.map { [$0] } ?? [] : []
+            return remoteHome + projectGroupStore.displayProjects(localProjects: projectStore.storedProjects)
         }
         return showHomeProject ? projectStore.projects : projectStore.storedProjects
     }
@@ -838,9 +839,11 @@ struct MainWindow: View {
     }
 
     private var allActiveProjects: [Project] {
-        projectStore.projects + projectGroupStore.activeRemoteProjects.enumerated().map { index, remote in
+        let remoteProjects = projectGroupStore.activeRemoteProjects.enumerated().map { index, remote in
             remote.asProject(workspaceID: projectGroupStore.activeGroupID ?? remote.id, sortOrder: index)
         }
+        let remoteHome = projectGroupStore.activeRemoteHomeProject.map { [$0] } ?? []
+        return projectStore.projects + remoteHome + remoteProjects
     }
 
     private var activeProject: Project? {

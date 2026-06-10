@@ -50,7 +50,9 @@ struct Project: Identifiable, Codable, Hashable {
     }
 
     var isHome: Bool {
-        id == Project.homeID
+        if id == Project.homeID { return true }
+        guard let remoteWorkspaceID else { return false }
+        return id == ProjectGroup.remoteHomeID(for: remoteWorkspaceID)
     }
 }
 

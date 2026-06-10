@@ -115,4 +115,23 @@ struct ProjectGroup: Identifiable, Codable, Hashable {
         guard type == .ssh, let sshData else { return .local }
         return .ssh(sshData.destination)
     }
+
+    var remoteHomeProject: Project? {
+        guard type == .ssh, let sshData else { return nil }
+        var project = Project(
+            id: Self.remoteHomeID(for: id),
+            name: Project.homeName,
+            path: sshData.remoteRoot,
+            sortOrder: Int.min,
+            remoteWorkspaceID: id
+        )
+        project.icon = Project.homeIcon
+        return project
+    }
+
+    static func remoteHomeID(for groupID: UUID) -> UUID {
+        var bytes = groupID.uuid
+        bytes.15 ^= 0x01
+        return UUID(uuid: bytes)
+    }
 }
