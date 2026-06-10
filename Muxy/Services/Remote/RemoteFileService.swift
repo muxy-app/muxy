@@ -65,8 +65,9 @@ struct RemoteFileService {
     func write(root: String, relativePath: String, contents: String) async throws -> String {
         let absolute = try contained(root: root, relativePath: relativePath)
         let quoted = RemoteCommandBuilder.quoteRemotePath(absolute)
-        let heredoc = "cat > \(quoted) <<'MUXY_EOF'\n\(contents)\nMUXY_EOF"
-        let result = try await run(heredoc)
+        let encoded = Data(contents.utf8).base64EncodedString()
+        let command = "printf %s \(ShellEscaper.escape(encoded)) | base64 -d > \(quoted)"
+        let result = try await run(command)
         guard result.status == 0 else {
             throw FileSystemOperationError.underlying(result.stderr.isEmpty ? "write failed" : result.stderr)
         }

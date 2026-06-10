@@ -64,4 +64,24 @@ struct ShellEscaperTests {
     func safePunctuation() {
         #expect(ShellEscaper.escape("/Users/a/b-c_d.1.txt") == "/Users/a/b-c_d.1.txt")
     }
+
+    @Test("newline and control separators are quoted")
+    func controlSeparators() {
+        #expect(ShellEscaper.escape("a\nid") == "'a\nid'")
+        #expect(ShellEscaper.escape("a\tb") == "'a\tb'")
+        #expect(ShellEscaper.escape("a\rb") == "'a\rb'")
+    }
+
+    @Test("redirection, glob, and assignment characters are quoted")
+    func redirectionAndGlobs() {
+        #expect(ShellEscaper.escape("a>b") == "'a>b'")
+        #expect(ShellEscaper.escape("*.swift") == "'*.swift'")
+        #expect(ShellEscaper.escape("a=b") == "'a=b'")
+    }
+
+    @Test("newline in a remote path argument cannot break out")
+    func newlinePathIsContained() {
+        #expect(RemoteCommandBuilder.quoteRemotePath("~/a\nid") == "~/'a\nid'")
+        #expect(RemoteCommandBuilder.quoteRemotePath("/proj/a\nid") == "'/proj/a\nid'")
+    }
 }

@@ -17,6 +17,8 @@ final class ProjectPickerWorkflow {
     @ObservationIgnored private let loadingMessageDelay: Duration
     @ObservationIgnored private var didAppear = false
     @ObservationIgnored private var directoryCache: [String: [ProjectPickerDirectoryItem]] = [:]
+    @ObservationIgnored private var directoryCacheOrder: [String] = []
+    private static let directoryCacheLimit = 64
 
     init(
         defaultDisplayPath: String = ProjectPickerDefaultLocation.state.displayPath,
@@ -186,8 +188,19 @@ final class ProjectPickerWorkflow {
             applyDirectorySnapshot(snapshot, loadID: loadID)
             return
         }
-        directoryCache[pathState.directoryPath] = items
+        cacheItems(items, for: pathState.directoryPath)
         applyDirectorySnapshot(session.pathService.snapshot(for: pathState, items: items), loadID: loadID)
+    }
+
+    private func cacheItems(_ items: [ProjectPickerDirectoryItem], for directoryPath: String) {
+        if directoryCache[directoryPath] == nil {
+            directoryCacheOrder.append(directoryPath)
+        }
+        directoryCache[directoryPath] = items
+        while directoryCacheOrder.count > Self.directoryCacheLimit {
+            let evicted = directoryCacheOrder.removeFirst()
+            directoryCache[evicted] = nil
+        }
     }
 
     private func cancelDirectoryReload() {

@@ -154,3 +154,53 @@ struct RemoteCommandBuilderTests {
         #expect(command == "echo 'a; rm -rf /' '$(whoami)' 'a|b'")
     }
 }
+
+@Suite("SSHDestination option-injection hardening")
+struct SSHDestinationHardeningTests {
+    @Test("leading-dash host is sanitized so ssh cannot parse it as an option")
+    func sanitizesDashHost() {
+        let destination = SSHDestination(host: "-oProxyCommand=touch /tmp/pwned")
+        #expect(!destination.host.hasPrefix("-"))
+        #expect(!destination.target.hasPrefix("-"))
+    }
+
+    @Test("leading-dash user is sanitized")
+    func sanitizesDashUser() {
+        let destination = SSHDestination(host: "prod", user: "-oProxyCommand=x")
+        #expect(destination.user?.hasPrefix("-") == false)
+    }
+
+    @Test("decoded destinations are sanitized too")
+    func sanitizesDecodedHost() throws {
+        let json = #"{"host":"-E/tmp/log","remoteRoot":"~"}"#
+        let decoded = try JSONDecoder().decode(SSHDestination.self, from: Data(json.utf8))
+        #expect(!decoded.host.hasPrefix("-"))
+    }
+
+    @Test("host validity check rejects empty and leading-dash hosts")
+    func validityCheck() {
+        #expect(SSHDestination.isValidHost("prod"))
+        #expect(!SSHDestination.isValidHost(""))
+        #expect(!SSHDestination.isValidHost("-oProxyCommand=x"))
+    }
+}
+
+@Suite("RemoteCommandBuilder environment hardening")
+struct RemoteEnvironmentTests {
+    @Test("invalid environment keys are dropped")
+    func dropsInvalidKeys() {
+        let prefix = RemoteCommandBuilder.environmentPrefix([
+            "GOOD": "1",
+            "BAD KEY": "x",
+            "BAD\nKEY": "x",
+            "9LEADING": "x",
+        ])
+        #expect(prefix == "export GOOD=1; ")
+    }
+
+    @Test("values are quoted, valid keys are not")
+    func quotesValuesNotKeys() {
+        let prefix = RemoteCommandBuilder.environmentPrefix(["TOKEN": "a b; rm -rf /"])
+        #expect(prefix == "export TOKEN='a b; rm -rf /'; ")
+    }
+}

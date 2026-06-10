@@ -468,11 +468,11 @@ private struct SSHWorkspaceEditorSheet: View {
     }
 
     private var canProbe: Bool {
-        !trimmedHost.isEmpty && probeState != .testing
+        SSHDestination.isValidHost(trimmedHost) && probeState != .testing
     }
 
     private var canSave: Bool {
-        !trimmedHost.isEmpty && !displayName.isEmpty
+        SSHDestination.isValidHost(trimmedHost) && !displayName.isEmpty
     }
 
     private var displayName: String {

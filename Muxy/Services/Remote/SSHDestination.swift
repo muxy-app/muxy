@@ -14,21 +14,38 @@ struct SSHDestination: Hashable, Codable {
         user: String? = nil,
         identityFile: String? = nil
     ) {
-        self.host = host
+        self.host = Self.sanitizedHost(host)
         let trimmedRoot = remoteRoot.trimmingCharacters(in: .whitespacesAndNewlines)
         self.remoteRoot = trimmedRoot.isEmpty ? "~" : trimmedRoot
         self.port = port
-        self.user = user.flatMap { $0.isEmpty ? nil : $0 }
+        self.user = Self.sanitizedUser(user)
         self.identityFile = identityFile.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        host = try container.decode(String.self, forKey: .host)
+        host = try Self.sanitizedHost(container.decode(String.self, forKey: .host))
         remoteRoot = try container.decodeIfPresent(String.self, forKey: .remoteRoot) ?? "~"
         port = try container.decodeIfPresent(Int.self, forKey: .port)
-        user = try container.decodeIfPresent(String.self, forKey: .user)
+        user = try Self.sanitizedUser(container.decodeIfPresent(String.self, forKey: .user))
         identityFile = try container.decodeIfPresent(String.self, forKey: .identityFile)
+    }
+
+    static func isValidHost(_ host: String) -> Bool {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && !trimmed.hasPrefix("-")
+    }
+
+    private static func sanitizedHost(_ host: String) -> String {
+        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("-") ? String(trimmed.drop { $0 == "-" }) : trimmed
+    }
+
+    private static func sanitizedUser(_ user: String?) -> String? {
+        guard let trimmed = user?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed.hasPrefix("-") ? String(trimmed.drop { $0 == "-" }) : trimmed
     }
 
     var target: String {

@@ -15,11 +15,18 @@ enum RemoteCommandBuilder {
         return "cd \(quoteRemotePath(workingDirectory)) && "
     }
 
+    static func isValidEnvironmentKey(_ key: String) -> Bool {
+        guard let first = key.first, first.isASCII, first.isLetter || first == "_" else { return false }
+        return key.dropFirst().allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }
+    }
+
     static func environmentPrefix(_ environment: [String: String]?) -> String {
         guard let environment, !environment.isEmpty else { return "" }
         let assignments = environment
+            .filter { isValidEnvironmentKey($0.key) }
             .sorted { $0.key < $1.key }
-            .map { "export \(ShellEscaper.escape($0.key))=\(ShellEscaper.escape($0.value))" }
+            .map { "export \($0.key)=\(ShellEscaper.escape($0.value))" }
+        guard !assignments.isEmpty else { return "" }
         return assignments.joined(separator: "; ") + "; "
     }
 

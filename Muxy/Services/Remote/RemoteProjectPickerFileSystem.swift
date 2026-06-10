@@ -2,38 +2,30 @@ import Foundation
 
 struct RemoteProjectPickerFileSystem: ProjectPickerFileSystem {
     let destination: SSHDestination
+    private let cache = RemoteDirectoryCache()
 
     func directoryState(atPath path: String) -> ProjectPickerFileSystemDirectoryState {
-        let quoted = RemoteCommandBuilder.quoteRemotePath(path)
-        let command = "if [ -d \(quoted) ]; then echo dir; elif [ -e \(quoted) ]; then echo file; else echo missing; fi"
-        guard let output = run(command)?.trimmingCharacters(in: .whitespacesAndNewlines) else {
-            return .missing
-        }
-        switch output {
-        case "dir": return .directory
-        case "file": return .notDirectory
-        default: return .missing
-        }
+        cache.directoryState(forPath: ProjectPickerPathService.standardizedRemotePath(path))
     }
 
     func isReadableFile(atPath path: String) -> Bool {
-        let quoted = RemoteCommandBuilder.quoteRemotePath(path)
-        let output = run("if [ -r \(quoted) ]; then echo ok; fi")?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return output == "ok"
+        directoryState(atPath: path) != .missing
     }
 
     func contentsOfDirectory(atPath path: String) throws -> [ProjectPickerFileSystemDirectoryEntry] {
-        let quoted = RemoteCommandBuilder.quoteRemotePath(path)
+        let standardized = ProjectPickerPathService.standardizedRemotePath(path)
+        let quoted = RemoteCommandBuilder.quoteRemotePath(standardized)
         let script = "cd \(quoted) && for e in * .*; do "
             + "case \"$e\" in '.'|'..'|'*'|'.*') continue ;; esac; "
             + "{ [ -e \"$e\" ] || [ -L \"$e\" ]; } || continue; "
             + "if [ -d \"$e\" ]; then printf 'd %s\\0' \"$e\"; "
             + "else printf 'f %s\\0' \"$e\"; fi; done"
-        guard let output = run(script) else {
+        guard let result = try? blockingRun(script), result.status == 0 else {
             throw RemoteProjectPickerError.listingFailed
         }
-        return Self.parseEntries(output)
+        let entries = Self.parseEntries(result.stdout)
+        cache.store(directory: standardized, entries: entries)
+        return entries
     }
 
     static func parseEntries(_ output: String) -> [ProjectPickerFileSystemDirectoryEntry] {
@@ -48,17 +40,40 @@ struct RemoteProjectPickerFileSystem: ProjectPickerFileSystem {
             }
     }
 
-    private func run(_ remoteCommand: String) -> String? {
+    private func blockingRun(_ remoteCommand: String) throws -> GitProcessResult? {
         let semaphore = DispatchSemaphore(value: 0)
         let box = ResultBox()
-        Task {
+        Task.detached(priority: .userInitiated) {
             let result = try? await SSHCommandRunner.run(destination: destination, remoteCommand: remoteCommand)
             box.set(result)
             semaphore.signal()
         }
         semaphore.wait()
-        guard let result = box.value, result.status == 0 else { return nil }
-        return result.stdout
+        return box.value
+    }
+}
+
+private final class RemoteDirectoryCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entriesByDirectory: [String: Set<String>] = [:]
+    private var directoriesByParent: [String: Set<String>] = [:]
+
+    func store(directory: String, entries: [ProjectPickerFileSystemDirectoryEntry]) {
+        lock.lock()
+        defer { lock.unlock() }
+        entriesByDirectory[directory] = Set(entries.map(\.name))
+        directoriesByParent[directory] = Set(entries.filter(\.isProjectPickerDirectory).map(\.name))
+    }
+
+    func directoryState(forPath path: String) -> ProjectPickerFileSystemDirectoryState {
+        lock.lock()
+        defer { lock.unlock() }
+        if entriesByDirectory[path] != nil { return .directory }
+        let parent = (path as NSString).deletingLastPathComponent
+        let name = (path as NSString).lastPathComponent
+        guard let siblings = entriesByDirectory[parent] else { return .directory }
+        guard siblings.contains(name) else { return .missing }
+        return directoriesByParent[parent]?.contains(name) == true ? .directory : .notDirectory
     }
 }
 
