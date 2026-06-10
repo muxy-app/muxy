@@ -116,9 +116,8 @@ struct MobileSettingsView: View {
             refreshPairingHosts()
         }
         .onChange(of: devices.devices) { _, newValue in
-            let availableIDs = Set(newValue.map(\.id))
-            selectedDeviceIDs.formIntersection(availableIDs)
-            if newValue.isEmpty {
+            selectedDeviceIDs.formIntersection(Set(newValue.map(\.id)))
+            if isSelecting, newValue.isEmpty {
                 exitSelection()
             }
         }
@@ -292,14 +291,13 @@ struct MobileSettingsView: View {
                 .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
                 .foregroundStyle(MuxyTheme.accent)
 
-                if !selectedDeviceIDs.isEmpty {
-                    Button("Revoke Selected (\(selectedDeviceIDs.count))", role: .destructive) {
-                        showBatchRevokeConfirmation = true
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
-                    .foregroundStyle(SettingsStyle.destructive)
+                Button("Revoke Selected (\(selectedDeviceIDs.count))", role: .destructive) {
+                    showBatchRevokeConfirmation = true
                 }
+                .buttonStyle(.borderless)
+                .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+                .foregroundStyle(SettingsStyle.destructive)
+                .disabled(selectedDeviceIDs.isEmpty)
 
                 Spacer()
 
@@ -381,6 +379,9 @@ struct MobileSettingsView: View {
             guard isSelecting else { return }
             toggleSelection(device)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelecting ? .isButton : [])
+        .accessibilityAddTraits(isSelecting && selectedDeviceIDs.contains(device.id) ? .isSelected : [])
     }
 
     private func lastSeenText(_ device: ApprovedDevice) -> String {
