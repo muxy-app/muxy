@@ -652,8 +652,9 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         let resolvedBase: String? = (createBranch && trimmedBase?.isEmpty == false) ? trimmedBase : nil
         let slug = Self.worktreeSlug(from: trimmedName)
         let worktreeDirectory = WorktreeLocationResolver.worktreeDirectory(for: project, slug: slug)
+        let context = projectGroupStore.workspaceContext(for: project)
 
-        if await ActiveWorkspaceContext.shared.current.fileOps.exists(at: worktreeDirectory) {
+        if await context.fileOps.exists(at: worktreeDirectory) {
             throw RemoteVCSError.invalidInput("A worktree with this name already exists on disk.")
         }
 
@@ -664,12 +665,18 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
             createBranch: createBranch,
             baseBranch: resolvedBase
         )
-        let worktree = try await worktreeStore.createWorktree(project: project, request: request)
+        let worktree = try await worktreeStore.createWorktree(
+            project: project,
+            request: request,
+            context: context
+        )
         return worktree.toDTO()
     }
 
     func vcsRemoveWorktree(projectID: UUID, worktreeID: UUID) async throws {
-        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else {
+        guard let project = projectStore.projects.first(where: { $0.id == projectID })
+            ?? resolveRemoteProject(projectID)?.project
+        else {
             throw RemoteVCSError.projectNotFound
         }
         guard let worktree = worktreeStore.worktree(projectID: projectID, worktreeID: worktreeID) else {
@@ -682,6 +689,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         try await WorktreeStore.cleanupOnDisk(
             worktree: worktree,
             repoPath: project.path,
+            context: projectGroupStore.workspaceContext(for: project),
             teardownEmit: { line in
                 logger.error("[teardown \(worktreeID)] \(line.text)")
             }

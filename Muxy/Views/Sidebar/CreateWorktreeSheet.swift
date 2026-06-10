@@ -361,7 +361,11 @@ struct CreateWorktreeSheet: View {
         )
 
         do {
-            let worktree = try await worktreeStore.createWorktree(project: project, request: request)
+            let worktree = try await worktreeStore.createWorktree(
+                project: project,
+                request: request,
+                context: workspaceContext
+            )
             if !project.isRemote {
                 projectStore.setPreferredWorktreeParentPath(
                     id: project.id,

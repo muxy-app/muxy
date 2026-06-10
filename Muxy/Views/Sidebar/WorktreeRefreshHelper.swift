@@ -19,7 +19,8 @@ enum WorktreeRefreshHelper {
         defer { isRefreshing?.wrappedValue = false }
 
         do {
-            let refreshed = try await worktreeStore.refreshFromGit(project: project)
+            let context = project.isRemote ? ActiveWorkspaceContext.shared.current : .local
+            let refreshed = try await worktreeStore.refreshFromGit(project: project, context: context)
             let refreshedIDs = Set(refreshed.map(\.id))
             let replacement = appState.activeWorktreeID[project.id].flatMap { activeID in
                 refreshed.first { $0.id == activeID }

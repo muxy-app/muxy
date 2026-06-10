@@ -68,6 +68,11 @@ final class ProjectGroupStore {
         activeGroup?.workspaceContext ?? .local
     }
 
+    func workspaceContext(for project: Project) -> WorkspaceContext {
+        guard let workspaceID = project.remoteWorkspaceID else { return .local }
+        return groups.first(where: { $0.id == workspaceID })?.workspaceContext ?? .local
+    }
+
     func addGroup(name: String) {
         let sortOrder = groups.count
         let group = ProjectGroup(name: name, sortOrder: sortOrder)

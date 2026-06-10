@@ -251,8 +251,8 @@ struct WorkspaceSwitcher: View {
     }
 
     private func connectionState(for group: ProjectGroup) -> SSHConnectionState {
-        guard let host = group.sshData?.host else { return .disconnected }
-        return sshConnections.state(for: host)
+        guard let destination = group.sshData?.destination else { return .disconnected }
+        return sshConnections.state(for: destination)
     }
 
     private func select(_ group: ProjectGroup) {
@@ -264,9 +264,17 @@ struct WorkspaceSwitcher: View {
         isShowingPopover = false
         Task {
             let connected = await sshConnections.connect(destination: destination)
-            guard connected else { return }
+            guard connected else {
+                ToastState.shared.show("Could not connect to \(group.name): \(failureMessage(for: destination))")
+                return
+            }
             projectGroupStore.selectGroup(id: group.id)
         }
+    }
+
+    private func failureMessage(for destination: SSHDestination) -> String {
+        if case let .failed(message) = sshConnections.state(for: destination) { return message }
+        return "Connection failed."
     }
 }
 
@@ -638,7 +646,7 @@ private struct SSHWorkspaceEditorSheet: View {
             if success {
                 probeState = .succeeded
             } else {
-                probeState = .failed(failureMessage(for: destination.host))
+                probeState = .failed(failureMessage(for: destination))
             }
         }
     }
@@ -650,15 +658,15 @@ private struct SSHWorkspaceEditorSheet: View {
         Task {
             let success = await sshConnections.connect(destination: data.destination)
             guard success else {
-                probeState = .failed(failureMessage(for: data.host))
+                probeState = .failed(failureMessage(for: data.destination))
                 return
             }
             onConnected(displayName, data)
         }
     }
 
-    private func failureMessage(for host: String) -> String {
-        if case let .failed(message) = sshConnections.state(for: host) { return message }
+    private func failureMessage(for destination: SSHDestination) -> String {
+        if case let .failed(message) = sshConnections.state(for: destination) { return message }
         return "Connection failed."
     }
 }

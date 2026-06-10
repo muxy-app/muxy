@@ -4,6 +4,7 @@ struct WorktreeRemovalRequest: Identifiable {
     let id = UUID()
     let worktree: Worktree
     let repoPath: String
+    let context: WorkspaceContext
     let onSuccess: @MainActor () -> Void
 }
 
@@ -37,6 +38,7 @@ private struct WorktreeRemovalPresenterModifier: ViewModifier {
             try await WorktreeStore.cleanupOnDisk(
                 worktree: current.worktree,
                 repoPath: current.repoPath,
+                context: current.context,
                 teardownEmit: { line in
                     Task { @MainActor in controller.append(line) }
                 }

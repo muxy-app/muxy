@@ -486,6 +486,7 @@ struct ExpandedProjectRow: View {
         removalRequest = WorktreeRemovalRequest(
             worktree: worktree,
             repoPath: project.path,
+            context: project.remoteWorkspaceID == nil ? .local : ActiveWorkspaceContext.shared.current,
             onSuccess: {
                 appState.removeWorktree(
                     projectID: project.id,

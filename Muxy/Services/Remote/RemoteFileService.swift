@@ -19,7 +19,10 @@ struct RemoteFileService {
             + "if [ -d \"$e\" ]; then printf 'd %s\\0' \"$e\"; "
             + "else printf 'f %s\\0' \"$e\"; fi; done"
         let result = try await run(script)
-        guard result.status == 0 else { return [] }
+        guard result.status == 0 else {
+            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw FileSystemOperationError.underlying(detail.isEmpty ? "could not list '\(directory)'" : detail)
+        }
         return parseEntries(result.stdout, directory: directory, root: root)
     }
 

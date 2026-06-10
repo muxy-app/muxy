@@ -100,9 +100,9 @@ final class WorktreeStore {
 
     func createWorktree(
         project: Project,
-        request: WorktreeCreationRequest
+        request: WorktreeCreationRequest,
+        context: WorkspaceContext = .local
     ) async throws -> Worktree {
-        let context = ActiveWorkspaceContext.shared.current
         let parentPath = parentDirectory(of: request.path, context: context)
         try await context.fileOps.makeDirectory(at: parentPath)
 
@@ -159,8 +159,7 @@ final class WorktreeStore {
         save(projectID: projectID)
     }
 
-    func refreshFromGit(project: Project) async throws -> [Worktree] {
-        let context = ActiveWorkspaceContext.shared.current
+    func refreshFromGit(project: Project, context: WorkspaceContext = .local) async throws -> [Worktree] {
         ensurePrimary(for: project)
         let records = try await listWorktreesForContext(project: project, context: context)
             .filter { !$0.isBare && !$0.isPrunable }

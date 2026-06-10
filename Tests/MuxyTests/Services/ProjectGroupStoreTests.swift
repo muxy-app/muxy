@@ -276,6 +276,31 @@ struct ProjectGroupStoreTests {
 
         #expect(result.isEmpty)
     }
+
+    @Test("workspaceContext is local for a project without a remote workspace")
+    func workspaceContextLocalProject() {
+        let store = ProjectGroupStore(persistence: ProjectGroupPersistenceStub(initial: []))
+
+        #expect(store.workspaceContext(for: Project(name: "A", path: "/a")) == .local)
+    }
+
+    @Test("workspaceContext resolves a remote project to its group's SSH context")
+    func workspaceContextRemoteProject() {
+        let sshData = SSHWorkspaceData(host: "example.com", remoteRoot: "~/code", user: "deploy")
+        let group = ProjectGroup(name: "Remote", type: .ssh, sshData: sshData)
+        let store = ProjectGroupStore(persistence: ProjectGroupPersistenceStub(initial: [group]))
+        let project = Project(name: "api", path: "~/code/api", remoteWorkspaceID: group.id)
+
+        #expect(store.workspaceContext(for: project) == .ssh(sshData.destination))
+    }
+
+    @Test("workspaceContext falls back to local when the remote workspace is missing")
+    func workspaceContextOrphanRemoteProject() {
+        let store = ProjectGroupStore(persistence: ProjectGroupPersistenceStub(initial: []))
+        let project = Project(name: "api", path: "~/code/api", remoteWorkspaceID: UUID())
+
+        #expect(store.workspaceContext(for: project) == .local)
+    }
 }
 
 final class ProjectGroupPersistenceStub: ProjectGroupPersisting {

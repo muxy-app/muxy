@@ -728,7 +728,8 @@ enum MuxyAPI {
                         branch: trimmedBranch,
                         createBranch: request.createBranch,
                         baseBranch: request.createBranch && !trimmedBase.isEmpty ? trimmedBase : nil
-                    )
+                    ),
+                    context: workspaceContext
                 )
                 appState.selectWorktree(projectID: project.id, worktree: worktree)
                 return .success(CreatedWorktreeInfo(
@@ -752,7 +753,8 @@ enum MuxyAPI {
                 return .failure(.projectNotFound(projectIdentifier ?? ""))
             }
             do {
-                let worktrees = try await worktreeStore.refreshFromGit(project: project)
+                let context = project.isRemote ? ActiveWorkspaceContext.shared.current : .local
+                let worktrees = try await worktreeStore.refreshFromGit(project: project, context: context)
                 return .success(RefreshWorktreesResult(count: worktrees.count))
             } catch {
                 return .failure(.underlying(error.localizedDescription))
