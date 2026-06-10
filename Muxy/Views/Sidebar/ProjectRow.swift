@@ -214,7 +214,7 @@ struct ProjectRow: View {
         let unread = NotificationStore.shared.unreadCount(for: project.id)
         let hasCompletion = TerminalProgressStore.shared.hasCompletionPending(for: project.id)
         return ZStack {
-            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous)
                 .fill(iconBackground(hasLogo: logo != nil))
 
             if project.isHome {
@@ -226,7 +226,7 @@ struct ProjectRow: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
-                    .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+                    .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous))
             } else if let iconName = project.icon {
                 Image(systemName: iconName)
                     .font(.system(size: UIMetrics.fontTitleLarge, weight: .medium))
@@ -251,7 +251,7 @@ struct ProjectRow: View {
             }
         }
         .overlay {
-            RoundedRectangle(cornerRadius: UIMetrics.scaled(11))
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD + UIMetrics.scaled(3), style: .continuous)
                 .strokeBorder(isActive ? MuxyTheme.accent : .clear, lineWidth: 1.5)
                 .animation(.easeInOut(duration: 0.15), value: isActive)
         }

@@ -266,7 +266,7 @@ struct ExpandedProjectRow: View {
         let unread = NotificationStore.shared.unreadCount(for: project.id)
         let hasCompletion = TerminalProgressStore.shared.hasCompletionPending(for: project.id)
         return ZStack {
-            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous)
                 .fill(iconBackground(hasLogo: logo != nil))
 
             if project.isHome {
@@ -278,7 +278,7 @@ struct ExpandedProjectRow: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
-                    .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+                    .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous))
             } else if let iconName = project.icon {
                 Image(systemName: iconName)
                     .font(.system(size: UIMetrics.fontTitleLarge, weight: .medium))
