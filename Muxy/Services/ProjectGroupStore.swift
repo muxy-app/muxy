@@ -102,7 +102,15 @@ final class ProjectGroupStore {
     @discardableResult
     func addRemoteProject(name: String, path: String, toGroup groupID: UUID) -> RemoteProject? {
         guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return nil }
-        if let existing = groups[index].remoteProjects.first(where: { $0.path == path }) {
+        let standardizedPath = ProjectPickerPathService.standardizedRemotePath(path)
+        if let remoteRoot = groups[index].sshData?.remoteRoot,
+           standardizedPath == ProjectPickerPathService.standardizedRemotePath(remoteRoot)
+        {
+            return nil
+        }
+        if let existing = groups[index].remoteProjects.first(where: {
+            ProjectPickerPathService.standardizedRemotePath($0.path) == standardizedPath
+        }) {
             return existing
         }
         let project = RemoteProject(name: name, path: path)

@@ -3,7 +3,7 @@ import Foundation
 enum ShellEscaper {
     private static let safeCharacters: Set<Character> = {
         var characters = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
-        characters.formUnion(["-", "_", ".", "/", ":", "@", "%", "+", ",", "~"])
+        characters.formUnion(["-", "_", ".", "/", ":", "@", "%", "+", ","])
         return characters
     }()
 

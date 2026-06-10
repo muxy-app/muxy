@@ -991,7 +991,7 @@ enum MuxyAPI {
             return .success(())
         }
 
-        private static func resolveTabDirectory(
+        static func resolveTabDirectory(
             root: String,
             relativePath: String,
             context: WorkspaceContext

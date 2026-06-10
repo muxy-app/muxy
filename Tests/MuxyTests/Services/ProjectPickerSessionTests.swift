@@ -110,7 +110,7 @@ private struct ProjectPickerFileSystemStub: ProjectPickerFileSystem {
         directoryStates[path] == .directory
     }
 
-    func contentsOfDirectory(atPath path: String) throws -> [ProjectPickerFileSystemDirectoryEntry] {
+    func contentsOfDirectory(atPath path: String) async throws -> [ProjectPickerFileSystemDirectoryEntry] {
         []
     }
 }

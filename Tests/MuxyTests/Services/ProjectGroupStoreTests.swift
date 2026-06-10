@@ -301,6 +301,123 @@ struct ProjectGroupStoreTests {
 
         #expect(store.workspaceContext(for: project) == .local)
     }
+
+    @Test("addSSHWorkspace appends an SSH group with its data and persists")
+    func addSSHWorkspace() {
+        let persistence = ProjectGroupPersistenceStub()
+        let store = ProjectGroupStore(persistence: persistence)
+        let data = SSHWorkspaceData(host: "example.com", remoteRoot: "~/code", user: "deploy")
+
+        let group = store.addSSHWorkspace(name: "Remote", data: data)
+
+        #expect(store.groups.count == 1)
+        #expect(store.groups.first?.type == .ssh)
+        #expect(store.groups.first?.sshData == data)
+        #expect(persistence.savedGroups?.first?.id == group.id)
+    }
+
+    @Test("updateSSHWorkspace replaces the SSH data and persists")
+    func updateSSHWorkspace() {
+        let group = ProjectGroup(name: "Remote", type: .ssh, sshData: SSHWorkspaceData(host: "old.example.com"))
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = ProjectGroupStore(persistence: persistence)
+        let updated = SSHWorkspaceData(host: "new.example.com", remoteRoot: "~/work")
+
+        store.updateSSHWorkspace(id: group.id, data: updated)
+
+        #expect(store.groups.first?.sshData == updated)
+        #expect(persistence.savedGroups?.first?.sshData == updated)
+    }
+
+    @Test("addRemoteProject appends a project and persists")
+    func addRemoteProject() {
+        let group = ProjectGroup(name: "Remote", type: .ssh, sshData: SSHWorkspaceData(host: "example.com", remoteRoot: "~"))
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = ProjectGroupStore(persistence: persistence)
+
+        let project = store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
+
+        #expect(project != nil)
+        #expect(store.groups.first?.remoteProjects.map(\.path) == ["~/code/api"])
+        #expect(persistence.savedGroups?.first?.remoteProjects.count == 1)
+    }
+
+    @Test("addRemoteProject returns the existing project for a duplicate path")
+    func addRemoteProjectDeduplicatesByPath() {
+        let group = ProjectGroup(name: "Remote", type: .ssh, sshData: SSHWorkspaceData(host: "example.com", remoteRoot: "~"))
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = ProjectGroupStore(persistence: persistence)
+        let first = store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
+
+        let second = store.addRemoteProject(name: "api-again", path: "~/code/./api", toGroup: group.id)
+
+        #expect(second?.id == first?.id)
+        #expect(store.groups.first?.remoteProjects.count == 1)
+    }
+
+    @Test("addRemoteProject rejects a path equal to the workspace root")
+    func addRemoteProjectRejectsWorkspaceRoot() {
+        let group = ProjectGroup(name: "Remote", type: .ssh, sshData: SSHWorkspaceData(host: "example.com", remoteRoot: "~/code"))
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = ProjectGroupStore(persistence: persistence)
+
+        let project = store.addRemoteProject(name: "root", path: "~/code", toGroup: group.id)
+
+        #expect(project == nil)
+        #expect(store.groups.first?.remoteProjects.isEmpty == true)
+    }
+
+    @Test("removeRemoteProject deletes the project and persists")
+    func removeRemoteProject() {
+        let group = ProjectGroup(name: "Remote", type: .ssh, sshData: SSHWorkspaceData(host: "example.com", remoteRoot: "~"))
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = ProjectGroupStore(persistence: persistence)
+        let project = store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
+
+        store.removeRemoteProject(id: project!.id, fromGroup: group.id)
+
+        #expect(store.groups.first?.remoteProjects.isEmpty == true)
+        #expect(persistence.savedGroups?.first?.remoteProjects.isEmpty == true)
+    }
+
+    @Test("renameRemoteProject updates the name and persists")
+    func renameRemoteProject() {
+        let group = ProjectGroup(name: "Remote", type: .ssh, sshData: SSHWorkspaceData(host: "example.com", remoteRoot: "~"))
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = ProjectGroupStore(persistence: persistence)
+        let project = store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
+
+        store.renameRemoteProject(id: project!.id, to: "service")
+
+        #expect(store.groups.first?.remoteProjects.first?.name == "service")
+        #expect(persistence.savedGroups?.first?.remoteProjects.first?.name == "service")
+    }
+
+    @Test("setRemoteProjectWorktreesEnabled toggles the flag and persists")
+    func setRemoteProjectWorktreesEnabled() {
+        let group = ProjectGroup(name: "Remote", type: .ssh, sshData: SSHWorkspaceData(host: "example.com", remoteRoot: "~"))
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = ProjectGroupStore(persistence: persistence)
+        let project = store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
+
+        store.setRemoteProjectWorktreesEnabled(id: project!.id, to: true)
+
+        #expect(store.groups.first?.remoteProjects.first?.worktreesEnabled == true)
+        #expect(persistence.savedGroups?.first?.remoteProjects.first?.worktreesEnabled == true)
+    }
+
+    @Test("RemoteProject.asProject preserves the worktrees flag and workspace id")
+    func remoteProjectAsProjectRoundTrip() {
+        let workspaceID = UUID()
+        let remote = RemoteProject(name: "api", path: "~/code/api", worktreesEnabled: true)
+
+        let project = remote.asProject(workspaceID: workspaceID, sortOrder: 3)
+
+        #expect(project.id == remote.id)
+        #expect(project.worktreesEnabled == true)
+        #expect(project.remoteWorkspaceID == workspaceID)
+        #expect(project.sortOrder == 3)
+    }
 }
 
 final class ProjectGroupPersistenceStub: ProjectGroupPersisting {

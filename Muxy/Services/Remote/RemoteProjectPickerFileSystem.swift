@@ -12,7 +12,7 @@ struct RemoteProjectPickerFileSystem: ProjectPickerFileSystem {
         directoryState(atPath: path) != .missing
     }
 
-    func contentsOfDirectory(atPath path: String) throws -> [ProjectPickerFileSystemDirectoryEntry] {
+    func contentsOfDirectory(atPath path: String) async throws -> [ProjectPickerFileSystemDirectoryEntry] {
         let standardized = ProjectPickerPathService.standardizedRemotePath(path)
         let quoted = RemoteCommandBuilder.quoteRemotePath(standardized)
         let script = "cd \(quoted) && for e in * .*; do "
@@ -20,7 +20,9 @@ struct RemoteProjectPickerFileSystem: ProjectPickerFileSystem {
             + "{ [ -e \"$e\" ] || [ -L \"$e\" ]; } || continue; "
             + "if [ -d \"$e\" ]; then printf 'd %s\\0' \"$e\"; "
             + "else printf 'f %s\\0' \"$e\"; fi; done"
-        guard let result = try? blockingRun(script), result.status == 0 else {
+        guard let result = try? await SSHCommandRunner.run(destination: destination, remoteCommand: script),
+              result.status == 0
+        else {
             throw RemoteProjectPickerError.listingFailed
         }
         let entries = Self.parseEntries(result.stdout)
@@ -38,18 +40,6 @@ struct RemoteProjectPickerFileSystem: ProjectPickerFileSystem {
                 guard !name.isEmpty else { return nil }
                 return type == "d" ? .directory(name) : .file(name)
             }
-    }
-
-    private func blockingRun(_ remoteCommand: String) throws -> GitProcessResult? {
-        let semaphore = DispatchSemaphore(value: 0)
-        let box = ResultBox()
-        Task.detached(priority: .userInitiated) {
-            let result = try? await SSHCommandRunner.run(destination: destination, remoteCommand: remoteCommand)
-            box.set(result)
-            semaphore.signal()
-        }
-        semaphore.wait()
-        return box.value
     }
 }
 
@@ -84,22 +74,5 @@ enum RemoteProjectPickerError: LocalizedError {
         switch self {
         case .listingFailed: "Failed to list remote directory."
         }
-    }
-}
-
-private final class ResultBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: GitProcessResult?
-
-    func set(_ result: GitProcessResult?) {
-        lock.lock()
-        defer { lock.unlock() }
-        stored = result
-    }
-
-    var value: GitProcessResult? {
-        lock.lock()
-        defer { lock.unlock() }
-        return stored
     }
 }

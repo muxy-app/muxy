@@ -197,7 +197,7 @@ private final class ProjectPickerDefaultLocationSettingsFileSystemFake: ProjectP
         readablePaths.contains(path)
     }
 
-    func contentsOfDirectory(atPath path: String) throws -> [ProjectPickerFileSystemDirectoryEntry] {
+    func contentsOfDirectory(atPath path: String) async throws -> [ProjectPickerFileSystemDirectoryEntry] {
         []
     }
 }

@@ -224,12 +224,10 @@ final class ProjectPickerWorkflow {
 
     private static func itemsLoader(for pathService: ProjectPickerPathService) -> ProjectPickerDirectoryItemsLoader {
         { directoryPath in
-            await Task.detached(priority: .userInitiated) {
-                switch pathService.directoryContents(atPath: directoryPath) {
-                case let .success(items): items
-                case .failure: nil
-                }
-            }.value
+            switch await pathService.directoryContents(atPath: directoryPath) {
+            case let .success(items): items
+            case .failure: nil
+            }
         }
     }
 }

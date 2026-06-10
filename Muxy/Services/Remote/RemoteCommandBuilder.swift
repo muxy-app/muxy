@@ -37,7 +37,7 @@ enum RemoteCommandBuilder {
         environment: [String: String]? = nil
     ) -> String {
         let command = ([executable] + arguments)
-            .map(ShellEscaper.escape)
+            .map(quoteRemotePath)
             .joined(separator: " ")
         return environmentPrefix(environment)
             + changeDirectoryPrefix(workingDirectory)

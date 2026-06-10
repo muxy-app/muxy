@@ -84,4 +84,18 @@ struct ShellEscaperTests {
         #expect(RemoteCommandBuilder.quoteRemotePath("~/a\nid") == "~/'a\nid'")
         #expect(RemoteCommandBuilder.quoteRemotePath("/proj/a\nid") == "'/proj/a\nid'")
     }
+
+    @Test("tilde is quoted so escape never triggers remote home expansion")
+    func tildeIsQuoted() {
+        #expect(ShellEscaper.escape("~root") == "'~root'")
+        #expect(ShellEscaper.escape("~/code") == "'~/code'")
+    }
+
+    @Test("quoteRemotePath expands only a leading tilde and quotes other tildes")
+    func quoteRemotePathTildeHandling() {
+        #expect(RemoteCommandBuilder.quoteRemotePath("~") == "~")
+        #expect(RemoteCommandBuilder.quoteRemotePath("~/code") == "~/code")
+        #expect(RemoteCommandBuilder.quoteRemotePath("~root") == "'~root'")
+        #expect(RemoteCommandBuilder.quoteRemotePath("/a/~b") == "'/a/~b'")
+    }
 }

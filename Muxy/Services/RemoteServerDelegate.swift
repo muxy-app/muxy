@@ -698,7 +698,9 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     private func repoPath(projectID: UUID) throws -> String {
-        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else {
+        guard let project = projectStore.projects.first(where: { $0.id == projectID })
+            ?? resolveRemoteProject(projectID)?.project
+        else {
             throw RemoteVCSError.projectNotFound
         }
         return resolveWorktreePath(projectID: projectID) ?? project.path

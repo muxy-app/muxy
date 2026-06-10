@@ -55,7 +55,7 @@ enum ProjectPickerFileSystemDirectoryEntry: Equatable {
 protocol ProjectPickerFileSystem: Sendable {
     func directoryState(atPath path: String) -> ProjectPickerFileSystemDirectoryState
     func isReadableFile(atPath path: String) -> Bool
-    func contentsOfDirectory(atPath path: String) throws -> [ProjectPickerFileSystemDirectoryEntry]
+    func contentsOfDirectory(atPath path: String) async throws -> [ProjectPickerFileSystemDirectoryEntry]
 }
 
 struct FileManagerProjectPickerFileSystem: ProjectPickerFileSystem {
@@ -73,7 +73,7 @@ struct FileManagerProjectPickerFileSystem: ProjectPickerFileSystem {
         fileManager.isReadableFile(atPath: path)
     }
 
-    func contentsOfDirectory(atPath path: String) throws -> [ProjectPickerFileSystemDirectoryEntry] {
+    func contentsOfDirectory(atPath path: String) async throws -> [ProjectPickerFileSystemDirectoryEntry] {
         try fileManager.contentsOfDirectory(
             at: URL(fileURLWithPath: path),
             includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
@@ -204,8 +204,8 @@ struct ProjectPickerPathService {
         }
     }
 
-    func directorySnapshot(for pathState: ProjectPickerPathState) -> ProjectPickerDirectorySnapshot {
-        switch directoryContents(atPath: pathState.directoryPath) {
+    func directorySnapshot(for pathState: ProjectPickerPathState) async -> ProjectPickerDirectorySnapshot {
+        switch await directoryContents(atPath: pathState.directoryPath) {
         case let .success(items):
             ProjectPickerDirectorySnapshot(rows: pathState.directoryItems(from: items), readFailed: false)
         case .failure:
@@ -213,9 +213,9 @@ struct ProjectPickerPathService {
         }
     }
 
-    func directoryContents(atPath path: String) -> Result<[ProjectPickerDirectoryItem], Error> {
+    func directoryContents(atPath path: String) async -> Result<[ProjectPickerDirectoryItem], Error> {
         do {
-            let items = try fileSystem.contentsOfDirectory(atPath: path).compactMap(\.projectPickerDirectoryItem)
+            let items = try await fileSystem.contentsOfDirectory(atPath: path).compactMap(\.projectPickerDirectoryItem)
             return .success(items)
         } catch {
             return .failure(error)
