@@ -32,7 +32,7 @@ struct ProjectOpenServiceTests {
         let (appState, projectStore, worktreeStore, _) = makeStores()
         let group = ProjectGroup(name: "Work")
         let groupPersistence = ProjectGroupPersistenceStub(initial: [group])
-        let projectGroupStore = ProjectGroupStore(persistence: groupPersistence, workspaceContextSink: InMemoryWorkspaceContextSink())
+        let projectGroupStore = ProjectGroupStore(persistence: groupPersistence, remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-project-picker-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -58,7 +58,7 @@ struct ProjectOpenServiceTests {
         let (appState, projectStore, worktreeStore, _) = makeStores()
         let group = ProjectGroup(name: "Work")
         let groupPersistence = ProjectGroupPersistenceStub(initial: [group])
-        let projectGroupStore = ProjectGroupStore(persistence: groupPersistence, workspaceContextSink: InMemoryWorkspaceContextSink())
+        let projectGroupStore = ProjectGroupStore(persistence: groupPersistence, remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-project-picker-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -111,7 +111,7 @@ struct ProjectOpenServiceTests {
         let (appState, projectStore, worktreeStore, _) = makeStores()
         let group = ProjectGroup(name: "Work")
         let groupPersistence = ProjectGroupPersistenceStub(initial: [group])
-        let projectGroupStore = ProjectGroupStore(persistence: groupPersistence, workspaceContextSink: InMemoryWorkspaceContextSink())
+        let projectGroupStore = ProjectGroupStore(persistence: groupPersistence, remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-project-picker-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -354,7 +354,7 @@ struct ProjectOpenServiceTests {
             terminalViews: TerminalViewRemovingStub(),
             workspacePersistence: WorkspacePersistenceStub()
         )
-        let projectGroupStore = ProjectGroupStore(persistence: ProjectGroupPersistenceStub(), workspaceContextSink: InMemoryWorkspaceContextSink())
+        let projectGroupStore = ProjectGroupStore(persistence: ProjectGroupPersistenceStub(), remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
         return (appState, projectStore, worktreeStore, projectGroupStore)
     }
 }

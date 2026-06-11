@@ -46,17 +46,25 @@ struct RemotePathStandardizationTests {
 @Suite("ProjectGroupStore workspace context")
 @MainActor
 struct ProjectGroupStoreContextTests {
+    private let deviceStore = RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence())
+
     private func makeStore() -> ProjectGroupStore {
         ProjectGroupStore(
             persistence: InMemoryProjectGroupPersistence(),
+            remoteDeviceStore: deviceStore,
             workspaceContextSink: InMemoryWorkspaceContextSink()
         )
+    }
+
+    private func makeSSHWorkspace(in store: ProjectGroupStore, remoteRoot: String) -> ProjectGroup {
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: remoteRoot))
+        return store.addRemoteWorkspace(name: "prod", deviceID: device.id)
     }
 
     @Test("ssh workspace selection derives an ssh context")
     func sshContext() {
         let store = makeStore()
-        let group = store.addSSHWorkspace(name: "prod", data: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"))
+        let group = makeSSHWorkspace(in: store, remoteRoot: "~/code")
         store.selectGroup(id: group.id)
         #expect(store.activeWorkspaceContext == .ssh(SSHDestination(host: "prod", remoteRoot: "~/code")))
         #expect(store.isRemoteWorkspaceActive)
@@ -65,7 +73,7 @@ struct ProjectGroupStoreContextTests {
     @Test("clearing selection returns to local context")
     func localContext() {
         let store = makeStore()
-        let group = store.addSSHWorkspace(name: "prod", data: SSHWorkspaceData(host: "prod", remoteRoot: "~"))
+        let group = makeSSHWorkspace(in: store, remoteRoot: "~")
         store.selectGroup(id: group.id)
         store.clearGroupSelection()
         #expect(store.activeWorkspaceContext == .local)
@@ -75,7 +83,7 @@ struct ProjectGroupStoreContextTests {
     @Test("local project keeps a local context while a remote workspace is active")
     func localProjectStaysLocalUnderRemoteWorkspace() {
         let store = makeStore()
-        let group = store.addSSHWorkspace(name: "prod", data: SSHWorkspaceData(host: "prod", remoteRoot: "~"))
+        let group = makeSSHWorkspace(in: store, remoteRoot: "~")
         store.selectGroup(id: group.id)
         let localProject = Project(name: "local", path: "/tmp/local")
         #expect(store.workspaceContext(for: localProject) == .local)
@@ -84,7 +92,7 @@ struct ProjectGroupStoreContextTests {
     @Test("remote project resolves its workspace context regardless of active selection")
     func remoteProjectResolvesContextWithoutActiveSelection() throws {
         let store = makeStore()
-        let group = store.addSSHWorkspace(name: "prod", data: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"))
+        let group = makeSSHWorkspace(in: store, remoteRoot: "~/code")
         let remote = try #require(store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id))
         let project = remote.asProject(workspaceID: group.id, sortOrder: 0)
         store.clearGroupSelection()
@@ -94,7 +102,7 @@ struct ProjectGroupStoreContextTests {
     @Test("ssh workspace hides local projects and surfaces remote ones")
     func displayProjects() {
         let store = makeStore()
-        let group = store.addSSHWorkspace(name: "prod", data: SSHWorkspaceData(host: "prod", remoteRoot: "~"))
+        let group = makeSSHWorkspace(in: store, remoteRoot: "~")
         store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
         store.selectGroup(id: group.id)
         let locals = [Project(name: "local", path: "/tmp/local")]

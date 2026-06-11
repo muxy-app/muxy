@@ -11,8 +11,9 @@ struct WorkspaceSelectionServiceTests {
         let previousVisibility = HomeProjectPreferences.isVisible
         HomeProjectPreferences.isVisible = true
         defer { HomeProjectPreferences.isVisible = previousVisibility }
-        let (appState, projectStore, worktreeStore, projectGroupStore) = makeStores()
-        let group = projectGroupStore.addSSHWorkspace(name: "prod", data: SSHWorkspaceData(host: "prod", remoteRoot: "~"))
+        let (appState, projectStore, worktreeStore, projectGroupStore, deviceStore) = makeStores()
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~"))
+        let group = projectGroupStore.addRemoteWorkspace(name: "prod", deviceID: device.id)
         projectGroupStore.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
         projectGroupStore.selectGroup(id: group.id)
 
@@ -31,8 +32,9 @@ struct WorkspaceSelectionServiceTests {
         let previousVisibility = HomeProjectPreferences.isVisible
         HomeProjectPreferences.isVisible = false
         defer { HomeProjectPreferences.isVisible = previousVisibility }
-        let (appState, projectStore, worktreeStore, projectGroupStore) = makeStores()
-        let group = projectGroupStore.addSSHWorkspace(name: "prod", data: SSHWorkspaceData(host: "prod", remoteRoot: "~"))
+        let (appState, projectStore, worktreeStore, projectGroupStore, deviceStore) = makeStores()
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~"))
+        let group = projectGroupStore.addRemoteWorkspace(name: "prod", deviceID: device.id)
         let remote = projectGroupStore.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
         projectGroupStore.selectGroup(id: group.id)
 
@@ -52,7 +54,7 @@ struct WorkspaceSelectionServiceTests {
         let previousVisibility = HomeProjectPreferences.isVisible
         HomeProjectPreferences.isVisible = true
         defer { HomeProjectPreferences.isVisible = previousVisibility }
-        let (appState, projectStore, worktreeStore, projectGroupStore) = makeStores()
+        let (appState, projectStore, worktreeStore, projectGroupStore, _) = makeStores()
         projectStore.add(Project(name: "local", path: "/tmp/local"))
 
         WorkspaceSelectionService.selectFirstProject(
@@ -65,7 +67,7 @@ struct WorkspaceSelectionServiceTests {
         #expect(appState.activeProjectID == Project.homeID)
     }
 
-    private func makeStores() -> (AppState, ProjectStore, WorktreeStore, ProjectGroupStore) {
+    private func makeStores() -> (AppState, ProjectStore, WorktreeStore, ProjectGroupStore, RemoteDeviceStore) {
         let projectStore = ProjectStore(persistence: ProjectPersistenceStub())
         let worktreeStore = WorktreeStore(persistence: WorktreePersistenceStub(), projects: [])
         let appState = AppState(
@@ -73,11 +75,13 @@ struct WorkspaceSelectionServiceTests {
             terminalViews: TerminalViewRemovingStub(),
             workspacePersistence: WorkspacePersistenceStub()
         )
+        let deviceStore = RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence())
         let projectGroupStore = ProjectGroupStore(
             persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: deviceStore,
             workspaceContextSink: InMemoryWorkspaceContextSink()
         )
-        return (appState, projectStore, worktreeStore, projectGroupStore)
+        return (appState, projectStore, worktreeStore, projectGroupStore, deviceStore)
     }
 }
 

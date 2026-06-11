@@ -5,6 +5,7 @@ struct WorkspaceSwitcher: View {
     let isWide: Bool
 
     @Environment(ProjectGroupStore.self) private var projectGroupStore
+    @Environment(RemoteDeviceStore.self) private var deviceStore
     @Environment(SSHConnectionService.self) private var sshConnections
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
@@ -13,7 +14,7 @@ struct WorkspaceSwitcher: View {
     @State private var isShowingPopover = false
     @State private var isTriggerHovered = false
     @State private var editorMode: WorkspaceEditorMode?
-    @State private var sshEditor: SSHWorkspaceEditorMode?
+    @State private var remoteEditor: RemoteWorkspaceEditorMode?
     @State private var groupPendingDelete: ProjectGroup?
 
     private var activeGroup: ProjectGroup? {
@@ -43,14 +44,14 @@ struct WorkspaceSwitcher: View {
                 onCancel: { editorMode = nil }
             )
         }
-        .sheet(item: $sshEditor) { mode in
-            SSHWorkspaceEditorSheet(
+        .sheet(item: $remoteEditor) { mode in
+            RemoteWorkspaceEditorSheet(
                 mode: mode,
-                onConnected: { name, data in
-                    applySSH(mode: mode, name: name, data: data)
-                    sshEditor = nil
+                onSubmit: { name, deviceID in
+                    applyRemote(mode: mode, name: name, deviceID: deviceID)
+                    remoteEditor = nil
                 },
-                onCancel: { sshEditor = nil }
+                onCancel: { remoteEditor = nil }
             )
         }
         .alert(
@@ -139,7 +140,7 @@ struct WorkspaceSwitcher: View {
                     onRename: {
                         isShowingPopover = false
                         if group.type == .ssh {
-                            sshEditor = .edit(group)
+                            remoteEditor = .edit(group)
                         } else {
                             editorMode = .rename(group)
                         }
@@ -197,7 +198,7 @@ struct WorkspaceSwitcher: View {
             }
             Button {
                 isShowingPopover = false
-                sshEditor = .create
+                remoteEditor = .create
             } label: {
                 Label("Remote (SSH)", systemImage: "network")
             }
@@ -243,25 +244,28 @@ struct WorkspaceSwitcher: View {
         }
     }
 
-    private func applySSH(mode: SSHWorkspaceEditorMode, name: String, data: SSHWorkspaceData) {
+    private func applyRemote(mode: RemoteWorkspaceEditorMode, name: String, deviceID: UUID) {
         switch mode {
         case .create:
-            let group = projectGroupStore.addSSHWorkspace(name: name, data: data)
-            projectGroupStore.selectGroup(id: group.id)
-            selectFirstProject()
+            let group = projectGroupStore.addRemoteWorkspace(name: name, deviceID: deviceID)
+            select(group)
         case let .edit(group):
             projectGroupStore.renameGroup(id: group.id, to: name)
-            projectGroupStore.updateSSHWorkspace(id: group.id, data: data)
+            projectGroupStore.updateRemoteWorkspace(id: group.id, deviceID: deviceID)
         }
     }
 
+    private func destination(for group: ProjectGroup) -> SSHDestination? {
+        deviceStore.device(id: group.remoteDeviceID)?.destination
+    }
+
     private func connectionState(for group: ProjectGroup) -> SSHConnectionState {
-        guard let destination = group.sshData?.destination else { return .disconnected }
+        guard let destination = destination(for: group) else { return .disconnected }
         return sshConnections.state(for: destination)
     }
 
     private func select(_ group: ProjectGroup) {
-        guard group.type == .ssh, let destination = group.sshData?.destination else {
+        guard group.type == .ssh, let destination = destination(for: group) else {
             projectGroupStore.selectGroup(id: group.id)
             selectFirstProject()
             isShowingPopover = false
@@ -294,14 +298,14 @@ struct WorkspaceSwitcher: View {
     }
 }
 
-enum SSHWorkspaceEditorMode: Identifiable {
+enum RemoteWorkspaceEditorMode: Identifiable {
     case create
     case edit(ProjectGroup)
 
     var id: String {
         switch self {
-        case .create: "ssh-create"
-        case let .edit(group): "ssh-edit-\(group.id.uuidString)"
+        case .create: "remote-create"
+        case let .edit(group): "remote-edit-\(group.id.uuidString)"
         }
     }
 
@@ -312,6 +316,13 @@ enum SSHWorkspaceEditorMode: Identifiable {
         }
     }
 
+    var actionLabel: String {
+        switch self {
+        case .create: "Create"
+        case .edit: "Save"
+        }
+    }
+
     var initialName: String {
         switch self {
         case .create: ""
@@ -319,10 +330,10 @@ enum SSHWorkspaceEditorMode: Identifiable {
         }
     }
 
-    var initialData: SSHWorkspaceData {
+    var initialDeviceID: UUID? {
         switch self {
-        case .create: SSHWorkspaceData(host: "")
-        case let .edit(group): group.sshData ?? SSHWorkspaceData(host: "")
+        case .create: nil
+        case let .edit(group): group.remoteDeviceID
         }
     }
 }
@@ -460,47 +471,32 @@ private struct WorkspaceRow: View {
     }
 }
 
-private struct SSHWorkspaceEditorSheet: View {
-    let mode: SSHWorkspaceEditorMode
-    let onConnected: (_ name: String, _ data: SSHWorkspaceData) -> Void
+private struct RemoteWorkspaceEditorSheet: View {
+    let mode: RemoteWorkspaceEditorMode
+    let onSubmit: (_ name: String, _ deviceID: UUID) -> Void
     let onCancel: () -> Void
 
-    @Environment(SSHConnectionService.self) private var sshConnections
+    @Environment(RemoteDeviceStore.self) private var deviceStore
 
     @State private var name: String = ""
-    @State private var host: String = ""
-    @State private var root: String = ""
-    @State private var port: String = ""
-    @State private var user: String = ""
-    @State private var identityFile: String = ""
-    @State private var showAdvanced = false
-    @State private var probeState: ProbeState = .idle
-    @FocusState private var hostFocused: Bool
+    @State private var selectedDeviceID: UUID?
+    @State private var deviceEditor: RemoteDeviceEditorMode?
+    @FocusState private var nameFocused: Bool
 
-    private enum ProbeState: Equatable {
-        case idle
-        case testing
-        case succeeded
-        case failed(String)
+    private var devices: [RemoteDevice] { deviceStore.sshDevices() }
+
+    private var selectedDevice: RemoteDevice? {
+        deviceStore.device(id: selectedDeviceID)
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
-    private var trimmedHost: String { host.trimmingCharacters(in: .whitespaces) }
-    private var trimmedRoot: String {
-        let value = root.trimmingCharacters(in: .whitespaces)
-        return value.isEmpty ? "~" : value
-    }
-
-    private var canProbe: Bool {
-        SSHDestination.isValidHost(trimmedHost) && probeState != .testing
-    }
-
-    private var canSave: Bool {
-        SSHDestination.isValidHost(trimmedHost) && !displayName.isEmpty
-    }
 
     private var displayName: String {
-        trimmedName.isEmpty ? trimmedHost : trimmedName
+        trimmedName.isEmpty ? (selectedDevice?.displayName ?? "") : trimmedName
+    }
+
+    private var canSubmit: Bool {
+        selectedDeviceID != nil && !displayName.isEmpty
     }
 
     var body: some View {
@@ -508,182 +504,92 @@ private struct SSHWorkspaceEditorSheet: View {
             Text(mode.title)
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
 
-            field(label: "Name", placeholder: trimmedHost.isEmpty ? "Production" : trimmedHost, text: $name)
-            field(label: "SSH Host", placeholder: "host or ~/.ssh/config alias", text: $host, focused: true)
-                .onChange(of: host) { probeState = .idle }
-            field(label: "Remote Root", placeholder: "~", text: $root)
-
-            advancedSection
-
-            statusRow
+            if devices.isEmpty {
+                emptyState
+            } else {
+                devicePicker
+                nameField
+            }
 
             HStack(spacing: UIMetrics.spacing3) {
-                Button("Test Connection", action: runTest)
-                    .disabled(!canProbe)
                 Spacer()
                 Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                Button(saveLabel, action: connect)
+                Button(mode.actionLabel, action: submit)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!canSave || probeState == .testing)
+                    .disabled(!canSubmit)
             }
         }
         .padding(UIMetrics.spacing8)
-        .frame(width: UIMetrics.scaled(440))
+        .frame(width: UIMetrics.scaled(420))
+        .sheet(item: $deviceEditor) { editorMode in
+            RemoteDeviceEditorSheet(
+                mode: editorMode,
+                onSave: { deviceName, ssh in
+                    let device = deviceStore.add(name: deviceName, ssh: ssh)
+                    selectedDeviceID = device.id
+                    deviceEditor = nil
+                },
+                onCancel: { deviceEditor = nil }
+            )
+        }
         .onAppear {
-            let data = mode.initialData
             name = mode.initialName
-            host = data.host
-            root = data.remoteRoot
-            port = data.port.map(String.init) ?? ""
-            user = data.user ?? ""
-            identityFile = data.identityFile ?? ""
-            showAdvanced = data.port != nil || data.user != nil || data.identityFile != nil
-            hostFocused = true
+            selectedDeviceID = mode.initialDeviceID ?? devices.first?.id
+            nameFocused = !devices.isEmpty
         }
     }
 
-    private var advancedSection: some View {
-        DisclosureGroup(isExpanded: $showAdvanced) {
-            VStack(alignment: .leading, spacing: UIMetrics.scaled(10)) {
-                HStack(spacing: UIMetrics.spacing4) {
-                    field(label: "User", placeholder: "optional", text: $user)
-                        .onChange(of: user) { probeState = .idle }
-                    field(label: "Port", placeholder: "22", text: $port)
-                        .onChange(of: port) { probeState = .idle }
-                        .frame(width: UIMetrics.scaled(90))
-                }
-                VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
-                    Text("Identity File")
-                        .font(.system(size: UIMetrics.fontFootnote))
-                        .foregroundStyle(MuxyTheme.fgMuted)
-                    HStack(spacing: UIMetrics.spacing3) {
-                        TextField("~/.ssh/id_ed25519", text: $identityFile)
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: identityFile) { probeState = .idle }
-                        Button("Browse…", action: chooseIdentityFile)
-                            .fixedSize(horizontal: true, vertical: false)
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
+            Text("Add a remote device to connect this workspace to a server.")
+                .font(.system(size: UIMetrics.fontFootnote))
+                .foregroundStyle(MuxyTheme.fgMuted)
+            Button {
+                deviceEditor = .create
+            } label: {
+                Label("Add Remote Device", systemImage: "plus")
+            }
+        }
+    }
+
+    private var devicePicker: some View {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
+            Text("Device")
+                .font(.system(size: UIMetrics.fontFootnote))
+                .foregroundStyle(MuxyTheme.fgMuted)
+            HStack(spacing: UIMetrics.spacing3) {
+                Picker("", selection: $selectedDeviceID) {
+                    ForEach(devices) { device in
+                        Text(device.displayName).tag(Optional(device.id))
                     }
                 }
-            }
-            .padding(.top, UIMetrics.spacing3)
-        } label: {
-            Text("Advanced")
-                .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
-                .foregroundStyle(MuxyTheme.fgMuted)
-        }
-    }
-
-    private var saveLabel: String {
-        probeState == .succeeded ? "Connect & Save" : "Connect"
-    }
-
-    @ViewBuilder
-    private var statusRow: some View {
-        switch probeState {
-        case .idle:
-            Text("Muxy uses your system SSH config, keys, and agent. No passwords are stored.")
-                .font(.system(size: UIMetrics.fontFootnote))
-                .foregroundStyle(MuxyTheme.fgMuted)
-        case .testing:
-            HStack(spacing: UIMetrics.spacing2) {
-                ProgressView().controlSize(.small)
-                Text("Testing connection…")
-                    .font(.system(size: UIMetrics.fontFootnote))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-            }
-        case .succeeded:
-            HStack(spacing: UIMetrics.spacing2) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                Text("Connection succeeded")
-                    .font(.system(size: UIMetrics.fontFootnote))
-                    .foregroundStyle(MuxyTheme.fg)
-            }
-        case let .failed(message):
-            HStack(alignment: .top, spacing: UIMetrics.spacing2) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                Text(message)
-                    .font(.system(size: UIMetrics.fontFootnote))
-                    .foregroundStyle(MuxyTheme.fgMuted)
-                    .textSelection(.enabled)
+                .labelsHidden()
+                Button {
+                    deviceEditor = .create
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .help("Add Remote Device")
             }
         }
     }
 
-    private func field(
-        label: String,
-        placeholder: String,
-        text: Binding<String>,
-        focused: Bool = false
-    ) -> some View {
+    private var nameField: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
-            Text(label)
+            Text("Name")
                 .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
-            if focused {
-                TextField(placeholder, text: text)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($hostFocused)
-            } else {
-                TextField(placeholder, text: text)
-                    .textFieldStyle(.roundedBorder)
-            }
+            TextField(selectedDevice?.displayName ?? "Production", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .focused($nameFocused)
+                .onSubmit { if canSubmit { submit() } }
         }
     }
 
-    private func chooseIdentityFile() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.showsHiddenFiles = true
-        panel.directoryURL = URL(fileURLWithPath: NSString(string: "~/.ssh").expandingTildeInPath)
-        panel.message = "Select an SSH private key"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        identityFile = url.path
-        probeState = .idle
-    }
-
-    private var workspaceData: SSHWorkspaceData {
-        SSHWorkspaceData(
-            host: trimmedHost,
-            remoteRoot: trimmedRoot,
-            port: Int(port.trimmingCharacters(in: .whitespaces)),
-            user: user,
-            identityFile: identityFile
-        )
-    }
-
-    private func runTest() {
-        probeState = .testing
-        let destination = workspaceData.destination
-        Task {
-            let success = await sshConnections.test(destination: destination)
-            if success {
-                probeState = .succeeded
-            } else {
-                probeState = .failed(failureMessage(for: destination))
-            }
-        }
-    }
-
-    private func connect() {
-        guard canSave else { return }
-        probeState = .testing
-        let data = workspaceData
-        Task {
-            let success = await sshConnections.connect(destination: data.destination)
-            guard success else {
-                probeState = .failed(failureMessage(for: data.destination))
-                return
-            }
-            onConnected(displayName, data)
-        }
-    }
-
-    private func failureMessage(for destination: SSHDestination) -> String {
-        if case let .failed(message) = sshConnections.state(for: destination) { return message }
-        return "Connection failed."
+    private func submit() {
+        guard let deviceID = selectedDeviceID, canSubmit else { return }
+        onSubmit(displayName, deviceID)
     }
 }
 

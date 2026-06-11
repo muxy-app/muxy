@@ -10,14 +10,21 @@ final class ProjectGroupStore {
     private(set) var activeGroupID: UUID?
     private let persistence: any ProjectGroupPersisting
     private let workspaceContextSink: any WorkspaceContextSink
+    private let remoteDeviceStore: RemoteDeviceStore
 
     init(
         persistence: any ProjectGroupPersisting,
+        remoteDeviceStore: RemoteDeviceStore,
         workspaceContextSink: any WorkspaceContextSink = ActiveWorkspaceContext.shared
     ) {
         self.persistence = persistence
+        self.remoteDeviceStore = remoteDeviceStore
         self.workspaceContextSink = workspaceContextSink
         load()
+    }
+
+    private func device(for group: ProjectGroup) -> RemoteDevice? {
+        remoteDeviceStore.device(id: group.remoteDeviceID)
     }
 
     func selectGroup(id: UUID) {
@@ -48,7 +55,12 @@ final class ProjectGroupStore {
     }
 
     var activeRemoteHomeProject: Project? {
-        activeGroup?.remoteHomeProject
+        guard let group = activeGroup else { return nil }
+        return group.remoteHomeProject(device: device(for: group))
+    }
+
+    func remoteHomeProject(for group: ProjectGroup) -> Project? {
+        group.remoteHomeProject(device: device(for: group))
     }
 
     var activeRemoteProjectIDs: Set<UUID> {
@@ -77,12 +89,15 @@ final class ProjectGroupStore {
     }
 
     var activeWorkspaceContext: WorkspaceContext {
-        activeGroup?.workspaceContext ?? .local
+        guard let group = activeGroup else { return .local }
+        return group.workspaceContext(device: device(for: group))
     }
 
     func workspaceContext(for project: Project) -> WorkspaceContext {
-        guard let workspaceID = project.remoteWorkspaceID else { return .local }
-        return groups.first(where: { $0.id == workspaceID })?.workspaceContext ?? .local
+        guard let workspaceID = project.remoteWorkspaceID,
+              let group = groups.first(where: { $0.id == workspaceID })
+        else { return .local }
+        return group.workspaceContext(device: device(for: group))
     }
 
     func addGroup(name: String) {
@@ -93,29 +108,40 @@ final class ProjectGroupStore {
     }
 
     @discardableResult
-    func addSSHWorkspace(name: String, data: SSHWorkspaceData) -> ProjectGroup {
+    func addRemoteWorkspace(name: String, deviceID: UUID) -> ProjectGroup {
         let group = ProjectGroup(
             name: name,
             sortOrder: groups.count,
             type: .ssh,
-            sshData: data
+            remoteDeviceID: deviceID
         )
         groups.append(group)
         save()
         return group
     }
 
-    func updateSSHWorkspace(id: UUID, data: SSHWorkspaceData) {
+    func updateRemoteWorkspace(id: UUID, deviceID: UUID) {
         guard let index = groups.firstIndex(where: { $0.id == id }) else { return }
-        groups[index].sshData = data
+        groups[index].remoteDeviceID = deviceID
         save()
+    }
+
+    func workspaceNames(usingDevice deviceID: UUID) -> [String] {
+        groups.filter { $0.remoteDeviceID == deviceID }.map(\.name)
+    }
+
+    func removeWorkspaces(usingDevice deviceID: UUID) {
+        let affected = groups.filter { $0.remoteDeviceID == deviceID }
+        for group in affected {
+            removeGroup(id: group.id)
+        }
     }
 
     @discardableResult
     func addRemoteProject(name: String, path: String, toGroup groupID: UUID) -> RemoteProject? {
         guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return nil }
         let standardizedPath = ProjectPickerPathService.standardizedRemotePath(path)
-        if let remoteRoot = groups[index].sshData?.remoteRoot,
+        if let remoteRoot = device(for: groups[index])?.ssh.remoteRoot,
            standardizedPath == ProjectPickerPathService.standardizedRemotePath(remoteRoot)
         {
             return nil
@@ -216,6 +242,7 @@ final class ProjectGroupStore {
         } catch {
             logger.error("Failed to load project groups: \(error)")
         }
+        migrateLegacySSHWorkspaces()
         let storedActive = persistence.loadActiveGroupID()
         if let storedActive, groups.contains(where: { $0.id == storedActive }) {
             activeGroupID = storedActive
@@ -223,5 +250,21 @@ final class ProjectGroupStore {
             persistence.saveActiveGroupID(nil)
         }
         syncActiveWorkspaceContext()
+    }
+
+    private func migrateLegacySSHWorkspaces() {
+        var didMigrate = false
+        for index in groups.indices {
+            guard groups[index].type == .ssh,
+                  groups[index].remoteDeviceID == nil,
+                  let legacy = groups[index].legacySSHData
+            else { continue }
+            let device = remoteDeviceStore.add(name: groups[index].name, ssh: legacy)
+            groups[index].remoteDeviceID = device.id
+            groups[index].legacySSHData = nil
+            didMigrate = true
+        }
+        guard didMigrate else { return }
+        save()
     }
 }

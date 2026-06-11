@@ -4,6 +4,7 @@ import SwiftUI
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case general
     case projects
+    case remoteDevices
     case appearance
     case sidebar
     case terminal
@@ -21,6 +22,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general: "App"
         case .projects: "Projects"
+        case .remoteDevices: "Remote Devices"
         case .appearance: "Interface"
         case .sidebar: "Sidebar"
         case .terminal: "Terminal"
@@ -38,6 +40,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .projects: "folder"
+        case .remoteDevices: "server.rack"
         case .appearance: "macwindow"
         case .sidebar: "sidebar.left"
         case .terminal: "terminal"
@@ -179,6 +182,14 @@ enum SettingsCatalog {
             category: .projects,
             section: "Projects",
             defaultValue: ProjectPickerMode.custom.rawValue
+        ),
+        SettingsCatalogItem(
+            key: "muxy.remoteDevices.manage",
+            title: "Remote Devices",
+            description: "Adds and manages reusable SSH connections used by remote workspaces.",
+            category: .remoteDevices,
+            section: "Remote Devices",
+            aliases: ["ssh", "server", "host", "remote", "connection", "device"]
         ),
         SettingsCatalogItem(
             key: ProjectPickerDefaultLocation.storageKey,

@@ -8,11 +8,9 @@ import Testing
 struct HomeProjectServiceTests {
     @Test("remote workspace opens the remote home project, not the local home")
     func remoteWorkspaceOpensRemoteHome() {
-        let (appState, worktreeStore, projectGroupStore) = makeStores()
-        let group = projectGroupStore.addSSHWorkspace(
-            name: "prod",
-            data: SSHWorkspaceData(host: "prod", remoteRoot: "~/code")
-        )
+        let (appState, worktreeStore, projectGroupStore, deviceStore) = makeStores()
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"))
+        let group = projectGroupStore.addRemoteWorkspace(name: "prod", deviceID: device.id)
         projectGroupStore.selectGroup(id: group.id)
 
         let opened = HomeProjectService.openHomeTab(
@@ -34,7 +32,7 @@ struct HomeProjectServiceTests {
         let previousVisibility = HomeProjectPreferences.isVisible
         HomeProjectPreferences.isVisible = true
         defer { HomeProjectPreferences.isVisible = previousVisibility }
-        let (appState, worktreeStore, projectGroupStore) = makeStores()
+        let (appState, worktreeStore, projectGroupStore, _) = makeStores()
 
         let opened = HomeProjectService.openHomeTab(
             appState: appState,
@@ -46,18 +44,20 @@ struct HomeProjectServiceTests {
         #expect(appState.activeProjectID == Project.homeID)
     }
 
-    private func makeStores() -> (AppState, WorktreeStore, ProjectGroupStore) {
+    private func makeStores() -> (AppState, WorktreeStore, ProjectGroupStore, RemoteDeviceStore) {
         let worktreeStore = WorktreeStore(persistence: WorktreePersistenceStub(), projects: [])
         let appState = AppState(
             selectionStore: SelectionStoreStub(),
             terminalViews: TerminalViewRemovingStub(),
             workspacePersistence: WorkspacePersistenceStub()
         )
+        let deviceStore = RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence())
         let projectGroupStore = ProjectGroupStore(
             persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: deviceStore,
             workspaceContextSink: InMemoryWorkspaceContextSink()
         )
-        return (appState, worktreeStore, projectGroupStore)
+        return (appState, worktreeStore, projectGroupStore, deviceStore)
     }
 }
 

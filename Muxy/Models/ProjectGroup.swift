@@ -5,46 +5,6 @@ enum WorkspaceType: String, Codable, Hashable {
     case ssh
 }
 
-struct SSHWorkspaceData: Codable, Hashable {
-    var host: String
-    var remoteRoot: String
-    var port: Int?
-    var user: String?
-    var identityFile: String?
-
-    init(
-        host: String,
-        remoteRoot: String = "~",
-        port: Int? = nil,
-        user: String? = nil,
-        identityFile: String? = nil
-    ) {
-        self.host = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedRoot = remoteRoot.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.remoteRoot = trimmedRoot.isEmpty ? "~" : trimmedRoot
-        self.port = port
-        self.user = user?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        self.identityFile = identityFile?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        host = try container.decode(String.self, forKey: .host)
-        remoteRoot = try container.decodeIfPresent(String.self, forKey: .remoteRoot) ?? "~"
-        port = try container.decodeIfPresent(Int.self, forKey: .port)
-        user = try container.decodeIfPresent(String.self, forKey: .user)
-        identityFile = try container.decodeIfPresent(String.self, forKey: .identityFile)
-    }
-
-    var destination: SSHDestination {
-        SSHDestination(host: host, remoteRoot: remoteRoot, port: port, user: user, identityFile: identityFile)
-    }
-}
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
-}
-
 struct RemoteProject: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
@@ -79,8 +39,9 @@ struct ProjectGroup: Identifiable, Codable, Hashable {
     var sortOrder: Int
     var projectIDs: [UUID]
     var type: WorkspaceType
-    var sshData: SSHWorkspaceData?
+    var remoteDeviceID: UUID?
     var remoteProjects: [RemoteProject]
+    var legacySSHData: SSHWorkspaceData?
 
     init(
         id: UUID = UUID(),
@@ -88,7 +49,7 @@ struct ProjectGroup: Identifiable, Codable, Hashable {
         sortOrder: Int = 0,
         projectIDs: [UUID] = [],
         type: WorkspaceType = .local,
-        sshData: SSHWorkspaceData? = nil,
+        remoteDeviceID: UUID? = nil,
         remoteProjects: [RemoteProject] = []
     ) {
         self.id = id
@@ -96,8 +57,9 @@ struct ProjectGroup: Identifiable, Codable, Hashable {
         self.sortOrder = sortOrder
         self.projectIDs = projectIDs
         self.type = type
-        self.sshData = sshData
+        self.remoteDeviceID = remoteDeviceID
         self.remoteProjects = remoteProjects
+        legacySSHData = nil
     }
 
     init(from decoder: Decoder) throws {
@@ -107,21 +69,44 @@ struct ProjectGroup: Identifiable, Codable, Hashable {
         sortOrder = try container.decode(Int.self, forKey: .sortOrder)
         projectIDs = try container.decodeIfPresent([UUID].self, forKey: .projectIDs) ?? []
         type = try container.decodeIfPresent(WorkspaceType.self, forKey: .type) ?? .local
-        sshData = try container.decodeIfPresent(SSHWorkspaceData.self, forKey: .sshData)
+        remoteDeviceID = try container.decodeIfPresent(UUID.self, forKey: .remoteDeviceID)
         remoteProjects = try container.decodeIfPresent([RemoteProject].self, forKey: .remoteProjects) ?? []
+        legacySSHData = try container.decodeIfPresent(SSHWorkspaceData.self, forKey: .sshData)
     }
 
-    var workspaceContext: WorkspaceContext {
-        guard type == .ssh, let sshData else { return .local }
-        return .ssh(sshData.destination)
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(sortOrder, forKey: .sortOrder)
+        try container.encode(projectIDs, forKey: .projectIDs)
+        try container.encode(type, forKey: .type)
+        try container.encodeIfPresent(remoteDeviceID, forKey: .remoteDeviceID)
+        try container.encode(remoteProjects, forKey: .remoteProjects)
     }
 
-    var remoteHomeProject: Project? {
-        guard type == .ssh, let sshData else { return nil }
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case sortOrder
+        case projectIDs
+        case type
+        case remoteDeviceID
+        case remoteProjects
+        case sshData
+    }
+
+    func workspaceContext(device: RemoteDevice?) -> WorkspaceContext {
+        guard type == .ssh, let device else { return .local }
+        return .ssh(device.destination)
+    }
+
+    func remoteHomeProject(device: RemoteDevice?) -> Project? {
+        guard type == .ssh, let device else { return nil }
         var project = Project(
             id: Self.remoteHomeID(for: id),
             name: Project.homeName,
-            path: sshData.remoteRoot,
+            path: device.ssh.remoteRoot,
             sortOrder: Int.min,
             remoteWorkspaceID: id
         )

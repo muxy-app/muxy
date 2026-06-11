@@ -121,7 +121,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         let remoteProjects = projectGroupStore.groups
             .filter { $0.type == .ssh }
             .flatMap { group -> [ProjectDTO] in
-                let home = group.remoteHomeProject.map {
+                let home = projectGroupStore.remoteHomeProject(for: group).map {
                     $0.toDTO(workspaceID: group.id, workspaceName: group.name, workspaceKind: .ssh)
                 }
                 let projects = group.remoteProjects.enumerated().map { index, remote in
@@ -135,7 +135,7 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     private func resolveRemoteProject(_ projectID: UUID) -> (project: Project, group: ProjectGroup)? {
         for group in projectGroupStore.groups where group.type == .ssh {
-            if let home = group.remoteHomeProject, home.id == projectID {
+            if let home = projectGroupStore.remoteHomeProject(for: group), home.id == projectID {
                 return (home, group)
             }
             guard let index = group.remoteProjects.firstIndex(where: { $0.id == projectID }) else { continue }

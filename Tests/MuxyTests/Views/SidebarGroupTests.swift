@@ -12,7 +12,7 @@ struct SidebarGroupTests {
         let groupA = ProjectGroup(name: "A", projectIDs: [projectID])
         let groupB = ProjectGroup(name: "B", projectIDs: [UUID()])
         let persistence = ProjectGroupPersistenceStub(initial: [groupA, groupB])
-        let store = ProjectGroupStore(persistence: persistence, workspaceContextSink: InMemoryWorkspaceContextSink())
+        let store = ProjectGroupStore(persistence: persistence, remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
 
         store.removeProjectFromAllGroups(projectID: projectID)
 
@@ -25,7 +25,7 @@ struct SidebarGroupTests {
         let projectID = UUID()
         let group = ProjectGroup(name: "A", projectIDs: [projectID])
         let persistence = ProjectGroupPersistenceStub(initial: [group])
-        let store = ProjectGroupStore(persistence: persistence, workspaceContextSink: InMemoryWorkspaceContextSink())
+        let store = ProjectGroupStore(persistence: persistence, remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
 
         store.removeProjectFromAllGroups(projectID: UUID())
 
@@ -37,7 +37,7 @@ struct SidebarGroupTests {
         let projectID = UUID()
         let group = ProjectGroup(name: "Work", projectIDs: [projectID])
         let persistence = ProjectGroupPersistenceStub(initial: [group])
-        let store = ProjectGroupStore(persistence: persistence, workspaceContextSink: InMemoryWorkspaceContextSink())
+        let store = ProjectGroupStore(persistence: persistence, remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
 
         store.removeProjectFromAllGroups(projectID: projectID)
 
@@ -73,7 +73,7 @@ struct SidebarGroupTests {
         let groupA = ProjectGroup(name: "A")
         let groupB = ProjectGroup(name: "B")
         let persistence = ProjectGroupPersistenceStub(initial: [groupA, groupB])
-        let store = ProjectGroupStore(persistence: persistence, workspaceContextSink: InMemoryWorkspaceContextSink())
+        let store = ProjectGroupStore(persistence: persistence, remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
         store.selectGroup(id: groupA.id)
 
         store.renameGroup(id: groupB.id, to: "B Renamed")
@@ -87,7 +87,7 @@ struct SidebarGroupTests {
         let groupA = ProjectGroup(name: "A", projectIDs: [projectID])
         let groupB = ProjectGroup(name: "B")
         let persistence = ProjectGroupPersistenceStub(initial: [groupA, groupB])
-        let store = ProjectGroupStore(persistence: persistence, workspaceContextSink: InMemoryWorkspaceContextSink())
+        let store = ProjectGroupStore(persistence: persistence, remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
 
         store.addProject(projectID: projectID, toGroup: groupB.id)
 
@@ -101,7 +101,7 @@ struct SidebarGroupTests {
         let projectB = Project(name: "B", path: "/b")
         let group = ProjectGroup(name: "Work", projectIDs: [projectA.id])
         let persistence = ProjectGroupPersistenceStub(initial: [group])
-        let store = ProjectGroupStore(persistence: persistence, workspaceContextSink: InMemoryWorkspaceContextSink())
+        let store = ProjectGroupStore(persistence: persistence, remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
 
         store.selectGroup(id: group.id)
         let filtered = store.filteredProjects(from: [projectA, projectB])
@@ -116,7 +116,7 @@ struct SidebarGroupTests {
         let projectB = Project(name: "B", path: "/b")
         let group = ProjectGroup(name: "Work", projectIDs: [projectA.id])
         let persistence = ProjectGroupPersistenceStub(initial: [group])
-        let store = ProjectGroupStore(persistence: persistence, workspaceContextSink: InMemoryWorkspaceContextSink())
+        let store = ProjectGroupStore(persistence: persistence, remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
 
         store.selectGroup(id: group.id)
         store.clearGroupSelection()

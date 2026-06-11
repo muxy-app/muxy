@@ -13,6 +13,7 @@ struct MuxyApp: App {
     @State private var projectStore: ProjectStore
     @State private var worktreeStore: WorktreeStore
     @State private var projectGroupStore: ProjectGroupStore
+    @State private var remoteDeviceStore: RemoteDeviceStore
     @State private var worktreeAutoRefresher: VCSWorktreeAutoRefresher?
     @State private var didStartDeferredServices = false
 
@@ -31,8 +32,12 @@ struct MuxyApp: App {
             terminalViews: environment.terminalViews,
             workspacePersistence: environment.workspacePersistence
         )
+        let remoteDeviceStore = RemoteDeviceStore(
+            persistence: environment.remoteDevicePersistence
+        )
         let projectGroupStore = ProjectGroupStore(
-            persistence: environment.projectGroupPersistence
+            persistence: environment.projectGroupPersistence,
+            remoteDeviceStore: remoteDeviceStore
         )
         appState.restoreSelection(
             projects: projectStore.projects,
@@ -43,6 +48,7 @@ struct MuxyApp: App {
         _projectStore = State(initialValue: projectStore)
         _worktreeStore = State(initialValue: worktreeStore)
         _projectGroupStore = State(initialValue: projectGroupStore)
+        _remoteDeviceStore = State(initialValue: remoteDeviceStore)
     }
 
     var body: some Scene {
@@ -52,6 +58,7 @@ struct MuxyApp: App {
                 .environment(projectStore)
                 .environment(worktreeStore)
                 .environment(projectGroupStore)
+                .environment(remoteDeviceStore)
                 .environment(SSHConnectionService.shared)
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
@@ -70,6 +77,14 @@ struct MuxyApp: App {
                     TerminalProgressStore.shared.appState = appState
                     appDelegate.onTerminate = { [appState] in
                         appState.saveWorkspaces()
+                    }
+                    appDelegate.settingsContent = { [projectGroupStore, remoteDeviceStore] in
+                        AnyView(
+                            SettingsView()
+                                .environment(projectGroupStore)
+                                .environment(remoteDeviceStore)
+                                .environment(SSHConnectionService.shared)
+                        )
                     }
                     appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore, projectGroupStore] path in
                         CLIAccessor.openProjectFromPath(
@@ -176,6 +191,7 @@ struct MuxyApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var onTerminate: (() -> Void)?
     var openProjectFromPath: ((String) -> Void)?
+    var settingsContent: (() -> AnyView)?
 
     private var pendingOpenPaths: [String] = []
     private var pendingInstallName: String?
@@ -501,7 +517,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             onClosed: { [weak self] in self?.settingsWindow = nil }
         )
         settingsWindow = AppModalPresenter.present(config) {
-            SettingsView()
+            settingsContent?() ?? AnyView(SettingsView())
         }
     }
 

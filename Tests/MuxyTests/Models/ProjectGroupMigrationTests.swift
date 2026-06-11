@@ -21,26 +21,45 @@ struct ProjectGroupMigrationTests {
         """
         let group = try decode(json)
         #expect(group.type == .local)
-        #expect(group.sshData == nil)
+        #expect(group.remoteDeviceID == nil)
+        #expect(group.legacySSHData == nil)
         #expect(group.remoteProjects.isEmpty)
-        #expect(group.workspaceContext == .local)
+        #expect(group.workspaceContext(device: nil) == .local)
     }
 
-    @Test("ssh rows round-trip with destination and remote projects")
+    @Test("device-backed ssh rows round-trip without legacy data")
     func sshRoundTrip() throws {
         let original = ProjectGroup(
             name: "prod",
             sortOrder: 1,
             type: .ssh,
-            sshData: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"),
+            remoteDeviceID: UUID(),
             remoteProjects: [RemoteProject(name: "api", path: "~/code/api")]
         )
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(ProjectGroup.self, from: data)
         #expect(decoded.type == .ssh)
-        #expect(decoded.sshData?.host == "prod")
+        #expect(decoded.remoteDeviceID == original.remoteDeviceID)
+        #expect(decoded.legacySSHData == nil)
         #expect(decoded.remoteProjects.first?.path == "~/code/api")
-        #expect(decoded.workspaceContext == .ssh(SSHDestination(host: "prod", remoteRoot: "~/code")))
+    }
+
+    @Test("legacy ssh rows decode their inline sshData for migration")
+    func legacySSHDecodes() throws {
+        let json = """
+        {
+          "id": "00000000-0000-0000-0000-000000000002",
+          "name": "prod",
+          "sortOrder": 1,
+          "type": "ssh",
+          "sshData": { "host": "prod", "remoteRoot": "~/code" }
+        }
+        """
+        let group = try decode(json)
+        #expect(group.type == .ssh)
+        #expect(group.remoteDeviceID == nil)
+        #expect(group.legacySSHData?.host == "prod")
+        #expect(group.legacySSHData?.remoteRoot == "~/code")
     }
 
     @Test("empty remote root defaults to home")
@@ -49,14 +68,11 @@ struct ProjectGroupMigrationTests {
         #expect(data.remoteRoot == "~")
     }
 
-    @Test("ssh workspace exposes a remote home project at the remote root")
+    @Test("ssh workspace exposes a remote home project at the device root")
     func remoteHomeProject() {
-        let group = ProjectGroup(
-            name: "prod",
-            type: .ssh,
-            sshData: SSHWorkspaceData(host: "prod", remoteRoot: "~/code")
-        )
-        let home = group.remoteHomeProject
+        let device = RemoteDevice(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"))
+        let group = ProjectGroup(name: "prod", type: .ssh, remoteDeviceID: device.id)
+        let home = group.remoteHomeProject(device: device)
         #expect(home?.path == "~/code")
         #expect(home?.isRemote == true)
         #expect(home?.isHome == true)
@@ -68,6 +84,6 @@ struct ProjectGroupMigrationTests {
     @Test("local workspace has no remote home project")
     func localHasNoRemoteHome() {
         let group = ProjectGroup(name: "Personal")
-        #expect(group.remoteHomeProject == nil)
+        #expect(group.remoteHomeProject(device: nil) == nil)
     }
 }

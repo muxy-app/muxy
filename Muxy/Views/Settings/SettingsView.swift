@@ -115,6 +115,8 @@ struct SettingsView: View {
             GeneralSettingsView()
         case .projects:
             ProjectsSettingsView()
+        case .remoteDevices:
+            RemoteDevicesSettingsView()
         case .appearance:
             InterfaceSettingsView()
         case .sidebar:
