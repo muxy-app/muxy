@@ -174,6 +174,19 @@ actor GitWorktreeService: GitWorktreeListing {
         return parent.appendingPathComponent(standardized.lastPathComponent).path
     }
 
+    func resolvedRepositoryRoot(repoPath: String, context: WorkspaceContext) async -> String? {
+        guard let result = try? await GitProcessRunner.runGit(
+            repoPath: repoPath,
+            arguments: ["rev-parse", "--show-toplevel"],
+            context: context
+        ), result.status == 0
+        else {
+            return nil
+        }
+        let toplevel = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return toplevel.isEmpty ? nil : toplevel
+    }
+
     func deleteBranch(
         repoPath: String,
         branch: String,

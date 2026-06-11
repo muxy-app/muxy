@@ -164,7 +164,7 @@ final class WorktreeStore {
         let records = try await listWorktreesForContext(project: project, context: context)
             .filter { !$0.isBare && !$0.isPrunable }
         var list = worktrees[project.id] ?? []
-        let projectKey = GitWorktreeService.canonicalPath(project.path, context: context)
+        let projectKey = try await resolvedProjectKey(project: project, context: context)
         let recordKeys = Set(records.map { GitWorktreeService.canonicalPath($0.path, context: context) })
 
         if let primaryIndex = list.firstIndex(where: \.isPrimary) {
@@ -223,6 +223,16 @@ final class WorktreeStore {
         setWorktrees(sorted, for: project.id)
         save(projectID: project.id)
         return sorted
+    }
+
+    private func resolvedProjectKey(project: Project, context: WorkspaceContext) async -> String {
+        let fallback = GitWorktreeService.canonicalPath(project.path, context: context)
+        guard context.isRemote else { return fallback }
+        let resolved = await GitWorktreeService.shared.resolvedRepositoryRoot(
+            repoPath: project.path,
+            context: context
+        )
+        return resolved ?? fallback
     }
 
     private func listWorktreesForContext(
