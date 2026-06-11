@@ -41,6 +41,16 @@ Lightweight terminal that has a rich API for extensions
 - 60+ customizable shortcuts
 - Workspace & session persistence
 
+## Agent Skills
+
+```bash
+# Drive the workspace from a shell (open projects, splits, send keys, read panes)
+npx skills add github.com/muxy-app/muxy/tree/main/Muxy/Resources/skills/muxy-cli
+
+# Author Muxy extensions (manifest, window.muxy API, theming)
+npx skills add github.com/muxy-app/muxy/tree/main/Muxy/Resources/skills/muxy-extension
+```
+
 ## Requirements
 
 - macOS 14+
