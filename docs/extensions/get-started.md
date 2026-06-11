@@ -31,6 +31,17 @@ Dev extensions show a **DEV** badge. Edit the source, then **Reload** to see
 changes. **Remove from Muxy** on the detail page unloads it without touching your
 folder on disk.
 
+## Coding-agent skill
+
+Scaffolded extensions already include the `muxy-extension` skill (in
+`.claude/skills/` and `.agents/skills/`) so coding agents follow Muxy's
+conventions. To add it to an existing project, install it from
+[skills.sh](https://www.skills.sh):
+
+```bash
+npx skills add github.com/muxy-app/muxy/tree/main/Muxy/Resources/skills/muxy-extension
+```
+
 ## Make it your own
 
 The starter kit is a working example of the most common pieces. To build

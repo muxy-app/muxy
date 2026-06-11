@@ -92,6 +92,15 @@ flowchart TB
 | --- | --- |
 | [Contributing an extension](extensions/contributing.md) | Fork, validate, and publish an extension |
 
+## Agent Skills
+
+Muxy ships two [skills.sh](https://www.skills.sh) skills that teach coding agents its conventions. Install either into a project with `npx skills add`:
+
+| Skill | What it teaches | Install |
+| --- | --- | --- |
+| `muxy-cli` | Driving the workspace from a shell — see [Muxy CLI](features/muxy-cli.md) | `npx skills add github.com/muxy-app/muxy/tree/main/Muxy/Resources/skills/muxy-cli` |
+| `muxy-extension` | Authoring extensions — see [Get started](extensions/get-started.md) | `npx skills add github.com/muxy-app/muxy/tree/main/Muxy/Resources/skills/muxy-extension` |
+
 ## Remote Server
 
 | Page | What's in it |
