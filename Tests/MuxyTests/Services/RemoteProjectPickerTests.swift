@@ -136,6 +136,51 @@ struct ProjectGroupStoreContextTests {
         #expect(displayed.first?.path == "~/code/api")
         #expect(displayed.first?.isRemote == true)
     }
+
+    @Test("resolveProject finds a remote project that lives outside the local project store")
+    func resolveRemoteProjectByName() throws {
+        let store = makeStore()
+        let group = makeSSHWorkspace(in: store, remoteRoot: "~/code")
+        store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
+        store.clearGroupSelection()
+
+        let resolved = try #require(store.resolveProject(
+            identifier: "api",
+            localProjects: [],
+            activeProjectID: nil
+        ))
+        #expect(resolved.path == "~/code/api")
+        #expect(store.workspaceContext(for: resolved) == .ssh(SSHDestination(host: "prod", remoteRoot: "~/code")))
+    }
+
+    @Test("resolveProject routes a remote project even while a local context is active")
+    func resolveRemoteProjectUnderLocalActiveContext() throws {
+        let store = makeStore()
+        let group = makeSSHWorkspace(in: store, remoteRoot: "~/code")
+        store.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id)
+        store.clearGroupSelection()
+        #expect(store.activeWorkspaceContext == .local)
+
+        let resolved = try #require(store.resolveProject(
+            identifier: "~/code/api",
+            localProjects: [Project(name: "local", path: "/tmp/local")],
+            activeProjectID: nil
+        ))
+        #expect(store.workspaceContext(for: resolved).isRemote)
+    }
+
+    @Test("resolveProject prefers the local project store for local identifiers")
+    func resolveLocalProject() throws {
+        let store = makeStore()
+        let local = Project(name: "local", path: "/tmp/local")
+        let resolved = try #require(store.resolveProject(
+            identifier: "local",
+            localProjects: [local],
+            activeProjectID: nil
+        ))
+        #expect(resolved.id == local.id)
+        #expect(store.workspaceContext(for: resolved) == .local)
+    }
 }
 
 private final class InMemoryProjectGroupPersistence: ProjectGroupPersisting {

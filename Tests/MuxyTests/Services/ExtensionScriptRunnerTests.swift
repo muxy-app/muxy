@@ -19,8 +19,7 @@ struct ExtensionScriptRunnerTests {
                 extensionID: "test-ext-deny",
                 scriptURL: scriptURL,
                 appState: appState,
-                projectStore: nil,
-                worktreeStore: nil
+                stores: ExtensionAPIStores()
             )
             Issue.record("expected throw")
         } catch let error as ExtensionScriptRunner.RunError {
@@ -45,8 +44,7 @@ struct ExtensionScriptRunnerTests {
                 extensionID: "test-ext-throw",
                 scriptURL: scriptURL,
                 appState: appState,
-                projectStore: nil,
-                worktreeStore: nil
+                stores: ExtensionAPIStores()
             )
             Issue.record("expected throw")
         } catch let error as ExtensionScriptRunner.RunError {
@@ -71,8 +69,7 @@ struct ExtensionScriptRunnerTests {
                 extensionID: "test-ext-missing",
                 scriptURL: missing,
                 appState: appState,
-                projectStore: nil,
-                worktreeStore: nil
+                stores: ExtensionAPIStores()
             )
             Issue.record("expected throw")
         } catch let error as ExtensionScriptRunner.RunError {
@@ -93,16 +90,14 @@ struct ExtensionScriptRunnerTests {
             extensionID: "test-ext-evict",
             scriptURL: scriptURL,
             appState: appState,
-            projectStore: nil,
-            worktreeStore: nil
+            stores: ExtensionAPIStores()
         )
         ExtensionScriptRunner.shared.evict(extensionID: "test-ext-evict")
         try await ExtensionScriptRunner.shared.runScript(
             extensionID: "test-ext-evict",
             scriptURL: scriptURL,
             appState: appState,
-            projectStore: nil,
-            worktreeStore: nil
+            stores: ExtensionAPIStores()
         )
         ExtensionScriptRunner.shared.evict(extensionID: "test-ext-evict")
     }
@@ -139,8 +134,7 @@ struct ExtensionScriptRunnerTests {
             extensionID: extensionID,
             scriptURL: scriptURL,
             appState: appState,
-            projectStore: nil,
-            worktreeStore: nil
+            stores: ExtensionAPIStores()
         )
 
         ExtensionModalService.shared.select(ExtensionModalService.Item(id: "file", title: "File", subtitle: nil))

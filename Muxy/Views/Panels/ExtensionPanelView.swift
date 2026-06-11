@@ -7,6 +7,7 @@ struct ExtensionPanelView: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
 
     var body: some View {
         if let muxyExtension = ExtensionStore.shared.loadedExtension(id: state.extensionID),
@@ -30,6 +31,7 @@ struct ExtensionPanelView: View {
                         appState: appState,
                         projectStore: projectStore,
                         worktreeStore: worktreeStore,
+                        projectGroupStore: projectGroupStore,
                         focused: true,
                         onFocus: {}
                     )
@@ -66,7 +68,8 @@ struct ExtensionPanelView: View {
                 commandID: commandID,
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )
         )
     }

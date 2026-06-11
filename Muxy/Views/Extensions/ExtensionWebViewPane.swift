@@ -8,6 +8,7 @@ struct ExtensionWebViewPane: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
 
     var body: some View {
         Group {
@@ -24,6 +25,7 @@ struct ExtensionWebViewPane: View {
                     appState: appState,
                     projectStore: projectStore,
                     worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore,
                     focused: focused,
                     onFocus: onFocus
                 )

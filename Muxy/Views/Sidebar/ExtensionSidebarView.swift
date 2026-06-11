@@ -6,6 +6,7 @@ struct ExtensionSidebarView: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
 
     var body: some View {
         if let muxyExtension = ExtensionStore.shared.loadedExtension(id: extensionID),
@@ -21,6 +22,7 @@ struct ExtensionSidebarView: View {
                 appState: appState,
                 projectStore: projectStore,
                 worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore,
                 focused: true,
                 onFocus: {}
             )

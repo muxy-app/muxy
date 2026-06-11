@@ -8,6 +8,7 @@ extension MuxyAPI {
             let appState: AppState
             let projectStore: ProjectStore
             let worktreeStore: WorktreeStore
+            let projectGroupStore: ProjectGroupStore
         }
 
         static let maxLogCount = 1000
@@ -218,10 +219,10 @@ extension MuxyAPI {
             projectIdentifier: String?,
             context: Context
         ) async -> Result<[GitWorktreeRecord], APIError> {
-            await read(projectIdentifier, context) { repoPath, _ in
+            await read(projectIdentifier, context) { repoPath, git in
                 try await GitWorktreeService.shared.listWorktrees(
                     repoPath: repoPath,
-                    context: ActiveWorkspaceContext.shared.current
+                    context: git.context
                 )
             }
         }
@@ -447,7 +448,7 @@ extension MuxyAPI {
         ) async -> Result<String, APIError> {
             let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedPath.isEmpty else { return .failure(.invalidArguments("path is required")) }
-            let resolvedPath = ActiveWorkspaceContext.shared.current.isRemote
+            let resolvedPath = workspaceContext(projectIdentifier, context: context).isRemote
                 ? trimmedPath
                 : NSString(string: trimmedPath).expandingTildeInPath
             return await write(projectIdentifier, operation: "pr.checkoutWorktree", context: context) { repoPath, git in
@@ -540,7 +541,7 @@ extension MuxyAPI {
             guard !trimmedPath.isEmpty, !trimmedBranch.isEmpty else {
                 return .failure(.invalidArguments("path and branch are required"))
             }
-            let workspaceContext = ActiveWorkspaceContext.shared.current
+            let workspaceContext = workspaceContext(request.projectIdentifier, context: context)
             let worktreePath = workspaceContext.isRemote ? trimmedPath : NSString(string: trimmedPath).expandingTildeInPath
             return await write(request.projectIdentifier, operation: "worktree.add", context: context) { repoPath, _ in
                 let base = request.baseBranch?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -563,10 +564,15 @@ extension MuxyAPI {
         ) async -> Result<Void, APIError> {
             let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedPath.isEmpty else { return .failure(.invalidArguments("path is required")) }
-            let workspaceContext = ActiveWorkspaceContext.shared.current
+            let workspaceContext = workspaceContext(projectIdentifier, context: context)
             let expandedPath = workspaceContext.isRemote ? trimmedPath : NSString(string: trimmedPath).expandingTildeInPath
 
-            guard let tracked = trackedWorktree(path: expandedPath, context: context) else {
+            guard let tracked = trackedWorktree(
+                path: expandedPath,
+                context: context,
+                workspaceContext: workspaceContext
+            )
+            else {
                 return await write(projectIdentifier, operation: "worktree.remove", context: context) { repoPath, _ in
                     try await GitWorktreeService.shared.removeWorktree(
                         repoPath: repoPath,
@@ -599,9 +605,9 @@ extension MuxyAPI {
 
         static func trackedWorktree(
             path: String,
-            context: Context
+            context: Context,
+            workspaceContext: WorkspaceContext = .local
         ) -> (project: Project, worktree: Worktree)? {
-            let workspaceContext = ActiveWorkspaceContext.shared.current
             let target = GitWorktreeService.canonicalPath(path, context: workspaceContext)
             for project in context.projectStore.projects {
                 guard let worktree = context.worktreeStore.list(for: project.id).first(where: {
@@ -696,37 +702,33 @@ extension MuxyAPI {
             }
         }
 
+        private static func workspaceContext(_ projectIdentifier: String?, context: Context) -> WorkspaceContext {
+            guard let project = context.projectGroupStore.resolveProject(
+                identifier: projectIdentifier,
+                localProjects: context.projectStore.projects,
+                activeProjectID: context.appState.activeProjectID
+            )
+            else { return .local }
+            return context.projectGroupStore.workspaceContext(for: project)
+        }
+
         private static func resolveRepo(
             _ projectIdentifier: String?,
             context: Context
         ) -> (path: String, git: GitRepositoryService)? {
-            let project: Project? = if let projectIdentifier, !projectIdentifier.isEmpty {
-                matchProject(projectIdentifier, in: context.projectStore.projects)
-            } else if let activeProjectID = context.appState.activeProjectID {
-                context.projectStore.projects.first { $0.id == activeProjectID }
-            } else {
-                nil
-            }
-            guard let project else { return nil }
-            let workspaceContext: WorkspaceContext = project.isRemote
-                ? ActiveWorkspaceContext.shared.current
-                : .local
-            let git = GitRepositoryService(context: workspaceContext)
+            guard let project = context.projectGroupStore.resolveProject(
+                identifier: projectIdentifier,
+                localProjects: context.projectStore.projects,
+                activeProjectID: context.appState.activeProjectID
+            )
+            else { return nil }
+            let git = GitRepositoryService(context: context.projectGroupStore.workspaceContext(for: project))
             if let worktreeID = context.appState.activeWorktreeID[project.id],
                let worktree = context.worktreeStore.worktree(projectID: project.id, worktreeID: worktreeID)
             {
                 return (worktree.path, git)
             }
             return (project.path, git)
-        }
-
-        private static func matchProject(_ identifier: String, in projects: [Project]) -> Project? {
-            let standardizedPath = URL(fileURLWithPath: identifier).standardizedFileURL.path
-            return projects.first { project in
-                project.id.uuidString == identifier
-                    || project.name.localizedCaseInsensitiveCompare(identifier) == .orderedSame
-                    || URL(fileURLWithPath: project.path).standardizedFileURL.path == standardizedPath
-            }
         }
     }
 }

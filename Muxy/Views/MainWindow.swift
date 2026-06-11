@@ -376,7 +376,8 @@ struct MainWindow: View {
                                 commandID: binding.item.command,
                                 appState: appState,
                                 projectStore: projectStore,
-                                worktreeStore: worktreeStore
+                                worktreeStore: worktreeStore,
+                                projectGroupStore: projectGroupStore
                             )
                         )
                     }

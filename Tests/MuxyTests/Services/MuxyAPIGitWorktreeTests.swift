@@ -76,11 +76,17 @@ struct MuxyAPIGitWorktreeTests {
             terminalViews: TerminalViewRemovingStub(),
             workspacePersistence: WorkspacePersistenceStub()
         )
+        let projectGroupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
         return MuxyAPI.Git.Context(
             extensionID: "test",
             appState: appState,
             projectStore: projectStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
         )
     }
 }

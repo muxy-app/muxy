@@ -53,8 +53,7 @@ final class ExtensionScriptRunner {
         extensionID: String,
         scriptURL: URL,
         appState: AppState,
-        projectStore: ProjectStore?,
-        worktreeStore: WorktreeStore?
+        stores: ExtensionAPIStores
     ) async throws {
         guard let source = try? String(contentsOf: scriptURL, encoding: .utf8) else {
             throw RunError.scriptUnreadable(scriptURL)
@@ -64,8 +63,7 @@ final class ExtensionScriptRunner {
         let bridge = ScriptBridge(
             extensionID: extensionID,
             appState: appState,
-            projectStore: projectStore,
-            worktreeStore: worktreeStore,
+            stores: stores,
             cancelFlag: handle.cancelFlag
         )
         handle.bridge = bridge
@@ -142,22 +140,19 @@ final class ScriptCancelFlag: @unchecked Sendable {
 private final class ScriptBridge: @unchecked Sendable {
     private let extensionID: String
     private weak var appState: AppState?
-    private weak var projectStore: ProjectStore?
-    private weak var worktreeStore: WorktreeStore?
+    private let stores: ExtensionAPIStores
     private let cancelFlag: ScriptCancelFlag
 
     @MainActor
     init(
         extensionID: String,
         appState: AppState,
-        projectStore: ProjectStore?,
-        worktreeStore: WorktreeStore?,
+        stores: ExtensionAPIStores,
         cancelFlag: ScriptCancelFlag
     ) {
         self.extensionID = extensionID
         self.appState = appState
-        self.projectStore = projectStore
-        self.worktreeStore = worktreeStore
+        self.stores = stores
         self.cancelFlag = cancelFlag
     }
 
@@ -259,8 +254,7 @@ private final class ScriptBridge: @unchecked Sendable {
             context: MuxyAPIDispatcher.Context(
                 extensionID: extensionID,
                 appState: appState,
-                projectStore: projectStore,
-                worktreeStore: worktreeStore
+                stores: stores
             )
         )
     }

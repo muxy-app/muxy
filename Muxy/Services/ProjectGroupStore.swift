@@ -93,6 +93,36 @@ final class ProjectGroupStore {
         return group.workspaceContext(device: device(for: group))
     }
 
+    var remoteProjects: [Project] {
+        groups.flatMap { group -> [Project] in
+            guard group.type == .ssh else { return [] }
+            let device = device(for: group)
+            let home = group.remoteHomeProject(device: device).map { [$0] } ?? []
+            let projects = group.remoteProjects.enumerated().map { index, remote in
+                remote.asProject(workspaceID: group.id, sortOrder: index)
+            }
+            return home + projects
+        }
+    }
+
+    func resolveProject(identifier: String?, localProjects: [Project], activeProjectID: UUID?) -> Project? {
+        let candidates = localProjects + remoteProjects
+        if let identifier, !identifier.isEmpty {
+            return Self.matchProject(identifier, in: candidates)
+        }
+        guard let activeProjectID else { return nil }
+        return candidates.first { $0.id == activeProjectID }
+    }
+
+    static func matchProject(_ identifier: String, in projects: [Project]) -> Project? {
+        let standardizedPath = ProjectPickerPathService.standardizedRemotePath(identifier)
+        return projects.first { project in
+            project.id.uuidString == identifier
+                || project.name.localizedCaseInsensitiveCompare(identifier) == .orderedSame
+                || ProjectPickerPathService.standardizedRemotePath(project.path) == standardizedPath
+        }
+    }
+
     func workspaceContext(for project: Project) -> WorkspaceContext {
         if let deviceID = project.remoteDeviceID,
            let device = remoteDeviceStore.device(id: deviceID)

@@ -18,21 +18,20 @@ struct SSHWorkspaceData: Codable, Hashable {
         user: String? = nil,
         identityFile: String? = nil
     ) {
-        self.host = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedRoot = remoteRoot.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.remoteRoot = trimmedRoot.isEmpty ? "~" : trimmedRoot
+        self.host = SSHFieldSanitizer.host(host)
+        self.remoteRoot = SSHFieldSanitizer.root(remoteRoot)
         self.port = port
-        self.user = user?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        self.identityFile = identityFile?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        self.user = SSHFieldSanitizer.optionalArgument(user)
+        self.identityFile = SSHFieldSanitizer.identityFile(identityFile)
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        host = try container.decode(String.self, forKey: .host)
-        remoteRoot = try container.decodeIfPresent(String.self, forKey: .remoteRoot) ?? "~"
+        host = try SSHFieldSanitizer.host(container.decode(String.self, forKey: .host))
+        remoteRoot = try SSHFieldSanitizer.root(container.decodeIfPresent(String.self, forKey: .remoteRoot))
         port = try container.decodeIfPresent(Int.self, forKey: .port)
-        user = try container.decodeIfPresent(String.self, forKey: .user)
-        identityFile = try container.decodeIfPresent(String.self, forKey: .identityFile)
+        user = try SSHFieldSanitizer.optionalArgument(container.decodeIfPresent(String.self, forKey: .user))
+        identityFile = try SSHFieldSanitizer.identityFile(container.decodeIfPresent(String.self, forKey: .identityFile))
     }
 
     var destination: SSHDestination {

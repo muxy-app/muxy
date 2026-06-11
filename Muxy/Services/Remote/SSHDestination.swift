@@ -1,11 +1,22 @@
 import Foundation
 
+struct SSHConnectionKey: Hashable {
+    let host: String
+    let port: Int?
+    let user: String?
+    let identityFile: String?
+}
+
 struct SSHDestination: Hashable, Codable {
     var host: String
     var remoteRoot: String
     var port: Int?
     var user: String?
     var identityFile: String?
+
+    var connectionKey: SSHConnectionKey {
+        SSHConnectionKey(host: host, port: port, user: user, identityFile: identityFile)
+    }
 
     init(
         host: String,
@@ -14,38 +25,25 @@ struct SSHDestination: Hashable, Codable {
         user: String? = nil,
         identityFile: String? = nil
     ) {
-        self.host = Self.sanitizedHost(host)
-        let trimmedRoot = remoteRoot.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.remoteRoot = trimmedRoot.isEmpty ? "~" : trimmedRoot
+        self.host = SSHFieldSanitizer.host(host)
+        self.remoteRoot = SSHFieldSanitizer.root(remoteRoot)
         self.port = port
-        self.user = Self.sanitizedUser(user)
-        self.identityFile = identityFile.flatMap { $0.isEmpty ? nil : $0 }
+        self.user = SSHFieldSanitizer.optionalArgument(user)
+        self.identityFile = SSHFieldSanitizer.identityFile(identityFile)
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        host = try Self.sanitizedHost(container.decode(String.self, forKey: .host))
-        remoteRoot = try container.decodeIfPresent(String.self, forKey: .remoteRoot) ?? "~"
+        host = try SSHFieldSanitizer.host(container.decode(String.self, forKey: .host))
+        remoteRoot = try SSHFieldSanitizer.root(container.decodeIfPresent(String.self, forKey: .remoteRoot))
         port = try container.decodeIfPresent(Int.self, forKey: .port)
-        user = try Self.sanitizedUser(container.decodeIfPresent(String.self, forKey: .user))
-        identityFile = try container.decodeIfPresent(String.self, forKey: .identityFile)
+        user = try SSHFieldSanitizer.optionalArgument(container.decodeIfPresent(String.self, forKey: .user))
+        identityFile = try SSHFieldSanitizer.identityFile(container.decodeIfPresent(String.self, forKey: .identityFile))
     }
 
     static func isValidHost(_ host: String) -> Bool {
         let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
         return !trimmed.isEmpty && !trimmed.hasPrefix("-")
-    }
-
-    private static func sanitizedHost(_ host: String) -> String {
-        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.hasPrefix("-") ? String(trimmed.drop { $0 == "-" }) : trimmed
-    }
-
-    private static func sanitizedUser(_ user: String?) -> String? {
-        guard let trimmed = user?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed.hasPrefix("-") ? String(trimmed.drop { $0 == "-" }) : trimmed
     }
 
     var target: String {

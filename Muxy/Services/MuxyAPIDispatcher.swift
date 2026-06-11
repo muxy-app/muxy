@@ -1,5 +1,21 @@
 import Foundation
 
+struct ExtensionAPIStores {
+    weak var projectStore: ProjectStore?
+    weak var worktreeStore: WorktreeStore?
+    weak var projectGroupStore: ProjectGroupStore?
+
+    init(
+        projectStore: ProjectStore? = nil,
+        worktreeStore: WorktreeStore? = nil,
+        projectGroupStore: ProjectGroupStore? = nil
+    ) {
+        self.projectStore = projectStore
+        self.worktreeStore = worktreeStore
+        self.projectGroupStore = projectGroupStore
+    }
+}
+
 @MainActor
 enum MuxyAPIDispatcher {
     struct Context {
@@ -8,6 +24,30 @@ enum MuxyAPIDispatcher {
         let projectStore: ProjectStore?
         let worktreeStore: WorktreeStore?
         var projectGroupStore: ProjectGroupStore?
+
+        init(
+            extensionID: String,
+            appState: AppState,
+            projectStore: ProjectStore?,
+            worktreeStore: WorktreeStore?,
+            projectGroupStore: ProjectGroupStore?
+        ) {
+            self.extensionID = extensionID
+            self.appState = appState
+            self.projectStore = projectStore
+            self.worktreeStore = worktreeStore
+            self.projectGroupStore = projectGroupStore
+        }
+
+        init(extensionID: String, appState: AppState, stores: ExtensionAPIStores) {
+            self.init(
+                extensionID: extensionID,
+                appState: appState,
+                projectStore: stores.projectStore,
+                worktreeStore: stores.worktreeStore,
+                projectGroupStore: stores.projectGroupStore
+            )
+        }
     }
 
     static func dispatch(verb: String, args: [String: Any], context: Context) async throws -> Any {
@@ -244,14 +284,15 @@ enum MuxyAPIDispatcher {
 
     private static func handleFiles(verb: String, args: [String: Any], context: Context) async throws -> Any {
         guard let projectStore = context.projectStore,
-              let worktreeStore = context.worktreeStore
+              let worktreeStore = context.worktreeStore,
+              let projectGroupStore = context.projectGroupStore
         else { throw APIError.worktreeStoreUnavailable }
         let files = MuxyAPI.Files.Context(
             extensionID: context.extensionID,
             appState: context.appState,
             projectStore: projectStore,
             worktreeStore: worktreeStore,
-            workspaceContext: ActiveWorkspaceContext.shared.current
+            projectGroupStore: projectGroupStore
         )
         let project = args["project"] as? String
 
@@ -318,13 +359,15 @@ enum MuxyAPIDispatcher {
 
     private static func handleGit(verb: String, args: [String: Any], context: Context) async throws -> Any {
         guard let projectStore = context.projectStore,
-              let worktreeStore = context.worktreeStore
+              let worktreeStore = context.worktreeStore,
+              let projectGroupStore = context.projectGroupStore
         else { throw APIError.worktreeStoreUnavailable }
         let git = MuxyAPI.Git.Context(
             extensionID: context.extensionID,
             appState: context.appState,
             projectStore: projectStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
         )
         let project = args["project"] as? String
         let fresh = args["fresh"] as? Bool ?? false

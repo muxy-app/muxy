@@ -18,7 +18,7 @@ struct RemoteFileService {
             + "{ [ -e \"$e\" ] || [ -L \"$e\" ]; } || continue; "
             + "if [ -d \"$e\" ]; then printf 'd %s\\0' \"$e\"; "
             + "else printf 'f %s\\0' \"$e\"; fi; done"
-        let result = try await run(script)
+        let result = try await runGuarded(root: root, targets: [directory], script)
         guard result.status == 0 else {
             let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             throw FileSystemOperationError.underlying(detail.isEmpty ? "could not list '\(directory)'" : detail)
@@ -29,12 +29,12 @@ struct RemoteFileService {
     func read(root: String, relativePath: String, maxBytes: Int) async throws -> MuxyAPI.Files.ReadResult {
         let absolute = try contained(root: root, relativePath: relativePath)
         let quoted = RemoteCommandBuilder.quoteRemotePath(absolute)
-        let sizeResult = try await run("wc -c < \(quoted)")
+        let sizeResult = try await runGuarded(root: root, targets: [absolute], "wc -c < \(quoted)")
         let size = Int(sizeResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
         guard size <= maxBytes else {
             throw FileSystemOperationError.underlying("file exceeds \(maxBytes) byte read limit")
         }
-        let result = try await run("cat \(quoted)")
+        let result = try await runGuarded(root: root, targets: [absolute], "cat \(quoted)")
         guard result.status == 0 else {
             throw FileSystemOperationError.sourceMissing(absolute)
         }
@@ -50,7 +50,7 @@ struct RemoteFileService {
         let quoted = RemoteCommandBuilder.quoteRemotePath(absolute)
         let script = "if [ -d \(quoted) ]; then printf 'd '; elif [ -e \(quoted) ]; then printf 'f '; "
             + "else exit 7; fi; wc -c < \(quoted) 2>/dev/null || echo 0"
-        let result = try await run(script)
+        let result = try await runGuarded(root: root, targets: [absolute], script)
         guard result.status == 0 else {
             throw FileSystemOperationError.sourceMissing(absolute)
         }
@@ -68,9 +68,9 @@ struct RemoteFileService {
     func write(root: String, relativePath: String, contents: String) async throws -> String {
         let absolute = try contained(root: root, relativePath: relativePath)
         let quoted = RemoteCommandBuilder.quoteRemotePath(absolute)
-        let encoded = Data(contents.utf8).base64EncodedString()
-        let command = "printf %s \(ShellEscaper.escape(encoded)) | base64 -d > \(quoted)"
-        let result = try await run(command)
+        let command = "base64 -d > \(quoted)"
+        let encoded = Data(Data(contents.utf8).base64EncodedString().utf8)
+        let result = try await runGuarded(root: root, targets: [absolute], command, input: encoded)
         guard result.status == 0 else {
             throw FileSystemOperationError.underlying(result.stderr.isEmpty ? "write failed" : result.stderr)
         }
@@ -79,7 +79,11 @@ struct RemoteFileService {
 
     func mkdir(root: String, relativePath: String) async throws -> String {
         let absolute = try contained(root: root, relativePath: relativePath)
-        let result = try await run("mkdir -p \(RemoteCommandBuilder.quoteRemotePath(absolute))")
+        let result = try await runGuarded(
+            root: root,
+            targets: [absolute],
+            "mkdir -p \(RemoteCommandBuilder.quoteRemotePath(absolute))"
+        )
         guard result.status == 0 else {
             throw FileSystemOperationError.underlying(result.stderr.isEmpty ? "mkdir failed" : result.stderr)
         }
@@ -91,7 +95,9 @@ struct RemoteFileService {
         let parent = (absolute as NSString).deletingLastPathComponent
         let target = (parent as NSString).appendingPathComponent(newName)
         try requireSimpleName(newName)
-        let result = try await run(
+        let result = try await runGuarded(
+            root: root,
+            targets: [absolute, target],
             "mv \(RemoteCommandBuilder.quoteRemotePath(absolute)) \(RemoteCommandBuilder.quoteRemotePath(target))"
         )
         guard result.status == 0 else {
@@ -106,7 +112,9 @@ struct RemoteFileService {
         for path in paths {
             let source = try contained(root: root, relativePath: path)
             let target = (destination as NSString).appendingPathComponent((source as NSString).lastPathComponent)
-            let result = try await run(
+            let result = try await runGuarded(
+                root: root,
+                targets: [source, target],
                 "mv \(RemoteCommandBuilder.quoteRemotePath(source)) \(RemoteCommandBuilder.quoteRemotePath(target))"
             )
             guard result.status == 0 else {
@@ -120,7 +128,11 @@ struct RemoteFileService {
     func delete(root: String, paths: [String]) async throws {
         for path in paths {
             let absolute = try contained(root: root, relativePath: path)
-            let result = try await run("rm -rf \(RemoteCommandBuilder.quoteRemotePath(absolute))")
+            let result = try await runGuarded(
+                root: root,
+                targets: [absolute],
+                "rm -rf \(RemoteCommandBuilder.quoteRemotePath(absolute))"
+            )
             guard result.status == 0 else {
                 throw FileSystemOperationError.underlying(result.stderr.isEmpty ? "delete failed" : result.stderr)
             }
@@ -174,7 +186,24 @@ struct RemoteFileService {
         }
     }
 
-    private func run(_ remoteCommand: String) async throws -> GitProcessResult {
-        try await SSHCommandRunner.run(destination: destination, remoteCommand: remoteCommand)
+    private func run(_ remoteCommand: String, input: Data? = nil) async throws -> GitProcessResult {
+        try await SSHCommandRunner.run(destination: destination, remoteCommand: remoteCommand, input: input)
+    }
+
+    private func runGuarded(
+        root: String,
+        targets: [String],
+        _ remoteCommand: String,
+        input: Data? = nil
+    ) async throws -> GitProcessResult {
+        let normalizedRoot = ProjectPickerPathService.standardizedRemotePath(root)
+        let guards = targets
+            .map { RemoteCommandBuilder.containmentGuardPrefix(root: normalizedRoot, target: $0) }
+            .joined()
+        let result = try await run(guards + remoteCommand, input: input)
+        guard result.status != RemoteCommandBuilder.containmentEscapeExitCode else {
+            throw FileSystemOperationError.underlying("path escapes the workspace root")
+        }
+        return result
     }
 }

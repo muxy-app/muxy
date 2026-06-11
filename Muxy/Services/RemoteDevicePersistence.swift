@@ -9,7 +9,10 @@ final class FileRemoteDevicePersistence: RemoteDevicePersisting {
     private let store: CodableFileStore<[RemoteDevice]>
 
     init(fileURL: URL = MuxyFileStorage.fileURL(filename: "remote-devices.json")) {
-        store = CodableFileStore(fileURL: fileURL)
+        store = CodableFileStore(
+            fileURL: fileURL,
+            options: CodableFileStoreOptions(filePermissions: FilePermissions.privateFile)
+        )
     }
 
     func loadDevices() throws -> [RemoteDevice] {

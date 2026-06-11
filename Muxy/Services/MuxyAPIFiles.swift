@@ -8,7 +8,14 @@ extension MuxyAPI {
             let appState: AppState
             let projectStore: ProjectStore
             let worktreeStore: WorktreeStore
+            let projectGroupStore: ProjectGroupStore
+        }
+
+        struct ResolvedRoot {
+            let path: String
             let workspaceContext: WorkspaceContext
+
+            var remoteFileService: RemoteFileService? { workspaceContext.remoteFileService }
         }
 
         nonisolated static let maxReadBytes = 5 * 1024 * 1024
@@ -18,14 +25,12 @@ extension MuxyAPI {
             path: String,
             context: Context
         ) async -> Result<[FileTreeEntry], APIError> {
-            if let remote = context.workspaceContext.remoteFileService {
-                return await read(projectIdentifier, context) { root in
-                    try await remote.list(root: root, relativePath: path)
+            await read(projectIdentifier, context) { resolved in
+                if let remote = resolved.remoteFileService {
+                    return try await remote.list(root: resolved.path, relativePath: path)
                 }
-            }
-            return await read(projectIdentifier, context) { root in
-                let absolute = try contained(root: root, relativePath: path)
-                return await FileTreeService.loadChildren(of: absolute, repoRoot: root)
+                let absolute = try contained(root: resolved.path, relativePath: path)
+                return await FileTreeService.loadChildren(of: absolute, repoRoot: resolved.path)
             }
         }
 
@@ -40,14 +45,12 @@ extension MuxyAPI {
             path: String,
             context: Context
         ) async -> Result<ReadResult, APIError> {
-            if let remote = context.workspaceContext.remoteFileService {
-                return await read(projectIdentifier, context) { root in
-                    try await remote.read(root: root, relativePath: path, maxBytes: maxReadBytes)
+            await read(projectIdentifier, context) { resolved in
+                if let remote = resolved.remoteFileService {
+                    return try await remote.read(root: resolved.path, relativePath: path, maxBytes: maxReadBytes)
                 }
-            }
-            return await read(projectIdentifier, context) { root in
-                try await GitProcessRunner.offMainThrowing {
-                    let absolute = try contained(root: root, relativePath: path)
+                return try await GitProcessRunner.offMainThrowing {
+                    let absolute = try contained(root: resolved.path, relativePath: path)
                     let url = URL(fileURLWithPath: absolute)
                     let attributes = try FileManager.default.attributesOfItem(atPath: absolute)
                     let size = (attributes[.size] as? Int) ?? 0
@@ -58,7 +61,7 @@ extension MuxyAPI {
                     guard let content = String(data: data, encoding: .utf8) else {
                         throw FileSystemOperationError.underlying("file is not valid UTF-8 text")
                     }
-                    return ReadResult(relativePath: relative(absolute, root: root), content: content, size: size)
+                    return ReadResult(relativePath: relative(absolute, root: resolved.path), content: content, size: size)
                 }
             }
         }
@@ -75,14 +78,12 @@ extension MuxyAPI {
             path: String,
             context: Context
         ) async -> Result<StatResult, APIError> {
-            if let remote = context.workspaceContext.remoteFileService {
-                return await read(projectIdentifier, context) { root in
-                    try await remote.stat(root: root, relativePath: path)
+            await read(projectIdentifier, context) { resolved in
+                if let remote = resolved.remoteFileService {
+                    return try await remote.stat(root: resolved.path, relativePath: path)
                 }
-            }
-            return await read(projectIdentifier, context) { root in
-                try await GitProcessRunner.offMainThrowing {
-                    let absolute = try contained(root: root, relativePath: path)
+                return try await GitProcessRunner.offMainThrowing {
+                    let absolute = try contained(root: resolved.path, relativePath: path)
                     var isDirectory: ObjCBool = false
                     guard FileManager.default.fileExists(atPath: absolute, isDirectory: &isDirectory) else {
                         throw FileSystemOperationError.sourceMissing(absolute)
@@ -90,7 +91,7 @@ extension MuxyAPI {
                     let attributes = try FileManager.default.attributesOfItem(atPath: absolute)
                     return StatResult(
                         name: (absolute as NSString).lastPathComponent,
-                        relativePath: relative(absolute, root: root),
+                        relativePath: relative(absolute, root: resolved.path),
                         isDirectory: isDirectory.boolValue,
                         size: (attributes[.size] as? Int) ?? 0
                     )
@@ -104,14 +105,14 @@ extension MuxyAPI {
             contents: String,
             context: Context
         ) async -> Result<String, APIError> {
-            await write(projectIdentifier, operation: "write", path: path, context: context) { root in
-                if let remote = context.workspaceContext.remoteFileService {
-                    return try await remote.write(root: root, relativePath: path, contents: contents)
+            await write(projectIdentifier, operation: "write", path: path, context: context) { resolved in
+                if let remote = resolved.remoteFileService {
+                    return try await remote.write(root: resolved.path, relativePath: path, contents: contents)
                 }
                 return try await GitProcessRunner.offMainThrowing {
-                    let absolute = try contained(root: root, relativePath: path)
+                    let absolute = try contained(root: resolved.path, relativePath: path)
                     try FileSystemOperations.writeFileSync(contents: contents, atAbsolutePath: absolute)
-                    return relative(absolute, root: root)
+                    return relative(absolute, root: resolved.path)
                 }
             }
         }
@@ -121,16 +122,16 @@ extension MuxyAPI {
             path: String,
             context: Context
         ) async -> Result<String, APIError> {
-            await write(projectIdentifier, operation: "mkdir", path: path, context: context) { root in
-                if let remote = context.workspaceContext.remoteFileService {
-                    return try await remote.mkdir(root: root, relativePath: path)
+            await write(projectIdentifier, operation: "mkdir", path: path, context: context) { resolved in
+                if let remote = resolved.remoteFileService {
+                    return try await remote.mkdir(root: resolved.path, relativePath: path)
                 }
                 return try await GitProcessRunner.offMainThrowing {
-                    let absolute = try contained(root: root, relativePath: path)
+                    let absolute = try contained(root: resolved.path, relativePath: path)
                     let parent = (absolute as NSString).deletingLastPathComponent
                     let name = (absolute as NSString).lastPathComponent
                     let created = try FileSystemOperations.createFolderSync(named: name, in: parent)
-                    return relative(created, root: root)
+                    return relative(created, root: resolved.path)
                 }
             }
         }
@@ -141,15 +142,15 @@ extension MuxyAPI {
             newName: String,
             context: Context
         ) async -> Result<String, APIError> {
-            await write(projectIdentifier, operation: "rename", path: path, context: context) { root in
-                if let remote = context.workspaceContext.remoteFileService {
-                    return try await remote.rename(root: root, relativePath: path, newName: newName)
+            await write(projectIdentifier, operation: "rename", path: path, context: context) { resolved in
+                if let remote = resolved.remoteFileService {
+                    return try await remote.rename(root: resolved.path, relativePath: path, newName: newName)
                 }
                 let moved = try await GitProcessRunner.offMainThrowing {
-                    let absolute = try contained(root: root, relativePath: path)
+                    let absolute = try contained(root: resolved.path, relativePath: path)
                     return try FileSystemOperations.renameSync(at: absolute, to: newName)
                 }
-                return relative(moved, root: root)
+                return relative(moved, root: resolved.path)
             }
         }
 
@@ -159,19 +160,19 @@ extension MuxyAPI {
             into destination: String,
             context: Context
         ) async -> Result<[String], APIError> {
-            await write(projectIdentifier, operation: "move", path: destination, context: context) { root in
-                if let remote = context.workspaceContext.remoteFileService {
-                    return try await remote.move(root: root, paths: paths, into: destination)
+            await write(projectIdentifier, operation: "move", path: destination, context: context) { resolved in
+                if let remote = resolved.remoteFileService {
+                    return try await remote.move(root: resolved.path, paths: paths, into: destination)
                 }
                 let moved = try await GitProcessRunner.offMainThrowing {
-                    let destinationAbsolute = try contained(root: root, relativePath: destination)
-                    let sources = try paths.map { try contained(root: root, relativePath: $0) }
+                    let destinationAbsolute = try contained(root: resolved.path, relativePath: destination)
+                    let sources = try paths.map { try contained(root: resolved.path, relativePath: $0) }
                     return try FileSystemOperations.transferSync(
                         sources: sources,
                         destinationDirectory: destinationAbsolute
                     )
                 }
-                return moved.map { relative($0, root: root) }
+                return moved.map { relative($0, root: resolved.path) }
             }
         }
 
@@ -180,12 +181,12 @@ extension MuxyAPI {
             paths: [String],
             context: Context
         ) async -> Result<Void, APIError> {
-            await write(projectIdentifier, operation: "delete", path: paths.first ?? "", context: context) { root in
-                if let remote = context.workspaceContext.remoteFileService {
-                    return try await remote.delete(root: root, paths: paths)
+            await write(projectIdentifier, operation: "delete", path: paths.first ?? "", context: context) { resolved in
+                if let remote = resolved.remoteFileService {
+                    return try await remote.delete(root: resolved.path, paths: paths)
                 }
                 let absolutes = try await GitProcessRunner.offMainThrowing {
-                    try paths.map { try contained(root: root, relativePath: $0) }
+                    try paths.map { try contained(root: resolved.path, relativePath: $0) }
                 }
                 try await FileSystemOperations.moveToTrash(absolutes)
             }
@@ -255,13 +256,13 @@ extension MuxyAPI {
         private static func read<T: Sendable>(
             _ projectIdentifier: String?,
             _ context: Context,
-            _ work: (String) async throws -> T
+            _ work: (ResolvedRoot) async throws -> T
         ) async -> Result<T, APIError> {
-            guard let root = workspaceRoot(projectIdentifier, context: context) else {
+            guard let resolved = workspaceRoot(projectIdentifier, context: context) else {
                 return .failure(.projectNotFound(projectIdentifier ?? ""))
             }
             do {
-                return try await .success(work(root))
+                return try await .success(work(resolved))
             } catch {
                 return .failure(.underlying(message(for: error)))
             }
@@ -272,9 +273,9 @@ extension MuxyAPI {
             operation: String,
             path: String,
             context: Context,
-            _ work: (String) async throws -> T
+            _ work: (ResolvedRoot) async throws -> T
         ) async -> Result<T, APIError> {
-            guard let root = workspaceRoot(projectIdentifier, context: context) else {
+            guard let resolved = workspaceRoot(projectIdentifier, context: context) else {
                 return .failure(.projectNotFound(projectIdentifier ?? ""))
             }
             let consent = ExtensionConsentRequestBuilder.make(
@@ -287,38 +288,22 @@ extension MuxyAPI {
                 return .failure(.consentDenied(verb: "files.\(operation)"))
             }
             do {
-                return try await .success(work(root))
+                return try await .success(work(resolved))
             } catch {
                 return .failure(.underlying(message(for: error)))
             }
         }
 
-        private static func workspaceRoot(_ projectIdentifier: String?, context: Context) -> String? {
-            if context.workspaceContext.isRemote {
-                return remoteWorkspaceRoot(projectIdentifier, context: context)
-            }
-            let project: Project? = if let projectIdentifier, !projectIdentifier.isEmpty {
-                matchProject(projectIdentifier, in: context.projectStore.projects)
-            } else if let activeProjectID = context.appState.activeProjectID {
-                context.projectStore.projects.first { $0.id == activeProjectID }
-            } else {
-                nil
-            }
-            guard let project else { return nil }
-            return activeWorktreePath(for: project.id, fallback: project.path, context: context)
-        }
-
-        private static func remoteWorkspaceRoot(_ projectIdentifier: String?, context: Context) -> String? {
-            if let projectIdentifier, !projectIdentifier.isEmpty {
-                return projectIdentifier
-            }
-            guard let activeProjectID = context.appState.activeProjectID else { return nil }
-            if let worktreeID = context.appState.activeWorktreeID[activeProjectID],
-               let worktree = context.worktreeStore.worktree(projectID: activeProjectID, worktreeID: worktreeID)
-            {
-                return worktree.path
-            }
-            return context.worktreeStore.primary(for: activeProjectID)?.path
+        private static func workspaceRoot(_ projectIdentifier: String?, context: Context) -> ResolvedRoot? {
+            guard let project = context.projectGroupStore.resolveProject(
+                identifier: projectIdentifier,
+                localProjects: context.projectStore.projects,
+                activeProjectID: context.appState.activeProjectID
+            )
+            else { return nil }
+            let workspaceContext = context.projectGroupStore.workspaceContext(for: project)
+            let root = activeWorktreePath(for: project.id, fallback: project.path, context: context)
+            return ResolvedRoot(path: root, workspaceContext: workspaceContext)
         }
 
         private static func activeWorktreePath(for projectID: UUID, fallback: String, context: Context) -> String {
@@ -328,15 +313,6 @@ extension MuxyAPI {
                 return worktree.path
             }
             return fallback
-        }
-
-        private static func matchProject(_ identifier: String, in projects: [Project]) -> Project? {
-            let standardizedPath = URL(fileURLWithPath: identifier).standardizedFileURL.path
-            return projects.first { project in
-                project.id.uuidString == identifier
-                    || project.name.localizedCaseInsensitiveCompare(identifier) == .orderedSame
-                    || URL(fileURLWithPath: project.path).standardizedFileURL.path == standardizedPath
-            }
         }
     }
 }

@@ -10,6 +10,7 @@ struct ExtensionWebView: NSViewRepresentable {
     let appState: AppState
     let projectStore: ProjectStore?
     let worktreeStore: WorktreeStore?
+    let projectGroupStore: ProjectGroupStore?
     let focused: Bool
     let onFocus: () -> Void
 
@@ -34,7 +35,8 @@ struct ExtensionWebView: NSViewRepresentable {
             extensionID: muxyExtension.id,
             appState: appState,
             projectStore: projectStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
         )
         context.coordinator.bridge = bridge
 

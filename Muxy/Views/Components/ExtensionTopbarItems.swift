@@ -4,6 +4,7 @@ struct ExtensionTopbarItems: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(ExtensionStore.self) private var extensionStore
     @State private var popoverHost = PopoverHost.shared
 
@@ -36,7 +37,8 @@ struct ExtensionTopbarItems: View {
                 commandID: binding.item.command,
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )
         )
     }

@@ -7,6 +7,7 @@ enum SocketCommandHandler {
         appState: AppState,
         projectStore: ProjectStore? = nil,
         worktreeStore: WorktreeStore? = nil,
+        projectGroupStore: ProjectGroupStore? = nil,
         clientContext: NotificationSocketServer.ClientContext = .init(extensionID: nil)
     ) async -> String {
         let parts = message.components(separatedBy: "|")
@@ -201,7 +202,8 @@ enum SocketCommandHandler {
                     extensionID: extensionID,
                     appState: appState,
                     projectStore: projectStore,
-                    worktreeStore: worktreeStore
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
                 )
             )
         case "extension.settings.get":
@@ -264,7 +266,8 @@ enum SocketCommandHandler {
                     extensionID: extensionID,
                     appState: appState,
                     projectStore: projectStore,
-                    worktreeStore: worktreeStore
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
                 )
             )
         case "topbar.set",
@@ -281,7 +284,8 @@ enum SocketCommandHandler {
                     extensionID: extensionID,
                     appState: appState,
                     projectStore: projectStore,
-                    worktreeStore: worktreeStore
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
                 )
             )
         default:

@@ -11,6 +11,7 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
     private weak var appState: AppState?
     private weak var projectStore: ProjectStore?
     private weak var worktreeStore: WorktreeStore?
+    private weak var projectGroupStore: ProjectGroupStore?
     private weak var webView: WKWebView?
     private var eventObservers: [String: UUID] = [:]
     private var extensionEventObservers: [String: UUID] = [:]
@@ -24,12 +25,14 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
         extensionID: String,
         appState: AppState,
         projectStore: ProjectStore?,
-        worktreeStore: WorktreeStore?
+        worktreeStore: WorktreeStore?,
+        projectGroupStore: ProjectGroupStore?
     ) {
         self.extensionID = extensionID
         self.appState = appState
         self.projectStore = projectStore
         self.worktreeStore = worktreeStore
+        self.projectGroupStore = projectGroupStore
     }
 
     func attach(to webView: WKWebView) {
@@ -198,7 +201,8 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
                     extensionID: extensionID,
                     appState: appState,
                     projectStore: projectStore,
-                    worktreeStore: worktreeStore
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
                 )
             )
         }

@@ -20,14 +20,14 @@ enum SSHConnectionState: Equatable {
 final class SSHConnectionService {
     static let shared = SSHConnectionService()
 
-    private(set) var states: [SSHDestination: SSHConnectionState] = [:]
+    private(set) var states: [SSHConnectionKey: SSHConnectionState] = [:]
 
     func state(for destination: SSHDestination) -> SSHConnectionState {
-        states[destination] ?? .disconnected
+        states[destination.connectionKey] ?? .disconnected
     }
 
     func reset(destination: SSHDestination) {
-        states[destination] = .disconnected
+        states[destination.connectionKey] = .disconnected
     }
 
     @discardableResult
@@ -41,7 +41,8 @@ final class SSHConnectionService {
     }
 
     private func probe(destination: SSHDestination, busyState: SSHConnectionState, batch: Bool) async -> Bool {
-        states[destination] = busyState
+        let key = destination.connectionKey
+        states[key] = busyState
         do {
             let result = try await SSHCommandRunner.run(
                 destination: destination,
@@ -49,14 +50,14 @@ final class SSHConnectionService {
                 batch: batch
             )
             guard result.status == 0, result.stdout.contains(Self.marker) else {
-                states[destination] = .failed(Self.failureMessage(result))
+                states[key] = .failed(Self.failureMessage(result))
                 return false
             }
-            states[destination] = .connected
+            states[key] = .connected
             return true
         } catch {
             logger.error("SSH probe failed for \(destination.host): \(error)")
-            states[destination] = .failed(error.localizedDescription)
+            states[key] = .failed(error.localizedDescription)
             return false
         }
     }

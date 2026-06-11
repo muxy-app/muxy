@@ -96,12 +96,18 @@ struct MuxyApp: App {
                         )
                     }
                     appDelegate.flushPendingOpens()
-                    NotificationSocketServer.shared.commandHandler = { [appState, projectStore, worktreeStore] message, context in
+                    NotificationSocketServer.shared.commandHandler = { [
+                        appState,
+                        projectStore,
+                        worktreeStore,
+                        projectGroupStore
+                    ] message, context in
                         await SocketCommandHandler.handleRequest(
                             message,
                             appState: appState,
                             projectStore: projectStore,
                             worktreeStore: worktreeStore,
+                            projectGroupStore: projectGroupStore,
                             clientContext: context
                         )
                     }

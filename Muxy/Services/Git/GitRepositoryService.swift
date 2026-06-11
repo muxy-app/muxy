@@ -1316,6 +1316,7 @@ struct GitRepositoryService {
     private func untrackedOrNewFileDiff(repoPath: String, filePath: String, lineLimit: Int?) async throws -> PatchAndCompareResult {
         let fileLines: (lines: [String], truncated: Bool)?
         if context.isRemote {
+            try validatePath(repoPath: repoPath, relativePath: filePath)
             fileLines = try await readRemoteDiffPreviewLines(
                 repoPath: repoPath,
                 filePath: filePath,
@@ -1807,11 +1808,17 @@ struct GitRepositoryService {
 
     private func validatePath(repoPath: String, relativePath: String) throws {
         let fullPath = (repoPath as NSString).appendingPathComponent(relativePath)
-        let resolvedRepo = (repoPath as NSString).standardizingPath
-        let resolvedFull = (fullPath as NSString).standardizingPath
+        let resolvedRepo = standardizedPath(repoPath)
+        let resolvedFull = standardizedPath(fullPath)
         guard resolvedFull.hasPrefix(resolvedRepo + "/") else {
             throw GitError.commandFailed("File path is outside the repository.")
         }
+    }
+
+    private func standardizedPath(_ path: String) -> String {
+        context.isRemote
+            ? ProjectPickerPathService.standardizedRemotePath(path)
+            : (path as NSString).standardizingPath
     }
 
     func repoInfo(repoPath: String) async throws -> RepoInfo {

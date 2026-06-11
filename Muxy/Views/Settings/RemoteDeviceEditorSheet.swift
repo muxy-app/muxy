@@ -32,12 +32,22 @@ struct RemoteDeviceEditorSheet: View {
         return value.isEmpty ? "~" : value
     }
 
+    private var trimmedPort: String { port.trimmingCharacters(in: .whitespaces) }
+
+    private var parsedPort: Int? { Int(trimmedPort) }
+
+    private var isPortValid: Bool {
+        guard !trimmedPort.isEmpty else { return true }
+        guard let parsedPort else { return false }
+        return (1 ... 65535).contains(parsedPort)
+    }
+
     private var canProbe: Bool {
-        SSHDestination.isValidHost(trimmedHost) && probeState != .testing
+        SSHDestination.isValidHost(trimmedHost) && isPortValid && probeState != .testing
     }
 
     private var canSave: Bool {
-        SSHDestination.isValidHost(trimmedHost) && !displayName.isEmpty
+        SSHDestination.isValidHost(trimmedHost) && isPortValid && !displayName.isEmpty
     }
 
     private var displayName: String {
@@ -91,9 +101,16 @@ struct RemoteDeviceEditorSheet: View {
                 HStack(spacing: UIMetrics.spacing4) {
                     field(label: "User", placeholder: "optional", text: $user)
                         .onChange(of: user) { probeState = .idle }
-                    field(label: "Port", placeholder: "22", text: $port)
-                        .onChange(of: port) { probeState = .idle }
-                        .frame(width: UIMetrics.scaled(90))
+                    VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
+                        field(label: "Port", placeholder: "22", text: $port)
+                            .onChange(of: port) { probeState = .idle }
+                        if !isPortValid {
+                            Text("Port must be between 1 and 65535.")
+                                .font(.system(size: UIMetrics.fontFootnote))
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .frame(width: UIMetrics.scaled(90))
                 }
                 VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
                     Text("Identity File")
@@ -186,7 +203,7 @@ struct RemoteDeviceEditorSheet: View {
         SSHWorkspaceData(
             host: trimmedHost,
             remoteRoot: trimmedRoot,
-            port: Int(port.trimmingCharacters(in: .whitespaces)),
+            port: parsedPort,
             user: user,
             identityFile: identityFile
         )

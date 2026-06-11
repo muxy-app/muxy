@@ -559,19 +559,22 @@ final class ExtensionStore {
         let appState: AppState
         let projectStore: ProjectStore?
         let worktreeStore: WorktreeStore?
+        let projectGroupStore: ProjectGroupStore?
 
         init(
             extensionID: String,
             commandID: String,
             appState: AppState,
             projectStore: ProjectStore? = nil,
-            worktreeStore: WorktreeStore? = nil
+            worktreeStore: WorktreeStore? = nil,
+            projectGroupStore: ProjectGroupStore? = nil
         ) {
             self.extensionID = extensionID
             self.commandID = commandID
             self.appState = appState
             self.projectStore = projectStore
             self.worktreeStore = worktreeStore
+            self.projectGroupStore = projectGroupStore
         }
     }
 
@@ -646,8 +649,11 @@ final class ExtensionStore {
                     extensionID: invocation.extensionID,
                     scriptURL: scriptURL,
                     appState: invocation.appState,
-                    projectStore: invocation.projectStore,
-                    worktreeStore: invocation.worktreeStore
+                    stores: ExtensionAPIStores(
+                        projectStore: invocation.projectStore,
+                        worktreeStore: invocation.worktreeStore,
+                        projectGroupStore: invocation.projectGroupStore
+                    )
                 )
             } catch {
                 ExtensionLogStore.shared.append(

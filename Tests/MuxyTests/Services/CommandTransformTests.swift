@@ -204,3 +204,75 @@ struct RemoteEnvironmentTests {
         #expect(prefix == "export TOKEN='a b; rm -rf /'; ")
     }
 }
+
+@Suite("SSHDestination connection identity")
+struct SSHConnectionKeyTests {
+    @Test("connection key ignores the remote root")
+    func ignoresRemoteRoot() {
+        let a = SSHDestination(host: "prod", remoteRoot: "~/code")
+        let b = SSHDestination(host: "prod", remoteRoot: "~/other")
+        #expect(a.connectionKey == b.connectionKey)
+        #expect(a != b)
+    }
+
+    @Test("connection key distinguishes transport fields")
+    func distinguishesTransport() {
+        let base = SSHDestination(host: "prod", remoteRoot: "~", port: 22, user: "ci")
+        #expect(base.connectionKey != SSHDestination(host: "prod", port: 2222, user: "ci").connectionKey)
+        #expect(base.connectionKey != SSHDestination(host: "prod", port: 22, user: "other").connectionKey)
+        #expect(base.connectionKey != SSHDestination(host: "other", port: 22, user: "ci").connectionKey)
+    }
+}
+
+@Suite("RemoteCommandBuilder containment guard")
+struct RemoteContainmentGuardTests {
+    @Test("guard resolves real paths and aborts when the target escapes the root")
+    func guardsEscape() {
+        let prefix = RemoteCommandBuilder.containmentGuardPrefix(root: "/srv/app", target: "/srv/app/link")
+        #expect(prefix.contains("pwd -P"))
+        #expect(prefix.contains("exit \(RemoteCommandBuilder.containmentEscapeExitCode)"))
+        #expect(prefix.contains("\"$__muxy_root\"/*"))
+    }
+
+    @Test("guard quotes the root and target")
+    func guardQuotesPaths() {
+        let prefix = RemoteCommandBuilder.containmentGuardPrefix(root: "/a b", target: "/a b/c")
+        #expect(prefix.contains("'/a b'"))
+        #expect(prefix.contains("'/a b/c'"))
+    }
+}
+
+@Suite("SSHFieldSanitizer")
+struct SSHFieldSanitizerTests {
+    @Test("leading dashes are stripped from host and optional arguments")
+    func stripsLeadingDashes() {
+        #expect(SSHFieldSanitizer.host(" -oProxyCommand=x ") == "oProxyCommand=x")
+        #expect(SSHFieldSanitizer.optionalArgument("--bad") == "bad")
+    }
+
+    @Test("empty optional arguments become nil")
+    func emptyBecomesNil() {
+        #expect(SSHFieldSanitizer.optionalArgument("   ") == nil)
+        #expect(SSHFieldSanitizer.identityFile("") == nil)
+    }
+
+    @Test("empty root defaults to tilde")
+    func rootDefaults() {
+        #expect(SSHFieldSanitizer.root(nil) == "~")
+        #expect(SSHFieldSanitizer.root("  ") == "~")
+        #expect(SSHFieldSanitizer.root("~/code") == "~/code")
+    }
+
+    @Test("stored workspace data sanitizes a leading-dash host")
+    func workspaceDataSanitizes() throws {
+        let data = SSHWorkspaceData(host: "-E/tmp/log", user: "-x")
+        #expect(!data.host.hasPrefix("-"))
+        #expect(data.user?.hasPrefix("-") == false)
+        let decoded = try JSONDecoder().decode(
+            SSHWorkspaceData.self,
+            from: Data(#"{"host":"-E/tmp/log","user":"-x"}"#.utf8)
+        )
+        #expect(!decoded.host.hasPrefix("-"))
+        #expect(decoded.user?.hasPrefix("-") == false)
+    }
+}

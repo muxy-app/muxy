@@ -167,3 +167,121 @@ struct MuxyAPIFilesTests {
         return dir.resolvingSymlinksInPath().path
     }
 }
+
+@Suite("MuxyAPI.Files local routing through a wired context")
+@MainActor
+struct MuxyAPIFilesRoutingTests {
+    @Test("read and list route to a local project resolved by the project group store")
+    func readListRoutesToResolvedProject() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let notes = (root as NSString).appendingPathComponent("notes")
+        try FileManager.default.createDirectory(atPath: notes, withIntermediateDirectories: true)
+        try "hello".write(toFile: (notes as NSString).appendingPathComponent("todo.txt"), atomically: true, encoding: .utf8)
+
+        let context = makeContext(project: Project(name: "demo", path: root))
+
+        let read = try await unwrap(MuxyAPI.Files.read(
+            projectIdentifier: "demo",
+            path: "notes/todo.txt",
+            context: context
+        ))
+        #expect(read.content == "hello")
+        #expect(read.relativePath == "notes/todo.txt")
+
+        let entries = try await unwrap(MuxyAPI.Files.list(
+            projectIdentifier: "demo",
+            path: "notes",
+            context: context
+        ))
+        #expect(entries.contains { $0.name == "todo.txt" })
+    }
+
+    @Test("unknown project is rejected, not silently routed")
+    func unknownProjectRejected() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let context = makeContext(project: Project(name: "demo", path: root))
+        let result = await MuxyAPI.Files.read(
+            projectIdentifier: "does-not-exist",
+            path: "x.txt",
+            context: context
+        )
+        guard case .failure = result else {
+            Issue.record("expected failure for unknown project")
+            return
+        }
+    }
+
+    private func unwrap<T>(_ result: Result<T, APIError>) throws -> T {
+        switch result {
+        case let .success(value): value
+        case let .failure(error): throw error
+        }
+    }
+
+    private func makeTempDir() throws -> String {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MuxyAPIFilesRoutingTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.resolvingSymlinksInPath().path
+    }
+
+    private func makeContext(project: Project) -> MuxyAPI.Files.Context {
+        let projectStore = ProjectStore(persistence: ProjectPersistenceStub())
+        projectStore.add(project)
+        let worktreeStore = WorktreeStore(
+            persistence: WorktreePersistenceStub(),
+            projects: [project]
+        )
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: WorkspacePersistenceStub()
+        )
+        let projectGroupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()),
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        return MuxyAPI.Files.Context(
+            extensionID: "test",
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
+    }
+}
+
+private final class ProjectPersistenceStub: ProjectPersisting {
+    private var projects: [Project] = []
+    func loadProjects() throws -> [Project] { projects }
+    func saveProjects(_ projects: [Project]) throws { self.projects = projects }
+}
+
+private final class WorktreePersistenceStub: WorktreePersisting {
+    private var storage: [UUID: [Worktree]] = [:]
+    func loadWorktrees(projectID: UUID) throws -> [Worktree] { storage[projectID] ?? [] }
+    func saveWorktrees(_ worktrees: [Worktree], projectID: UUID) throws { storage[projectID] = worktrees }
+    func removeWorktrees(projectID: UUID) throws { storage.removeValue(forKey: projectID) }
+}
+
+private final class WorkspacePersistenceStub: WorkspacePersisting {
+    func loadWorkspaces() throws -> [WorkspaceSnapshot] { [] }
+    func saveWorkspaces(_: [WorkspaceSnapshot]) throws {}
+}
+
+@MainActor
+private final class SelectionStoreStub: ActiveProjectSelectionStoring {
+    func loadActiveProjectID() -> UUID? { nil }
+    func saveActiveProjectID(_: UUID?) {}
+    func loadActiveWorktreeIDs() -> [UUID: UUID] { [:] }
+    func saveActiveWorktreeIDs(_: [UUID: UUID]) {}
+}
+
+@MainActor
+private final class TerminalViewRemovingStub: TerminalViewRemoving {
+    func removeView(for _: UUID) {}
+    func needsConfirmQuit(for _: UUID) -> Bool { false }
+}

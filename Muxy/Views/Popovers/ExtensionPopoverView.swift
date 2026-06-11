@@ -6,6 +6,7 @@ struct ExtensionPopoverView: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
 
     var body: some View {
         Group {
@@ -22,6 +23,7 @@ struct ExtensionPopoverView: View {
                     appState: appState,
                     projectStore: projectStore,
                     worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore,
                     focused: true,
                     onFocus: {}
                 )
