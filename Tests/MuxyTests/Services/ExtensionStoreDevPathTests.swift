@@ -62,6 +62,37 @@ struct ExtensionStoreDevPathTests {
         #expect(!store.loadFailures.isEmpty)
     }
 
+    @Test("a failed dev path load carries its source path so it can be removed")
+    func failedDevPathLoadCarriesSourcePath() throws {
+        let root = try makeRoot()
+        let devParent = try makeRoot()
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: devParent)
+        }
+        let missing = devParent.appendingPathComponent("does-not-exist")
+
+        let store = makeStore(root: root, devPaths: [missing.path])
+        store.startAll()
+
+        let failure = try #require(store.loadFailures.first)
+        #expect(failure.devSourcePath == missing.path)
+    }
+
+    @Test("a failed root extension load is not removable as a dev path")
+    func failedRootLoadHasNoDevSourcePath() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let broken = root.appendingPathComponent("broken")
+        try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
+
+        let store = makeStore(root: root, devPaths: [])
+        store.startAll()
+
+        let failure = try #require(store.loadFailures.first)
+        #expect(failure.devSourcePath == nil)
+    }
+
     private func makeRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("exts-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

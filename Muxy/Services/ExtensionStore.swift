@@ -43,6 +43,7 @@ final class ExtensionStore {
         let id = UUID()
         let directory: URL
         let message: String
+        var devSourcePath: String?
     }
 
     private(set) var statuses: [ExtensionStatus] = []
@@ -751,7 +752,8 @@ final class ExtensionStore {
             guard !seenIDs.contains(ext.id) else {
                 loadFailures.append(LoadFailure(
                     directory: url,
-                    message: ExtensionLoadError.duplicateName(ext.id).localizedDescription
+                    message: ExtensionLoadError.duplicateName(ext.id).localizedDescription,
+                    devSourcePath: devSourcePath
                 ))
                 return
             }
@@ -769,7 +771,8 @@ final class ExtensionStore {
         } catch {
             loadFailures.append(LoadFailure(
                 directory: url,
-                message: error.localizedDescription
+                message: error.localizedDescription,
+                devSourcePath: devSourcePath
             ))
             logger.error("Failed to load extension at \(url.path): \(error.localizedDescription)")
         }

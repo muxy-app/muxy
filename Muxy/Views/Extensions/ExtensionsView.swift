@@ -265,7 +265,10 @@ private struct ExtensionsListPage: View {
             VStack(alignment: .leading, spacing: 14) {
                 developmentBanner
                 if !store.loadFailures.isEmpty {
-                    LoadFailuresBlock(failures: store.loadFailures)
+                    LoadFailuresBlock(
+                        failures: store.loadFailures,
+                        onRemoveDevPath: { store.removeDevPath($0) }
+                    )
                 }
                 if store.statuses.isEmpty {
                     emptyState
@@ -340,6 +343,7 @@ private struct ExtensionsListPage: View {
 
 private struct LoadFailuresBlock: View {
     let failures: [ExtensionStore.LoadFailure]
+    let onRemoveDevPath: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -351,13 +355,27 @@ private struct LoadFailuresBlock: View {
                     .foregroundStyle(MuxyTheme.fg)
             }
             ForEach(failures) { failure in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(failure.directory.lastPathComponent)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(MuxyTheme.diffRemoveFg)
-                    Text(failure.message)
-                        .font(.system(size: 11))
-                        .foregroundStyle(MuxyTheme.fgMuted)
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(failure.directory.lastPathComponent)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(MuxyTheme.diffRemoveFg)
+                        Text(failure.message)
+                            .font(.system(size: 11))
+                            .foregroundStyle(MuxyTheme.fgMuted)
+                    }
+                    Spacer(minLength: 0)
+                    if let devSourcePath = failure.devSourcePath {
+                        Button {
+                            onRemoveDevPath(devSourcePath)
+                        } label: {
+                            Text("Remove")
+                                .font(.system(size: 11))
+                                .foregroundStyle(MuxyTheme.diffRemoveFg)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Stop loading this dev extension. Your folder is left untouched.")
+                    }
                 }
             }
         }
