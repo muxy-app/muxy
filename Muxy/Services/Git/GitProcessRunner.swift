@@ -75,15 +75,17 @@ enum GitProcessRunner {
             workingDirectory: nil,
             in: .ssh(destination)
         )
-        return try await runProcess(
-            ProcessSpec(
-                executable: resolved.executable,
-                arguments: resolved.arguments,
-                workingDirectory: resolved.workingDirectory,
-                lineLimit: lineLimit,
-                signpostName: "git"
+        return try await SSHCommandRunner.withTimeout(SSHCommandRunner.defaultTimeout) {
+            try await runProcess(
+                ProcessSpec(
+                    executable: resolved.executable,
+                    arguments: resolved.arguments,
+                    workingDirectory: resolved.workingDirectory,
+                    lineLimit: lineLimit,
+                    signpostName: "git"
+                )
             )
-        )
+        }
     }
 
     static func gitHubCredentialHelperArgs(ghResolver: (String) -> String? = resolveExecutable) -> [String] {

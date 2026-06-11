@@ -9,19 +9,23 @@ enum HomeProjectService {
     @discardableResult
     static func openHomeTab(
         appState: AppState,
-        worktreeStore: WorktreeStore
+        worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore
     ) -> Bool {
+        if let remoteHome = projectGroupStore.activeRemoteHomeProject {
+            return openHomeProjectTab(home: remoteHome, appState: appState, worktreeStore: worktreeStore)
+        }
         guard HomeProjectPreferences.isVisible else {
             return openHomeDirectoryTabInActiveProject(appState: appState, worktreeStore: worktreeStore)
         }
-        return openHomeProjectTab(appState: appState, worktreeStore: worktreeStore)
+        return openHomeProjectTab(home: Project.home, appState: appState, worktreeStore: worktreeStore)
     }
 
     private static func openHomeProjectTab(
+        home: Project,
         appState: AppState,
         worktreeStore: WorktreeStore
     ) -> Bool {
-        let home = Project.home
         worktreeStore.ensurePrimary(for: home)
         guard let worktree = worktreeStore.preferred(
             for: home.id,

@@ -6,9 +6,14 @@ struct TerminalArea: View {
     let isActiveProject: Bool
     @Environment(AppState.self) private var appState
     @Environment(TabDragCoordinator.self) private var dragCoordinator
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
 
     private var root: SplitNode? {
         appState.workspaceRoots[worktreeKey]
+    }
+
+    private var workspaceContext: WorkspaceContext {
+        projectGroupStore.workspaceContext(for: project)
     }
 
     private var focusedAreaID: UUID? {
@@ -30,6 +35,7 @@ struct TerminalArea: View {
         if let root {
             workspaceContent(root: root)
                 .environment(\.activeWorktreeKey, worktreeKey)
+                .environment(\.paneWorkspaceContext, workspaceContext)
                 .onPreferenceChange(AreaFramePreferenceKey.self) { frames in
                     guard isActiveProject, dragCoordinator.activeDrag != nil else { return }
                     dragCoordinator.setAreaFrames(frames, forProject: project.id)

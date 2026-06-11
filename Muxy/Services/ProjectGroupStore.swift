@@ -9,9 +9,14 @@ final class ProjectGroupStore {
     private(set) var groups: [ProjectGroup] = []
     private(set) var activeGroupID: UUID?
     private let persistence: any ProjectGroupPersisting
+    private let workspaceContextSink: any WorkspaceContextSink
 
-    init(persistence: any ProjectGroupPersisting) {
+    init(
+        persistence: any ProjectGroupPersisting,
+        workspaceContextSink: any WorkspaceContextSink = ActiveWorkspaceContext.shared
+    ) {
         self.persistence = persistence
+        self.workspaceContextSink = workspaceContextSink
         load()
     }
 
@@ -28,7 +33,7 @@ final class ProjectGroupStore {
     }
 
     private func syncActiveWorkspaceContext() {
-        ActiveWorkspaceContext.shared.update(activeWorkspaceContext)
+        workspaceContextSink.update(activeWorkspaceContext)
     }
 
     func filteredProjects(from projects: [Project]) -> [Project] {
@@ -44,6 +49,13 @@ final class ProjectGroupStore {
 
     var activeRemoteHomeProject: Project? {
         activeGroup?.remoteHomeProject
+    }
+
+    var activeRemoteProjectIDs: Set<UUID> {
+        guard isRemoteWorkspaceActive else { return [] }
+        var ids = Set(activeRemoteProjects.map(\.id))
+        if let homeID = activeRemoteHomeProject?.id { ids.insert(homeID) }
+        return ids
     }
 
     var isRemoteWorkspaceActive: Bool {

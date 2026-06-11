@@ -31,12 +31,13 @@ struct MuxyApp: App {
             terminalViews: environment.terminalViews,
             workspacePersistence: environment.workspacePersistence
         )
-        appState.restoreSelection(
-            projects: projectStore.projects,
-            worktrees: worktreeStore.worktrees
-        )
         let projectGroupStore = ProjectGroupStore(
             persistence: environment.projectGroupPersistence
+        )
+        appState.restoreSelection(
+            projects: projectStore.projects,
+            worktrees: worktreeStore.worktrees,
+            skippingProjectIDs: projectGroupStore.activeRemoteProjectIDs
         )
         _appState = State(initialValue: appState)
         _projectStore = State(initialValue: projectStore)

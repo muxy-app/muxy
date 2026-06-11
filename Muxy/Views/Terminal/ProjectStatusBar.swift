@@ -9,6 +9,7 @@ struct ProjectStatusBar: View {
     let activePane: TerminalPaneState?
     let activeWorktree: Worktree?
     let fallbackProjectPath: String?
+    let isRemoteWorkspace: Bool
     let isInteractive: Bool
     let richInputVisible: Bool
     @Binding var richInputFontSize: Double
@@ -102,10 +103,6 @@ struct ProjectStatusBar: View {
             ?? fallbackProjectPath
         else { return nil }
         return StatusContext(path: path)
-    }
-
-    private var isRemoteWorkspace: Bool {
-        activePane?.workspaceContext.isRemote ?? false
     }
 
     private func pathButton(_ fullPath: String) -> some View {

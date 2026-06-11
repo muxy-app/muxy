@@ -353,6 +353,9 @@ struct MainWindow: View {
                     activePane: activeTerminalPane,
                     activeWorktree: activeProject.flatMap { resolvedActiveWorktree(for: $0) },
                     fallbackProjectPath: activeProject.map { activeWorktreePath(for: $0) },
+                    isRemoteWorkspace: activeProject.map {
+                        projectGroupStore.workspaceContext(for: $0).isRemote
+                    } ?? false,
                     isInteractive: activeTerminalPane != nil && !overlayAnimatingOut,
                     richInputVisible: richInputPanelVisible,
                     richInputFontSize: $richInputFontSize,
@@ -714,9 +717,20 @@ struct MainWindow: View {
     private func selectOmniboxWorkspace(_ workspace: TerminalOmniboxWorkspaceItem) {
         guard let groupID = workspace.groupID else {
             projectGroupStore.clearGroupSelection()
+            selectFirstProjectOfActiveWorkspace()
             return
         }
         projectGroupStore.selectGroup(id: groupID)
+        selectFirstProjectOfActiveWorkspace()
+    }
+
+    private func selectFirstProjectOfActiveWorkspace() {
+        WorkspaceSelectionService.selectFirstProject(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
     }
 
     private var projectPickerPaths: [String] {

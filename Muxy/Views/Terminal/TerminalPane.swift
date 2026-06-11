@@ -185,6 +185,7 @@ struct TerminalBridge: NSViewRepresentable {
     let onSplitRequest: (SplitDirection, SplitPosition) -> Void
     @Environment(\.overlayActive) private var overlayActive
     @Environment(\.activeWorktreeKey) private var worktreeKey
+    @Environment(\.paneWorkspaceContext) private var workspaceContext
 
     final class Coordinator {
         var wasFocused = false
@@ -204,7 +205,7 @@ struct TerminalBridge: NSViewRepresentable {
             command: launch.command,
             commandInteractive: launch.interactive,
             closesOnCommandExit: launch.closesOnCommandExit,
-            workspaceContext: state.workspaceContext
+            workspaceContext: workspaceContext
         )
         if view.envVars.isEmpty, let key = worktreeKey {
             view.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
@@ -315,7 +316,7 @@ struct TerminalBridge: NSViewRepresentable {
 
     private func configureFileOpenCallback(_ view: GhosttyTerminalNSView) {
         let projectPath = state.projectPath
-        guard !state.workspaceContext.isRemote else {
+        guard !workspaceContext.isRemote else {
             view.resolveCmdHoverFile = { _ in false }
             view.onCmdClickFile = { _ in }
             view.onOpenURL = { url in

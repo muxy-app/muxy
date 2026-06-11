@@ -27,6 +27,10 @@ struct ShortcutActionDispatcher {
     }
 
     private var navigableProjects: [Project] {
+        if projectGroupStore.isRemoteWorkspaceActive {
+            let remoteHome = projectGroupStore.activeRemoteHomeProject.map { [$0] } ?? []
+            return remoteHome + projectGroupStore.displayProjects(localProjects: projectStore.storedProjects)
+        }
         let filtered = projectGroupStore.filteredProjects(from: projectStore.storedProjects)
         guard HomeProjectPreferences.isVisible else { return filtered }
         return [Project.home] + filtered
@@ -57,7 +61,8 @@ struct ShortcutActionDispatcher {
         case .newHomeTab:
             return HomeProjectService.openHomeTab(
                 appState: appState,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )
         case .closeTab:
             guard let projectID = appState.activeProjectID,

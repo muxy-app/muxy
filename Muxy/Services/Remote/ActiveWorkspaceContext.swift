@@ -1,8 +1,13 @@
 import Foundation
 
 @MainActor
+protocol WorkspaceContextSink: AnyObject {
+    func update(_ context: WorkspaceContext)
+}
+
+@MainActor
 @Observable
-final class ActiveWorkspaceContext {
+final class ActiveWorkspaceContext: WorkspaceContextSink {
     static let shared = ActiveWorkspaceContext()
 
     private(set) var current: WorkspaceContext = .local

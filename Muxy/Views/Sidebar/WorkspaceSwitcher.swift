@@ -6,6 +6,9 @@ struct WorkspaceSwitcher: View {
 
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(SSHConnectionService.self) private var sshConnections
+    @Environment(AppState.self) private var appState
+    @Environment(ProjectStore.self) private var projectStore
+    @Environment(WorktreeStore.self) private var worktreeStore
 
     @State private var isShowingPopover = false
     @State private var isTriggerHovered = false
@@ -160,6 +163,7 @@ struct WorkspaceSwitcher: View {
     private var allProjectsRow: some View {
         Button {
             projectGroupStore.clearGroupSelection()
+            selectFirstProject()
             isShowingPopover = false
         } label: {
             HStack(spacing: UIMetrics.spacing2) {
@@ -244,6 +248,7 @@ struct WorkspaceSwitcher: View {
         case .create:
             let group = projectGroupStore.addSSHWorkspace(name: name, data: data)
             projectGroupStore.selectGroup(id: group.id)
+            selectFirstProject()
         case let .edit(group):
             projectGroupStore.renameGroup(id: group.id, to: name)
             projectGroupStore.updateSSHWorkspace(id: group.id, data: data)
@@ -258,6 +263,7 @@ struct WorkspaceSwitcher: View {
     private func select(_ group: ProjectGroup) {
         guard group.type == .ssh, let destination = group.sshData?.destination else {
             projectGroupStore.selectGroup(id: group.id)
+            selectFirstProject()
             isShowingPopover = false
             return
         }
@@ -269,7 +275,17 @@ struct WorkspaceSwitcher: View {
                 return
             }
             projectGroupStore.selectGroup(id: group.id)
+            selectFirstProject()
         }
+    }
+
+    private func selectFirstProject() {
+        WorkspaceSelectionService.selectFirstProject(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
     }
 
     private func failureMessage(for destination: SSHDestination) -> String {

@@ -70,15 +70,24 @@ struct SSHDestination: Hashable, Codable {
         "-o", "ServerAliveCountMax=3",
     ]
 
+    private static let nonInteractiveOptions: [String] = [
+        "-o", "BatchMode=yes",
+        "-o", "StrictHostKeyChecking=accept-new",
+    ]
+
+    private static let interactiveOptions: [String] = [
+        "-o", "StrictHostKeyChecking=accept-new",
+    ]
+
     private static let multiplexOptions: [String] = [
         "-o", "ControlMaster=auto",
         "-o", "ControlPath=~/.ssh/muxy-%C",
         "-o", "ControlPersist=120",
     ]
 
-    static let batchOptions: [String] = ["-o", "BatchMode=yes"] + multiplexOptions + keepAliveOptions
+    static let batchOptions: [String] = nonInteractiveOptions + multiplexOptions + keepAliveOptions
 
-    static let connectOptions: [String] = multiplexOptions + keepAliveOptions
+    static let connectOptions: [String] = nonInteractiveOptions + multiplexOptions + keepAliveOptions
 
-    static let terminalOptions: [String] = ["-o", "ControlMaster=no"] + keepAliveOptions
+    static let terminalOptions: [String] = ["-o", "ControlMaster=no"] + interactiveOptions + keepAliveOptions
 }

@@ -98,7 +98,11 @@ final class AppState {
         self.workspacePersistence = workspacePersistence
     }
 
-    func restoreSelection(projects: [Project], worktrees: [UUID: [Worktree]]) {
+    func restoreSelection(
+        projects: [Project],
+        worktrees: [UUID: [Worktree]],
+        skippingProjectIDs: Set<UUID> = []
+    ) {
         let snapshots: [WorkspaceSnapshot]
         do {
             snapshots = try workspacePersistence.loadWorkspaces()
@@ -106,8 +110,9 @@ final class AppState {
             logger.error("Failed to load workspaces: \(error)")
             snapshots = []
         }
+        let restorableSnapshots = snapshots.filter { !skippingProjectIDs.contains($0.projectID) }
         let restored = WorkspaceRestorer.restoreAll(
-            from: snapshots,
+            from: restorableSnapshots,
             projects: projects,
             worktrees: worktrees
         )

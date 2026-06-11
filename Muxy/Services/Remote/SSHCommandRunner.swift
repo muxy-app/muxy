@@ -27,10 +27,17 @@ enum SSHCommandRunner {
             arguments: arguments,
             workingDirectory: nil
         )
-        return try await withThrowingTaskGroup(of: GitProcessResult.self) { group in
-            group.addTask {
-                try await GitProcessRunner.runResolved(resolved, lineLimit: lineLimit)
-            }
+        return try await withTimeout(timeout) {
+            try await GitProcessRunner.runResolved(resolved, lineLimit: lineLimit)
+        }
+    }
+
+    static func withTimeout(
+        _ timeout: TimeInterval,
+        operation: @escaping @Sendable () async throws -> GitProcessResult
+    ) async throws -> GitProcessResult {
+        try await withThrowingTaskGroup(of: GitProcessResult.self) { group in
+            group.addTask { try await operation() }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 throw SSHCommandError.timedOut(timeout)
