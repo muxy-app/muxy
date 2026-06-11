@@ -747,13 +747,15 @@ enum MuxyAPI {
             projectIdentifier: String?,
             appState: AppState,
             projectStore: ProjectStore,
-            worktreeStore: WorktreeStore
+            worktreeStore: WorktreeStore,
+            projectGroupStore: ProjectGroupStore? = nil
         ) async -> Result<RefreshWorktreesResult, APIError> {
             guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
                 return .failure(.projectNotFound(projectIdentifier ?? ""))
             }
             do {
-                let context = project.isRemote ? ActiveWorkspaceContext.shared.current : .local
+                let context = projectGroupStore?.workspaceContext(for: project)
+                    ?? (project.isRemote ? ActiveWorkspaceContext.shared.current : .local)
                 let worktrees = try await worktreeStore.refreshFromGit(project: project, context: context)
                 return .success(RefreshWorktreesResult(count: worktrees.count))
             } catch {

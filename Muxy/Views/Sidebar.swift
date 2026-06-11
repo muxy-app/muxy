@@ -42,6 +42,7 @@ struct Sidebar: View {
     @Environment(AppState.self) private var appState
     @Environment(ProjectStore.self) private var projectStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
+    @Environment(RemoteDeviceStore.self) private var remoteDeviceStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @State private var dragState = ProjectDragState()
     @State private var projectPendingRemoval: Project?
@@ -125,16 +126,66 @@ struct Sidebar: View {
         }
     }
 
-    private var addButton: some View {
-        AddProjectButton(expanded: isWide) {
-            ProjectOpenService.openProjectViaPicker(
-                appState: appState,
-                projectStore: projectStore,
-                worktreeStore: worktreeStore,
-                projectGroupStore: projectGroupStore
-            )
+    @ViewBuilder private var addButton: some View {
+        if projectGroupStore.isRemoteWorkspaceActive {
+            AddProjectButton(expanded: isWide, action: openLocalProjectPicker)
+                .help(shortcutTooltip("Add Project", for: .openProject))
+        } else {
+            Menu {
+                Button {
+                    openLocalProjectPicker()
+                } label: {
+                    Label("Local", systemImage: "folder")
+                }
+                remoteProjectMenu
+            } label: {
+                AddProjectButton.Label(expanded: isWide)
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .help(shortcutTooltip("Add Project", for: .openProject))
         }
-        .help(shortcutTooltip("Add Project", for: .openProject))
+    }
+
+    private var remoteProjectMenu: some View {
+        Menu {
+            let devices = remoteDeviceStore.sshDevices()
+            if devices.isEmpty {
+                Button("No devices") {}
+                    .disabled(true)
+            } else {
+                ForEach(devices) { device in
+                    Button {
+                        NotificationCenter.default.post(
+                            name: .openRemoteProjectPicker,
+                            object: nil,
+                            userInfo: [OpenRemoteProjectPickerUserInfoKey.deviceID: device.id]
+                        )
+                    } label: {
+                        Label(device.displayName, systemImage: "desktopcomputer")
+                    }
+                }
+            }
+            Divider()
+            Button {
+                SettingsFocusCoordinator.shared.request(.remoteDevices)
+                NotificationCenter.default.post(name: .openSettingsModal, object: nil)
+            } label: {
+                Label("Manage Remote Devices", systemImage: "server.rack")
+            }
+        } label: {
+            Label("Remote", systemImage: "network")
+        }
+    }
+
+    private func openLocalProjectPicker() {
+        ProjectOpenService.openProjectViaPicker(
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
+        )
     }
 
     private var homeProject: Project? {
@@ -217,7 +268,7 @@ struct Sidebar: View {
     }
 
     private func renameProject(_ project: Project, to name: String) {
-        guard !project.isRemote else {
+        guard project.remoteWorkspaceID == nil else {
             projectGroupStore.renameRemoteProject(id: project.id, to: name)
             return
         }
@@ -225,7 +276,7 @@ struct Sidebar: View {
     }
 
     private func setWorktreesEnabled(_ project: Project, to enabled: Bool) {
-        guard !project.isRemote else {
+        guard project.remoteWorkspaceID == nil else {
             projectGroupStore.setRemoteProjectWorktreesEnabled(id: project.id, to: enabled)
             return
         }
@@ -288,6 +339,9 @@ struct Sidebar: View {
         guard !project.isRemote else {
             if let workspaceID = project.remoteWorkspaceID {
                 projectGroupStore.removeRemoteProject(id: project.id, fromGroup: workspaceID)
+            } else {
+                projectStore.remove(id: project.id)
+                projectGroupStore.removeProjectFromAllGroups(projectID: project.id)
             }
             appState.removeProject(project.id)
             worktreeStore.removeProject(project.id)
@@ -355,52 +409,63 @@ private struct ProjectDragState {
 private struct AddProjectButton: View {
     var expanded: Bool = false
     let action: () -> Void
-    @State private var hovered = false
 
     var body: some View {
         Button(action: action) {
-            if expanded {
-                expandedLayout
-            } else {
-                collapsedLayout
-            }
+            Label(expanded: expanded)
         }
         .buttonStyle(.plain)
-        .onHover { hovered = $0 }
         .accessibilityLabel("Add Project")
     }
 
-    private var collapsedLayout: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-                .fill(MuxyTheme.hover)
-            Image(systemName: "plus")
-                .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
-                .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
-        }
-        .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
-        .padding(UIMetrics.scaled(3))
-    }
+    struct Label: View {
+        var expanded: Bool = false
+        @State private var hovered = false
 
-    private var expandedLayout: some View {
-        HStack(spacing: UIMetrics.spacing4) {
+        var body: some View {
+            Group {
+                if expanded {
+                    expandedLayout
+                } else {
+                    collapsedLayout
+                }
+            }
+            .onHover { hovered = $0 }
+            .accessibilityLabel("Add Project")
+        }
+
+        private var collapsedLayout: some View {
             ZStack {
                 RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-                    .fill(MuxyTheme.surface)
+                    .fill(MuxyTheme.hover)
                 Image(systemName: "plus")
                     .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
                     .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
             }
             .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
-
-            Text("Add Project")
-                .font(.system(size: UIMetrics.fontBody, weight: .medium))
-                .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
-                .lineLimit(1)
-            Spacer()
+            .padding(UIMetrics.scaled(3))
         }
-        .padding(UIMetrics.spacing2)
-        .background(hovered ? MuxyTheme.hover : Color.clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
+
+        private var expandedLayout: some View {
+            HStack(spacing: UIMetrics.spacing4) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+                        .fill(MuxyTheme.surface)
+                    Image(systemName: "plus")
+                        .font(.system(size: UIMetrics.fontEmphasis, weight: .bold))
+                        .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
+                }
+                .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
+
+                Text("Add Project")
+                    .font(.system(size: UIMetrics.fontBody, weight: .medium))
+                    .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
+                    .lineLimit(1)
+                Spacer()
+            }
+            .padding(UIMetrics.spacing2)
+            .background(hovered ? MuxyTheme.hover : Color.clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
+        }
     }
 }
 

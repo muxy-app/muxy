@@ -12,8 +12,16 @@ struct Project: Identifiable, Codable, Hashable {
     var preferredWorktreeParentPath: String?
     var worktreesEnabled: Bool
     var remoteWorkspaceID: UUID?
+    var remoteDeviceID: UUID?
 
-    init(id: UUID = UUID(), name: String, path: String, sortOrder: Int = 0, remoteWorkspaceID: UUID? = nil) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        path: String,
+        sortOrder: Int = 0,
+        remoteWorkspaceID: UUID? = nil,
+        remoteDeviceID: UUID? = nil
+    ) {
         self.id = id
         self.name = name
         self.path = path
@@ -25,9 +33,10 @@ struct Project: Identifiable, Codable, Hashable {
         self.preferredWorktreeParentPath = nil
         self.worktreesEnabled = false
         self.remoteWorkspaceID = remoteWorkspaceID
+        self.remoteDeviceID = remoteDeviceID
     }
 
-    var isRemote: Bool { remoteWorkspaceID != nil }
+    var isRemote: Bool { remoteWorkspaceID != nil || remoteDeviceID != nil }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -42,6 +51,7 @@ struct Project: Identifiable, Codable, Hashable {
         preferredWorktreeParentPath = try container.decodeIfPresent(String.self, forKey: .preferredWorktreeParentPath)
         worktreesEnabled = try container.decodeIfPresent(Bool.self, forKey: .worktreesEnabled) ?? false
         remoteWorkspaceID = try container.decodeIfPresent(UUID.self, forKey: .remoteWorkspaceID)
+        remoteDeviceID = try container.decodeIfPresent(UUID.self, forKey: .remoteDeviceID)
     }
 
     var pathExists: Bool {

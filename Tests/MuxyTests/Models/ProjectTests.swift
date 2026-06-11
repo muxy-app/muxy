@@ -64,4 +64,38 @@ struct ProjectTests {
 
         #expect(!project.isHome)
     }
+
+    @Test("remoteDeviceID round-trips and marks the project remote")
+    func remoteDeviceIDRoundTrips() throws {
+        let project = Project(name: "api", path: "~/code/api", remoteDeviceID: UUID())
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(Project.self, from: encoder.encode(project))
+
+        #expect(decoded.remoteDeviceID == project.remoteDeviceID)
+        #expect(decoded.isRemote)
+        #expect(!decoded.isHome)
+    }
+
+    @Test("legacy records without remoteDeviceID decode as local")
+    func legacyRecordDecodesWithoutRemoteDeviceID() throws {
+        let json = """
+        {
+          "id": "\(UUID().uuidString)",
+          "name": "Repo",
+          "path": "/tmp/repo",
+          "sortOrder": 0,
+          "createdAt": "2024-01-01T00:00:00Z"
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let project = try decoder.decode(Project.self, from: Data(json.utf8))
+
+        #expect(project.remoteDeviceID == nil)
+        #expect(!project.isRemote)
+    }
 }

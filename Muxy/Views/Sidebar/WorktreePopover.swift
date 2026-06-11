@@ -10,6 +10,7 @@ struct WorktreePopover: View {
 
     @Environment(AppState.self) private var appState
     @Environment(WorktreeStore.self) private var worktreeStore
+    @Environment(ProjectGroupStore.self) private var projectGroupStore
     @State private var pendingRemoval: WorktreeRemovalConfirmation?
 
     private var worktrees: [Worktree] {
@@ -92,7 +93,7 @@ struct WorktreePopover: View {
     private func requestRemove(worktree: Worktree) async {
         let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(
             worktreePath: worktree.path,
-            context: project.remoteWorkspaceID == nil ? .local : ActiveWorkspaceContext.shared.current
+            context: projectGroupStore.workspaceContext(for: project)
         )
         pendingRemoval = WorktreeRemovalConfirmation(
             worktree: worktree,

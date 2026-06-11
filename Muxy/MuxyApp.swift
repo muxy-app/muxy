@@ -182,7 +182,8 @@ struct MuxyApp: App {
         worktreeAutoRefresher = VCSWorktreeAutoRefresher(
             appState: appState,
             projectStore: projectStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
         )
     }
 }

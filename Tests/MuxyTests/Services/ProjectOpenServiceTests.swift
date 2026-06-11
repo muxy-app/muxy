@@ -346,7 +346,82 @@ struct ProjectOpenServiceTests {
         #expect(didOpenFinder)
     }
 
+    @Test("remote device project is stored with its device id and selected")
+    func remoteDeviceProjectStoredAndSelected() throws {
+        let (appState, projectStore, worktreeStore, projectGroupStore, deviceStore) = makeStoresWithDevice()
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"))
+
+        let result = RemoteDeviceProjectConfirmationService(
+            appState: appState, projectStore: projectStore,
+            worktreeStore: worktreeStore, projectGroupStore: projectGroupStore
+        )
+        .confirm(path: "~/code/api", device: device)
+
+        let added = try #require(projectStore.storedProjects.first)
+        #expect(result == .success)
+        #expect(projectStore.storedProjects.count == 1)
+        #expect(added.name == "api")
+        #expect(added.remoteDeviceID == device.id)
+        #expect(added.isRemote)
+        #expect(appState.activeProjectID == added.id)
+    }
+
+    @Test("remote device project dedupes by device and standardized path")
+    func remoteDeviceProjectDedupes() {
+        let (appState, projectStore, worktreeStore, projectGroupStore, deviceStore) = makeStoresWithDevice()
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"))
+        let service = RemoteDeviceProjectConfirmationService(
+            appState: appState, projectStore: projectStore,
+            worktreeStore: worktreeStore, projectGroupStore: projectGroupStore
+        )
+
+        _ = service.confirm(path: "~/code/api", device: device)
+        let result = service.confirm(path: "~/code/./api", device: device)
+
+        #expect(result == .success)
+        #expect(projectStore.storedProjects.count == 1)
+    }
+
+    @Test("remote device project rejects the device root path")
+    func remoteDeviceProjectRejectsRoot() {
+        let (appState, projectStore, worktreeStore, projectGroupStore, deviceStore) = makeStoresWithDevice()
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"))
+
+        let result = RemoteDeviceProjectConfirmationService(
+            appState: appState, projectStore: projectStore,
+            worktreeStore: worktreeStore, projectGroupStore: projectGroupStore
+        )
+        .confirm(path: "~/code", device: device)
+
+        #expect(result == .failed)
+        #expect(projectStore.storedProjects.isEmpty)
+    }
+
+    @Test("remote device project is added to the active local group")
+    func remoteDeviceProjectAddedToActiveGroup() throws {
+        let (appState, projectStore, worktreeStore, _, deviceStore) = makeStoresWithDevice()
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"))
+        let group = ProjectGroup(name: "Work")
+        let groupPersistence = ProjectGroupPersistenceStub(initial: [group])
+        let projectGroupStore = ProjectGroupStore(persistence: groupPersistence, remoteDeviceStore: deviceStore, workspaceContextSink: InMemoryWorkspaceContextSink())
+        projectGroupStore.selectGroup(id: group.id)
+
+        _ = RemoteDeviceProjectConfirmationService(
+            appState: appState, projectStore: projectStore,
+            worktreeStore: worktreeStore, projectGroupStore: projectGroupStore
+        )
+        .confirm(path: "~/code/api", device: device)
+
+        let added = try #require(projectStore.storedProjects.first)
+        #expect(groupPersistence.savedGroups?.first?.projectIDs == [added.id])
+    }
+
     private func makeStores() -> (AppState, ProjectStore, WorktreeStore, ProjectGroupStore) {
+        let (appState, projectStore, worktreeStore, projectGroupStore, _) = makeStoresWithDevice()
+        return (appState, projectStore, worktreeStore, projectGroupStore)
+    }
+
+    private func makeStoresWithDevice() -> (AppState, ProjectStore, WorktreeStore, ProjectGroupStore, RemoteDeviceStore) {
         let projectStore = ProjectStore(persistence: ProjectPersistenceStub())
         let worktreeStore = WorktreeStore(persistence: WorktreePersistenceStub(), projects: [])
         let appState = AppState(
@@ -354,8 +429,9 @@ struct ProjectOpenServiceTests {
             terminalViews: TerminalViewRemovingStub(),
             workspacePersistence: WorkspacePersistenceStub()
         )
-        let projectGroupStore = ProjectGroupStore(persistence: ProjectGroupPersistenceStub(), remoteDeviceStore: RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence()), workspaceContextSink: InMemoryWorkspaceContextSink())
-        return (appState, projectStore, worktreeStore, projectGroupStore)
+        let deviceStore = RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence())
+        let projectGroupStore = ProjectGroupStore(persistence: ProjectGroupPersistenceStub(), remoteDeviceStore: deviceStore, workspaceContextSink: InMemoryWorkspaceContextSink())
+        return (appState, projectStore, worktreeStore, projectGroupStore, deviceStore)
     }
 }
 

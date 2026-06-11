@@ -7,6 +7,7 @@ enum MuxyAPIDispatcher {
         let appState: AppState
         let projectStore: ProjectStore?
         let worktreeStore: WorktreeStore?
+        var projectGroupStore: ProjectGroupStore?
     }
 
     static func dispatch(verb: String, args: [String: Any], context: Context) async throws -> Any {
@@ -226,7 +227,8 @@ enum MuxyAPIDispatcher {
                 projectIdentifier: args["project"] as? String,
                 appState: context.appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: context.projectGroupStore
             ))
             return ["count": result.count]
         default:

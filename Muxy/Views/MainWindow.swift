@@ -30,6 +30,7 @@ struct MainWindow: View {
     @Environment(ProjectStore.self) private var projectStore
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
+    @Environment(RemoteDeviceStore.self) private var remoteDeviceStore
     @Environment(GhosttyService.self) private var ghostty
     @State private var dragCoordinator = TabDragCoordinator()
     private enum CloseConfirmationKind {
@@ -70,6 +71,7 @@ struct MainWindow: View {
     @State private var showTerminalOmnibox = false
     @State private var terminalOmniboxLaunchScope = TerminalOmniboxLaunchScope.openTabs
     @State private var showProjectPicker = false
+    @State private var remoteProjectDevice: RemoteDevice?
     @State private var overlayAnimatingOut = false
     @State private var isFullScreen = false
     @AppStorage("muxy.sidebarExpanded") private var sidebarExpanded = false
@@ -169,6 +171,13 @@ struct MainWindow: View {
         .background(WindowTitleUpdater(title: windowTitle))
         .ignoresSafeArea(.container, edges: .top)
         .onReceive(NotificationCenter.default.publisher(for: .openProjectPicker)) { _ in
+            showProjectPicker = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openRemoteProjectPicker)) { notification in
+            guard let deviceID = notification.userInfo?[OpenRemoteProjectPickerUserInfoKey.deviceID] as? UUID,
+                  let device = remoteDeviceStore.device(id: deviceID)
+            else { return }
+            remoteProjectDevice = device
             showProjectPicker = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .openExtensionDirectoryAsProject)) { notification in
@@ -561,8 +570,17 @@ struct MainWindow: View {
         if showProjectPicker {
             ProjectPickerOverlay(
                 projectPaths: projectPickerPaths,
-                context: projectGroupStore.activeWorkspaceContext,
+                context: projectPickerContext,
                 onConfirm: { path, createIfMissing in
+                    if let device = remoteProjectDevice {
+                        return RemoteDeviceProjectConfirmationService(
+                            appState: appState,
+                            projectStore: projectStore,
+                            worktreeStore: worktreeStore,
+                            projectGroupStore: projectGroupStore
+                        )
+                        .confirm(path: path, device: device)
+                    }
                     if projectGroupStore.isRemoteWorkspaceActive {
                         return confirmRemoteProjectPath(path)
                     }
@@ -583,7 +601,10 @@ struct MainWindow: View {
                         projectGroupStore: projectGroupStore
                     )
                 },
-                onDismiss: { showProjectPicker = false }
+                onDismiss: {
+                    showProjectPicker = false
+                    remoteProjectDevice = nil
+                }
             )
             .transition(.opacity.combined(with: .scale(scale: 0.98)))
         }
@@ -733,7 +754,19 @@ struct MainWindow: View {
         )
     }
 
+    private var projectPickerContext: WorkspaceContext {
+        if let device = remoteProjectDevice {
+            return .ssh(device.destination)
+        }
+        return projectGroupStore.activeWorkspaceContext
+    }
+
     private var projectPickerPaths: [String] {
+        if let device = remoteProjectDevice {
+            return projectStore.storedProjects
+                .filter { $0.remoteDeviceID == device.id }
+                .map(\.path)
+        }
         if projectGroupStore.isRemoteWorkspaceActive {
             return projectGroupStore.activeRemoteProjects.map(\.path)
         }

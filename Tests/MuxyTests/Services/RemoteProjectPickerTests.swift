@@ -99,6 +99,31 @@ struct ProjectGroupStoreContextTests {
         #expect(store.workspaceContext(for: project) == .ssh(SSHDestination(host: "prod", remoteRoot: "~/code")))
     }
 
+    @Test("device-backed project resolves the device ssh context")
+    func deviceBackedProjectResolvesContext() {
+        let store = makeStore()
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"))
+        let project = Project(name: "api", path: "~/code/api", remoteDeviceID: device.id)
+        #expect(store.workspaceContext(for: project) == .ssh(SSHDestination(host: "prod", remoteRoot: "~/code")))
+    }
+
+    @Test("device-backed project falls back to local when the device is unknown")
+    func deviceBackedProjectFallsBack() {
+        let store = makeStore()
+        let project = Project(name: "api", path: "~/code/api", remoteDeviceID: UUID())
+        #expect(store.workspaceContext(for: project) == .local)
+    }
+
+    @Test("device id wins over workspace id when resolving context")
+    func deviceIDWinsOverWorkspaceID() {
+        let store = makeStore()
+        let group = makeSSHWorkspace(in: store, remoteRoot: "~/code")
+        let device = deviceStore.add(name: "other", ssh: SSHWorkspaceData(host: "other", remoteRoot: "~/srv"))
+        var project = Project(name: "api", path: "~/srv/api", remoteWorkspaceID: group.id)
+        project.remoteDeviceID = device.id
+        #expect(store.workspaceContext(for: project) == .ssh(SSHDestination(host: "other", remoteRoot: "~/srv")))
+    }
+
     @Test("ssh workspace hides local projects and surfaces remote ones")
     func displayProjects() {
         let store = makeStore()

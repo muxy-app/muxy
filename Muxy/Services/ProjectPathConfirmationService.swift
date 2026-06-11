@@ -119,3 +119,45 @@ struct ProjectPathConfirmationService {
         return project
     }
 }
+
+@MainActor
+struct RemoteDeviceProjectConfirmationService {
+    let appState: AppState
+    let projectStore: ProjectStore
+    let worktreeStore: WorktreeStore
+    let projectGroupStore: ProjectGroupStore
+
+    @discardableResult
+    func confirm(path: String, device: RemoteDevice) -> ProjectOpenConfirmationResult {
+        let standardizedPath = ProjectPickerPathService.standardizedRemotePath(path)
+        guard standardizedPath != ProjectPickerPathService.standardizedRemotePath(device.ssh.remoteRoot) else {
+            return .failed
+        }
+
+        let project = project(at: path, standardizedPath: standardizedPath, device: device)
+        projectGroupStore.addProjectToActiveGroup(projectID: project.id)
+        worktreeStore.ensurePrimary(for: project)
+        guard let primary = worktreeStore.primary(for: project.id) else { return .failed }
+        appState.selectProject(project, worktree: primary)
+        return .success
+    }
+
+    private func project(at path: String, standardizedPath: String, device: RemoteDevice) -> Project {
+        if let existing = projectStore.storedProjects.first(where: {
+            $0.remoteDeviceID == device.id
+                && ProjectPickerPathService.standardizedRemotePath($0.path) == standardizedPath
+        }) {
+            return existing
+        }
+
+        let name = path.split(separator: "/").last.map(String.init) ?? path
+        let project = Project(
+            name: name,
+            path: path,
+            sortOrder: projectStore.storedProjects.count,
+            remoteDeviceID: device.id
+        )
+        projectStore.add(project)
+        return project
+    }
+}

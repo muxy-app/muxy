@@ -88,7 +88,7 @@ struct ProjectRow: View {
                 guard !Task.isCancelled else { return }
                 isGitRepo = await GitWorktreeService.shared.isGitRepository(
                     project.path,
-                    context: project.remoteWorkspaceID == nil ? .local : ActiveWorkspaceContext.shared.current
+                    context: projectGroupStore.workspaceContext(for: project)
                 )
                 isCheckingGitRepo = false
             }
@@ -350,6 +350,7 @@ struct ProjectRow: View {
             project: project,
             appState: appState,
             worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore,
             isRefreshing: $isRefreshingWorktrees
         )
     }
@@ -363,7 +364,7 @@ struct ProjectRow: View {
         removalRequest = WorktreeRemovalRequest(
             worktree: worktree,
             repoPath: project.path,
-            context: project.remoteWorkspaceID == nil ? .local : ActiveWorkspaceContext.shared.current,
+            context: projectGroupStore.workspaceContext(for: project),
             onSuccess: {
                 appState.removeWorktree(
                     projectID: project.id,

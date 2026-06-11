@@ -94,10 +94,25 @@ final class ProjectGroupStore {
     }
 
     func workspaceContext(for project: Project) -> WorkspaceContext {
+        if let deviceID = project.remoteDeviceID,
+           let device = remoteDeviceStore.device(id: deviceID)
+        {
+            return .ssh(device.destination)
+        }
         guard let workspaceID = project.remoteWorkspaceID,
               let group = groups.first(where: { $0.id == workspaceID })
         else { return .local }
         return group.workspaceContext(device: device(for: group))
+    }
+
+    func device(for project: Project) -> RemoteDevice? {
+        if let deviceID = project.remoteDeviceID {
+            return remoteDeviceStore.device(id: deviceID)
+        }
+        guard let workspaceID = project.remoteWorkspaceID,
+              let group = groups.first(where: { $0.id == workspaceID })
+        else { return nil }
+        return device(for: group)
     }
 
     func addGroup(name: String) {

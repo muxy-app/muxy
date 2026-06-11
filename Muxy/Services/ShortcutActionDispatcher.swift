@@ -146,7 +146,8 @@ struct ShortcutActionDispatcher {
                 await WorktreeRefreshHelper.refresh(
                     project: activeProject,
                     appState: appState,
-                    worktreeStore: worktreeStore
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
                 )
             }
             return true

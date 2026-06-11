@@ -5,15 +5,17 @@ final class VCSWorktreeAutoRefresher {
     private let appState: AppState
     private let projectStore: ProjectStore
     private let worktreeStore: WorktreeStore
+    private let projectGroupStore: ProjectGroupStore
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
     private var inFlight: Set<UUID> = []
     private var pending: Set<UUID> = []
     private var watchers: [UUID: GitWorktreesWatcher] = [:]
 
-    init(appState: AppState, projectStore: ProjectStore, worktreeStore: WorktreeStore) {
+    init(appState: AppState, projectStore: ProjectStore, worktreeStore: WorktreeStore, projectGroupStore: ProjectGroupStore) {
         self.appState = appState
         self.projectStore = projectStore
         self.worktreeStore = worktreeStore
+        self.projectGroupStore = projectGroupStore
         observe(.vcsDidRefresh)
         observe(.vcsRepoDidChange)
         syncWatchers()
@@ -85,11 +87,12 @@ final class VCSWorktreeAutoRefresher {
 
     private func runRefresh(project: Project) {
         inFlight.insert(project.id)
-        Task { [appState, worktreeStore, projectStore] in
+        Task { [appState, worktreeStore, projectStore, projectGroupStore] in
             await WorktreeRefreshHelper.refresh(
                 project: project,
                 appState: appState,
                 worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore,
                 isRefreshing: nil,
                 presentErrors: false
             )
