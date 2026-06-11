@@ -10,19 +10,22 @@ struct SSHWorkspaceData: Codable, Hashable {
     var port: Int?
     var user: String?
     var identityFile: String?
+    var environment: [String: String]
 
     init(
         host: String,
         remoteRoot: String = "~",
         port: Int? = nil,
         user: String? = nil,
-        identityFile: String? = nil
+        identityFile: String? = nil,
+        environment: [String: String] = SSHEnvironmentVariables.default
     ) {
         self.host = SSHFieldSanitizer.host(host)
         self.remoteRoot = SSHFieldSanitizer.root(remoteRoot)
         self.port = port
         self.user = SSHFieldSanitizer.optionalArgument(user)
         self.identityFile = SSHFieldSanitizer.identityFile(identityFile)
+        self.environment = SSHEnvironmentVariables.sanitize(environment)
     }
 
     init(from decoder: Decoder) throws {
@@ -32,10 +35,18 @@ struct SSHWorkspaceData: Codable, Hashable {
         port = try container.decodeIfPresent(Int.self, forKey: .port)
         user = try SSHFieldSanitizer.optionalArgument(container.decodeIfPresent(String.self, forKey: .user))
         identityFile = try SSHFieldSanitizer.identityFile(container.decodeIfPresent(String.self, forKey: .identityFile))
+        environment = try SSHEnvironmentVariables.defaulting(container.decodeIfPresent([String: String].self, forKey: .environment))
     }
 
     var destination: SSHDestination {
-        SSHDestination(host: host, remoteRoot: remoteRoot, port: port, user: user, identityFile: identityFile)
+        SSHDestination(
+            host: host,
+            remoteRoot: remoteRoot,
+            port: port,
+            user: user,
+            identityFile: identityFile,
+            environment: environment
+        )
     }
 }
 

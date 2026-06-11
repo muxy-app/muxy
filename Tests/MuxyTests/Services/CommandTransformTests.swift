@@ -34,11 +34,28 @@ struct SSHDestinationTests {
 
     @Test("ssh workspace data round-trips advanced fields")
     func dataRoundTrip() throws {
-        let data = SSHWorkspaceData(host: "prod", remoteRoot: "~/code", port: 2200, user: "ci", identityFile: "~/k")
+        let data = SSHWorkspaceData(
+            host: "prod",
+            remoteRoot: "~/code",
+            port: 2200,
+            user: "ci",
+            identityFile: "~/k",
+            environment: ["TERM": "screen-256color", "LANG": "C.UTF-8"]
+        )
         let decoded = try JSONDecoder().decode(SSHWorkspaceData.self, from: JSONEncoder().encode(data))
         #expect(decoded == data)
         #expect(decoded.destination.target == "ci@prod")
         #expect(decoded.destination.connectionArguments.contains("2200"))
+        #expect(decoded.destination.environment["TERM"] == "screen-256color")
+    }
+
+    @Test("legacy workspace data defaults TERM")
+    func legacyDataDefaultsTerm() throws {
+        let decoded = try JSONDecoder().decode(
+            SSHWorkspaceData.self,
+            from: Data(#"{"host":"prod","remoteRoot":"~"}"#.utf8)
+        )
+        #expect(decoded.environment == SSHEnvironmentVariables.default)
     }
 }
 
@@ -71,7 +88,7 @@ struct CommandTransformTests {
         #expect(resolved.workingDirectory == nil)
         #expect(resolved.arguments.contains("-T"))
         #expect(resolved.arguments.contains("prod"))
-        #expect(resolved.arguments.last == "/usr/bin/env git -C ~/code/api status")
+        #expect(resolved.arguments.last == "export TERM=xterm-256color; /usr/bin/env git -C ~/code/api status")
     }
 
     @Test("ssh folds working directory into the remote command")
@@ -82,7 +99,7 @@ struct CommandTransformTests {
             workingDirectory: "~/code/api",
             in: .ssh(destination)
         )
-        #expect(resolved.arguments.last == "cd ~/code/api && npm run build")
+        #expect(resolved.arguments.last == "export TERM=xterm-256color; cd ~/code/api && npm run build")
     }
 
     @Test("ssh exports environment before the command")
@@ -94,7 +111,20 @@ struct CommandTransformTests {
             environment: ["CI": "1", "TOKEN": "a b"],
             in: .ssh(destination)
         )
-        #expect(resolved.arguments.last == "export CI=1; export TOKEN='a b'; cd ~/code/api && make")
+        #expect(resolved.arguments.last == "export CI=1; export TERM=xterm-256color; export TOKEN='a b'; cd ~/code/api && make")
+    }
+
+    @Test("command environment overrides device environment")
+    func commandEnvironmentOverridesDeviceEnvironment() {
+        let destination = SSHDestination(host: "prod", environment: ["TERM": "screen-256color", "LANG": "C.UTF-8"])
+        let resolved = CommandTransform.resolve(
+            executable: "env",
+            arguments: [],
+            workingDirectory: nil,
+            environment: ["TERM": "vt100"],
+            in: .ssh(destination)
+        )
+        #expect(resolved.arguments.last == "export LANG=C.UTF-8; export TERM=vt100; env")
     }
 
     @Test("shell strings are wrapped, not re-escaped")
@@ -104,7 +134,7 @@ struct CommandTransformTests {
             workingDirectory: "~/code/api",
             in: .ssh(destination)
         )
-        #expect(resolved.arguments.last == "cd ~/code/api && ( echo $HOME && ls -la )")
+        #expect(resolved.arguments.last == "export TERM=xterm-256color; cd ~/code/api && ( echo $HOME && ls -la )")
     }
 
     @Test("local shell uses /bin/sh -c")
@@ -205,12 +235,63 @@ struct RemoteEnvironmentTests {
     }
 }
 
+@Suite("SSH environment text")
+struct SSHEnvironmentTextTests {
+    @Test("formats environment in stable key order")
+    func formatsEnvironment() {
+        let text = SSHEnvironmentText.format(["TERM": "xterm-256color", "LANG": "C.UTF-8"])
+        #expect(text == "LANG=C.UTF-8\nTERM=xterm-256color")
+    }
+
+    @Test("parses KEY value lines")
+    func parsesEnvironmentText() throws {
+        let environment = try SSHEnvironmentText.parse("""
+        TERM=xterm-256color
+        LANG=C.UTF-8
+        EMPTY=
+        """).get()
+
+        #expect(environment["TERM"] == "xterm-256color")
+        #expect(environment["LANG"] == "C.UTF-8")
+        #expect(environment["EMPTY"] == "")
+    }
+
+    @Test("preserves environment value whitespace")
+    func preservesEnvironmentValueWhitespace() throws {
+        let environment = try SSHEnvironmentText.parse("TOKEN= value ").get()
+
+        #expect(environment["TOKEN"] == " value ")
+    }
+
+    @Test("rejects malformed environment lines")
+    func rejectsMalformedEnvironmentText() {
+        #expect(SSHEnvironmentText.parse("TERM xterm").failure == .missingAssignment(line: 1))
+        #expect(SSHEnvironmentText.parse("BAD KEY=x").failure == .invalidKey("BAD KEY"))
+        #expect(SSHEnvironmentText.parse("TERM=x\nTERM=y").failure == .duplicateKey("TERM"))
+    }
+}
+
+private extension Result where Success == [String: String], Failure == SSHEnvironmentTextError {
+    var failure: SSHEnvironmentTextError? {
+        if case let .failure(error) = self { return error }
+        return nil
+    }
+}
+
 @Suite("SSHDestination connection identity")
 struct SSHConnectionKeyTests {
     @Test("connection key ignores the remote root")
     func ignoresRemoteRoot() {
         let a = SSHDestination(host: "prod", remoteRoot: "~/code")
         let b = SSHDestination(host: "prod", remoteRoot: "~/other")
+        #expect(a.connectionKey == b.connectionKey)
+        #expect(a != b)
+    }
+
+    @Test("connection key ignores environment")
+    func ignoresEnvironment() {
+        let a = SSHDestination(host: "prod", environment: ["TERM": "xterm-256color"])
+        let b = SSHDestination(host: "prod", environment: ["TERM": "screen-256color"])
         #expect(a.connectionKey == b.connectionKey)
         #expect(a != b)
     }

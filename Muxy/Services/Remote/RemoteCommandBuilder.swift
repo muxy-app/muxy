@@ -36,8 +36,7 @@ enum RemoteCommandBuilder {
 
     static func environmentPrefix(_ environment: [String: String]?) -> String {
         guard let environment, !environment.isEmpty else { return "" }
-        let assignments = environment
-            .filter { isValidEnvironmentKey($0.key) }
+        let assignments = SSHEnvironmentVariables.sanitize(environment)
             .sorted { $0.key < $1.key }
             .map { "export \($0.key)=\(ShellEscaper.escape($0.value))" }
         guard !assignments.isEmpty else { return "" }

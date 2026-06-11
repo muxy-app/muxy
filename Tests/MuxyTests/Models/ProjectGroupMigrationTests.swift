@@ -60,6 +60,7 @@ struct ProjectGroupMigrationTests {
         #expect(group.remoteDeviceID == nil)
         #expect(group.legacySSHData?.host == "prod")
         #expect(group.legacySSHData?.remoteRoot == "~/code")
+        #expect(group.legacySSHData?.environment == SSHEnvironmentVariables.default)
     }
 
     @Test("empty remote root defaults to home")

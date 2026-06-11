@@ -22,7 +22,8 @@ enum SSHCommandRunner {
         input: Data? = nil
     ) async throws -> GitProcessResult {
         let options = batch ? SSHDestination.batchOptions : SSHDestination.connectOptions
-        let arguments = destination.connectionArguments + options + ["-T", destination.target, "--", remoteCommand]
+        let command = RemoteCommandBuilder.environmentPrefix(destination.environment) + remoteCommand
+        let arguments = destination.connectionArguments + options + ["-T", destination.target, "--", command]
         let resolved = ResolvedLaunch(
             executable: "/usr/bin/ssh",
             arguments: arguments,

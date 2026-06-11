@@ -27,8 +27,9 @@ enum TerminalLaunchCommand {
             keepsShellOpen: keepsShellOpen
         )
         let remoteCommand = RemoteCommandBuilder.changeDirectoryPrefix(workingDirectory) + inner
+        let command = RemoteCommandBuilder.environmentPrefix(destination.environment) + remoteCommand
         let options = SSHDestination.terminalOptions
-        let arguments = destination.connectionArguments + options + ["-tt", destination.target, "--", remoteCommand]
+        let arguments = destination.connectionArguments + options + ["-tt", destination.target, "--", command]
         return (["/usr/bin/ssh"] + arguments.map(ShellEscaper.escape)).joined(separator: " ")
     }
 

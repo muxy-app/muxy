@@ -18,6 +18,8 @@ Open the workspace menu at the top of the sidebar.
 
 A project can belong to one workspace at a time.
 
+Remote workspaces use reusable SSH devices from Settings. New SSH devices export `TERM=xterm-256color` by default, and the device's advanced environment settings are applied before remote terminals, git, files, worktrees, and extension commands run.
+
 ## Persistence
 
 Workspace groups are saved in:

@@ -21,11 +21,12 @@ enum CommandTransform {
                 workingDirectory: workingDirectory
             )
         }
+        let mergedEnvironment = SSHEnvironmentVariables.merged(device: destination.environment, command: environment)
         let remoteCommand = RemoteCommandBuilder.remoteCommand(
             executable: executable,
             arguments: arguments,
             workingDirectory: workingDirectory,
-            environment: environment
+            environment: mergedEnvironment
         )
         return sshLaunch(destination: destination, tty: false, remoteCommand: remoteCommand)
     }
@@ -43,10 +44,11 @@ enum CommandTransform {
                 workingDirectory: workingDirectory
             )
         }
+        let mergedEnvironment = SSHEnvironmentVariables.merged(device: destination.environment, command: environment)
         let remoteCommand = RemoteCommandBuilder.remoteShellCommand(
             shell: shellCommand,
             workingDirectory: workingDirectory,
-            environment: environment
+            environment: mergedEnvironment
         )
         return sshLaunch(destination: destination, tty: false, remoteCommand: remoteCommand)
     }

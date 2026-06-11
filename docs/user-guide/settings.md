@@ -68,6 +68,11 @@ See [Notifications](../features/notifications.md).
 
 See [Remote Server](../remote-server/overview.md).
 
+## Remote Devices
+
+- **Remote devices** — reusable SSH connections for remote workspaces.
+- **Environment** — `KEY=value` variables exported before remote terminals, git, files, worktrees, and extension commands run. New SSH devices default to `TERM=xterm-256color`.
+
 ## AI Assistant
 
 - **AI Assistant Tool** — CLI used for commit and PR generation.

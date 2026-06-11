@@ -14,6 +14,7 @@ struct RemoteDeviceEditorSheet: View {
     @State private var port: String = ""
     @State private var user: String = ""
     @State private var identityFile: String = ""
+    @State private var environmentText: String = ""
     @State private var showAdvanced = false
     @State private var probeState: ProbeState = .idle
     @FocusState private var hostFocused: Bool
@@ -43,15 +44,24 @@ struct RemoteDeviceEditorSheet: View {
     }
 
     private var canProbe: Bool {
-        SSHDestination.isValidHost(trimmedHost) && isPortValid && probeState != .testing
+        SSHDestination.isValidHost(trimmedHost) && isPortValid && environmentErrorMessage == nil && probeState != .testing
     }
 
     private var canSave: Bool {
-        SSHDestination.isValidHost(trimmedHost) && isPortValid && !displayName.isEmpty
+        SSHDestination.isValidHost(trimmedHost) && isPortValid && environmentErrorMessage == nil && !displayName.isEmpty
     }
 
     private var displayName: String {
         trimmedName.isEmpty ? trimmedHost : trimmedName
+    }
+
+    private var environmentResult: Result<[String: String], SSHEnvironmentTextError> {
+        SSHEnvironmentText.parse(environmentText)
+    }
+
+    private var environmentErrorMessage: String? {
+        if case let .failure(error) = environmentResult { return error.localizedDescription }
+        return nil
     }
 
     var body: some View {
@@ -90,7 +100,11 @@ struct RemoteDeviceEditorSheet: View {
             port = ssh.port.map(String.init) ?? ""
             user = ssh.user ?? ""
             identityFile = ssh.identityFile ?? ""
-            showAdvanced = ssh.port != nil || ssh.user != nil || ssh.identityFile != nil
+            environmentText = SSHEnvironmentText.format(ssh.environment)
+            showAdvanced = ssh.port != nil
+                || ssh.user != nil
+                || ssh.identityFile != nil
+                || ssh.environment != SSHEnvironmentVariables.default
             hostFocused = true
         }
     }
@@ -124,12 +138,34 @@ struct RemoteDeviceEditorSheet: View {
                             .fixedSize(horizontal: true, vertical: false)
                     }
                 }
+                environmentEditor
             }
             .padding(.top, UIMetrics.spacing3)
         } label: {
             Text("Advanced")
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
+        }
+    }
+
+    private var environmentEditor: some View {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
+            Text("Environment")
+                .font(.system(size: UIMetrics.fontFootnote))
+                .foregroundStyle(MuxyTheme.fgMuted)
+            TextEditor(text: $environmentText)
+                .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                .frame(minHeight: UIMetrics.scaled(72))
+                .scrollContentBackground(.hidden)
+                .background(MuxyTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+                .overlay(RoundedRectangle(cornerRadius: UIMetrics.radiusSM).stroke(MuxyTheme.border, lineWidth: 1))
+                .onChange(of: environmentText) { probeState = .idle }
+            if let environmentErrorMessage {
+                Text(environmentErrorMessage)
+                    .font(.system(size: UIMetrics.fontFootnote))
+                    .foregroundStyle(.orange)
+            }
         }
     }
 
@@ -205,7 +241,8 @@ struct RemoteDeviceEditorSheet: View {
             remoteRoot: trimmedRoot,
             port: parsedPort,
             user: user,
-            identityFile: identityFile
+            identityFile: identityFile,
+            environment: (try? environmentResult.get()) ?? [:]
         )
     }
 

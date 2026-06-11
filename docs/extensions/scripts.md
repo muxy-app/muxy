@@ -110,6 +110,8 @@ Differences from the webview API:
 
 When the active workspace is a remote (SSH) workspace, `muxy.exec`, `muxy.git.*`, and worktree operations execute **on the remote server**, not the Mac. Paths (`cwd`, project/worktree paths) are remote paths. Muxy brokers the SSH connection for you using your system SSH config, keys, and agent — the extension code is unchanged whether the active workspace is local or remote.
 
+Remote commands inherit the selected SSH device's environment. New SSH devices default to `TERM=xterm-256color`; users can edit these variables in Settings -> Remote Devices.
+
 ## Permissions
 
 Each verb is gated by its own permission, as on every surface (see [Permissions](permissions.md)). Calling a method without its permission throws `Error("permission denied (<perm>)")`, which the script can catch.
