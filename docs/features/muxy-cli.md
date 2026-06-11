@@ -300,3 +300,19 @@ If a command with spaces or shell operators is not behaving as expected, quote i
 ```bash
 muxy split-right "echo a | wc"
 ```
+
+## Skill for AI agents
+
+Muxy ships a `muxy-cli` skill that teaches a coding agent when and how to drive the workspace with these commands — capturing pane IDs, sending input safely, and reading the screen. Install it into a project with [skills.sh](https://www.skills.sh):
+
+```bash
+npx skills add github.com/muxy-app/muxy/tree/main/Muxy/Resources/skills/muxy-cli
+```
+
+Muxy's companion `muxy-extension` skill (for building extensions) installs the same way:
+
+```bash
+npx skills add github.com/muxy-app/muxy/tree/main/Muxy/Resources/skills/muxy-extension
+```
+
+The skill source is [`Muxy/Resources/skills/muxy-cli/SKILL.md`](https://github.com/muxy-app/muxy/blob/main/Muxy/Resources/skills/muxy-cli/SKILL.md).

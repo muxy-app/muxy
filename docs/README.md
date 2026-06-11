@@ -38,7 +38,7 @@ flowchart TB
 | [Notification Setup](features/notifications.md) | OSC sequences, hooks, socket API |
 | [AI Assistant](features/ai-assistant.md) | Draft commit messages and PR text from diffs |
 | [Themes](features/themes.md) | Theme picker and Ghostty config |
-| [Muxy CLI](features/muxy-cli.md) | Open projects and control workspaces from a terminal |
+| [Muxy CLI](features/muxy-cli.md) | Open projects and control workspaces from a terminal, plus an AI agent skill |
 
 ## Layouts
 
