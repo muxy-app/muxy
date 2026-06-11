@@ -92,6 +92,20 @@ muxy refresh-worktrees
 
 `create-worktree <name>` defaults the branch to `<name>` and creates it; pass `--existing` to check out an existing branch, `--base <branch>` to fork from a specific base, and `--path`/`--project` to place or target it. After Git operations done outside Muxy, `refresh-worktrees` re-reads worktrees from Git.
 
+## Tabs
+
+A tab is a whole surface (terminal, source control, an extension) within the active worktree; panes split *inside* a tab. Open one, move between them, or jump straight to a known tab:
+
+```bash
+muxy new-tab                 # new terminal tab
+muxy switch-tab 0            # by index, ID, or title
+muxy switch-tab "Server Logs"
+muxy next-tab                # cycle forward
+muxy previous-tab            # cycle backward
+```
+
+Use `switch-tab` (resolves index/ID/title) when you know the target; reach for `next-tab`/`previous-tab` only for relative cycling. List first with `muxy list-tabs` when you need the index or ID.
+
 ## Behavior
 
 - **Quote any command that contains spaces or shell operators** so the whole thing reaches the pane intact: `muxy split-right "echo a | wc"`. An unquoted operator is interpreted by *your* shell, not the new pane.
