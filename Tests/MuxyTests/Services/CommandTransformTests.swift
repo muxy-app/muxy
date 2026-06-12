@@ -9,7 +9,6 @@ struct SSHDestinationTests {
     func bareHost() {
         let destination = SSHDestination(host: "prod")
         #expect(destination.target == "prod")
-        #expect(destination.connectionArguments.isEmpty)
     }
 
     @Test("user is folded into the target")
@@ -18,18 +17,11 @@ struct SSHDestinationTests {
         #expect(destination.target == "deploy@1.2.3.4")
     }
 
-    @Test("port and identity file become ssh options")
-    func portAndIdentity() {
-        let destination = SSHDestination(host: "prod", port: 2222, identityFile: "~/.ssh/id_ed25519")
-        #expect(destination.connectionArguments == ["-p", "2222", "-i", "~/.ssh/id_ed25519", "-o", "IdentitiesOnly=yes"])
-    }
-
     @Test("empty advanced fields are dropped")
     func emptyFieldsDropped() {
         let destination = SSHDestination(host: "prod", user: "", identityFile: "")
         #expect(destination.user == nil)
         #expect(destination.identityFile == nil)
-        #expect(destination.connectionArguments.isEmpty)
     }
 
     @Test("ssh workspace data round-trips advanced fields")
@@ -45,7 +37,7 @@ struct SSHDestinationTests {
         let decoded = try JSONDecoder().decode(SSHWorkspaceData.self, from: JSONEncoder().encode(data))
         #expect(decoded == data)
         #expect(decoded.destination.target == "ci@prod")
-        #expect(decoded.destination.connectionArguments.contains("2200"))
+        #expect(decoded.destination.port == 2200)
         #expect(decoded.destination.environment["TERM"] == "screen-256color")
     }
 
@@ -56,97 +48,6 @@ struct SSHDestinationTests {
             from: Data(#"{"host":"prod","remoteRoot":"~"}"#.utf8)
         )
         #expect(decoded.environment == SSHEnvironmentVariables.default)
-    }
-}
-
-@Suite("CommandTransform routing")
-struct CommandTransformTests {
-    private let destination = SSHDestination(host: "prod", remoteRoot: "~/code")
-
-    @Test("local context is identity")
-    func localIsIdentity() {
-        let resolved = CommandTransform.resolve(
-            executable: "/usr/bin/env",
-            arguments: ["git", "status"],
-            workingDirectory: "/Users/me/proj",
-            in: .local
-        )
-        #expect(resolved.executable == "/usr/bin/env")
-        #expect(resolved.arguments == ["git", "status"])
-        #expect(resolved.workingDirectory == "/Users/me/proj")
-    }
-
-    @Test("ssh context wraps git as a non-tty remote command")
-    func sshWrapsGit() {
-        let resolved = CommandTransform.resolve(
-            executable: "/usr/bin/env",
-            arguments: ["git", "-C", "~/code/api", "status"],
-            workingDirectory: nil,
-            in: .ssh(destination)
-        )
-        #expect(resolved.executable == "/usr/bin/ssh")
-        #expect(resolved.workingDirectory == nil)
-        #expect(resolved.arguments.contains("-T"))
-        #expect(resolved.arguments.contains("prod"))
-        #expect(resolved.arguments.last == "export TERM=xterm-256color; /usr/bin/env git -C ~/code/api status")
-    }
-
-    @Test("ssh folds working directory into the remote command")
-    func sshFoldsWorkingDirectory() {
-        let resolved = CommandTransform.resolve(
-            executable: "npm",
-            arguments: ["run", "build"],
-            workingDirectory: "~/code/api",
-            in: .ssh(destination)
-        )
-        #expect(resolved.arguments.last == "export TERM=xterm-256color; cd ~/code/api && npm run build")
-    }
-
-    @Test("ssh exports environment before the command")
-    func sshExportsEnvironment() {
-        let resolved = CommandTransform.resolve(
-            executable: "make",
-            arguments: [],
-            workingDirectory: "~/code/api",
-            environment: ["CI": "1", "TOKEN": "a b"],
-            in: .ssh(destination)
-        )
-        #expect(resolved.arguments.last == "export CI=1; export TERM=xterm-256color; export TOKEN='a b'; cd ~/code/api && make")
-    }
-
-    @Test("command environment overrides device environment")
-    func commandEnvironmentOverridesDeviceEnvironment() {
-        let destination = SSHDestination(host: "prod", environment: ["TERM": "screen-256color", "LANG": "C.UTF-8"])
-        let resolved = CommandTransform.resolve(
-            executable: "env",
-            arguments: [],
-            workingDirectory: nil,
-            environment: ["TERM": "vt100"],
-            in: .ssh(destination)
-        )
-        #expect(resolved.arguments.last == "export LANG=C.UTF-8; export TERM=vt100; env")
-    }
-
-    @Test("shell strings are wrapped, not re-escaped")
-    func sshShellOpaque() {
-        let resolved = CommandTransform.resolveShell(
-            shellCommand: "echo $HOME && ls -la",
-            workingDirectory: "~/code/api",
-            in: .ssh(destination)
-        )
-        #expect(resolved.arguments.last == "export TERM=xterm-256color; cd ~/code/api && ( echo $HOME && ls -la )")
-    }
-
-    @Test("local shell uses /bin/sh -c")
-    func localShell() {
-        let resolved = CommandTransform.resolveShell(
-            shellCommand: "echo hi",
-            workingDirectory: "/tmp",
-            in: .local
-        )
-        #expect(resolved.executable == "/bin/sh")
-        #expect(resolved.arguments == ["-c", "echo hi"])
-        #expect(resolved.workingDirectory == "/tmp")
     }
 }
 

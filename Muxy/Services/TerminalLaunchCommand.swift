@@ -14,39 +14,6 @@ enum TerminalLaunchCommand {
         return "\(escapedShell) \(flags) -c '\(script(keepsShellOpen: keepsShellOpen))' \(escapedShell)"
     }
 
-    static func remoteShellCommand(
-        destination: SSHDestination,
-        workingDirectory: String,
-        startupCommand: String?,
-        interactive: Bool,
-        keepsShellOpen: Bool
-    ) -> String {
-        let inner = remoteLoginShell(
-            startupCommand: startupCommand,
-            interactive: interactive,
-            keepsShellOpen: keepsShellOpen
-        )
-        let remoteCommand = RemoteCommandBuilder.changeDirectoryPrefix(workingDirectory) + inner
-        let command = RemoteCommandBuilder.environmentPrefix(destination.environment) + remoteCommand
-        let options = SSHDestination.terminalOptions
-        let arguments = destination.connectionArguments + options + ["-tt", destination.target, "--", command]
-        return (["/usr/bin/ssh"] + arguments.map(ShellEscaper.escape)).joined(separator: " ")
-    }
-
-    private static func remoteLoginShell(
-        startupCommand: String?,
-        interactive: Bool,
-        keepsShellOpen: Bool
-    ) -> String {
-        let flags = interactive ? "-l -i" : "-l"
-        guard let startupCommand, !startupCommand.isEmpty else {
-            return "exec \"${SHELL:-/bin/sh}\" \(flags)"
-        }
-        let scriptText = ShellEscaper.escape(script(keepsShellOpen: keepsShellOpen))
-        let assignment = "\(environmentKey)=\(ShellEscaper.escape(startupCommand))"
-        return "export \(assignment); exec \"${SHELL:-/bin/sh}\" \(flags) -c \(scriptText) \"${SHELL:-/bin/sh}\""
-    }
-
     private static func script(keepsShellOpen: Bool) -> String {
         var segments = [
             "eval \"$\(environmentKey)\"",

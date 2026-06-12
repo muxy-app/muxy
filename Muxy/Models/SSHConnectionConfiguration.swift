@@ -18,6 +18,10 @@ struct SSHConnectionConfiguration: Equatable, SSHConnectionConfigurable {
         "\(pathCommand)\n"
     }
 
+    var localSurfaceWorkingDirectory: String {
+        NSHomeDirectory()
+    }
+
     private var pathCommand: String {
         "cd \(ShellEscaper.escape(remotePath))"
     }

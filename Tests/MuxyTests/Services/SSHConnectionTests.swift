@@ -58,6 +58,41 @@ struct SSHConnectionTests {
         #expect(configuration.initialShellInput == "cd '/srv/app path'\n")
     }
 
+    @Test("remote ssh panes use a local surface working directory")
+    func remoteSurfaceUsesLocalWorkingDirectory() {
+        let configuration = SSHConnectionConfiguration.make(
+            destination: SSHDestination(
+                host: "prod",
+                remoteRoot: "/srv/app",
+                user: "deploy"
+            )
+        )
+
+        #expect(configuration.localSurfaceWorkingDirectory == NSHomeDirectory())
+    }
+
+    @Test("legacy ssh cli startup command is discarded for native ssh")
+    @MainActor
+    func legacySSHCLIStartupCommandIsDiscarded() {
+        let pane = TerminalPaneState(
+            projectPath: "/tmp/project",
+            startupCommand: "/usr/bin/ssh prod -- 'echo hi'"
+        )
+
+        #expect(pane.migratedSSHStartupCommand == nil)
+    }
+
+    @Test("ordinary startup command is preserved for native ssh")
+    @MainActor
+    func ordinarySSHStartupCommandIsPreserved() {
+        let pane = TerminalPaneState(
+            projectPath: "/tmp/project",
+            startupCommand: "echo hi"
+        )
+
+        #expect(pane.migratedSSHStartupCommand == "echo hi")
+    }
+
     @Test("remote pane restore bypasses local startup command launch")
     @MainActor
     func remotePaneRestoreLaunch() {

@@ -348,7 +348,7 @@ struct TerminalBridge: NSViewRepresentable {
 
     private func sshConfiguration(for workspaceContext: WorkspaceContext) -> SSHConnectionConfiguration? {
         guard case let .ssh(destination) = workspaceContext else { return nil }
-        return SSHConnectionConfiguration.make(destination: destination, command: state.startupCommand)
+        return SSHConnectionConfiguration.make(destination: destination, command: state.migratedSSHStartupCommand)
     }
 
     private func makeExternalDragHoverHandler(areaID: UUID) -> (Bool) -> Void {

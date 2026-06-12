@@ -1,7 +1,4 @@
 import Foundation
-import os
-
-private let logger = Logger(subsystem: "app.muxy", category: "SSHConnectionService")
 
 enum SSHConnectionState: Equatable {
     case disconnected
@@ -56,7 +53,6 @@ final class SSHConnectionService {
             states[key] = .connected
             return true
         } catch {
-            logger.error("SSH probe failed for \(destination.host): \(error)")
             states[key] = .failed(error.localizedDescription)
             return false
         }

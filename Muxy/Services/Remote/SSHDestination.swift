@@ -68,42 +68,4 @@ struct SSHDestination: Hashable, Codable {
         guard let user else { return host }
         return "\(user)@\(host)"
     }
-
-    var connectionArguments: [String] {
-        var arguments: [String] = []
-        if let port {
-            arguments += ["-p", String(port)]
-        }
-        if authenticationMethod == .privateKey, let identityFile {
-            arguments += ["-i", identityFile, "-o", "IdentitiesOnly=yes"]
-        }
-        return arguments
-    }
-
-    private static let keepAliveOptions: [String] = [
-        "-o", "ConnectTimeout=8",
-        "-o", "ServerAliveInterval=15",
-        "-o", "ServerAliveCountMax=3",
-    ]
-
-    private static let nonInteractiveOptions: [String] = [
-        "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=accept-new",
-    ]
-
-    private static let interactiveOptions: [String] = [
-        "-o", "StrictHostKeyChecking=accept-new",
-    ]
-
-    private static let multiplexOptions: [String] = [
-        "-o", "ControlMaster=auto",
-        "-o", "ControlPath=~/.ssh/muxy-%C",
-        "-o", "ControlPersist=120",
-    ]
-
-    static let batchOptions: [String] = nonInteractiveOptions + multiplexOptions + keepAliveOptions
-
-    static let connectOptions: [String] = nonInteractiveOptions + multiplexOptions + keepAliveOptions
-
-    static let terminalOptions: [String] = ["-o", "ControlMaster=no"] + interactiveOptions + keepAliveOptions
 }

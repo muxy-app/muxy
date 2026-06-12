@@ -58,6 +58,16 @@ final class TerminalPaneState: Identifiable {
         )
     }
 
+    var migratedSSHStartupCommand: String? {
+        guard let startupCommand else { return nil }
+        let trimmed = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.hasPrefix("/usr/bin/ssh "), !trimmed.hasPrefix("'/usr/bin/ssh' "), !trimmed.hasPrefix("ssh ")
+        else {
+            return nil
+        }
+        return startupCommand
+    }
+
     func setTitle(_ newTitle: String) {
         titleDebounceTask?.cancel()
         titleDebounceTask = Task { @MainActor [weak self] in

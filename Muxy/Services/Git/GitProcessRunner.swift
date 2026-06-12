@@ -121,23 +121,6 @@ enum GitProcessRunner {
         )
     }
 
-    static func runResolved(
-        _ resolved: ResolvedLaunch,
-        lineLimit: Int? = nil,
-        stdinData: Data? = nil
-    ) async throws -> GitProcessResult {
-        try await runProcess(
-            ProcessSpec(
-                executable: resolved.executable,
-                arguments: resolved.arguments,
-                workingDirectory: resolved.workingDirectory,
-                lineLimit: lineLimit,
-                signpostName: "command",
-                stdinData: stdinData
-            )
-        )
-    }
-
     private static func runProcess(_ spec: ProcessSpec) async throws -> GitProcessResult {
         let handle = ProcessHandle()
         return try await withTaskCancellationHandler {

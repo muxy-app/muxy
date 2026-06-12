@@ -140,7 +140,8 @@ final class GhosttyTerminalNSView: NSView {
         cleanupSurfaceConfigPointers()
 
         var cEnvVars: [ghostty_env_var_s] = []
-        guard let workingDirectoryPointer = strdup(workingDirectory) else { return }
+        let surfaceWorkingDirectory = sshConfiguration?.localSurfaceWorkingDirectory ?? workingDirectory
+        guard let workingDirectoryPointer = strdup(surfaceWorkingDirectory) else { return }
         surfaceCStringPointers.append(workingDirectoryPointer)
         surfaceConfig.working_directory = UnsafePointer(workingDirectoryPointer)
 
