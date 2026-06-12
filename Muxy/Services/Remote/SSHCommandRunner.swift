@@ -14,6 +14,12 @@ enum SSHCommandError: LocalizedError {
 enum SSHCommandRunner {
     static let defaultTimeout: TimeInterval = 60
 
+    private struct LimitedOutput {
+        let stdout: String
+        let stdoutData: Data
+        let truncated: Bool
+    }
+
     static func run(
         destination: SSHDestination,
         remoteCommand: String,
@@ -107,22 +113,22 @@ enum SSHCommandRunner {
         }
     }
 
-    private static func limit(_ stdout: String, lineLimit: Int?) -> (stdout: String, stdoutData: Data, truncated: Bool) {
+    private static func limit(_ stdout: String, lineLimit: Int?) -> LimitedOutput {
         guard let lineLimit else {
             let data = Data(stdout.utf8)
-            return (stdout, data, false)
+            return LimitedOutput(stdout: stdout, stdoutData: data, truncated: false)
         }
         var lines = stdout.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
         let hadTrailingNewline = stdout.hasSuffix("\n")
-        if hadTrailingNewline, lines.last == "" {
+        if hadTrailingNewline, lines.last?.isEmpty == true {
             lines.removeLast()
         }
         guard lines.count > lineLimit else {
             let normalized = hadTrailingNewline ? stdout : lines.joined(separator: "\n")
-            return (normalized, Data(normalized.utf8), false)
+            return LimitedOutput(stdout: normalized, stdoutData: Data(normalized.utf8), truncated: false)
         }
         let limitedLines = Array(lines.prefix(lineLimit))
         let limited = limitedLines.joined(separator: "\n")
-        return (limited, Data(limited.utf8), true)
+        return LimitedOutput(stdout: limited, stdoutData: Data(limited.utf8), truncated: true)
     }
 }

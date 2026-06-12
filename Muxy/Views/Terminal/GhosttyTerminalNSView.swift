@@ -1,8 +1,8 @@
 import AppKit
 import Darwin
 import GhosttyKit
-import MuxySSH
 import MuxyShared
+import MuxySSH
 import UniformTypeIdentifiers
 
 final class GhosttyTerminalNSView: NSView {

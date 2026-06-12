@@ -95,13 +95,9 @@ final class ProjectGroupStore {
         guard let group = activeGroup, group.type == .ssh else {
             return sortMode.sorted(filteredProjects(from: localProjects))
         }
-        let projects = group.remoteProjects.enumerated().map { index, remote in
+        return group.remoteProjects.enumerated().map { index, remote in
             remote.asProject(workspaceID: group.id, sortOrder: index)
         }
-        logger.info(
-            "Remote workspace displayProjects groupID=\(group.id.uuidString, privacy: .public) deviceID=\(group.remoteDeviceID?.uuidString ?? "nil", privacy: .public) remoteProjectCount=\(group.remoteProjects.count) localProjectCount=\(localProjects.count) displayedCount=\(projects.count)"
-        )
-        return projects
     }
 
     var activeGroup: ProjectGroup? {
@@ -207,32 +203,19 @@ final class ProjectGroupStore {
     func addRemoteProject(name: String, path: String, toGroup groupID: UUID) -> RemoteProject? {
         guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return nil }
         let standardizedPath = ProjectPickerPathService.standardizedRemotePath(path)
-        logger.info(
-            "Remote workspace addRemoteProject begin groupID=\(groupID.uuidString, privacy: .public) name=\(name, privacy: .public) path=\(path, privacy: .public) standardizedPath=\(standardizedPath, privacy: .public)"
-        )
         if let remoteRoot = device(for: groups[index])?.ssh.remoteRoot,
            standardizedPath == ProjectPickerPathService.standardizedRemotePath(remoteRoot)
         {
-            logger.info(
-                "Remote workspace addRemoteProject rejected groupID=\(groupID.uuidString, privacy: .public) reason=deviceRoot remoteRoot=\(remoteRoot, privacy: .public)"
-            )
             return nil
         }
         if let existing = groups[index].remoteProjects.first(where: {
             ProjectPickerPathService.standardizedRemotePath($0.path) == standardizedPath
         }) {
-            logger.info(
-                "Remote workspace addRemoteProject deduped groupID=\(groupID.uuidString, privacy: .public) existingProjectID=\(existing.id.uuidString, privacy: .public)"
-            )
             return existing
         }
         let project = RemoteProject(name: name, path: path)
         groups[index].remoteProjects.append(project)
         save()
-        let totalRemoteProjects = self.groups[index].remoteProjects.count
-        logger.info(
-            "Remote workspace addRemoteProject saved groupID=\(groupID.uuidString, privacy: .public) projectID=\(project.id.uuidString, privacy: .public) totalRemoteProjects=\(totalRemoteProjects)"
-        )
         return project
     }
 

@@ -1,7 +1,4 @@
 import Foundation
-import os
-
-private let logger = Logger(subsystem: "app.muxy", category: "ProjectPathConfirmation")
 
 enum ProjectOpenConfirmationResult: Equatable {
     case success
@@ -133,13 +130,7 @@ struct RemoteDeviceProjectConfirmationService {
     @discardableResult
     func confirm(path: String, device: RemoteDevice) -> ProjectOpenConfirmationResult {
         let standardizedPath = ProjectPickerPathService.standardizedRemotePath(path)
-        logger.info(
-            "Remote device confirm begin deviceID=\(device.id.uuidString, privacy: .public) host=\(device.ssh.host, privacy: .public) path=\(path, privacy: .public) standardizedPath=\(standardizedPath, privacy: .public) remoteRoot=\(device.ssh.remoteRoot, privacy: .public)"
-        )
         guard standardizedPath != ProjectPickerPathService.standardizedRemotePath(device.ssh.remoteRoot) else {
-            logger.info(
-                "Remote device confirm rejected deviceID=\(device.id.uuidString, privacy: .public) reason=deviceRoot"
-            )
             return .failed
         }
 
@@ -148,9 +139,6 @@ struct RemoteDeviceProjectConfirmationService {
         worktreeStore.ensurePrimary(for: project)
         guard let primary = worktreeStore.primary(for: project.id) else { return .failed }
         appState.selectProject(project, worktree: primary)
-        logger.info(
-            "Remote device confirm selected deviceID=\(device.id.uuidString, privacy: .public) projectID=\(project.id.uuidString, privacy: .public) activeGroupID=\(projectGroupStore.activeGroupID?.uuidString ?? "nil", privacy: .public) storedProjectCount=\(projectStore.storedProjects.count)"
-        )
         return .success
     }
 
@@ -159,9 +147,6 @@ struct RemoteDeviceProjectConfirmationService {
             $0.remoteDeviceID == device.id
                 && ProjectPickerPathService.standardizedRemotePath($0.path) == standardizedPath
         }) {
-            logger.info(
-                "Remote device confirm reused existing projectID=\(existing.id.uuidString, privacy: .public) deviceID=\(device.id.uuidString, privacy: .public)"
-            )
             return existing
         }
 
@@ -173,9 +158,6 @@ struct RemoteDeviceProjectConfirmationService {
             remoteDeviceID: device.id
         )
         projectStore.add(project)
-        logger.info(
-            "Remote device confirm created projectID=\(project.id.uuidString, privacy: .public) deviceID=\(device.id.uuidString, privacy: .public) name=\(project.name, privacy: .public) path=\(project.path, privacy: .public)"
-        )
         return project
     }
 }

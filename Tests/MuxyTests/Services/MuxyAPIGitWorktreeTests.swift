@@ -64,6 +64,70 @@ struct MuxyAPIGitWorktreeTests {
         #expect(context.appState.activeWorktreeID[project.id] == primary.id)
     }
 
+    @Test("projects list includes remote projects outside the local store")
+    func projectsListIncludesRemoteProjects() throws {
+        let deviceStore = RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence())
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"))
+        let groupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: deviceStore,
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let group = groupStore.addRemoteWorkspace(name: "prod", deviceID: device.id)
+        let remote = try #require(groupStore.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id))
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: WorkspacePersistenceStub()
+        )
+        let projectStore = ProjectStore(persistence: ProjectPersistenceStub())
+
+        let listed = MuxyAPI.Projects.list(
+            appState: appState,
+            projectStore: projectStore,
+            projectGroupStore: groupStore
+        )
+
+        #expect(listed.contains { $0.id == remote.id && $0.path == "~/code/api" })
+    }
+
+    @Test("worktrees list resolves the active remote project")
+    func worktreesListResolvesActiveRemoteProject() throws {
+        let projectStore = ProjectStore(persistence: ProjectPersistenceStub())
+        let deviceStore = RemoteDeviceStore(persistence: InMemoryRemoteDevicePersistence())
+        let device = deviceStore.add(name: "prod", ssh: SSHWorkspaceData(host: "prod", remoteRoot: "~/code"))
+        let groupStore = ProjectGroupStore(
+            persistence: ProjectGroupPersistenceStub(),
+            remoteDeviceStore: deviceStore,
+            workspaceContextSink: InMemoryWorkspaceContextSink()
+        )
+        let group = groupStore.addRemoteWorkspace(name: "prod", deviceID: device.id)
+        let remote = try #require(groupStore.addRemoteProject(name: "api", path: "~/code/api", toGroup: group.id))
+            .asProject(workspaceID: group.id, sortOrder: 0)
+        let primary = Worktree(name: remote.name, path: remote.path, isPrimary: true)
+        let worktreeStore = WorktreeStore(
+            persistence: WorktreePersistenceStub(initial: [remote.id: [primary]]),
+            projects: [remote]
+        )
+        let appState = AppState(
+            selectionStore: SelectionStoreStub(),
+            terminalViews: TerminalViewRemovingStub(),
+            workspacePersistence: WorkspacePersistenceStub()
+        )
+        appState.selectProject(remote, worktree: primary)
+
+        let listed = try unwrap(MuxyAPI.Worktrees.list(
+            projectIdentifier: nil,
+            appState: appState,
+            projectStore: projectStore,
+            worktreeStore: worktreeStore,
+            projectGroupStore: groupStore
+        ))
+
+        #expect(listed.count == 1)
+        #expect(listed.first?.path == "~/code/api")
+    }
+
     private func makeContext(project: Project, worktrees: [Worktree]) -> MuxyAPI.Git.Context {
         let projectStore = ProjectStore(persistence: ProjectPersistenceStub())
         projectStore.add(project)
@@ -88,6 +152,15 @@ struct MuxyAPIGitWorktreeTests {
             worktreeStore: worktreeStore,
             projectGroupStore: projectGroupStore
         )
+    }
+}
+
+private func unwrap<T>(_ result: Result<T, APIError>) throws -> T {
+    switch result {
+    case let .success(value):
+        return value
+    case let .failure(error):
+        throw error
     }
 }
 

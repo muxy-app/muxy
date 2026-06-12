@@ -91,7 +91,11 @@ enum SocketCommandHandler {
             }.joined(separator: "\n")
         case "list-projects":
             guard let projectStore else { return "error:project store unavailable" }
-            let projects = MuxyAPI.Projects.list(appState: appState, projectStore: projectStore)
+            let projects = MuxyAPI.Projects.list(
+                appState: appState,
+                projectStore: projectStore,
+                projectGroupStore: projectGroupStore
+            )
             return projects.map { project in
                 "\(project.id.uuidString)\t\(project.name)\t\(project.path)\t\(project.isActive)"
             }.joined(separator: "\n")
@@ -103,7 +107,8 @@ enum SocketCommandHandler {
                     identifier: parts.dropFirst().joined(separator: "|"),
                     appState: appState,
                     projectStore: projectStore,
-                    worktreeStore: worktreeStore
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
                 ),
                 ok: "ok"
             )
@@ -114,7 +119,8 @@ enum SocketCommandHandler {
                 projectIdentifier: identifier,
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )) { worktrees in
                 worktrees.map { worktree in
                     "\(worktree.id.uuidString)\t\(worktree.name)\t\(worktree.path)\t\(worktree.branch ?? "")\t\(worktree.isActive)"
@@ -126,7 +132,8 @@ enum SocketCommandHandler {
                 arguments: Array(parts.dropFirst()),
                 appState: appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore
+                worktreeStore: worktreeStore,
+                projectGroupStore: projectGroupStore
             )
         case "switch-worktree":
             guard parts.count >= 2 else { return "error:usage switch-worktree|name-or-id-or-path[|project]" }
@@ -138,7 +145,8 @@ enum SocketCommandHandler {
                     projectIdentifier: projectIdentifier,
                     appState: appState,
                     projectStore: projectStore,
-                    worktreeStore: worktreeStore
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
                 ),
                 ok: "ok"
             )
@@ -566,7 +574,8 @@ enum SocketCommandHandler {
         arguments: [String],
         appState: AppState,
         projectStore: ProjectStore,
-        worktreeStore: WorktreeStore
+        worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore?
     ) async -> String {
         guard arguments.count >= 2 else {
             return "error:usage create-worktree|name|branch[|project][|path][|createBranch][|baseBranch]"
@@ -589,7 +598,8 @@ enum SocketCommandHandler {
             ),
             appState: appState,
             projectStore: projectStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            projectGroupStore: projectGroupStore
         )
 
         switch result {

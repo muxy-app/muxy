@@ -1,9 +1,6 @@
 import AppKit
 import MuxySSH
-import os
 import SwiftUI
-
-private let logger = Logger(subsystem: "app.muxy", category: "TerminalPane")
 
 struct TerminalPane: View {
     let state: TerminalPaneState
@@ -351,9 +348,6 @@ struct TerminalBridge: NSViewRepresentable {
 
     private func sshConfiguration(for workspaceContext: WorkspaceContext) -> SSHConnectionConfiguration? {
         guard case let .ssh(destination) = workspaceContext else { return nil }
-        logger.info(
-            "SSH configuration build paneID=\(state.id.uuidString, privacy: .public) host=\(destination.host, privacy: .public) remoteRoot=\(destination.remoteRoot, privacy: .public) projectPath=\(state.projectPath, privacy: .public) currentWorkingDirectory=\(state.currentWorkingDirectory ?? "nil", privacy: .public) startupCommand=\(state.migratedSSHStartupCommand ?? "nil", privacy: .public)"
-        )
         return SSHConnectionConfiguration.make(
             destination: destination,
             remotePath: state.currentWorkingDirectory ?? state.projectPath,

@@ -26,6 +26,7 @@ struct SSHConnectionConfiguration: Equatable, SSHConnectionConfigurable {
     private var pathCommand: String {
         "cd \(RemoteCommandBuilder.quoteRemotePath(remotePath))"
     }
+
     static func make(
         destination: SSHDestination,
         remotePath: String? = nil,
@@ -60,9 +61,8 @@ struct SSHConnectionConfiguration: Equatable, SSHConnectionConfigurable {
                 host: destination.host,
                 user: resolved.user,
                 port: UInt16(max(0, min(resolved.port, Int(UInt16.max))))
-            ), !password.isEmpty else {
-                return nil
-            }
+            ), !password.isEmpty
+            else { return nil }
             return .password(password)
         }
     }

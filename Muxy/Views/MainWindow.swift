@@ -586,9 +586,6 @@ struct MainWindow: View {
                 context: projectPickerContext,
                 onConfirm: { path, createIfMissing in
                     if let device = remoteProjectDevice {
-                        logger.info(
-                            "Project picker confirm route=device deviceID=\(device.id.uuidString, privacy: .public) path=\(path, privacy: .public) createIfMissing=\(createIfMissing)"
-                        )
                         return RemoteDeviceProjectConfirmationService(
                             appState: appState,
                             projectStore: projectStore,
@@ -598,14 +595,8 @@ struct MainWindow: View {
                         .confirm(path: path, device: device)
                     }
                     if projectGroupStore.isRemoteWorkspaceActive {
-                        logger.info(
-                            "Project picker confirm route=remoteWorkspace activeGroupID=\(projectGroupStore.activeGroupID?.uuidString ?? "nil", privacy: .public) path=\(path, privacy: .public) createIfMissing=\(createIfMissing)"
-                        )
                         return confirmRemoteProjectPath(path)
                     }
-                    logger.info(
-                        "Project picker confirm route=local activeGroupID=\(projectGroupStore.activeGroupID?.uuidString ?? "nil", privacy: .public) path=\(path, privacy: .public) createIfMissing=\(createIfMissing)"
-                    )
                     return ProjectOpenService.confirmProjectPathResult(
                         path,
                         appState: appState,
@@ -818,7 +809,12 @@ struct MainWindow: View {
         guard let group = projectGroupStore.activeGroup, group.type == .ssh else { return .failed }
         let name = path.split(separator: "/").last.map(String.init) ?? path
         logger.info(
-            "Remote workspace confirm begin groupID=\(group.id.uuidString, privacy: .public) name=\(name, privacy: .public) path=\(path, privacy: .public) currentRemoteProjectCount=\(group.remoteProjects.count)"
+            """
+            Remote workspace confirm begin groupID=\(group.id.uuidString, privacy: .public) \
+            name=\(name, privacy: .public) \
+            path=\(path, privacy: .public) \
+            currentRemoteProjectCount=\(group.remoteProjects.count)
+            """
         )
         guard let remote = projectGroupStore.addRemoteProject(name: name, path: path, toGroup: group.id) else {
             logger.info(
@@ -831,7 +827,11 @@ struct MainWindow: View {
         guard let primary = worktreeStore.primary(for: project.id) else { return .failed }
         appState.selectProject(project, worktree: primary)
         logger.info(
-            "Remote workspace confirm selected groupID=\(group.id.uuidString, privacy: .public) projectID=\(project.id.uuidString, privacy: .public) activeProjectID=\(appState.activeProjectID?.uuidString ?? "nil", privacy: .public)"
+            """
+            Remote workspace confirm selected groupID=\(group.id.uuidString, privacy: .public) \
+            projectID=\(project.id.uuidString, privacy: .public) \
+            activeProjectID=\(appState.activeProjectID?.uuidString ?? "nil", privacy: .public)
+            """
         )
         return .success
     }

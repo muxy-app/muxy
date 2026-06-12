@@ -189,7 +189,9 @@ private final class SSHExecRunner: @unchecked Sendable {
         case let .failure(error as ChannelError):
             completion(.failure(SSHConnectionErrorMapper.map(error, host: configuration.host)))
         case let .failure(error):
-            execLogger.error("SSH exec failed for \(self.configuration.host, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            execLogger.error(
+                "SSH exec failed for \(self.configuration.host, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
             completion(.failure(error))
         }
     }

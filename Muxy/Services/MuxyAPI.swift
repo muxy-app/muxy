@@ -642,8 +642,13 @@ enum MuxyAPI {
             let projectGroupStore: ProjectGroupStore
         }
 
-        static func list(appState: AppState, projectStore: ProjectStore) -> [ProjectInfo] {
-            projectStore.projects.map { project in
+        static func list(
+            appState: AppState,
+            projectStore: ProjectStore,
+            projectGroupStore: ProjectGroupStore? = nil
+        ) -> [ProjectInfo] {
+            let projects = resolvedProjects(projectStore: projectStore, projectGroupStore: projectGroupStore)
+            return projects.map { project in
                 ProjectInfo(
                     id: project.id,
                     name: project.name,
@@ -657,9 +662,16 @@ enum MuxyAPI {
             identifier: String,
             appState: AppState,
             projectStore: ProjectStore,
-            worktreeStore: WorktreeStore
+            worktreeStore: WorktreeStore,
+            projectGroupStore: ProjectGroupStore? = nil
         ) -> Result<Void, APIError> {
-            guard let project = findProject(identifier, in: projectStore.projects) else {
+            guard let project = resolveProject(
+                identifier,
+                appState: appState,
+                projectStore: projectStore,
+                projectGroupStore: projectGroupStore
+            )
+            else {
                 return .failure(.projectNotFound(identifier))
             }
             guard let worktree = worktreeStore.preferred(
@@ -718,9 +730,16 @@ enum MuxyAPI {
             projectIdentifier: String?,
             appState: AppState,
             projectStore: ProjectStore,
-            worktreeStore: WorktreeStore
+            worktreeStore: WorktreeStore,
+            projectGroupStore: ProjectGroupStore? = nil
         ) -> Result<[WorktreeInfo], APIError> {
-            guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
+            guard let project = resolveProject(
+                projectIdentifier,
+                appState: appState,
+                projectStore: projectStore,
+                projectGroupStore: projectGroupStore
+            )
+            else {
                 return .failure(.projectNotFound(projectIdentifier ?? ""))
             }
             let infos = worktreeStore.list(for: project.id).map { worktree in
@@ -742,9 +761,16 @@ enum MuxyAPI {
             projectIdentifier: String?,
             appState: AppState,
             projectStore: ProjectStore,
-            worktreeStore: WorktreeStore
+            worktreeStore: WorktreeStore,
+            projectGroupStore: ProjectGroupStore? = nil
         ) -> Result<Void, APIError> {
-            guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
+            guard let project = resolveProject(
+                projectIdentifier,
+                appState: appState,
+                projectStore: projectStore,
+                projectGroupStore: projectGroupStore
+            )
+            else {
                 return .failure(.projectNotFound(projectIdentifier ?? ""))
             }
             guard let worktree = findWorktree(identifier, in: worktreeStore.list(for: project.id)) else {
@@ -758,7 +784,8 @@ enum MuxyAPI {
             _ request: CreateWorktreeRequest,
             appState: AppState,
             projectStore: ProjectStore,
-            worktreeStore: WorktreeStore
+            worktreeStore: WorktreeStore,
+            projectGroupStore: ProjectGroupStore? = nil
         ) async -> Result<CreatedWorktreeInfo, APIError> {
             let trimmedName = request.name.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedBranch = request.branch.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -771,13 +798,15 @@ enum MuxyAPI {
             guard let project = resolveProject(
                 request.projectIdentifier,
                 appState: appState,
-                projectStore: projectStore
+                projectStore: projectStore,
+                projectGroupStore: projectGroupStore
             )
             else {
                 return .failure(.projectNotFound(request.projectIdentifier ?? ""))
             }
 
-            let workspaceContext = ActiveWorkspaceContext.shared.current
+            let workspaceContext = projectGroupStore?.workspaceContext(for: project)
+                ?? (project.isRemote ? ActiveWorkspaceContext.shared.current : .local)
             let expandedPath = workspaceContext.isRemote ? trimmedPath : NSString(string: trimmedPath).expandingTildeInPath
             let path = trimmedPath.isEmpty
                 ? WorktreeLocationResolver.worktreeDirectory(for: project, slug: slug(from: trimmedName))
@@ -817,7 +846,13 @@ enum MuxyAPI {
             worktreeStore: WorktreeStore,
             projectGroupStore: ProjectGroupStore? = nil
         ) async -> Result<RefreshWorktreesResult, APIError> {
-            guard let project = resolveProject(projectIdentifier, appState: appState, projectStore: projectStore) else {
+            guard let project = resolveProject(
+                projectIdentifier,
+                appState: appState,
+                projectStore: projectStore,
+                projectGroupStore: projectGroupStore
+            )
+            else {
                 return .failure(.projectNotFound(projectIdentifier ?? ""))
             }
             do {
@@ -1320,13 +1355,31 @@ private func findProject(_ identifier: String, in projects: [Project]) -> Projec
 private func resolveProject(
     _ identifier: String?,
     appState: AppState,
-    projectStore: ProjectStore
+    projectStore: ProjectStore,
+    projectGroupStore: ProjectGroupStore? = nil
 ) -> Project? {
+    if let projectGroupStore {
+        return projectGroupStore.resolveProject(
+            identifier: identifier,
+            localProjects: projectStore.projects,
+            activeProjectID: appState.activeProjectID
+        )
+    }
     if let identifier, !identifier.isEmpty {
         return findProject(identifier, in: projectStore.projects)
     }
     guard let activeProjectID = appState.activeProjectID else { return nil }
     return projectStore.projects.first { $0.id == activeProjectID }
+}
+
+@MainActor
+private func resolvedProjects(
+    projectStore: ProjectStore,
+    projectGroupStore: ProjectGroupStore?
+) -> [Project] {
+    guard let projectGroupStore else { return projectStore.projects }
+    var seen = Set<UUID>()
+    return (projectStore.projects + projectGroupStore.remoteProjects).filter { seen.insert($0.id).inserted }
 }
 
 @MainActor

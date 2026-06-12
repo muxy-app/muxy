@@ -1,8 +1,5 @@
 import AppKit
-import os
 import SwiftUI
-
-private let logger = Logger(subsystem: "app.muxy", category: "Sidebar")
 
 @MainActor
 enum SidebarLayout {
@@ -393,24 +390,15 @@ struct Sidebar: View {
     }
 
     private func select(_ project: Project) {
-        logger.info(
-            "Sidebar select begin projectID=\(project.id.uuidString, privacy: .public) name=\(project.name, privacy: .public) path=\(project.path, privacy: .public) remoteWorkspaceID=\(project.remoteWorkspaceID?.uuidString ?? "nil", privacy: .public) remoteDeviceID=\(project.remoteDeviceID?.uuidString ?? "nil", privacy: .public) activeGroupID=\(projectGroupStore.activeGroupID?.uuidString ?? "nil", privacy: .public)"
-        )
         worktreeStore.ensurePrimary(for: project)
         guard let worktree = worktreeStore.preferred(
             for: project.id,
             matching: appState.activeWorktreeID[project.id]
         )
         else {
-            logger.info(
-                "Sidebar select missing worktree projectID=\(project.id.uuidString, privacy: .public)"
-            )
             return
         }
         appState.selectProject(project, worktree: worktree)
-        logger.info(
-            "Sidebar select dispatched projectID=\(project.id.uuidString, privacy: .public) worktreeID=\(worktree.id.uuidString, privacy: .public) worktreePath=\(worktree.path, privacy: .public)"
-        )
     }
 
     private func remove(_ project: Project) {
