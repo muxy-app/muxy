@@ -234,6 +234,17 @@ struct Sidebar: View {
             }
         }
         .coordinateSpace(name: "sidebar")
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            ProjectSidebarDropHandler.handle(providers: providers) { path in
+                ProjectOpenService.confirmProjectPathResult(
+                    path,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
+                )
+            }
+        }
     }
 
     @ViewBuilder
