@@ -28,7 +28,7 @@ final class GhosttyTerminalNSView: NSView {
     var onCmdClickFile: ((String) -> Void)?
     var resolveCmdHoverFile: ((String) -> Bool)?
     var onOpenURL: ((URL) -> Bool)?
-    var onSSHError: ((SSHConnectionError) -> Void)?
+    var onSSHStatusChange: ((SSHConnectionStatus) -> Void)?
     private var isShowingHandCursor = false
     private var fileHoverUnderlineLayer: CAShapeLayer?
     private var lastMouseTopDownPoint: CGPoint?
@@ -152,7 +152,7 @@ final class GhosttyTerminalNSView: NSView {
                 surfaceConfig.custom_read_fd = sshBridge?.ghosttyReadFD ?? -1
                 surfaceConfig.custom_write_fd = sshBridge?.ghosttyWriteFD ?? -1
             } catch {
-                onSSHError?(.unknown(error.localizedDescription))
+                onSSHStatusChange?(.failed(error: .unknown(error.localizedDescription), retryable: false))
                 return
             }
         } else {
@@ -230,10 +230,10 @@ final class GhosttyTerminalNSView: NSView {
                     bridge: sshBridge,
                     size: currentTerminalSize(),
                     callbacks: SSHConnectionCallbacks(
-                        onError: { [weak self] error in
-                            self?.onSSHError?(error)
+                        onStatusChange: { [weak self] status in
+                            self?.onSSHStatusChange?(status)
                         },
-                        onClose: { [weak self] in
+                        onRequestClose: { [weak self] in
                             guard let self, !self.processExitHandled else { return }
                             self.processExitHandled = true
                             self.onProcessExit?()
@@ -284,7 +284,7 @@ final class GhosttyTerminalNSView: NSView {
         onSearchTotal = nil
         onSearchSelected = nil
         onProgressReport = nil
-        onSSHError = nil
+        onSSHStatusChange = nil
         if let observer = screenChangeObserver {
             NotificationCenter.default.removeObserver(observer)
             screenChangeObserver = nil

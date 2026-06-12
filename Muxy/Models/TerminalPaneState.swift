@@ -19,7 +19,7 @@ final class TerminalPaneState: Identifiable {
     let closesOnStartupCommandExit: Bool
     let externalEditorFilePath: String?
     var sshConfiguration: SSHConnectionConfiguration?
-    var sshError: SSHConnectionError?
+    var sshStatus: SSHConnectionStatus?
     var sshStartTime: Date?
     var isOffline = false
     let searchState = TerminalSearchState()

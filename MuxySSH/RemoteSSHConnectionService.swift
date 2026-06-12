@@ -10,17 +10,17 @@ import Security
 private let logger = Logger(subsystem: "app.muxy", category: "SSHConnection")
 
 public struct SSHConnectionCallbacks {
-    public let onError: @MainActor (SSHConnectionError) -> Void
-    public let onClose: @MainActor () -> Void
+    public let onStatusChange: @MainActor (SSHConnectionStatus) -> Void
+    public let onRequestClose: @MainActor () -> Void
     public let onFinished: @MainActor (UUID) -> Void
 
     public init(
-        onError: @escaping @MainActor (SSHConnectionError) -> Void,
-        onClose: @escaping @MainActor () -> Void,
+        onStatusChange: @escaping @MainActor (SSHConnectionStatus) -> Void,
+        onRequestClose: @escaping @MainActor () -> Void,
         onFinished: @escaping @MainActor (UUID) -> Void
     ) {
-        self.onError = onError
-        self.onClose = onClose
+        self.onStatusChange = onStatusChange
+        self.onRequestClose = onRequestClose
         self.onFinished = onFinished
     }
 }
@@ -55,8 +55,8 @@ public final class SSHConnectionService {
             existing.connection.stop()
         }
         let trackedCallbacks = SSHConnectionCallbacks(
-            onError: callbacks.onError,
-            onClose: callbacks.onClose,
+            onStatusChange: callbacks.onStatusChange,
+            onRequestClose: callbacks.onRequestClose,
             onFinished: { [weak self] finishedPaneID in
                 self?.remove(paneID: finishedPaneID, sessionID: sessionID)
                 callbacks.onFinished(finishedPaneID)
@@ -96,14 +96,19 @@ final class SSHConnection {
     private let configuration: any SSHConnectionConfigurable
     private let bridge: SSHFileDescriptorBridge
     private let group: EventLoopGroup
-    private let onError: @MainActor (SSHConnectionError) -> Void
-    private let onClose: @MainActor () -> Void
+    private let onStatusChange: @MainActor (SSHConnectionStatus) -> Void
+    private let onRequestClose: @MainActor () -> Void
     private let onFinished: @MainActor (UUID) -> Void
 
     private var parentChannel: Channel?
     private var childChannel: Channel?
     private let lifecycleQueue = DispatchQueue(label: "app.muxy.ssh.lifecycle", attributes: .concurrent)
     private var lifecycle: SSHConnectionLifecycle = .idle
+    private var reconnectTimer: DispatchSourceTimer?
+    private var stableTimer: DispatchSourceTimer?
+    private var retryAttempt = 0
+    private var generation = 0
+    private var remoteExit: SSHRemoteExit?
 
     init(
         paneID: UUID,
@@ -117,17 +122,59 @@ final class SSHConnection {
         self.configuration = configuration
         self.bridge = bridge
         self.group = group
-        self.onError = callbacks.onError
-        self.onClose = callbacks.onClose
+        self.onStatusChange = callbacks.onStatusChange
+        self.onRequestClose = callbacks.onRequestClose
         self.onFinished = callbacks.onFinished
         self.size = size
     }
 
     private var size: SSHTerminalSize
 
+    private var sessionMode: SSHSessionMode {
+        configuration.remoteExecCommand == nil ? .interactive : .exec
+    }
+
     func start() {
+        cancelRetryTimer()
         logger.debug("Preparing SSH start for \(self.paneID.uuidString)")
         guard transition(to: .connecting, allowedFrom: [.idle, .failed, .closed]) else { return }
+        emitStatus(.connecting)
+        attemptConnection()
+    }
+
+    func resize(_ size: SSHTerminalSize) {
+        self.size = size
+        guard currentState() == .running else { return }
+        childChannel?.eventLoop.execute { [weak childChannel] in
+            childChannel?.triggerUserOutboundEvent(SSHChannelRequestEvent.WindowChangeRequest(
+                terminalCharacterWidth: size.columns,
+                terminalRowHeight: size.rows,
+                terminalPixelWidth: size.widthPixels,
+                terminalPixelHeight: size.heightPixels
+            ), promise: nil)
+        }
+    }
+
+    func stop() {
+        cancelRetryTimer()
+        cancelStableTimer()
+        if transition(to: .stopping, allowedFrom: [.connecting, .reconnecting, .running, .failed]) {
+            logger.debug("Stopping SSH for \(self.paneID.uuidString)")
+            invalidateGeneration()
+            tearDown()
+            _ = transition(to: .closed, allowedFrom: [.stopping])
+            Task { @MainActor in
+                self.onFinished(self.paneID)
+            }
+            return
+        }
+
+        if currentState() == .stopping { return }
+    }
+
+    private func attemptConnection() {
+        let generation = nextGeneration()
+        clearRemoteExit()
         do {
             let authDelegate = try SSHAuthenticationDelegate(
                 user: configuration.user,
@@ -156,54 +203,34 @@ final class SSHConnection {
                     }
                 }
                 .channelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
+                .channelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_KEEPALIVE), value: 1)
                 .channelOption(ChannelOptions.socket(SocketOptionLevel(IPPROTO_TCP), TCP_NODELAY), value: 1)
+                .channelOption(ChannelOptions.socket(SocketOptionLevel(IPPROTO_TCP), TCP_KEEPALIVE), value: 15)
 
             bootstrap.connect(host: configuration.host, port: configuration.port).whenComplete { [weak self] result in
                 switch result {
                 case let .success(channel):
                     logger.info("TCP connected for \(self?.paneID.uuidString ?? "unknown")")
-                    guard self?.currentState() == .connecting else {
+                    guard self?.matches(generation: generation) == true,
+                          self?.currentState().isConnecting == true
+                    else {
                         channel.close(promise: nil)
                         return
                     }
                     self?.parentChannel = channel
-                    self?.openSession(on: channel)
+                    self?.openSession(on: channel, generation: generation)
                 case let .failure(error):
                     logger.error("TCP connect failed for \(self?.paneID.uuidString ?? "unknown"): \(error)")
-                    self?.fail(error)
+                    self?.handleFailure(error, generation: generation)
                 }
             }
         } catch {
             logger.error("SSH setup failed for \(self.paneID.uuidString): \(error)")
-            fail(error)
+            handleFailure(error, generation: generation)
         }
     }
 
-    func resize(_ size: SSHTerminalSize) {
-        self.size = size
-        guard currentState() == .running else { return }
-        childChannel?.eventLoop.execute { [weak childChannel] in
-            childChannel?.triggerUserOutboundEvent(SSHChannelRequestEvent.WindowChangeRequest(
-                terminalCharacterWidth: size.columns,
-                terminalRowHeight: size.rows,
-                terminalPixelWidth: size.widthPixels,
-                terminalPixelHeight: size.heightPixels
-            ), promise: nil)
-        }
-    }
-
-    func stop() {
-        if transition(to: .stopping, allowedFrom: [.connecting, .running]) {
-            logger.debug("Stopping SSH for \(self.paneID.uuidString)")
-            tearDown()
-            _ = transition(to: .closed, allowedFrom: [.stopping])
-            return
-        }
-
-        if currentState() == .stopping { return }
-    }
-
-    private func openSession(on channel: Channel) {
+    private func openSession(on channel: Channel, generation: Int) {
         logger.debug("Opening SSH session for \(self.paneID.uuidString)")
         channel.pipeline.handler(type: NIOSSHHandler.self).flatMap { [configuration, bridge, size] sshHandler in
             let promise = channel.eventLoop.makePromise(of: Channel.self)
@@ -220,7 +247,10 @@ final class SSHConnection {
                         command: configuration.remoteExecCommand,
                         initialInput: configuration.initialShellInput,
                         size: size,
-                        paneID: self.paneID
+                        paneID: self.paneID,
+                        onRemoteExit: { [weak self] remoteExit in
+                            self?.recordRemoteExit(remoteExit)
+                        }
                     )
                     try childChannel.pipeline.syncOperations.addHandler(handler)
                     try childChannel.pipeline.syncOperations.addHandler(SSHErrorHandler(stage: "child", paneID: self.paneID))
@@ -230,41 +260,114 @@ final class SSHConnection {
         }.whenComplete { [weak self] result in
             switch result {
             case let .success(childChannel):
-                guard self?.transition(to: .running, allowedFrom: [.connecting]) == true else {
+                guard self?.matches(generation: generation) == true else {
+                    childChannel.close(promise: nil)
+                    return
+                }
+                guard self?.transition(to: .running, allowedFrom: [.connecting, .reconnecting]) == true else {
                     childChannel.close(promise: nil)
                     return
                 }
                 logger.info("SSH session opened for \(self?.paneID.uuidString ?? "unknown")")
                 self?.childChannel = childChannel
+                self?.cancelRetryTimer()
+                self?.emitStatus(.connected)
+                self?.scheduleStableReset(generation: generation)
                 childChannel.closeFuture.whenComplete { [weak self] _ in
-                    self?.closeFromRemote()
+                    self?.handleChannelClosed(generation: generation)
                 }
             case let .failure(error):
                 logger.error("SSH session failed for \(self?.paneID.uuidString ?? "unknown"): \(error)")
-                self?.fail(error)
+                self?.handleFailure(error, generation: generation)
             }
         }
     }
 
-    private func closeFromRemote() {
-        guard transition(to: .closed, allowedFrom: [.running]) else { return }
+    private func handleChannelClosed(generation: Int) {
+        guard matches(generation: generation) else { return }
+        guard currentState() != .stopping, currentState() != .closed else { return }
         logger.info("SSH connection closed by remote for \(self.paneID.uuidString)")
-        tearDown()
-        Task { @MainActor in
-            self.onClose()
-            self.onFinished(self.paneID)
+        let disposition = SSHConnectionRecoveryDecision.disposition(
+            host: configuration.host,
+            sessionMode: sessionMode,
+            remoteExit: currentRemoteExit(),
+            error: nil
+        )
+        handleDisposition(disposition)
+    }
+
+    private func handleFailure(_ error: Error, generation: Int) {
+        guard matches(generation: generation) else { return }
+        let disposition = SSHConnectionRecoveryDecision.disposition(
+            host: configuration.host,
+            sessionMode: sessionMode,
+            remoteExit: currentRemoteExit(),
+            error: error
+        )
+        logger.error("SSH connection failed for \(self.paneID.uuidString): \(error)")
+        handleDisposition(disposition)
+    }
+
+    private func handleDisposition(_ disposition: SSHConnectionDisposition) {
+        switch disposition {
+        case .close:
+            guard transition(to: .closed, allowedFrom: [.connecting, .reconnecting, .running]) else { return }
+            cancelRetryTimer()
+            cancelStableTimer()
+            invalidateGeneration()
+            tearDown(closeBridge: false)
+            Task { @MainActor in
+                self.onRequestClose()
+                self.onFinished(self.paneID)
+            }
+        case let .retryable(error):
+            scheduleReconnect(for: error)
+        case let .failed(error, retryable):
+            guard transition(to: .failed, allowedFrom: [.connecting, .reconnecting, .running]) else { return }
+            cancelRetryTimer()
+            cancelStableTimer()
+            invalidateGeneration()
+            tearDown(closeBridge: false)
+            emitStatus(.failed(error: error, retryable: retryable))
+            Task { @MainActor in
+                self.onFinished(self.paneID)
+            }
         }
     }
 
-    private func fail(_ error: Error) {
-        guard transition(to: .failed, allowedFrom: [.connecting, .running]) else { return }
-        let mapped = SSHConnectionErrorMapper.map(error, host: configuration.host)
-        logger.error("SSH connection failed for \(self.paneID.uuidString): \(error)")
-        tearDown()
-        Task { @MainActor in
-            self.onError(mapped)
-            self.onFinished(self.paneID)
+    private func scheduleReconnect(for error: SSHConnectionError) {
+        let nextAttempt = lifecycleQueue.sync(flags: .barrier) {
+            retryAttempt += 1
+            return retryAttempt
         }
+        guard let delay = SSHReconnectPolicy.delay(forAttempt: nextAttempt) else {
+            guard transition(to: .failed, allowedFrom: [.connecting, .reconnecting, .running]) else { return }
+            cancelRetryTimer()
+            cancelStableTimer()
+            tearDown(closeBridge: false)
+            emitStatus(.failed(error: error, retryable: true))
+            Task { @MainActor in
+                self.onFinished(self.paneID)
+            }
+            return
+        }
+
+        guard transition(to: .reconnecting, allowedFrom: [.connecting, .reconnecting, .running]) else { return }
+        cancelStableTimer()
+        invalidateGeneration()
+        tearDown(closeBridge: false)
+        emitStatus(.reconnecting(attempt: nextAttempt))
+        logger.info("Scheduling SSH reconnect \(nextAttempt) for \(self.paneID.uuidString) in \(delay, privacy: .public)s")
+
+        let timer = DispatchSource.makeTimerSource(queue: lifecycleQueue)
+        timer.schedule(deadline: .now() + delay)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard self.currentState() == .reconnecting else { return }
+            self.attemptConnection()
+        }
+        reconnectTimer = timer
+        timer.resume()
     }
 
     private func tearDown(closeBridge: Bool = true) {
@@ -291,6 +394,74 @@ final class SSHConnection {
     private func currentState() -> SSHConnectionLifecycle {
         lifecycleQueue.sync { lifecycle }
     }
+
+    private func emitStatus(_ status: SSHConnectionStatus) {
+        Task { @MainActor in
+            self.onStatusChange(status)
+        }
+    }
+
+    private func cancelRetryTimer() {
+        lifecycleQueue.sync(flags: .barrier) {
+            reconnectTimer?.cancel()
+            reconnectTimer = nil
+        }
+    }
+
+    private func scheduleStableReset(generation: Int) {
+        cancelStableTimer()
+        let timer = DispatchSource.makeTimerSource(queue: lifecycleQueue)
+        timer.schedule(deadline: .now() + SSHReconnectPolicy.resetAfter)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard self.matches(generation: generation), self.currentState() == .running else { return }
+            self.lifecycleQueue.async(flags: .barrier) {
+                self.retryAttempt = 0
+            }
+        }
+        stableTimer = timer
+        timer.resume()
+    }
+
+    private func cancelStableTimer() {
+        lifecycleQueue.sync(flags: .barrier) {
+            stableTimer?.cancel()
+            stableTimer = nil
+        }
+    }
+
+    private func nextGeneration() -> Int {
+        lifecycleQueue.sync(flags: .barrier) {
+            generation += 1
+            return generation
+        }
+    }
+
+    private func invalidateGeneration() {
+        lifecycleQueue.sync(flags: .barrier) {
+            generation += 1
+        }
+    }
+
+    private func matches(generation: Int) -> Bool {
+        lifecycleQueue.sync { self.generation == generation }
+    }
+
+    private func recordRemoteExit(_ remoteExit: SSHRemoteExit) {
+        lifecycleQueue.sync(flags: .barrier) {
+            self.remoteExit = remoteExit
+        }
+    }
+
+    private func clearRemoteExit() {
+        lifecycleQueue.sync(flags: .barrier) {
+            remoteExit = nil
+        }
+    }
+
+    private func currentRemoteExit() -> SSHRemoteExit? {
+        lifecycleQueue.sync { remoteExit }
+    }
 }
 
 extension SSHConnection: @unchecked Sendable {}
@@ -298,10 +469,15 @@ extension SSHConnection: @unchecked Sendable {}
 private enum SSHConnectionLifecycle {
     case idle
     case connecting
+    case reconnecting
     case running
     case stopping
     case failed
     case closed
+
+    var isConnecting: Bool {
+        self == .connecting || self == .reconnecting
+    }
 }
 
 final class SSHShellHandler: ChannelDuplexHandler, @unchecked Sendable {
@@ -315,6 +491,7 @@ final class SSHShellHandler: ChannelDuplexHandler, @unchecked Sendable {
     private let initialInput: String
     private let size: SSHTerminalSize
     private let paneID: UUID
+    private let onRemoteExit: @Sendable (SSHRemoteExit) -> Void
     private let inputQueue = DispatchQueue(label: "app.muxy.ssh.input")
     private var inputSource: DispatchSourceRead?
 
@@ -324,7 +501,8 @@ final class SSHShellHandler: ChannelDuplexHandler, @unchecked Sendable {
         command: String?,
         initialInput: String,
         size: SSHTerminalSize,
-        paneID: UUID
+        paneID: UUID,
+        onRemoteExit: @escaping @Sendable (SSHRemoteExit) -> Void
     ) {
         self.inputFD = inputFD
         self.outputFD = outputFD
@@ -332,6 +510,7 @@ final class SSHShellHandler: ChannelDuplexHandler, @unchecked Sendable {
         self.initialInput = initialInput
         self.size = size
         self.paneID = paneID
+        self.onRemoteExit = onRemoteExit
     }
 
     func channelActive(context: ChannelHandlerContext) {
@@ -434,6 +613,18 @@ final class SSHShellHandler: ChannelDuplexHandler, @unchecked Sendable {
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         logger.error("SSH shell error for \(self.paneID.uuidString): \(error)")
         context.close(promise: nil)
+    }
+
+    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        switch event {
+        case let exit as SSHChannelRequestEvent.ExitStatus:
+            onRemoteExit(.status(exit.exitStatus))
+        case let signal as SSHChannelRequestEvent.ExitSignal:
+            onRemoteExit(.signal(signal.signalName))
+        default:
+            break
+        }
+        context.fireUserInboundEventTriggered(event)
     }
 
     func handlerRemoved(context: ChannelHandlerContext) {
@@ -666,6 +857,39 @@ public enum SSHConnectionErrorMapper {
         return fallbackMap(error, host: host)
     }
 
+    static func recoveryDecision(_ error: Error, host: String) -> SSHConnectionFailureDecision {
+        if let failure = error as? SSHConnectionFailure {
+            switch failure {
+            case .hostKeyChanged:
+                return .init(error: .hostKeyChanged("The SSH host key for \(host) has changed"), retryable: false)
+            case .unknownHostKey:
+                return .init(error: .unknownHostKey(host), retryable: false)
+            case .privateKeyLoadFailed,
+                 .unsupportedPrivateKey:
+                return .init(error: .authFailed("Could not load SSH private key"), retryable: false)
+            case .encryptedPrivateKey:
+                return .init(
+                    error: .authFailed("Encrypted SSH private keys are not supported yet. Use an unencrypted key."),
+                    retryable: false
+                )
+            case .unsupportedKeyType:
+                return .init(error: .authFailed("Only Ed25519 private keys are supported for SSH."), retryable: false)
+            case .invalidChannelType:
+                return .init(error: .unknown("Could not open SSH session"), retryable: false)
+            }
+        }
+        if let sshError = error as? NIOSSHError {
+            return mapNIOSSHRecoveryDecision(sshError, host: host)
+        }
+        if let posixError = error as? POSIXError {
+            return mapPOSIXRecoveryDecision(posixError, host: host)
+        }
+        if let channelError = error as? ChannelError {
+            return mapChannelRecoveryDecision(channelError, host: host)
+        }
+        return .init(error: fallbackMap(error, host: host), retryable: false)
+    }
+
     private static func mapNIOSSHError(_ error: NIOSSHError, host: String) -> SSHConnectionError {
         switch error.type {
         case .invalidUserAuthSignature:
@@ -723,6 +947,123 @@ public enum SSHConnectionErrorMapper {
             return .hostKeyChanged("SSH host key verification failed for \(host)")
         }
         return .unknown(description)
+    }
+
+    private static func mapNIOSSHRecoveryDecision(_ error: NIOSSHError, host: String) -> SSHConnectionFailureDecision {
+        switch error.type {
+        case .invalidUserAuthSignature:
+            .init(error: .authFailed("SSH authentication failed"), retryable: false)
+        case .channelSetupRejected:
+            .init(error: .unknown("SSH channel was rejected by \(host)"), retryable: false)
+        case .keyExchangeNegotiationFailure:
+            .init(error: .unknown("Could not agree on encryption with \(host)"), retryable: false)
+        case .unsupportedVersion:
+            .init(error: .unknown("SSH version not supported by \(host)"), retryable: false)
+        case .tcpShutdown:
+            .init(error: .disconnected("Connection to \(host) was lost"), retryable: true)
+        default:
+            .init(error: .unknown(error.localizedDescription), retryable: false)
+        }
+    }
+
+    private static func mapPOSIXRecoveryDecision(_ error: POSIXError, host: String) -> SSHConnectionFailureDecision {
+        switch error.code {
+        case .ECONNREFUSED:
+            .init(error: .refused(host), retryable: false)
+        case .ETIMEDOUT:
+            .init(error: .timeout(host), retryable: true)
+        case .EHOSTUNREACH,
+             .ENETUNREACH,
+             .ECONNABORTED,
+             .ENETDOWN:
+            .init(error: .disconnected("Connection to \(host) was lost"), retryable: true)
+        default:
+            .init(error: .unknown(error.localizedDescription), retryable: false)
+        }
+    }
+
+    private static func mapChannelRecoveryDecision(_ error: ChannelError, host: String) -> SSHConnectionFailureDecision {
+        switch error {
+        case .connectTimeout:
+            .init(error: .timeout(host), retryable: true)
+        case .ioOnClosedChannel,
+             .eof:
+            .init(error: .disconnected("Connection to \(host) was lost"), retryable: true)
+        default:
+            .init(error: .unknown(error.localizedDescription), retryable: false)
+        }
+    }
+}
+
+struct SSHConnectionFailureDecision: Equatable {
+    let error: SSHConnectionError
+    let retryable: Bool
+}
+
+enum SSHConnectionDisposition: Equatable {
+    case close
+    case retryable(SSHConnectionError)
+    case failed(error: SSHConnectionError, retryable: Bool)
+}
+
+enum SSHSessionMode: Equatable {
+    case interactive
+    case exec
+}
+
+enum SSHRemoteExit: Equatable {
+    case status(Int)
+    case signal(String)
+}
+
+enum SSHReconnectPolicy {
+    static let delays: [TimeInterval] = [1, 2, 5, 10, 20]
+    static let resetAfter: TimeInterval = 30
+
+    static func delay(forAttempt attempt: Int) -> TimeInterval? {
+        guard attempt > 0, attempt <= delays.count else { return nil }
+        return delays[attempt - 1]
+    }
+}
+
+enum SSHConnectionRecoveryDecision {
+    static func disposition(
+        host: String,
+        sessionMode: SSHSessionMode,
+        remoteExit: SSHRemoteExit?,
+        error: Error?
+    ) -> SSHConnectionDisposition {
+        if let remoteExit {
+            switch sessionMode {
+            case .exec:
+                return .close
+            case .interactive:
+                return .failed(error: errorForRemoteExit(remoteExit), retryable: false)
+            }
+        }
+
+        if let error {
+            let decision = SSHConnectionErrorMapper.recoveryDecision(error, host: host)
+            if sessionMode == .interactive, decision.retryable {
+                return .retryable(decision.error)
+            }
+            return .failed(error: decision.error, retryable: decision.retryable && sessionMode == .interactive)
+        }
+
+        let disconnected = SSHConnectionError.disconnected("Connection to \(host) was lost")
+        if sessionMode == .interactive {
+            return .retryable(disconnected)
+        }
+        return .failed(error: disconnected, retryable: false)
+    }
+
+    private static func errorForRemoteExit(_ remoteExit: SSHRemoteExit) -> SSHConnectionError {
+        switch remoteExit {
+        case let .status(status):
+            .sessionEnded("The remote shell exited with status \(status).")
+        case let .signal(signal):
+            .sessionEnded("The remote shell ended due to signal \(signal).")
+        }
     }
 }
 

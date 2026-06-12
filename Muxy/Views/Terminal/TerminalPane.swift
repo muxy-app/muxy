@@ -58,11 +58,11 @@ struct TerminalPane: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Terminal")
             .accessibilityAddTraits(.allowsDirectInteraction)
-            .opacity(remoteOwnerName == nil && state.sshError == nil ? 1 : 0)
-            .allowsHitTesting(remoteOwnerName == nil && state.sshError == nil)
+            .opacity(remoteOwnerName == nil && sshOverlayStatus == nil ? 1 : 0)
+            .allowsHitTesting(remoteOwnerName == nil && sshOverlayStatus == nil)
 
-            if let error = state.sshError {
-                sshErrorOverlay(error)
+            if let status = sshOverlayStatus {
+                sshStatusOverlay(status)
                     .transition(.opacity)
             } else if let name = remoteOwnerName {
                 RemoteControlledPlaceholder(deviceName: name) {
@@ -100,12 +100,56 @@ struct TerminalPane: View {
         }
     }
 
-    private func sshErrorOverlay(_ error: SSHConnectionError) -> some View {
+    private var sshOverlayStatus: SSHConnectionStatus? {
+        guard let status = state.sshStatus else { return nil }
+        if case .connected = status { return nil }
+        return status
+    }
+
+    @ViewBuilder
+    private func sshStatusOverlay(_ status: SSHConnectionStatus) -> some View {
+        switch status {
+        case .connecting:
+            sshActivityOverlay(
+                title: "Connecting",
+                message: "Establishing the SSH session."
+            )
+        case let .reconnecting(attempt):
+            sshActivityOverlay(
+                title: "Reconnecting",
+                message: "Trying to restore the SSH session. Attempt \(attempt) of 5."
+            )
+        case let .failed(error, retryable):
+            sshFailureOverlay(error, retryable: retryable)
+        case .connected:
+            EmptyView()
+        }
+    }
+
+    private func sshActivityOverlay(title: String, message: String) -> some View {
         VStack(spacing: UIMetrics.spacing6) {
             Spacer()
-            Image(systemName: "exclamationmark.triangle.fill")
+            ProgressView()
+                .controlSize(.large)
+            Text(title)
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+            Text(message)
+                .font(.system(size: UIMetrics.fontBody))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .multilineTextAlignment(.center)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MuxyTheme.bg)
+    }
+
+    private func sshFailureOverlay(_ error: SSHConnectionError, retryable: Bool) -> some View {
+        VStack(spacing: UIMetrics.spacing6) {
+            Spacer()
+            Image(systemName: retryable ? "arrow.trianglehead.clockwise" : "exclamationmark.triangle.fill")
                 .font(.system(size: 28))
-                .foregroundStyle(MuxyTheme.warning)
+                .foregroundStyle(retryable ? MuxyTheme.accent : MuxyTheme.warning)
             Text(error.title)
                 .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
                 .foregroundStyle(MuxyTheme.fg)
@@ -113,8 +157,8 @@ struct TerminalPane: View {
                 .font(.system(size: UIMetrics.fontBody))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .multilineTextAlignment(.center)
-            Button("Reconnect") {
-                state.sshError = nil
+            Button(retryable ? "Reconnect Now" : "Reconnect") {
+                state.sshStatus = .connecting
                 state.sshStartTime = Date()
                 TerminalViewRegistry.shared.existingView(for: state.id)?.restartSSH()
             }
@@ -231,6 +275,11 @@ struct TerminalBridge: NSViewRepresentable {
         let registry = TerminalViewRegistry.shared
         let sshConfiguration = sshConfiguration(for: workspaceContext)
         state.sshConfiguration = sshConfiguration
+        if sshConfiguration == nil {
+            state.sshStatus = nil
+        } else if state.sshStatus == nil {
+            state.sshStatus = .connecting
+        }
         if sshConfiguration != nil, state.sshStartTime == nil {
             state.sshStartTime = Date()
         }
@@ -267,8 +316,8 @@ struct TerminalBridge: NSViewRepresentable {
         view.onOfflineChange = { [weak state] offline in
             state?.isOffline = offline
         }
-        view.onSSHError = { [weak state] error in
-            state?.sshError = error
+        view.onSSHStatusChange = { [weak state] status in
+            state?.sshStatus = status
         }
         view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         configureSearchCallbacks(view)
@@ -292,6 +341,11 @@ struct TerminalBridge: NSViewRepresentable {
     func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
         let sshConfiguration = sshConfiguration(for: workspaceContext)
         state.sshConfiguration = sshConfiguration
+        if sshConfiguration == nil {
+            state.sshStatus = nil
+        } else if state.sshStatus == nil {
+            state.sshStatus = .connecting
+        }
         nsView.sshConfiguration = sshConfiguration
         if nsView.envVars.isEmpty, nsView.surface == nil, let key = worktreeKey {
             nsView.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
@@ -317,8 +371,8 @@ struct TerminalBridge: NSViewRepresentable {
         nsView.onOfflineChange = { [weak state] offline in
             state?.isOffline = offline
         }
-        nsView.onSSHError = { [weak state] error in
-            state?.sshError = error
+        nsView.onSSHStatusChange = { [weak state] status in
+            state?.sshStatus = status
         }
         configureSearchCallbacks(nsView)
         configureFileOpenCallback(nsView)
