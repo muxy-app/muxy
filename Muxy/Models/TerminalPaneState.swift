@@ -1,4 +1,5 @@
 import Foundation
+import MuxySSH
 
 struct TerminalPaneLaunch: Equatable {
     let command: String?
@@ -17,6 +18,9 @@ final class TerminalPaneState: Identifiable {
     let startupCommandInteractive: Bool
     let closesOnStartupCommandExit: Bool
     let externalEditorFilePath: String?
+    var sshConfiguration: SSHConnectionConfiguration?
+    var sshError: SSHConnectionError?
+    var sshStartTime: Date?
     var isOffline = false
     let searchState = TerminalSearchState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
@@ -29,7 +33,8 @@ final class TerminalPaneState: Identifiable {
         startupCommand: String? = nil,
         startupCommandInteractive: Bool = false,
         closesOnStartupCommandExit: Bool = true,
-        externalEditorFilePath: String? = nil
+        externalEditorFilePath: String? = nil,
+        sshConfiguration: SSHConnectionConfiguration? = nil
     ) {
         self.id = id
         self.projectPath = projectPath
@@ -39,10 +44,14 @@ final class TerminalPaneState: Identifiable {
         self.startupCommandInteractive = startupCommandInteractive
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
         self.externalEditorFilePath = externalEditorFilePath
+        self.sshConfiguration = sshConfiguration
     }
 
     func consumeRestoredLaunch() -> TerminalPaneLaunch {
-        TerminalPaneLaunch(
+        if sshConfiguration != nil {
+            return TerminalPaneLaunch(command: nil, interactive: false, closesOnCommandExit: false)
+        }
+        return TerminalPaneLaunch(
             command: startupCommand,
             interactive: startupCommandInteractive,
             closesOnCommandExit: closesOnStartupCommandExit

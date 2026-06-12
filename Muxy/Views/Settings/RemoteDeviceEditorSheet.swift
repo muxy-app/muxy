@@ -1,4 +1,5 @@
 import AppKit
+import MuxySSH
 import SwiftUI
 
 struct RemoteDeviceEditorSheet: View {
@@ -14,6 +15,8 @@ struct RemoteDeviceEditorSheet: View {
     @State private var port: String = ""
     @State private var user: String = ""
     @State private var identityFile: String = ""
+    @State private var authenticationMethod: SSHAuthenticationMethod = .automatic
+    @State private var password: String = ""
     @State private var environmentText: String = ""
     @State private var showAdvanced = false
     @State private var probeState: ProbeState = .idle
@@ -36,6 +39,9 @@ struct RemoteDeviceEditorSheet: View {
     private var trimmedPort: String { port.trimmingCharacters(in: .whitespaces) }
 
     private var parsedPort: Int? { Int(trimmedPort) }
+    private var trimmedIdentityFile: String { identityFile.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedPassword: String { password.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var requiresPassword: Bool { authenticationMethod == .password }
 
     private var isPortValid: Bool {
         guard !trimmedPort.isEmpty else { return true }
@@ -48,7 +54,11 @@ struct RemoteDeviceEditorSheet: View {
     }
 
     private var canSave: Bool {
-        SSHDestination.isValidHost(trimmedHost) && isPortValid && environmentErrorMessage == nil && !displayName.isEmpty
+        SSHDestination.isValidHost(trimmedHost)
+            && isPortValid
+            && environmentErrorMessage == nil
+            && !displayName.isEmpty
+            && (!requiresPassword || !trimmedPassword.isEmpty)
     }
 
     private var displayName: String {
@@ -75,6 +85,7 @@ struct RemoteDeviceEditorSheet: View {
             field(label: "Remote Root", placeholder: "~", text: $root)
                 .onChange(of: root) { probeState = .idle }
 
+            authenticationSection
             advancedSection
 
             statusRow
@@ -100,6 +111,7 @@ struct RemoteDeviceEditorSheet: View {
             port = ssh.port.map(String.init) ?? ""
             user = ssh.user ?? ""
             identityFile = ssh.identityFile ?? ""
+            authenticationMethod = ssh.authenticationMethod
             environmentText = SSHEnvironmentText.format(ssh.environment)
             showAdvanced = ssh.port != nil
                 || ssh.user != nil
@@ -126,16 +138,18 @@ struct RemoteDeviceEditorSheet: View {
                     }
                     .frame(width: UIMetrics.scaled(90))
                 }
-                VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
-                    Text("Identity File")
-                        .font(.system(size: UIMetrics.fontFootnote))
-                        .foregroundStyle(MuxyTheme.fgMuted)
-                    HStack(spacing: UIMetrics.spacing3) {
-                        TextField("~/.ssh/id_ed25519", text: $identityFile)
-                            .textFieldStyle(.roundedBorder)
-                            .onChange(of: identityFile) { probeState = .idle }
-                        Button("Browse…", action: chooseIdentityFile)
-                            .fixedSize(horizontal: true, vertical: false)
+                if authenticationMethod == .privateKey {
+                    VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
+                        Text("Identity File")
+                            .font(.system(size: UIMetrics.fontFootnote))
+                            .foregroundStyle(MuxyTheme.fgMuted)
+                        HStack(spacing: UIMetrics.spacing3) {
+                            TextField("~/.ssh/id_ed25519", text: $identityFile)
+                                .textFieldStyle(.roundedBorder)
+                                .onChange(of: identityFile) { probeState = .idle }
+                            Button("Browse…", action: chooseIdentityFile)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
                     }
                 }
                 environmentEditor
@@ -145,6 +159,26 @@ struct RemoteDeviceEditorSheet: View {
             Text("Advanced")
                 .font(.system(size: UIMetrics.fontFootnote, weight: .medium))
                 .foregroundStyle(MuxyTheme.fgMuted)
+        }
+    }
+
+    private var authenticationSection: some View {
+        VStack(alignment: .leading, spacing: UIMetrics.spacing2) {
+            Text("Authentication")
+                .font(.system(size: UIMetrics.fontFootnote))
+                .foregroundStyle(MuxyTheme.fgMuted)
+            Picker("Authentication", selection: $authenticationMethod) {
+                Text("Auto").tag(SSHAuthenticationMethod.automatic)
+                Text("Private Key").tag(SSHAuthenticationMethod.privateKey)
+                Text("Password").tag(SSHAuthenticationMethod.password)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: authenticationMethod) { probeState = .idle }
+            if authenticationMethod == .password {
+                SecureField("Password", text: $password)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: password) { probeState = .idle }
+            }
         }
     }
 
@@ -173,7 +207,7 @@ struct RemoteDeviceEditorSheet: View {
     private var statusRow: some View {
         switch probeState {
         case .idle:
-            Text("Muxy uses your system SSH config, keys, and agent. No passwords are stored.")
+            Text(idleStatusMessage)
                 .font(.system(size: UIMetrics.fontFootnote))
                 .foregroundStyle(MuxyTheme.fgMuted)
         case .testing:
@@ -198,6 +232,17 @@ struct RemoteDeviceEditorSheet: View {
                     .foregroundStyle(MuxyTheme.fgMuted)
                     .textSelection(.enabled)
             }
+        }
+    }
+
+    private var idleStatusMessage: String {
+        switch authenticationMethod {
+        case .automatic:
+            "Muxy resolves host aliases from ~/.ssh/config and uses any configured HostName, User, Port, or IdentityFile."
+        case .privateKey:
+            "Muxy connects with the selected private key or the IdentityFile from ~/.ssh/config."
+        case .password:
+            "Muxy stores this password in the system Keychain and reuses it for future SSH connections."
         }
     }
 
@@ -242,6 +287,7 @@ struct RemoteDeviceEditorSheet: View {
             port: parsedPort,
             user: user,
             identityFile: identityFile,
+            authenticationMethod: authenticationMethod,
             environment: (try? environmentResult.get()) ?? [:]
         )
     }
@@ -261,7 +307,29 @@ struct RemoteDeviceEditorSheet: View {
 
     private func save() {
         guard canSave else { return }
+        syncPasswordCredential()
         onSave(displayName, sshData)
+    }
+
+    private func syncPasswordCredential() {
+        let initialDestination = mode.initialSSH.destination
+        if mode.initialSSH.authenticationMethod == .password {
+            let initialConfiguration = SSHConnectionConfiguration.make(destination: initialDestination)
+            KeychainSSHHelper.deletePassword(
+                host: initialDestination.host,
+                user: initialConfiguration.user,
+                port: UInt16(max(0, min(initialConfiguration.port, Int(UInt16.max))))
+            )
+        }
+        guard authenticationMethod == .password else { return }
+        let destination = sshData.destination
+        let configuration = SSHConnectionConfiguration.make(destination: destination)
+        KeychainSSHHelper.storePassword(
+            trimmedPassword,
+            host: destination.host,
+            user: configuration.user,
+            port: UInt16(max(0, min(configuration.port, Int(UInt16.max))))
+        )
     }
 
     private func failureMessage(for destination: SSHDestination) -> String {

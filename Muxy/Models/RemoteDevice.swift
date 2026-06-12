@@ -4,12 +4,19 @@ enum RemoteDeviceKind: String, Codable, Hashable {
     case ssh
 }
 
+enum SSHAuthenticationMethod: String, Codable, Hashable {
+    case automatic
+    case privateKey
+    case password
+}
+
 struct SSHWorkspaceData: Codable, Hashable {
     var host: String
     var remoteRoot: String
     var port: Int?
     var user: String?
     var identityFile: String?
+    var authenticationMethod: SSHAuthenticationMethod
     var environment: [String: String]
 
     init(
@@ -18,6 +25,7 @@ struct SSHWorkspaceData: Codable, Hashable {
         port: Int? = nil,
         user: String? = nil,
         identityFile: String? = nil,
+        authenticationMethod: SSHAuthenticationMethod? = nil,
         environment: [String: String] = SSHEnvironmentVariables.default
     ) {
         self.host = SSHFieldSanitizer.host(host)
@@ -25,6 +33,7 @@ struct SSHWorkspaceData: Codable, Hashable {
         self.port = port
         self.user = SSHFieldSanitizer.optionalArgument(user)
         self.identityFile = SSHFieldSanitizer.identityFile(identityFile)
+        self.authenticationMethod = authenticationMethod ?? (self.identityFile == nil ? .automatic : .privateKey)
         self.environment = SSHEnvironmentVariables.sanitize(environment)
     }
 
@@ -35,6 +44,10 @@ struct SSHWorkspaceData: Codable, Hashable {
         port = try container.decodeIfPresent(Int.self, forKey: .port)
         user = try SSHFieldSanitizer.optionalArgument(container.decodeIfPresent(String.self, forKey: .user))
         identityFile = try SSHFieldSanitizer.identityFile(container.decodeIfPresent(String.self, forKey: .identityFile))
+        authenticationMethod = try container.decodeIfPresent(
+            SSHAuthenticationMethod.self,
+            forKey: .authenticationMethod
+        ) ?? (identityFile == nil ? .automatic : .privateKey)
         environment = try SSHEnvironmentVariables.defaulting(container.decodeIfPresent([String: String].self, forKey: .environment))
     }
 
@@ -45,6 +58,7 @@ struct SSHWorkspaceData: Codable, Hashable {
             port: port,
             user: user,
             identityFile: identityFile,
+            authenticationMethod: authenticationMethod,
             environment: environment
         )
     }

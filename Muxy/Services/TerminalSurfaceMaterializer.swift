@@ -13,7 +13,8 @@ enum TerminalSurfaceMaterializer {
             workingDirectory: pane.currentWorkingDirectory ?? pane.projectPath,
             command: pane.startupCommand,
             commandInteractive: pane.startupCommandInteractive,
-            closesOnCommandExit: pane.closesOnStartupCommandExit
+            closesOnCommandExit: pane.closesOnStartupCommandExit,
+            sshConfiguration: pane.sshConfiguration
         )
         if view.envVars.isEmpty {
             view.envVars = TerminalEnvVarBuilder.build(paneID: paneID, worktreeKey: location.worktreeKey)

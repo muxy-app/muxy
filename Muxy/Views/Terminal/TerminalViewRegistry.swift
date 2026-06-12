@@ -1,4 +1,5 @@
 import AppKit
+import MuxySSH
 
 @MainActor
 final class TerminalViewRegistry {
@@ -19,9 +20,12 @@ final class TerminalViewRegistry {
         command: String? = nil,
         commandInteractive: Bool = false,
         closesOnCommandExit: Bool = true,
-        workspaceContext: WorkspaceContext = .local
+        sshConfiguration: SSHConnectionConfiguration? = nil
     ) -> GhosttyTerminalNSView {
         if let existing = views[paneID] {
+            if existing.sshConfiguration == nil {
+                existing.sshConfiguration = sshConfiguration
+            }
             return existing
         }
         let view = GhosttyTerminalNSView(
@@ -29,7 +33,7 @@ final class TerminalViewRegistry {
             command: command,
             commandInteractive: commandInteractive,
             closesOnCommandExit: closesOnCommandExit,
-            workspaceContext: workspaceContext
+            sshConfiguration: sshConfiguration
         )
         views[paneID] = view
         paneIDs[ObjectIdentifier(view)] = paneID

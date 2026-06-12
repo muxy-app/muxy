@@ -5,6 +5,7 @@ struct SSHConnectionKey: Hashable {
     let port: Int?
     let user: String?
     let identityFile: String?
+    let authenticationMethod: SSHAuthenticationMethod
 }
 
 struct SSHDestination: Hashable, Codable {
@@ -13,10 +14,17 @@ struct SSHDestination: Hashable, Codable {
     var port: Int?
     var user: String?
     var identityFile: String?
+    var authenticationMethod: SSHAuthenticationMethod
     var environment: [String: String]
 
     var connectionKey: SSHConnectionKey {
-        SSHConnectionKey(host: host, port: port, user: user, identityFile: identityFile)
+        SSHConnectionKey(
+            host: host,
+            port: port,
+            user: user,
+            identityFile: identityFile,
+            authenticationMethod: authenticationMethod
+        )
     }
 
     init(
@@ -25,6 +33,7 @@ struct SSHDestination: Hashable, Codable {
         port: Int? = nil,
         user: String? = nil,
         identityFile: String? = nil,
+        authenticationMethod: SSHAuthenticationMethod? = nil,
         environment: [String: String] = SSHEnvironmentVariables.default
     ) {
         self.host = SSHFieldSanitizer.host(host)
@@ -32,6 +41,7 @@ struct SSHDestination: Hashable, Codable {
         self.port = port
         self.user = SSHFieldSanitizer.optionalArgument(user)
         self.identityFile = SSHFieldSanitizer.identityFile(identityFile)
+        self.authenticationMethod = authenticationMethod ?? (self.identityFile == nil ? .automatic : .privateKey)
         self.environment = SSHEnvironmentVariables.sanitize(environment)
     }
 
@@ -42,6 +52,10 @@ struct SSHDestination: Hashable, Codable {
         port = try container.decodeIfPresent(Int.self, forKey: .port)
         user = try SSHFieldSanitizer.optionalArgument(container.decodeIfPresent(String.self, forKey: .user))
         identityFile = try SSHFieldSanitizer.identityFile(container.decodeIfPresent(String.self, forKey: .identityFile))
+        authenticationMethod = try container.decodeIfPresent(
+            SSHAuthenticationMethod.self,
+            forKey: .authenticationMethod
+        ) ?? (identityFile == nil ? .automatic : .privateKey)
         environment = try SSHEnvironmentVariables.defaulting(container.decodeIfPresent([String: String].self, forKey: .environment))
     }
 
@@ -60,7 +74,7 @@ struct SSHDestination: Hashable, Codable {
         if let port {
             arguments += ["-p", String(port)]
         }
-        if let identityFile {
+        if authenticationMethod == .privateKey, let identityFile {
             arguments += ["-i", identityFile, "-o", "IdentitiesOnly=yes"]
         }
         return arguments

@@ -1,4 +1,5 @@
 import AppKit
+import MuxySSH
 import SwiftUI
 
 struct TerminalPane: View {
@@ -49,16 +50,21 @@ struct TerminalPane: View {
                 visible: visible,
                 areaID: areaID,
                 onFocus: onFocus,
-                onProcessExit: onProcessExit,
+                onProcessExit: {
+                    onProcessExit()
+                },
                 onSplitRequest: onSplitRequest
             )
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Terminal")
             .accessibilityAddTraits(.allowsDirectInteraction)
-            .opacity(remoteOwnerName == nil ? 1 : 0)
-            .allowsHitTesting(remoteOwnerName == nil)
+            .opacity(remoteOwnerName == nil && state.sshError == nil ? 1 : 0)
+            .allowsHitTesting(remoteOwnerName == nil && state.sshError == nil)
 
-            if let name = remoteOwnerName {
+            if let error = state.sshError {
+                sshErrorOverlay(error)
+                    .transition(.opacity)
+            } else if let name = remoteOwnerName {
                 RemoteControlledPlaceholder(deviceName: name) {
                     PaneOwnershipStore.shared.releaseToMac(paneID: state.id)
                 }
@@ -92,6 +98,31 @@ struct TerminalPane: View {
                     .transition(.opacity)
             }
         }
+    }
+
+    private func sshErrorOverlay(_ error: SSHConnectionError) -> some View {
+        VStack(spacing: UIMetrics.spacing6) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 28))
+                .foregroundStyle(MuxyTheme.warning)
+            Text(error.title)
+                .font(.system(size: UIMetrics.fontHeadline, weight: .semibold))
+                .foregroundStyle(MuxyTheme.fg)
+            Text(error.message)
+                .font(.system(size: UIMetrics.fontBody))
+                .foregroundStyle(MuxyTheme.fgMuted)
+                .multilineTextAlignment(.center)
+            Button("Reconnect") {
+                state.sshError = nil
+                state.sshStartTime = Date()
+                TerminalViewRegistry.shared.existingView(for: state.id)?.restartSSH()
+            }
+            .buttonStyle(.borderedProminent)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MuxyTheme.bg)
     }
 }
 
@@ -198,6 +229,11 @@ struct TerminalBridge: NSViewRepresentable {
 
     func makeNSView(context: Context) -> GhosttyTerminalNSView {
         let registry = TerminalViewRegistry.shared
+        let sshConfiguration = sshConfiguration(for: workspaceContext)
+        state.sshConfiguration = sshConfiguration
+        if sshConfiguration != nil, state.sshStartTime == nil {
+            state.sshStartTime = Date()
+        }
         let launch = state.consumeRestoredLaunch()
         let view = registry.view(
             for: state.id,
@@ -205,7 +241,7 @@ struct TerminalBridge: NSViewRepresentable {
             command: launch.command,
             commandInteractive: launch.interactive,
             closesOnCommandExit: launch.closesOnCommandExit,
-            workspaceContext: workspaceContext
+            sshConfiguration: sshConfiguration
         )
         if view.envVars.isEmpty, let key = worktreeKey {
             view.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
@@ -231,6 +267,9 @@ struct TerminalBridge: NSViewRepresentable {
         view.onOfflineChange = { [weak state] offline in
             state?.isOffline = offline
         }
+        view.onSSHError = { [weak state] error in
+            state?.sshError = error
+        }
         view.updateResumeWorkingDirectory(state.currentWorkingDirectory ?? state.projectPath)
         configureSearchCallbacks(view)
         configureFileOpenCallback(view)
@@ -251,6 +290,9 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
+        let sshConfiguration = sshConfiguration(for: workspaceContext)
+        state.sshConfiguration = sshConfiguration
+        nsView.sshConfiguration = sshConfiguration
         if nsView.envVars.isEmpty, nsView.surface == nil, let key = worktreeKey {
             nsView.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
         }
@@ -274,6 +316,9 @@ struct TerminalBridge: NSViewRepresentable {
         }
         nsView.onOfflineChange = { [weak state] offline in
             state?.isOffline = offline
+        }
+        nsView.onSSHError = { [weak state] error in
+            state?.sshError = error
         }
         configureSearchCallbacks(nsView)
         configureFileOpenCallback(nsView)
@@ -299,6 +344,11 @@ struct TerminalBridge: NSViewRepresentable {
         } else if !focused, wasFocused {
             nsView.notifySurfaceUnfocused()
         }
+    }
+
+    private func sshConfiguration(for workspaceContext: WorkspaceContext) -> SSHConnectionConfiguration? {
+        guard case let .ssh(destination) = workspaceContext else { return nil }
+        return SSHConnectionConfiguration.make(destination: destination, command: state.startupCommand)
     }
 
     private func makeExternalDragHoverHandler(areaID: UUID) -> (Bool) -> Void {

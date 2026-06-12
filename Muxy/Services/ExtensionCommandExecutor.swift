@@ -68,6 +68,13 @@ enum ExtensionCommandExecutor {
         defaultCwd: String?,
         context: WorkspaceContext = .local
     ) async throws -> ExecResult {
+        if case let .ssh(destination) = context {
+            return try await runRemote(
+                destination: destination,
+                request: request,
+                defaultCwd: defaultCwd
+            )
+        }
         let process = Process()
         try configureLaunch(
             process,
@@ -118,6 +125,47 @@ enum ExtensionCommandExecutor {
             exitCode: process.terminationStatus,
             timedOut: timeoutFlag.fired,
             truncated: stdoutBox.overflow || stderrBox.overflow
+        )
+    }
+
+    private static func runRemote(
+        destination: SSHDestination,
+        request: ExecRequest,
+        defaultCwd: String?
+    ) async throws -> ExecResult {
+        let workingDirectory = (request.cwd?.isEmpty == false) ? request.cwd : defaultCwd
+        let remoteEnv = request.env?.filter { isSafeEnvKey($0.key) }
+        let stdinData = request.stdin?.data(using: .utf8)
+        let timeout = Double(request.timeoutMs ?? defaultTimeoutMs) / 1000
+        let result: GitProcessResult
+        if let shell = request.shell {
+            result = try await SSHCommandRunner.runShell(
+                destination: destination,
+                shellCommand: shell,
+                workingDirectory: workingDirectory,
+                environment: remoteEnv,
+                timeout: timeout,
+                input: stdinData
+            )
+        } else if let argv = request.argv, let head = argv.first, !head.isEmpty {
+            result = try await SSHCommandRunner.runCommand(
+                destination: destination,
+                executable: head,
+                arguments: Array(argv.dropFirst()),
+                workingDirectory: workingDirectory,
+                environment: remoteEnv,
+                timeout: timeout,
+                input: stdinData
+            )
+        } else {
+            throw ExecError.invalidArguments("either argv (non-empty) or shell is required")
+        }
+        return ExecResult(
+            stdout: result.stdout,
+            stderr: result.stderr,
+            exitCode: result.status,
+            timedOut: false,
+            truncated: result.truncated
         )
     }
 

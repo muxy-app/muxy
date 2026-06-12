@@ -1,4 +1,5 @@
 import Foundation
+import MuxySSH
 
 enum SSHCommandError: LocalizedError {
     case timedOut(TimeInterval)
@@ -16,22 +17,76 @@ enum SSHCommandRunner {
     static func run(
         destination: SSHDestination,
         remoteCommand: String,
-        batch: Bool = true,
+        batch _: Bool = true,
         lineLimit: Int? = nil,
         timeout: TimeInterval = defaultTimeout,
         input: Data? = nil
     ) async throws -> GitProcessResult {
-        let options = batch ? SSHDestination.batchOptions : SSHDestination.connectOptions
-        let command = RemoteCommandBuilder.environmentPrefix(destination.environment) + remoteCommand
-        let arguments = destination.connectionArguments + options + ["-T", destination.target, "--", command]
-        let resolved = ResolvedLaunch(
-            executable: "/usr/bin/ssh",
-            arguments: arguments,
-            workingDirectory: nil
+        let configuration = SSHConnectionConfiguration.make(destination: destination)
+        let result = try await SSHExecService.shared.run(
+            configuration: configuration,
+            command: RemoteCommandBuilder.environmentPrefix(destination.environment) + remoteCommand,
+            stdinData: input,
+            timeout: timeout
         )
-        return try await withTimeout(timeout) {
-            try await GitProcessRunner.runResolved(resolved, lineLimit: lineLimit, stdinData: input)
-        }
+        let limited = limit(result.stdout, lineLimit: lineLimit)
+        return GitProcessResult(
+            status: result.status,
+            stdout: limited.stdout,
+            stdoutData: limited.stdoutData,
+            stderr: result.stderr,
+            truncated: limited.truncated
+        )
+    }
+
+    static func runCommand(
+        destination: SSHDestination,
+        executable: String,
+        arguments: [String],
+        workingDirectory: String?,
+        environment: [String: String]? = nil,
+        lineLimit: Int? = nil,
+        timeout: TimeInterval = defaultTimeout,
+        input: Data? = nil
+    ) async throws -> GitProcessResult {
+        let mergedEnvironment = SSHEnvironmentVariables.merged(device: destination.environment, command: environment)
+        let remoteCommand = RemoteCommandBuilder.remoteCommand(
+            executable: executable,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            environment: mergedEnvironment
+        )
+        return try await run(
+            destination: destination,
+            remoteCommand: remoteCommand,
+            lineLimit: lineLimit,
+            timeout: timeout,
+            input: input
+        )
+    }
+
+    static func runShell(
+        destination: SSHDestination,
+        shellCommand: String,
+        workingDirectory: String?,
+        environment: [String: String]? = nil,
+        lineLimit: Int? = nil,
+        timeout: TimeInterval = defaultTimeout,
+        input: Data? = nil
+    ) async throws -> GitProcessResult {
+        let mergedEnvironment = SSHEnvironmentVariables.merged(device: destination.environment, command: environment)
+        let remoteCommand = RemoteCommandBuilder.remoteShellCommand(
+            shell: shellCommand,
+            workingDirectory: workingDirectory,
+            environment: mergedEnvironment
+        )
+        return try await run(
+            destination: destination,
+            remoteCommand: remoteCommand,
+            lineLimit: lineLimit,
+            timeout: timeout,
+            input: input
+        )
     }
 
     static func withTimeout(
@@ -50,5 +105,24 @@ enum SSHCommandRunner {
             }
             return result
         }
+    }
+
+    private static func limit(_ stdout: String, lineLimit: Int?) -> (stdout: String, stdoutData: Data, truncated: Bool) {
+        guard let lineLimit else {
+            let data = Data(stdout.utf8)
+            return (stdout, data, false)
+        }
+        var lines = stdout.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
+        let hadTrailingNewline = stdout.hasSuffix("\n")
+        if hadTrailingNewline, lines.last == "" {
+            lines.removeLast()
+        }
+        guard lines.count > lineLimit else {
+            let normalized = hadTrailingNewline ? stdout : lines.joined(separator: "\n")
+            return (normalized, Data(normalized.utf8), false)
+        }
+        let limitedLines = Array(lines.prefix(lineLimit))
+        let limited = limitedLines.joined(separator: "\n")
+        return (limited, Data(limited.utf8), true)
     }
 }

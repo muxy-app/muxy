@@ -32,13 +32,13 @@ struct GitRepositoryService {
                 workingDirectory: workingDirectory
             )
         }
-        let resolved = CommandTransform.resolve(
+        return try await SSHCommandRunner.runCommand(
+            destination: destination,
             executable: executable,
             arguments: arguments,
             workingDirectory: workingDirectory,
-            in: .ssh(destination)
+            timeout: SSHCommandRunner.defaultTimeout
         )
-        return try await GitProcessRunner.runResolved(resolved)
     }
 
     struct PatchAndCompareResult {
