@@ -108,8 +108,8 @@ struct ProjectSidebarDropHandlerTests {
         #expect(receivedPath == directory.path(percentEncoded: false))
     }
 
-    @Test("drop stops after first success")
-    func dropStopsAfterFirstSuccess() async {
+    @Test("drop processes every valid provider")
+    func dropProcessesEveryValidProvider() async {
         let firstDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("muxy-sidebar-drop-\(UUID().uuidString)")
         let secondDirectory = FileManager.default.temporaryDirectory
@@ -124,11 +124,15 @@ struct ProjectSidebarDropHandlerTests {
         }
 
         await Task.yield()
+        await Task.yield()
 
         #expect(consumed)
-        #expect(paths == [firstDirectory.path(percentEncoded: false)])
+        #expect(paths == [
+            firstDirectory.path(percentEncoded: false),
+            secondDirectory.path(percentEncoded: false),
+        ])
         #expect(first.loadCount == 1)
-        #expect(second.loadCount == 0)
+        #expect(second.loadCount == 1)
     }
 }
 

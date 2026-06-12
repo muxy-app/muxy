@@ -36,10 +36,8 @@ enum ProjectSidebarDropHandler {
                 return
             }
             Task { @MainActor in
-                let result = onPath(path)
-                if result != .success {
-                    process(providers: providers, index: index + 1, onPath: onPath)
-                }
+                _ = onPath(path)
+                process(providers: providers, index: index + 1, onPath: onPath)
             }
         }
     }
