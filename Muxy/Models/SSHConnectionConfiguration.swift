@@ -15,7 +15,8 @@ struct SSHConnectionConfiguration: Equatable, SSHConnectionConfigurable {
     }
 
     var initialShellInput: String {
-        "\(pathCommand)\n"
+        guard command == nil else { return "" }
+        return "\(pathCommand)\n"
     }
 
     var localSurfaceWorkingDirectory: String {
@@ -23,16 +24,19 @@ struct SSHConnectionConfiguration: Equatable, SSHConnectionConfigurable {
     }
 
     private var pathCommand: String {
-        "cd \(ShellEscaper.escape(remotePath))"
+        "cd \(RemoteCommandBuilder.quoteRemotePath(remotePath))"
     }
-
-    static func make(destination: SSHDestination, command: String? = nil) -> SSHConnectionConfiguration {
+    static func make(
+        destination: SSHDestination,
+        remotePath: String? = nil,
+        command: String? = nil
+    ) -> SSHConnectionConfiguration {
         let resolved = ResolvedSSHDestination.resolve(destination)
         return SSHConnectionConfiguration(
             host: resolved.host,
             port: resolved.port,
             user: resolved.user,
-            remotePath: destination.remoteRoot,
+            remotePath: remotePath ?? destination.remoteRoot,
             authentication: authentication(for: destination, resolved: resolved),
             command: command
         )

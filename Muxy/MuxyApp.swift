@@ -127,6 +127,10 @@ struct MuxyApp: App {
                                 worktreeStore.removeProject(id)
                                 continue
                             }
+                            guard ProjectCleanupPolicy.shouldRemoveStoredProjectWhenWorkspaceEmptied(project) else {
+                                worktreeStore.removeProject(id)
+                                continue
+                            }
                             let knownWorktrees = worktreeStore.list(for: id)
                             Task {
                                 do {

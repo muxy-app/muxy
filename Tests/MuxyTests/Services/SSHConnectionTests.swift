@@ -37,6 +37,7 @@ struct SSHConnectionTests {
         )
 
         #expect(configuration.authentication == .password(password))
+        #expect(configuration.remoteExecCommand == nil)
         #expect(configuration.initialShellInput == "cd /srv/app\n")
     }
 
@@ -55,7 +56,7 @@ struct SSHConnectionTests {
 
         #expect(configuration.authentication == .privateKey(path: "~/.ssh/id_ed25519"))
         #expect(configuration.remoteExecCommand == "cd '/srv/app path'; swift test")
-        #expect(configuration.initialShellInput == "cd '/srv/app path'\n")
+        #expect(configuration.initialShellInput.isEmpty)
     }
 
     @Test("remote ssh panes use a local surface working directory")
@@ -69,6 +70,22 @@ struct SSHConnectionTests {
         )
 
         #expect(configuration.localSurfaceWorkingDirectory == NSHomeDirectory())
+    }
+
+    @Test("remote project path overrides workspace root for shell startup")
+    func remoteProjectPathOverridesWorkspaceRoot() {
+        let configuration = SSHConnectionConfiguration.make(
+            destination: SSHDestination(
+                host: "prod",
+                remoteRoot: "~/",
+                user: "deploy"
+            ),
+            remotePath: "~/Documents/workspace/alacritty"
+        )
+
+        #expect(configuration.remotePath == "~/Documents/workspace/alacritty")
+        #expect(configuration.remoteExecCommand == nil)
+        #expect(configuration.initialShellInput == "cd ~/Documents/workspace/alacritty\n")
     }
 
     @Test("legacy ssh cli startup command is discarded for native ssh")
