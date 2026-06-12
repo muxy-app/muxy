@@ -40,8 +40,17 @@ struct RemoteDeviceEditorSheet: View {
 
     private var parsedPort: Int? { Int(trimmedPort) }
     private var trimmedIdentityFile: String { identityFile.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var trimmedPassword: String { password.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var requiresPassword: Bool { authenticationMethod == .password }
+    private var initialPassword: String? {
+        guard mode.initialSSH.authenticationMethod == .password else { return nil }
+        let initialDestination = mode.initialSSH.destination
+        let initialConfiguration = SSHConnectionConfiguration.make(destination: initialDestination)
+        return KeychainSSHHelper.getPassword(
+            host: initialDestination.host,
+            user: initialConfiguration.user,
+            port: UInt16(max(0, min(initialConfiguration.port, Int(UInt16.max))))
+        )
+    }
 
     private var isPortValid: Bool {
         guard !trimmedPort.isEmpty else { return true }
@@ -58,7 +67,10 @@ struct RemoteDeviceEditorSheet: View {
             && isPortValid
             && environmentErrorMessage == nil
             && !displayName.isEmpty
-            && (!requiresPassword || !trimmedPassword.isEmpty)
+            && (!requiresPassword || RemoteDeviceCredentialPolicy.canSavePasswordAuthentication(
+                typedPassword: password,
+                existingPassword: initialPassword
+            ))
     }
 
     private var displayName: String {
@@ -175,11 +187,15 @@ struct RemoteDeviceEditorSheet: View {
             .pickerStyle(.segmented)
             .onChange(of: authenticationMethod) { probeState = .idle }
             if authenticationMethod == .password {
-                SecureField("Password", text: $password)
+                SecureField(passwordPlaceholder, text: $password)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: password) { probeState = .idle }
             }
         }
+    }
+
+    private var passwordPlaceholder: String {
+        initialPassword == nil ? "Password" : "Password (leave blank to keep current)"
     }
 
     private var environmentEditor: some View {
@@ -313,6 +329,10 @@ struct RemoteDeviceEditorSheet: View {
 
     private func syncPasswordCredential() {
         let initialDestination = mode.initialSSH.destination
+        let persistedPassword = RemoteDeviceCredentialPolicy.passwordToPersist(
+            typedPassword: password,
+            existingPassword: initialPassword
+        )
         if mode.initialSSH.authenticationMethod == .password {
             let initialConfiguration = SSHConnectionConfiguration.make(destination: initialDestination)
             KeychainSSHHelper.deletePassword(
@@ -321,11 +341,11 @@ struct RemoteDeviceEditorSheet: View {
                 port: UInt16(max(0, min(initialConfiguration.port, Int(UInt16.max))))
             )
         }
-        guard authenticationMethod == .password else { return }
+        guard authenticationMethod == .password, let persistedPassword else { return }
         let destination = sshData.destination
         let configuration = SSHConnectionConfiguration.make(destination: destination)
         KeychainSSHHelper.storePassword(
-            trimmedPassword,
+            persistedPassword,
             host: destination.host,
             user: configuration.user,
             port: UInt16(max(0, min(configuration.port, Int(UInt16.max))))
