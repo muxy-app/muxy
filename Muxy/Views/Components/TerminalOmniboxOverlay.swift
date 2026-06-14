@@ -269,6 +269,11 @@ private struct TerminalOmniboxRow: View {
     let isHighlighted: Bool
     @State private var hovered = false
 
+    private var unreadCount: Int {
+        guard case let .worktree(worktree) = item else { return 0 }
+        return NotificationStore.shared.unreadCount(for: worktree.projectID, worktreeID: worktree.worktreeID)
+    }
+
     var body: some View {
         HStack(spacing: UIMetrics.spacing5) {
             Image(systemName: item.symbol)
@@ -290,6 +295,9 @@ private struct TerminalOmniboxRow: View {
                 }
             }
             Spacer(minLength: UIMetrics.spacing2)
+            if unreadCount > 0 {
+                NotificationBadge(count: unreadCount)
+            }
         }
         .frame(height: UIMetrics.scaled(40))
         .padding(.horizontal, UIMetrics.spacing6)
