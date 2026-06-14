@@ -673,7 +673,7 @@ struct MainWindow: View {
     }
 
     private var terminalOmniboxWorktrees: [TerminalOmniboxWorktreeItem] {
-        omniboxProjects.flatMap { project in
+        let items = omniboxProjects.flatMap { project in
             worktreeStore.list(for: project.id).map { worktree in
                 TerminalOmniboxWorktreeItem(
                     projectID: project.id,
@@ -685,6 +685,16 @@ struct MainWindow: View {
                 )
             }
         }
+        var mruRank: [WorktreeKey: Int] = [:]
+        for (index, key) in appState.worktreeMRU.enumerated() {
+            mruRank[key] = index
+        }
+        return items.enumerated().sorted { lhs, rhs in
+            let lhsRank = mruRank[WorktreeKey(projectID: lhs.element.projectID, worktreeID: lhs.element.worktreeID)] ?? Int.max
+            let rhsRank = mruRank[WorktreeKey(projectID: rhs.element.projectID, worktreeID: rhs.element.worktreeID)] ?? Int.max
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
     }
 
     private var terminalOmniboxWorkspaces: [TerminalOmniboxWorkspaceItem] {

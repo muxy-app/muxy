@@ -67,6 +67,8 @@ final class AppState {
 
     var activeWorktreeID: [UUID: UUID] = [:]
 
+    private(set) var worktreeMRU: [WorktreeKey] = []
+
     struct PendingTabClose: Equatable {
         let projectID: UUID
         let areaID: UUID
@@ -140,6 +142,7 @@ final class AppState {
         else { return }
         activeProjectID = id
         recordCurrentNavigationEntry()
+        recordActiveWorktreeUsage()
     }
 
     func saveWorkspaces() {
@@ -162,6 +165,14 @@ final class AppState {
     func activeWorktreeKey(for projectID: UUID) -> WorktreeKey? {
         guard let worktreeID = activeWorktreeID[projectID] else { return nil }
         return WorktreeKey(projectID: projectID, worktreeID: worktreeID)
+    }
+
+    private func recordActiveWorktreeUsage() {
+        guard let projectID = activeProjectID,
+              let key = activeWorktreeKey(for: projectID)
+        else { return }
+        worktreeMRU.removeAll { $0 == key }
+        worktreeMRU.insert(key, at: 0)
     }
 
     func workspaceRoot(for projectID: UUID) -> SplitNode? {
@@ -636,6 +647,7 @@ final class AppState {
 
         pruneNavigationHistory()
         recordCurrentNavigationEntry()
+        recordActiveWorktreeUsage()
 
         if let activeTabID = NotificationNavigator.activeTabID(appState: self) {
             NotificationStore.shared.markAsRead(tabID: activeTabID)
