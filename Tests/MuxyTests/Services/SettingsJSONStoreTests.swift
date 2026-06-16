@@ -132,7 +132,7 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
-    func tabHeaderSizeAcceptsZeroAsFullWidth() throws {
+    func tabHeaderWidthPersistsZeroAsFullWidth() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [TabWidthPreferences.maxWidthKey])
         defer { snapshot.restore() }
 
@@ -142,12 +142,12 @@ struct SettingsJSONStoreTests {
         }
         """)
 
-        #expect(UserDefaults.standard.object(forKey: TabWidthPreferences.maxWidthKey) == nil)
+        #expect(UserDefaults.standard.double(forKey: TabWidthPreferences.maxWidthKey) == 0)
         #expect(TabWidthPreferences.effectiveMaxWidth(from: 0) == nil)
     }
 
     @Test
-    func tabHeaderSizeAcceptsSmallPixelValue() throws {
+    func tabHeaderWidthPersistsPixelCap() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [TabWidthPreferences.maxWidthKey])
         defer { snapshot.restore() }
 
@@ -162,7 +162,7 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
-    func tabHeaderSizeAcceptsMediumPixelValue() throws {
+    func tabHeaderWidthTreatsMaximumAsFullWidth() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [TabWidthPreferences.maxWidthKey])
         defer { snapshot.restore() }
 
@@ -173,15 +173,15 @@ struct SettingsJSONStoreTests {
         """)
 
         #expect(UserDefaults.standard.double(forKey: TabWidthPreferences.maxWidthKey) == 400)
-        #expect(TabWidthPreferences.effectiveMaxWidth(from: 400) == CGFloat(400))
+        #expect(TabWidthPreferences.effectiveMaxWidth(from: 400) == nil)
     }
 
     @Test
-    func tabHeaderSizeAllowsNullAsFullWidth() throws {
+    func tabHeaderWidthRemovesKeyForNull() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [TabWidthPreferences.maxWidthKey])
         defer { snapshot.restore() }
 
-        UserDefaults.standard.set(400, forKey: TabWidthPreferences.maxWidthKey)
+        UserDefaults.standard.set(200, forKey: TabWidthPreferences.maxWidthKey)
 
         try SettingsJSONStore.saveUserSettingsText("""
         {
@@ -193,7 +193,7 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
-    func tabHeaderSizeAcceptsArbitraryConfigPixelValue() throws {
+    func tabHeaderWidthAcceptsArbitraryConfigPixelValue() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [TabWidthPreferences.maxWidthKey])
         defer { snapshot.restore() }
 
@@ -208,7 +208,7 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
-    func tabHeaderSizeRejectsNegativeValues() throws {
+    func tabHeaderWidthRejectsNegativeValues() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [TabWidthPreferences.maxWidthKey])
         defer { snapshot.restore() }
 
@@ -219,6 +219,18 @@ struct SettingsJSONStoreTests {
             }
             """)
         }
+    }
+
+    @Test
+    func tabHeaderWidthSliderRoundTrips() {
+        #expect(TabWidthPreferences.sliderValue(from: TabWidthPreferences.defaultMaxWidth) == 200)
+        #expect(TabWidthPreferences.sliderValue(from: 0) == TabWidthPreferences.maxMaxWidth)
+        #expect(TabWidthPreferences.sliderValue(from: 320) == 320)
+        #expect(TabWidthPreferences.sliderValue(from: 50) == TabWidthPreferences.minMaxWidth)
+
+        #expect(TabWidthPreferences.storedValue(forSlider: TabWidthPreferences.maxMaxWidth) == 0)
+        #expect(TabWidthPreferences.storedValue(forSlider: 200) == 200)
+        #expect(TabWidthPreferences.storedValue(forSlider: 50) == TabWidthPreferences.minMaxWidth)
     }
 
     @Test

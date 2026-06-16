@@ -99,7 +99,6 @@ enum SettingsJSONStore {
             guard let value = item.defaultValue else { return nil }
             return (item.key, jsonValue(value))
         })
-        dictionary[TabWidthPreferences.maxWidthKey] = NSNull()
         dictionary["shortcuts.app"] = keyBindingsJSONObject(KeyBinding.defaults)
         dictionary["shortcuts.customCommands"] = commandShortcutsJSONObject(CommandShortcutConfiguration())
         dictionary["ai.providers"] = notificationProviderSettings(defaultValue: true)
@@ -145,11 +144,6 @@ enum SettingsJSONStore {
                 continue
             }
             if value is NSNull {
-                UserDefaults.standard.removeObject(forKey: key)
-            } else if key == TabWidthPreferences.maxWidthKey,
-                      let number = value as? NSNumber,
-                      number.doubleValue == TabWidthPreferences.fullWidthValue
-            {
                 UserDefaults.standard.removeObject(forKey: key)
             } else {
                 UserDefaults.standard.set(value, forKey: key)
@@ -248,7 +242,6 @@ enum SettingsJSONStore {
         case "editor.richInputImageStrategy": settings.richInputImageStrategy.rawValue
         case "editor.richInputFontFamily": settings.richInputFontFamily
         case "editor.richInputLineHeightMultiplier": Double(settings.richInputLineHeightMultiplier)
-        case TabWidthPreferences.maxWidthKey: UserDefaults.standard.object(forKey: item.key) ?? NSNull()
         default: UserDefaults.standard.object(forKey: item.key)
         }
     }

@@ -22,7 +22,7 @@ struct InterfaceSettingsView: View {
                     .frame(width: SettingsMetrics.controlWidth)
                 }
 
-                TabHeaderSizeSettingRow()
+                TabHeaderWidthSettingRow()
 
                 SettingsToggleRow(label: "Show Status Bar", isOn: $showStatusBar)
             }
@@ -67,31 +67,34 @@ struct InterfaceSettingsView: View {
     }
 }
 
-private struct TabHeaderSizeSettingRow: View {
-    @State private var selectedSize = TabWidthPreferences.currentHeaderSize()
+private struct TabHeaderWidthSettingRow: View {
+    @AppStorage(TabWidthPreferences.maxWidthKey) private var maxTabWidth = TabWidthPreferences.defaultMaxWidth
+
+    private var sliderValue: Binding<Double> {
+        Binding(
+            get: { TabWidthPreferences.sliderValue(from: maxTabWidth) },
+            set: { maxTabWidth = TabWidthPreferences.storedValue(forSlider: $0.rounded()) }
+        )
+    }
+
+    private var valueLabel: String {
+        TabWidthPreferences.effectiveMaxWidth(from: maxTabWidth)
+            .map { "\(Int($0))px" } ?? "Full-width"
+    }
 
     var body: some View {
-        SettingsRow("Tab header size") {
-            Picker("", selection: $selectedSize) {
-                ForEach(TabWidthPreferences.HeaderSize.allCases) { size in
-                    Text(size.title).tag(size)
-                }
+        SettingsRow("Tab header width") {
+            HStack(spacing: UIMetrics.spacing3) {
+                Slider(
+                    value: sliderValue,
+                    in: TabWidthPreferences.minMaxWidth ... TabWidthPreferences.maxMaxWidth
+                )
+                Text(valueLabel)
+                    .font(.system(size: SettingsMetrics.labelFontSize).monospacedDigit())
+                    .foregroundStyle(SettingsStyle.mutedForeground)
+                    .frame(width: 64, alignment: .trailing)
             }
-            .labelsHidden()
-            .pickerStyle(.segmented)
             .frame(width: SettingsMetrics.controlWidth)
-        }
-        .onAppear {
-            selectedSize = TabWidthPreferences.currentHeaderSize()
-        }
-        .onChange(of: selectedSize) { _, newValue in
-            TabWidthPreferences.store(newValue)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-            let currentSize = TabWidthPreferences.currentHeaderSize()
-            if currentSize != selectedSize {
-                selectedSize = currentSize
-            }
         }
     }
 }

@@ -3,63 +3,22 @@ import Foundation
 
 enum TabWidthPreferences {
     static let maxWidthKey = "muxy.tabs.maxWidth"
-    static let fullWidthValue: Double = 0
-    static let smallMaxWidth: Double = 200
-    static let mediumMaxWidth: Double = 400
-
-    static var defaultMaxWidth: Double { fullWidthValue }
-
-    enum HeaderSize: String, CaseIterable, Identifiable {
-        case small
-        case medium
-        case fullWidth = "full-width"
-
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .small: "Small"
-            case .medium: "Medium"
-            case .fullWidth: "Full-width"
-            }
-        }
-
-        var storedMaxWidth: Double? {
-            switch self {
-            case .small: TabWidthPreferences.smallMaxWidth
-            case .medium: TabWidthPreferences.mediumMaxWidth
-            case .fullWidth: nil
-            }
-        }
-
-        var jsonValue: Double {
-            storedMaxWidth ?? TabWidthPreferences.fullWidthValue
-        }
-    }
+    static let minMaxWidth: Double = 120
+    static let maxMaxWidth: Double = 400
+    static let defaultMaxWidth: Double = 200
 
     static func effectiveMaxWidth(from storedValue: Double) -> CGFloat? {
-        guard storedValue > 0 else { return nil }
+        guard storedValue > 0, storedValue < maxMaxWidth else { return nil }
         return CGFloat(storedValue)
     }
 
-    static func headerSize(from storedValue: Double) -> HeaderSize {
-        if storedValue == smallMaxWidth { return .small }
-        if storedValue == mediumMaxWidth { return .medium }
-        return .fullWidth
+    static func sliderValue(from storedValue: Double) -> Double {
+        guard storedValue > 0, storedValue < maxMaxWidth else { return maxMaxWidth }
+        return min(max(storedValue, minMaxWidth), maxMaxWidth)
     }
 
-    static func currentHeaderSize(defaults: UserDefaults = .standard) -> HeaderSize {
-        guard let number = defaults.object(forKey: maxWidthKey) as? NSNumber else {
-            return .fullWidth
-        }
-        return headerSize(from: number.doubleValue)
-    }
-
-    static func store(_ headerSize: HeaderSize, defaults: UserDefaults = .standard) {
-        guard let width = headerSize.storedMaxWidth else {
-            defaults.removeObject(forKey: maxWidthKey)
-            return
-        }
-        defaults.set(width, forKey: maxWidthKey)
+    static func storedValue(forSlider sliderValue: Double) -> Double {
+        sliderValue >= maxMaxWidth ? 0 : min(max(sliderValue, minMaxWidth), maxMaxWidth)
     }
 
     static func isAllowedStoredValue(_ value: Double) -> Bool {
