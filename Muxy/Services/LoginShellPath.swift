@@ -9,7 +9,7 @@ final class LoginShellPath: @unchecked Sendable {
     private let lock = NSLock()
     private var cached: String?
 
-    private init() {}
+    init() {}
 
     static var current: String { shared.value }
 
@@ -21,22 +21,33 @@ final class LoginShellPath: @unchecked Sendable {
         shared.hydrateInBackground()
     }
 
+    static func hydrate() async {
+        await shared.hydrate()
+    }
+
     var value: String {
         lock.lock()
         defer { lock.unlock() }
         return cached ?? Self.defaultPath
     }
 
+    func hydrate(readFromLoginShell: @escaping @Sendable () -> String? = LoginShellPath.readFromLoginShell) async {
+        let resolved = await Task.detached(priority: .utility) {
+            readFromLoginShell()
+        }.value
+        guard let resolved, !resolved.isEmpty else {
+            logger.info("Login shell PATH lookup yielded no value; keeping launchd PATH")
+            return
+        }
+        lock.withLock {
+            cached = resolved
+        }
+        logger.info("Hydrated PATH from login shell")
+    }
+
     private func hydrateInBackground() {
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let resolved = Self.readFromLoginShell(), !resolved.isEmpty else {
-                logger.info("Login shell PATH lookup yielded no value; keeping launchd PATH")
-                return
-            }
-            self?.lock.lock()
-            self?.cached = resolved
-            self?.lock.unlock()
-            logger.info("Hydrated PATH from login shell")
+        Task.detached(priority: .utility) { [self] in
+            await hydrate()
         }
     }
 

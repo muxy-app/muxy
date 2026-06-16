@@ -123,8 +123,10 @@ struct ProjectSidebarDropHandlerTests {
             return .success
         }
 
-        await Task.yield()
-        await Task.yield()
+        let deadline = Date().addingTimeInterval(1)
+        while paths.count < 2, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
         #expect(consumed)
         #expect(paths == [

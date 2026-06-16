@@ -17,12 +17,12 @@ struct PiProvider: AIProviderIntegration {
     private static let bundleResourceExtension = "ts"
 
     private let homeDirectory: String
-    private let pathEnvironment: String
+    private let pathEnvironment: @Sendable () -> String
     private let resourceURL: @Sendable (String, String) -> URL?
 
     init(
         homeDirectory: String = NSHomeDirectory(),
-        pathEnvironment: String = ProcessInfo.processInfo.environment["PATH"] ?? "",
+        pathEnvironment: @escaping @Sendable () -> String = { LoginShellPath.current },
         resourceURL: @escaping @Sendable (String, String) -> URL? = { name, ext in
             let bundle = Bundle.appResources
             return bundle.url(forResource: name, withExtension: ext, subdirectory: nil)
@@ -34,6 +34,18 @@ struct PiProvider: AIProviderIntegration {
         self.resourceURL = resourceURL
     }
 
+    init(
+        homeDirectory: String = NSHomeDirectory(),
+        pathEnvironment: String,
+        resourceURL: @escaping @Sendable (String, String) -> URL? = { name, ext in
+            let bundle = Bundle.appResources
+            return bundle.url(forResource: name, withExtension: ext, subdirectory: nil)
+                ?? bundle.url(forResource: name, withExtension: ext, subdirectory: "scripts")
+        }
+    ) {
+        self.init(homeDirectory: homeDirectory, pathEnvironment: { pathEnvironment }, resourceURL: resourceURL)
+    }
+
     private var extensionsDir: String { homeDirectory + "/.pi/agent/extensions" }
     private var destinationPath: String { extensionsDir + "/" + Self.destinationFileName }
     private var settingsPath: String { homeDirectory + "/.pi/agent/settings.json" }
@@ -43,7 +55,7 @@ struct PiProvider: AIProviderIntegration {
             "\(homeDirectory)/.local/bin/pi",
             "/usr/local/bin/pi",
             "/opt/homebrew/bin/pi",
-        ] + pathEnvironment
+        ] + pathEnvironment()
             .split(separator: ":", omittingEmptySubsequences: true)
             .map { "\($0)/pi" }
 

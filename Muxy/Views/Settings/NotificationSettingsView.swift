@@ -75,9 +75,9 @@ private struct ProviderToggleRow: View {
             Spacer()
             if enabled {
                 Button {
-                    AIProviderRegistry.shared.forceInstall(provider)
-                    withAnimation { refreshed = true }
-                    Task {
+                    Task { @MainActor in
+                        await AIProviderRegistry.shared.forceInstall(provider)
+                        withAnimation { refreshed = true }
                         try? await Task.sleep(for: .seconds(2))
                         withAnimation { refreshed = false }
                     }
@@ -99,7 +99,9 @@ private struct ProviderToggleRow: View {
                 .controlSize(.small)
                 .onChange(of: enabled) { _, newValue in
                     provider.isEnabled = newValue
-                    AIProviderRegistry.shared.installAll()
+                    Task { @MainActor in
+                        await AIProviderRegistry.shared.installAll()
+                    }
                 }
         }
         .padding(.horizontal, SettingsMetrics.horizontalPadding)

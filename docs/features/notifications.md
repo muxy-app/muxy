@@ -26,7 +26,7 @@ The path is exported to every Muxy terminal as `MUXY_SOCKET_PATH`, with a per-pa
 
 ## Wire format
 
-One message per connection: a single UTF-8 line with four pipe-separated fields:
+One message per connection: a single newline-terminated UTF-8 line with four pipe-separated fields:
 
 ```
 <type>|<paneID>|<title>|<body>
@@ -49,7 +49,7 @@ Limits:
 ### Shell
 
 ```bash
-printf '%s|%s|%s|%s' \
+printf '%s|%s|%s|%s\n' \
   "custom" "$MUXY_PANE_ID" "Build finished" "All tests passed" \
   | nc -U "$MUXY_SOCKET_PATH"
 ```
@@ -61,7 +61,7 @@ muxy_notify() {
   [ -z "${MUXY_SOCKET_PATH:-}" ] && return 0
   local title="${1:-Done}" body="${2:-}" safe_body
   safe_body=$(printf '%s' "$body" | tr '|\n\r' '   ' | head -c 500)
-  printf '%s|%s|%s|%s' "custom" "${MUXY_PANE_ID:-}" "$title" "$safe_body" \
+  printf '%s|%s|%s|%s\n' "custom" "${MUXY_PANE_ID:-}" "$title" "$safe_body" \
     | nc -U "$MUXY_SOCKET_PATH" 2>/dev/null || true
 }
 
@@ -78,7 +78,7 @@ function muxyNotify(title, body = "") {
   const paneID = process.env.MUXY_PANE_ID || ""
   if (!socketPath) return
   const safeBody = String(body).replace(/[\n\r|]+/g, " ").slice(0, 500)
-  const payload = `custom|${paneID}|${title}|${safeBody}`
+  const payload = `custom|${paneID}|${title}|${safeBody}\n`
   const conn = createConnection({ path: socketPath })
   conn.on("error", () => {})
   conn.write(payload, () => conn.end())
@@ -96,7 +96,7 @@ def muxy_notify(title: str, body: str = "") -> None:
     if not path:
         return
     safe_body = body.replace("|", " ").replace("\n", " ")[:500]
-    payload = f"custom|{pane}|{title}|{safe_body}".encode("utf-8")
+    payload = f"custom|{pane}|{title}|{safe_body}\n".encode("utf-8")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.connect(path)
         s.sendall(payload)

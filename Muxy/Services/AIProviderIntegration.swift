@@ -53,8 +53,12 @@ final class AIProviderRegistry {
     private let cursorProvider = CursorProvider()
     private let droidProvider = DroidProvider()
     private let piProvider = PiProvider()
+    private let injectedProviders: [AIProviderIntegration]?
+    private let hydrateLoginShellPath: @Sendable () async -> Void
+    private let shouldInstallHooksInDebug: @Sendable () -> Bool
+    private var loginShellPathHydration: Task<Void, Never>?
 
-    lazy var providers: [AIProviderIntegration] = [
+    lazy var providers: [AIProviderIntegration] = injectedProviders ?? [
         claudeCodeProvider,
         openCodeProvider,
         codexProvider,
@@ -63,11 +67,25 @@ final class AIProviderRegistry {
         piProvider,
     ]
 
-    private init() {}
+    init(
+        providers: [AIProviderIntegration]? = nil,
+        hydrateLoginShellPath: @escaping @Sendable () async -> Void = { await LoginShellPath.hydrate() },
+        shouldInstallHooksInDebug: @escaping @Sendable () -> Bool = {
+            ProcessInfo.processInfo.environment["FF_AI_HOOKS"] != nil
+        }
+    ) {
+        injectedProviders = providers
+        self.hydrateLoginShellPath = hydrateLoginShellPath
+        self.shouldInstallHooksInDebug = shouldInstallHooksInDebug
+    }
 
-    func installAll() {
+    func prepareForInstallation() {
+        _ = loginShellPathHydrationTask()
+    }
+
+    func installAll() async {
         #if DEBUG
-        guard ProcessInfo.processInfo.environment["FF_AI_HOOKS"] != nil else {
+        guard shouldInstallHooksInDebug() else {
             logger.info("Skipping AI hooks install in dev mode (set FF_AI_HOOKS=true to enable)")
             return
         }
@@ -83,6 +101,8 @@ final class AIProviderRegistry {
                 }
                 continue
             }
+            await loginShellPathHydrationTask().value
+
             guard provider.isToolInstalled() else {
                 logger.info("\(provider.displayName) tool not installed, skipping hook install")
                 continue
@@ -102,7 +122,7 @@ final class AIProviderRegistry {
         }
     }
 
-    func forceInstall(_ provider: AIProviderIntegration) {
+    func forceInstall(_ provider: AIProviderIntegration) async {
         guard let hookScript = MuxyNotificationHooks.scriptPath(named: provider.hookScriptName, extension: provider.hookScriptExtension)
         else {
             logger.warning("Hook script \(provider.hookScriptName) not found, cannot force-install \(provider.displayName)")
@@ -116,6 +136,16 @@ final class AIProviderRegistry {
         } catch {
             logger.error("Failed to force-install \(provider.displayName): \(error.localizedDescription)")
         }
+    }
+
+    private func loginShellPathHydrationTask() -> Task<Void, Never> {
+        if let loginShellPathHydration { return loginShellPathHydration }
+        let hydrateLoginShellPath = hydrateLoginShellPath
+        let task = Task.detached(priority: .utility) {
+            await hydrateLoginShellPath()
+        }
+        loginShellPathHydration = task
+        return task
     }
 
     func uninstallAll() {

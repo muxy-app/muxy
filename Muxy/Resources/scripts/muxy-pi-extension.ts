@@ -30,7 +30,7 @@ export default function (pi: ExtensionAPI) {
       }
     } catch {}
 
-    const payload = `pi|${paneID}|Pi|${body}`;
+    const payload = `pi|${paneID}|Pi|${body}\n`;
 
     try {
       const { createConnection } = await import("node:net");

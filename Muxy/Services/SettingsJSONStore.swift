@@ -310,7 +310,9 @@ enum SettingsJSONStore {
                 guard let enabled = values[provider.id] as? Bool else { continue }
                 provider.isEnabled = enabled
             }
-            AIProviderRegistry.shared.installAll()
+            Task { @MainActor in
+                await AIProviderRegistry.shared.installAll()
+            }
         case "mobile.approvedDevices":
             guard let devices: [ApprovedDevice] = codableValue(from: value) else { return true }
             ApprovedDevicesStore.shared.replaceDevices(devices)

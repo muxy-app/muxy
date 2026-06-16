@@ -158,6 +158,31 @@ struct PiProviderTests {
         #expect(fixture.provider(pathEnvironment: binURL.path).isToolInstalled())
     }
 
+    @Test("isToolInstalled evaluates PATH at call time")
+    func isToolInstalledUsesCurrentPathEnvironment() throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        let pathEnvironment = PathEnvironment()
+        let provider = PiProvider(
+            homeDirectory: fixture.homeURL.path,
+            pathEnvironment: { pathEnvironment.value },
+            resourceURL: { _, _ in fixture.sourceURL }
+        )
+
+        let binURL = fixture.rootURL.appendingPathComponent("late-bin")
+        let executableURL = binURL.appendingPathComponent("pi")
+        try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
+        try Data().write(to: executableURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: FilePermissions.executable],
+            ofItemAtPath: executableURL.path
+        )
+        pathEnvironment.value = binURL.path
+
+        #expect(provider.isToolInstalled())
+    }
+
     @Test("registerExtensionInSettings creates settings.json when it does not exist")
     func registerCreatesSettingsWhenMissing() throws {
         let fixture = try Fixture()
@@ -213,6 +238,16 @@ struct PiProviderTests {
 
         #expect(throws: PiProviderError.bundleResourceNotFound) {
             try provider.install(hookScriptPath: "")
+        }
+    }
+
+    private final class PathEnvironment: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage = ""
+
+        var value: String {
+            get { lock.withLock { storage } }
+            set { lock.withLock { storage = newValue } }
         }
     }
 
