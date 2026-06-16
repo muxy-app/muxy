@@ -49,6 +49,29 @@ struct GitWorktreeServiceRemoveTests {
         #expect(!records.contains { $0.path == worktreePath })
     }
 
+    @Test("cleanupOnDisk removes the worktree but keeps its branch")
+    func cleanupKeepsBranch() async throws {
+        let repo = try TempGitRepo()
+        defer { repo.cleanup() }
+
+        try repo.commit(file: "a.txt", contents: "1", message: "base")
+        let worktreePath = repo.siblingPath("keep-branch-wt")
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: repo.path,
+            path: worktreePath,
+            branch: "feature",
+            createBranch: true,
+            baseBranch: nil
+        )
+
+        let worktree = Worktree(name: "keep-branch-wt", path: worktreePath, branch: "feature", isPrimary: false)
+        try await WorktreeStore.cleanupOnDisk(worktree: worktree, repoPath: repo.path)
+
+        let records = try await GitWorktreeService.shared.listWorktrees(repoPath: repo.path)
+        #expect(!records.contains { $0.path == worktreePath })
+        #expect(repo.branchExists("feature"))
+    }
+
     @Test("heals an orphaned worktree referenced through a symlinked parent")
     func healsOrphanThroughSymlinkedParent() async throws {
         let repo = try TempGitRepo()
@@ -111,6 +134,20 @@ private struct TempGitRepo {
         let aliasParent = realParent.appendingPathComponent("alias-\(UUID().uuidString)")
         try FileManager.default.createSymbolicLink(at: aliasParent, withDestinationURL: realParent)
         return aliasParent.appendingPathComponent(name).path
+    }
+
+    func branchExists(_ branch: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", path, "branch", "--list", "--format=%(refname:short)"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        guard (try? process.run()) != nil else { return false }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        return output.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.contains(branch)
     }
 
     func orphanWorktreeAdmin(named name: String) throws {

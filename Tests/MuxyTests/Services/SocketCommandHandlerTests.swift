@@ -245,7 +245,6 @@ struct SocketCommandHandlerTests {
         let worktree = try #require(stores.worktreeStore.list(for: project.id).first { $0.name == "Feature" })
         #expect(worktree.branch == "feature")
         #expect(worktree.path == createdPath)
-        #expect(worktree.ownsBranch)
         #expect(appState.activeWorktreeID[project.id] == worktree.id)
     }
 

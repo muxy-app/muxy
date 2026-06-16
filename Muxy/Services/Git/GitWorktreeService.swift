@@ -187,22 +187,6 @@ actor GitWorktreeService: GitWorktreeListing {
         return toplevel.isEmpty ? nil : toplevel
     }
 
-    func deleteBranch(
-        repoPath: String,
-        branch: String,
-        force: Bool = true,
-        context: WorkspaceContext = .local
-    ) async throws {
-        try Self.validateBranchName(branch)
-        let args = ["branch", force ? "-D" : "-d", "--", branch]
-        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args, context: context)
-        guard result.status == 0 else {
-            throw GitWorktreeError.commandFailed(
-                result.stderr.isEmpty ? "Failed to delete branch \(branch)." : result.stderr
-            )
-        }
-    }
-
     private func parsePorcelain(_ raw: String) -> [GitWorktreeRecord] {
         var records: [GitWorktreeRecord] = []
         var currentPath: String?

@@ -111,7 +111,6 @@ final class WorktreeStore {
             name: request.name,
             path: request.path,
             branch: request.branch,
-            ownsBranch: request.createBranch,
             isPrimary: false
         )
         add(worktree, to: project.id)
@@ -265,17 +264,6 @@ final class WorktreeStore {
             force: true,
             context: context
         )
-
-        if worktree.ownsBranch,
-           let branch = worktree.branch?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !branch.isEmpty
-        {
-            do {
-                try await GitWorktreeService.shared.deleteBranch(repoPath: repoPath, branch: branch, context: context)
-            } catch {
-                logger.error("Failed to delete branch \(branch) for worktree \(worktree.path): \(error)")
-            }
-        }
 
         try? await context.fileOps.removeItem(at: worktree.path)
         guard !context.isRemote, !worktree.isExternallyManaged else { return }
