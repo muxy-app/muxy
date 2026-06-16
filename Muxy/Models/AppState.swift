@@ -62,6 +62,7 @@ final class AppState {
     private let terminalViews: any TerminalViewRemoving
     private let workspacePersistence: any WorkspacePersisting
     var onProjectsEmptied: (([UUID]) -> Void)?
+    var onProjectSelected: ((UUID) -> Void)?
 
     var activeProjectID: UUID?
 
@@ -175,11 +176,14 @@ final class AppState {
     }
 
     func selectProject(_ project: Project, worktree: Worktree) {
+        let wasActive = activeProjectID == project.id
         dispatch(.selectProject(
             projectID: project.id,
             worktreeID: worktree.id,
             worktreePath: worktree.path
         ))
+        guard !wasActive else { return }
+        onProjectSelected?(project.id)
     }
 
     func selectWorktree(projectID: UUID, worktree: Worktree) {

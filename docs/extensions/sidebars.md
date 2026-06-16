@@ -46,7 +46,7 @@ The sidebar paints `--muxy-background` on the body, like [tabs](tabs.md) and [pa
 
 ## window.muxy
 
-A sidebar page gets the same [`window.muxy`](tabs.md#windowmuxy) API as panels and tabs — theme (`muxy.theme`, `muxy.onThemeChange`), data (`muxy.data`, `muxy.onDataChange`), focus (`muxy.onFocus`, `muxy.focused`), and the workspace surfaces (`projects`, `git`, `files`, `events`, …) gated by their permissions. Because the sidebar replaces the built-in project list, `muxy.projects` (`list` / `switchTo`) is the usual way to render and switch projects.
+A sidebar page gets the same [`window.muxy`](tabs.md#windowmuxy) API as panels and tabs — theme (`muxy.theme`, `muxy.onThemeChange`), data (`muxy.data`, `muxy.onDataChange`), focus (`muxy.onFocus`, `muxy.focused`), and the workspace surfaces (`projects`, `git`, `files`, `events`, …) gated by their permissions. Because the sidebar replaces the built-in project list, `muxy.projects` (`list` / `switchTo`) is the usual way to render and switch projects. `muxy.projects.delete(identifier)` deletes a project — it requires the `projects:delete` permission and prompts the user for confirmation on each call.
 
 ## Reacting to workspace changes
 

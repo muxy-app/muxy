@@ -86,6 +86,40 @@ struct TerminalProgressStoreTests {
         #expect(!store.hasCompletionPending(for: project))
     }
 
+    @Test("hasActiveProgress reflects running then finished state")
+    func tracksActiveProgress() {
+        let store = TerminalProgressStore()
+        let pane = UUID()
+        let project = UUID()
+
+        #expect(!store.hasActiveProgress(for: project))
+
+        store.setProgress(.clamping(kind: .set, percent: 60), for: pane, projectID: project)
+        #expect(store.hasActiveProgress(for: project))
+        #expect(!store.hasCompletionPending(for: project))
+
+        store.setProgress(nil, for: pane, projectID: project)
+        #expect(!store.hasActiveProgress(for: project))
+        #expect(store.hasCompletionPending(for: project))
+
+        store.resetPane(pane)
+        #expect(!store.hasActiveProgress(for: project))
+        #expect(!store.hasCompletionPending(for: project))
+    }
+
+    @Test("hasActiveProgress scopes by project")
+    func activeProgressScopesByProject() {
+        let store = TerminalProgressStore()
+        let pane = UUID()
+        let projectA = UUID()
+        let projectB = UUID()
+
+        store.setProgress(.clamping(kind: .set, percent: 10), for: pane, projectID: projectA)
+
+        #expect(store.hasActiveProgress(for: projectA))
+        #expect(!store.hasActiveProgress(for: projectB))
+    }
+
     @Test("hasCompletionPending scopes by project")
     func scopesByProject() {
         let store = TerminalProgressStore()

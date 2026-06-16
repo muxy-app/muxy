@@ -54,6 +54,7 @@ struct Sidebar: View {
     @AppStorage(SidebarExpandedStyle.storageKey) private var expandedStyleRaw = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage(SidebarSelection.storageKey) private var activeSidebarRaw = SidebarSelection.builtinValue
+    @AppStorage(ProjectSortMode.storageKey) private var sortModeRaw = ProjectSortMode.defaultValue.rawValue
 
     private var activeExtensionSidebarID: String? {
         SidebarSelection.resolvedExtensionID(from: activeSidebarRaw, store: extensionStore)
@@ -149,6 +150,23 @@ struct Sidebar: View {
         }
     }
 
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort Projects By", selection: $sortModeRaw) {
+                ForEach(ProjectSortMode.allCases) { mode in
+                    Label(mode.title, systemImage: mode.systemImage).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            SortMenuButton.Label(mode: sortMode)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .help("Sort Projects: \(sortMode.title)")
+    }
+
     private var remoteProjectMenu: some View {
         Menu {
             let devices = remoteDeviceStore.sshDevices()
@@ -197,15 +215,44 @@ struct Sidebar: View {
         return Project.home
     }
 
+    private var sortMode: ProjectSortMode {
+        ProjectSortMode(rawValue: sortModeRaw) ?? .defaultValue
+    }
+
     private var displayedProjects: [Project] {
-        projectGroupStore.displayProjects(localProjects: projectStore.storedProjects)
+        projectGroupStore.displayProjects(localProjects: projectStore.storedProjects, sortMode: sortMode)
+    }
+
+    @ViewBuilder private var listHeader: some View {
+        if isWide {
+            HStack(spacing: UIMetrics.spacing2) {
+                WorkspaceSwitcher(isWide: isWide)
+                if showSortMenu {
+                    sortMenu
+                }
+            }
+        } else {
+            WorkspaceSwitcher(isWide: isWide)
+        }
+    }
+
+    private var showSortMenu: Bool {
+        isWide && !projectGroupStore.isRemoteWorkspaceActive && !displayedProjects.isEmpty
     }
 
     private var projectList: some View {
+        VStack(spacing: UIMetrics.spacing3) {
+            listHeader
+                .padding(.horizontal, isWide ? UIMetrics.spacing3 : UIMetrics.spacing4)
+                .padding(.top, UIMetrics.spacing2)
+
+            scrollableProjects
+        }
+    }
+
+    private var scrollableProjects: some View {
         ScrollView(.vertical, showsIndicators: false) {
             LazyVStack(spacing: UIMetrics.spacing3) {
-                WorkspaceSwitcher(isWide: isWide)
-
                 if let homeProject {
                     projectRow(for: homeProject, shortcutIndex: 1)
                 }
@@ -228,7 +275,7 @@ struct Sidebar: View {
                 addButton
             }
             .padding(.horizontal, isWide ? UIMetrics.spacing3 : UIMetrics.spacing4)
-            .padding(.vertical, UIMetrics.spacing2)
+            .padding(.bottom, UIMetrics.spacing2)
             .onPreferenceChange(UUIDFramePreferenceKey<SidebarFrameTag>.self) { frames in
                 guard dragState.draggedID != nil else { return }
                 dragState.frames = frames
@@ -314,6 +361,7 @@ struct Sidebar: View {
         DragGesture(minimumDistance: 6, coordinateSpace: .named("sidebar"))
             .onChanged { value in
                 if dragState.draggedID == nil {
+                    switchToManualSortIfNeeded()
                     dragState.draggedID = project.id
                     dragState.lastReorderTargetID = nil
                 }
@@ -354,25 +402,16 @@ struct Sidebar: View {
     }
 
     private func performRemove(_ project: Project) {
-        guard !project.isRemote else {
-            if let workspaceID = project.remoteWorkspaceID {
-                projectGroupStore.removeRemoteProject(id: project.id, fromGroup: workspaceID)
-            } else {
-                projectStore.remove(id: project.id)
-                projectGroupStore.removeProjectFromAllGroups(projectID: project.id)
-            }
-            appState.removeProject(project.id)
-            worktreeStore.removeProject(project.id)
-            return
-        }
         let capturedProject = project
-        let knownWorktrees = worktreeStore.list(for: project.id)
         Task {
             do {
-                try await WorktreeStore.cleanupOnDisk(for: capturedProject, knownWorktrees: knownWorktrees)
-                appState.removeProject(project.id)
-                projectStore.remove(id: project.id)
-                worktreeStore.removeProject(project.id)
+                try await ProjectRemovalService.remove(
+                    capturedProject,
+                    appState: appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
+                )
             } catch {
                 presentProjectRemovalFailure(project: capturedProject, error: error)
             }
@@ -387,6 +426,13 @@ struct Sidebar: View {
         alert.icon = NSApp.applicationIconImage
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    private func switchToManualSortIfNeeded() {
+        guard sortMode != .manual else { return }
+        guard !projectGroupStore.isRemoteWorkspaceActive else { return }
+        projectStore.persistOrder(displayedProjects.map(\.id))
+        sortModeRaw = ProjectSortMode.manual.rawValue
     }
 
     private func reorderIfNeeded(at location: CGPoint) {
@@ -497,6 +543,26 @@ private struct AddProjectButton: View {
             }
             .padding(UIMetrics.spacing2)
             .background(hovered ? MuxyTheme.hover : Color.clear, in: RoundedRectangle(cornerRadius: UIMetrics.radiusLG))
+        }
+    }
+}
+
+private enum SortMenuButton {
+    struct Label: View {
+        let mode: ProjectSortMode
+        @State private var hovered = false
+
+        var body: some View {
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.system(size: UIMetrics.fontCaption, weight: .semibold))
+                .foregroundStyle(hovered ? MuxyTheme.accent : MuxyTheme.fgMuted)
+                .frame(width: UIMetrics.controlMedium, height: UIMetrics.controlMedium)
+                .background(
+                    hovered ? MuxyTheme.hover : MuxyTheme.surface,
+                    in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+                )
+                .onHover { hovered = $0 }
+                .accessibilityLabel("Sort Projects")
         }
     }
 }

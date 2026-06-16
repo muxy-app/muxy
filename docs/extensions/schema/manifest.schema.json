@@ -139,6 +139,7 @@
         "tabs:write",
         "projects:read",
         "projects:write",
+        "projects:delete",
         "worktrees:read",
         "worktrees:write",
         "git:read",

@@ -19,10 +19,44 @@ struct InterfaceSettingsView: View {
                     .frame(width: SettingsMetrics.controlWidth)
                 }
 
+                TabHeaderWidthSettingRow()
+
                 SettingsToggleRow(label: "Show Status Bar", isOn: $showStatusBar)
 
                 SettingsToggleRow(label: "Show Resource Usage in Status Bar", isOn: $showResourceUsage)
             }
+        }
+    }
+}
+
+private struct TabHeaderWidthSettingRow: View {
+    @AppStorage(TabWidthPreferences.maxWidthKey) private var maxTabWidth = TabWidthPreferences.defaultMaxWidth
+
+    private var sliderValue: Binding<Double> {
+        Binding(
+            get: { TabWidthPreferences.sliderValue(from: maxTabWidth) },
+            set: { maxTabWidth = TabWidthPreferences.storedValue(forSlider: $0.rounded()) }
+        )
+    }
+
+    private var valueLabel: String {
+        TabWidthPreferences.effectiveMaxWidth(from: maxTabWidth)
+            .map { "\(Int($0))px" } ?? "Full-width"
+    }
+
+    var body: some View {
+        SettingsRow("Tab header width") {
+            HStack(spacing: UIMetrics.spacing3) {
+                Slider(
+                    value: sliderValue,
+                    in: TabWidthPreferences.minMaxWidth ... TabWidthPreferences.maxMaxWidth
+                )
+                Text(valueLabel)
+                    .font(.system(size: SettingsMetrics.labelFontSize).monospacedDigit())
+                    .foregroundStyle(SettingsStyle.mutedForeground)
+                    .frame(width: 64, alignment: .trailing)
+            }
+            .frame(width: SettingsMetrics.controlWidth)
         }
     }
 }

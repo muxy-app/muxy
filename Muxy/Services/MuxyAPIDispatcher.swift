@@ -237,6 +237,22 @@ enum MuxyAPIDispatcher {
                 worktreeStore: worktreeStore
             ))
             return NSNull()
+        case "projects.delete":
+            guard let projectStore = context.projectStore,
+                  let worktreeStore = context.worktreeStore,
+                  let projectGroupStore = context.projectGroupStore
+            else { throw APIError.projectStoreUnavailable }
+            try await unwrap(MuxyAPI.Projects.delete(
+                identifier: stringArg(args, "identifier"),
+                context: MuxyAPI.Projects.Context(
+                    extensionID: context.extensionID,
+                    appState: context.appState,
+                    projectStore: projectStore,
+                    worktreeStore: worktreeStore,
+                    projectGroupStore: projectGroupStore
+                )
+            ))
+            return NSNull()
         case "worktrees.list":
             guard let projectStore = context.projectStore,
                   let worktreeStore = context.worktreeStore

@@ -70,6 +70,21 @@ final class ProjectStore {
         save()
     }
 
+    func markActive(id: UUID) {
+        guard let index = storedProjects.firstIndex(where: { $0.id == id }) else { return }
+        storedProjects[index].lastActiveAt = Date()
+        save()
+    }
+
+    func persistOrder(_ orderedIDs: [UUID]) {
+        let positions = Dictionary(uniqueKeysWithValues: orderedIDs.enumerated().map { ($1, $0) })
+        storedProjects.sort { positions[$0.id, default: Int.max] < positions[$1.id, default: Int.max] }
+        for index in storedProjects.indices {
+            storedProjects[index].sortOrder = index
+        }
+        save()
+    }
+
     func reorder(fromOffsets source: IndexSet, toOffset destination: Int) {
         storedProjects.move(fromOffsets: source, toOffset: destination)
         for index in storedProjects.indices {

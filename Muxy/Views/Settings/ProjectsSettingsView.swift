@@ -8,6 +8,8 @@ struct ProjectsSettingsView: View {
     private var keepProjectsOpenWhenNoTabs = false
     @AppStorage(ProjectPickerPreferences.storageKey)
     private var projectPickerModeRaw = ProjectPickerMode.custom.rawValue
+    @AppStorage(ProjectSortMode.storageKey)
+    private var projectSortModeRaw = ProjectSortMode.defaultValue.rawValue
     @State private var projectPickerDefaultLocationSettings = ProjectPickerDefaultLocationSettingsModel()
 
     var body: some View {
@@ -31,6 +33,16 @@ struct ProjectsSettingsView: View {
                         model: projectPickerDefaultLocationSettings,
                         pickerModeRaw: projectPickerModeRaw
                     )
+                }
+
+                SettingsRow("Sort Projects By") {
+                    Picker("", selection: $projectSortModeRaw) {
+                        ForEach(ProjectSortMode.allCases) { mode in
+                            Text(mode.title).tag(mode.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
                 }
 
                 SettingsToggleRow(

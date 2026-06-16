@@ -198,6 +198,7 @@ public enum ExtensionBridgeJS {
             muxy.projects = {
                 list:     ()           => dispatch('projects.list', {}),
                 switchTo: (identifier) => dispatch('projects.switch', { identifier: String(identifier) }),
+                delete:   (identifier) => dispatch('projects.delete', { identifier: String(identifier) }),
             };
             muxy.worktrees = {
                 list:     (project)             => dispatch('worktrees.list', { project: project == null ? null : String(project) }),
