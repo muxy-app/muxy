@@ -76,4 +76,8 @@ final class TerminalProgressStore {
     func hasCompletionPending(for projectID: UUID) -> Bool {
         completionPending.contains { paneToProject[$0] == projectID }
     }
+
+    func hasActiveProgress(for projectID: UUID) -> Bool {
+        progresses.keys.contains { paneToProject[$0] == projectID }
+    }
 }

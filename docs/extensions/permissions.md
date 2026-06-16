@@ -17,6 +17,7 @@ Permissions apply only to identified callers. The host identifies itself on beha
 | `tabs:write` | `switch-tab`, `new-tab`, `next-tab`, `previous-tab`, `open-tab`. Opening a terminal tab with a startup `command` also prompts for runtime consent. |
 | `projects:read` | `list-projects` |
 | `projects:write` | `switch-project` |
+| `projects:delete` | `projects.delete` |
 | `worktrees:read` | `list-worktrees` |
 | `worktrees:write` | `create-worktree`, `switch-worktree`, `refresh-worktrees` |
 | `git:read` | `git.status`, `git.diff`, `git.repoInfo`, `git.log`, `git.branches`, `git.remoteBranches`, `git.currentBranch`, `git.aheadBehind`, `git.pr.info`, `git.pr.number`, `git.pr.diff`, `git.pr.list`, `git.worktrees` — see [Git](git.md). |
@@ -45,6 +46,7 @@ These verbs prompt the user at runtime even when the manifest permission is gran
 | remote method (device request) | Running an extension's [remote method](remote-methods.md) handler in response to a mobile request, gated under `remote:serve`. Remembered per action. |
 | `git.*` (writes) | Mutating the repository (stage, commit, push, pull, branch, PR, worktree). Remembered per operation (allowing `push` does not allow `discard`). |
 | `files.*` (writes) | Modifying workspace files (write, mkdir, rename, move, delete). Remembered per operation (allowing `write` does not allow `delete`). |
+| `projects.delete` | Deleting a project and cleaning up its worktrees on disk. Gated under `projects:delete`. Remembered per project name. |
 | `http.fetch` | Calling an external host via [`muxy.http`](http.md). Remembered per host (allowing `api.github.com` does not allow `example.com`). Private/loopback hosts are blocked before prompting. |
 
 The prompt shows the extension, the verb, and the literal payload (full argv, the keystroke, or the pane id). The user picks:

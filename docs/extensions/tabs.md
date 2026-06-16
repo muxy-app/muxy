@@ -120,7 +120,7 @@ window.muxy = {
     rename(paneID, title): Promise<void>,
   },
 
-  projects:  { list(), switchTo(identifier) },
+  projects:  { list(), switchTo(identifier), delete(identifier) },  // delete() needs projects:delete + consent
   worktrees: { list(project?), switchTo(identifier, project?), refresh(project?) },
   panels:    { open(id, data?), toggle(id, data?), close(id) },  // panels:write — see panels.md
   popover:   { close(), resize(width, height) },                // panels:write — see popovers.md

@@ -92,7 +92,7 @@ struct WorkspaceSwitcher: View {
                     .foregroundStyle(MuxyTheme.fgMuted)
             }
             .padding(.horizontal, UIMetrics.spacing4)
-            .padding(.vertical, UIMetrics.spacing3)
+            .frame(height: UIMetrics.controlMedium)
             .background(
                 isTriggerHovered ? MuxyTheme.hover : MuxyTheme.surface,
                 in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD)

@@ -74,9 +74,9 @@ final class ProjectGroupStore {
         activeGroup?.type == .ssh
     }
 
-    func displayProjects(localProjects: [Project]) -> [Project] {
+    func displayProjects(localProjects: [Project], sortMode: ProjectSortMode = .current) -> [Project] {
         guard let group = activeGroup, group.type == .ssh else {
-            return filteredProjects(from: localProjects)
+            return sortMode.sorted(filteredProjects(from: localProjects))
         }
         return group.remoteProjects.enumerated().map { index, remote in
             remote.asProject(workspaceID: group.id, sortOrder: index)

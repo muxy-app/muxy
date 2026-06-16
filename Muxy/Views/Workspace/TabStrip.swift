@@ -41,6 +41,7 @@ struct PaneTabStrip: View {
     let onSetCustomTitle: (UUID, String?) -> Void
     let onSetColorID: (UUID, String?) -> Void
     let onReorderTab: (IndexSet, Int) -> Void
+    @AppStorage(TabWidthPreferences.maxWidthKey) private var maxTabWidth = TabWidthPreferences.defaultMaxWidth
     @Environment(TabDragCoordinator.self) private var dragCoordinator
     @State private var dragState = TabDragState()
 
@@ -71,6 +72,7 @@ struct PaneTabStrip: View {
                 }
             }
             .frame(maxWidth: .infinity)
+            .layoutPriority(1)
             .frame(height: UIMetrics.scaled(32))
 
             HStack(spacing: 0) {
@@ -116,13 +118,16 @@ struct PaneTabStrip: View {
             guard dragState.draggedID != nil else { return }
             dragState.frames = frames
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func tabRow(availableWidth: CGFloat) -> some View {
         let count = max(tabs.count, 1)
         let effectiveWidth = availableWidth > 0 ? availableWidth : TabCell.maxWidth * CGFloat(count)
         let perTabIdeal = effectiveWidth / CGFloat(count)
-        let perTabWidth = max(TabCell.minWidth, min(TabCell.maxWidth, perTabIdeal))
+        let perTabMaxWidth = TabWidthPreferences.effectiveMaxWidth(from: maxTabWidth)
+        let cappedWidth = perTabMaxWidth.map { min($0, perTabIdeal) } ?? perTabIdeal
+        let perTabWidth = max(TabCell.minWidth, cappedWidth)
 
         return HStack(spacing: 0) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in

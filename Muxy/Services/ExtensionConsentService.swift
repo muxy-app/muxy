@@ -238,6 +238,8 @@ enum ExtensionConsentRequestBuilder {
             return ("fetch from \(hostname)", ["host: \(hostname)", "method: \(method)", "url: \(url)"])
         case let (.tabsRunCommand, .tabCommand(command)):
             return (command, ["command: \(command)"])
+        case let (.projectsDelete, .project(name, path)):
+            return ("delete project \(name)", ["project: \(name)", "path: \(path)"])
         default:
             return ("(unknown)", [])
         }

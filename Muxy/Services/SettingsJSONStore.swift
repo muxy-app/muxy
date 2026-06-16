@@ -161,6 +161,11 @@ enum SettingsJSONStore {
 
     private static func validatedValue(_ value: Any, for item: SettingsCatalogItem) throws -> Any {
         guard !(value is NSNull) else { return value }
+        if item.key == TabWidthPreferences.maxWidthKey {
+            guard !isBooleanValue(value), let double = doubleValue(value) else { throw SettingsJSONError.invalidValue(item.key) }
+            try validateAllowedDouble(double, key: item.key)
+            return double
+        }
         guard let defaultValue = item.defaultValue?.base else { throw SettingsJSONError.unsupportedValue(item.key) }
         if defaultValue is Bool, value is Bool { return value }
         if defaultValue is String, let string = value as? String {
@@ -175,13 +180,11 @@ enum SettingsJSONStore {
             try validateAllowedInt(int, key: item.key)
             return int
         }
-        if defaultValue is Double, let number = value as? NSNumber {
-            let double = number.doubleValue
+        if defaultValue is Double, !isBooleanValue(value), let double = doubleValue(value) {
             try validateAllowedDouble(double, key: item.key)
             return double
         }
-        if defaultValue is CGFloat, let number = value as? NSNumber {
-            let double = number.doubleValue
+        if defaultValue is CGFloat, !isBooleanValue(value), let double = doubleValue(value) {
             try validateAllowedDouble(double, key: item.key)
             return double
         }
@@ -217,6 +220,8 @@ enum SettingsJSONStore {
 
     private static func validateAllowedDouble(_ value: Double, key: String) throws {
         switch key {
+        case TabWidthPreferences.maxWidthKey:
+            guard TabWidthPreferences.isAllowedStoredValue(value) else { throw SettingsJSONError.invalidValue(key) }
         case "editor.richInputLineHeightMultiplier":
             guard (Double(EditorSettings.minLineHeightMultiplier) ... Double(EditorSettings.maxLineHeightMultiplier))
                 .contains(value)
@@ -344,6 +349,10 @@ enum SettingsJSONStore {
         if let value = value as? Int { return Double(value) }
         if let value = value as? NSNumber { return value.doubleValue }
         return nil
+    }
+
+    private static func isBooleanValue(_ value: Any) -> Bool {
+        CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID()
     }
 
     private static func keyBindingsJSONObject(_ bindings: [KeyBinding]) -> Any {

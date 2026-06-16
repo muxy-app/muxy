@@ -190,6 +190,7 @@ enum MuxyAPI {
             "topbar.set",
             "statusbar.set",
             "tabs.open",
+            "projects.delete",
             "lifecycle.ackBeforeClose",
             "lifecycle.resolveBeforeClose",
             "lifecycle.closeSelf",
@@ -286,6 +287,7 @@ enum MuxyAPI {
             "tabs.setIcon": .tabsWrite,
             "projects.list": .projectsRead,
             "projects.switch": .projectsWrite,
+            "projects.delete": .projectsDelete,
             "worktrees.list": .worktreesRead,
             "worktrees.create": .worktreesWrite,
             "worktrees.switch": .worktreesWrite,
@@ -613,6 +615,14 @@ enum MuxyAPI {
 
     @MainActor
     enum Projects {
+        struct Context {
+            let extensionID: String
+            let appState: AppState
+            let projectStore: ProjectStore
+            let worktreeStore: WorktreeStore
+            let projectGroupStore: ProjectGroupStore
+        }
+
         static func list(appState: AppState, projectStore: ProjectStore) -> [ProjectInfo] {
             projectStore.projects.map { project in
                 ProjectInfo(
@@ -642,6 +652,44 @@ enum MuxyAPI {
             }
             appState.selectProject(project, worktree: worktree)
             return .success(())
+        }
+
+        static func delete(
+            identifier: String,
+            context: Context
+        ) async -> Result<Void, APIError> {
+            guard let project = context.projectGroupStore.resolveProject(
+                identifier: identifier,
+                localProjects: context.projectStore.projects,
+                activeProjectID: context.appState.activeProjectID
+            )
+            else {
+                return .failure(.projectNotFound(identifier))
+            }
+            guard project.id != Project.homeID else {
+                return .failure(.invalidArguments("the home project cannot be deleted"))
+            }
+            let consent = ExtensionConsentRequestBuilder.make(
+                extensionID: context.extensionID,
+                verb: .projectsDelete,
+                payload: .project(name: project.name, path: project.path),
+                source: "muxy-api"
+            )
+            guard await ExtensionConsentService.shared.gate(consent) == .allow else {
+                return .failure(.consentDenied(verb: "projects.delete"))
+            }
+            do {
+                try await ProjectRemovalService.remove(
+                    project,
+                    appState: context.appState,
+                    projectStore: context.projectStore,
+                    worktreeStore: context.worktreeStore,
+                    projectGroupStore: context.projectGroupStore
+                )
+                return .success(())
+            } catch {
+                return .failure(.underlying(error.localizedDescription))
+            }
         }
     }
 

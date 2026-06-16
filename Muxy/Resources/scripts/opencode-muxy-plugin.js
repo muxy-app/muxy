@@ -66,7 +66,7 @@ function consumeRecentReply(sessionID) {
 }
 
 async function sendNotification(socketPath, paneID, body) {
-  const payload = `opencode|${paneID}|OpenCode|${sanitize(body)}`
+  const payload = `opencode|${paneID}|OpenCode|${sanitize(body)}\n`
   try {
     const { createConnection } = await import("net")
     const conn = createConnection({ path: socketPath })

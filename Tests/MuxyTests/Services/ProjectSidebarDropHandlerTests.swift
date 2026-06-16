@@ -26,7 +26,7 @@ struct ProjectSidebarDropHandlerTests {
             )
         }
 
-        await Task.yield()
+        await waitUntil { projectStore.storedProjects.count == 1 }
 
         #expect(consumed)
         #expect(projectStore.storedProjects.count == 1)
@@ -43,11 +43,13 @@ struct ProjectSidebarDropHandlerTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let project = Project(name: directory.lastPathComponent, path: directory.standardizedFileURL.path)
         projectStore.add(project)
+        var handled = false
 
         let consumed = ProjectSidebarDropHandler.handle(
             providers: [FileURLItemProviderStub(item: directory as NSURL)]
         ) { path in
-            ProjectOpenService.confirmProjectPathResult(
+            handled = true
+            return ProjectOpenService.confirmProjectPathResult(
                 path,
                 appState: appState,
                 projectStore: projectStore,
@@ -56,7 +58,7 @@ struct ProjectSidebarDropHandlerTests {
             )
         }
 
-        await Task.yield()
+        await waitUntil { handled }
 
         #expect(consumed)
         #expect(projectStore.storedProjects.count == 1)
@@ -71,10 +73,12 @@ struct ProjectSidebarDropHandlerTests {
         try Data().write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }
 
+        var handled = false
         let consumed = ProjectSidebarDropHandler.handle(
             providers: [FileURLItemProviderStub(item: file as NSURL)]
         ) { path in
-            ProjectOpenService.confirmProjectPathResult(
+            handled = true
+            return ProjectOpenService.confirmProjectPathResult(
                 path,
                 appState: appState,
                 projectStore: projectStore,
@@ -83,7 +87,7 @@ struct ProjectSidebarDropHandlerTests {
             )
         }
 
-        await Task.yield()
+        await waitUntil { handled }
 
         #expect(consumed)
         #expect(projectStore.storedProjects.isEmpty)
@@ -102,7 +106,7 @@ struct ProjectSidebarDropHandlerTests {
             return .success
         }
 
-        await Task.yield()
+        await waitUntil { receivedPath != nil }
 
         #expect(consumed)
         #expect(receivedPath == directory.path(percentEncoded: false))
@@ -123,8 +127,7 @@ struct ProjectSidebarDropHandlerTests {
             return .success
         }
 
-        await Task.yield()
-        await Task.yield()
+        await waitUntil { paths.count == 2 }
 
         #expect(consumed)
         #expect(paths == [
@@ -133,6 +136,13 @@ struct ProjectSidebarDropHandlerTests {
         ])
         #expect(first.loadCount == 1)
         #expect(second.loadCount == 1)
+    }
+
+    private func waitUntil(_ condition: () -> Bool, attempts: Int = 100) async {
+        for _ in 0 ..< attempts {
+            if condition() { return }
+            await Task.yield()
+        }
     }
 }
 

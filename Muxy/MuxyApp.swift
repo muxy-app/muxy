@@ -145,6 +145,9 @@ struct MuxyApp: App {
                     projectStore.onProjectRemoved = { [projectGroupStore] projectID in
                         projectGroupStore.removeProjectFromAllGroups(projectID: projectID)
                     }
+                    appState.onProjectSelected = { [projectStore] projectID in
+                        projectStore.markActive(id: projectID)
+                    }
                 }
         }
         .windowStyle(HiddenTitleBarWindowStyle())

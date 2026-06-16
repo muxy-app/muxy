@@ -20,6 +20,7 @@ enum ExtensionGatedVerb: String, Codable, CaseIterable {
     case gitWrite = "git.write"
     case filesWrite = "files.write"
     case httpFetch = "http.fetch"
+    case projectsDelete = "projects.delete"
 
     var kindDisplayName: String {
         switch self {
@@ -33,6 +34,7 @@ enum ExtensionGatedVerb: String, Codable, CaseIterable {
         case .gitWrite: "git changes"
         case .filesWrite: "file changes"
         case .httpFetch: "network requests"
+        case .projectsDelete: "project deletions"
         }
     }
 }
@@ -48,6 +50,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
     case gitOperationEquals(String)
     case fileOperationEquals(String)
     case hostEquals(String)
+    case projectNameEquals(String)
 
     private enum CodingKeys: String, CodingKey {
         case kind
@@ -67,6 +70,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case gitOperationEquals
         case fileOperationEquals
         case hostEquals
+        case projectNameEquals
     }
 
     init(from decoder: Decoder) throws {
@@ -96,6 +100,8 @@ enum ExtensionGrantMatch: Codable, Equatable {
             self = try .fileOperationEquals(container.decode(String.self, forKey: .string))
         case .hostEquals:
             self = try .hostEquals(container.decode(String.self, forKey: .string))
+        case .projectNameEquals:
+            self = try .projectNameEquals(container.decode(String.self, forKey: .string))
         }
     }
 
@@ -132,6 +138,9 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .hostEquals(host):
             try container.encode(Kind.hostEquals, forKey: .kind)
             try container.encode(host, forKey: .string)
+        case let .projectNameEquals(name):
+            try container.encode(Kind.projectNameEquals, forKey: .kind)
+            try container.encode(name, forKey: .string)
         }
     }
 
@@ -144,6 +153,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case .remoteActionEquals: 120
         case .gitOperationEquals: 130
         case .fileOperationEquals: 135
+        case .projectNameEquals: 140
         case .foreignTabEquals: 150
         case let .argvPrefix(tokens): 50 + tokens.count
         case let .argvExact(tokens): 200 + tokens.count
@@ -162,6 +172,7 @@ enum ExtensionGrantMatch: Codable, Equatable {
         case let .gitOperationEquals(operation): "git: \(operation)"
         case let .fileOperationEquals(operation): "file: \(operation)"
         case let .hostEquals(host): "host: \(host)"
+        case let .projectNameEquals(name): "project: \(name)"
         }
     }
 }
@@ -175,6 +186,7 @@ enum ExtensionGatedPayload {
     case file(operation: String, path: String)
     case http(hostname: String, method: String, url: String)
     case tabCommand(command: String)
+    case project(name: String, path: String)
 
     func matches(_ match: ExtensionGrantMatch) -> Bool {
         switch (self, match) {
@@ -202,6 +214,8 @@ enum ExtensionGatedPayload {
             return hostname == expected
         case let (.tabCommand(command), .shellExact(expected)):
             return command == expected
+        case let (.project(name, _), .projectNameEquals(expected)):
+            return name == expected
         default:
             return false
         }
@@ -362,6 +376,8 @@ enum ExtensionGrantSuggestion {
             return .gitOperationEquals(operation)
         case let (.filesWrite, .file(operation, _)):
             return .fileOperationEquals(operation)
+        case let (.projectsDelete, .project(name, _)):
+            return .projectNameEquals(name)
         case let (.httpFetch, .http(hostname, _, _)):
             return .hostEquals(hostname)
         case let (.tabsRunCommand, .tabCommand(command)):

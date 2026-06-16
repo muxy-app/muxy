@@ -264,6 +264,7 @@ struct ExtensionConsentDialog: View {
         case .gitWrite: "arrow.triangle.branch"
         case .filesWrite: "doc.fill"
         case .httpFetch: "globe"
+        case .projectsDelete: "trash.fill"
         }
     }
 
@@ -279,6 +280,7 @@ struct ExtensionConsentDialog: View {
         case .gitWrite: "wants to modify the git repository"
         case .filesWrite: "wants to modify workspace files"
         case .httpFetch: "wants to make a network request"
+        case .projectsDelete: "wants to delete a project"
         }
     }
 }

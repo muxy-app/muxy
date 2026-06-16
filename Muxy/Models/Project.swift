@@ -6,6 +6,7 @@ struct Project: Identifiable, Codable, Hashable {
     var path: String
     var sortOrder: Int
     var createdAt: Date
+    var lastActiveAt: Date?
     var icon: String?
     var logo: String?
     var iconColor: String?
@@ -27,6 +28,7 @@ struct Project: Identifiable, Codable, Hashable {
         self.path = path
         self.sortOrder = sortOrder
         self.createdAt = Date()
+        self.lastActiveAt = nil
         self.icon = nil
         self.logo = nil
         self.iconColor = nil
@@ -45,6 +47,7 @@ struct Project: Identifiable, Codable, Hashable {
         path = try container.decode(String.self, forKey: .path)
         sortOrder = try container.decode(Int.self, forKey: .sortOrder)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
+        lastActiveAt = try container.decodeIfPresent(Date.self, forKey: .lastActiveAt)
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
         logo = try container.decodeIfPresent(String.self, forKey: .logo)
         iconColor = try container.decodeIfPresent(String.self, forKey: .iconColor)
