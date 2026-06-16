@@ -69,6 +69,8 @@ struct MainWindow: View {
     @AppStorage(RichInputPreferences.broadcastKey) private var richInputBroadcast = RichInputPreferences.defaultBroadcast
     @State private var richInputStates: [WorktreeKey: RichInputState] = [:]
     @State private var visitedWorktreeKeys: Set<WorktreeKey> = []
+    @AppStorage(WorktreeListPreferences.orderByMRUKey)
+    private var orderWorktreesByMRU = WorktreeListPreferences.defaultOrderByMRU
     @State private var showTerminalOmnibox = false
     @State private var terminalOmniboxLaunchScope = TerminalOmniboxLaunchScope.openTabs
     @State private var showProjectPicker = false
@@ -689,6 +691,7 @@ struct MainWindow: View {
                 )
             }
         }
+        guard orderWorktreesByMRU else { return items }
         var mruRank: [WorktreeKey: Int] = [:]
         for (index, key) in appState.worktreeMRU.enumerated() {
             mruRank[key] = index

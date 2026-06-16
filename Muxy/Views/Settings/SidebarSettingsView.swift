@@ -8,6 +8,10 @@ struct SidebarSettingsView: View {
     @AppStorage(SidebarExpandedStyle.storageKey) private var sidebarExpandedStyle = SidebarExpandedStyle.defaultValue.rawValue
     @AppStorage(HomeProjectPreferences.visibleKey) private var showHomeProject = HomeProjectPreferences.defaultVisible
     @AppStorage(SidebarSelection.storageKey) private var activeSidebar = SidebarSelection.builtinValue
+    @AppStorage(WorktreeListPreferences.showUnreadIndicatorKey)
+    private var showWorktreeUnreadIndicator = WorktreeListPreferences.defaultShowUnreadIndicator
+    @AppStorage(WorktreeListPreferences.orderByMRUKey)
+    private var orderWorktreesByMRU = WorktreeListPreferences.defaultOrderByMRU
 
     private var providers: [ExtensionStore.ExtensionStatus] {
         SidebarSelection.availableProviders(store: extensionStore)
@@ -34,7 +38,7 @@ struct SidebarSettingsView: View {
                 }
             }
 
-            SettingsSection("Layout", showsDivider: false) {
+            SettingsSection("Layout") {
                 SettingsToggleRow(label: "Show Home", isOn: $showHomeProject)
 
                 SettingsToggleRow(
@@ -71,6 +75,18 @@ struct SidebarSettingsView: View {
                     }
                     .frame(width: SettingsMetrics.controlWidth)
                 }
+            }
+
+            SettingsSection("Worktrees", showsDivider: false) {
+                SettingsToggleRow(
+                    label: "Show unread notification indicator on worktrees",
+                    isOn: $showWorktreeUnreadIndicator
+                )
+
+                SettingsToggleRow(
+                    label: "Order worktrees by most-recently-used",
+                    isOn: $orderWorktreesByMRU
+                )
             }
         }
     }

@@ -268,9 +268,11 @@ private struct TerminalOmniboxRow: View {
     let item: TerminalOmniboxItem
     let isHighlighted: Bool
     @State private var hovered = false
+    @AppStorage(WorktreeListPreferences.showUnreadIndicatorKey)
+    private var showUnreadIndicator = WorktreeListPreferences.defaultShowUnreadIndicator
 
     private var unreadCount: Int {
-        guard case let .worktree(worktree) = item else { return 0 }
+        guard showUnreadIndicator, case let .worktree(worktree) = item else { return 0 }
         return NotificationStore.shared.unreadCount(for: worktree.projectID, worktreeID: worktree.worktreeID)
     }
 

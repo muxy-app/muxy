@@ -45,6 +45,22 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func worktreeListSettingsAreRegisteredAndSearchable() {
+        #expect(SettingsCatalog.items.contains {
+            $0.key == WorktreeListPreferences.showUnreadIndicatorKey && $0.category == .sidebar
+        })
+        #expect(SettingsCatalog.items.contains {
+            $0.key == WorktreeListPreferences.orderByMRUKey && $0.category == .sidebar
+        })
+        #expect(SettingsCatalog.matchingItems(query: "mru").contains {
+            $0.key == WorktreeListPreferences.orderByMRUKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "unread").contains {
+            $0.key == WorktreeListPreferences.showUnreadIndicatorKey
+        })
+    }
+
+    @Test
     func jsonEditableItemsHaveDefaults() {
         #expect(!SettingsCatalog.jsonEditableItems.isEmpty)
         #expect(SettingsCatalog.jsonEditableItems.allSatisfy { $0.defaultValue != nil })

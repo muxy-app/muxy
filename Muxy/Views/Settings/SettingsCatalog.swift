@@ -176,6 +176,24 @@ enum SettingsCatalog {
             aliases: ["extension sidebar", "webview sidebar"]
         ),
         SettingsCatalogItem(
+            key: WorktreeListPreferences.showUnreadIndicatorKey,
+            title: "Show Worktree Unread Indicator",
+            description: "Shows a dot on worktrees with unread notifications in the worktree switcher.",
+            category: .sidebar,
+            section: "Worktrees",
+            defaultValue: WorktreeListPreferences.defaultShowUnreadIndicator,
+            aliases: ["unread", "badge", "notification dot", "omnibox"]
+        ),
+        SettingsCatalogItem(
+            key: WorktreeListPreferences.orderByMRUKey,
+            title: "Order Worktrees by Recent Use",
+            description: "Sorts the worktree switcher with the active worktree first, then by most-recently-used.",
+            category: .sidebar,
+            section: "Worktrees",
+            defaultValue: WorktreeListPreferences.defaultOrderByMRU,
+            aliases: ["mru", "recent", "sort", "order", "omnibox"]
+        ),
+        SettingsCatalogItem(
             key: ProjectPickerPreferences.storageKey,
             title: "Project Picker",
             description: "Chooses the picker used when opening projects.",
