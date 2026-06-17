@@ -59,7 +59,11 @@ struct RemoteDeviceEditorSheet: View {
     }
 
     private var canProbe: Bool {
-        SSHDestination.isValidHost(trimmedHost) && isPortValid && environmentErrorMessage == nil && probeState != .testing
+        SSHDestination.isValidHost(trimmedHost)
+            && isPortValid
+            && environmentErrorMessage == nil
+            && probeState != .testing
+            && !(SSHImplementationMode.current == .cli && authenticationMethod == .password)
     }
 
     private var canSave: Bool {

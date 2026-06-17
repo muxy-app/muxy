@@ -213,6 +213,15 @@ enum SettingsCatalog {
             aliases: ["ssh", "server", "host", "remote", "connection", "device"]
         ),
         SettingsCatalogItem(
+            key: SSHImplementationMode.storageKey,
+            title: "SSH Implementation",
+            description: "Chooses whether SSH features run through the system OpenSSH client or Muxy’s built-in SSH backend.",
+            category: .remoteDevices,
+            section: "Remote Devices",
+            defaultValue: SSHImplementationMode.defaultValue.rawValue,
+            aliases: ["ssh backend", "ssh mode", "built-in ssh", "system ssh", "openssh"]
+        ),
+        SettingsCatalogItem(
             key: ProjectPickerDefaultLocation.storageKey,
             title: "Project Picker Default Path",
             description: "Sets the default folder for Muxy's project picker.",

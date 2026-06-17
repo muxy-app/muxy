@@ -132,6 +132,7 @@ enum ExtensionCommandExecutor {
         request: ExecRequest,
         defaultCwd: String?
     ) async throws -> ExecResult {
+        try SSHImplementationSelection.validate(destination: destination)
         let workingDirectory = (request.cwd?.isEmpty == false) ? request.cwd : defaultCwd
         let remoteEnv = request.env?.filter { isSafeEnvKey($0.key) }
         let stdinData = request.stdin?.data(using: .utf8)

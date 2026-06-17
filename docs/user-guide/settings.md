@@ -71,6 +71,8 @@ See [Remote Server](../remote-server/overview.md).
 ## Remote Devices
 
 - **Remote devices** — reusable SSH connections for remote workspaces.
+- **SSH implementation** — choose whether SSH features run through **System SSH (OpenSSH)** or **Built-in SSH**.
+- **Password authentication** — requires **Built-in SSH**; **System SSH (OpenSSH)** does not support password-auth devices.
 - **Environment** — `KEY=value` variables exported before remote terminals, git, files, worktrees, and extension commands run. New SSH devices default to `TERM=xterm-256color`.
 
 ## AI Assistant

@@ -5,6 +5,8 @@ struct RemoteDevicesSettingsView: View {
     @Environment(RemoteDeviceStore.self) private var deviceStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(SSHConnectionService.self) private var sshConnections
+    @AppStorage(SSHImplementationMode.storageKey)
+    private var sshImplementationModeRaw = SSHImplementationMode.defaultValue.rawValue
 
     @State private var editorMode: RemoteDeviceEditorMode?
     @State private var devicePendingDelete: RemoteDevice?
@@ -14,12 +16,35 @@ struct RemoteDevicesSettingsView: View {
     so you can reuse the same server without re-entering its details.
     """
 
+    private var sshImplementationMode: SSHImplementationMode {
+        SSHImplementationMode(rawValue: sshImplementationModeRaw) ?? .defaultValue
+    }
+
     var body: some View {
         SettingsContainer {
             SettingsSection(
                 "Remote Devices",
                 footer: Self.footerText
             ) {
+                SettingsRow("SSH implementation") {
+                    Picker("", selection: $sshImplementationModeRaw) {
+                        ForEach(SSHImplementationMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                }
+
+                if sshImplementationMode == .cli {
+                    Text("System SSH (OpenSSH) does not support password authentication. Password-based devices require Built-in SSH.")
+                        .font(.system(size: SettingsMetrics.footnoteFontSize))
+                        .foregroundStyle(SettingsStyle.mutedForeground)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+                        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
+                }
+
                 if deviceStore.devices.isEmpty {
                     emptyState
                 } else {
@@ -27,6 +52,7 @@ struct RemoteDevicesSettingsView: View {
                         RemoteDeviceRow(
                             device: device,
                             connectionState: sshConnections.state(for: device.destination),
+                            sshImplementationMode: sshImplementationMode,
                             onEdit: { editorMode = .edit(device) },
                             onDelete: { devicePendingDelete = device }
                         )
@@ -127,10 +153,15 @@ struct RemoteDevicesSettingsView: View {
 private struct RemoteDeviceRow: View {
     let device: RemoteDevice
     let connectionState: SSHConnectionState
+    let sshImplementationMode: SSHImplementationMode
     let onEdit: () -> Void
     let onDelete: () -> Void
 
     @State private var isHovered = false
+
+    private var showsPasswordAuthWarning: Bool {
+        sshImplementationMode == .cli && device.ssh.authenticationMethod == .password
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -142,6 +173,11 @@ private struct RemoteDeviceRow: View {
                 Text(device.destination.target)
                     .font(.system(size: SettingsMetrics.footnoteFontSize))
                     .foregroundStyle(SettingsStyle.mutedForeground)
+                if showsPasswordAuthWarning {
+                    Text("Password auth requires Built-in SSH")
+                        .font(.system(size: SettingsMetrics.footnoteFontSize))
+                        .foregroundStyle(SettingsStyle.warning)
+                }
             }
             Spacer()
             Button("Edit", action: onEdit)

@@ -4,6 +4,33 @@ import Testing
 
 @Suite("TerminalLaunchCommand")
 struct TerminalLaunchCommandTests {
+    @Test("Builds remote SSH CLI terminal command")
+    func buildsRemoteSSHCLITerminalCommand() {
+        let destination = SSHDestination(
+            host: "prod",
+            remoteRoot: "/srv/app",
+            user: "deploy",
+            identityFile: "~/.ssh/id_ed25519",
+            authenticationMethod: .privateKey
+        )
+
+        let command = TerminalLaunchCommand.remoteShellCommand(
+            destination: destination,
+            workingDirectory: "/srv/app path",
+            startupCommand: "echo hi",
+            interactive: true,
+            keepsShellOpen: true
+        )
+
+        #expect(command.hasPrefix("/usr/bin/ssh "))
+        #expect(command.contains("-tt"))
+        #expect(command.contains("deploy@prod"))
+        #expect(command.contains("cd "))
+        #expect(command.contains("srv/app path"))
+        #expect(command.contains("MUXY_STARTUP_COMMAND="))
+        #expect(command.contains("echo hi"))
+    }
+
     @Test("Builds non-interactive login shell command")
     func buildsNonInteractiveLoginShellCommand() {
         let command = TerminalLaunchCommand.shellCommand(interactive: false, shell: "/bin/zsh")

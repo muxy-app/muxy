@@ -41,6 +41,7 @@ final class SSHConnectionService {
         let key = destination.connectionKey
         states[key] = busyState
         do {
+            try SSHImplementationSelection.validate(destination: destination)
             let result = try await SSHCommandRunner.run(
                 destination: destination,
                 remoteCommand: "echo \(Self.marker)",

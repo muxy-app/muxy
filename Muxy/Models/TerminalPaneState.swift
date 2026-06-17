@@ -21,6 +21,7 @@ final class TerminalPaneState: Identifiable {
     var sshConfiguration: SSHConnectionConfiguration?
     var sshStatus: SSHConnectionStatus?
     var sshStartTime: Date?
+    var sshImplementationMode: SSHImplementationMode?
     var isOffline = false
     let searchState = TerminalSearchState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?

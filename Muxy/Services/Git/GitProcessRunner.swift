@@ -70,13 +70,27 @@ enum GitProcessRunner {
                 )
             )
         }
-        return try await SSHCommandRunner.runCommand(
-            destination: destination,
-            executable: "git",
-            arguments: ["-C", repoPath] + arguments,
-            workingDirectory: nil,
-            lineLimit: lineLimit
-        )
+        try SSHImplementationSelection.validate(destination: destination)
+        switch SSHImplementationMode.current {
+        case .cli:
+            let resolved = CommandTransform.resolve(
+                executable: "git",
+                arguments: ["-C", repoPath] + arguments,
+                workingDirectory: nil,
+                in: .ssh(destination)
+            )
+            return try await SSHCommandRunner.withTimeout(SSHCommandRunner.defaultTimeout) {
+                try await runResolved(resolved, lineLimit: lineLimit)
+            }
+        case .native:
+            return try await SSHCommandRunner.runCommand(
+                destination: destination,
+                executable: "git",
+                arguments: ["-C", repoPath] + arguments,
+                workingDirectory: nil,
+                lineLimit: lineLimit
+            )
+        }
     }
 
     static func gitHubCredentialHelperArgs(ghResolver: (String) -> String? = resolveExecutable) -> [String] {
@@ -117,6 +131,23 @@ enum GitProcessRunner {
                 workingDirectory: workingDirectory,
                 lineLimit: nil,
                 signpostName: "command"
+            )
+        )
+    }
+
+    static func runResolved(
+        _ resolved: ResolvedLaunch,
+        lineLimit: Int? = nil,
+        stdinData: Data? = nil
+    ) async throws -> GitProcessResult {
+        try await runProcess(
+            ProcessSpec(
+                executable: resolved.executable,
+                arguments: resolved.arguments,
+                workingDirectory: resolved.workingDirectory,
+                lineLimit: lineLimit,
+                signpostName: "command",
+                stdinData: stdinData
             )
         )
     }

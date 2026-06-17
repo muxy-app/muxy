@@ -20,11 +20,17 @@ final class TerminalViewRegistry {
         command: String? = nil,
         commandInteractive: Bool = false,
         closesOnCommandExit: Bool = true,
-        sshConfiguration: SSHConnectionConfiguration? = nil
+        sshConfiguration: SSHConnectionConfiguration? = nil,
+        workspaceContext: WorkspaceContext = .local,
+        sshImplementationMode: SSHImplementationMode? = nil
     ) -> GhosttyTerminalNSView {
         if let existing = views[paneID] {
-            if existing.sshConfiguration == nil {
+            existing.workspaceContext = workspaceContext
+            if existing.sshConfiguration == nil || sshImplementationMode == .native {
                 existing.sshConfiguration = sshConfiguration
+            }
+            if let sshImplementationMode {
+                existing.activeSSHImplementationMode = sshImplementationMode
             }
             return existing
         }
@@ -33,7 +39,9 @@ final class TerminalViewRegistry {
             command: command,
             commandInteractive: commandInteractive,
             closesOnCommandExit: closesOnCommandExit,
-            sshConfiguration: sshConfiguration
+            sshConfiguration: sshConfiguration,
+            workspaceContext: workspaceContext,
+            sshImplementationMode: sshImplementationMode
         )
         views[paneID] = view
         paneIDs[ObjectIdentifier(view)] = paneID

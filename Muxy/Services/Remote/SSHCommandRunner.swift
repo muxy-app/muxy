@@ -23,26 +23,49 @@ enum SSHCommandRunner {
     static func run(
         destination: SSHDestination,
         remoteCommand: String,
-        batch _: Bool = true,
+        batch: Bool = true,
         lineLimit: Int? = nil,
         timeout: TimeInterval = defaultTimeout,
         input: Data? = nil
     ) async throws -> GitProcessResult {
-        let configuration = SSHConnectionConfiguration.make(destination: destination)
-        let result = try await SSHExecService.shared.run(
-            configuration: configuration,
-            command: RemoteCommandBuilder.environmentPrefix(destination.environment) + remoteCommand,
-            stdinData: input,
-            timeout: timeout
-        )
-        let limited = limit(result.stdout, lineLimit: lineLimit)
-        return GitProcessResult(
-            status: result.status,
-            stdout: limited.stdout,
-            stdoutData: limited.stdoutData,
-            stderr: result.stderr,
-            truncated: limited.truncated
-        )
+        try SSHImplementationSelection.validate(destination: destination)
+        switch SSHImplementationMode.current {
+        case .cli:
+            let options = batch ? destination.batchOptions : destination.connectOptions
+            let command = RemoteCommandBuilder.environmentPrefix(destination.environment) + remoteCommand
+            let resolved = ResolvedLaunch(
+                executable: "/usr/bin/ssh",
+                arguments: destination.connectionArguments + options + ["-T", destination.target, "--", command],
+                workingDirectory: nil
+            )
+            let result = try await withTimeout(timeout) {
+                try await GitProcessRunner.runResolved(resolved, lineLimit: lineLimit, stdinData: input)
+            }
+            let limited = limit(result.stdout, lineLimit: lineLimit)
+            return GitProcessResult(
+                status: result.status,
+                stdout: limited.stdout,
+                stdoutData: limited.stdoutData,
+                stderr: result.stderr,
+                truncated: result.truncated || limited.truncated
+            )
+        case .native:
+            let configuration = SSHConnectionConfiguration.make(destination: destination)
+            let result = try await SSHExecService.shared.run(
+                configuration: configuration,
+                command: RemoteCommandBuilder.environmentPrefix(destination.environment) + remoteCommand,
+                stdinData: input,
+                timeout: timeout
+            )
+            let limited = limit(result.stdout, lineLimit: lineLimit)
+            return GitProcessResult(
+                status: result.status,
+                stdout: limited.stdout,
+                stdoutData: limited.stdoutData,
+                stderr: result.stderr,
+                truncated: limited.truncated
+            )
+        }
     }
 
     static func runCommand(
@@ -55,20 +78,35 @@ enum SSHCommandRunner {
         timeout: TimeInterval = defaultTimeout,
         input: Data? = nil
     ) async throws -> GitProcessResult {
-        let mergedEnvironment = SSHEnvironmentVariables.merged(device: destination.environment, command: environment)
-        let remoteCommand = RemoteCommandBuilder.remoteCommand(
-            executable: executable,
-            arguments: arguments,
-            workingDirectory: workingDirectory,
-            environment: mergedEnvironment
-        )
-        return try await run(
-            destination: destination,
-            remoteCommand: remoteCommand,
-            lineLimit: lineLimit,
-            timeout: timeout,
-            input: input
-        )
+        try SSHImplementationSelection.validate(destination: destination)
+        switch SSHImplementationMode.current {
+        case .cli:
+            let resolved = CommandTransform.resolve(
+                executable: executable,
+                arguments: arguments,
+                workingDirectory: workingDirectory,
+                environment: environment,
+                in: .ssh(destination)
+            )
+            return try await withTimeout(timeout) {
+                try await GitProcessRunner.runResolved(resolved, lineLimit: lineLimit, stdinData: input)
+            }
+        case .native:
+            let mergedEnvironment = SSHEnvironmentVariables.merged(device: destination.environment, command: environment)
+            let remoteCommand = RemoteCommandBuilder.remoteCommand(
+                executable: executable,
+                arguments: arguments,
+                workingDirectory: workingDirectory,
+                environment: mergedEnvironment
+            )
+            return try await run(
+                destination: destination,
+                remoteCommand: remoteCommand,
+                lineLimit: lineLimit,
+                timeout: timeout,
+                input: input
+            )
+        }
     }
 
     static func runShell(
@@ -80,19 +118,33 @@ enum SSHCommandRunner {
         timeout: TimeInterval = defaultTimeout,
         input: Data? = nil
     ) async throws -> GitProcessResult {
-        let mergedEnvironment = SSHEnvironmentVariables.merged(device: destination.environment, command: environment)
-        let remoteCommand = RemoteCommandBuilder.remoteShellCommand(
-            shell: shellCommand,
-            workingDirectory: workingDirectory,
-            environment: mergedEnvironment
-        )
-        return try await run(
-            destination: destination,
-            remoteCommand: remoteCommand,
-            lineLimit: lineLimit,
-            timeout: timeout,
-            input: input
-        )
+        try SSHImplementationSelection.validate(destination: destination)
+        switch SSHImplementationMode.current {
+        case .cli:
+            let resolved = CommandTransform.resolveShell(
+                shellCommand: shellCommand,
+                workingDirectory: workingDirectory,
+                environment: environment,
+                in: .ssh(destination)
+            )
+            return try await withTimeout(timeout) {
+                try await GitProcessRunner.runResolved(resolved, lineLimit: lineLimit, stdinData: input)
+            }
+        case .native:
+            let mergedEnvironment = SSHEnvironmentVariables.merged(device: destination.environment, command: environment)
+            let remoteCommand = RemoteCommandBuilder.remoteShellCommand(
+                shell: shellCommand,
+                workingDirectory: workingDirectory,
+                environment: mergedEnvironment
+            )
+            return try await run(
+                destination: destination,
+                remoteCommand: remoteCommand,
+                lineLimit: lineLimit,
+                timeout: timeout,
+                input: input
+            )
+        }
     }
 
     static func withTimeout(

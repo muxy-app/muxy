@@ -79,12 +79,24 @@ private struct ResolvedSSHDestination {
         let resolvedHost = parsedHost?.hostName ?? destination.host
         let resolvedPort = destination.port ?? parsedHost.map { Int($0.port) } ?? 22
         let resolvedUser = destination.user ?? parsedHost?.user ?? NSUserName()
-        let resolvedIdentityFile = destination.identityFile ?? parsedHost?.identityFile
+        let resolvedIdentityFile = destination.identityFile
+            ?? parsedHost?.identityFile
+            ?? defaultIdentityFile()
         return ResolvedSSHDestination(
             host: resolvedHost,
             port: resolvedPort,
             user: resolvedUser,
             identityFile: resolvedIdentityFile
         )
+    }
+
+    private static func defaultIdentityFile() -> String? {
+        let sshDirectory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh")
+        let candidates = [
+            "id_ed25519",
+            "id_ecdsa",
+            "id_rsa",
+        ].map { sshDirectory.appendingPathComponent($0).path }
+        return candidates.first { FileManager.default.fileExists(atPath: $0) }
     }
 }

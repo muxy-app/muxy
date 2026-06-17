@@ -28,6 +28,19 @@ struct SettingsCatalogTests {
     }
 
     @Test
+    func sshImplementationSettingIsRegisteredAndSearchable() {
+        #expect(SettingsCatalog.items.contains {
+            $0.key == SSHImplementationMode.storageKey && $0.category == .remoteDevices
+        })
+        #expect(SettingsCatalog.matchingItems(query: "openssh").contains {
+            $0.key == SSHImplementationMode.storageKey
+        })
+        #expect(SettingsCatalog.matchingItems(query: "built-in ssh").contains {
+            $0.key == SSHImplementationMode.storageKey
+        })
+    }
+
+    @Test
     func settingsUseWorkflowCategories() {
         #expect(SettingsCatalog.items.contains { $0.key == ProjectPickerPreferences.storageKey && $0.category == .projects })
         #expect(SettingsCatalog.items.contains { $0.key == GeneralSettingsKeys.autoCopyTerminalSelection && $0.category == .terminal })

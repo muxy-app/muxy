@@ -8,6 +8,42 @@ import Testing
 @MainActor
 struct SettingsJSONStoreTests {
     @Test
+    func saveAppliesSSHImplementationMode() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [SSHImplementationMode.storageKey])
+        defer { snapshot.restore() }
+
+        try SettingsJSONStore.saveUserSettingsText("""
+        {
+          "\(SSHImplementationMode.storageKey)": "native"
+        }
+        """)
+
+        #expect(UserDefaults.standard.string(forKey: SSHImplementationMode.storageKey) == SSHImplementationMode.native.rawValue)
+    }
+
+    @Test
+    func saveRejectsInvalidSSHImplementationMode() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [SSHImplementationMode.storageKey])
+        defer { snapshot.restore() }
+        let originalText = "{\"unchanged\":true}\n"
+
+        try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
+        UserDefaults.standard.set(SSHImplementationMode.cli.rawValue, forKey: SSHImplementationMode.storageKey)
+
+        #expect(throws: SettingsJSONError.self) {
+            try SettingsJSONStore.saveUserSettingsText("""
+            {
+              "\(SSHImplementationMode.storageKey)": "invalid"
+            }
+            """)
+        }
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+        #expect(savedText == originalText)
+        #expect(UserDefaults.standard.string(forKey: SSHImplementationMode.storageKey) == SSHImplementationMode.cli.rawValue)
+    }
+
+    @Test
     func saveAppliesKnownSettingsAndPreservesUnknownKeys() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [MobileServerService.portKey])
         defer { snapshot.restore() }
