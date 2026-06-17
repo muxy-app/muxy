@@ -44,6 +44,34 @@ struct PaletteSearchFieldTests {
         window.orderOut(nil)
     }
 
+    @Test("invokes onEscape when field editor cancels")
+    func invokesOnEscapeWhenFieldEditorCancels() {
+        let escaped = PaletteSearchFieldFlag()
+        let text = PaletteSearchFieldTextBox()
+        let field = PaletteSearchField(
+            text: Binding(
+                get: { text.value },
+                set: { text.value = $0 }
+            ),
+            placeholder: "Search",
+            onSubmit: {},
+            onEscape: { escaped.value = true },
+            onArrowUp: {},
+            onArrowDown: {}
+        )
+        let coordinator = field.makeCoordinator()
+        let control = NSTextField()
+
+        let handled = coordinator.control(
+            control,
+            textView: NSTextView(),
+            doCommandBy: #selector(NSResponder.cancelOperation(_:))
+        )
+
+        #expect(handled)
+        #expect(escaped.value)
+    }
+
     private func waitForFocus(_ field: NSTextField) async throws {
         for _ in 0..<40 {
             if field.currentEditor() != nil {
@@ -70,4 +98,9 @@ struct PaletteSearchFieldTests {
 @MainActor
 private final class PaletteSearchFieldTextBox {
     var value = ""
+}
+
+@MainActor
+private final class PaletteSearchFieldFlag {
+    var value = false
 }
