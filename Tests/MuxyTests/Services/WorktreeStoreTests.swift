@@ -384,8 +384,8 @@ struct WorktreeStoreTests {
         #expect(!worktrees.contains(where: { $0.path == "/tmp/repo-prunable" }))
     }
 
-    @Test("refreshFromGit tolerates duplicate persisted paths without trapping")
-    func refreshFromGitToleratesDuplicatePaths() async throws {
+    @Test("refreshFromGit collapses duplicate persisted paths into one entry")
+    func refreshFromGitCollapsesDuplicatePaths() async throws {
         let project = Project(name: "Repo", path: "/tmp/repo")
         let duplicatePath = "/tmp/repo-dupe"
         let persistence = WorktreePersistenceStub(
@@ -436,8 +436,105 @@ struct WorktreeStoreTests {
         let worktrees = try await store.refreshFromGit(project: project)
 
         let atDuplicatePath = worktrees.filter { $0.path == duplicatePath }
-        #expect(atDuplicatePath.count == 2)
-        #expect(atDuplicatePath.contains(where: { $0.branch == "updated" }))
+        #expect(atDuplicatePath.count == 1)
+        #expect(atDuplicatePath.first?.branch == "updated")
+    }
+
+    @Test("refreshFromGit collapses a Muxy and external entry sharing a path, keeping Muxy")
+    func refreshFromGitCollapsesRaceDuplicateKeepingMuxy() async throws {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let sharedPath = "/tmp/repo-feature"
+        let muxyID = UUID()
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(name: project.name, path: project.path, isPrimary: true),
+                    Worktree(
+                        name: "imported",
+                        path: sharedPath,
+                        branch: "feature",
+                        source: .external,
+                        isPrimary: false
+                    ),
+                    Worktree(
+                        id: muxyID,
+                        name: "feature",
+                        path: sharedPath,
+                        branch: "feature",
+                        source: .muxy,
+                        isPrimary: false
+                    ),
+                ]
+            ]
+        )
+        let gitService = GitWorktreeListingStub(recordsByRepoPath: [
+            project.path: [
+                GitWorktreeRecord(
+                    path: project.path,
+                    branch: "main",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+                GitWorktreeRecord(
+                    path: sharedPath,
+                    branch: "feature",
+                    head: nil,
+                    isBare: false,
+                    isDetached: false
+                ),
+            ]
+        ])
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: gitService.listWorktrees,
+            projects: [project]
+        )
+
+        let worktrees = try await store.refreshFromGit(project: project)
+
+        let atSharedPath = worktrees.filter { $0.path == sharedPath }
+        #expect(atSharedPath.count == 1)
+        #expect(atSharedPath.first?.source == .muxy)
+        #expect(atSharedPath.first?.id == muxyID)
+    }
+
+    @Test("add reconciles an externally imported worktree at the same path instead of duplicating")
+    func addReconcilesExistingExternalAtSamePath() {
+        let project = Project(name: "Repo", path: "/tmp/repo")
+        let sharedPath = "/tmp/repo-feature"
+        let persistence = WorktreePersistenceStub(
+            initial: [
+                project.id: [
+                    Worktree(name: project.name, path: project.path, isPrimary: true),
+                    Worktree(
+                        name: "feature",
+                        path: sharedPath,
+                        branch: "feature",
+                        source: .external,
+                        isPrimary: false
+                    ),
+                ]
+            ]
+        )
+        let store = WorktreeStore(
+            persistence: persistence,
+            listGitWorktrees: GitWorktreeListingStub(recordsByRepoPath: [:]).listWorktrees,
+            projects: [project]
+        )
+
+        let managed = Worktree(
+            name: "feature",
+            path: sharedPath,
+            branch: "feature",
+            source: .muxy,
+            isPrimary: false
+        )
+        store.add(managed, to: project.id)
+
+        let atSharedPath = store.list(for: project.id).filter { $0.path == sharedPath }
+        #expect(atSharedPath.count == 1)
+        #expect(atSharedPath.first?.source == .muxy)
     }
 
     @Test("refreshFromGit treats symlinked primary paths as the primary worktree")

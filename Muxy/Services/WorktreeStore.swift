@@ -91,9 +91,16 @@ final class WorktreeStore {
             ?? list.first
     }
 
-    func add(_ worktree: Worktree, to projectID: UUID) {
+    func add(_ worktree: Worktree, to projectID: UUID, context: WorkspaceContext = .local) {
         var list = worktrees[projectID] ?? []
-        list.append(worktree)
+        let key = GitWorktreeService.canonicalPath(worktree.path, context: context)
+        if let index = list.firstIndex(where: {
+            !$0.isPrimary && GitWorktreeService.canonicalPath($0.path, context: context) == key
+        }) {
+            list[index] = worktree
+        } else {
+            list.append(worktree)
+        }
         setWorktrees(sortPrimaryFirst(list), for: projectID)
         save(projectID: projectID)
     }
@@ -113,7 +120,7 @@ final class WorktreeStore {
             branch: request.branch,
             isPrimary: false
         )
-        add(worktree, to: project.id)
+        add(worktree, to: project.id, context: context)
         return worktree
     }
 
@@ -216,12 +223,34 @@ final class WorktreeStore {
             ))
         }
 
-        let sorted = sortPrimaryFirst(list.filter {
+        let filtered = list.filter {
             !$0.isExternallyManaged || recordKeys.contains(GitWorktreeService.canonicalPath($0.path, context: context))
-        })
+        }
+        let sorted = sortPrimaryFirst(collapseDuplicatePaths(filtered, context: context))
         setWorktrees(sorted, for: project.id)
         save(projectID: project.id)
         return sorted
+    }
+
+    private func collapseDuplicatePaths(_ list: [Worktree], context: WorkspaceContext) -> [Worktree] {
+        var indexByKey: [String: Int] = [:]
+        var result: [Worktree] = []
+        for worktree in list {
+            guard !worktree.isPrimary else {
+                result.append(worktree)
+                continue
+            }
+            let key = GitWorktreeService.canonicalPath(worktree.path, context: context)
+            guard let existingIndex = indexByKey[key] else {
+                indexByKey[key] = result.count
+                result.append(worktree)
+                continue
+            }
+            if result[existingIndex].isExternallyManaged, !worktree.isExternallyManaged {
+                result[existingIndex] = worktree
+            }
+        }
+        return result
     }
 
     private func resolvedProjectKey(project: Project, context: WorkspaceContext) async -> String {
