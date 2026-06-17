@@ -26,6 +26,7 @@ enum SSHImplementationMode: String, CaseIterable, Identifiable {
 enum SSHImplementationSelection {
     static func validate(destination: SSHDestination) throws {
         guard SSHImplementationMode.current == .cli, destination.authenticationMethod == .password else { return }
-        throw SSHConnectionError.authFailed("System SSH (OpenSSH) does not support password authentication. Switch to Built-in SSH to use this device.")
+        throw SSHConnectionError
+            .authFailed("System SSH (OpenSSH) does not support password authentication. Switch to Built-in SSH to use this device.")
     }
 }
