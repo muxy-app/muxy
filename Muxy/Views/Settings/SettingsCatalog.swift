@@ -215,7 +215,7 @@ enum SettingsCatalog {
         SettingsCatalogItem(
             key: SSHImplementationMode.storageKey,
             title: "SSH Implementation",
-            description: "Chooses whether SSH features run through the system OpenSSH client or Muxy’s built-in SSH backend.",
+            description: "Chooses whether SSH features run through the system OpenSSH client or Muxy's built-in SSH backend after restart.",
             category: .remoteDevices,
             section: "Remote Devices",
             defaultValue: SSHImplementationMode.defaultValue.rawValue,

@@ -25,7 +25,6 @@ final class TerminalViewRegistry {
     ) -> GhosttyTerminalNSView {
         if let existing = views[paneID] {
             existing.workspaceContext = workspaceContext
-            existing.sshConfiguration = sshConfiguration
             return existing
         }
         let view = GhosttyTerminalNSView(

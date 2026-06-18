@@ -12,8 +12,6 @@ final class GhosttyTerminalNSView: NSView {
     private let command: String?
     private let commandInteractive: Bool
     private let commandClosesOnExit: Bool
-    private let initialWorkspaceContext: WorkspaceContext
-    private let initialSSHConfiguration: SSHConnectionConfiguration?
     var sshConfiguration: SSHConnectionConfiguration?
     var workspaceContext: WorkspaceContext
     var envVars: [(key: String, value: String)] = []
@@ -82,9 +80,7 @@ final class GhosttyTerminalNSView: NSView {
         self.command = command
         self.commandInteractive = commandInteractive
         commandClosesOnExit = closesOnCommandExit
-        initialSSHConfiguration = sshConfiguration
         self.sshConfiguration = sshConfiguration
-        initialWorkspaceContext = workspaceContext
         self.workspaceContext = workspaceContext
         super.init(frame: .zero)
         wantsLayer = true
@@ -355,7 +351,6 @@ final class GhosttyTerminalNSView: NSView {
         guard let window else { return }
 
         if surface == nil, !isOfflinedState || isPaneVisible {
-            updateSSHInputsForCurrentMode()
             createSurface()
         }
 
@@ -443,7 +438,6 @@ final class GhosttyTerminalNSView: NSView {
         guard resolvedSSHImplementationMode() != nil else { return }
         processExitHandled = false
         destroySurface()
-        updateSSHInputsForCurrentMode()
         createSurface()
         applyOcclusionState()
     }
@@ -634,22 +628,6 @@ final class GhosttyTerminalNSView: NSView {
             return .native
         }
         return nil
-    }
-
-    private func updateSSHInputsForCurrentMode() {
-        guard case let .ssh(destination) = initialWorkspaceContext else { return }
-        switch SSHImplementationMode.current {
-        case .cli:
-            sshConfiguration = nil
-            workspaceContext = .ssh(destination)
-        case .native:
-            sshConfiguration = initialSSHConfiguration ?? SSHConnectionConfiguration.make(
-                destination: destination,
-                remotePath: workingDirectory,
-                command: command
-            )
-            workspaceContext = .ssh(destination)
-        }
     }
 
     private func isAppShortcut(_ event: NSEvent) -> Bool {

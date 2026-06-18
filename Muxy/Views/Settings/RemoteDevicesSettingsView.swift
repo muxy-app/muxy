@@ -5,8 +5,8 @@ struct RemoteDevicesSettingsView: View {
     @Environment(RemoteDeviceStore.self) private var deviceStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(SSHConnectionService.self) private var sshConnections
-    @AppStorage(SSHImplementationMode.storageKey)
-    private var sshImplementationModeRaw = SSHImplementationMode.defaultValue.rawValue
+    @AppStorage(SSHImplementationMode.storageKey) private var sshImplementationModeRaw = SSHImplementationMode.defaultValue.rawValue
+    @AppStorage(SSHImplementationMode.pendingStorageKey) private var pendingSSHImplementationModeRaw = ""
 
     @State private var editorMode: RemoteDeviceEditorMode?
     @State private var devicePendingDelete: RemoteDevice?
@@ -20,6 +20,10 @@ struct RemoteDevicesSettingsView: View {
         SSHImplementationMode(rawValue: sshImplementationModeRaw) ?? .defaultValue
     }
 
+    private var selectedSSHImplementationMode: SSHImplementationMode {
+        SSHImplementationMode(rawValue: pendingSSHImplementationModeRaw) ?? sshImplementationMode
+    }
+
     var body: some View {
         SettingsContainer {
             SettingsSection(
@@ -27,13 +31,17 @@ struct RemoteDevicesSettingsView: View {
                 footer: Self.footerText
             ) {
                 SettingsRow("SSH implementation") {
-                    Picker("", selection: $sshImplementationModeRaw) {
+                    Picker("", selection: sshImplementationSelection) {
                         ForEach(SSHImplementationMode.allCases) { mode in
                             Text(mode.displayName).tag(mode.rawValue)
                         }
                     }
                     .labelsHidden()
                     .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                }
+
+                if SSHImplementationMode.hasPendingRestart {
+                    restartRequiredRow
                 }
 
                 if sshImplementationMode == .cli {
@@ -87,6 +95,39 @@ struct RemoteDevicesSettingsView: View {
         } message: { device in
             Text(deleteMessage(for: device))
         }
+    }
+
+    private var sshImplementationSelection: Binding<String> {
+        Binding(
+            get: { selectedSSHImplementationMode.rawValue },
+            set: { rawValue in
+                guard let mode = SSHImplementationMode(rawValue: rawValue) else { return }
+                SSHImplementationMode.requestChange(to: mode)
+            }
+        )
+    }
+
+    private var restartRequiredRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.clockwise.circle.fill")
+                .font(.system(size: SettingsMetrics.labelFontSize))
+                .foregroundStyle(SettingsStyle.warning)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Restart Muxy to switch from \(sshImplementationMode.displayName) to \(selectedSSHImplementationMode.displayName).")
+                    .font(.system(size: SettingsMetrics.footnoteFontSize))
+                    .foregroundStyle(SettingsStyle.foreground)
+                Text("Current SSH sessions and remote operations keep using \(sshImplementationMode.displayName) until restart.")
+                    .font(.system(size: SettingsMetrics.footnoteFontSize))
+                    .foregroundStyle(SettingsStyle.mutedForeground)
+            }
+            Spacer()
+            Button("Cancel") {
+                SSHImplementationMode.cancelPendingChange()
+            }
+            .font(.system(size: SettingsMetrics.footnoteFontSize, weight: .medium))
+        }
+        .padding(.horizontal, SettingsMetrics.horizontalPadding)
+        .padding(.vertical, SettingsMetrics.rowVerticalPadding)
     }
 
     private var emptyState: some View {

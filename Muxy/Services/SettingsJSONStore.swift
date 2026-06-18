@@ -142,6 +142,9 @@ enum SettingsJSONStore {
 
     private static func apply(_ dictionary: [String: Any]) {
         for (key, value) in dictionary {
+            if applySSHImplementationSetting(key: key, value: value) {
+                continue
+            }
             if applySpecialSetting(key: key, value: value) {
                 continue
             }
@@ -240,6 +243,7 @@ enum SettingsJSONStore {
     private static func currentValue(for item: SettingsCatalogItem) -> Any? {
         let settings = EditorSettings.shared
         return switch item.key {
+        case SSHImplementationMode.storageKey: SSHImplementationMode.selectedForNextLaunch.rawValue
         case SentryConsent.storageKey: SentryService.shared.consent?.rawValue ?? ""
         case "muxy.ui.scale": UIScale.shared.preset.rawValue
         case "muxy.theme.light": ThemeService.shared.currentLightThemeName() ?? ThemeService.defaultThemeName
@@ -250,6 +254,17 @@ enum SettingsJSONStore {
         case "editor.richInputLineHeightMultiplier": Double(settings.richInputLineHeightMultiplier)
         default: UserDefaults.standard.object(forKey: item.key)
         }
+    }
+
+    private static func applySSHImplementationSetting(key: String, value: Any) -> Bool {
+        guard key == SSHImplementationMode.storageKey else { return false }
+        if value is NSNull {
+            SSHImplementationMode.cancelPendingChange()
+            return true
+        }
+        guard let rawValue = value as? String, let mode = SSHImplementationMode(rawValue: rawValue) else { return true }
+        SSHImplementationMode.requestChange(to: mode)
+        return true
     }
 
     private static func isSpecialJSONSetting(_ key: String) -> Bool {

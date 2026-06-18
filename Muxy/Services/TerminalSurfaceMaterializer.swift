@@ -17,7 +17,7 @@ enum TerminalSurfaceMaterializer {
         }
         guard let location = appState.locatePane(paneID: paneID) else { return nil }
         let pane = location.pane
-        let workspaceContext = workspaceContext(for: pane, worktreeKey: location.worktreeKey)
+        let workspaceContext = workspaceContext(for: location.worktreeKey)
         let sshConfiguration = sshConfiguration(for: pane, workspaceContext: workspaceContext)
         pane.sshConfiguration = sshConfiguration
         let view = TerminalViewRegistry.shared.view(
@@ -36,10 +36,7 @@ enum TerminalSurfaceMaterializer {
         return view.surface != nil ? view : nil
     }
 
-    private static func workspaceContext(for pane: TerminalPaneState, worktreeKey: WorktreeKey) -> WorkspaceContext {
-        if let sshDestination = pane.sshDestination {
-            return .ssh(sshDestination)
-        }
+    private static func workspaceContext(for worktreeKey: WorktreeKey) -> WorkspaceContext {
         guard let projectGroupStore = TerminalMaterializationStores.shared.projectGroupStore else {
             return .local
         }

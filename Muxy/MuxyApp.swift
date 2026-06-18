@@ -20,6 +20,7 @@ struct MuxyApp: App {
     init() {
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 500])
         LaunchArgumentGuard.terminateIfNeeded()
+        SSHImplementationMode.applyPendingSelectionAtLaunch()
         _ = MuxyApp.launchDate
         let environment = AppEnvironment.live
         let projectStore = ProjectStore(persistence: environment.projectPersistence)

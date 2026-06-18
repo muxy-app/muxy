@@ -8,9 +8,15 @@ import Testing
 @MainActor
 struct SettingsJSONStoreTests {
     @Test
-    func saveAppliesSSHImplementationMode() throws {
-        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [SSHImplementationMode.storageKey])
+    func saveAppliesPendingSSHImplementationMode() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [
+            SSHImplementationMode.storageKey,
+            SSHImplementationMode.pendingStorageKey,
+        ])
         defer { snapshot.restore() }
+
+        UserDefaults.standard.set(SSHImplementationMode.cli.rawValue, forKey: SSHImplementationMode.storageKey)
+        UserDefaults.standard.removeObject(forKey: SSHImplementationMode.pendingStorageKey)
 
         try SettingsJSONStore.saveUserSettingsText("""
         {
@@ -18,17 +24,22 @@ struct SettingsJSONStoreTests {
         }
         """)
 
-        #expect(UserDefaults.standard.string(forKey: SSHImplementationMode.storageKey) == SSHImplementationMode.native.rawValue)
+        #expect(UserDefaults.standard.string(forKey: SSHImplementationMode.storageKey) == SSHImplementationMode.cli.rawValue)
+        #expect(UserDefaults.standard.string(forKey: SSHImplementationMode.pendingStorageKey) == SSHImplementationMode.native.rawValue)
     }
 
     @Test
     func saveRejectsInvalidSSHImplementationMode() throws {
-        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [SSHImplementationMode.storageKey])
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [
+            SSHImplementationMode.storageKey,
+            SSHImplementationMode.pendingStorageKey,
+        ])
         defer { snapshot.restore() }
         let originalText = "{\"unchanged\":true}\n"
 
         try originalText.write(to: SettingsJSONStore.userSettingsURL, atomically: true, encoding: .utf8)
         UserDefaults.standard.set(SSHImplementationMode.cli.rawValue, forKey: SSHImplementationMode.storageKey)
+        UserDefaults.standard.removeObject(forKey: SSHImplementationMode.pendingStorageKey)
 
         #expect(throws: SettingsJSONError.self) {
             try SettingsJSONStore.saveUserSettingsText("""
@@ -41,6 +52,30 @@ struct SettingsJSONStoreTests {
         let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
         #expect(savedText == originalText)
         #expect(UserDefaults.standard.string(forKey: SSHImplementationMode.storageKey) == SSHImplementationMode.cli.rawValue)
+        #expect(UserDefaults.standard.object(forKey: SSHImplementationMode.pendingStorageKey) == nil)
+    }
+
+    @Test
+    func syncShowsPendingSSHImplementationMode() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [
+            SSHImplementationMode.storageKey,
+            SSHImplementationMode.pendingStorageKey,
+        ])
+        defer { snapshot.restore() }
+
+        UserDefaults.standard.set(SSHImplementationMode.cli.rawValue, forKey: SSHImplementationMode.storageKey)
+        UserDefaults.standard.set(SSHImplementationMode.native.rawValue, forKey: SSHImplementationMode.pendingStorageKey)
+
+        SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
+
+        let savedText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+        #expect(savedText.contains("\"\(SSHImplementationMode.storageKey)\" : \"native\""))
+
+        SSHImplementationMode.cancelPendingChange()
+        SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
+
+        let canceledText = try String(contentsOf: SettingsJSONStore.userSettingsURL, encoding: .utf8)
+        #expect(canceledText.contains("\"\(SSHImplementationMode.storageKey)\" : \"cli\""))
     }
 
     @Test

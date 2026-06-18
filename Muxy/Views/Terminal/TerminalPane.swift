@@ -273,16 +273,7 @@ struct TerminalBridge: NSViewRepresentable {
 
     func makeNSView(context: Context) -> GhosttyTerminalNSView {
         let registry = TerminalViewRegistry.shared
-        let sshConfiguration = sshConfiguration(for: workspaceContext)
-        state.sshConfiguration = sshConfiguration
-        if sshConfiguration == nil {
-            state.sshStatus = nil
-        } else if state.sshStatus == nil {
-            state.sshStatus = .connecting
-        }
-        if sshConfiguration != nil, state.sshStartTime == nil {
-            state.sshStartTime = Date()
-        }
+        let sshConfiguration = prepareSSHState(for: workspaceContext)
         let launch = state.consumeRestoredLaunch()
         let view = registry.view(
             for: state.id,
@@ -340,15 +331,7 @@ struct TerminalBridge: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
-        let sshConfiguration = sshConfiguration(for: workspaceContext)
-        state.sshConfiguration = sshConfiguration
-        if sshConfiguration == nil {
-            state.sshStatus = nil
-        } else if state.sshStatus == nil {
-            state.sshStatus = .connecting
-        }
         nsView.workspaceContext = workspaceContext
-        nsView.sshConfiguration = sshConfiguration
         if nsView.envVars.isEmpty, nsView.surface == nil, let key = worktreeKey {
             nsView.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
         }
@@ -410,6 +393,21 @@ struct TerminalBridge: NSViewRepresentable {
             remotePath: state.currentWorkingDirectory ?? state.projectPath,
             command: state.migratedSSHStartupCommand
         )
+    }
+
+    @discardableResult
+    private func prepareSSHState(for workspaceContext: WorkspaceContext) -> SSHConnectionConfiguration? {
+        let sshConfiguration = sshConfiguration(for: workspaceContext)
+        state.sshConfiguration = sshConfiguration
+        if sshConfiguration == nil {
+            state.sshStatus = nil
+        } else if state.sshStatus == nil {
+            state.sshStatus = .connecting
+        }
+        if sshConfiguration != nil, state.sshStartTime == nil {
+            state.sshStartTime = Date()
+        }
+        return sshConfiguration
     }
 
     private func makeExternalDragHoverHandler(areaID: UUID) -> (Bool) -> Void {
