@@ -1,8 +1,5 @@
 import AppKit
-import os
 import SwiftUI
-
-private let logger = Logger(subsystem: "app.muxy", category: "MainWindow")
 
 enum MainWindowLayout {
     static func leftNavigationWidth(sidebarWidth: CGFloat) -> CGFloat {
@@ -808,31 +805,13 @@ struct MainWindow: View {
     private func confirmRemoteProjectPath(_ path: String) -> ProjectOpenConfirmationResult {
         guard let group = projectGroupStore.activeGroup, group.type == .ssh else { return .failed }
         let name = path.split(separator: "/").last.map(String.init) ?? path
-        logger.info(
-            """
-            Remote workspace confirm begin groupID=\(group.id.uuidString, privacy: .public) \
-            name=\(name, privacy: .public) \
-            path=\(path, privacy: .public) \
-            currentRemoteProjectCount=\(group.remoteProjects.count)
-            """
-        )
         guard let remote = projectGroupStore.addRemoteProject(name: name, path: path, toGroup: group.id) else {
-            logger.info(
-                "Remote workspace confirm failed groupID=\(group.id.uuidString, privacy: .public) path=\(path, privacy: .public)"
-            )
             return .failed
         }
         let project = remote.asProject(workspaceID: group.id, sortOrder: group.remoteProjects.count)
         worktreeStore.ensurePrimary(for: project)
         guard let primary = worktreeStore.primary(for: project.id) else { return .failed }
         appState.selectProject(project, worktree: primary)
-        logger.info(
-            """
-            Remote workspace confirm selected groupID=\(group.id.uuidString, privacy: .public) \
-            projectID=\(project.id.uuidString, privacy: .public) \
-            activeProjectID=\(appState.activeProjectID?.uuidString ?? "nil", privacy: .public)
-            """
-        )
         return .success
     }
 

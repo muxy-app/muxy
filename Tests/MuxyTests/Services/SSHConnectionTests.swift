@@ -59,19 +59,6 @@ struct SSHConnectionTests {
         #expect(configuration.initialShellInput.isEmpty)
     }
 
-    @Test("remote ssh panes use a local surface working directory")
-    func remoteSurfaceUsesLocalWorkingDirectory() {
-        let configuration = SSHConnectionConfiguration.make(
-            destination: SSHDestination(
-                host: "prod",
-                remoteRoot: "/srv/app",
-                user: "deploy"
-            )
-        )
-
-        #expect(configuration.localSurfaceWorkingDirectory == NSHomeDirectory())
-    }
-
     @Test("remote project path overrides workspace root for shell startup")
     func remoteProjectPathOverridesWorkspaceRoot() {
         let configuration = SSHConnectionConfiguration.make(

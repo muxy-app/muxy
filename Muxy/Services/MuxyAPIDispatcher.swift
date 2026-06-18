@@ -227,11 +227,7 @@ enum MuxyAPIDispatcher {
             return NSNull()
         case "projects.list":
             guard let projectStore = context.projectStore else { throw APIError.projectStoreUnavailable }
-            return MuxyAPI.Projects.list(
-                appState: context.appState,
-                projectStore: projectStore,
-                projectGroupStore: context.projectGroupStore
-            ).map(projectDict)
+            return MuxyAPI.Projects.list(appState: context.appState, projectStore: projectStore).map(projectDict)
         case "projects.switch":
             guard let projectStore = context.projectStore,
                   let worktreeStore = context.worktreeStore
@@ -240,8 +236,7 @@ enum MuxyAPIDispatcher {
                 identifier: stringArg(args, "identifier"),
                 appState: context.appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore,
-                projectGroupStore: context.projectGroupStore
+                worktreeStore: worktreeStore
             ))
             return NSNull()
         case "projects.delete":
@@ -268,8 +263,7 @@ enum MuxyAPIDispatcher {
                 projectIdentifier: args["project"] as? String,
                 appState: context.appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore,
-                projectGroupStore: context.projectGroupStore
+                worktreeStore: worktreeStore
             )).map(worktreeDict)
         case "worktrees.switch":
             guard let projectStore = context.projectStore,
@@ -280,8 +274,7 @@ enum MuxyAPIDispatcher {
                 projectIdentifier: args["project"] as? String,
                 appState: context.appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore,
-                projectGroupStore: context.projectGroupStore
+                worktreeStore: worktreeStore
             ))
             return NSNull()
         case "worktrees.refresh":
@@ -564,8 +557,7 @@ enum MuxyAPIDispatcher {
                 projectIdentifier: project,
                 appState: context.appState,
                 projectStore: projectStore,
-                worktreeStore: worktreeStore,
-                projectGroupStore: context.projectGroupStore
+                worktreeStore: worktreeStore
             ))
             return NSNull()
         case "git.remoteBranches":

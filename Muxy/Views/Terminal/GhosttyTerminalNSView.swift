@@ -12,6 +12,7 @@ final class GhosttyTerminalNSView: NSView {
     private let command: String?
     private let commandInteractive: Bool
     private let commandClosesOnExit: Bool
+    private let sshMode: SSHImplementationMode?
     var sshConfiguration: SSHConnectionConfiguration?
     var workspaceContext: WorkspaceContext
     var envVars: [(key: String, value: String)] = []
@@ -74,12 +75,14 @@ final class GhosttyTerminalNSView: NSView {
         commandInteractive: Bool = false,
         closesOnCommandExit: Bool = true,
         sshConfiguration: SSHConnectionConfiguration? = nil,
+        sshMode: SSHImplementationMode? = nil,
         workspaceContext: WorkspaceContext = .local
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.commandInteractive = commandInteractive
         commandClosesOnExit = closesOnCommandExit
+        self.sshMode = sshMode
         self.sshConfiguration = sshConfiguration
         self.workspaceContext = workspaceContext
         super.init(frame: .zero)
@@ -143,7 +146,6 @@ final class GhosttyTerminalNSView: NSView {
         cleanupSurfaceConfigPointers()
 
         var cEnvVars: [ghostty_env_var_s] = []
-        let sshMode = resolvedSSHImplementationMode()
         let surfaceWorkingDirectory = workspaceContext.isRemote ? NSHomeDirectory() : workingDirectory
         guard let workingDirectoryPointer = strdup(surfaceWorkingDirectory) else { return }
         surfaceCStringPointers.append(workingDirectoryPointer)
@@ -265,7 +267,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func destroySurface() {
-        if let paneID = TerminalViewRegistry.shared.paneID(for: self), resolvedSSHImplementationMode() == .native {
+        if let paneID = TerminalViewRegistry.shared.paneID(for: self), sshMode == .native {
             MuxySSH.SSHConnectionService.shared.stop(paneID: paneID)
         }
         if let surface {
@@ -435,7 +437,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func restartSSH() {
-        guard resolvedSSHImplementationMode() != nil else { return }
+        guard sshMode != nil else { return }
         processExitHandled = false
         destroySurface()
         createSurface()
@@ -467,7 +469,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func isTerminalIdle() -> Bool {
-        if resolvedSSHImplementationMode() == .native { return false }
+        if sshMode == .native { return false }
         guard let surface else { return true }
         if ghostty_surface_needs_confirm_quit(surface) { return false }
         return !isAlternateScreenActive(surface: surface)
@@ -490,7 +492,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private var isEligibleForOffline: Bool {
-        resolvedSSHImplementationMode() != .native &&
+        sshMode != .native &&
             surface != nil && !keepsAwake && offlineInvisibleAt != nil
             && !isOfflineBlockedByRemote && isTerminalIdle()
     }
@@ -614,20 +616,10 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func notifySSHResize() {
-        guard resolvedSSHImplementationMode() == .native,
+        guard sshMode == .native,
               let paneID = TerminalViewRegistry.shared.paneID(for: self)
         else { return }
         MuxySSH.SSHConnectionService.shared.resize(paneID: paneID, size: currentTerminalSize())
-    }
-
-    private func resolvedSSHImplementationMode() -> SSHImplementationMode? {
-        if case .ssh = workspaceContext {
-            return SSHImplementationMode.current
-        }
-        if sshConfiguration != nil {
-            return .native
-        }
-        return nil
     }
 
     private func isAppShortcut(_ event: NSEvent) -> Bool {

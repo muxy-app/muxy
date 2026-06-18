@@ -1,7 +1,6 @@
 import Foundation
 
 @MainActor
-@Observable
 final class TerminalMaterializationStores {
     static let shared = TerminalMaterializationStores()
     weak var projectGroupStore: ProjectGroupStore?
@@ -19,6 +18,7 @@ enum TerminalSurfaceMaterializer {
         let pane = location.pane
         let workspaceContext = workspaceContext(for: location.worktreeKey)
         let sshConfiguration = sshConfiguration(for: pane, workspaceContext: workspaceContext)
+        let sshMode = SSHImplementationResolver.mode(for: workspaceContext, sshConfiguration: sshConfiguration)
         pane.sshConfiguration = sshConfiguration
         let view = TerminalViewRegistry.shared.view(
             for: paneID,
@@ -27,6 +27,7 @@ enum TerminalSurfaceMaterializer {
             commandInteractive: pane.startupCommandInteractive,
             closesOnCommandExit: pane.closesOnStartupCommandExit,
             sshConfiguration: sshConfiguration,
+            sshMode: sshMode,
             workspaceContext: workspaceContext
         )
         if view.envVars.isEmpty {

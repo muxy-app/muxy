@@ -19,10 +19,6 @@ struct SSHConnectionConfiguration: Equatable, SSHConnectionConfigurable {
         return "\(pathCommand)\n"
     }
 
-    var localSurfaceWorkingDirectory: String {
-        NSHomeDirectory()
-    }
-
     private var pathCommand: String {
         "cd \(RemoteCommandBuilder.quoteRemotePath(remotePath))"
     }

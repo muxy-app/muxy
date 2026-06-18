@@ -50,9 +50,7 @@ struct TerminalPane: View {
                 visible: visible,
                 areaID: areaID,
                 onFocus: onFocus,
-                onProcessExit: {
-                    onProcessExit()
-                },
+                onProcessExit: onProcessExit,
                 onSplitRequest: onSplitRequest
             )
             .accessibilityElement(children: .contain)
@@ -159,7 +157,6 @@ struct TerminalPane: View {
                 .multilineTextAlignment(.center)
             Button(retryable ? "Reconnect Now" : "Reconnect") {
                 state.sshStatus = .connecting
-                state.sshStartTime = Date()
                 TerminalViewRegistry.shared.existingView(for: state.id)?.restartSSH()
             }
             .buttonStyle(.borderedProminent)
@@ -274,6 +271,7 @@ struct TerminalBridge: NSViewRepresentable {
     func makeNSView(context: Context) -> GhosttyTerminalNSView {
         let registry = TerminalViewRegistry.shared
         let sshConfiguration = prepareSSHState(for: workspaceContext)
+        let sshMode = SSHImplementationResolver.mode(for: workspaceContext, sshConfiguration: sshConfiguration)
         let launch = state.consumeRestoredLaunch()
         let view = registry.view(
             for: state.id,
@@ -282,6 +280,7 @@ struct TerminalBridge: NSViewRepresentable {
             commandInteractive: launch.interactive,
             closesOnCommandExit: launch.closesOnCommandExit,
             sshConfiguration: sshConfiguration,
+            sshMode: sshMode,
             workspaceContext: workspaceContext
         )
         if view.envVars.isEmpty, let key = worktreeKey {
@@ -403,9 +402,6 @@ struct TerminalBridge: NSViewRepresentable {
             state.sshStatus = nil
         } else if state.sshStatus == nil {
             state.sshStatus = .connecting
-        }
-        if sshConfiguration != nil, state.sshStartTime == nil {
-            state.sshStartTime = Date()
         }
         return sshConfiguration
     }

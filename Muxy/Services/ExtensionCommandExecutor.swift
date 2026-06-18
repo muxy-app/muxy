@@ -132,33 +132,42 @@ enum ExtensionCommandExecutor {
         request: ExecRequest,
         defaultCwd: String?
     ) async throws -> ExecResult {
-        try SSHImplementationSelection.validate(destination: destination)
         let workingDirectory = (request.cwd?.isEmpty == false) ? request.cwd : defaultCwd
         let remoteEnv = request.env?.filter { isSafeEnvKey($0.key) }
         let stdinData = request.stdin?.data(using: .utf8)
         let timeout = Double(request.timeoutMs ?? defaultTimeoutMs) / 1000
         let result: GitProcessResult
-        if let shell = request.shell {
-            result = try await SSHCommandRunner.runShell(
-                destination: destination,
-                shellCommand: shell,
-                workingDirectory: workingDirectory,
-                environment: remoteEnv,
-                timeout: timeout,
-                input: stdinData
+        do {
+            if let shell = request.shell {
+                result = try await SSHCommandRunner.runShell(
+                    destination: destination,
+                    shellCommand: shell,
+                    workingDirectory: workingDirectory,
+                    environment: remoteEnv,
+                    timeout: timeout,
+                    input: stdinData
+                )
+            } else if let argv = request.argv, let head = argv.first, !head.isEmpty {
+                result = try await SSHCommandRunner.runCommand(
+                    destination: destination,
+                    executable: head,
+                    arguments: Array(argv.dropFirst()),
+                    workingDirectory: workingDirectory,
+                    environment: remoteEnv,
+                    timeout: timeout,
+                    input: stdinData
+                )
+            } else {
+                throw ExecError.invalidArguments("either argv (non-empty) or shell is required")
+            }
+        } catch SSHCommandError.timedOut {
+            return ExecResult(
+                stdout: "",
+                stderr: "",
+                exitCode: SIGTERM,
+                timedOut: true,
+                truncated: false
             )
-        } else if let argv = request.argv, let head = argv.first, !head.isEmpty {
-            result = try await SSHCommandRunner.runCommand(
-                destination: destination,
-                executable: head,
-                arguments: Array(argv.dropFirst()),
-                workingDirectory: workingDirectory,
-                environment: remoteEnv,
-                timeout: timeout,
-                input: stdinData
-            )
-        } else {
-            throw ExecError.invalidArguments("either argv (non-empty) or shell is required")
         }
         return ExecResult(
             stdout: result.stdout,

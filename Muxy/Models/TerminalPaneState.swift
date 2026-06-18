@@ -20,7 +20,6 @@ final class TerminalPaneState: Identifiable {
     let externalEditorFilePath: String?
     var sshConfiguration: SSHConnectionConfiguration?
     var sshStatus: SSHConnectionStatus?
-    var sshStartTime: Date?
     var isOffline = false
     let searchState = TerminalSearchState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?

@@ -395,9 +395,7 @@ struct Sidebar: View {
             for: project.id,
             matching: appState.activeWorktreeID[project.id]
         )
-        else {
-            return
-        }
+        else { return }
         appState.selectProject(project, worktree: worktree)
     }
 
