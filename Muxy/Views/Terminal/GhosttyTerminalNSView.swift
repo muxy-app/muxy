@@ -14,7 +14,6 @@ final class GhosttyTerminalNSView: NSView {
     private let commandClosesOnExit: Bool
     private let initialWorkspaceContext: WorkspaceContext
     private let initialSSHConfiguration: SSHConnectionConfiguration?
-    var activeSSHImplementationMode: SSHImplementationMode?
     var sshConfiguration: SSHConnectionConfiguration?
     var workspaceContext: WorkspaceContext
     var envVars: [(key: String, value: String)] = []
@@ -77,8 +76,7 @@ final class GhosttyTerminalNSView: NSView {
         commandInteractive: Bool = false,
         closesOnCommandExit: Bool = true,
         sshConfiguration: SSHConnectionConfiguration? = nil,
-        workspaceContext: WorkspaceContext = .local,
-        sshImplementationMode: SSHImplementationMode? = nil
+        workspaceContext: WorkspaceContext = .local
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
@@ -88,7 +86,6 @@ final class GhosttyTerminalNSView: NSView {
         self.sshConfiguration = sshConfiguration
         initialWorkspaceContext = workspaceContext
         self.workspaceContext = workspaceContext
-        activeSSHImplementationMode = sshImplementationMode
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -272,7 +269,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     func destroySurface() {
-        if let paneID = TerminalViewRegistry.shared.paneID(for: self), sshConfiguration != nil {
+        if let paneID = TerminalViewRegistry.shared.paneID(for: self), resolvedSSHImplementationMode() == .native {
             MuxySSH.SSHConnectionService.shared.stop(paneID: paneID)
         }
         if let surface {
@@ -623,7 +620,7 @@ final class GhosttyTerminalNSView: NSView {
     }
 
     private func notifySSHResize() {
-        guard activeSSHImplementationMode == .native,
+        guard resolvedSSHImplementationMode() == .native,
               let paneID = TerminalViewRegistry.shared.paneID(for: self)
         else { return }
         MuxySSH.SSHConnectionService.shared.resize(paneID: paneID, size: currentTerminalSize())
@@ -631,22 +628,17 @@ final class GhosttyTerminalNSView: NSView {
 
     private func resolvedSSHImplementationMode() -> SSHImplementationMode? {
         if case .ssh = workspaceContext {
-            return activeSSHImplementationMode ?? SSHImplementationMode.current
+            return SSHImplementationMode.current
         }
         if sshConfiguration != nil {
-            return activeSSHImplementationMode ?? .native
+            return .native
         }
         return nil
     }
 
     private func updateSSHInputsForCurrentMode() {
-        guard case let .ssh(destination) = initialWorkspaceContext else {
-            activeSSHImplementationMode = nil
-            return
-        }
-        let mode = SSHImplementationMode.current
-        activeSSHImplementationMode = mode
-        switch mode {
+        guard case let .ssh(destination) = initialWorkspaceContext else { return }
+        switch SSHImplementationMode.current {
         case .cli:
             sshConfiguration = nil
             workspaceContext = .ssh(destination)

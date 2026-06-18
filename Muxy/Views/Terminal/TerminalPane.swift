@@ -274,8 +274,6 @@ struct TerminalBridge: NSViewRepresentable {
     func makeNSView(context: Context) -> GhosttyTerminalNSView {
         let registry = TerminalViewRegistry.shared
         let sshConfiguration = sshConfiguration(for: workspaceContext)
-        let sshImplementationMode = sshImplementationMode(for: workspaceContext)
-        state.sshImplementationMode = sshImplementationMode
         state.sshConfiguration = sshConfiguration
         if sshConfiguration == nil {
             state.sshStatus = nil
@@ -293,8 +291,7 @@ struct TerminalBridge: NSViewRepresentable {
             commandInteractive: launch.interactive,
             closesOnCommandExit: launch.closesOnCommandExit,
             sshConfiguration: sshConfiguration,
-            workspaceContext: workspaceContext,
-            sshImplementationMode: sshImplementationMode
+            workspaceContext: workspaceContext
         )
         if view.envVars.isEmpty, let key = worktreeKey {
             view.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
@@ -344,8 +341,6 @@ struct TerminalBridge: NSViewRepresentable {
 
     func updateNSView(_ nsView: GhosttyTerminalNSView, context: Context) {
         let sshConfiguration = sshConfiguration(for: workspaceContext)
-        let sshImplementationMode = sshImplementationMode(for: workspaceContext)
-        state.sshImplementationMode = sshImplementationMode
         state.sshConfiguration = sshConfiguration
         if sshConfiguration == nil {
             state.sshStatus = nil
@@ -353,7 +348,6 @@ struct TerminalBridge: NSViewRepresentable {
             state.sshStatus = .connecting
         }
         nsView.workspaceContext = workspaceContext
-        nsView.activeSSHImplementationMode = state.sshImplementationMode
         nsView.sshConfiguration = sshConfiguration
         if nsView.envVars.isEmpty, nsView.surface == nil, let key = worktreeKey {
             nsView.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
@@ -416,11 +410,6 @@ struct TerminalBridge: NSViewRepresentable {
             remotePath: state.currentWorkingDirectory ?? state.projectPath,
             command: state.migratedSSHStartupCommand
         )
-    }
-
-    private func sshImplementationMode(for workspaceContext: WorkspaceContext) -> SSHImplementationMode? {
-        guard case .ssh = workspaceContext else { return nil }
-        return state.sshImplementationMode ?? SSHImplementationMode.current
     }
 
     private func makeExternalDragHoverHandler(areaID: UUID) -> (Bool) -> Void {

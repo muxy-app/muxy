@@ -18,10 +18,10 @@ final class TerminalPaneState: Identifiable {
     let startupCommandInteractive: Bool
     let closesOnStartupCommandExit: Bool
     let externalEditorFilePath: String?
+    var sshDestination: SSHDestination?
     var sshConfiguration: SSHConnectionConfiguration?
     var sshStatus: SSHConnectionStatus?
     var sshStartTime: Date?
-    var sshImplementationMode: SSHImplementationMode?
     var isOffline = false
     let searchState = TerminalSearchState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
@@ -45,6 +45,7 @@ final class TerminalPaneState: Identifiable {
         self.startupCommandInteractive = startupCommandInteractive
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
         self.externalEditorFilePath = externalEditorFilePath
+        sshDestination = nil
         self.sshConfiguration = sshConfiguration
     }
 
