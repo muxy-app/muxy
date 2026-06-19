@@ -417,7 +417,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        confirmQuitIfNeeded()
+        guard !AppRelaunch.isRelaunching else { return .terminateNow }
+        return confirmQuitIfNeeded()
     }
 
     @MainActor

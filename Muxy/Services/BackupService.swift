@@ -10,7 +10,13 @@ struct BackupService {
         self.baseDirectory = baseDirectory
     }
 
-    func export(to archiveURL: URL, appVersion: String, createdAt: Date) throws {
+    func export(to archiveURL: URL, appVersion: String, createdAt: Date) async throws {
+        try await GitProcessRunner.offMainThrowing {
+            try performExport(to: archiveURL, appVersion: appVersion, createdAt: createdAt)
+        }
+    }
+
+    private func performExport(to archiveURL: URL, appVersion: String, createdAt: Date) throws {
         let staging = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: staging) }
 
@@ -32,7 +38,14 @@ struct BackupService {
     }
 
     @discardableResult
-    func importBackup(from archiveURL: URL, backupStamp: String) throws -> URL {
+    func importBackup(from archiveURL: URL, backupStamp: String) async throws -> URL {
+        try await GitProcessRunner.offMainThrowing {
+            try performImport(from: archiveURL, backupStamp: backupStamp)
+        }
+    }
+
+    @discardableResult
+    private func performImport(from archiveURL: URL, backupStamp: String) throws -> URL {
         let staging = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: staging) }
 
@@ -41,7 +54,12 @@ struct BackupService {
         guard manifest.isSupported else { throw BackupArchiveError.manifestUnsupported }
 
         let backupDirectory = try backUpCurrentData(stamp: backupStamp)
-        try restoreContents(from: staging, manifest: manifest)
+        do {
+            try restoreContents(from: staging, manifest: manifest)
+        } catch {
+            try? rollBack(from: backupDirectory)
+            throw error
+        }
         return backupDirectory
     }
 
@@ -98,6 +116,20 @@ struct BackupService {
         }
 
         return backupDirectory
+    }
+
+    private func rollBack(from backupDirectory: URL) throws {
+        let fileManager = FileManager.default
+
+        for name in BackupArchive.exportableFiles + BackupArchive.exportableDirectories {
+            let source = backupDirectory.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
+            let destination = baseDirectory.appendingPathComponent(name)
+            if fileManager.fileExists(atPath: destination.path) {
+                try fileManager.removeItem(at: destination)
+            }
+            try fileManager.moveItem(at: source, to: destination)
+        }
     }
 
     private func restoreContents(from staging: URL, manifest: BackupManifest) throws {

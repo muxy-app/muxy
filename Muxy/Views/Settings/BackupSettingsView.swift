@@ -99,13 +99,16 @@ struct BackupSettingsView: View {
 
         errorMessage = nil
         isWorking = true
-        do {
-            try BackupService().export(to: url, appVersion: appVersion, createdAt: Date())
-            ToastState.shared.show(title: "Export complete", body: url.lastPathComponent)
-        } catch {
-            errorMessage = error.localizedDescription
+        let version = appVersion
+        Task {
+            do {
+                try await BackupService().export(to: url, appVersion: version, createdAt: Date())
+                ToastState.shared.show(title: "Export complete", body: url.lastPathComponent)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isWorking = false
         }
-        isWorking = false
     }
 
     private func chooseImportFile() {
@@ -128,13 +131,16 @@ struct BackupSettingsView: View {
         guard let url = pendingImportURL else { return }
         pendingImportURL = nil
         isWorking = true
-        do {
-            try BackupService().importBackup(from: url, backupStamp: backupStamp())
-            isWorking = false
-            showRestartPrompt = true
-        } catch {
-            errorMessage = error.localizedDescription
-            isWorking = false
+        let stamp = backupStamp()
+        Task {
+            do {
+                try await BackupService().importBackup(from: url, backupStamp: stamp)
+                isWorking = false
+                showRestartPrompt = true
+            } catch {
+                errorMessage = error.localizedDescription
+                isWorking = false
+            }
         }
     }
 

@@ -37,6 +37,7 @@ enum BackupArchive {
         "command-shortcuts.json",
         "editor-settings.json",
         "rich-input-drafts.json",
+        "ghostty.conf",
     ]
 
     static let exportableDirectories = [

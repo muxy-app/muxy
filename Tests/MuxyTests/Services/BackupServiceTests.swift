@@ -27,6 +27,8 @@ struct BackupServiceTests {
         )
         try write(try JSONEncoder().encode([device]), named: "remote-devices.json", in: source)
 
+        try write(Data("font-family = Menlo".utf8), named: "ghostty.conf", in: source)
+
         let logos = source.appendingPathComponent("logos", isDirectory: true)
         try FileManager.default.createDirectory(at: logos, withIntermediateDirectories: true)
         try write(Data("png".utf8), named: "logo.png", in: logos)
@@ -34,28 +36,30 @@ struct BackupServiceTests {
     }
 
     @Test("export then import round-trips files into a clean target")
-    func roundTrip() throws {
+    func roundTrip() async throws {
         let source = try seedSource()
         let archive = tempDirectory().appendingPathComponent("backup.muxy")
-        try BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
+        try await BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
         #expect(FileManager.default.fileExists(atPath: archive.path))
 
         let target = tempDirectory()
-        try BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
+        try await BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
 
         #expect(FileManager.default.fileExists(atPath: target.appendingPathComponent("projects.json").path))
         let logo = target.appendingPathComponent("logos/logo.png")
         #expect(try Data(contentsOf: logo) == Data("png".utf8))
+        let ghostty = target.appendingPathComponent("ghostty.conf")
+        #expect(try Data(contentsOf: ghostty) == Data("font-family = Menlo".utf8))
     }
 
     @Test("export strips SSH environment secrets")
-    func stripsSSHEnvironment() throws {
+    func stripsSSHEnvironment() async throws {
         let source = try seedSource()
         let archive = tempDirectory().appendingPathComponent("backup.muxy")
-        try BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
+        try await BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
 
         let target = tempDirectory()
-        try BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
+        try await BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
 
         let data = try Data(contentsOf: target.appendingPathComponent("remote-devices.json"))
         let devices = try JSONDecoder().decode([RemoteDevice].self, from: data)
@@ -63,13 +67,13 @@ struct BackupServiceTests {
     }
 
     @Test("export empties approved devices from settings")
-    func stripsApprovedDevices() throws {
+    func stripsApprovedDevices() async throws {
         let source = try seedSource()
         let archive = tempDirectory().appendingPathComponent("backup.muxy")
-        try BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
+        try await BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
 
         let target = tempDirectory()
-        try BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
+        try await BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
 
         let data = try Data(contentsOf: target.appendingPathComponent("settings.json"))
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -78,49 +82,49 @@ struct BackupServiceTests {
     }
 
     @Test("approved-devices file is never included in the archive")
-    func excludesApprovedDevicesFile() throws {
+    func excludesApprovedDevicesFile() async throws {
         let source = try seedSource()
         try write(Data("[]".utf8), named: "approved-devices.json", in: source)
         let archive = tempDirectory().appendingPathComponent("backup.muxy")
-        try BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
+        try await BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
 
         let target = tempDirectory()
-        try BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
+        try await BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
         #expect(!FileManager.default.fileExists(atPath: target.appendingPathComponent("approved-devices.json").path))
     }
 
     @Test("import backs up existing data before replacing")
-    func backsUpExistingData() throws {
+    func backsUpExistingData() async throws {
         let source = try seedSource()
         let archive = tempDirectory().appendingPathComponent("backup.muxy")
-        try BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
+        try await BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
 
         let target = tempDirectory()
         try write(Data(#"["old"]"#.utf8), named: "projects.json", in: target)
-        let backupDirectory = try BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
+        let backupDirectory = try await BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
 
         let preserved = backupDirectory.appendingPathComponent("projects.json")
         #expect(try Data(contentsOf: preserved) == Data(#"["old"]"#.utf8))
     }
 
     @Test("import rejects an archive without a manifest")
-    func rejectsMissingManifest() throws {
+    func rejectsMissingManifest() async throws {
         let staging = tempDirectory()
         try write(Data("[]".utf8), named: "projects.json", in: staging)
         let archive = tempDirectory().appendingPathComponent("invalid.muxy")
         try BackupArchive.zip(directory: staging, to: archive)
 
         let target = tempDirectory()
-        #expect(throws: BackupArchiveError.self) {
-            try BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
+        await #expect(throws: BackupArchiveError.self) {
+            try await BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
         }
     }
 
     @Test("import ignores entries not in the allowlist")
-    func ignoresUnexpectedEntries() throws {
+    func ignoresUnexpectedEntries() async throws {
         let source = try seedSource()
         let archive = tempDirectory().appendingPathComponent("backup.muxy")
-        try BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
+        try await BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
 
         let staging = tempDirectory()
         try BackupArchive.unzip(archiveURL: archive, to: staging)
@@ -135,7 +139,7 @@ struct BackupServiceTests {
         try BackupArchive.zip(directory: staging, to: repacked)
 
         let target = tempDirectory()
-        try BackupService(baseDirectory: target).importBackup(from: repacked, backupStamp: "stamp")
+        try await BackupService(baseDirectory: target).importBackup(from: repacked, backupStamp: "stamp")
         #expect(!FileManager.default.fileExists(atPath: target.appendingPathComponent("passwd").path))
     }
 }
