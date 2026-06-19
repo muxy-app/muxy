@@ -1,29 +1,95 @@
 #!/bin/bash
 # Muxy CLI wrapper
 # Usage:
-#   muxy <path>                              Open a folder in Muxy
-#   muxy split-right [--from <id>] [cmd...]  Split horizontally from the calling pane (returns pane ID)
-#   muxy split-down [--from <id>] [cmd...]   Split vertically from the calling pane (returns pane ID)
-#   muxy send --pane <id> <text>             Send text to a pane
-#   muxy send-keys --pane <id> <key>         Send special key (Escape, Enter, Tab, Ctrl+C)
-#   muxy read-screen --pane <id> [--lines N] Read terminal content
-#   muxy close-pane --pane <id>              Close a pane
-#   muxy rename-pane --pane <id> <title>     Rename a pane tab
-#   muxy list-panes                          List all panes (tab-separated)
-#   muxy list-projects                       List projects
-#   muxy switch-project <name|id|path>        Switch active project
-#   muxy list-worktrees [project]             List worktrees
-#   muxy create-worktree <name> [options]     Create and switch to a worktree
-#   muxy switch-worktree <name|id|path>       Switch active worktree
-#   muxy refresh-worktrees [project]          Refresh worktrees from Git
-#   muxy list-tabs                            List tabs
-#   muxy switch-tab <index|id|title>          Switch active tab
-#   muxy new-tab                              Create a terminal tab
-#   muxy next-tab|previous-tab                Switch tabs
+#   muxy <path>                                Open a folder in Muxy
+#   muxy split-right [--from <id>] [cmd...]    Split horizontally from the calling pane (returns pane ID)
+#   muxy split-down [--from <id>] [cmd...]     Split vertically from the calling pane (returns pane ID)
+#   muxy send --pane <id> <text>               Send text to a pane
+#   muxy send-keys --pane <id> <key>           Send special key (Escape, Enter, Tab, Ctrl+C)
+#   muxy read-screen --pane <id> [--lines N]   Read terminal content
+#   muxy close-pane --pane <id>                Close a pane
+#   muxy rename-pane --pane <id> <title>       Rename a pane tab
+#   muxy list-panes                            List all panes (tab-separated)
+#   muxy list-projects                         List projects
+#   muxy switch-project <name|id|path>         Switch active project
+#   muxy list-worktrees [project]              List worktrees
+#   muxy create-worktree <name> [options]      Create and switch to a worktree
+#   muxy switch-worktree <name|id|path>        Switch active worktree
+#   muxy refresh-worktrees [project]           Refresh worktrees from Git
+#   muxy list-tabs                             List tabs
+#   muxy switch-tab <index|id|title>           Switch active tab
+#   muxy new-tab                               Create a terminal tab
+#   muxy next-tab|previous-tab                 Switch tabs
+#
+# Run "muxy <command> --help" for the options of a single command.
 
 COMMAND="$1"
 SOCKET="${MUXY_SOCKET_PATH:-$HOME/Library/Application Support/Muxy/muxy.sock}"
 NC_TIMEOUT=6
+
+usage_for() {
+    case "$1" in
+        split-right)       echo "muxy split-right [--from <id>] [cmd...]" ;;
+        split-down)        echo "muxy split-down [--from <id>] [cmd...]" ;;
+        send)              echo "muxy send --pane <id> <text>" ;;
+        send-keys)         echo "muxy send-keys --pane <id> <key>" ;;
+        read-screen)       echo "muxy read-screen --pane <id> [--lines N]" ;;
+        close-pane)        echo "muxy close-pane --pane <id>" ;;
+        rename-pane)       echo "muxy rename-pane --pane <id> <title>" ;;
+        list-panes)        echo "muxy list-panes" ;;
+        list-projects)     echo "muxy list-projects" ;;
+        switch-project)    echo "muxy switch-project <name|id|path>" ;;
+        list-worktrees)    echo "muxy list-worktrees [project]" ;;
+        create-worktree)   echo "muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" ;;
+        switch-worktree)   echo "muxy switch-worktree <name|id|path> [--project <name|id|path>]" ;;
+        refresh-worktrees) echo "muxy refresh-worktrees [project]" ;;
+        list-tabs)         echo "muxy list-tabs" ;;
+        switch-tab)        echo "muxy switch-tab <index|id|title>" ;;
+        new-tab)           echo "muxy new-tab" ;;
+        next-tab)          echo "muxy next-tab" ;;
+        previous-tab)      echo "muxy previous-tab" ;;
+    esac
+}
+
+die_usage() {
+    echo "Usage: $(usage_for "$1")" >&2
+    exit 1
+}
+
+print_command_help() {
+    echo "Usage: $(usage_for "$1")"
+    exit 0
+}
+
+wants_help() {
+    [ "$1" = "-h" ] || [ "$1" = "--help" ]
+}
+
+usage() {
+    echo "Usage:"
+    echo "  muxy <path>                              Open a folder in Muxy"
+    echo "  muxy split-right [--from <id>] [cmd...]  Split horizontally from the calling pane (returns pane ID)"
+    echo "  muxy split-down [--from <id>] [cmd...]   Split vertically from the calling pane (returns pane ID)"
+    echo "  muxy send --pane <id> <text>             Send text to a pane"
+    echo "  muxy send-keys --pane <id> <key>         Send special key (Escape, Enter, Tab, Ctrl+C)"
+    echo "  muxy read-screen --pane <id> [--lines N] Read terminal content"
+    echo "  muxy close-pane --pane <id>              Close a pane"
+    echo "  muxy rename-pane --pane <id> <title>     Rename a pane tab"
+    echo "  muxy list-panes                          List all panes"
+    echo "  muxy list-projects                       List projects"
+    echo "  muxy switch-project <name|id|path>       Switch active project"
+    echo "  muxy list-worktrees [project]            List worktrees"
+    echo "  muxy create-worktree <name> [options]    Create and switch to a worktree"
+    echo "  muxy switch-worktree <name|id|path>      Switch active worktree"
+    echo "  muxy refresh-worktrees [project]         Refresh worktrees from Git"
+    echo "  muxy list-tabs                           List tabs"
+    echo "  muxy switch-tab <index|id|title>         Switch active tab"
+    echo "  muxy new-tab                             Create a terminal tab"
+    echo "  muxy next-tab                            Switch to next tab"
+    echo "  muxy previous-tab                        Switch to previous tab"
+    echo ""
+    echo "Run \"muxy <command> --help\" for the options of a single command."
+}
 
 send_command() {
     local message="$1"
@@ -66,11 +132,9 @@ case "$COMMAND" in
         CMD_ARGS=()
         while [[ $# -gt 0 ]]; do
             case $1 in
+                -h|--help) print_command_help split-right ;;
                 --from)
-                    if [ $# -lt 2 ]; then
-                        echo "Usage: muxy split-right [--from <id>] [cmd...]" >&2
-                        exit 1
-                    fi
+                    [ $# -lt 2 ] && die_usage split-right
                     FROM="$2"
                     shift 2
                     ;;
@@ -90,11 +154,9 @@ case "$COMMAND" in
         CMD_ARGS=()
         while [[ $# -gt 0 ]]; do
             case $1 in
+                -h|--help) print_command_help split-down ;;
                 --from)
-                    if [ $# -lt 2 ]; then
-                        echo "Usage: muxy split-down [--from <id>] [cmd...]" >&2
-                        exit 1
-                    fi
+                    [ $# -lt 2 ] && die_usage split-down
                     FROM="$2"
                     shift 2
                     ;;
@@ -114,13 +176,13 @@ case "$COMMAND" in
         TEXT=""
         while [[ $# -gt 0 ]]; do
             case $1 in
+                -h|--help) print_command_help send ;;
                 --pane) PANE_ID="$2"; shift 2 ;;
                 *) TEXT="$1"; shift ;;
             esac
         done
         if [ -z "$PANE_ID" ] || [ -z "$TEXT" ]; then
-            echo "Usage: muxy send --pane <id> <text>" >&2
-            exit 1
+            die_usage send
         fi
         send_command "send|$PANE_ID|$TEXT"
         ;;
@@ -130,13 +192,13 @@ case "$COMMAND" in
         KEY=""
         while [[ $# -gt 0 ]]; do
             case $1 in
+                -h|--help) print_command_help send-keys ;;
                 --pane) PANE_ID="$2"; shift 2 ;;
                 *) KEY="$1"; shift ;;
             esac
         done
         if [ -z "$PANE_ID" ] || [ -z "$KEY" ]; then
-            echo "Usage: muxy send-keys --pane <id> <key>" >&2
-            exit 1
+            die_usage send-keys
         fi
         send_command "send-keys|$PANE_ID|$KEY"
         ;;
@@ -146,14 +208,14 @@ case "$COMMAND" in
         LINES=50
         while [[ $# -gt 0 ]]; do
             case $1 in
+                -h|--help) print_command_help read-screen ;;
                 --pane) PANE_ID="$2"; shift 2 ;;
                 --lines) LINES="$2"; shift 2 ;;
                 *) shift ;;
             esac
         done
         if [ -z "$PANE_ID" ]; then
-            echo "Usage: muxy read-screen --pane <id> [--lines N]" >&2
-            exit 1
+            die_usage read-screen
         fi
         send_command "read-screen|$PANE_ID|$LINES"
         ;;
@@ -162,13 +224,13 @@ case "$COMMAND" in
         PANE_ID=""
         while [[ $# -gt 0 ]]; do
             case $1 in
+                -h|--help) print_command_help close-pane ;;
                 --pane) PANE_ID="$2"; shift 2 ;;
                 *) shift ;;
             esac
         done
         if [ -z "$PANE_ID" ]; then
-            echo "Usage: muxy close-pane --pane <id>" >&2
-            exit 1
+            die_usage close-pane
         fi
         send_command "close-pane|$PANE_ID"
         ;;
@@ -178,32 +240,35 @@ case "$COMMAND" in
         TITLE=""
         while [[ $# -gt 0 ]]; do
             case $1 in
+                -h|--help) print_command_help rename-pane ;;
                 --pane) PANE_ID="$2"; shift 2 ;;
                 *) TITLE="$1"; shift ;;
             esac
         done
         if [ -z "$PANE_ID" ] || [ -z "$TITLE" ]; then
-            echo "Usage: muxy rename-pane --pane <id> <title>" >&2
-            exit 1
+            die_usage rename-pane
         fi
         send_command "rename-pane|$PANE_ID|$TITLE"
         ;;
     list-panes)
+        wants_help "$2" && print_command_help list-panes
         send_command "list-panes"
         ;;
     list-projects)
+        wants_help "$2" && print_command_help list-projects
         send_command "list-projects"
         ;;
     switch-project)
         shift
+        wants_help "$1" && print_command_help switch-project
         if [ $# -lt 1 ]; then
-            echo "Usage: muxy switch-project <name|id|path>" >&2
-            exit 1
+            die_usage switch-project
         fi
         send_command "switch-project|$*"
         ;;
     list-worktrees)
         shift
+        wants_help "$1" && print_command_help list-worktrees
         if [ $# -gt 0 ]; then
             send_command "list-worktrees|$*"
         else
@@ -220,35 +285,24 @@ case "$COMMAND" in
         BASE_BRANCH=""
         while [[ $# -gt 0 ]]; do
             case $1 in
+                -h|--help) print_command_help create-worktree ;;
                 --branch)
-                    if [ $# -lt 2 ]; then
-                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
-                        exit 1
-                    fi
+                    [ $# -lt 2 ] && die_usage create-worktree
                     BRANCH="$2"
                     shift 2
                     ;;
                 --base)
-                    if [ $# -lt 2 ]; then
-                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
-                        exit 1
-                    fi
+                    [ $# -lt 2 ] && die_usage create-worktree
                     BASE_BRANCH="$2"
                     shift 2
                     ;;
                 --project)
-                    if [ $# -lt 2 ]; then
-                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
-                        exit 1
-                    fi
+                    [ $# -lt 2 ] && die_usage create-worktree
                     PROJECT="$2"
                     shift 2
                     ;;
                 --path)
-                    if [ $# -lt 2 ]; then
-                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
-                        exit 1
-                    fi
+                    [ $# -lt 2 ] && die_usage create-worktree
                     PATH_ARG="$2"
                     shift 2
                     ;;
@@ -260,16 +314,14 @@ case "$COMMAND" in
                     if [ -z "$NAME" ]; then
                         NAME="$1"
                     else
-                        echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
-                        exit 1
+                        die_usage create-worktree
                     fi
                     shift
                     ;;
             esac
         done
         if [ -z "$NAME" ]; then
-            echo "Usage: muxy create-worktree <name> [--branch <branch>] [--base <branch>] [--project <project>] [--path <path>] [--existing]" >&2
-            exit 1
+            die_usage create-worktree
         fi
         if [ -z "$BRANCH" ]; then
             BRANCH="$NAME"
@@ -282,11 +334,9 @@ case "$COMMAND" in
         TARGET_ARGS=()
         while [[ $# -gt 0 ]]; do
             case $1 in
+                -h|--help) print_command_help switch-worktree ;;
                 --project)
-                    if [ $# -lt 2 ]; then
-                        echo "Usage: muxy switch-worktree <name|id|path> [--project <name|id|path>]" >&2
-                        exit 1
-                    fi
+                    [ $# -lt 2 ] && die_usage switch-worktree
                     shift
                     PROJECT="$*"
                     break
@@ -296,8 +346,7 @@ case "$COMMAND" in
         done
         TARGET="${TARGET_ARGS[*]}"
         if [ -z "$TARGET" ]; then
-            echo "Usage: muxy switch-worktree <name|id|path> [--project <name|id|path>]" >&2
-            exit 1
+            die_usage switch-worktree
         fi
         if [ -n "$PROJECT" ]; then
             send_command "switch-worktree|$TARGET|$PROJECT"
@@ -307,6 +356,7 @@ case "$COMMAND" in
         ;;
     refresh-worktrees)
         shift
+        wants_help "$1" && print_command_help refresh-worktrees
         if [ $# -gt 0 ]; then
             send_command "refresh-worktrees|$*"
         else
@@ -314,48 +364,33 @@ case "$COMMAND" in
         fi
         ;;
     list-tabs)
+        wants_help "$2" && print_command_help list-tabs
         send_command "list-tabs"
         ;;
     switch-tab)
         shift
+        wants_help "$1" && print_command_help switch-tab
         if [ $# -lt 1 ]; then
-            echo "Usage: muxy switch-tab <index|id|title>" >&2
-            exit 1
+            die_usage switch-tab
         fi
         send_command "switch-tab|$*"
         ;;
     new-tab)
+        wants_help "$2" && print_command_help new-tab
         send_command "new-tab"
         ;;
     next-tab)
+        wants_help "$2" && print_command_help next-tab
         send_command "next-tab"
         ;;
     previous-tab)
+        wants_help "$2" && print_command_help previous-tab
         send_command "previous-tab"
         ;;
     ""|--help|-h)
-        echo "Usage:"
-        echo "  muxy <path>                              Open a folder in Muxy"
-        echo "  muxy split-right [--from <id>] [cmd...]  Split horizontally from the calling pane (returns pane ID)"
-        echo "  muxy split-down [--from <id>] [cmd...]   Split vertically from the calling pane (returns pane ID)"
-        echo "  muxy send --pane <id> <text>             Send text to a pane"
-        echo "  muxy send-keys --pane <id> <key>         Send special key (Escape, Enter, Tab, Ctrl+C)"
-        echo "  muxy read-screen --pane <id> [--lines N] Read terminal content"
-        echo "  muxy close-pane --pane <id>              Close a pane"
-        echo "  muxy rename-pane --pane <id> <title>     Rename a pane tab"
-        echo "  muxy list-panes                          List all panes"
-        echo "  muxy list-projects                       List projects"
-        echo "  muxy switch-project <name|id|path>        Switch active project"
-        echo "  muxy list-worktrees [project]             List worktrees"
-        echo "  muxy create-worktree <name> [options]     Create and switch to a worktree"
-        echo "  muxy switch-worktree <name|id|path>       Switch active worktree"
-        echo "  muxy refresh-worktrees [project]          Refresh worktrees from Git"
-        echo "  muxy list-tabs                            List tabs"
-        echo "  muxy switch-tab <index|id|title>          Switch active tab"
-        echo "  muxy new-tab                              Create a terminal tab"
-        echo "  muxy next-tab                             Switch to next tab"
-        echo "  muxy previous-tab                         Switch to previous tab"
-        exit 1
+        usage
+        [ -z "$COMMAND" ] && exit 1
+        exit 0
         ;;
 esac
 

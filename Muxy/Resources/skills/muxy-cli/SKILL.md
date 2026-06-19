@@ -31,6 +31,8 @@ muxy list-panes >/dev/null 2>&1 || { echo "Muxy not running"; exit 1; }
 
 If `muxy` itself is not found, it has not been installed — the user installs it from **Muxy → Install CLI** (it lands in `/usr/local/bin`, or `~/bin` / `~/.local/bin` as a fallback). You cannot install it for them.
 
+`muxy --help` lists every command; `muxy <command> --help` (or `-h`) prints that command's options.
+
 ## Capture IDs, never guess them
 
 Pane, tab, project, and worktree commands key off IDs. The split commands **print the new pane ID on stdout** — capture it; do not invent or hardcode IDs.

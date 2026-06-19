@@ -16,6 +16,12 @@ After installing, verify it is on your `PATH`:
 muxy --help
 ```
 
+Run `muxy <command> --help` (or `-h`) to see the options for a single command:
+
+```bash
+muxy create-worktree --help
+```
+
 ## Open a project
 
 Open the current folder:
@@ -89,6 +95,30 @@ Switch to a worktree in a specific project:
 ```bash
 muxy switch-worktree "Feature Login" --project "My App"
 ```
+
+### Create a worktree
+
+Create a worktree and switch to it. By default the branch matches the name and is created fresh:
+
+```bash
+muxy create-worktree login
+```
+
+Options:
+
+- `--branch <branch>` — branch to create or check out (defaults to `<name>`)
+- `--base <branch>` — base the new branch on this branch instead of the current `HEAD`
+- `--existing` — check out an existing branch instead of creating one
+- `--path <path>` — place the worktree at a specific path
+- `--project <name|id|path>` — target a project other than the active one
+
+```bash
+muxy create-worktree login --branch feature/login --base main
+muxy create-worktree hotfix --existing --branch release/1.2
+muxy create-worktree review --project "My App" --path ~/worktrees/review
+```
+
+On success it prints the worktree ID, name, path, and branch (tab-separated).
 
 Refresh worktrees from Git:
 
@@ -276,10 +306,12 @@ Muxy listens on:
 ~/Library/Application Support/Muxy/muxy.sock
 ```
 
+Override the socket location with the `MUXY_SOCKET_PATH` environment variable if you run Muxy with a non-default socket.
+
 The socket is private to your user. It does not grant extra privileges, but any process already running as your user can use it while Muxy is open to:
 
 - list and switch projects
-- list, switch, or refresh worktrees
+- list, switch, create, or refresh worktrees
 - list, switch, or create tabs
 - list panes
 - read visible terminal text
