@@ -132,7 +132,7 @@ struct BackupSettingsView: View {
                 try await BackupService().importBackup(from: url, backupStamp: stamp)
                 try SettingsJSONStore.applyUserSettingsFile()
                 isWorking = false
-                AppRelaunch.relaunch()
+                try AppRelaunch.relaunch()
             } catch {
                 errorMessage = error.localizedDescription
                 isWorking = false
