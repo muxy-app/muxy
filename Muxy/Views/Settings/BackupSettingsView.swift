@@ -16,7 +16,6 @@ struct BackupSettingsView: View {
     @State private var isWorking = false
     @State private var errorMessage: String?
     @State private var pendingImportURL: URL?
-    @State private var showRestartPrompt = false
 
     private var importConfirmationBinding: Binding<Bool> {
         Binding(
@@ -68,11 +67,6 @@ struct BackupSettingsView: View {
         } message: {
             Text("This replaces all current Muxy data and restarts the app. Your current data is backed up first.")
         }
-        .alert("Import complete", isPresented: $showRestartPrompt) {
-            Button("Restart Muxy") { AppRelaunch.relaunch() }
-        } message: {
-            Text("Muxy needs to restart to load the imported data.")
-        }
     }
 
     private func actionRow(
@@ -100,6 +94,7 @@ struct BackupSettingsView: View {
         errorMessage = nil
         isWorking = true
         let version = appVersion
+        SettingsJSONStore.syncUserSettingsFileWithCurrentSettings()
         Task {
             do {
                 try await BackupService().export(to: url, appVersion: version, createdAt: Date())
@@ -135,8 +130,9 @@ struct BackupSettingsView: View {
         Task {
             do {
                 try await BackupService().importBackup(from: url, backupStamp: stamp)
+                try SettingsJSONStore.applyUserSettingsFile()
                 isWorking = false
-                showRestartPrompt = true
+                AppRelaunch.relaunch()
             } catch {
                 errorMessage = error.localizedDescription
                 isWorking = false

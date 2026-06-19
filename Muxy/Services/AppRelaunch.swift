@@ -5,10 +5,16 @@ enum AppRelaunch {
     @MainActor private(set) static var isRelaunching = false
 
     @MainActor
+    static func prepareForRelaunch() {
+        isRelaunching = true
+    }
+
+    @MainActor
     static func relaunch() {
+        prepareForRelaunch()
+
         let bundleURL = Bundle.main.bundleURL
         guard bundleURL.pathExtension == "app" else {
-            isRelaunching = true
             NSApp.terminate(nil)
             return
         }
@@ -22,7 +28,11 @@ enum AppRelaunch {
         process.arguments = ["-c", waitAndReopen]
         try? process.run()
 
-        isRelaunching = true
         NSApp.terminate(nil)
+    }
+
+    @MainActor
+    static func resetForTesting() {
+        isRelaunching = false
     }
 }

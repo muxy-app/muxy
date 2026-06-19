@@ -38,6 +38,11 @@ enum SettingsJSONStore {
         syncUserSettingsFileWithCurrentSettings()
     }
 
+    static func applyUserSettingsFile() throws {
+        let text = try String(contentsOf: userSettingsURL, encoding: .utf8)
+        try saveUserSettingsText(text)
+    }
+
     static func prettifiedSettingsText(_ text: String) throws -> String {
         let data = Data(text.utf8)
         let object = try JSONSerialization.jsonObject(with: data)

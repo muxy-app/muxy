@@ -53,11 +53,11 @@ struct BackupService {
         let manifest = try readManifest(from: staging)
         guard manifest.isSupported else { throw BackupArchiveError.manifestUnsupported }
 
-        let backupDirectory = try backUpCurrentData(stamp: backupStamp)
+        let backupDirectory = try createCurrentDataBackupAndClearActiveData(stamp: backupStamp)
         do {
             try restoreContents(from: staging, manifest: manifest)
         } catch {
-            try? rollBack(from: backupDirectory)
+            try? restoreCurrentData(from: backupDirectory)
             throw error
         }
         return backupDirectory
@@ -102,23 +102,60 @@ struct BackupService {
         }
     }
 
-    private func backUpCurrentData(stamp: String) throws -> URL {
-        let fileManager = FileManager.default
-        let backupDirectory = baseDirectory
-            .appendingPathComponent("Backups", isDirectory: true)
-            .appendingPathComponent("pre-import-\(stamp)", isDirectory: true)
-        try fileManager.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+    private func createCurrentDataBackupAndClearActiveData(stamp: String) throws -> URL {
+        let backupDirectory = try makePreImportBackupDirectory(stamp: stamp)
 
-        for name in BackupArchive.exportableFiles + BackupArchive.exportableDirectories {
-            let source = baseDirectory.appendingPathComponent(name)
-            guard fileManager.fileExists(atPath: source.path) else { continue }
-            try fileManager.moveItem(at: source, to: backupDirectory.appendingPathComponent(name))
+        do {
+            try copyCurrentData(to: backupDirectory)
+        } catch {
+            try? FileManager.default.removeItem(at: backupDirectory)
+            throw error
+        }
+
+        do {
+            try removeCurrentData()
+        } catch {
+            try? restoreCurrentData(from: backupDirectory)
+            throw error
         }
 
         return backupDirectory
     }
 
-    private func rollBack(from backupDirectory: URL) throws {
+    private func makePreImportBackupDirectory(stamp: String) throws -> URL {
+        let fileManager = FileManager.default
+        let backupsDirectory = baseDirectory.appendingPathComponent("Backups", isDirectory: true)
+        try fileManager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true)
+
+        var backupDirectory = backupsDirectory.appendingPathComponent("pre-import-\(stamp)", isDirectory: true)
+        var suffix = 1
+        while fileManager.fileExists(atPath: backupDirectory.path) {
+            backupDirectory = backupsDirectory.appendingPathComponent("pre-import-\(stamp)-\(suffix)", isDirectory: true)
+            suffix += 1
+        }
+        try fileManager.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+        return backupDirectory
+    }
+
+    private func copyCurrentData(to backupDirectory: URL) throws {
+        let fileManager = FileManager.default
+        for name in BackupArchive.exportableFiles + BackupArchive.exportableDirectories {
+            let source = baseDirectory.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
+            try fileManager.copyItem(at: source, to: backupDirectory.appendingPathComponent(name))
+        }
+    }
+
+    private func removeCurrentData() throws {
+        let fileManager = FileManager.default
+        for name in BackupArchive.exportableFiles + BackupArchive.exportableDirectories {
+            let url = baseDirectory.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: url.path) else { continue }
+            try fileManager.removeItem(at: url)
+        }
+    }
+
+    private func restoreCurrentData(from backupDirectory: URL) throws {
         let fileManager = FileManager.default
 
         for name in BackupArchive.exportableFiles + BackupArchive.exportableDirectories {
@@ -128,7 +165,7 @@ struct BackupService {
             if fileManager.fileExists(atPath: destination.path) {
                 try fileManager.removeItem(at: destination)
             }
-            try fileManager.moveItem(at: source, to: destination)
+            try fileManager.copyItem(at: source, to: destination)
         }
     }
 

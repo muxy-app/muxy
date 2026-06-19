@@ -107,6 +107,43 @@ struct BackupServiceTests {
         #expect(try Data(contentsOf: preserved) == Data(#"["old"]"#.utf8))
     }
 
+    @Test("import leaves active data in place when backup preparation fails")
+    func leavesActiveDataWhenBackupPreparationFails() async throws {
+        let source = try seedSource()
+        let archive = tempDirectory().appendingPathComponent("backup.muxy")
+        try await BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
+
+        let target = tempDirectory()
+        try write(Data(#"["old"]"#.utf8), named: "projects.json", in: target)
+        try write(Data("not a directory".utf8), named: "Backups", in: target)
+
+        await #expect(throws: Error.self) {
+            try await BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
+        }
+
+        let active = target.appendingPathComponent("projects.json")
+        #expect(try Data(contentsOf: active) == Data(#"["old"]"#.utf8))
+    }
+
+    @Test("import creates a unique pre-import backup directory")
+    func createsUniquePreImportBackupDirectory() async throws {
+        let source = try seedSource()
+        let archive = tempDirectory().appendingPathComponent("backup.muxy")
+        try await BackupService(baseDirectory: source).export(to: archive, appVersion: "1.0", createdAt: Date())
+
+        let target = tempDirectory()
+        try write(Data(#"["old"]"#.utf8), named: "projects.json", in: target)
+        let existing = target.appendingPathComponent("Backups/pre-import-stamp", isDirectory: true)
+        try FileManager.default.createDirectory(at: existing, withIntermediateDirectories: true)
+        try write(Data(#"["previous"]"#.utf8), named: "projects.json", in: existing)
+
+        let backupDirectory = try await BackupService(baseDirectory: target).importBackup(from: archive, backupStamp: "stamp")
+
+        #expect(backupDirectory.lastPathComponent == "pre-import-stamp-1")
+        #expect(try Data(contentsOf: backupDirectory.appendingPathComponent("projects.json")) == Data(#"["old"]"#.utf8))
+        #expect(try Data(contentsOf: existing.appendingPathComponent("projects.json")) == Data(#"["previous"]"#.utf8))
+    }
+
     @Test("import rejects an archive without a manifest")
     func rejectsMissingManifest() async throws {
         let staging = tempDirectory()

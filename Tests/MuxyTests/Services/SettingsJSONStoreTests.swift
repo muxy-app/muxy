@@ -23,6 +23,19 @@ struct SettingsJSONStoreTests {
     }
 
     @Test
+    func applyUserSettingsFileAppliesImportedSettings() throws {
+        let snapshot = SettingsJSONStoreSnapshot.capture(keys: [MobileServerService.portKey])
+        defer { snapshot.restore() }
+
+        UserDefaults.standard.set(1234, forKey: MobileServerService.portKey)
+        try Data("{\"\(MobileServerService.portKey)\":4242}".utf8).write(to: SettingsJSONStore.userSettingsURL, options: .atomic)
+
+        try SettingsJSONStore.applyUserSettingsFile()
+
+        #expect(UserDefaults.standard.integer(forKey: MobileServerService.portKey) == 4242)
+    }
+
+    @Test
     func invalidKnownValueDoesNotWriteOrApplySettings() throws {
         let snapshot = SettingsJSONStoreSnapshot.capture(keys: [MobileServerService.portKey])
         defer { snapshot.restore() }
