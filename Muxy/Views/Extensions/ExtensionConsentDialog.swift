@@ -83,7 +83,6 @@ private struct ExtensionConsentSheetHost: NSViewRepresentable {
             let sheet = ExtensionConsentSheetWindow(request: request) { [weak self] choice in
                 guard let self else { return }
                 let request = self.sheet?.currentRequest ?? request
-                self.dismiss()
                 self.onChoice(request, choice)
             }
             self.sheet = sheet
