@@ -1,11 +1,6 @@
 import SwiftUI
 
 struct TerminalSettingsView: View {
-    @State private var themeService = ThemeService.shared
-    @State private var showLightThemePicker = false
-    @State private var showDarkThemePicker = false
-    @State private var currentLightTheme: String?
-    @State private var currentDarkTheme: String?
     @AppStorage(GeneralSettingsKeys.autoCopyTerminalSelection)
     private var autoCopyTerminalSelection = false
     @AppStorage(TabCloseConfirmationPreferences.confirmRunningProcessKey)
@@ -28,23 +23,6 @@ struct TerminalSettingsView: View {
 
     var body: some View {
         SettingsContainer {
-            SettingsSection("Appearance") {
-                SettingsRow("Light Theme") {
-                    themeButton(
-                        title: currentLightTheme ?? "Default",
-                        isPresented: $showLightThemePicker,
-                        mode: .light
-                    )
-                }
-                SettingsRow("Dark Theme") {
-                    themeButton(
-                        title: currentDarkTheme ?? "Default",
-                        isPresented: $showDarkThemePicker,
-                        mode: .dark
-                    )
-                }
-            }
-
             SettingsSection(
                 "Selection",
                 footer: "When enabled, releasing the mouse after selecting text in the terminal copies it to the clipboard."
@@ -83,43 +61,5 @@ struct TerminalSettingsView: View {
                 .disabled(!freeIdleTerminalsEnabled)
             }
         }
-        .task {
-            refreshThemeNames()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .themeDidChange)) { _ in
-            refreshThemeNames()
-        }
-    }
-
-    private func themeButton(
-        title: String,
-        isPresented: Binding<Bool>,
-        mode: ThemePickerMode
-    ) -> some View {
-        Button {
-            isPresented.wrappedValue.toggle()
-        } label: {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.system(size: SettingsMetrics.labelFontSize))
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .foregroundStyle(SettingsStyle.foreground)
-            .background(SettingsStyle.surface, in: RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: isPresented) {
-            ThemePicker(mode: mode)
-                .environment(themeService)
-        }
-    }
-
-    private func refreshThemeNames() {
-        currentLightTheme = themeService.currentLightThemeName()
-        currentDarkTheme = themeService.currentDarkThemeName()
     }
 }

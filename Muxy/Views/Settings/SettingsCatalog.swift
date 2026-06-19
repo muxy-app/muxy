@@ -309,16 +309,16 @@ enum SettingsCatalog {
             key: "muxy.theme.light",
             title: "Light Terminal Theme",
             description: "Chooses the terminal theme for light appearance.",
-            category: .terminal,
-            section: "Appearance",
+            category: .appearance,
+            section: "Theme",
             defaultValue: ThemeService.defaultThemeName
         ),
         SettingsCatalogItem(
             key: "muxy.theme.dark",
             title: "Dark Terminal Theme",
             description: "Chooses the terminal theme for dark appearance.",
-            category: .terminal,
-            section: "Appearance",
+            category: .appearance,
+            section: "Theme",
             defaultValue: ThemeService.defaultThemeName
         ),
         SettingsCatalogItem(
