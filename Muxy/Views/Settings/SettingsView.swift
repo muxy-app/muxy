@@ -139,6 +139,8 @@ struct SettingsView: View {
             NotificationSettingsView()
         case .mobile:
             MobileSettingsView()
+        case .backup:
+            BackupSettingsView()
         case .json:
             SettingsJSONEditorView()
         }

@@ -14,6 +14,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case voice
     case notifications
     case mobile
+    case backup
     case json
 
     var id: String { rawValue }
@@ -32,6 +33,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .voice: "Voice"
         case .notifications: "Notifications"
         case .mobile: "Mobile"
+        case .backup: "Backup"
         case .json: "JSON"
         }
     }
@@ -50,6 +52,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .voice: "mic"
         case .notifications: "bell"
         case .mobile: "iphone"
+        case .backup: "externaldrive"
         case .json: "curlybraces"
         }
     }
@@ -492,6 +495,22 @@ enum SettingsCatalog {
             description: "Manages mobile devices that can connect.",
             category: .mobile,
             section: "Approved Devices"
+        ),
+        SettingsCatalogItem(
+            key: "backup.export",
+            title: "Export Muxy",
+            description: "Saves settings, projects, remote devices and customizations to a file.",
+            category: .backup,
+            section: "Export",
+            aliases: ["backup", "migrate", "transfer"]
+        ),
+        SettingsCatalogItem(
+            key: "backup.import",
+            title: "Import Muxy",
+            description: "Restores a backup and replaces all current Muxy data.",
+            category: .backup,
+            section: "Import",
+            aliases: ["backup", "restore", "migrate"]
         ),
     ]
 
