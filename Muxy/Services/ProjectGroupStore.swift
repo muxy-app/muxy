@@ -33,6 +33,23 @@ final class ProjectGroupStore {
         syncActiveWorkspaceContext()
     }
 
+    func groupID(containing project: Project) -> UUID? {
+        if let workspaceID = project.remoteWorkspaceID {
+            return workspaceID
+        }
+        return groups.first { $0.projectIDs.contains(project.id) }?.id
+    }
+
+    func activateWorkspace(containing project: Project) {
+        let groupID = groupID(containing: project)
+        guard groupID != activeGroupID else { return }
+        guard let groupID else {
+            clearGroupSelection()
+            return
+        }
+        selectGroup(id: groupID)
+    }
+
     func clearGroupSelection() {
         activeGroupID = nil
         persistence.saveActiveGroupID(nil)

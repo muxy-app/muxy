@@ -475,6 +475,83 @@ struct ProjectGroupStoreTests {
         #expect(store.workspaceContext(for: project) == .ssh(device.destination))
     }
 
+    @Test("groupID(containing:) returns the local group holding the project")
+    func groupIDContainingLocalProject() {
+        let project = Project(name: "A", path: "/a")
+        let group = ProjectGroup(name: "Work", projectIDs: [project.id])
+        let store = makeStore(persistence: ProjectGroupPersistenceStub(initial: [group]))
+
+        #expect(store.groupID(containing: project) == group.id)
+    }
+
+    @Test("groupID(containing:) returns nil for a project in no group")
+    func groupIDContainingUngroupedProject() {
+        let group = ProjectGroup(name: "Work")
+        let store = makeStore(persistence: ProjectGroupPersistenceStub(initial: [group]))
+
+        #expect(store.groupID(containing: Project(name: "A", path: "/a")) == nil)
+    }
+
+    @Test("groupID(containing:) resolves a remote project to its workspace")
+    func groupIDContainingRemoteProject() {
+        let workspaceID = UUID()
+        let store = makeStore(persistence: ProjectGroupPersistenceStub(initial: []))
+        let project = Project(name: "api", path: "~/code/api", remoteWorkspaceID: workspaceID)
+
+        #expect(store.groupID(containing: project) == workspaceID)
+    }
+
+    @Test("groupID(containing:) resolves a remote home project to its workspace")
+    func groupIDContainingRemoteHomeProject() {
+        let device = RemoteDevice(name: "Prod", ssh: SSHWorkspaceData(host: "example.com", remoteRoot: "~/code"))
+        let group = ProjectGroup(name: "Remote", type: .ssh, remoteDeviceID: device.id)
+        let store = makeStore(persistence: ProjectGroupPersistenceStub(initial: [group]), devices: [device])
+        let home = store.remoteHomeProject(for: group)
+
+        #expect(home?.isHome == true)
+        #expect(store.groupID(containing: home!) == group.id)
+    }
+
+    @Test("activateWorkspace selects the group containing the project")
+    func activateWorkspaceSelectsGroup() {
+        let project = Project(name: "A", path: "/a")
+        let group = ProjectGroup(name: "Work", projectIDs: [project.id])
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = makeStore(persistence: persistence)
+
+        store.activateWorkspace(containing: project)
+
+        #expect(store.activeGroupID == group.id)
+        #expect(persistence.storedActiveGroupID == group.id)
+    }
+
+    @Test("activateWorkspace clears selection for a project in no group")
+    func activateWorkspaceClearsForUngroupedProject() {
+        let group = ProjectGroup(name: "Work")
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = makeStore(persistence: persistence)
+        store.selectGroup(id: group.id)
+
+        store.activateWorkspace(containing: Project(name: "A", path: "/a"))
+
+        #expect(store.activeGroupID == nil)
+        #expect(persistence.storedActiveGroupID == nil)
+    }
+
+    @Test("activateWorkspace is a no-op when the project's group is already active")
+    func activateWorkspaceNoOpWhenAlreadyActive() {
+        let project = Project(name: "A", path: "/a")
+        let group = ProjectGroup(name: "Work", projectIDs: [project.id])
+        let persistence = ProjectGroupPersistenceStub(initial: [group])
+        let store = makeStore(persistence: persistence)
+        store.selectGroup(id: group.id)
+        persistence.savedGroups = nil
+
+        store.activateWorkspace(containing: project)
+
+        #expect(store.activeGroupID == group.id)
+    }
+
     @Test("RemoteProject.asProject preserves the worktrees flag and workspace id")
     func remoteProjectAsProjectRoundTrip() {
         let workspaceID = UUID()

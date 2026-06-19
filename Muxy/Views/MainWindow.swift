@@ -742,6 +742,11 @@ struct MainWindow: View {
             worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id])
         }
         guard let worktree else { return false }
+        guard project.id != Project.homeID else {
+            appState.selectProject(project, worktree: worktree)
+            return true
+        }
+        projectGroupStore.activateWorkspace(containing: project)
         appState.selectProject(project, worktree: worktree)
         return true
     }
