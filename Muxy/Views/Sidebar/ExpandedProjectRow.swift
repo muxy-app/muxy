@@ -256,10 +256,32 @@ struct ExpandedProjectRow: View {
 
     private var worktreeAccessory: some View {
         HStack(spacing: UIMetrics.spacing2) {
+            statusIndicator
             if project.isRemote {
                 remoteIndicator
             }
             worktreeControl
+        }
+    }
+
+    @ViewBuilder
+    private var statusIndicator: some View {
+        let unread = NotificationStore.shared.unreadCount(for: project.id)
+        let isRunning = TerminalProgressStore.shared.hasActiveProgress(for: project.id)
+        let hasCompletion = TerminalProgressStore.shared.hasCompletionPending(for: project.id)
+        if isRunning {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
+        }
+        if unread > 0 {
+            NotificationBadge(count: unread)
+                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
+        } else if hasCompletion {
+            Circle()
+                .fill(MuxyTheme.accent)
+                .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
+                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
         }
     }
 
@@ -270,9 +292,6 @@ struct ExpandedProjectRow: View {
         } else if isCheckingGitRepo {
             ProgressView()
                 .controlSize(.mini)
-                .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
-        } else if !project.isRemote {
-            Color.clear
                 .frame(width: UIMetrics.scaled(18), height: UIMetrics.scaled(18))
         }
     }
@@ -288,9 +307,6 @@ struct ExpandedProjectRow: View {
 
     private var projectIcon: some View {
         let logo = resolvedLogo
-        let unread = NotificationStore.shared.unreadCount(for: project.id)
-        let isRunning = TerminalProgressStore.shared.hasActiveProgress(for: project.id)
-        let hasCompletion = TerminalProgressStore.shared.hasCompletionPending(for: project.id)
         return ZStack {
             RoundedRectangle(cornerRadius: UIMetrics.radiusMD, style: .continuous)
                 .fill(iconBackground(hasLogo: logo != nil))
@@ -316,21 +332,6 @@ struct ExpandedProjectRow: View {
             }
         }
         .frame(width: UIMetrics.iconXXL, height: UIMetrics.iconXXL)
-        .overlay(alignment: .topTrailing) {
-            if unread > 0 {
-                NotificationBadge(count: unread)
-                    .offset(x: UIMetrics.spacing2, y: -UIMetrics.spacing2)
-            } else if isRunning {
-                ProgressView()
-                    .controlSize(.mini)
-                    .offset(x: UIMetrics.spacing1, y: -UIMetrics.spacing1)
-            } else if hasCompletion {
-                Circle()
-                    .fill(MuxyTheme.accent)
-                    .frame(width: UIMetrics.scaled(8), height: UIMetrics.scaled(8))
-                    .offset(x: UIMetrics.spacing1, y: -UIMetrics.spacing1)
-            }
-        }
     }
 
     private var worktreeList: some View {
