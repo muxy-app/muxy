@@ -9,6 +9,7 @@ private let logger = Logger(subsystem: "app.muxy", category: "RemoteServerDelega
 @MainActor
 final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     static let diffPreviewLineLimit = 20000
+    static let defaultLocalWorkspaceName = "Local"
     private let appState: AppState
     private let projectStore: ProjectStore
     private let worktreeStore: WorktreeStore
@@ -122,10 +123,77 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     private func projectSnapshots() -> [ProjectDTO] {
-        let localProjects = projectStore.projects.map { $0.toDTO(workspaceKind: .local) }
-        let remoteProjects = projectGroupStore.groups
+        let groupByProjectID = localGroupByProjectID()
+        let localProjects = projectStore.projects.map { project in
+            guard let group = groupByProjectID[project.id] else {
+                return project.toDTO(
+                    workspaceID: WorkspaceInfoDTO.defaultLocalID,
+                    workspaceName: Self.defaultLocalWorkspaceName,
+                    workspaceKind: .local
+                )
+            }
+            return project.toDTO(workspaceID: group.id, workspaceName: group.name, workspaceKind: .local)
+        }
+        return localProjects + remoteGroupSnapshots().flatMap(\.projects)
+    }
+
+    private func localGroupByProjectID() -> [UUID: ProjectGroup] {
+        var map: [UUID: ProjectGroup] = [:]
+        for group in projectGroupStore.groups where group.type == .local {
+            for projectID in group.projectIDs where map[projectID] == nil {
+                map[projectID] = group
+            }
+        }
+        return map
+    }
+
+    private func workspaceProjectSnapshots() -> [(workspace: WorkspaceInfoDTO, projects: [ProjectDTO])] {
+        defaultLocalSnapshot() + localGroupSnapshots() + remoteGroupSnapshots()
+    }
+
+    private func defaultLocalSnapshot() -> [(workspace: WorkspaceInfoDTO, projects: [ProjectDTO])] {
+        let groupedIDs = Set(projectGroupStore.groups.filter { $0.type == .local }.flatMap(\.projectIDs))
+        let projects = projectStore.projects
+            .filter { !groupedIDs.contains($0.id) }
+            .map {
+                $0.toDTO(
+                    workspaceID: WorkspaceInfoDTO.defaultLocalID,
+                    workspaceName: Self.defaultLocalWorkspaceName,
+                    workspaceKind: .local
+                )
+            }
+        let workspace = WorkspaceInfoDTO(
+            id: WorkspaceInfoDTO.defaultLocalID,
+            name: Self.defaultLocalWorkspaceName,
+            kind: .local,
+            isDefault: true,
+            projectCount: projects.count
+        )
+        return [(workspace, projects)]
+    }
+
+    private func localGroupSnapshots() -> [(workspace: WorkspaceInfoDTO, projects: [ProjectDTO])] {
+        let projectsByID = Dictionary(projectStore.projects.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return projectGroupStore.groups
+            .filter { $0.type == .local }
+            .map { group in
+                let projects = group.projectIDs
+                    .compactMap { projectsByID[$0] }
+                    .map { $0.toDTO(workspaceID: group.id, workspaceName: group.name, workspaceKind: .local) }
+                let workspace = WorkspaceInfoDTO(
+                    id: group.id,
+                    name: group.name,
+                    kind: .local,
+                    projectCount: projects.count
+                )
+                return (workspace, projects)
+            }
+    }
+
+    private func remoteGroupSnapshots() -> [(workspace: WorkspaceInfoDTO, projects: [ProjectDTO])] {
+        projectGroupStore.groups
             .filter { $0.type == .ssh }
-            .flatMap { group -> [ProjectDTO] in
+            .map { group in
                 let home = projectGroupStore.remoteHomeProject(for: group).map {
                     $0.toDTO(workspaceID: group.id, workspaceName: group.name, workspaceKind: .ssh)
                 }
@@ -133,9 +201,15 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
                     remote.asProject(workspaceID: group.id, sortOrder: index)
                         .toDTO(workspaceID: group.id, workspaceName: group.name, workspaceKind: .ssh)
                 }
-                return (home.map { [$0] } ?? []) + projects
+                let all = (home.map { [$0] } ?? []) + projects
+                let workspace = WorkspaceInfoDTO(
+                    id: group.id,
+                    name: group.name,
+                    kind: .ssh,
+                    projectCount: all.count
+                )
+                return (workspace, all)
             }
-        return localProjects + remoteProjects
     }
 
     private func resolveRemoteProject(_ projectID: UUID) -> (project: Project, group: ProjectGroup)? {
@@ -162,6 +236,14 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
 
     func listProjects() -> [ProjectDTO] {
         projectSnapshots()
+    }
+
+    func listWorkspaces() -> [WorkspaceInfoDTO] {
+        workspaceProjectSnapshots().map(\.workspace)
+    }
+
+    func listProjectsByWorkspace(workspaceID: UUID) -> [ProjectDTO] {
+        workspaceProjectSnapshots().first { $0.workspace.id == workspaceID }?.projects ?? []
     }
 
     func selectProject(_ projectID: UUID) {

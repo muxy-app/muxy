@@ -27,6 +27,13 @@ public struct ExtensionResultDTO: Codable, Sendable {
     }
 }
 
+public struct ListProjectsByWorkspaceParams: Codable, Sendable {
+    public let workspaceID: UUID
+    public init(workspaceID: UUID) {
+        self.workspaceID = workspaceID
+    }
+}
+
 public struct ListWorktreesParams: Codable, Sendable {
     public let projectID: UUID
     public init(projectID: UUID) {

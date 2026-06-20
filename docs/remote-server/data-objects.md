@@ -24,7 +24,23 @@ Every object below is the exact wire shape produced by the desktop. All dates ar
 
 `icon`, `logo`, `iconColor`, and `preferredWorktreeParentPath` are optional and omitted when unset. `icon` is an SF Symbol name. `logo` is an opaque storage identifier — fetch the image with [`getProjectLogo`](methods.md). `iconColor` is a hex string or a palette id (`red`, `blue`, `violet`, …). `worktreesEnabled` indicates whether the project exposes its worktrees in the sidebar; it defaults to `false`.
 
-`listProjects` returns projects from **all** workspaces — local projects plus every remote (SSH) workspace's projects. `workspaceKind` is `"local"` or `"ssh"`; `workspaceID`/`workspaceName` identify the owning workspace (omitted for plain local projects). Selecting an `ssh` project via [`selectProject`](methods.md) makes the Mac activate that workspace and connect over SSH, so the mobile client drives the remote server transparently — terminals, git, and exec all run on the remote host while the Mac brokers the connection. `path` for an `ssh` project is a remote path.
+`listProjects` returns projects from **all** workspaces — local projects plus every remote (SSH) workspace's projects. `workspaceKind` is `"local"` or `"ssh"`; `workspaceID`/`workspaceName` identify the owning workspace. Ungrouped local projects and Home belong to the implicit **Local** workspace and carry its `workspaceID`. Selecting an `ssh` project via [`selectProject`](methods.md) makes the Mac activate that workspace and connect over SSH, so the mobile client drives the remote server transparently — terminals, git, and exec all run on the remote host while the Mac brokers the connection. `path` for an `ssh` project is a remote path.
+
+## Workspace info
+
+`listWorkspaces` returns one of these per workspace. A workspace groups projects; it is **not** the split/tab layout (that is [Workspace](#workspace), returned by `getWorkspace`).
+
+```json
+{
+  "id": "uuid",
+  "name": "Local",
+  "kind": "local",
+  "isDefault": true,
+  "projectCount": 3
+}
+```
+
+`kind` is `"local"` or `"ssh"`. Exactly one workspace has `isDefault: true` — the implicit **Local** workspace that holds every ungrouped local project plus Home; its `id` is the stable constant `00000000-0000-0000-0000-000000000002`. `projectCount` is the number of projects the workspace owns. Fetch those projects with [`listProjectsByWorkspace`](methods.md).
 
 ## Worktree
 

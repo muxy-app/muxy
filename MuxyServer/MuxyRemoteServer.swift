@@ -28,6 +28,8 @@ public enum MuxyRemoteServerError: LocalizedError {
 @MainActor
 public protocol MuxyRemoteServerDelegate: AnyObject {
     func listProjects() -> [ProjectDTO]
+    func listWorkspaces() -> [WorkspaceInfoDTO]
+    func listProjectsByWorkspace(workspaceID: UUID) -> [ProjectDTO]
     func selectProject(_ projectID: UUID)
     func listWorktrees(projectID: UUID) -> [WorktreeDTO]
     func selectWorktree(projectID: UUID, worktreeID: UUID)
@@ -331,6 +333,17 @@ public final class MuxyRemoteServer: @unchecked Sendable {
 
         case .listProjects:
             let projects = delegate.listProjects()
+            return MuxyResponse(id: request.id, result: .projects(projects))
+
+        case .listWorkspaces:
+            let workspaces = delegate.listWorkspaces()
+            return MuxyResponse(id: request.id, result: .workspaces(workspaces))
+
+        case .listProjectsByWorkspace:
+            guard case let .listProjectsByWorkspace(params) = request.params else {
+                return MuxyResponse(id: request.id, error: .invalidParams)
+            }
+            let projects = delegate.listProjectsByWorkspace(workspaceID: params.workspaceID)
             return MuxyResponse(id: request.id, result: .projects(projects))
 
         case .selectProject:

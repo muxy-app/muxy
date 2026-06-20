@@ -5,6 +5,30 @@ public enum WorkspaceKindDTO: String, Codable, Hashable, Sendable {
     case ssh
 }
 
+public struct WorkspaceInfoDTO: Identifiable, Codable, Hashable, Sendable {
+    public static let defaultLocalID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2))
+
+    public let id: UUID
+    public var name: String
+    public var kind: WorkspaceKindDTO
+    public var isDefault: Bool
+    public var projectCount: Int
+
+    public init(
+        id: UUID,
+        name: String,
+        kind: WorkspaceKindDTO,
+        isDefault: Bool = false,
+        projectCount: Int = 0
+    ) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+        self.isDefault = isDefault
+        self.projectCount = projectCount
+    }
+}
+
 public struct ProjectDTO: Identifiable, Codable, Hashable, Sendable {
     public let id: UUID
     public var name: String

@@ -66,6 +66,8 @@ public struct MuxyError: Codable, Sendable, Error {
 
 public enum MuxyMethod: String, Codable, Sendable {
     case listProjects
+    case listWorkspaces
+    case listProjectsByWorkspace
     case selectProject
     case listWorktrees
     case selectWorktree
@@ -111,6 +113,7 @@ public enum MuxyMethod: String, Codable, Sendable {
 }
 
 public enum MuxyParams: Codable, Sendable {
+    case listProjectsByWorkspace(ListProjectsByWorkspaceParams)
     case selectProject(SelectProjectParams)
     case listWorktrees(ListWorktreesParams)
     case selectWorktree(SelectWorktreeParams)
@@ -162,6 +165,10 @@ public enum MuxyParams: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(String.self, forKey: .type)
         switch type {
+        case "listProjectsByWorkspace": self = try .listProjectsByWorkspace(container.decode(
+                ListProjectsByWorkspaceParams.self,
+                forKey: .value
+            ))
         case "selectProject": self = try .selectProject(container.decode(SelectProjectParams.self, forKey: .value))
         case "listWorktrees": self = try .listWorktrees(container.decode(ListWorktreesParams.self, forKey: .value))
         case "selectWorktree": self = try .selectWorktree(container.decode(SelectWorktreeParams.self, forKey: .value))
@@ -210,6 +217,8 @@ public enum MuxyParams: Codable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case let .listProjectsByWorkspace(v): try container.encode("listProjectsByWorkspace", forKey: .type)
+            try container.encode(v, forKey: .value)
         case let .selectProject(v): try container.encode("selectProject", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .listWorktrees(v): try container.encode("listWorktrees", forKey: .type)
@@ -298,6 +307,7 @@ public enum MuxyParams: Codable, Sendable {
 
 public enum MuxyResult: Codable, Sendable {
     case projects([ProjectDTO])
+    case workspaces([WorkspaceInfoDTO])
     case worktrees([WorktreeDTO])
     case workspace(WorkspaceDTO)
     case tab(TabDTO)
@@ -325,6 +335,7 @@ public enum MuxyResult: Codable, Sendable {
         let type = try container.decode(String.self, forKey: .type)
         switch type {
         case "projects": self = try .projects(container.decode([ProjectDTO].self, forKey: .value))
+        case "workspaces": self = try .workspaces(container.decode([WorkspaceInfoDTO].self, forKey: .value))
         case "worktrees": self = try .worktrees(container.decode([WorktreeDTO].self, forKey: .value))
         case "workspace": self = try .workspace(container.decode(WorkspaceDTO.self, forKey: .value))
         case "tab": self = try .tab(container.decode(TabDTO.self, forKey: .value))
@@ -349,6 +360,8 @@ public enum MuxyResult: Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case let .projects(v): try container.encode("projects", forKey: .type)
+            try container.encode(v, forKey: .value)
+        case let .workspaces(v): try container.encode("workspaces", forKey: .type)
             try container.encode(v, forKey: .value)
         case let .worktrees(v): try container.encode("worktrees", forKey: .type)
             try container.encode(v, forKey: .value)

@@ -88,6 +88,7 @@ struct MuxyProtocolVariantTests {
     private static func paramSamples() -> [ProtocolSample<MuxyParams>] {
         let ids = IDs()
         return [
+            ProtocolSample(.listProjectsByWorkspace(ListProjectsByWorkspaceParams(workspaceID: ids.projectID)), caseName: ".listProjectsByWorkspace"),
             ProtocolSample(.selectProject(SelectProjectParams(projectID: ids.projectID)), caseName: ".selectProject"),
             ProtocolSample(.listWorktrees(ListWorktreesParams(projectID: ids.projectID)), caseName: ".listWorktrees"),
             ProtocolSample(.selectWorktree(SelectWorktreeParams(projectID: ids.projectID, worktreeID: ids.worktreeID)), caseName: ".selectWorktree"),
@@ -136,6 +137,7 @@ struct MuxyProtocolVariantTests {
         let ids = IDs()
         return [
             ProtocolSample(.projects([project(ids)]), caseName: ".projects"),
+            ProtocolSample(.workspaces([WorkspaceInfoDTO(id: WorkspaceInfoDTO.defaultLocalID, name: "Local", kind: .local, isDefault: true, projectCount: 1)]), caseName: ".workspaces"),
             ProtocolSample(.worktrees([WorktreeDTO(id: ids.worktreeID, name: "Main", path: "/repo", branch: "main", isPrimary: true, createdAt: Date(timeIntervalSince1970: 3))]), caseName: ".worktrees"),
             ProtocolSample(.workspace(workspace(ids)), caseName: ".workspace"),
             ProtocolSample(.tab(tab(ids)), caseName: ".tab"),

@@ -7,6 +7,8 @@ Each method name doubles as the `params.type` discriminator. The **Result** colu
 | Method | Parameters | Result |
 | --- | --- | --- |
 | `listProjects` | none | `projects` |
+| `listWorkspaces` | none | `workspaces` |
+| `listProjectsByWorkspace` | `workspaceID` | `projects` |
 | `selectProject` | `projectID` | `ok` |
 | `listWorktrees` | `projectID` | `worktrees` |
 | `selectWorktree` | `projectID`, `worktreeID` | `ok` |
@@ -23,6 +25,8 @@ Enums:
 - `kind`: `terminal`, `vcs` (default `terminal`). `extensionWebView` is rejected — only terminal and VCS tabs can be created remotely.
 - `direction`: `horizontal`, `vertical`
 - `position`: `first`, `second`
+
+`listWorkspaces` returns every workspace as a [workspace info](data-objects.md) object — the implicit **Local** workspace (`isDefault: true`) that owns all ungrouped local projects plus Home, each user-defined local group, and each remote (SSH) workspace. `listProjectsByWorkspace` returns just the projects in one workspace (same shape as `listProjects`) and is empty for an unknown `workspaceID`. `listProjects` still returns every project across all workspaces in one call.
 
 `getWorkspace` returns the workspace for the project's **active** worktree; select the worktree first with `selectWorktree`. It returns `404` when the project has no active workspace. `createTab` returns `tab` (the newly active tab) or `500` if creation fails.
 

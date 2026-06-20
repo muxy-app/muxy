@@ -29,6 +29,9 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     var vcsRemoveWorktreeCalls: [(projectID: UUID, worktreeID: UUID)] = []
 
     var stubProjects: [ProjectDTO] = []
+    var stubWorkspaces: [WorkspaceInfoDTO] = []
+    var listProjectsByWorkspaceCalls: [UUID] = []
+    var stubProjectsByWorkspace: [UUID: [ProjectDTO]] = [:]
     var stubWorkspace: WorkspaceDTO?
     var stubTab: TabDTO?
     var stubTerminalContent: TerminalCellsDTO?
@@ -42,6 +45,15 @@ private final class MockDelegate: MuxyRemoteServerDelegate {
     func listProjects() -> [ProjectDTO] {
         listProjectsCalled += 1
         return stubProjects
+    }
+
+    func listWorkspaces() -> [WorkspaceInfoDTO] {
+        stubWorkspaces
+    }
+
+    func listProjectsByWorkspace(workspaceID: UUID) -> [ProjectDTO] {
+        listProjectsByWorkspaceCalls.append(workspaceID)
+        return stubProjectsByWorkspace[workspaceID] ?? []
     }
 
     func selectProject(_ projectID: UUID) {
@@ -239,6 +251,105 @@ struct MuxyRemoteServerRoutingTests {
         #expect(projects.count == 1)
         #expect(projects.first?.id == project.id)
         #expect(response.error == nil)
+    }
+
+    @Test("listWorkspaces routes to delegate and returns workspaces")
+    func listWorkspacesRoutes() async {
+        let (server, delegate) = makeServer()
+        let workspace = WorkspaceInfoDTO(
+            id: WorkspaceInfoDTO.defaultLocalID,
+            name: "Local",
+            kind: .local,
+            isDefault: true,
+            projectCount: 2
+        )
+        delegate.stubWorkspaces = [workspace]
+
+        let response = await server.processRequest(
+            MuxyRequest(id: "ws-1", method: .listWorkspaces),
+            clientID: authedClient(on: server)
+        )
+
+        guard case let .workspaces(workspaces) = response.result else {
+            Issue.record("expected workspaces result")
+            return
+        }
+        #expect(workspaces.count == 1)
+        #expect(workspaces.first?.id == WorkspaceInfoDTO.defaultLocalID)
+        #expect(workspaces.first?.isDefault == true)
+        #expect(workspaces.first?.projectCount == 2)
+        #expect(response.error == nil)
+    }
+
+    @Test("listProjectsByWorkspace forwards workspaceID and returns its projects")
+    func listProjectsByWorkspaceRoutes() async {
+        let (server, delegate) = makeServer()
+        let workspaceID = UUID()
+        let project = ProjectDTO(
+            id: UUID(),
+            name: "Muxy",
+            path: "/tmp/muxy",
+            sortOrder: 0,
+            createdAt: Date(timeIntervalSince1970: 0),
+            workspaceID: workspaceID,
+            workspaceName: "Frontend",
+            workspaceKind: .local
+        )
+        delegate.stubProjectsByWorkspace = [workspaceID: [project]]
+
+        let response = await server.processRequest(
+            MuxyRequest(
+                id: "ws-2",
+                method: .listProjectsByWorkspace,
+                params: .listProjectsByWorkspace(ListProjectsByWorkspaceParams(workspaceID: workspaceID))
+            ),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(delegate.listProjectsByWorkspaceCalls == [workspaceID])
+        guard case let .projects(projects) = response.result else {
+            Issue.record("expected projects result")
+            return
+        }
+        #expect(projects.count == 1)
+        #expect(projects.first?.workspaceID == workspaceID)
+        #expect(response.error == nil)
+    }
+
+    @Test("workspace methods require authentication")
+    func workspaceMethodsRequireAuth() async {
+        let (server, delegate) = makeServer()
+
+        let listResponse = await server.processRequest(
+            MuxyRequest(id: "ws-auth-1", method: .listWorkspaces),
+            clientID: UUID()
+        )
+        let byWorkspaceResponse = await server.processRequest(
+            MuxyRequest(
+                id: "ws-auth-2",
+                method: .listProjectsByWorkspace,
+                params: .listProjectsByWorkspace(ListProjectsByWorkspaceParams(workspaceID: UUID()))
+            ),
+            clientID: UUID()
+        )
+
+        #expect(listResponse.error?.code == 401)
+        #expect(byWorkspaceResponse.error?.code == 401)
+        #expect(delegate.listProjectsByWorkspaceCalls.isEmpty)
+    }
+
+    @Test("listProjectsByWorkspace rejects missing params as invalidParams")
+    func listProjectsByWorkspaceInvalidParams() async {
+        let (server, delegate) = makeServer()
+
+        let response = await server.processRequest(
+            MuxyRequest(id: "ws-3", method: .listProjectsByWorkspace, params: nil),
+            clientID: authedClient(on: server)
+        )
+
+        #expect(delegate.listProjectsByWorkspaceCalls.isEmpty)
+        #expect(response.error?.code == 400)
+        #expect(response.result == nil)
     }
 
     @Test("selectProject forwards projectID")
