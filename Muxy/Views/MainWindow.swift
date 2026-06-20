@@ -225,6 +225,9 @@ struct MainWindow: View {
             updateWorkspaceFileWatcher()
             recordVisitedActiveWorktree()
         }
+        .onChange(of: appState.activeProjectID) {
+            activateWorkspaceForActiveProject()
+        }
         .task {
             updateWorkspaceFileWatcher()
             recordVisitedActiveWorktree()
@@ -743,13 +746,15 @@ struct MainWindow: View {
             worktreeStore.preferred(for: project.id, matching: appState.activeWorktreeID[project.id])
         }
         guard let worktree else { return false }
-        guard project.id != Project.homeID else {
-            appState.selectProject(project, worktree: worktree)
-            return true
-        }
-        projectGroupStore.activateWorkspace(containing: project)
         appState.selectProject(project, worktree: worktree)
         return true
+    }
+
+    private func activateWorkspaceForActiveProject() {
+        guard let projectID = appState.activeProjectID, projectID != Project.homeID else { return }
+        let candidates = projectStore.projects + projectGroupStore.remoteProjects
+        guard let project = candidates.first(where: { $0.id == projectID }) else { return }
+        projectGroupStore.activateWorkspace(containing: project)
     }
 
     private func resolveOmniboxProject(_ projectID: UUID) -> Project? {
